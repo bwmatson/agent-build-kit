@@ -20,7 +20,7 @@ from typing import Literal
 
 import yaml
 
-from agent_build_kit import __version__, config, openspec, skills
+from agent_build_kit import __version__, config, openspec, profiles, skills
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import render_rules, rules_of
@@ -209,12 +209,21 @@ def _gaps(inst: Installation, run: Run) -> list[Check]:
             continue
         detection = detect_repo(path, run=run)
         prefixes = [rule.prefix for rule in repo.deploy.rules]
+        profile = profiles.get(repo.profile)
         gaps: list[str] = []
         for service in detection.service_dirs:
-            if not any(
+            if any(
                 prefix == f"{service}/" or prefix.startswith(f"{service}/") for prefix in prefixes
             ):
-                gaps.append(f"service dir {service}/ has no deploy rule")
+                continue
+            # A library other members depend on needs no rule of its own: a
+            # change in it redeploys its dependents (verify's convention).
+            try:
+                if profile.dependents(path, service):
+                    continue
+            except NotImplementedError:
+                pass
+            gaps.append(f"service dir {service}/ has no deploy rule")
         for prefix in prefixes:
             if not (path / prefix.rstrip("/")).exists():
                 gaps.append(f"deploy rule prefix {prefix} no longer exists")

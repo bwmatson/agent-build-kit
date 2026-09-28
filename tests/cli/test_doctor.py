@@ -248,3 +248,17 @@ def test_the_command_prints_and_exits_one_on_a_failure(
     assert "FAIL  x: d" in out
     assert "fix: f" in out
     assert "1 failed" in out
+
+
+def test_a_library_member_needs_no_deploy_rule_of_its_own(workspace: Path, tmp_path: Path) -> None:
+    """A change in it redeploys the members that depend on it (verify's
+    convention), so doctor does not ask for a rule it would never use."""
+    app = tmp_path / "app"
+    (app / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["lib", "api"]\n')
+    (app / "lib").mkdir()
+    (app / "lib" / "pyproject.toml").write_text('[project]\nname = "lib"\n')
+    (app / "api" / "pyproject.toml").write_text('[project]\nname = "api"\ndependencies = ["lib"]\n')
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["abk.yaml app"].status == "ok", checks["abk.yaml app"].detail
