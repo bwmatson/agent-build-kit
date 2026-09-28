@@ -1,0 +1,175 @@
+"""What the unattended agent may run.
+
+The prompts ask for good behaviour; this decides it. Everything here is a
+technical control, backing the guarantees in docs/architecture.md: the
+agent opens PRs but never merges them, rewrites only its own
+branches, and never touches `main` directly.
+
+The force-push rules are the fiddly part, and a plain substring match gets
+them wrong in both directions:
+
+- Denying anything containing `--force` would block `--force-with-lease`,
+  which restacking genuinely needs.
+- Allowing anything containing `--force-with-lease` would permit the *bare*
+  form, which is unsafe. Verified against git-branchless: it force-pushes
+  with a bare lease after fetching in the same command, which advances the
+  remote-tracking ref the lease compares against, and it overwrote a
+  concurrent commit while reporting success.
+
+So the rule is: a lease must be explicit — `--force-with-lease=<ref>:<sha>`,
+or a bare lease paired with `--force-if-includes` — and only on a branch the
+agent owns.
+"""
+
+from __future__ import annotations
+
+import re
+import shlex
+
+from agent_build_kit.config import active
+from agent_build_kit.model import Frozen
+
+# Splitting on shell operators is what stops `git status && gh pr merge 4`
+# from sneaking a denied command past a check on the first word.
+SEGMENT_SPLIT = re.compile(r"&&|\|\||\||;|\n")
+
+# Commands that run another command. Without stripping these, `xargs gh pr
+# merge` or `env FOO=1 git push --force` would sail past a check that only
+# looks at the first token.
+WRAPPERS = {"xargs", "env", "sudo", "nohup", "time", "timeout", "command", "nice", "stdbuf"}
+
+LEASE_ADVICE = (
+    "restack pushes must carry an explicit lease: "
+    "`git push --force-with-lease=<branch>:<sha you last pushed> origin <branch>`, "
+    "or fetch first and add --force-if-includes"
+)
+
+
+class Verdict(Frozen):
+    allowed: bool
+    reason: str = ""
+
+
+def _tokens(segment: str) -> list[str]:
+    try:
+        return shlex.split(segment)
+    except ValueError:
+        # Unbalanced quotes: we can't read it, so we don't vouch for it.
+        return segment.split()
+
+
+def _strip_wrappers(tokens: list[str]) -> list[str]:
+    """Drop leading wrapper commands, their flags, and VAR=value assignments."""
+    while tokens:
+        head = tokens[0]
+        if head in WRAPPERS or ("=" in head and not head.startswith("-")):
+            tokens = tokens[1:]
+            # A wrapper's own flags and arguments (xargs -n1, timeout 30s)
+            # sit between it and the real command.
+            while tokens and (tokens[0].startswith("-") or _looks_like_duration(tokens[0])):
+                tokens = tokens[1:]
+            continue
+        return tokens
+    return tokens
+
+
+def _looks_like_duration(token: str) -> bool:
+    return bool(re.fullmatch(r"\d+[smhd]?", token))
+
+
+def _is_git(tokens: list[str], *subcommand: str) -> bool:
+    return (
+        len(tokens) > len(subcommand)
+        and tokens[0] == "git"
+        and tuple(tokens[1 : 1 + len(subcommand)]) == subcommand
+    )
+
+
+def _check_segment(segment: str, branch: str) -> Verdict:
+    tokens = _strip_wrappers(_tokens(segment))
+    if not tokens:
+        return Verdict(allowed=True)
+
+    # `gh pr merge` — the rule the entire review model rests on. Matched on
+    # tokens, so a commit message mentioning it is unaffected.
+    if tokens[:3] == ["gh", "pr", "merge"]:
+        return Verdict(allowed=False, reason="the agent never merges: a human merges every PR")
+
+    if _is_git(tokens, "commit") and "--amend" in tokens:
+        return Verdict(
+            allowed=False,
+            reason="amending would fold the implementation into the tests commit and erase "
+            "the evidence that the tests failed first — add a new commit instead",
+        )
+    if _is_git(tokens, "amend"):
+        return Verdict(
+            allowed=False, reason="amending a unit branch is denied — add a new commit instead"
+        )
+
+    if _is_git(tokens, "reset") and "--hard" in tokens:
+        return Verdict(
+            allowed=False,
+            reason="`git reset --hard` discards work that may not be pushed anywhere",
+        )
+    if _is_git(tokens, "clean"):
+        return Verdict(allowed=False, reason="`git clean` discards untracked work")
+    if _is_git(tokens, "branch") and "-D" in tokens:
+        return Verdict(allowed=False, reason="force-deleting a branch can drop unmerged commits")
+    if tokens[0] == "rm" and any(flag.startswith("-") and "r" in flag for flag in tokens[1:]):
+        return Verdict(allowed=False, reason="recursive delete is denied")
+
+    if _is_git(tokens, "push"):
+        return _check_push(tokens, branch)
+
+    return Verdict(allowed=True)
+
+
+def _check_push(tokens: list[str], branch: str) -> Verdict:
+    owns_branch = branch.startswith(active().github.branch_prefix)
+    targets = [token for token in tokens[2:] if not token.startswith("-")]
+
+    if "main" in targets or "master" in targets:
+        return Verdict(
+            allowed=False,
+            reason="pushing to main directly would bypass review — units land through PRs",
+        )
+
+    bare_force = "--force" in tokens or "-f" in tokens
+    explicit_lease = any(token.startswith("--force-with-lease=") for token in tokens)
+    bare_lease = "--force-with-lease" in tokens
+    includes = "--force-if-includes" in tokens
+
+    if bare_force:
+        return Verdict(
+            allowed=False,
+            reason=f"`--force` overwrites whatever is on the remote — {LEASE_ADVICE}",
+        )
+
+    if (explicit_lease or bare_lease) and not owns_branch:
+        return Verdict(
+            allowed=False,
+            reason=f"force-pushing is only allowed on branches the agent owns "
+            f"({active().github.branch_prefix}…), not {branch}",
+        )
+
+    if bare_lease and not (explicit_lease or includes):
+        return Verdict(
+            allowed=False,
+            reason=f"a bare --force-with-lease can pass after a fetch has already moved the "
+            f"remote-tracking ref, so it does not protect a commit you pushed — {LEASE_ADVICE}",
+        )
+
+    return Verdict(allowed=True)
+
+
+def check_command(command: str, *, branch: str) -> Verdict:
+    """Decide whether `command` may run while working on `branch`.
+
+    Every segment is checked, so a denied command behind `&&`, `;` or a pipe
+    is still denied.
+    """
+    for segment in SEGMENT_SPLIT.split(command):
+        verdict = _check_segment(segment.strip(), branch)
+        if not verdict.allowed:
+            return verdict
+    return Verdict(allowed=True)

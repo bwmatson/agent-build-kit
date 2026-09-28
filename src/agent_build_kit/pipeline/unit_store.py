@@ -1,0 +1,341 @@
+"""Units and their state, kept in the planning repo.
+
+Tracking lives here rather than in GitHub issues (docs/architecture.md). One
+file, versioned beside the specs, easy to reset, and it leaves no debris in
+the code repos when a change is re-planned or abandoned. A
+GitHub backend still exists in `issues.py` for when the units should be
+visible next to the PRs, but it is opt-in.
+
+What that costs: nothing closes a unit when its PR merges, so the runner and
+the poller have to record state themselves. That makes two properties matter
+more than anything else here —
+
+- **a reload sees what the last process wrote**, since each scheduler tick is
+  a new process, and
+- **re-planning never loses progress.** The planner proposes shape, not
+  history; a re-planned unit keeps its state, branch and PR, or the pipeline
+  would cheerfully rebuild work that has already merged.
+"""
+
+from __future__ import annotations
+
+import functools
+import json
+import os
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Unit
+
+# A unit that the latest plan no longer contains. Kept rather than deleted: it
+# may already have an open PR, and the runner needs to see that the plan moved.
+UNPLANNED = "unplanned"
+
+
+def corrupt_store_message(path: Path) -> str:
+    return f"unit store at {path} could not be read"
+
+
+class StoredUnit(Unit):
+    """A unit plus what has happened to it."""
+
+    branch: str = ""
+    pr: int | None = None
+    # The SHA this runner last published for `branch`. The next push leases
+    # against exactly this, so it has to outlive the process that pushed it.
+    pushed: str | None = None
+    # What review asked for, waiting to be addressed. Cleared once a run has
+    # acted on it, so a unit is never reworked twice for the same comment.
+    feedback: str = ""
+    # The step a unit stopped before, when it stopped between steps; empty
+    # otherwise. The runner resumes there rather than guessing from the branch.
+    resume_from: str = ""
+    # The commit the review loop last approved. Nothing else may be pushed:
+    # see the gate before `push` in `StackRunner.run`.
+    approved: str = ""
+    # A PR rework's replies, waiting for the push that makes them true. Kept
+    # here, not in the run: a rework that writes its replies, then pauses for
+    # usage before its push, would otherwise lose them with the process.
+    pending_replies: tuple[str, ...] = ()
+    # Set when the unit was moved onto a predecessor that changed under it,
+    # for the reviewer: which files needed resolving, or how its tests were
+    # carried over. Cleared once the unit is back in review.
+    predecessor_note: str = ""
+    # The review loop so far: each round's ask and the builder's response, for
+    # later rounds to check against instead of starting over. Kept here so a
+    # loop that pauses or is killed resumes with it. Cleared once in review.
+    review_rounds: tuple[dict, ...] = ()
+    history: tuple[dict, ...] = ()
+
+
+def _exclusive(method):
+    """One change to the store at a time.
+
+    Every change reads the whole file, edits it and writes it back, so two
+    units building in parallel could each read, and the second write would
+    drop the first's change — a unit's state, or the SHA a push leases on.
+    """
+
+    @functools.wraps(method)
+    def locked(self: UnitStore, *args, **kwargs):
+        with file_lock(self.path.with_name(f"{self.path.name}.lock")):
+            return method(self, *args, **kwargs)
+
+    return locked
+
+
+class UnitStore:
+    """The planning repo's record of every unit, across all repos."""
+
+    def __init__(
+        self, path: Path, *, on_write: Callable[[list[StoredUnit]], None] | None = None
+    ) -> None:
+        """`on_write` sees every unit after each change — how the diagram stays
+        current without every call site that changes a state remembering it."""
+        self.path = path
+        self.on_write = on_write
+
+    def _read(self) -> dict[str, StoredUnit]:
+        if not self.path.exists():
+            return {}
+
+        try:
+            raw = json.loads(self.path.read_text())
+            units = raw["units"]
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            # Unlike a cache, this is the source of truth: treating an
+            # unreadable file as "nothing planned" would re-plan and rebuild
+            # work that has already merged.
+            raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
+
+        stored: dict[str, StoredUnit] = {}
+        for item in map(_migrate, units):
+            # Validated rather than splatted in: the file is on disk and may
+            # predate a change to StoredUnit, so a missing or unknown key
+            # should fail here — naming the field — rather than construct
+            # something odd that breaks three steps later.
+            try:
+                unit = StoredUnit.model_validate(item)
+            except ValidationError as error:
+                raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
+            stored[unit.id] = unit
+        return stored
+
+    def _write(self, stored: dict[str, StoredUnit]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # mode="json" so tuples land as JSON arrays and datetimes as strings,
+        # which is what `model_validate` reads back on the next tick.
+        payload = {"units": [unit.model_dump(mode="json") for unit in stored.values()]}
+        # Indented and one key per line: this file is committed, so it turns up
+        # in diffs and reviews, where dense JSON is unreadable.
+        # Written aside and renamed into place: reads are not locked, and a
+        # reader catching a half-written file would take it for corruption.
+        partial = self.path.with_name(f"{self.path.name}.tmp")
+        partial.write_text(json.dumps(payload, indent=2) + "\n")
+        os.replace(partial, self.path)
+        if self.on_write:
+            self.on_write(list(stored.values()))
+
+    def all(self) -> list[StoredUnit]:
+        return list(self._read().values())
+
+    def get(self, unit_id: str) -> StoredUnit:
+        return self._read()[unit_id]
+
+    def history(self, unit_id: str) -> list[dict]:
+        return list(self.get(unit_id).history)
+
+    @_exclusive
+    def upsert(self, units: Sequence[Unit], *, change: str | None = None) -> None:
+        """Merge a freshly planned graph into the store.
+
+        Shape comes from the plan; state, branch and PR come from what is
+        already recorded. A unit the plan no longer contains is marked
+        `unplanned` rather than deleted — it may already have an open PR.
+        """
+        stored = self._read()
+        planned_ids = {unit.id for unit in units}
+
+        for unit in units:
+            existing = stored.get(unit.id)
+            # Only the planned shape: `StoredUnit` is a `Unit`, so a caller
+            # may hand back what `all()` returned, and those extra fields
+            # would collide with the recorded ones set just below.
+            fresh = StoredUnit(
+                **unit.model_dump(include=set(Unit.model_fields)),
+                branch=existing.branch if existing else "",
+                pr=existing.pr if existing else None,
+                pushed=existing.pushed if existing else None,
+                # Work in progress, not shape: a re-plan must not drop what
+                # review asked for, or where a paused unit should pick up.
+                feedback=existing.feedback if existing else "",
+                resume_from=existing.resume_from if existing else "",
+                approved=existing.approved if existing else "",
+                pending_replies=existing.pending_replies if existing else (),
+                predecessor_note=existing.predecessor_note if existing else "",
+                review_rounds=existing.review_rounds if existing else (),
+                history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
+            )
+            if existing:
+                # Carry progress over — a running, open or merged unit is not
+                # rebuilt just because the graph was re-derived. The exception
+                # is `unplanned`: the plan is asking for this unit again, and
+                # keeping the demotion meant `ready_units`, which only picks
+                # `planned`, could never build it — nor anything depending on
+                # it, which stalls every unit behind it.
+                if existing.state == UNPLANNED:
+                    fresh = _with_state(fresh, PLANNED)
+                else:
+                    fresh = fresh.model_copy(update={"state": existing.state})
+            stored[unit.id] = fresh
+
+        if change is not None:
+            for unit_id, unit in stored.items():
+                # Only a unit that never started can be dropped — that is the
+                # whole set this mechanism was ever for. Anything else is
+                # absent from the plan for a reason that is not "no longer
+                # wanted": the planner is told about in-flight units as
+                # context precisely so it stops proposing them, and a merged
+                # unit is history whose work is already in main.
+                #
+                # Demoting on absence breaks both: a unit demoted to
+                # `unplanned` after merging makes its change unarchivable, and
+                # one demoted while its PR is open blocks every unit behind it.
+                if unit.state != PLANNED:
+                    continue
+                if unit.change == change and unit_id not in planned_ids:
+                    stored[unit_id] = _with_state(unit, UNPLANNED)
+
+        self._write(stored)
+
+    @_exclusive
+    def set_state(
+        self,
+        unit_id: str,
+        state: str,
+        *,
+        pr: int | None = None,
+        branch: str | None = None,
+        note: str = "",
+        resume_from: str | None = None,
+    ) -> None:
+        """Record a state, optionally with why.
+
+        The note matters where the state does not change — review asking for
+        rework leaves a unit open — because without it the entry says only
+        that something happened.
+        """
+        stored = self._read()
+        unit = stored[unit_id]
+        stored[unit_id] = unit.model_copy(
+            update={
+                "state": state,
+                "pr": pr if pr is not None else unit.pr,
+                "branch": branch if branch is not None else unit.branch,
+                "resume_from": resume_from if resume_from is not None else unit.resume_from,
+                "history": (
+                    *unit.history,
+                    {"state": state, "at": _now(), **({"note": note} if note else {})},
+                ),
+            }
+        )
+        self._write(stored)
+
+    @_exclusive
+    def set_feedback(self, unit_id: str, feedback: str) -> None:
+        """What review asked for, or `""` once a run has acted on it."""
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"feedback": feedback})
+        self._write(stored)
+
+    @_exclusive
+    def record_step(self, unit_id: str, step: str) -> None:
+        """The step a running unit is starting, so a run killed inside it
+        resumes there. Not a state change, so no history entry."""
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"resume_from": step})
+        self._write(stored)
+
+    @_exclusive
+    def set_pending_replies(self, unit_id: str, replies: Sequence[str]) -> None:
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"pending_replies": tuple(replies)})
+        self._write(stored)
+
+    @_exclusive
+    def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"depends_on": tuple(depends_on)})
+        self._write(stored)
+
+    @_exclusive
+    def set_review_rounds(self, unit_id: str, rounds: Sequence[dict]) -> None:
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"review_rounds": tuple(rounds)})
+        self._write(stored)
+
+    @_exclusive
+    def set_predecessor_note(self, unit_id: str, note: str) -> None:
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"predecessor_note": note})
+        self._write(stored)
+
+    @_exclusive
+    def record_approval(self, unit_id: str, sha: str) -> None:
+        """The commit review approved — the only one the runner may push."""
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"approved": sha})
+        self._write(stored)
+
+    @_exclusive
+    def record_push(self, unit_id: str, sha: str) -> None:
+        """Remember what we published, so the next push can lease against it.
+
+        Separate from `set_state` because a push is not a state change: a unit
+        is pushed several times — once per restack — while staying `open`.
+        """
+        stored = self._read()
+        stored[unit_id] = stored[unit_id].model_copy(update={"pushed": sha})
+        self._write(stored)
+
+
+# State names that have been renamed, old to new. Read-side, so a store
+# written before the rename — or by a tick still running the old code — reads
+# as the new names, and the next write persists them.
+RENAMED_STATES = {"open": IN_REVIEW}
+
+
+def _migrate(item: object) -> object:
+    if not isinstance(item, dict):
+        return item  # validation names what is wrong with it
+    item = {**item, "state": _renamed(item.get("state"))}
+    if isinstance(item.get("history"), list):
+        item["history"] = [
+            {**entry, "state": _renamed(entry.get("state"))} if isinstance(entry, dict) else entry
+            for entry in item["history"]
+        ]
+    return item
+
+
+def _renamed(state: object) -> object:
+    return RENAMED_STATES.get(state, state) if isinstance(state, str) else state
+
+
+def _with_state(unit: StoredUnit, state: str) -> StoredUnit:
+    """Change a unit's state and record that it happened.
+
+    `upsert` used to write `unplanned` straight onto the model, so the one
+    transition that stops a unit building was the one transition that left no
+    trace — every other goes through `set_state`, which records it.
+    """
+    return unit.model_copy(
+        update={"state": state, "history": (*unit.history, {"state": state, "at": _now()})}
+    )
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()

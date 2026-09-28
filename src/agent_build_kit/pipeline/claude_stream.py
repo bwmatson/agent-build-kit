@@ -1,0 +1,113 @@
+"""Running `claude -p` with its progress visible in the tick log.
+
+A unit's build is four or more Claude runs of twenty-odd minutes each, and the
+tick log used to say "ready: <unit>" and then nothing until the end — the only
+way to see what was happening was to find the worktree and read its diff.
+
+`--output-format stream-json` makes claude emit one JSON event per line as it
+works. `stream_run` reads them as they arrive and hands each to a callback, and
+`describe` turns the ones worth reading — what the model says, which tool it
+calls on what — into a single log line. The final `result` event carries the
+same text plain `-p` would have printed, which `final_text` extracts so callers
+see no difference.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import tempfile
+from collections.abc import Callable
+from pathlib import Path
+
+STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
+
+# Long enough to say what a message is about, short enough to scan.
+WIDTH = 160
+
+
+def stream_run(
+    args: list[str], *, cwd: Path, on_event: Callable[[dict], None]
+) -> subprocess.CompletedProcess[str]:
+    """Run `args`, calling `on_event` for each JSON line as it is printed.
+
+    Returns what `subprocess.run` would have: every line of stdout, so the
+    refusal check and `final_text` read it exactly as before.
+    """
+    lines: list[str] = []
+    # A file rather than a pipe for stderr: an unread pipe that fills blocks
+    # the child, which would then never finish the stdout this loop is reading.
+    with tempfile.TemporaryFile("w+") as stderr:
+        with subprocess.Popen(
+            args, cwd=cwd, stdout=subprocess.PIPE, stderr=stderr, text=True, bufsize=1
+        ) as process:
+            assert process.stdout is not None
+            for line in process.stdout:
+                lines.append(line)
+                event = _parse(line)
+                if event is not None:
+                    try:
+                        on_event(event)
+                    except Exception:  # noqa: BLE001, S110
+                        pass  # A log line is never worth failing the run over.
+        stderr.seek(0)
+        return subprocess.CompletedProcess(args, process.returncode, "".join(lines), stderr.read())
+
+
+def final_text(stdout: str) -> str:
+    """The run's answer: the `result` event's text, or stdout as it stands
+    when it is not a stream (an injected runner in a test, or an old claude)."""
+    for line in reversed(stdout.splitlines()):
+        event = _parse(line)
+        if event and event.get("type") == "result" and isinstance(event.get("result"), str):
+            return event["result"]
+    return stdout
+
+
+def describe(event: dict) -> list[str]:
+    """One line per thing in `event` worth putting in the log."""
+    kind = event.get("type")
+    if kind == "system" and event.get("subtype") == "init":
+        return [f"claude started ({event.get('model', '?')})"]
+    if kind == "assistant":
+        return [line for block in _content(event) if (line := _block(block))]
+    if kind == "result":
+        seconds = round((event.get("duration_ms") or 0) / 1000)
+        turns = event.get("num_turns", "?")
+        outcome = "error" if event.get("is_error") else "done"
+        return [f"claude {outcome} — {turns} turns, {seconds // 60}m{seconds % 60:02d}s"]
+    return []
+
+
+def _block(block: dict) -> str:
+    if block.get("type") == "text":
+        return f"says: {_short(block.get('text', ''))}" if block.get("text", "").strip() else ""
+    if block.get("type") == "tool_use":
+        return f"{block.get('name', '?')} {_short(_tool_target(block.get('input') or {}))}".rstrip()
+    return ""
+
+
+def _tool_target(tool_input: dict) -> str:
+    """What a tool call acts on — the part that says what the model is doing."""
+    for key in ("file_path", "path", "command", "pattern", "url", "description"):
+        if value := tool_input.get(key):
+            return str(value)
+    return ""
+
+
+def _content(event: dict) -> list[dict]:
+    content = (event.get("message") or {}).get("content") or []
+    return [block for block in content if isinstance(block, dict)]
+
+
+def _short(text: str) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= WIDTH else flat[: WIDTH - 1] + "…"
+
+
+def _parse(line: str) -> dict | None:
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    return event if isinstance(event, dict) else None
