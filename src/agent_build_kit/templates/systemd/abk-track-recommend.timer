@@ -1,0 +1,11 @@
+# Weekly, midweek, apart from the improve track.
+[Unit]
+Description=abk: recommend track, weekly
+
+[Timer]
+OnCalendar=Wed *-*-* 07:23:00
+Persistent=true
+RandomizedDelaySec=20min
+
+[Install]
+WantedBy=timers.target

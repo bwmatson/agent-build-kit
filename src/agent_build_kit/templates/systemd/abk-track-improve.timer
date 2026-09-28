@@ -1,0 +1,12 @@
+# Weekly, on a different day from the recommend track so the two never
+# compete for the usage window.
+[Unit]
+Description=abk: improve track, weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=20min
+
+[Install]
+WantedBy=timers.target

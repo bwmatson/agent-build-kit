@@ -1,0 +1,16 @@
+# Machine-local settings and secrets (see .env.example).
+.env
+
+# Raw model output from the scheduled tracks.
+.last-runs/
+
+# Locks and per-run scratch under the state directory. units.json and the
+# run logs beside it are committed; the locks are not.
+runs/*.lock
+runs/locks/
+
+# Local tooling.
+__pycache__/
+*.pyc
+.venv/
+node_modules/

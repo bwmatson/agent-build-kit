@@ -1,0 +1,33 @@
+# abk-rules: v1
+#
+# Per-artifact rules for the OpenSpec authoring model, rendered by `abk init`
+# for this workspace's repos ({repo_names}). `abk doctor` compares this block
+# with the framework's current template and warns when a rule is missing or
+# changed; rules added below it are yours and are left alone.
+rules:
+  proposal:
+    - "State which repos the change touches, by their workspace names ({repo_names}), and what each one gains or loses."
+    - "Name the consumer-facing behaviour the change adds or alters; a change with none says so."
+  specs:
+    - "Write every scenario as GIVEN / WHEN / THEN, and name its test level in the scenario title: unit, integration or acceptance."
+    - "Every consumer-facing capability has an acceptance scenario written as the consumer's own steps, not as a description of the implementation."
+    - "A drop-in replacement's requirements list the behaviours callers rely on, one requirement each, so the replacement can be checked against them."
+    - "A parser names the recorded fixture its tests replay and where that recording came from; no test calls a live website."
+  design:
+    - "Name the test harness each task group runs under: the runner, the markers, the fakes at protocol boundaries."
+    - "Call out every task group whose work crosses a service boundary, and which side lands first."
+    - "Name every contract widened by the change and how it is narrowed again once every consumer has moved."
+  tasks:
+    - "Every task group heading is `## <n>. [<repo>] [<tier>] <title>`, where <repo> is one of {repo_tags} and <tier> is tier1 or tier2. Example: `## 1. [{example_repo}] [tier1] Add the marker`."
+    - "Number groups from 1 in the order they are built."
+    - "Within a group, test tasks come before implementation tasks: the tests are written and committed red first."
+    - "A new test file goes where the repo's source layout says: mirroring the source folder, with integration tests under tests/integration/."
+    - "A group never spans repos; work in a second repo is a second group with its own tag."
+    - "A group that widens a shape another repo consumes carries a third tag `[contract]`, and the change ends with a `[narrow]` group that removes the old half."
+    - "The last group is `[tier2] [acceptance]`: it drives what the change built the way its consumer does. A change with nothing to drive says so with a line `Acceptance: none — <reason>` instead."
+    - "The tags are checked by `abk tags <change>` before the change is committed."
+operations:
+  apply:
+    guidance:
+      - "Work only the task group you were asked for; leave the others untouched."
+      - "Never remove or rename a shape another repo imports; widen it and leave the narrowing to its own group."

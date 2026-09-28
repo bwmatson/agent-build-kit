@@ -1,0 +1,137 @@
+---
+name: abk-config
+description: TRIGGER — read before editing abk.yaml in a planning repo, when `abk doctor` reports a problem, or when asked where an installation fact (a repo path, a GitHub owner, a deploy command, a credential name) should live. SKIP for questions about running the pipeline (abk-pipeline) or writing a change's tasks (abk-authoring).
+version: 1.0.0
+generatedBy: agent-build-kit
+---
+
+# abk.yaml and `abk doctor`
+
+Everything that describes one installation — which repos, where they are
+checked out, who owns them on GitHub, how each one deploys, what the planner
+should know about how they relate — lives in `abk.yaml` in the planning
+repo and nowhere else. The framework knows nothing about any particular
+installation; a fact that belongs to one goes here, not in a prompt, a skill
+or a script. Machine-local values (tokens, a worktree root override, model
+overrides) go in the planning repo's `.env`, which is not committed.
+
+The schema is strict: an unknown key fails at load. `abk config --show`
+prints the effective config with every default filled in; `abk config
+--path` prints which file is in force (`--config`, then `ABK_CONFIG`, then
+the nearest `abk.yaml` above the working directory).
+
+## Schema
+
+Defaults are shown; a key at its default can be left out.
+
+```yaml
+version: 1
+
+planning:
+  state_dir: runs             # relative to the planning root unless absolute
+  specs_dir: openspec
+  graph_page: docs/unit_graph.md
+  worktree_root: null         # where unit worktrees go; never inside the
+                              # planning repo; null = a per-user data dir
+                              # named after the planning directory
+  self_pull: true             # tracks pull the planning repo before running
+
+openspec:
+  command: null               # argv for the OpenSpec CLI; null = npx with
+                              # the framework's pinned version
+
+github:
+  push_host: ""               # ssh host alias carrying the key to push agent
+                              # branches as; "" = origin
+  branch_prefix: spec/        # marks a branch and its PR as agent-owned
+
+models:                       # bare aliases, not pinned ids
+  implement: opus
+  rework: opus
+  review: opus
+  rework_review: fable        # a different model reviews a rework
+
+limits:
+  stack_depth_cap: 3          # longest chain of in-review PRs from main
+  max_concurrent_stacks: 4    # units implemented at once, across repos
+  min_unit_lines: 500         # estimated lines before a unit stops growing
+  max_review_rounds: 3        # review rounds before a unit fails
+  usage_pause_pct: 70         # % of the usage window at which no unit starts
+  max_plan_attempts: 3        # times one tasks.md is sent to the planner
+
+tracks:                       # the scheduled health/improve/recommend tracks
+  model: sonnet
+  budgets_usd: {health: 7.5, improve: 7.5, recommend: 8.0}
+  implement_max_prs: 3
+  allowed_tools: "..."        # Claude Code --allowedTools syntax
+  disallowed_tools: "..."
+  prompts_dir: null           # a directory overriding the built-in prompts
+  raw_output_dir: .last-runs
+
+repos:                        # ordered; a task group's [repo] tag is a key here
+  <name>:
+    path: /abs/path/to/repo   # the checkout
+    slug: owner/name          # GitHub; the owner picks the gh account
+    default_branch: main
+    profile: python-uv        # toolchain profile: python-uv or node-npm
+    languages: []             # e.g. [python]
+    description: ""           # one paragraph, for prompts and context
+    consumes: []              # repos this one depends on: deploy order,
+                              # which dev stack it comes up on, planning order
+    relationships: ""         # prose for the planner about the other repos
+    tests:
+      root_extras: []         # extra packages the repo-root tests need
+      tier2_marker: local_stack
+      dev_stack_marker: dev_stack
+    dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
+                              # up/test/down; tier 2 runs on it, not live
+    deploy:
+      needs_ssh_agent: false  # image builds that fetch a dependency over ssh
+      ssh_key: null
+      agent_for: [scripts/deploy.sh, scripts/deploy-blue-green.sh]
+      live_written: []        # paths the running system writes; ignored when
+                              # checking main is clean before a deploy
+      rules: []               # first match wins; docs and tests never match
+        # - prefix: service/  # a directory (trailing slash) or a file
+        #   run: [[scripts/deploy.sh, service]]   # argv lists; [] = nothing
+      credentials: null
+        # names_from: {file: scripts/dev-stack.sh, shell_array: TEST_CREDENTIALS}
+        # values_from: .env
+
+verify:
+  stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
+  env: {}                     # environment for the live tests, each value
+                              # resolved by a provider at verify time:
+    # VAR: {from: literal, value: x}
+    # VAR: {from: env-file, file: /path/.env, key: KEY}
+    # VAR: {from: yaml, file: /path/f.yaml, path: a.b.c, take: last-word,
+    #       strip_prefix: ""}
+    # VAR: {from: command, argv: [cmd, arg]}
+```
+
+## What `abk doctor` checks
+
+Each check prints `ok`, `warn` or `FAIL` with a one-line fix; the exit status
+is 1 when anything failed.
+
+| Check | Failure means |
+|---|---|
+| config loads | `abk.yaml` is missing, malformed or has an unknown key. |
+| worktree root | `planning.worktree_root` is inside the planning repo. |
+| repo checkout | A repo's `path` does not exist, is not a git checkout, or has no repo-local `user.email` (commits made there would carry the wrong identity). |
+| gh account | `gh auth token --user <owner>` fails for an owner in `repos`; log that account in. |
+| node / openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run through `openspec.command`. |
+| ssh key | A `deploy.ssh_key` does not exist. |
+| verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
+| rules drift (warn) | `openspec/config.yaml`'s `rules:` lack or alter a rule from the framework's template; extra rules are fine. The diff shows what. |
+| abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
+| skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
+
+## Changing the config
+
+- A new repo: add it under `repos`, run `abk doctor`, then `abk install-skills
+  --repo <path>`.
+- A new service directory: add a `deploy.rules` entry with its prefix and
+  the commands that deploy it, or an empty `run:` if nothing does.
+- A contract between repos: `consumes` on the consumer, and a sentence in
+  `relationships` on both sides, so the planner orders the work.

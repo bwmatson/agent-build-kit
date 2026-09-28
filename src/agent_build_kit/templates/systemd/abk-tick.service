@@ -1,0 +1,18 @@
+# One pipeline pass in the planning repo. Rendered by `abk init`.
+#
+# Install for the user manager:
+#   cp systemd/abk-tick.* $HOME/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now abk-tick.timer
+#
+# PATH carries uv and node: the OpenSpec CLI runs through npx, so a node
+# install (here volta's, alongside the usual system directories) must be
+# reachable from a unit that starts with no login environment.
+[Unit]
+Description=abk: one pipeline tick
+
+[Service]
+Type=oneshot
+WorkingDirectory={planning_dir}
+Environment="PATH=%h/.local/bin:%h/.volta/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="VOLTA_HOME=%h/.volta"
+ExecStart=/usr/bin/env uv run abk tick

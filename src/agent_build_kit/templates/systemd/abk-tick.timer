@@ -1,0 +1,12 @@
+# Runs abk-tick.service every few minutes. A tick is idempotent, so the
+# cadence only bounds how long finished work waits to be noticed.
+[Unit]
+Description=abk: tick every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

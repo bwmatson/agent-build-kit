@@ -1,0 +1,12 @@
+# Daily. Persistent, so a machine that was off at the scheduled time runs it
+# on the next boot instead of skipping the day.
+[Unit]
+Description=abk: health track, daily
+
+[Timer]
+OnCalendar=*-*-* 06:47:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
