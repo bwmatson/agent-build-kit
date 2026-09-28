@@ -1,0 +1,49 @@
+# Tool configuration lives in pyproject.toml, not here, so editors and a bare
+# CLI run pick up the same settings this gate enforces:
+#   - ruff    -> [tool.ruff] / [tool.ruff.lint]
+#   - pyrefly -> [tool.pyrefly]
+# Ruff and pyrefly both discover pyproject.toml on their own, so no --config
+# pointer is needed. What stays below is hook plumbing only.
+#
+# Ruff is pinned twice on purpose: the rev here is what CI enforces, and the
+# copy in pyproject.toml's dev group is what your editor uses. `pre-commit
+# autoupdate` bumps the first; bump the second to match, or the editor stops
+# agreeing with CI. Pyrefly's settings live in pyproject.toml ([tool.pyrefly]),
+# because without them it silently drops to a lenient preset.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        exclude: ^uv\.lock$
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [--strict]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      # --fix is hook behavior, not lint config: a bare `ruff check` in the
+      # editor should report, not rewrite.
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/facebook/pyrefly-pre-commit
+    rev: 1.2.0
+    hooks:
+      - id: pyrefly-check
+        # pre-commit runs this from its own isolated venv, which holds pyrefly
+        # and nothing else. Without this, pydantic-settings resolves to nothing
+        # and every value typed by it degrades to `object`. Path is relative to
+        # the repo root, which is pre-commit's working directory.
+        args: [--python-interpreter-path, .venv/bin/python]
+        files: ^(src|tests)/

@@ -1,0 +1,21 @@
+---
+# YAML rules for this repo, run by pre-commit (.pre-commit-config.yaml).
+extends: default
+
+# What a bare `yamllint .` should skip to agree with the hook, which only ever
+# sees tracked files: installed dependencies, and runtime data (*-data/). Listed
+# here because yamllint does not read .gitignore, and .venv/ is ignored by the
+# global git excludes rather than this repo's .gitignore.
+ignore: |
+  **/.venv/
+  **/node_modules/
+  *-data/
+
+rules:
+  # Long explanatory comments are house style, in docker-compose.yml above all.
+  line-length: disable
+  # No file here is a multi-document stream, so a leading `---` adds nothing.
+  document-start: disable
+  # GitHub Actions' `on:` is a key, not a boolean; values are still checked.
+  truthy:
+    check-keys: false

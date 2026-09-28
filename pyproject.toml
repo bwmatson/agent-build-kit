@@ -1,0 +1,58 @@
+[project]
+name = "agent-build-kit"
+version = "0.1.0"
+description = "Spec-driven, unattended build pipeline for Claude Code across a workspace of repos"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+abk = "agent_build_kit.cli:main"
+abk-policy-hook = "agent_build_kit.hooks.policy:main"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.2",
+    "poethepoet>=0.30.0",
+    "pyrefly>=1.2.0",
+    "pytest>=8.0.0",
+    "ruff>=0.16",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_build_kit"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyrefly]
+python-version = "3.12"
+search-path = ["src", "."]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# So `from tests.factories import ...` resolves without tests/ being a package
+# (test directories carry no __init__.py; basenames stay unique instead).
+pythonpath = ["."]
+markers = [
+    "integration: needs node (npx) and the network for the real OpenSpec CLI; excluded by default, run with `pytest -m integration`",
+]
+addopts = "-m 'not integration'"
+
+[tool.poe.tasks]
+format = "pre-commit run --all-files"
+test = "pytest"
+test-integration = "pytest -m integration"
+scrub = "pytest tests/test_no_installation_leaks.py"
