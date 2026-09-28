@@ -22,6 +22,8 @@ SCANNED = ("src", "tests", "docs")
 TEXT = {".py", ".md", ".yaml", ".yml", ".toml", ".service", ".timer", ".tmpl", ".txt", ".json"}
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
+# Upstream projects the framework builds on and credits; not installations.
+UPSTREAM_OWNERS = ("fission-ai",)
 
 # A product's config directory under the home directory; the agent runtime's
 # own, and the XDG/ssh conventions, are the framework's business.
@@ -77,7 +79,10 @@ def test_every_github_slug_belongs_to_a_fixture_owner() -> None:
             continue
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
             for match in GITHUB_SLUG.finditer(line):
-                if match["owner"] not in FIXTURE_OWNERS:
+                if (
+                    match["owner"] not in FIXTURE_OWNERS
+                    and match["owner"].lower() not in UPSTREAM_OWNERS
+                ):
                     offending.append(f"{path.relative_to(ROOT)}:{number}: {match.group(0)}")
     assert offending == []
 
