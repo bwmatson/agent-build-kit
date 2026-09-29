@@ -54,6 +54,7 @@ from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
+from agent_build_kit.runtimes.base import Role
 from agent_build_kit.runtimes.claude_code import through
 
 Run = Callable[..., subprocess.CompletedProcess]
@@ -94,6 +95,7 @@ def build_run_claude(
     allowed_tools: str | None = None,
     log: Callable[[str], None] | None = None,
     runtime: AgentRuntime | None = None,
+    role: Role = "implement",
 ) -> Callable[..., str]:
     """A scoped agent run inside a unit's worktree, policed by the hook and
     the deny list the runtime applies for a `ToolPolicy`.
@@ -118,6 +120,7 @@ def build_run_claude(
         result = agent.run(
             AgentRequest(
                 prompt=prompt,
+                role=role,
                 cwd=cwd,
                 # The specs, and nothing else in the planning repo. The unit
                 # is built in the target repo's worktree but its spec lives
@@ -228,6 +231,8 @@ def build_run_review(
     planning_repo: Path | None = None,
     model: str | None = None,
     log: Callable[[str], None] | None = None,
+    runtime: AgentRuntime | None = None,
+    role: Role = "review",
 ) -> Callable[..., str]:
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
@@ -239,6 +244,8 @@ def build_run_review(
         model=model or models().review,
         allowed_tools=REVIEW_TOOLS,
         log=log,
+        runtime=runtime,
+        role=role,
     )
 
     def run_review(*, cwd: Path, context: str = "") -> str:
@@ -921,11 +928,18 @@ def build_runner(
         may_start=build_may_start(),
         run_claude=run_claude,
         run_rework=build_run_claude(
-            planning_repo=planning_repo, model=models().rework, allowed_tools=tools, log=log
+            planning_repo=planning_repo,
+            model=models().rework,
+            allowed_tools=tools,
+            log=log,
+            role="rework",
         ),
         run_review=build_run_review(planning_repo=planning_repo, log=log),
         run_rework_review=build_run_review(
-            planning_repo=planning_repo, model=models().rework_review, log=log
+            planning_repo=planning_repo,
+            model=models().rework_review,
+            log=log,
+            role="rework_review",
         ),
         # A rejected commit goes back to the build run's agent, same policy.
         commit=build_commit(unit_id=unit.id, fix=run_claude),

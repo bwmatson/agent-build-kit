@@ -24,7 +24,7 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import pause, usage_guard
+from agent_build_kit.pipeline import pause
 from agent_build_kit.runtimes import claude_code
 
 
@@ -45,12 +45,14 @@ def no_real_timers(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refreshing the login is a real `claude` call. A test that means to
-    exercise it injects `refresh=`; anything else reaching it fails."""
+    exercise it injects `refresh=`; anything else reaching it fails. Patched
+    in the adapter, which makes the call: `usage_guard.refresh_login` hands
+    it there."""
 
     def refuse() -> None:
         raise AssertionError("a test tried to make a real claude call to refresh the login")
 
-    monkeypatch.setattr(usage_guard, "refresh_login", refuse)
+    monkeypatch.setattr(claude_code, "refresh_login", refuse)
 
 
 @pytest.fixture(autouse=True)

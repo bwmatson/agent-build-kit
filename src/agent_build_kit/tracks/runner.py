@@ -1,7 +1,7 @@
 """The scheduled tracks: health, improve, recommend, and the implement pass.
 
 Each track runs **once per repo** in the workspace (`abk.yaml`'s `repos`, in
-order) — its own `claude -p` invocation(s), its own budget, its own run-log
+order) — its own agent run(s) through the runtime, its own budget, its own run-log
 entry in the planning repo's state directory, and its own worktree and PRs in
 that repo. A repo is eligible only when its checkout is a git repo whose
 `origin` is the GitHub repo abk.yaml names and `gh` can see it; anything else

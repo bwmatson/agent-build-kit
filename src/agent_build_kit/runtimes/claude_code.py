@@ -77,6 +77,18 @@ def spawn(
     return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
 
 
+def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
+    """Have Claude Code refresh its OAuth token, with the smallest call it
+    takes — see `usage_guard.refresh_login` for why the usage read needs it."""
+    run(
+        ["claude", "-p", "Reply with OK and nothing else.", "--model", "haiku"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+
+
 def build_argv(request: AgentRequest) -> list[str]:
     argv = ["claude", "-p", request.prompt]
     if request.worktree:
@@ -155,9 +167,8 @@ class ClaudeCodeRuntime:
         return AgentResult(ok=True, text=text, raw=result.stdout, stop_reason=stop_reason)
 
     def get_usage_status(self) -> UsageStatus | None:
-        reading = (self._read_live or read_live_usage)() or (
-            self._read_cached or read_cached_usage
-        )()
+        read_live = self._read_live or (lambda: read_live_usage(refresh=refresh_login))
+        reading = read_live() or (self._read_cached or read_cached_usage)()
         if reading is None:
             return None
         return UsageStatus(

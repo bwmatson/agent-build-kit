@@ -18,6 +18,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED
+from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from tests.factories import stored_unit as unit
 
 
@@ -663,6 +664,57 @@ def test_a_restack_that_cannot_be_merged_goes_to_the_adapt_step_not_a_human(
     assert pushed == []
     assert retargeted == ["main"], "retargeted anyway, so GitHub does not close the PR"
     assert store.get("c/2").state == PLANNED
+
+
+@pytest.mark.parametrize(
+    ("refusal", "why"),
+    [
+        (RateLimited("usage limit reached", resets_at=None), "rate limit"),
+        (Interrupted("claude was killed by signal 15"), "interrupted"),
+    ],
+    ids=["rate-limited", "interrupted"],
+)
+def test_a_restack_the_resolver_could_not_run_is_deferred_to_the_runner(
+    tmp_path: Path, refusal: Exception, why: str
+) -> None:
+    """Not lost: the merge event is handled once, and the merged parent's
+    branch is deleted next, so a child left `in_review` would never move.
+    Planned again, the runner's own restack retries it — and pauses the tick
+    if the window is still spent."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/2")])
+    store.set_state("c/2", IN_REVIEW, pr=2, branch="spec/c/2")
+    sent: list[str] = []
+
+    def refused(*a, **k):
+        raise refusal
+
+    restack = events.build_restack(
+        repos={"app": tmp_path},
+        store=store,
+        root=tmp_path,
+        move=refused,
+        tier1=lambda **k: (True, ""),
+        push=lambda *a, **k: sent.append("pushed") or "x",
+        retarget=lambda *a, **k: None,
+        comment=lambda *a, **k: sent.append("commented"),
+        diff_id=lambda repo, base, branch: "d",
+        head_of=lambda repo, branch: "h",
+    )
+
+    restack(
+        branch="spec/c/2",
+        old_base="spec/c/1",
+        new_base="main",
+        child=unit("c/2", pr=2, branch="spec/c/2", approved="h"),
+        parent=unit("c/1", pr=1, branch="spec/c/1"),
+    )
+
+    assert sent == []
+    assert store.get("c/2").state == PLANNED
+    note = store.get("c/2").history[-1]["note"]
+    assert "deferred" in note
+    assert why in note
 
 
 def test_a_restack_the_resolver_rewrote_tells_the_reviewer_to_check_the_tests(

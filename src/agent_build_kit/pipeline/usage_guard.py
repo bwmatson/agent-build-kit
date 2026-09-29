@@ -44,7 +44,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -387,14 +386,14 @@ def refresh_login() -> None:
     paused, and nothing ran Claude to refresh it — every minute from the
     window's reset until someone opened a session. One tiny haiku call breaks
     the circle; it is made only once the token has expired.
+
+    The call itself is the Claude Code adapter's, the one place a `claude`
+    argv is built. Imported here rather than at the top: the adapter reads
+    usage through this module.
     """
-    subprocess.run(
-        ["claude", "-p", "Reply with OK and nothing else.", "--model", "haiku"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
+    from agent_build_kit.runtimes import claude_code
+
+    claude_code.refresh_login()
 
 
 def read_live_usage(
