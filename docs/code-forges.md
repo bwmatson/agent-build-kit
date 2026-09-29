@@ -1,0 +1,175 @@
+# Code forges
+
+The pipeline opens **one pull request per unit** and then polls it until a
+human merges it. Which host that pull request lives on is a **forge**
+(`forges/`), and every call the pipeline makes about a pull request goes
+through one. A repo names its forge in `abk.yaml`:
+
+```yaml
+repos:
+  app:
+    forge: github          # the default
+    slug: example/app
+```
+
+`forges.get(name)` returns it; an unknown name fails when abk.yaml loads,
+naming the known ones. Two ship, both implemented: `github` and
+`azure_devops`. One workspace may hold repos on both.
+
+The rule that shapes the package: **a forge returns typed values, not the
+host's JSON.** Every `mergedAt` and `CHANGES_REQUESTED` the pipeline used to
+read is an attribute on a `PullRequest` or a `ReviewNote`, so a second host is
+a translation at one boundary rather than a second document shape running
+through the poller, the rework loop and the runner.
+
+## The protocol
+
+`forges/base.py` defines `Forge` as a `Protocol`, for the reason
+`ToolchainProfile` and `AgentRuntime` are: implementations own their own code,
+a test double is a plain class (`tests/forges/stand_in.py`), and the shared
+parts are free functions beside it rather than inherited behaviour.
+
+| Member | Used by | What it answers |
+|---|---|---|
+| `name` | `abk.yaml`, the registry | the key a repo names |
+| `implemented` | `cli/pipeline._build` | false holds a unit rather than failing it |
+| `deletes_head_branch_on_merge` | `events` | whether the remote branch is ours to clean up |
+| `denied_commands` | `command_policy`, the deny flags | command prefixes no agent may run, on any repo |
+| `requires` | `config.load` | the abk.yaml keys this forge cannot name a repo without |
+| `parse_remote(url)` | `abk init` | the repo an origin URL names, or None |
+| `identity(repo)` | everything | a `RepoId` from the repo's abk.yaml entry |
+| `config_entry(repo)` | `abk init` | the keys to write for it — the other side of `requires` |
+| `web_url(repo, pr)` | `diagram` | where a human goes to look |
+| `check_access(repo, run)` | `doctor`, `tracks` | "" when this machine can act here |
+| `access_fix(repo)` | `doctor` | what an operator should run about it |
+| `merge_guard(repo, branch, run)` | `doctor` | what stops a merge on the server, "" when nothing does |
+| `list_prs(repo, head_prefix)` | the poller | every pull request, as `PullRequest` values |
+| `find_pr(repo, head)` | the PR step | the number open for a branch, or None |
+| `create_pr(repo, ...)` | the PR step | the new pull request's number |
+| `update_pr(repo, pr, base, body)` | the PR step, restack | retarget or re-describe |
+| `pr_files(repo, pr)` | `abk verify` | the paths a change touched |
+| `review_notes(repo, pr)` | rework | the reviewer's words, and whether each is still live |
+| `post_reply(repo, pr, note_id, body)` | rework | the ids of what was posted |
+| `post_comment(repo, pr, body)` | rework, restack | ditto, for a note about the PR itself |
+| `post_status(repo, sha, ok, ...)` | the tier 2 gate | publish a result against the tested commit |
+| `failed_check_logs(repo, pull)` | rework | what the failing checks said |
+| `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
+
+Two free functions sit beside the Protocol rather than on it: `forges.key(repo)`
+is the canonical identity string (`owner/name`, or `org/project/repo`) that
+`own-posts.json` and the poller's state files are keyed on, and
+`forges.denies(tokens)` folds every registered forge's `denied_commands`.
+
+`post_reply` and `post_comment` return ids because only the forge knows what an
+id looks like, and what they return must be what the next poll's
+`conversation` contains — otherwise the pipeline reads its own reply as new
+review and reworks the unit in answer to itself. That identity is the single
+most important thing a new forge has to get right.
+
+## The values
+
+`PullRequest` is what the poller diffs. `state` uses the vocabulary in
+`pipeline/units.py` (`merged`, `closed`, or `open`), so nothing downstream
+learns a second set of words for the same three outcomes. `conversation` is
+opaque comment ids, `comment_bodies` the words behind them, `labels` drives
+`agent:hold` and `agent:rework`, and `review_decision` is `""` or
+`"changes_requested"`.
+
+`ReviewNote` carries `live`: whether the note is still worth replaying to a
+rework. It is the generalisation of GitHub's outdated-comment convention —
+`line: null` once the code a comment sat on has changed — and Azure DevOps
+answers the same question with a resolved thread. Either way a rework must not
+be handed feedback it has already addressed, or every round replays every
+earlier round.
+
+## The security rule
+
+`command_policy` refuses **every registered forge's** merge commands, not the
+current repo's: an agent in a GitHub checkout has no business completing an
+Azure DevOps pull request either, and a union cannot be weakened by a wrong
+`forge:` field. The same prefixes are passed as deny flags on every policed
+run and on every track phase — two independent layers by design, so two things
+have to fail before an agent can merge its own pull request.
+
+A forge that adds a command here must add it to `denied_commands` only; both
+layers read from there.
+
+## Adding a forge
+
+1. **Write the module.** `forges/<name>.py`, a plain class with the members
+   above and a module-level `FORGE = <Name>Forge()`. Start with
+   `implemented = False` and raise from the methods you have not written: a
+   unit in such a repo is then *held*, not failed, which is the difference
+   between "not yet" and "broken".
+2. **Register it.** Add it to `_load_builtin` in `forges/__init__.py`, and to
+   `_ORDER` — **order matters**: GitHub's origin pattern accepts any
+   `alias:owner/name`, an ssh host alias carrying a deploy key, so it must be
+   asked last or it claims every host's ssh remote.
+3. **Say what a repo needs.** `requires` names the abk.yaml keys, and
+   `config_entry` writes them. `abk init` then drafts a file that loads, and a
+   repo missing a key fails at load rather than once every unit is held.
+4. **Deny every way of merging.** Not just the obvious command: a host may
+   complete a pull request through an update, a vote, a policy change and a
+   raw API escape, and all of them belong in `denied_commands`.
+5. **Record real fixtures.** From a real pull request, keeping the fields your
+   code does *not* read. That is what makes a host's traps catchable by a test
+   rather than by an incident — see below.
+
+## What each host makes easy to get wrong
+
+These are the mistakes the two shipped forges were written against. A third
+will have its own, and finding them is most of the work.
+
+**GitHub.** `state: MERGED` is not the same question as `mergedAt`; a PENDING
+review is a draft the reviewer has not submitted, and counting it sends the
+unit back for rework with nothing to act on; a reply creates a bodyless review
+of its own, whose id must be recorded or the poller reads it as feedback.
+
+**Azure DevOps.**
+
+- **`status == "completed"` is the only proof of a merge.** An open pull
+  request carries `mergeStatus: succeeded` *and* a populated `lastMergeCommit`,
+  exactly as a merged one does — verified against six real pull requests,
+  three of each. Reading either as proof marks every open PR merged, which
+  restacks its children and deletes their branches.
+- **The server comments on its own.** "The reference refs/heads/… was updated"
+  is written on the thread list on *every push*, and the pipeline pushes on
+  every rework and every restack. Counted as a comment, each push reworks the
+  unit that just pushed, and it never stops. The filter is
+  `commentType == "system"`, not `commentType == "text"` — real comments come
+  back with a null type, and the inverted rule drops a reviewer's words.
+- **Comment ids restart at 1 in every thread**, so a note's id carries its
+  thread's, or two different comments read as one.
+- **A vote is a scale, not a flag.** 10 approved, 5 approved *with
+  suggestions*, 0 no vote, −5 waiting for the author, −10 rejected. Only a
+  negative vote asks for changes; reading 5 as rework sends an approved unit
+  round the loop on every poll. A group's vote (`isContainer`) is nobody's.
+- **An unauthenticated request is answered with a sign-in page and a 2xx.**
+  Parsed leniently that is `{}`, which reads as "no pull requests": the
+  poller's failure counter never trips and the pipeline goes quiet with a
+  clean log. `pipeline/az.py` treats a non-JSON body as an error for this
+  reason alone.
+- Branch names arrive as `refs/heads/x`; `labels` is `null`, not `[]`;
+  `az repos pr update` has no `--target-branch`, so retargeting is a REST
+  PATCH; and the source branch survives a merge, so it is ours to delete.
+
+## Authentication
+
+GitHub selects a token per repo owner (`pipeline/shell.py`), because `gh` has
+one active account at a time and a call against another account's private repo
+reports it as *nonexistent* — indistinguishable, from the caller's side, from
+a repo with no pull requests.
+
+Azure DevOps uses a PAT when one is set and the `az` sign-in session otherwise;
+both have to work, so a headless box and a workstation are both usable.
+`settings.ado_pat` reads `AZURE_DEVOPS_EXT_PAT` first — the extension's own
+variable, so a machine already set up for `az repos` needs nothing new — then
+`ABK_ADO_PAT`.
+
+Every `az` call goes through `pipeline/az.py`, which is to `az` what
+`pipeline/shell.py` is to `gh`: there is no second way to make one, so a new
+call site cannot forget what this one remembers. It names the organisation on
+every call rather than relying on `az devops configure --defaults` — global
+CLI state, and units run concurrently — and passes the token through the
+environment rather than argv, where `ps` would show it for the hours a build
+runs.

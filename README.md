@@ -20,7 +20,7 @@ will be chosen later. The `python-uv` toolchain profile is implemented; the
 ## The shape
 
 ```
- planning repo                      code repos                    GitHub
+ planning repo                      code repos                    its host
  ─────────────                      ──────────                    ──────
  openspec/changes/<change>/   ──►   worktree per unit     ──►     PR per unit
    tasks.md (tagged groups)         tests commit, then             (never merged
@@ -64,7 +64,8 @@ uv run abk tick --dry-run                # what would build now
 cp systemd/abk-tick.* ~/.config/systemd/user/ && systemctl --user enable --now abk-tick.timer
 ```
 
-Requirements: Python 3.12+, `uv`, `git`, `gh` (logged in for every GitHub
+Requirements: Python 3.12+, `uv`, `git`, and a client for each host a repo
+lives on: `gh` (logged in for every GitHub
 owner in `abk.yaml`), `claude` (Claude Code), and `node` on the PATH — the
 OpenSpec CLI runs through `npx`.
 
@@ -96,6 +97,7 @@ Details, arguments and exit codes: [docs/cli.md](docs/cli.md).
 - [docs/configuration.md](docs/configuration.md) — the `abk.yaml` schema, env providers, environment variables.
 - [docs/cli.md](docs/cli.md) — every subcommand.
 - [docs/toolchain-profiles.md](docs/toolchain-profiles.md) — what a profile is, what `python-uv` runs, what `node-npm` still needs.
+- [docs/code-forges.md](docs/code-forges.md) — the hosts a repo can live on, what each makes easy to get wrong, and how to add one.
 - [docs/init.md](docs/init.md) — what `abk init` does, step by step.
 - [docs/tracks.md](docs/tracks.md) — the scheduled health/improve/recommend/implement tracks.
 

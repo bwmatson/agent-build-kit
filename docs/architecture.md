@@ -15,9 +15,10 @@ change (tasks.md) ─► plan ─► units ─► build ─► PR ─► human r
 
 Everything below is a tick (`abk tick`), which a timer runs every few minutes
 in the planning repo. One tick, in order: check the usage window, fetch and
-poll GitHub, plan what is new, verify and archive what has fully merged, work
+poll each repo's host, plan what is new, verify and archive what has fully
+merged, work
 out what is ready, and build it. Every step is idempotent, and a tick with
-nothing to do exits silently before reading usage or calling GitHub.
+nothing to do exits silently before reading usage or calling any host.
 
 ### 1. An OpenSpec change
 
@@ -189,10 +190,14 @@ back for rework (`held before <step>`), or the usage window filled
 (`paused before <step>`). The step is recorded in `resume_from`, and the
 resume starts exactly there.
 
-### 4. GitHub polling and events
+### 4. Polling and events
+
+Which host answers is a forge's business (see
+[code-forges.md](code-forges.md)); everything below is written in the typed
+values a forge returns, not in any host's JSON.
 
 Nothing here is reachable from the internet, so `gh_poller.py` polls
-`gh pr list` per repo instead of taking webhooks, and only for branches with
+one listing per repo instead of taking webhooks, and only for branches with
 the agent prefix. Each poll diffs against a snapshot (`runs/prs-<repo>.json`)
 and **acts only on a change**; the first poll of a repo records without
 dispatching. Two failed polls back off for thirty minutes.
@@ -237,7 +242,7 @@ Once every unit of a change is `merged` (or `unplanned`), `verify.py` deploys
 what the change's PRs touched and runs the live tests they added — under the
 tier-2 lock, since both use the one live stack:
 
-- the changed paths of each PR (`gh pr view --json files`), per repo, in
+- the changed paths of each PR (`forge.pr_files`), per repo, in
   **deploy order**: a repo after the ones it `consumes`;
 - **deploy conventions before rules**: test and documentation paths deploy
   nothing; a change in a workspace library member counts as a change in every
@@ -280,7 +285,10 @@ window are its own, and what generalizing them would mean is
 **The policy hook** (`hooks/policy.py`, `pipeline/command_policy.py`). Every
 agent run passes `--settings` registering a `PreToolUse` hook for `Bash`,
 `Edit`, `Write`, `MultiEdit` and `NotebookEdit` — per run, never in the user's
-global settings. It denies: `gh pr merge`; `git commit --amend` (it would fold
+global settings. It denies: every registered forge's way of merging — `gh pr
+merge`, `az repos pr update`, `az repos pr set-vote`, `az repos policy` and the
+raw `az rest`/`az devops invoke` escapes, the union rather than this repo's
+host; `git commit --amend` (it would fold
 the implementation into the tests commit); `git reset --hard`, `git clean`,
 `git branch -D`, recursive `rm`; pushes to `main`/`master`; bare `--force`;
 any force-with-lease on a branch without the agent prefix; a bare
@@ -401,7 +409,7 @@ planning repo's `.env` holds machine-local settings.
   force-pushing over itself, drowning the PR in comments. The one exception
   is a change deferred because its unit was being built, which is reported
   again until a handler has acted on it.
-- **Units are tracked in a file, not GitHub issues.** One committed file beside
+- **Units are tracked in a file, not the host's issues.** One committed file beside
   the specs, easy to reset, no debris in the code repos when a change is
   re-planned or abandoned. The cost is that nothing closes a unit on merge, so
   the runner and the poller record state themselves.

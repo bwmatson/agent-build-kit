@@ -1,9 +1,9 @@
-"""The Azure DevOps forge: identity and access, which is all of it so far.
+"""The Azure DevOps forge.
 
-The rest of the host — opening a PR, polling it, answering review — raises
-rather than pretending, so a unit in such a repo is held instead of failed
-(`cli/pipeline._build`, and the `node_npm` profile before it). What is here is
-what `abk init` and `abk doctor` need to stop being wrong about the repo.
+The fixtures these run against were recorded from real pull requests and kept
+whole, because the mistakes this host invites are all mistakes about fields
+that look decisive and are not: a successful merge status on an open PR, a
+comment the server wrote itself, a reviewer's vote that approves.
 """
 
 from __future__ import annotations
@@ -132,19 +132,6 @@ def test_nothing_on_the_server_stops_a_merge_without_a_policy() -> None:
         return subprocess.CompletedProcess(args, 0, "[]", "")
 
     assert "main" in FORGE.merge_guard(repo, branch="main", run=run)
-
-
-def test_the_unfinished_half_holds_a_unit_rather_than_failing_it() -> None:
-    """`implemented = False` is what `cli/pipeline._build` turns into `held`.
-
-    It stays False while the tier 2 gate cannot report: that gate posts a
-    status after every push, so a unit built here would fail on its own
-    success. Held says so; failed does not."""
-    assert FORGE.implemented is False
-    with pytest.raises(NotImplementedError) as refused:
-        FORGE.post_status(REPO, sha="abc123", ok=True, context="local/tier2", description="d")
-
-    assert "post_status" in str(refused.value)
 
 
 def test_every_way_of_merging_is_denied_to_the_agent() -> None:
@@ -465,3 +452,149 @@ def test_a_polled_pull_request_carries_its_conversation() -> None:
 
     assert pull.conversation == ("478.1", "478.2", "478.3"), "the server's own are not in it"
     assert pull.comment_bodies[0] == "The declared schema does not match what extraction stores."
+
+
+# --- statuses and changed files ---------------------------------------------------
+
+
+def test_a_status_is_posted_against_the_commit_that_was_tested() -> None:
+    """Tier 2 gates the push, and its result belongs to one commit: a restack
+    changes the SHA, and a status on the wrong commit is worse than none."""
+    calls: list[list[str]] = []
+    sent: list[dict] = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if "--in-file" in args:
+            sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return subprocess.CompletedProcess(args, 0, json.dumps({"id": 1}), "")
+
+    FORGE.post_status(
+        REPO, sha="abc123", ok=True, context="local/tier2", description="4 passed", run=run
+    )
+
+    assert "commitId=abc123" in calls[0]
+    [posted] = sent
+    assert posted["state"] == "succeeded"
+    assert posted["context"] == {"genre": "local", "name": "tier2"}
+    assert posted["description"] == "4 passed"
+
+
+def test_a_failing_run_posts_a_failing_state() -> None:
+    sent: list[dict] = []
+
+    def run(args, **kwargs):
+        if "--in-file" in args:
+            sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return subprocess.CompletedProcess(args, 0, json.dumps({"id": 1}), "")
+
+    FORGE.post_status(
+        REPO, sha="abc123", ok=False, context="local/tier2", description="1 failed", run=run
+    )
+
+    assert sent[0]["state"] == "failed"
+
+
+def test_a_long_description_is_truncated_by_the_forge() -> None:
+    """Every host has its own limit, and a caller has no business knowing
+    them — an over-long description loses the whole status, not its tail."""
+    sent: list[dict] = []
+
+    def run(args, **kwargs):
+        if "--in-file" in args:
+            sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return subprocess.CompletedProcess(args, 0, json.dumps({"id": 1}), "")
+
+    FORGE.post_status(
+        REPO, sha="abc", ok=True, context="local/tier2", description="x" * 2000, run=run
+    )
+
+    assert len(sent[0]["description"]) < 1000
+
+
+def test_a_context_with_no_genre_still_posts() -> None:
+    sent: list[dict] = []
+
+    def run(args, **kwargs):
+        if "--in-file" in args:
+            sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return subprocess.CompletedProcess(args, 0, json.dumps({"id": 1}), "")
+
+    FORGE.post_status(REPO, sha="abc", ok=True, context="tier2", description="d", run=run)
+
+    assert sent[0]["context"] == {"genre": "abk", "name": "tier2"}
+
+
+def test_only_a_failed_or_errored_check_counts_as_failing() -> None:
+    """A check still running is waiting, not failing: read as a failure it
+    would send the unit back for rework while its build was in progress."""
+    listing = [azure_answers.OPEN]
+    statuses = {
+        "value": [
+            azure_answers.FAILED_STATUS,
+            azure_answers.PASSED_STATUS,
+            azure_answers.PENDING_STATUS,
+        ]
+    }
+
+    def run(args, **kwargs):
+        payload: object = listing
+        if "pullRequestThreads" in args:
+            payload = azure_answers.threads()
+        elif "pullRequestStatuses" in args:
+            payload = statuses
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    [pull] = FORGE.list_prs(REPO, run=run)
+
+    assert pull.failing_checks == ("continuous-integration/build",)
+
+
+def test_the_check_report_says_what_failed_and_where_to_look() -> None:
+    """No build log is fetched: what a status carries is its description and a
+    link, and inventing a log fetch for a build this host may not even be
+    running would be a guess in the rework's prompt."""
+    pull = PullRequest(
+        number=41,
+        head="spec/x/1",
+        base="main",
+        state="open",
+        failing_checks=("continuous-integration/build",),
+    )
+    statuses = {"value": [azure_answers.FAILED_STATUS, azure_answers.PASSED_STATUS]}
+
+    report = FORGE.failed_check_logs(REPO, pull, run=answering(statuses))
+
+    assert "CI build failed" in report
+    assert "buildId=1" in report
+    assert "CI build succeeded" not in report
+
+
+def test_a_pull_request_with_no_failing_checks_reports_nothing() -> None:
+    pull = PullRequest(number=41, head="spec/x/1", base="main", state="open")
+
+    assert FORGE.failed_check_logs(REPO, pull, run=answering({"value": []})) == ""
+
+
+def test_the_changed_files_come_from_the_newest_iteration() -> None:
+    """Each push makes an iteration, and what the change touched is what the
+    newest one holds."""
+    calls: list[list[str]] = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        payload = (
+            azure_answers.ITERATIONS if "pullRequestIterations" in args else azure_answers.CHANGES
+        )
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    files = FORGE.pr_files(REPO, 41, run=run)
+
+    assert files == ["poc/validate/params.py", "poc/validate/verdict.py"], "no folders, no slash"
+    assert "iterationId=5" in calls[1], "the newest iteration, not the first"
+
+
+def test_the_forge_is_now_complete() -> None:
+    """Every method answers, so units in an Azure DevOps repo build rather
+    than being held."""
+    assert FORGE.implemented is True

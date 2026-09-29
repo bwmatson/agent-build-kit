@@ -80,7 +80,6 @@ _PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 
 # github.com remotes in either ssh (git@github.com:<owner>/<name>.git) or
 # https (https://github.com/<owner>/<name>(.git)) form.
-_GITHUB_REMOTE = re.compile(r"github\.com[:/](?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 
 # How many lines of each rendered prompt a dry run shows.
 DRY_RUN_PROMPT_LINES = 40
@@ -122,21 +121,26 @@ def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 # --- which repos ---------------------------------------------------------------
 
 
-def repo_reachable(slug: str) -> bool:
-    """Whether `gh` can see the repo — it pulls and opens PRs there."""
-    view = subprocess.run(
-        ["gh", "repo", "view", slug, "--json", "name"], capture_output=True, text=True
-    )
-    if view.returncode != 0:
-        log(f"gh repo view {slug}: {view.stderr.strip()}")
-    return view.returncode == 0
+def repo_reachable(name: str, inst: Installation) -> bool:
+    """Whether the repo's host will answer for it — a track pulls and opens
+    pull requests there.
+
+    Asked of the forge, which is the only thing that knows how: this used to
+    shell `gh repo view` directly, one of the two sites bypassing the `gh`
+    chokepoint, and it read every Azure DevOps repo as unreachable.
+    """
+    forge, repo = inst.forge_of(name)
+    problem = forge.check_access(repo)
+    if problem:
+        log(f"{forges.key(repo)}: {problem}")
+    return not problem
 
 
 def eligible_projects(inst: Installation, only: str | None = None) -> list[Project]:
     """abk.yaml's repos filtered down to the ones a track can work on: a git
-    checkout whose `origin` is the GitHub repo the config names, and that
-    `gh repo view` confirms exists. Anything else is logged and skipped —
-    not an error, so a repo can be listed before it has a remote."""
+    checkout whose `origin` is the repo the config names, on a host that
+    answers for it. Anything else is logged and skipped — not an error, so a
+    repo can be listed before it has a remote."""
     projects: list[Project] = []
     for name, repo in inst.config.repos.items():
         if only and name != only:
@@ -149,22 +153,25 @@ def eligible_projects(inst: Installation, only: str | None = None) -> list[Proje
         if remote.returncode != 0:
             log(f"skip {name}: no `origin` remote (nothing to pull from or open PRs against)")
             continue
-        match = _GITHUB_REMOTE.search(remote.stdout.strip())
-        if not match:
-            log(f"skip {name}: origin {remote.stdout.strip()!r} is not a GitHub repo")
+        origin = forges.identify(remote.stdout.strip())
+        if origin is None:
+            log(f"skip {name}: no forge recognises origin {remote.stdout.strip()!r}")
             continue
-        origin_slug = match.group("slug")
-        if origin_slug.lower() != repo.slug.lower():
-            log(f"skip {name}: origin is {origin_slug} but abk.yaml says {repo.slug}")
+        declared = forges.get(repo.forge).identity(repo)
+        if forges.key(origin).lower() != forges.key(declared).lower():
+            log(
+                f"skip {name}: origin is {forges.key(origin)} "
+                f"but abk.yaml says {forges.key(declared)}"
+            )
             continue
-        if not repo_reachable(repo.slug):
-            log(f"skip {name}: GitHub repo {repo.slug} not reachable via gh")
+        if not repo_reachable(name, inst):
+            log(f"skip {name}: {forges.key(declared)} is not reachable")
             continue
         projects.append(
             Project(
                 name=name,
                 path=path,
-                repo=repo.slug,
+                repo=forges.key(declared),
                 default_branch=repo.default_branch,
                 description=repo.description,
                 consumes=list(repo.consumes),

@@ -179,3 +179,46 @@ def thread(**overrides) -> dict:
 def threads(*items: dict) -> dict:
     """The response body: Azure wraps a list in `value`."""
     return {"value": list(items), "count": len(items)}
+
+
+# --- statuses and changes ---------------------------------------------------------
+
+FAILED_STATUS = {
+    "id": 1,
+    "state": "failed",
+    "description": "CI build failed",
+    "context": {"genre": "continuous-integration", "name": "build"},
+    "targetUrl": "https://dev.azure.com/acme/_build/results?buildId=1",
+    "creationDate": "2026-09-24T18:02:11.483Z",
+}
+
+PASSED_STATUS = {
+    **deepcopy(FAILED_STATUS),
+    "id": 2,
+    "state": "succeeded",
+    "description": "CI build succeeded",
+    "context": {"genre": "continuous-integration", "name": "lint"},
+}
+
+# `pending` and `notSet` are waiting, not failing: a check still running would
+# otherwise send the unit back for rework while its build was in progress.
+PENDING_STATUS = {**deepcopy(FAILED_STATUS), "id": 3, "state": "pending"}
+
+# Each push to the source branch makes one of these. A status belongs to the
+# code that was evaluated, so the changed files come from the newest.
+ITERATIONS = {
+    "value": [
+        {"id": 1, "sourceRefCommit": {"commitId": "1111111111111111111111111111111111111111"}},
+        {"id": 5, "sourceRefCommit": {"commitId": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"}},
+    ],
+    "count": 2,
+}
+
+CHANGES = {
+    "changeEntries": [
+        {"changeType": "edit", "item": {"path": "/poc/validate/verdict.py", "isFolder": False}},
+        {"changeType": "add", "item": {"path": "/poc/validate/params.py", "isFolder": False}},
+        # A folder is not a changed file, and would read as one path too many.
+        {"changeType": "add", "item": {"path": "/poc/validate", "isFolder": True}},
+    ]
+}

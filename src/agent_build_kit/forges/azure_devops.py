@@ -1,17 +1,17 @@
 """Azure DevOps as a code host.
 
-Identity and access are real; the pull request lifecycle is not yet, so
-`implemented` is False and the rest raises through `_todo`. A unit in such a
-repo is held rather than failed — `cli/pipeline._build` turns
-`NotImplementedError` into `held`, as it already does for the `node_npm`
-toolchain profile.
-
-Two things about this host shape everything below:
+Three things about this host shape everything below:
 
 **Three segments, decoded.** A repo is organisation / project / repo, and the
 remote percent-encodes any of them containing a space. `%20` handed to
 `az repos --project` names a project that does not exist, so the identity is
 decoded once, here, and every caller gets the readable form.
+
+**A merge is only a merge when `status` says so.** An open pull request
+carries `mergeStatus: succeeded` and a populated `lastMergeCommit` exactly as a
+completed one does — verified against six real pull requests, three of each.
+Reading either as proof marks every open PR merged, which restacks its children
+and deletes their branches.
 
 **Merging has a wide surface.** GitHub has one command; here a PR is completed
 by `az repos pr update --status completed`, approved by `az repos pr set-vote`,
@@ -36,6 +36,14 @@ if TYPE_CHECKING:
 # defaults to 5.0, which predates fields this relies on.
 _API = "7.1"
 
+# `pending` and `notSet` are waiting, not failing: read as failures they would
+# send a unit back for rework while its build was still running.
+_FAILING = ("failed", "error")
+
+# A status description well inside what the API accepts. Over the limit the
+# whole status is refused, not its tail.
+_DESCRIPTION = 950
+
 # `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>`, with or without the
 # ssh:// scheme, and `https://[user@]dev.azure.com/<org>/<project>/_git/<repo>`.
 # Anchored on the host, which is why this forge is asked before GitHub's
@@ -52,8 +60,7 @@ _HTTPS = re.compile(
 
 class AzureDevOpsForge:
     name: str = "azure_devops"
-    # Identity and access only, so far. See the module docstring.
-    implemented: bool = False
+    implemented: bool = True
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
     # so the remote branch is ours to delete.
     deletes_head_branch_on_merge: bool = False
@@ -72,11 +79,6 @@ class AzureDevOpsForge:
         ("az", "devops", "invoke"),
     )
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
-
-    def _todo(self, what: str):
-        raise NotImplementedError(
-            f"the {self.name} forge is not implemented in this release ({what})"
-        )
 
     # --- identity -------------------------------------------------------------------
 
@@ -232,10 +234,18 @@ class AzureDevOpsForge:
     def _said_on(self, repo: RepoId, pull: PullRequest, *, run: Run | None = None) -> PullRequest:
         """The pull request with what was said on it, for the poller to diff."""
         notes = _notes(self._threads(repo, pull.number, run=run), live_only=False)
+        failing = tuple(
+            sorted(
+                _context(status)
+                for status in self._statuses(repo, pull.number, run=run)
+                if str(status.get("state") or "") in _FAILING
+            )
+        )
         return pull.model_copy(
             update={
                 "conversation": tuple(note.id for note in notes),
                 "comment_bodies": tuple(note.body for note in notes),
+                "failing_checks": failing,
             }
         )
 
@@ -327,14 +337,37 @@ class AzureDevOpsForge:
             )
 
     def _threads(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
-        answered = self._rest(repo, "pullRequestThreads", pullRequestId=pr, run=run)
-        found = answered.get("value") if isinstance(answered, dict) else answered
-        return [t for t in found if isinstance(t, dict)] if isinstance(found, list) else []
+        return _values(self._rest(repo, "pullRequestThreads", pullRequestId=pr, run=run))
 
-    def pr_files(self, repo: RepoId, pr: int) -> list[str]:
-        return self._todo("pr_files")
+    def pr_files(self, repo: RepoId, pr: int, run: Run | None = None) -> list[str]:
+        """The paths this pull request touches.
 
-    # --- the rest, once review and checks land --------------------------------------
+        Each push to the source branch makes an iteration, and what the change
+        touches is what the newest one holds.
+        """
+        found = _values(self._rest(repo, "pullRequestIterations", pullRequestId=pr, run=run))
+        numbers = [item["id"] for item in found if "id" in item]
+        if not numbers:
+            return []
+        changes = self._rest(
+            repo,
+            "pullRequestIterationChanges",
+            pullRequestId=pr,
+            iterationId=max(numbers),
+            run=run,
+        )
+        entries = changes.get("changeEntries") or [] if isinstance(changes, dict) else []
+        return sorted(
+            str(item.get("path") or "").lstrip("/")
+            for change in entries
+            if isinstance(change, dict) and not (item := change.get("item") or {}).get("isFolder")
+            if item.get("path")
+        )
+
+    def _statuses(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
+        return _values(self._rest(repo, "pullRequestStatuses", pullRequestId=pr, run=run))
+
+    # --- cleanup --------------------------------------------------------------------
 
     def review_notes(self, repo: RepoId, pr: int, run: Run | None = None) -> list[ReviewNote]:
         """The reviewer's words on a pull request, as threads.
@@ -387,12 +420,58 @@ class AzureDevOpsForge:
         return [f"{made['id']}.{comments[0].get('id', 1)}"]
 
     def post_status(
-        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
+        self,
+        repo: RepoId,
+        *,
+        sha: str,
+        ok: bool,
+        context: str,
+        description: str,
+        run: Run | None = None,
     ) -> None:
-        return self._todo("post_status")
+        """Publish a result against the commit it was measured on.
 
-    def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
-        return self._todo("failed_check_logs")
+        A commit status rather than a pull request status: the result belongs
+        to one commit, and a pull request status would follow the branch as it
+        moved. A restack changes the SHA, and a status on the wrong commit is
+        worse than none.
+
+        Azure splits a context into a genre and a name, so `local/tier2`
+        becomes both; a context with no slash keeps abk's own genre.
+        """
+        genre, _, name = context.rpartition("/")
+        self._rest(
+            repo,
+            "statuses",
+            method="POST",
+            payload={
+                "state": "succeeded" if ok else "failed",
+                # Well inside what the API accepts: an over-long description
+                # loses the whole status rather than its tail.
+                "description": description[:_DESCRIPTION],
+                "context": {"genre": genre or "abk", "name": name},
+            },
+            commitId=sha,
+            run=run,
+        )
+
+    def failed_check_logs(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> str:
+        """What the failing checks said, for the rework that fixes them.
+
+        A status carries a description and a link, and that is what this
+        reports. No build log is fetched: the services posting here are not
+        necessarily pipelines at all, and inventing a log fetch for a build
+        that may not exist would put a guess in the rework's prompt.
+        """
+        if not pull.failing_checks:
+            return ""
+        parts = [
+            f"{_context(status)} - {status.get('description') or 'failed'}"
+            + (f"\n{url}" if (url := status.get("targetUrl")) else "")
+            for status in self._statuses(repo, pull.number, run=run)
+            if str(status.get("state") or "") in _FAILING
+        ]
+        return "\n\n".join(parts)
 
     def delete_remote_branch(self, repo: RepoId, branch: str, run: Run | None = None) -> None:
         """Remove the source branch, which a merge here leaves behind.
@@ -532,3 +611,18 @@ def _notes(threads: list[dict], *, live_only: bool = False) -> list[ReviewNote]:
                 )
             )
     return notes
+
+
+def _values(answered: object) -> list[dict]:
+    """The list in a REST answer. Azure wraps one in `value`, and `az repos`
+    hands the bare list back - both shapes reach here."""
+    found = answered.get("value") if isinstance(answered, dict) else answered
+    return [item for item in found if isinstance(item, dict)] if isinstance(found, list) else []
+
+
+def _context(status: dict) -> str:
+    """A status's name as one string, the way a branch policy names it."""
+    context = status.get("context") or {}
+    genre = str(context.get("genre") or "")
+    name = str(context.get("name") or "")
+    return f"{genre}/{name}" if genre else name

@@ -348,7 +348,7 @@ def test_focus_with_nothing_to_match_falls_back(inst) -> None:
 def test_eligible_projects_keeps_only_github_checkouts(inst, monkeypatch, capsys) -> None:
     github_checkout(inst.repo("app").path, "example/app")
     inst.repo("platform").path.mkdir(parents=True)  # not a git checkout
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
 
     projects = runner.eligible_projects(inst)
 
@@ -361,11 +361,11 @@ def test_eligible_projects_keeps_only_github_checkouts(inst, monkeypatch, capsys
     assert "skip platform" in capsys.readouterr().out
 
 
-def test_eligible_projects_skips_a_checkout_without_a_github_origin(inst, monkeypatch) -> None:
+def test_eligible_projects_skips_a_checkout_whose_origin_no_forge_knows(inst, monkeypatch) -> None:
     init_repo(inst.repo("app").path)  # no origin at all
     platform = init_repo(inst.repo("platform").path)
     git(platform, "remote", "add", "origin", "https://example.org/git/platform.git")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
 
     assert runner.eligible_projects(inst) == []
 
@@ -374,15 +374,15 @@ def test_eligible_projects_skips_an_origin_that_disagrees_with_the_config(
     inst, monkeypatch, capsys
 ) -> None:
     github_checkout(inst.repo("app").path, "someone-else/app")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
 
     assert runner.eligible_projects(inst, "app") == []
     assert "abk.yaml says example/app" in capsys.readouterr().out
 
 
-def test_eligible_projects_skips_a_repo_gh_cannot_see(inst, monkeypatch) -> None:
+def test_eligible_projects_skips_a_repo_its_host_will_not_answer_for(inst, monkeypatch) -> None:
     github_checkout(inst.repo("app").path, "example/app")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: False)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: False)
 
     assert runner.eligible_projects(inst, "app") == []
 
@@ -390,7 +390,7 @@ def test_eligible_projects_skips_a_repo_gh_cannot_see(inst, monkeypatch) -> None
 def test_only_filters_by_config_key(inst, monkeypatch) -> None:
     github_checkout(inst.repo("app").path, "example/app")
     github_checkout(inst.repo("platform").path, "example/platform")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
 
     assert [p.name for p in runner.eligible_projects(inst, "platform")] == ["platform"]
 
@@ -432,7 +432,7 @@ def test_default_branch_of_reads_origin_head(tmp_path) -> None:
 
 def test_a_project_pulls_its_own_default_branch(inst, monkeypatch, recorder) -> None:
     github_checkout(inst.repo("app").path, "example/app")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
     monkeypatch.setattr(runner, "has_headroom", lambda: True)
     monkeypatch.setattr(runner, "pull_planning", lambda inst: True)
     pulled: list[tuple[Path, str]] = []
@@ -449,7 +449,7 @@ def test_a_project_pulls_its_own_default_branch(inst, monkeypatch, recorder) -> 
 def test_run_track_reports_a_failed_project(inst, monkeypatch) -> None:
     github_checkout(inst.repo("app").path, "example/app")
     github_checkout(inst.repo("platform").path, "example/platform")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
     monkeypatch.setattr(runner, "has_headroom", lambda: True)
     monkeypatch.setattr(runner, "pull_planning", lambda inst: True)
     monkeypatch.setattr(runner, "pull", lambda path, branch: path.name != "platform")
@@ -468,7 +468,7 @@ def test_dry_run_prints_prompts_and_commands_without_running_claude(
     inst, monkeypatch, capsys
 ) -> None:
     github_checkout(inst.repo("app").path, "example/app")
-    monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
+    monkeypatch.setattr(runner, "repo_reachable", lambda name, inst: True)
     monkeypatch.setattr(runner, "current_usage", lambda: pytest.fail("checked usage"))
     monkeypatch.setattr(runner, "pull", lambda *a: pytest.fail("pulled a repo"))
     assert runner.run_track(inst, "improve", only="app", dry_run=True, runtime=on(no_agent)) == 0
