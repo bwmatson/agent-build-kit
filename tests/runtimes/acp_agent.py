@@ -41,7 +41,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from acp import (
     PROTOCOL_VERSION,
@@ -59,7 +59,7 @@ from acp import (
     update_tool_call,
 )
 from acp.helpers import update_available_commands
-from acp.interfaces import Client
+from acp.interfaces import Agent, Client
 from acp.schema import (
     AgentCapabilities,
     AvailableCommand,
@@ -71,6 +71,7 @@ from acp.schema import (
     SessionConfigSelectOption,
     SessionMode,
     SessionModeState,
+    StopReason,
     ToolCallLocation,
 )
 
@@ -268,7 +269,7 @@ class FakeAgent:
         )
         for chunk in ANSWER_CHUNKS:
             await send(update_agent_message_text(chunk))
-        return PromptResponse(stop_reason=self._stop)
+        return PromptResponse(stop_reason=cast(StopReason, self._stop))
 
     def _leave_child(self, *, new_session: bool) -> None:
         """Start a child that holds this agent's stderr for `HANG_SECONDS`."""
@@ -364,7 +365,8 @@ def main() -> None:
         linger=args.linger,
         fail=args.fail,
     )
-    asyncio.run(run_agent(agent))
+    # Only the methods these tests drive: the rest answer "method not found".
+    asyncio.run(run_agent(cast(Agent, agent)))
 
 
 if __name__ == "__main__":
