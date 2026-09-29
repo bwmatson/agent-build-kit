@@ -22,7 +22,12 @@ import pytest
 
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.pipeline.wiring import CommitRejected, _run, build_commit
+from agent_build_kit.pipeline.wiring import (
+    COMMIT_FIX_ROUNDS,
+    CommitRejected,
+    _run,
+    build_commit,
+)
 from tests.conftest import make_installation
 from tests.factories import init_repo
 
@@ -164,14 +169,45 @@ def test_a_gate_that_never_accepts_fails_after_a_bounded_number_of_rounds(
     repo = repo_with_gate(tmp_path, LINTER)
     (repo / "marker.py").write_text(LONG_LINE)
     agent = Agent()  # tries, and changes nothing
+    recorded = Recorded()
     before = commits(repo)
 
     with pytest.raises(CommitRejected) as caught:
-        build_commit(unit_id="add-marker/1", fix=agent)("test: covers it", cwd=repo)
+        build_commit(unit_id="add-marker/1", run=recorded, fix=agent)("test: covers it", cwd=repo)
 
     assert LINT_OUTPUT in str(caught.value)
-    assert 1 <= len(agent.prompts) <= 10
+    assert len(agent.prompts) == COMMIT_FIX_ROUNDS
+    assert all(LINT_OUTPUT in prompt for prompt in agent.prompts), "each round, its gate output"
+    attempts = [c for c in recorded.commands if c[:2] == ["git", "commit"]]
+    assert len(attempts) == 2 + COMMIT_FIX_ROUNDS, "the first try, the plain retry, each round"
     assert commits(repo) == before, "no commit at all rather than one around the gate"
+
+
+@pytest.mark.parametrize(
+    "shortcut",
+    [
+        "git commit -q --no-verify -am x",
+        "git add -A && git commit -q -n -m x",
+        "rm .git/hooks/pre-commit && git commit -q -am x",
+        "git -c core.hooksPath=/dev/null commit -q -am x",
+    ],
+)
+def test_a_fix_round_that_commits_around_the_gate_fails_the_unit(
+    tmp_path: Path, shortcut: str
+) -> None:
+    """The agent has `git`, and the fix round is when skipping the gate is most
+    tempting. Its own commit leaves nothing staged, which must not read as
+    nothing to commit: the gate never passed, so the unit fails."""
+    repo = repo_with_gate(tmp_path, LINTER)
+    (repo / "marker.py").write_text(LONG_LINE)
+    agent = Agent(edit=lambda cwd: subprocess.run(shortcut, shell=True, cwd=cwd, check=True))
+
+    with pytest.raises(CommitRejected) as caught:
+        build_commit(unit_id="add-marker/1", fix=agent)("feat: adds it", cwd=repo)
+
+    assert "committed on its own" in str(caught.value)
+    assert LINT_OUTPUT in str(caught.value)
+    assert len(agent.prompts) == 1, "no further round after the gate was gone around"
 
 
 def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record(

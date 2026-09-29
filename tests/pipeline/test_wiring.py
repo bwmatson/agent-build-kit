@@ -826,3 +826,31 @@ def test_an_app_unit_s_tier_two_runs_on_platform_s_dev_stack(tmp_path: Path) -> 
 
     # the consumed repo has nothing underneath it
     assert dev_stack_underneath(unit(repo="platform"), inst, prepare=prepare) is None
+
+
+def test_a_rejected_commit_goes_back_to_the_build_run_s_own_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The very runner the build ran as — same tools, same policy hook — not
+    one scoped differently that a later refactor handed the fix round."""
+    from agent_build_kit.pipeline import wiring
+
+    inst = make_installation(
+        tmp_path,
+        planning={"worktree_root": str(tmp_path.parent / "trees")},
+        repos={"app": {"path": str(tmp_path / "app"), "slug": "example/app"}},
+    )
+    fixes: list[object] = []
+    real = wiring.build_commit
+
+    def recording_build_commit(**kwargs):
+        fixes.append(kwargs.get("fix"))
+        return real(**kwargs)
+
+    monkeypatch.setattr(wiring, "build_commit", recording_build_commit)
+
+    runner = wiring.build_runner(
+        unit(repo="app"), store=UnitStore(tmp_path / "units.json"), installation=inst
+    )
+
+    assert fixes == [runner.run_claude]

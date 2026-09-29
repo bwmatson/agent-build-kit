@@ -299,6 +299,12 @@ def build_commit(
     wrote the work, in the same worktree — a bounded number of times. Every
     attempt commits everything with the hooks on: the gate is the reason the
     pipeline may push unattended, so nothing here goes around it.
+
+    One `fix` serves every commit a unit makes — tests, implementation, each
+    rework and a restack's adapt step — so the build run's agent fixes every
+    rejection, reworks included. The fix rounds do not ask the usage guard:
+    it decides whether a unit starts, and these are at most
+    `COMMIT_FIX_ROUNDS` short runs per commit of a unit already under way.
     """
     run = run or _run
 
@@ -313,14 +319,30 @@ def build_commit(
                 return None  # Nothing staged: an empty commit would be a lie.
             return run(["git", "commit", "-q", "-m", body], cwd=cwd)
 
+        def head() -> str:
+            return run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
+
         result = attempt()
-        # The first retry carries no fix: a gate that rewrote files is done.
-        for fixer in [None, *([fix] * COMMIT_FIX_ROUNDS if fix else [])]:
-            if result is None or not result.returncode:
+        # Once as is: a gate that rewrote the files has already fixed them.
+        if result is not None and result.returncode:
+            result = attempt()
+        for _ in range(COMMIT_FIX_ROUNDS if fix is not None else 0):
+            if fix is None or result is None or not result.returncode:
                 break
-            if fixer is not None:
-                output = f"{result.stdout}\n{result.stderr}".strip()
-                fixer(COMMIT_FIX_PROMPT.format(output=output), cwd=cwd)
+            output = f"{result.stdout}\n{result.stderr}".strip()
+            before = head()
+            fix(COMMIT_FIX_PROMPT.format(output=output), cwd=cwd)
+            # The agent has `git` and could commit around the gate — a skip
+            # flag, SKIP, another hooks path, a deleted hook. The policy hook
+            # refuses the ones it can name; this catches every form, since
+            # otherwise the next attempt finds nothing staged and reports it
+            # as nothing to commit.
+            if head() != before:
+                raise CommitRejected(
+                    f"the fix round committed on its own in {cwd} instead of leaving the "
+                    f"commit to the pipeline, so the gate cannot be shown to have passed. "
+                    f"The gate had said:\n{output}"
+                )
             result = attempt()
         if result is None:
             return 0
