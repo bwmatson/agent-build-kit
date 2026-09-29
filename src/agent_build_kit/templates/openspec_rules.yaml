@@ -1,9 +1,10 @@
 # abk-rules: v1
 #
 # Per-artifact rules for the OpenSpec authoring model, rendered by `abk init`
-# for this workspace's repos ({repo_names}). `abk doctor` compares this block
-# with the framework's current template and warns when a rule is missing or
-# changed; rules added below it are yours and are left alone.
+# for this workspace's repos ({repo_names}). Reword them to suit this
+# workspace and add your own — they are prompt input, and yours to own. Keep
+# the stamp above: `abk doctor` reads it, not the wording, and reports what
+# the framework has added to its rules since that version.
 rules:
   proposal:
     - "State which repos the change touches, by their workspace names ({repo_names}), and what each one gains or loses."

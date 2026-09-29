@@ -8,6 +8,7 @@ would only restate the test's own assumptions about them.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -335,3 +336,22 @@ def test_a_repo_declared_only_by_a_requirements_file_is_still_a_project(tmp_path
 
     assert [project.path for project in detection.projects] == ["."]
     assert detection.languages == ["python"]
+
+
+def test_a_directory_it_may_not_read_does_not_stop_detection(tmp_path: Path) -> None:
+    """A checkout carries runtime data as well as source — a data directory a
+    service wrote as another user, say. Scanning for projects must step over
+    what it cannot read rather than ending the run with a PermissionError."""
+    if os.geteuid() == 0:
+        pytest.skip("running as root: every directory is readable")
+    repo = init_repo(tmp_path / "app")
+    (repo / "pyproject.toml").write_text('[project]\nname = "app"\n')
+    blocked = repo / "service-data"
+    (blocked / "inner").mkdir(parents=True)
+    blocked.chmod(0o000)
+    try:
+        detection = detect_repo(repo)
+    finally:
+        blocked.chmod(0o755)
+
+    assert [project.path for project in detection.projects] == ["."]

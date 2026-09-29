@@ -16,6 +16,7 @@ the schema name, so replacing it loses nothing.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -133,6 +134,28 @@ def _repo_words(repos: Sequence[str]) -> dict[str, str]:
 def render_rules(repos: Sequence[str]) -> str:
     """The `rules:` block of openspec/config.yaml for these repos."""
     return template("openspec_rules.yaml").format(**_repo_words(repos))
+
+
+# The version of the rules block this framework writes. An installation is
+# expected to reword these rules for its own repos and conventions, so the
+# stamp — not the text — is what says whether its rules predate the
+# framework's. Bump it whenever the template gains or changes a rule, and say
+# what changed in RULES_CHANGES so `abk doctor` can report it.
+RULES_VERSION = 1
+
+# version -> what that version added or changed, in an installation's terms.
+RULES_CHANGES: dict[int, list[str]] = {
+    1: ["the initial rules"],
+}
+
+_RULES_STAMP = re.compile(r"^#\s*abk-rules:\s*v(?P<version>\d+)\s*$", re.M)
+
+
+def rules_version(text: str) -> int | None:
+    """The `# abk-rules: vN` stamp in a config.yaml, or None when it has none
+    (written before the stamp existed, or by hand)."""
+    match = _RULES_STAMP.search(text)
+    return int(match["version"]) if match else None
 
 
 def rules_of(text: str) -> dict:

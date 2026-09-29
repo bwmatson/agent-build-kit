@@ -735,6 +735,10 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     from agent_build_kit.pipeline.work_graph import tasks_path
 
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
+    if not changes:
+        # Silence reads as a failure; an empty store is a normal state.
+        print(f"no changes in {inst.changes_dir}")
+        return 0
     failed = 0
     for change in changes:
         path = tasks_path(change, inst.changes_dir)

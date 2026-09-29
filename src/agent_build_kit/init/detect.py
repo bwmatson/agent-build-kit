@@ -134,6 +134,36 @@ def _package_json(path: Path) -> dict:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _holds_marker(directory: Path) -> bool:
+    for marker in _PYTHON_MARKERS + _NODE_MARKERS:
+        try:
+            if (directory / marker).exists():
+                return True
+        except OSError:
+            return False
+    return False
+
+
+def _children(directory: Path) -> list[Path]:
+    """The directories worth descending into, or none when this one cannot be
+    read: a checkout holds runtime data as well as source, and a directory a
+    service wrote as another user must not end the scan."""
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError:
+        return []
+    children = []
+    for child in entries:
+        if child.name.startswith(".") or child.name in _SKIP_DIRS:
+            continue
+        try:
+            if child.is_dir():
+                children.append(child)
+        except OSError:
+            continue
+    return children
+
+
 def project_dirs(path: Path) -> list[Path]:
     """Every directory holding a tooling file, the root first, breadth first.
 
@@ -146,17 +176,10 @@ def project_dirs(path: Path) -> list[Path]:
     for depth in range(_SCAN_DEPTH + 1):
         if not level:
             break
-        for directory in level:
-            if any((directory / marker).exists() for marker in _PYTHON_MARKERS + _NODE_MARKERS):
-                found.append(directory)
+        found += [directory for directory in level if _holds_marker(directory)]
         if depth == _SCAN_DEPTH:
             break
-        level = [
-            child
-            for directory in level
-            for child in sorted(directory.iterdir())
-            if child.is_dir() and not child.name.startswith(".") and child.name not in _SKIP_DIRS
-        ]
+        level = [child for directory in level for child in _children(directory)]
     return found
 
 
@@ -228,11 +251,12 @@ def _dependency_refs(pyproject: dict, package: dict) -> list[str]:
 
 def _service_dirs(path: Path) -> list[str]:
     found = []
-    for child in sorted(path.iterdir()):
-        if not child.is_dir() or child.name.startswith(".") or child.name in _SKIP_DIRS:
+    for child in _children(path):
+        try:
+            if any((child / marker).exists() for marker in _SERVICE_MARKERS):
+                found.append(child.name)
+        except OSError:
             continue
-        if any((child / marker).exists() for marker in _SERVICE_MARKERS):
-            found.append(child.name)
     return found
 
 

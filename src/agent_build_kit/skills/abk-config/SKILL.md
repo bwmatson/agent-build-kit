@@ -125,7 +125,7 @@ is 1 when anything failed.
 | node / openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run through `openspec.command`. |
 | ssh key | A `deploy.ssh_key` does not exist. |
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
-| rules drift (warn) | `openspec/config.yaml`'s `rules:` lack or alter a rule from the framework's template; extra rules are fine. The diff shows what. |
+| rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. |
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
 | skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
 

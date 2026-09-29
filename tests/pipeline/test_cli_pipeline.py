@@ -929,3 +929,15 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
     out = capsys.readouterr().out
     assert "live tests failed" in out
     assert "archived c" in out
+
+
+def test_tags_over_an_empty_store_says_so_rather_than_printing_nothing(
+    tmp_path: Path, capsys
+) -> None:
+    from tests.conftest import make_installation
+
+    empty = make_installation(tmp_path / "planning")
+    empty.changes_dir.mkdir(parents=True)
+
+    assert cli.cmd_tags(argv_namespace(change=None, all=True), empty) == 0
+    assert "no changes in" in capsys.readouterr().out

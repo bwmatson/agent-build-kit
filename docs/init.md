@@ -134,8 +134,10 @@ only what is missing, the recommendation documents and generated changes are
 kept, and `abk.yaml` and `openspec/config.yaml` — the two files a person
 edits — are never overwritten. `--force` overwrites all four kinds. `abk
 doctor` is the other half: it re-runs detection to report where `abk.yaml`
-has drifted from the checkouts, and where `openspec/config.yaml`'s rules
-have drifted from the framework's template.
+has drifted from the checkouts, and reads the `# abk-rules:` stamp in
+`openspec/config.yaml` to report what the framework has added to its rules
+since that version. The rules themselves are yours to reword; only the stamp
+is compared.
 
 ## `install-skills` and the three skills
 

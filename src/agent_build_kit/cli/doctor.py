@@ -11,26 +11,23 @@ the checks are tested against recorded answers rather than this machine.
 from __future__ import annotations
 
 import argparse
-import difflib
 import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-import yaml
-
 from agent_build_kit import __version__, config, forges, openspec, profiles, skills
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
-from agent_build_kit.init.scaffold import render_rules, rules_of
+from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
 from agent_build_kit.installation import Installation, _resolve
 from agent_build_kit.model import Frozen
 
 Run = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], str | None]
 
-Status = Literal["ok", "warn", "FAIL"]
+Status = Literal["ok", "info", "warn", "FAIL"]
 
 
 class Check(Frozen):
@@ -42,6 +39,12 @@ class Check(Frozen):
 
 def _ok(name: str, detail: str) -> Check:
     return Check(name=name, status="ok", detail=detail)
+
+
+def _info(name: str, detail: str, fix: str = "") -> Check:
+    """Something worth knowing that is not a problem: it neither fails the run
+    nor counts as a warning."""
+    return Check(name=name, status="info", detail=detail, fix=fix)
 
 
 def _warn(name: str, detail: str, fix: str) -> Check:
@@ -170,38 +173,47 @@ def _verify_env(inst: Installation, run: Run) -> list[Check]:
 
 
 def _rules_drift(inst: Installation) -> Check:
+    """Whether this installation's authoring rules predate the framework's.
+
+    Not a text comparison. The rules are prompt input and an installation is
+    meant to reword them for its own repos, so comparing wording reported
+    every deliberate rewrite as drift and said nothing about whether a rule
+    was actually absent. The stamp at the top of the block is what can be
+    known: which version of the framework's rules this file was written
+    against.
+    """
     path = inst.specs_dir / "config.yaml"
     if not path.is_file():
         return _warn("rules", f"{path} is missing", "run `abk init` again to write it")
-    try:
-        current = rules_of(path.read_text())
-    except yaml.YAMLError as error:
-        return _warn("rules", f"{path} is not valid YAML: {error}", "fix the file")
-    expected = rules_of(render_rules(list(inst.repos)))
 
-    missing: list[str] = []
-    for artifact, rules in expected.get("rules", {}).items():
-        present = current.get("rules", {}).get(artifact) or []
-        missing += [f"{artifact}: {rule}" for rule in rules if rule not in present]
-    expected_guidance = expected.get("operations", {}).get("apply", {}).get("guidance", [])
-    present_guidance = current.get("operations", {}).get("apply", {}).get("guidance") or []
-    missing += [f"apply guidance: {g}" for g in expected_guidance if g not in present_guidance]
-    if not missing:
-        return _ok("rules", "openspec/config.yaml carries the framework's rules")
-
-    diff = "\n".join(
-        difflib.unified_diff(
-            yaml.safe_dump(expected, sort_keys=False).splitlines(),
-            yaml.safe_dump(current, sort_keys=False).splitlines(),
-            fromfile="framework rules",
-            tofile=str(path.relative_to(inst.root)),
-            lineterm="",
+    stamped = rules_version(path.read_text())
+    if stamped is None:
+        return _info(
+            "rules",
+            f"{path.name} carries no `# abk-rules:` stamp, so whether it predates the "
+            f"framework's rules (v{RULES_VERSION}) cannot be told from here",
+            f"compare it with the rules `abk init` would write, then add "
+            f"`# abk-rules: v{RULES_VERSION}` as its first line",
         )
-    )
+    if stamped == RULES_VERSION:
+        return _ok("rules", f"at v{RULES_VERSION} (the wording is this installation's own)")
+    if stamped > RULES_VERSION:
+        return _warn(
+            "rules",
+            f"{path.name} is stamped v{stamped}, newer than this framework's v{RULES_VERSION}",
+            "upgrade agent-build-kit",
+        )
+
+    added = [
+        f"  v{version}: {change}"
+        for version in range(stamped + 1, RULES_VERSION + 1)
+        for change in RULES_CHANGES.get(version, [])
+    ]
     return _warn(
         "rules",
-        f"{len(missing)} framework rule(s) missing or changed in {path.name}:\n{diff}",
-        "merge the missing rules back in (extra rules of your own are fine)",
+        f"{path.name} is stamped v{stamped}; the framework is at v{RULES_VERSION}:\n"
+        + "\n".join(added),
+        f"fold in what you want of these, in your own words, then stamp it v{RULES_VERSION}",
     )
 
 
@@ -308,7 +320,8 @@ def cmd_doctor(args: argparse.Namespace, _inst: Installation | None) -> int:
             print(f"      fix: {check.fix}")
     failed = sum(check.status == "FAIL" for check in checks)
     warned = sum(check.status == "warn" for check in checks)
-    print(f"\n{len(checks)} check(s): {failed} failed, {warned} warning(s)")
+    noted = sum(check.status == "info" for check in checks)
+    print(f"\n{len(checks)} check(s): {failed} failed, {warned} warning(s), {noted} note(s)")
     return 1 if failed else 0
 
 

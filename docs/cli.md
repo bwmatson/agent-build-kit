@@ -145,7 +145,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | node, openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run | |
 | ssh key `<name>` | `deploy.ssh_key` does not exist | |
 | verify.env `<VAR>` | the provider cannot resolve (names only; never values) | |
-| rules | | `openspec/config.yaml` lacks or altered a rule from the framework's template (a diff is shown; extra rules are fine) |
+| rules | | The `# abk-rules: vN` stamp in `openspec/config.yaml` against the framework's rules version: a note when it is unstamped, a warning when the framework has added rules since (they are listed) or the stamp is newer. Wording is never compared. |
 | abk.yaml `<name>` | | a service directory with no deploy rule, a rule prefix that no longer exists, a dev-stack script without `dev_stack`, a `live_written` path that is not a directory |
 | skills `<target>` | | an installed abk skill is older than the framework |
 

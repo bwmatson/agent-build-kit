@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from agent_build_kit import __version__, skills
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
-from agent_build_kit.init.scaffold import render_openspec_config
+from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
 from tests.factories import git, init_repo
 
 
@@ -167,29 +168,88 @@ def test_ssh_key_and_verify_env(workspace: Path, tmp_path: Path) -> None:
     assert "secret-value" not in "\n".join(f"{c.detail} {c.fix}" for c in checks.values())
 
 
-def test_rules_drift_is_a_warning_with_a_diff(workspace: Path) -> None:
+def test_rules_at_the_current_version_are_ok_however_they_are_worded(workspace: Path) -> None:
+    """An installation is meant to reword these rules for its own repos and
+    conventions. Comparing the text flagged every such rewrite as drift; the
+    stamp is what says whether the rules predate the framework's current set."""
     path = workspace / "openspec" / "config.yaml"
-    text = path.read_text().replace(
-        '    - "Number groups from 1 in the order they are built."\n', "    - my own extra rule\n"
+    text = path.read_text()
+    body = text[text.index("rules:") :]
+    path.write_text(
+        f"# abk-rules: v{RULES_VERSION}\nschema: spec-driven\n\n"
+        + re.sub(r"^    - .*$", "    - a rule of my own wording", body, flags=re.M)
     )
-    path.write_text(text)
-
-    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
-
-    assert checks["rules"].status == "warn"
-    assert "1 framework rule(s)" in checks["rules"].detail
-    assert "-  - Number groups from 1" in checks["rules"].detail
-    assert "extra rules of your own are fine" in checks["rules"].fix
-
-
-def test_extra_rules_alone_are_fine(workspace: Path) -> None:
-    path = workspace / "openspec" / "config.yaml"
-    numbered = '    - "Number groups from 1 in the order they are built."\n'
-    path.write_text(path.read_text().replace(numbered, numbered + "    - my own extra rule\n"))
 
     checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
 
     assert checks["rules"].status == "ok"
+    assert f"v{RULES_VERSION}" in checks["rules"].detail
+
+
+def test_rules_with_no_stamp_are_unknown_rather_than_wrong(workspace: Path) -> None:
+    """A config.yaml written before the stamp existed, or by hand. Nothing can
+    be concluded from it, so it is reported as unknown, not as a problem."""
+    path = workspace / "openspec" / "config.yaml"
+    path.write_text(path.read_text().replace(f"# abk-rules: v{RULES_VERSION}\n", ""))
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["rules"].status == "info"
+    assert "no `# abk-rules:` stamp" in checks["rules"].detail
+    assert f"v{RULES_VERSION}" in checks["rules"].fix
+
+
+def test_rules_older_than_the_framework_warn_with_what_changed(
+    workspace: Path, monkeypatch
+) -> None:
+    from agent_build_kit.cli import doctor as doctor_module
+
+    monkeypatch.setattr(doctor_module, "RULES_VERSION", RULES_VERSION + 2)
+    monkeypatch.setattr(
+        doctor_module,
+        "RULES_CHANGES",
+        {RULES_VERSION + 1: ["an acceptance group ends every change"], RULES_VERSION + 2: ["b"]},
+    )
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["rules"].status == "warn"
+    assert "an acceptance group ends every change" in checks["rules"].detail
+    assert "b" in checks["rules"].detail
+    assert f"v{RULES_VERSION + 2}" in checks["rules"].fix
+
+
+def test_rules_newer_than_the_framework_say_to_upgrade(workspace: Path, monkeypatch) -> None:
+    from agent_build_kit.cli import doctor as doctor_module
+
+    monkeypatch.setattr(doctor_module, "RULES_VERSION", RULES_VERSION - 1)
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["rules"].status == "warn"
+    assert "upgrade" in checks["rules"].fix
+
+
+def test_information_is_not_a_warning_and_does_not_fail_the_run(
+    workspace: Path, monkeypatch, capsys
+) -> None:
+    from agent_build_kit.cli import doctor
+
+    monkeypatch.setattr(
+        doctor,
+        "run_doctor",
+        lambda path, **kw: [
+            Check(name="a", status="ok", detail="fine"),
+            Check(name="rules", status="info", detail="unknown", fix="stamp it"),
+        ],
+    )
+
+    code = main(["--config", str(workspace / "abk.yaml"), "doctor"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "info  rules: unknown" in out
+    assert "0 failed, 0 warning(s), 1 note(s)" in out
 
 
 def test_abk_yaml_gaps(workspace: Path, tmp_path: Path) -> None:
