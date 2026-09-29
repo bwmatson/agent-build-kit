@@ -133,8 +133,12 @@ class ClaudeCodeRuntime:
 
         if result.returncode < 0:
             raise AgentInterrupted(f"claude was killed by signal {-result.returncode}")
-        text = final_text(result.stdout)
         ended = result_event(result.stdout) or {}
+        # An error-subtype result has no `result` text, and `final_text` would
+        # then hand back the whole transcript; that belongs in `raw` alone.
+        text = (
+            "" if ended and not isinstance(ended.get("result"), str) else final_text(result.stdout)
+        )
         stop_reason = str(ended.get("subtype") or "")
         if result.returncode:
             # Only what the CLI said about the ending, never the transcript:

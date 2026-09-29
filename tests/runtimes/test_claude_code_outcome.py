@@ -134,6 +134,31 @@ def test_any_other_failed_exit_is_a_failed_result(tmp_path: Path) -> None:
     assert result.raw == fake.stdout
 
 
+def test_a_failed_run_s_text_is_not_its_transcript(tmp_path: Path) -> None:
+    """An error-subtype result carries no answer; the transcript stays in
+    `raw` and nowhere else."""
+    fake = FakeClaude(stdout=failed_build(tmp_path, "Execution error"), returncode=1)
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert result.text == ""
+    assert result.raw == fake.stdout
+
+
+def test_a_refusal_reported_in_the_result_s_errors_raises(tmp_path: Path) -> None:
+    """An error-subtype result has no `result` text: what went wrong is in
+    its `errors`, and a refusal there is still a refusal."""
+    fake = FakeClaude(
+        stdout=failed_build(
+            tmp_path, 'API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}'
+        ),
+        returncode=1,
+    )
+
+    with pytest.raises(AgentRateLimited):
+        ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+
 def test_a_failure_is_never_read_as_a_rate_limit_or_an_interruption(tmp_path: Path) -> None:
     fake = FakeClaude(
         stdout=failed_build(tmp_path, "Execution error"),

@@ -75,8 +75,13 @@ def result_event(stdout: str) -> dict | None:
 
 def own_words(stdout: str) -> str:
     """What the CLI itself said about how the run ended, and nothing the run
-    did on the way: the `result` event's text, or, with no such event, the
-    lines that are not events.
+    did on the way: the `result` event's text and its `errors`, or, with no
+    such event, the lines that are not events.
+
+    Which of the two the event carries depends on its subtype: a `success`
+    result (a usage-limit refusal among them, flagged `is_error`) says it in
+    `result`; an error subtype (`error_during_execution`, `error_max_turns`)
+    has no `result` and lists what went wrong in `errors`.
 
     A failed run is classified on this, never on the whole transcript. A
     stream carries every event's uuid, token counts, the files the agent read
@@ -85,8 +90,8 @@ def own_words(stdout: str) -> str:
     """
     event = result_event(stdout)
     if event is not None:
-        said = event.get("result")
-        return said if isinstance(said, str) else ""
+        said = [event.get("result")] + list(event.get("errors") or [])
+        return "\n".join(part for part in said if isinstance(part, str) and part)
     return "\n".join(line for line in stdout.splitlines() if _parse(line) is None)
 
 

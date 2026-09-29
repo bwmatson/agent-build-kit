@@ -80,6 +80,10 @@ def _result(
     ms: int = 81234,
     subtype: str = "success",
 ) -> dict:
+    """The closing event. Only a `success` result — a usage-limit refusal
+    among them, flagged `is_error` — carries `result`; an error subtype has
+    none, and says what went wrong in `errors` instead."""
+    said = {"result": text} if subtype == "success" else {"errors": [text]}
     return {
         "type": "result",
         "subtype": subtype,
@@ -87,7 +91,7 @@ def _result(
         "duration_ms": ms,
         "duration_api_ms": ms - 2100 if ms > 2100 else 0,
         "num_turns": turns,
-        "result": text,
+        **said,
         "session_id": SESSION,
         "total_cost_usd": 0.0 if is_error else 0.4127,
         "usage": _USAGE if not is_error else dict.fromkeys(_USAGE, 0) | {"service_tier": None},
@@ -156,7 +160,8 @@ def failed_build(cwd: Path, message: str) -> str:
 
     Everything but the closing result mentions a refusal somewhere, as a real
     transcript can: the session and uuids contain "429", the file read back is
-    a usage guard, and the assistant's prose says "rate limit".
+    a usage guard, and the assistant's prose says "rate limit". `message`
+    arrives in the result's `errors`, as the CLI reports an error subtype.
     """
     session = "7c2e4290-1d5a-4b8f-a429-3e6f0b1c9d72"
     guard = cwd / "src" / "usage_guard.py"

@@ -103,7 +103,12 @@ def test_a_streamed_transcript_that_mentions_rate_limits_is_not_a_refusal(
         for event in (
             {"type": "system", "subtype": "init", "session_id": "7c2e4290-1d5a-4b8f"},
             {"type": "assistant", "message": {"content": [{"type": "text", "text": "rate limit"}]}},
-            {"type": "result", "subtype": "error_during_execution", "result": "Execution error"},
+            {
+                "type": "result",
+                "subtype": "error_during_execution",
+                "is_error": True,
+                "errors": ["Execution error"],
+            },
         )
     )
     broken = subprocess.CompletedProcess(["claude"], 1, transcript, "")
@@ -113,6 +118,23 @@ def test_a_streamed_transcript_that_mentions_rate_limits_is_not_a_refusal(
 
     assert not isinstance(caught.value, RateLimited)
     assert str(caught.value) == "claude exited 1: Execution error"
+
+
+def test_a_refusal_reported_in_the_result_s_errors_is_a_refusal(tmp_path: Path) -> None:
+    """An error-subtype result has no `result` text; what went wrong is in
+    its `errors`."""
+    transcript = json.dumps(
+        {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "errors": ['API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}'],
+        }
+    )
+    refused = subprocess.CompletedProcess(["claude"], 1, transcript, "")
+
+    with pytest.raises(RateLimited):
+        build_run_claude(run=lambda *a, **k: refused)("do the thing", cwd=tmp_path)
 
 
 def test_a_successful_run_is_unaffected(tmp_path: Path) -> None:
