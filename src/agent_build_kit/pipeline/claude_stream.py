@@ -27,7 +27,7 @@ WIDTH = 160
 
 
 def stream_run(
-    args: list[str], *, cwd: Path, on_event: Callable[[dict], None]
+    args: list[str], *, cwd: Path | None, on_event: Callable[[dict], None]
 ) -> subprocess.CompletedProcess[str]:
     """Run `args`, calling `on_event` for each JSON line as it is printed.
 

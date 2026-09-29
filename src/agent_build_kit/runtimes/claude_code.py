@@ -1,15 +1,34 @@
-"""Claude Code as an agent runtime: `claude -p`, run as a subprocess."""
+"""Claude Code as an agent runtime: `claude -p`, run as a subprocess.
+
+The one place that builds a `claude` argv and reads what the process hands
+back. A request's policy brings the PreToolUse hook (`hooks/policy`) and the
+pipeline's deny list with it; its progress callback turns the run into a
+streamed one (`pipeline/claude_stream`); and a failed exit is sorted into a
+spent usage window, an interruption, or a failed result as
+`pipeline/usage_guard` has always told them apart.
+"""
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-from agent_build_kit.pipeline.usage_guard import UsageReading
+from agent_build_kit.hooks.policy import hook_settings
+from agent_build_kit.pipeline.claude_stream import STREAM_FLAGS, describe, final_text, stream_run
+from agent_build_kit.pipeline.usage_guard import (
+    UsageReading,
+    rate_limit_reset,
+    read_cached_usage,
+    read_live_usage,
+)
 from agent_build_kit.runtimes.base import (
+    AgentInterrupted,
+    AgentRateLimited,
     AgentRequest,
     AgentResult,
+    AgentRuntime,
     PolicyCoverage,
     PolicyReport,
     UsageStatus,
@@ -23,13 +42,64 @@ Execute = Callable[..., subprocess.CompletedProcess[str]]
 # A usage reading, or None when there is none: `usage_guard`'s readers.
 ReadUsage = Callable[[], UsageReading | None]
 
+# Passed beside the hook on every policed run. Redundant by design: two
+# independent things have to fail before the agent can merge its own PR.
+DISALLOWED = (
+    "Bash(gh pr merge*) Bash(git push --force *) Bash(git reset --hard*) "
+    "Bash(rm -rf*) Bash(git branch -D*)"
+)
+
+# abk's permission modes in Claude Code's words. A read-only run is read-only
+# by its tool list, as a review always has been; the mode is the same.
+PERMISSION_MODES = {"edit": "acceptEdits", "read_only": "acceptEdits"}
+
+
+def spawn(
+    argv: list[str],
+    *,
+    cwd: Path | None = None,
+    on_event: Callable[[dict], None] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """The real `claude` process: streamed when there is someone to tell."""
+    if on_event is not None:
+        return stream_run(argv, cwd=cwd, on_event=on_event)
+    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def build_argv(request: AgentRequest) -> list[str]:
+    argv = ["claude", "-p", request.prompt]
+    if request.worktree:
+        argv += ["--worktree", request.worktree]
+    for directory in request.add_dirs:
+        argv += ["--add-dir", str(directory)]
+    denied = request.denied_tools
+    if request.policy is not None:
+        settings = hook_settings(
+            request.policy.specs_dir, branch_prefix=request.policy.branch_prefix
+        )
+        argv += ["--settings", json.dumps(settings)]
+        denied = f"{DISALLOWED} {denied}".strip()
+    if request.allowed_tools:
+        argv += ["--allowedTools", request.allowed_tools]
+    if denied:
+        argv += ["--disallowedTools", denied]
+    argv += ["--permission-mode", PERMISSION_MODES[request.permission_mode]]
+    if request.model:
+        argv += ["--model", request.model]
+    if request.on_event is not None:
+        argv += STREAM_FLAGS
+    elif request.keep_record:
+        argv += ["--output-format", "json"]
+    return argv
+
 
 class ClaudeCodeRuntime:
-    name: str
-    implemented: bool
-    policy_coverage: PolicyCoverage
-    supports_usage_tracking: bool
-    supports_streaming: bool
+    name: str = "claude_code"
+    implemented: bool = True
+    # The hook sees every tool call before it runs.
+    policy_coverage: PolicyCoverage = "all_calls"
+    supports_usage_tracking: bool = True
+    supports_streaming: bool = True
 
     def __init__(
         self,
@@ -38,13 +108,63 @@ class ClaudeCodeRuntime:
         read_live: ReadUsage | None = None,
         read_cached: ReadUsage | None = None,
     ) -> None:
-        raise NotImplementedError
+        self._execute = execute
+        self._read_live = read_live
+        self._read_cached = read_cached
 
     def run(self, request: AgentRequest) -> AgentResult:
-        raise NotImplementedError
+        execute = self._execute or spawn
+        result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request))
+
+        if result.returncode < 0:
+            raise AgentInterrupted(f"claude was killed by signal {-result.returncode}")
+        text = final_text(result.stdout)
+        if result.returncode:
+            output = f"{result.stdout}\n{result.stderr}".strip()
+            reset = rate_limit_reset(output)
+            if reset is not False:
+                raise AgentRateLimited(output or "claude reported a usage limit", resets_at=reset)
+            return AgentResult(
+                ok=False,
+                text=text,
+                raw=result.stdout,
+                error=f"claude exited {result.returncode}: {output}",
+            )
+        return AgentResult(ok=True, text=text, raw=result.stdout)
 
     def get_usage_status(self) -> UsageStatus | None:
-        raise NotImplementedError
+        reading = (self._read_live or read_live_usage)() or (
+            self._read_cached or read_cached_usage
+        )()
+        if reading is None:
+            return None
+        return UsageStatus(
+            session_pct=reading.session_pct,
+            weekly_pct=reading.weekly_pct,
+            resets_at=reading.resets_at,
+            source=reading.source,
+        )
 
     def check_policy(self, cwd: Path) -> PolicyReport:
-        raise NotImplementedError
+        """Answered locally: every policed run registers the hook and passes
+        the same denies as flags, so no class goes unenforced."""
+        return PolicyReport(ok=True)
+
+
+def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
+    """Each event worth reading, as a log line for the request's callback."""
+    report = request.on_event
+    if report is None:
+        return None
+    prefix = f"{request.cwd}/" if request.cwd is not None else None
+
+    def on_event(event: dict) -> None:
+        for line in describe(event):
+            # Relative to the worktree: its absolute path is the same long
+            # prefix on every line and says nothing.
+            report(f"  {line.replace(prefix, '') if prefix else line}")
+
+    return on_event
+
+
+_: AgentRuntime = ClaudeCodeRuntime()
