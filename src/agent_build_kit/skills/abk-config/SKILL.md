@@ -55,6 +55,8 @@ limits:
   stack_depth_cap: 3          # longest chain of in-review PRs from main
   max_concurrent_stacks: 4    # units implemented at once, across repos
   min_unit_lines: 500         # estimated lines before a unit stops growing
+  max_unit_lines: 1000        # estimated lines one unit may carry; above
+                              # min_unit_lines. Plans only, not branches
   max_review_rounds: 3        # review rounds before a unit fails
   usage_pause_pct: 70         # % of a usage window at which no unit starts
   usage_ceiling_pct: 90       # what that rises to at that window's reset

@@ -81,14 +81,15 @@ def local_ref(base: str) -> str:
     return base if base.startswith(active().github.branch_prefix) else f"origin/{base}"
 
 
-def plan_units(change: str, groups: list[dict], *, min_lines: int) -> list[Unit]:
+def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: int) -> list[Unit]:
     """Group consecutive task groups into units.
 
     Absorbing continues until the estimate reaches `min_lines`, because a
     chain of small groups would otherwise become a stack of trivial PRs, each
     costing an issue, a tier 2 run, a restack and a merge. It stops early at a
     fan-out point — a group other units are waiting on — since finishing that
-    sooner lets them start.
+    sooner lets them start. It never combines groups past `max_lines`: a group
+    that would take the unit over it starts a unit of its own.
 
     A unit never spans repos: a branch lives in one, so its unit does too.
     """
@@ -121,8 +122,12 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int) -> list[Unit]
         if current and group["repo"] != current[0]["repo"]:
             flush()
 
+        size = sum(g["estimated_lines"] for g in current) + group["estimated_lines"]
+        if current and size > max_lines:
+            flush()
+            size = group["estimated_lines"]
+
         current.append(group)
-        size = sum(g["estimated_lines"] for g in current)
 
         if group.get("fans_out") or size >= min_lines:
             flush()

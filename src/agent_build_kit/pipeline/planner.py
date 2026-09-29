@@ -41,6 +41,12 @@ class PlannerError(Exception):
     """The proposed graph can't be trusted, so the round stops here."""
 
 
+class GroupTooLarge(PlannerError):
+    """One task group is estimated over the ceiling on its own. No grouping
+    fixes that — the change's tasks need splitting — so asking again cannot
+    help."""
+
+
 class InFlight(Frozen):
     """A unit that already exists, as context for placing new work."""
 
@@ -114,7 +120,33 @@ def parse_graph(
     if groups is not None:
         _check_groups(units, groups, built or set())
         _check_acceptance(units, groups)
+    _check_ceiling(units)
     return units
+
+
+def _check_ceiling(units: list[Unit]) -> None:
+    """No unit is estimated over the ceiling.
+
+    A single group over it is reported as `GroupTooLarge` before any combined
+    unit is: that one is fixed in tasks.md, and re-asking would only spend
+    attempts on it.
+    """
+    ceiling = active().limits.max_unit_lines
+    oversized = [unit for unit in units if unit.estimated_lines > ceiling]
+
+    for unit in oversized:
+        if len(unit.groups) == 1:
+            raise GroupTooLarge(
+                f"group {unit.groups[0]} of {unit.change} is estimated at "
+                f"{unit.estimated_lines} changed lines, over the ceiling of {ceiling} — "
+                "no unit can hold it, so its tasks must be split in tasks.md"
+            )
+    if oversized:
+        unit = oversized[0]
+        raise PlannerError(
+            f"unit {unit.id} is estimated at {unit.estimated_lines} changed lines, over "
+            f"the ceiling of {ceiling} — its groups must go in more than one unit"
+        )
 
 
 def _check_groups(units: list[Unit], groups: list[TaskGroup], built: set[int]) -> None:
@@ -263,6 +295,10 @@ Rules the graph must satisfy:
   doesn't become a stack of trivial PRs. Groups in different repos are never
   combined, however small, and consecutive numbering does not imply the same
   repo. Stop earlier when finishing a group unblocks other units.
+- Never combine groups into a unit estimated over {max_lines} changed lines:
+  a plan with such a unit is rejected. A single group estimated over it
+  cannot be planned at all — give it its honest estimate in a unit of its own
+  and it will be reported as needing its tasks split.
 - `estimated_lines` is your estimate of additions plus deletions, excluding
   generated files such as lockfiles.
 - Dependencies in the same repo may be in_review — the unit stacks on them.
@@ -328,6 +364,7 @@ def build_prompt(changes: dict[str, str], in_flight: list[dict]) -> str:
         example_repo=repos[0] if repos else "repo",
         tiers=", ".join(TIERS),
         min_lines=workspace.limits.min_unit_lines,
+        max_lines=workspace.limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",
         changes=changes_text,
         in_flight=in_flight_text,

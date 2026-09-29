@@ -89,6 +89,9 @@ class LimitsConfig(Frozen):
     max_concurrent_stacks: int = 4
     # Estimated changed lines before a unit stops absorbing the next task group.
     min_unit_lines: int = 500
+    # Estimated changed lines one unit may carry. It shapes plans only: a
+    # branch is not measured against it, so a unit can still land larger.
+    max_unit_lines: int = 1000
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
     # Percent of the Claude usage window at which no NEW unit starts, for
@@ -118,6 +121,16 @@ class LimitsConfig(Frozen):
             raise ValueError(
                 f"usage_ceiling_pct ({self.usage_ceiling_pct}) is below "
                 f"usage_pause_pct ({self.usage_pause_pct})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ceiling_above_floor(self) -> LimitsConfig:
+        """A floor at or above the ceiling is a unit size no plan can meet."""
+        if self.max_unit_lines <= self.min_unit_lines:
+            raise ValueError(
+                f"max_unit_lines ({self.max_unit_lines}) must exceed "
+                f"min_unit_lines ({self.min_unit_lines})"
             )
         return self
 
