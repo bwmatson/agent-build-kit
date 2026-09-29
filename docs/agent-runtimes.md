@@ -5,8 +5,11 @@
 (`runtimes/claude_code.py`, the one module that builds a `claude` argv), and
 every call site going through `AgentRuntime.run()`, choosing a runtime in
 `abk.yaml` or the environment, per-runtime model names, and the `doctor` and
-`init` runtime checks are in place. Not yet implemented: the `acp` adapter —
-Claude Code is still the only registered runtime. This document specifies the
+`init` runtime checks are in place. The `acp` adapter (`runtimes/acp.py`, behind
+the `acp` extra) runs a prompt, maps each end-of-turn reason, selects a model
+and streams progress; its client capabilities, permission answering and
+`check_policy` are not yet implemented, so it stays unregistered and Claude
+Code is still the only registered runtime. This document specifies the
 whole shape, so that adding a second runtime is writing an adapter against a
 fixed Protocol, not another round of the same subprocess plumbing.
 
@@ -348,10 +351,14 @@ entry left over from trying another runtime out is never made to be complete.
 `--allowedTools` patterns, and `ToolchainProfile.allowed_tools` extends them in
 the same syntax. ACP standardizes no equivalent: an agent's tool set comes from
 its own configuration, and the protocol has no "these tools only" parameter on
-a session. So the `acp` adapter documents these two fields as inert on its
-path, and a workspace scopes its agent's tools in that agent's own config. This
-is a real reduction in expressiveness, not a detail to gloss: it is why the
-policy work below does not lean on tool scoping for anything load-bearing.
+a session. **On the `acp` path both fields are inert**: `runtimes/acp.py` reads
+neither, sends nothing for them, and a request that sets them runs exactly as
+one that does not. Translating them would mean guessing at each agent's own
+tool names and config format, which is the per-product knowledge this adapter
+exists to keep out of abk. A workspace scopes its agent's tools in that agent's
+own config instead. This is a real reduction in expressiveness, not a detail to
+gloss: it is why the policy work below does not lean on tool scoping for
+anything load-bearing.
 
 ## Policy enforcement without a hook contract
 
@@ -523,7 +530,7 @@ message.
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
 |---|---|---|---|---|---|---|
 | `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
-| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **not implemented** |
+| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **partly implemented**, as `runtimes/acp.py`: runs, outcomes, models and progress; not yet enforcement or `check_policy` |
 
 ## Open questions
 
