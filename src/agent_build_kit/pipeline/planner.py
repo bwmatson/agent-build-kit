@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from collections.abc import Callable
 
+from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.pipeline.usage_guard import check_refusal
 from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
+from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 
 RunClaude = Callable[[str], str]
@@ -334,15 +334,16 @@ def build_prompt(changes: dict[str, str], in_flight: list[dict]) -> str:
     )
 
 
-def _claude(prompt: str) -> str:
-    result = subprocess.run(
-        ["claude", "-p", prompt, "--output-format", "text"],
-        capture_output=True,
-        text=True,
-        check=False,
+def _ask(prompt: str, runtime: AgentRuntime | None) -> str:
+    """The graph call: no worktree and no tools, answered from the prompt
+    alone. A refusal raises as it does for any run; any other failed run
+    fails the attempt on what the runtime said, never read as a plan."""
+    result = (runtime or runtimes.active()).run(
+        AgentRequest(prompt=prompt, permission_mode="allowed_tools_only")
     )
-    check_refusal(result)
-    return result.stdout
+    if not result.ok:
+        raise PlannerError(f"the graph call failed: {result.error}")
+    return result.text
 
 
 def plan_round(
@@ -359,7 +360,6 @@ def plan_round(
 
     An empty plan is a normal answer: every change may be waiting on review.
     """
-    run_claude = run_claude or _claude
-    return parse_graph(
-        run_claude(build_prompt(changes, in_flight)), groups=groups, built=built, known=known
-    )
+    prompt = build_prompt(changes, in_flight)
+    answer = run_claude(prompt) if run_claude else _ask(prompt, runtime)
+    return parse_graph(answer, groups=groups, built=built, known=known)

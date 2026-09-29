@@ -1,26 +1,42 @@
-"""One `claude -p` call whose whole argv the caller builds.
+"""The init steps' older injection point: a `claude -p` call that hands back
+its text.
 
-The pipeline's runners (pipeline/wiring.py) fix the flags for a build; the
-init steps each need a different tool set — research reads the web and
-writes nothing, a proposal writes into the planning repo — so here the
-caller passes the argv and only the running is shared. Tests inject a
-`RunClaude` and see the exact argv; nothing in this package calls the real
-binary during a test.
+Research and propose reach their agent through the runtime seam. A caller
+may still pass a `RunClaude` instead, which is then what the Claude Code
+adapter runs its argv through — so a test sees the exact argv, and nothing
+in this package calls the real binary during one.
 """
 
 from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
-from pathlib import Path
 
-from agent_build_kit.pipeline.usage_guard import check_refusal
+from agent_build_kit import runtimes
+from agent_build_kit.runtimes import AgentResult, AgentRuntime
+from agent_build_kit.runtimes.claude_code import through
 
 # (argv, *, cwd=None) -> the model's text output.
 RunClaude = Callable[..., str]
 
 
-def claude_text(argv: list[str], *, cwd: Path | None = None) -> str:
-    result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
-    check_refusal(result)
-    return result.stdout
+def runtime_for(run_claude: RunClaude | None, runtime: AgentRuntime | None) -> AgentRuntime:
+    """The runtime a step runs on: the one it was given, else Claude Code over
+    the given `RunClaude`, else the active one."""
+    if runtime is not None:
+        return runtime
+    if run_claude is None:
+        return runtimes.active()
+
+    def run(argv: list[str], *, cwd=None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, run_claude(argv, cwd=cwd), "")
+
+    return through(run)
+
+
+def succeeded(result: AgentResult) -> str:
+    """The run's answer, or the error a failed run ended on — never whatever
+    text it left behind."""
+    if not result.ok:
+        raise RuntimeError(result.error)
+    return result.text

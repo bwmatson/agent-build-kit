@@ -41,14 +41,16 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit import runtimes
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
+from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, build_argv
 
 RUN_ID = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 TRACKS = ("health", "improve", "recommend")
@@ -316,47 +318,40 @@ def render_prompt(
 # --- running a phase -------------------------------------------------------------
 
 
-def run_phase_command(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
-
-
-def build_command(
-    inst: Installation,
-    *,
-    prompt: str,
-    worktree: str | None,
-) -> list[str]:
+def phase_request(
+    inst: Installation, project: Project, *, prompt: str, worktree: str | None
+) -> AgentRequest:
+    """One phase's run, with its model and tool lists from `tracks`: in the
+    project's checkout, the planning repo readable for its run log, and the
+    whole machine-readable record kept as the raw output."""
     tracks = inst.config.tracks
-    cmd = ["claude", "-p"]
-    if worktree:
-        cmd += ["--worktree", worktree]
-    cmd += [
-        "--add-dir",
-        str(inst.root),
-        "--permission-mode",
-        "acceptEdits",
-        "--allowedTools",
-        tracks.allowed_tools,
-        "--disallowedTools",
-        tracks.disallowed_tools,
-        "--model",
-        tracks.model,
-        "--output-format",
-        "json",
-        prompt,
-    ]
-    return cmd
+    return AgentRequest(
+        prompt=prompt,
+        cwd=project.path,
+        add_dirs=(inst.root,),
+        model=tracks.model,
+        allowed_tools=tracks.allowed_tools,
+        denied_tools=tracks.disallowed_tools,
+        permission_mode="edit",
+        worktree=worktree,
+        keep_record=True,
+    )
 
 
-def _print_dry_run(project: Project, name: str, cmd: list[str]) -> None:
-    prompt = cmd[-1]
-    lines = prompt.splitlines()
+def _print_dry_run(
+    project: Project, name: str, request: AgentRequest, runtime: AgentRuntime
+) -> None:
+    lines = request.prompt.splitlines()
     print(
         f"--- [{project.name}] {name}: prompt (first {DRY_RUN_PROMPT_LINES} of {len(lines)} lines)"
     )
     print("\n".join(lines[:DRY_RUN_PROMPT_LINES]))
-    print(f"--- [{project.name}] {name}: command (prompt elided)")
-    print(shlex.join(cmd[:-1]) + " '<prompt>'")
+    if isinstance(runtime, ClaudeCodeRuntime):
+        print(f"--- [{project.name}] {name}: command (prompt elided)")
+        print(shlex.join(build_argv(request.model_copy(update={"prompt": "<prompt>"}))))
+    else:
+        print(f"--- [{project.name}] {name}: {runtime.name} request (prompt elided)")
+        print(request.model_dump(exclude={"prompt", "on_event"}))
 
 
 def claude_phase(
@@ -369,20 +364,22 @@ def claude_phase(
     dry_run: bool = False,
     runtime: AgentRuntime | None = None,
 ) -> int:
-    """Runs one claude -p phase for one project (cwd = that project's
-    checkout, the planning repo added as an extra dir for run logs), writes
-    its raw JSON output under the planning root, and returns its exit code.
-    Never raises on a nonzero exit — an otherwise failed phase should not
-    stop whatever phase or project runs after it. No dollar budget: the
-    session window is the limit, and `has_headroom` (below) is what keeps a
-    timer from spending into credits — a guessed dollar ceiling beside that
-    drifts from real cost, and set too low it refuses to start a run rather
-    than bounding one. A dry run prints the rendered prompt and the command
+    """Runs one phase for one project through the agent runtime (cwd = that
+    project's checkout, the planning repo added as an extra dir for run
+    logs), writes its raw record under the planning root, and returns 0 or 1.
+    Never raises on a failed run — an otherwise failed phase should not stop
+    whatever phase or project runs after it. No dollar budget: the session
+    window is the limit, and `has_headroom` (below) is what keeps a timer
+    from spending into credits — a guessed dollar ceiling beside that drifts
+    from real cost, and set too low it refuses to start a run rather than
+    bounding one. A dry run prints the rendered prompt and the command
     instead of running it."""
-    prompt = render_prompt(inst, project, name, focus)
-    cmd = build_command(inst, prompt=prompt, worktree=worktree)
+    agent = runtime or runtimes.active()
+    request = phase_request(
+        inst, project, prompt=render_prompt(inst, project, name, focus), worktree=worktree
+    )
     if dry_run:
-        _print_dry_run(project, name, cmd)
+        _print_dry_run(project, name, request, agent)
         return 0
 
     output_dir = raw_output_dir(inst)
@@ -390,20 +387,21 @@ def claude_phase(
     output_file = output_dir / f"{RUN_ID}-{project.name}-{name}.json"
 
     log(f"[{project.name}] phase: {name} (session window only)")
-    result = run_phase_command(cmd, cwd=project.path)
-    output_file.write_text(result.stdout)
+    try:
+        result = agent.run(request)
+    except (AgentRateLimited, AgentInterrupted) as error:
+        log(f"[{project.name}] {name} phase stopped — {error}. Continuing regardless.")
+        return 1
+    output_file.write_text(result.raw)
 
-    if result.returncode != 0:
+    if not result.ok:
         log(
-            f"[{project.name}] {name} phase exited {result.returncode} — see "
-            f"{output_file} and stderr below. Continuing regardless."
+            f"[{project.name}] {name} phase failed — {result.error} — see "
+            f"{output_file}. Continuing regardless."
         )
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
-    else:
-        log(f"[{project.name}] {name} phase done — raw output: {output_file}")
-
-    return result.returncode
+        return 1
+    log(f"[{project.name}] {name} phase done — raw output: {output_file}")
+    return 0
 
 
 def read_status(path: Path) -> str | None:
@@ -451,6 +449,7 @@ def implement(
         worktree=f"abk-{RUN_ID}",
         focus=focus,
         dry_run=dry_run,
+        runtime=runtime,
     )
 
 
@@ -468,6 +467,7 @@ def health(
         name="health",
         worktree=None,
         dry_run=dry_run,
+        runtime=runtime,
     )
     if dry_run:
         return health_rc
@@ -492,7 +492,7 @@ def health(
         f"something already pending — running implement now rather than "
         f"waiting for the weekly improve run."
     )
-    implement_rc = implement(inst, project)
+    implement_rc = implement(inst, project, runtime=runtime)
     return 1 if (health_rc != 0 or implement_rc != 0) else 0
 
 
@@ -511,10 +511,11 @@ def discover_then_implement(track: str):
             name=track,
             worktree=None,
             dry_run=dry_run,
+            runtime=runtime,
         )
         # Always runs, even if discovery exited nonzero — implement falls
         # back to whatever candidates already exist in the run log.
-        implement_rc = implement(inst, project, dry_run=dry_run)
+        implement_rc = implement(inst, project, dry_run=dry_run, runtime=runtime)
         return 1 if (discover_rc != 0 or implement_rc != 0) else 0
 
     return run
@@ -535,11 +536,13 @@ def run_track(
     only: str | None = None,
     focus: str | None = None,
     dry_run: bool = False,
+    runtime: AgentRuntime | None = None,
 ) -> int:
     """One track across every eligible repo: headroom check, pull the
     planning repo, then per repo pull and dispatch. Returns 1 if any repo
     failed. A dry run skips the checks and the pulls and prints what each
-    phase would run."""
+    phase would run. `runtime` is what every phase runs on; the active one
+    when not given."""
     if not dry_run:
         if not has_headroom():
             return 0
@@ -557,7 +560,7 @@ def run_track(
             log(f"[{project.name}] couldn't update to latest {project.default_branch} — skipping")
             failed.append(project.name)
             continue
-        if DISPATCH[phase](inst, project, focus, dry_run=dry_run) != 0:
+        if DISPATCH[phase](inst, project, focus, dry_run=dry_run, runtime=runtime) != 0:
             failed.append(project.name)
     log(
         f"{phase} run complete for {[p.name for p in projects]} — check "

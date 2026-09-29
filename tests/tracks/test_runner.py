@@ -28,8 +28,12 @@ from agent_build_kit.cli import tracks as tracks_cli
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
+from agent_build_kit.runtimes import AgentRequest
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.tracks import runner
 from tests.factories import git, init_repo
+from tests.runtimes.claude_cli import FakeClaude, no_agent
+from tests.runtimes.stand_in import StandInRuntime
 
 PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 
@@ -98,17 +102,15 @@ def inst(tmp_path: Path) -> Installation:
 
 
 @pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+def recorder() -> FakeClaude:
     """Captures every claude command instead of running it; a run succeeds
     with empty JSON."""
-    captured: list[list[str]] = []
+    return FakeClaude(stdout="{}")
 
-    def record(cmd, **kwargs) -> subprocess.CompletedProcess:
-        captured.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
-    monkeypatch.setattr(runner, "run_phase_command", record)
-    return captured
+def on(fake) -> ClaudeCodeRuntime:
+    """Claude Code, with `fake` in place of the process."""
+    return ClaudeCodeRuntime(execute=fake)
 
 
 # --- budgets and headroom -------------------------------------------------------
@@ -116,16 +118,16 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 def test_implement_runs_without_a_dollar_budget(inst, recorder) -> None:
     """The session window is what bounds it."""
-    runner.implement(inst, project(inst))
+    runner.implement(inst, project(inst), runtime=on(recorder))
 
-    assert "--max-budget-usd" not in recorder[0]
+    assert "--max-budget-usd" not in recorder.argv
 
 
 def test_health_runs_without_a_dollar_budget(inst, recorder) -> None:
     """The session window is what bounds it — same as every other phase."""
-    runner.health(inst, project(inst))
+    runner.health(inst, project(inst), runtime=on(recorder))
 
-    assert "--max-budget-usd" not in recorder[0]
+    assert "--max-budget-usd" not in recorder.argv
 
 
 def test_a_full_window_stops_the_run_before_any_project(monkeypatch, capsys) -> None:
@@ -155,9 +157,9 @@ def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
         tracks={"model": "haiku", "allowed_tools": "Read", "disallowed_tools": "Bash(rm *)"},
     )
 
-    runner.implement(inst, project(inst))
+    runner.implement(inst, project(inst), runtime=on(recorder))
 
-    cmd = recorder[0]
+    cmd = recorder.argv
     assert cmd[:2] == ["claude", "-p"]
     assert cmd[cmd.index("--add-dir") + 1] == str(inst.root)
     assert cmd[cmd.index("--model") + 1] == "haiku"
@@ -169,19 +171,15 @@ def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
 def test_raw_output_lands_under_the_planning_root(tmp_path, recorder) -> None:
     inst = make_installation(tmp_path, tracks={"raw_output_dir": "raw"})
 
-    runner.implement(inst, project(inst))
+    runner.implement(inst, project(inst), runtime=on(recorder))
 
     assert (inst.root / "raw" / f"{runner.RUN_ID}-app-implement.json").read_text() == "{}"
 
 
-def test_a_failed_phase_reports_and_continues(inst, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        runner,
-        "run_phase_command",
-        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 3, "", "budget exhausted"),
-    )
+def test_a_failed_phase_reports_and_continues(inst, capsys) -> None:
+    failing = FakeClaude(returncode=3, stderr="budget exhausted")
 
-    assert runner.implement(inst, project(inst)) == 3
+    assert runner.implement(inst, project(inst), runtime=on(failing)) == 1
     assert "exited 3" in capsys.readouterr().out
 
 
@@ -197,37 +195,35 @@ def test_run_log_lives_in_the_state_dir(tmp_path) -> None:
     assert path == inst.state_dir / f"{runner.RUN_ID}-app-health.md"
 
 
-def phases_run(inst: Installation, monkeypatch, *, status: str | None) -> list[str]:
+def phases_run(inst: Installation, *, status: str | None) -> list[str]:
     phases: list[str] = []
 
-    def fake(cmd, **kwargs) -> subprocess.CompletedProcess:
-        phase = Path(cmd[-1].splitlines()[0].split("—")[0].split(":")[1].strip().split()[0])
+    def act(request: AgentRequest) -> None:
+        phase = Path(request.prompt.splitlines()[0].split("—")[0].split(":")[1].strip().split()[0])
         phases.append(str(phase))
         if str(phase) == "health" and status is not None:
             log = runner.run_log(inst, project(inst), "health")
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_text(f"# Health\n\n**Status:** {status} — because\n")
-        return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
-    monkeypatch.setattr(runner, "run_phase_command", fake)
-    runner.health(inst, project(inst))
+    runner.health(inst, project(inst), runtime=StandInRuntime(raw="{}", act=act))
     return phases
 
 
-def test_an_attention_status_runs_implement_at_once(inst, monkeypatch) -> None:
-    assert phases_run(inst, monkeypatch, status="ATTENTION") == ["health", "implement"]
+def test_an_attention_status_runs_implement_at_once(inst) -> None:
+    assert phases_run(inst, status="ATTENTION") == ["health", "implement"]
 
 
-def test_an_ok_status_stops_after_health(inst, monkeypatch) -> None:
-    assert phases_run(inst, monkeypatch, status="OK") == ["health"]
+def test_an_ok_status_stops_after_health(inst) -> None:
+    assert phases_run(inst, status="OK") == ["health"]
 
 
-def test_pending_resolution_stops_after_health(inst, monkeypatch) -> None:
-    assert phases_run(inst, monkeypatch, status="PENDING RESOLUTION") == ["health"]
+def test_pending_resolution_stops_after_health(inst) -> None:
+    assert phases_run(inst, status="PENDING RESOLUTION") == ["health"]
 
 
-def test_a_missing_run_log_does_not_trigger_implement(inst, monkeypatch, capsys) -> None:
-    assert phases_run(inst, monkeypatch, status=None) == ["health"]
+def test_a_missing_run_log_does_not_trigger_implement(inst, capsys) -> None:
+    assert phases_run(inst, status=None) == ["health"]
     assert "couldn't determine health status" in capsys.readouterr().out
 
 
@@ -239,17 +235,16 @@ def test_read_status_only_accepts_the_documented_words(tmp_path) -> None:
     assert runner.read_status(path) == "URGENT"
 
 
-def test_discovery_failure_still_runs_implement(inst, monkeypatch) -> None:
+def test_discovery_failure_still_runs_implement(inst) -> None:
     phases: list[str] = []
 
-    def fake(cmd, **kwargs) -> subprocess.CompletedProcess:
-        name = "improve" if "improve phase" in cmd[-1].splitlines()[0] else "implement"
+    def fake(argv, *, cwd=None, on_event=None) -> subprocess.CompletedProcess:
+        prompt = argv[argv.index("-p") + 1]
+        name = "improve" if "improve phase" in prompt.splitlines()[0] else "implement"
         phases.append(name)
-        return subprocess.CompletedProcess(cmd, 1 if name == "improve" else 0, "{}", "")
+        return subprocess.CompletedProcess(argv, 1 if name == "improve" else 0, "{}", "")
 
-    monkeypatch.setattr(runner, "run_phase_command", fake)
-
-    assert runner.DISPATCH["improve"](inst, project(inst), None) == 1
+    assert runner.DISPATCH["improve"](inst, project(inst), None, runtime=on(fake)) == 1
     assert phases == ["improve", "implement"]
 
 
@@ -443,9 +438,9 @@ def test_a_project_pulls_its_own_default_branch(inst, monkeypatch, recorder) -> 
     pulled: list[tuple[Path, str]] = []
     monkeypatch.setattr(runner, "pull", lambda path, branch: pulled.append((path, branch)) or True)
 
-    assert runner.run_track(inst, "implement", only="app") == 0
+    assert runner.run_track(inst, "implement", only="app", runtime=on(recorder)) == 0
     assert pulled == [(inst.repo("app").path, "trunk")]
-    assert len(recorder) == 1
+    assert len(recorder.calls) == 1
 
 
 # --- the whole track ----------------------------------------------------------------
@@ -458,13 +453,8 @@ def test_run_track_reports_a_failed_project(inst, monkeypatch) -> None:
     monkeypatch.setattr(runner, "has_headroom", lambda: True)
     monkeypatch.setattr(runner, "pull_planning", lambda inst: True)
     monkeypatch.setattr(runner, "pull", lambda path, branch: path.name != "platform")
-    monkeypatch.setattr(
-        runner,
-        "run_phase_command",
-        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "{}", ""),
-    )
 
-    assert runner.run_track(inst, "implement") == 1
+    assert runner.run_track(inst, "implement", runtime=on(FakeClaude(stdout="{}"))) == 1
 
 
 def test_no_headroom_ends_the_run_quietly(inst, monkeypatch) -> None:
@@ -481,9 +471,7 @@ def test_dry_run_prints_prompts_and_commands_without_running_claude(
     monkeypatch.setattr(runner, "repo_reachable", lambda slug: True)
     monkeypatch.setattr(runner, "current_usage", lambda: pytest.fail("checked usage"))
     monkeypatch.setattr(runner, "pull", lambda *a: pytest.fail("pulled a repo"))
-    monkeypatch.setattr(runner, "run_phase_command", lambda *a, **kw: pytest.fail("ran claude"))
-
-    assert runner.run_track(inst, "improve", only="app", dry_run=True) == 0
+    assert runner.run_track(inst, "improve", only="app", dry_run=True, runtime=on(no_agent)) == 0
 
     out = capsys.readouterr().out
     assert "# Mission: improve phase — project `app`" in out

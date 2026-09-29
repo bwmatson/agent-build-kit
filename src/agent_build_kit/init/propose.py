@@ -21,11 +21,11 @@ from typing import Literal
 
 from agent_build_kit import openspec
 from agent_build_kit.config import active
-from agent_build_kit.hooks.policy import hook_settings
-from agent_build_kit.init.claude_call import RunClaude, claude_text
+from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.scaffold import render_rules
 from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.base import AgentRuntime
 
 Kind = Literal["testing-infrastructure", "code-standards"]
@@ -175,17 +175,17 @@ def build_prompt(
 # --- fencing ------------------------------------------------------------------------
 
 
-def _settings(planning: Path) -> dict:
+def _policy() -> ToolPolicy:
     """The policy hook, with writes fenced to the planning repo.
 
-    `hook_settings` makes the specs directory read-only, which is right for a
-    build agent: its unit lives in a code repo's worktree and the spec is not
-    its to change. Here the agent's whole job is to write a change under
-    `openspec/changes/`, so that one restriction is dropped and the rest —
-    the command policy, and writes confined to the checkout it runs in, which
-    is the planning repo — stays.
+    A build agent's specs directory is read-only, which is right for it: its
+    unit lives in a code repo's worktree and the spec is not its to change.
+    Here the agent's whole job is to write a change under `openspec/changes/`,
+    so that one restriction is dropped and the rest — the command policy, and
+    writes confined to the checkout it runs in, which is the planning repo —
+    stays.
     """
-    return hook_settings(None, branch_prefix=active().github.branch_prefix)
+    return ToolPolicy(specs_dir=None, branch_prefix=active().github.branch_prefix)
 
 
 # --- validation ---------------------------------------------------------------------
@@ -249,7 +249,7 @@ def propose(
     runtime: AgentRuntime | None = None,
 ) -> str:
     """Write the change and return its name, or raise `ProposeError`."""
-    run = run_claude or claude_text
+    agent = runtime_for(run_claude, runtime)
     workspace_repos = repos or (repo_name,)
     change = change_name(repo_name, kind)
     text = recommendations.read_text() if recommendations.is_file() else ""
@@ -263,23 +263,17 @@ def propose(
     )
 
     def attempt(full_prompt: str) -> list[str]:
-        run(
-            [
-                "claude",
-                "-p",
-                full_prompt,
-                "--output-format",
-                "text",
-                "--add-dir",
-                str(detection.path),
-                "--allowedTools",
-                ALLOWED_TOOLS,
-                "--settings",
-                json.dumps(_settings(planning)),
-                "--permission-mode",
-                "acceptEdits",
-            ],
-            cwd=planning,
+        succeeded(
+            agent.run(
+                AgentRequest(
+                    prompt=full_prompt,
+                    cwd=planning,
+                    add_dirs=(detection.path,),
+                    allowed_tools=ALLOWED_TOOLS,
+                    permission_mode="edit",
+                    policy=_policy(),
+                )
+            )
         )
         return validation_errors(planning, change, repos=workspace_repos, run_openspec=run_openspec)
 

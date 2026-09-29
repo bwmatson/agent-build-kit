@@ -190,6 +190,18 @@ def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
     return on_event
 
 
+def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeRuntime:
+    """This adapter with `run(argv, *, cwd)` in place of the process: the
+    shape a call site's own injection point took before the runtime seam,
+    which never streamed, kept so a caller handing one in still sees the
+    exact argv."""
+
+    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None):
+        return run(argv, cwd=cwd)
+
+    return ClaudeCodeRuntime(execute=execute)
+
+
 RUNTIME = ClaudeCodeRuntime()
 
 _: AgentRuntime = RUNTIME

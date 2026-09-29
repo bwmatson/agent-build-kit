@@ -25,14 +25,15 @@ wrong once:
 from __future__ import annotations
 
 import re
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import gh, git
-from agent_build_kit.runtimes.base import AgentRuntime
+from agent_build_kit.runtimes import AgentRequest
+from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
 Runner = Callable[[list[str]], str]
 
@@ -226,6 +227,12 @@ def move_branch_onto(
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
         resolve(prompt, cwd=repo)
+    except (AgentRateLimited, AgentInterrupted):
+        # Not a conflict nobody could resolve: the account is out of room, or
+        # the run was killed. The branch goes back where it was, to be moved
+        # again once the tick can run.
+        git(repo, "rebase", "--abort", check=False)
+        raise
     except Exception as error:
         raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
 
@@ -315,7 +322,7 @@ def resolved_move(
         branch,
         new_base=new_base,
         old_base=old_base,
-        resolve=claude_resolver,
+        resolve=resolve or claude_resolver,
         context=ConflictContext(
             moving_unit=moving_unit,
             moving_intent=moving_intent,
@@ -395,6 +402,9 @@ def blast_radius_note(*, branch: str, old_base: str, new_base: str, reason: str)
     )
 
 
+RESOLVER_TOOLS = "Read Edit Write Grep Glob"
+
+
 def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = None) -> None:
     """Resolve the conflicted files in `cwd` with a scoped Claude run.
 
@@ -403,16 +413,14 @@ def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = No
     The runner re-runs tier 1 and tier 2 afterwards, so this produces a
     candidate rather than a verdict.
     """
-    subprocess.run(
-        [
-            "claude",
-            "-p",
-            prompt,
-            "--allowedTools",
-            "Read Edit Write Grep Glob",
-        ],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
+    result = (runtime or runtimes.active()).run(
+        AgentRequest(
+            prompt=prompt,
+            cwd=cwd,
+            # It edits because its tool list says so, and is granted nothing more.
+            allowed_tools=RESOLVER_TOOLS,
+            permission_mode="allowed_tools_only",
+        )
     )
+    if not result.ok:
+        raise RuntimeError(result.error)
