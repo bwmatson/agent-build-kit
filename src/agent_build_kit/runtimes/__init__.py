@@ -17,19 +17,24 @@ _REGISTRY: dict[str, AgentRuntime] = {}
 
 
 def register(runtime: AgentRuntime) -> None:
-    raise NotImplementedError
+    _REGISTRY[runtime.name] = runtime
 
 
 def get(name: str) -> AgentRuntime:
-    raise NotImplementedError
+    _load_builtin()
+    try:
+        return _REGISTRY[name]
+    except KeyError:
+        raise KeyError(f"unknown agent runtime {name!r} (known: {', '.join(names())})") from None
 
 
 def names() -> list[str]:
-    raise NotImplementedError
+    _load_builtin()
+    return sorted(_REGISTRY)
 
 
 def _load_builtin() -> None:
-    raise NotImplementedError
+    """No built-in adapter ships yet; the Claude Code one registers here."""
 
 
 __all__ = [
