@@ -393,7 +393,9 @@ def _schedule(
     Every completion may release something — a parent's PR opening lets its
     child stack on it, a dependency merging releases its dependent — so each
     one is followed by a refresh from GitHub and a fresh evaluation, rather
-    than waiting for the whole batch and the next tick. A build reporting that
+    than waiting for the whole batch and the next tick. The refresh asks
+    GitHub rather than hearing from it, since a tick has no endpoint for a
+    webhook to reach; a completion is when it asks. A build reporting that
     the pass should stop, or a pause recorded meanwhile, ends submission; the
     builds already running are still awaited, since each checks the usage
     guard itself and killing one would leave its work uncommitted.
@@ -410,13 +412,16 @@ def _schedule(
     with ThreadPoolExecutor(
         max_workers=inst.max_concurrent_stacks, thread_name_prefix="unit"
     ) as pool:
-        while True:
-            for unit in ready:
+
+        def submit(units: list[Unit]) -> None:
+            for unit in units:
                 started.add(unit.id)
                 building[pool.submit(_build, inst, unit, store=store)] = unit
-            if not building:
-                return 1 if refused else 0
 
+        submit(ready)
+        # Driven by completions, not a timer: each round blocks until a build
+        # finishes, and the pass ends once none is in flight.
+        while building:
             done, _ = wait(building, return_when=FIRST_COMPLETED)
             for future in done:
                 building.pop(future)
@@ -426,7 +431,6 @@ def _schedule(
             # paused the pipeline; its report is not needed to stop here.
             stopping = stopping or bool(is_paused(_paused_marker(inst)))
             if stopping or refused:
-                ready = []
                 continue
 
             _refresh(inst, store=store)
@@ -441,7 +445,9 @@ def _schedule(
                 log(f"ready: {', '.join(unit.id for unit in ready)}")
                 if _refuse_unconfigured(inst, ready):
                     refused = True
-                    ready = []
+                    continue
+                submit(ready)
+    return 1 if refused else 0
 
 
 def _refresh(inst: Installation, *, store: UnitStore) -> None:
