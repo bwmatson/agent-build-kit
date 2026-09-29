@@ -487,3 +487,47 @@ def test_a_pr_first_seen_with_ci_already_red_is_reworked(tmp_path: Path) -> None
     ).poll()
 
     assert seen == [("rework", 20, "failing checks: config-check")]
+
+
+def test_a_deferred_event_is_reported_again_until_it_is_handled(tmp_path: Path) -> None:
+    """A handler defers an event for a unit still being built. Recording the
+    change anyway would make that the only time it is ever seen."""
+    held = pr(labels=[{"name": "agent:hold"}])
+    pages = iter([[pr()], [held], [held], [held]])
+    answers = iter([False, True])
+    seen: list[str] = []
+
+    def dispatch(event: str, number: int, **kwargs) -> bool:
+        seen.append(event)
+        return next(answers)
+
+    instance = Poller(
+        repo="o/r",
+        state_path=tmp_path / "prs.json",
+        gh=lambda args: json.dumps(next(pages)),
+        dispatch=dispatch,
+    )
+    for _ in range(4):
+        instance.poll()
+
+    assert seen == ["hold", "hold"], "reported again once, then not after it was handled"
+
+
+def test_a_deferred_event_on_a_pr_seen_for_the_first_time_is_kept(tmp_path: Path) -> None:
+    state = tmp_path / "prs.json"
+    state.write_text(json.dumps({}))
+    merged = pr(20, mergedAt="2026-01-01T00:00:00Z", state="MERGED")
+    answers = iter([False, True])
+    seen: list[str] = []
+
+    def dispatch(event: str, number: int, **kwargs) -> bool:
+        seen.append(event)
+        return next(answers)
+
+    instance = Poller(
+        repo="o/r", state_path=state, gh=lambda args: json.dumps([merged]), dispatch=dispatch
+    )
+    for _ in range(3):
+        instance.poll()
+
+    assert seen == ["merged", "merged"]

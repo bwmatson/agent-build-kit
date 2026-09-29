@@ -98,6 +98,38 @@ built, not PRs awaiting review. Ready units build in parallel threads, each
 under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 
+A pass keeps scheduling until it runs out of ready work. Each build that
+finishes is followed by a fresh fetch and poll and a fresh `ready_units`, so a
+parent reaching review starts its child, and a dependency merging releases its
+dependent, in the same pass rather than the next; the caps apply to every
+evaluation, and `--only` narrows every one. Planning stays once per pass. A
+build reporting that the pass should stop (the usage window spent) ends
+submission, and the builds in flight are still awaited. A pass therefore lasts
+as long as the work it can reach — watch the pass, not a unit.
+
+Reclaiming, verifying and archiving also stay at the start of a pass. With a
+oneshot timer, a change that fully merges early in a long pass is verified
+live and archived by the next pass, not the moment it merges.
+
+Those mid-pass polls run while other builds are still going, so an event can
+name a unit being built. Each handler takes the unit's branch lock first, as
+the build does; if a build holds it, the handler changes nothing and the
+poller keeps the change to report again, which the poll after that build
+finishes does. A merge still records its parent `merged` and retargets the
+child's PR, but leaves the child's branch alone: the runner checks at each
+step boundary whether its base has moved (`wiring.build_base_moved`), and if
+so stops before pushing, back to `planned`, and its resume restacks it onto
+the new base. A rewritten base stops a build the same way: a merge restacks
+any child not being built, and a grandchild building on that child's branch
+keeps the same base name while the commits under it change. The runner
+records its base's tip when it sets up the worktree, before any restack or
+adapt, and holds at the next boundary if that tip is no longer an ancestor of
+the base; a base rewritten during a resume's restack or adapt is caught the
+same way, and a base that only advanced does not stop it. The merged parent's local branch is kept while any same-repo
+dependent's lock is held — a build fixes its base ref before it reads
+`running` — and nothing deletes it later, since the merge event is consumed:
+such a branch is left behind and can be deleted by hand.
+
 `UnitRunner.run` (`pipeline/stack_runner.py`) is the sequence; `wiring.py`
 binds each step to git, gh and `claude`:
 

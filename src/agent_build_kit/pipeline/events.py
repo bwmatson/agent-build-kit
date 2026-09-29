@@ -19,6 +19,15 @@ Two rules hold throughout:
 - **One failure is one unit's failure.** A conflicted restack is left for a
   human, and the rest of the stack still moves — otherwise a single conflict
   freezes everything above it.
+
+And one about timing: **a unit being built is not touched.** A pass polls
+between builds, so an event can arrive for a unit whose build is still
+running — a review on a unit being reworked, a merge under a child still
+building. Each handler takes the unit's branch lock before acting, as the
+build does; when a build holds it, the handler does nothing and reports the
+event deferred, and the poller keeps it to report again on a later poll.
+Acting mid-build would rebase the tree the agent is writing to, or be
+overwritten by the state the build records when it ends.
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
 
@@ -53,12 +63,33 @@ from agent_build_kit.pipeline.units import (
     local_ref,
 )
 from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
-from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 Log = Callable[[str], None]
 Restack = Callable[..., None]
+# Holds a unit's branch for the length of a handler, or raises `BranchBusy`
+# because a build holds it. See the module docstring.
+Claim = Callable[[StoredUnit], AbstractContextManager[object]]
+
+
+def _unclaimed(unit: StoredUnit) -> AbstractContextManager[object]:
+    return nullcontext()
+
+
+def build_claim(locks: Path) -> Claim:
+    """The same branch lock `_build` holds while a unit builds, by the same name."""
+
+    def claim(unit: StoredUnit) -> AbstractContextManager[object]:
+        return branch_lock(branch_name(unit), root=locks)
+
+    return claim
+
+
+def _deferred(event: str, unit: StoredUnit, error: BranchBusy, log: Log) -> bool:
+    log(f"{event}: {unit.id} is being built ({error}) — left for a later poll")
+    return False
 
 
 def _find(store: UnitStore, pr: int) -> StoredUnit | None:
@@ -75,27 +106,60 @@ def on_merged(
     restack: Restack,
     remove_worktree: Callable[..., None] | None = None,
     delete_branch: Callable[..., None] | None = None,
+    claim: Claim = _unclaimed,
+    retarget: Callable[[StoredUnit, str], None] | None = None,
     log: Log = print,
-) -> None:
-    """Record the merge, move what was stacked on it, then clean up after it."""
-    remove_worktree = remove_worktree or (lambda repo, branch: None)
-    delete_branch = delete_branch or (lambda repo, branch: None)
+) -> bool:
+    """Record the merge, move what was stacked on it, then clean up after it.
+
+    False when the merged unit is itself being built — a rework someone
+    merged over — so the poller reports the merge again once it has finished.
+    """
     merged = _find(store, pr)
     if merged is None:
         # Someone else's PR on a spec/ branch, or a unit dropped from the
         # store. Restacking against a unit we don't know moves the wrong
         # branch, so do nothing at all.
         log(f"merged #{pr}: no unit recorded for it, ignoring")
-        return
+        return True
 
+    try:
+        with claim(merged):
+            _record_merge(
+                merged,
+                store=store,
+                restack=restack,
+                remove_worktree=remove_worktree or (lambda repo, branch: None),
+                delete_branch=delete_branch or (lambda repo, branch: None),
+                claim=claim,
+                retarget=retarget or (lambda unit, base: None),
+                log=log,
+            )
+    except BranchBusy as error:
+        return _deferred(f"merged #{pr}", merged, error, log)
+    return True
+
+
+def _record_merge(
+    merged: StoredUnit,
+    *,
+    store: UnitStore,
+    restack: Restack,
+    remove_worktree: Callable[..., None],
+    delete_branch: Callable[..., None],
+    claim: Claim,
+    retarget: Callable[[StoredUnit, str], None],
+    log: Log,
+) -> None:
     store.set_state(merged.id, MERGED)
-    log(f"merged #{pr}: {merged.id}")
+    log(f"merged #{merged.pr}: {merged.id}")
 
     # Re-read: the children's new bases are worked out from the graph with the
     # merge already applied, which is what makes a merged parent drop out of
     # `base_of` instead of still being offered as a base.
     graph = store.all()
     old_base = branch_name(merged)
+    building_on_it: list[str] = []
 
     for child in _children_of(merged, graph):
         new_base = base_of(child, graph)
@@ -103,13 +167,27 @@ def on_merged(
             continue  # Nothing to do: it is not what this child sat on.
 
         try:
-            restack(
-                branch=branch_name(child),
-                old_base=old_base,
-                new_base=new_base,
-                child=child,
-                parent=merged,
-            )
+            with claim(child):
+                restack(
+                    branch=branch_name(child),
+                    old_base=old_base,
+                    new_base=new_base,
+                    child=child,
+                    parent=merged,
+                )
+        except BranchBusy:
+            # Its build is running in the tree a restack would rebase. The
+            # merge stands regardless, so the build stops at its next step on
+            # seeing its base has moved, and its resume moves the branch (see
+            # `wiring.build_base_moved`). Only the PR moves now, which touches
+            # no tree: one left on a deleted base may be closed.
+            log(f"{child.id}: being built — its build moves it onto {new_base} when it resumes")
+            building_on_it.append(child.id)
+            try:
+                retarget(child, new_base)
+            except Exception as error:  # noqa: BLE001
+                log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+            continue
         except Exception as error:  # noqa: BLE001
             # Left where it is, still open, still based on the old branch. A
             # human resolves it; the rest of the stack is not held up for it.
@@ -129,6 +207,33 @@ def on_merged(
         # and the branch stays too: deleting it would strand that work on a
         # checkout with no ref pointing at it.
         log(f"{merged.id}: worktree and branch left in place — {error}")
+        return
+
+    # A build holds its lock and fixes its base ref while its unit still reads
+    # `planned`, so the state alone misses one that is just starting. The lock
+    # does not: MERGED is already written, so a build that takes it after this
+    # probe sees the trunk from `base_of`, and one holding it now is exactly
+    # one that may have taken this branch. It is not moved here — its own
+    # resume restacks it.
+    for dependent in _dependents_of(merged, graph):
+        if dependent.id in building_on_it:
+            continue
+        try:
+            # The probe holds the lock for an instant. A build starting this
+            # unit in that instant gets `BranchBusy` and skips it; the unit is
+            # still `planned`, so the next pass takes it up.
+            with claim(dependent):
+                pass
+        except BranchBusy:
+            building_on_it.append(dependent.id)
+
+    if building_on_it:
+        # A running build fixed its base ref when it started, and for a stacked
+        # child that ref is this local branch. Deleted under it, the build's
+        # diffs and commit counts come back empty, and it fails as "produced
+        # no commits" before its next step can hold it. A leftover local
+        # branch is harmless; the child's resume moves it off by name.
+        log(f"{merged.id}: branch {old_base} kept — {', '.join(building_on_it)} building on it")
         return
 
     try:
@@ -153,6 +258,21 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
         and unit.repo == parent.repo
         and unit.state in IN_FLIGHT
         and unit.branch
+    ]
+
+
+def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
+    """Every same-repo unit on `parent` that may yet build, whatever its state.
+
+    Wider than `_children_of`: a build may already have taken `parent`'s
+    branch as its base before it has a branch or reads `running`.
+    """
+    return [
+        unit
+        for unit in graph
+        if parent.id in unit.depends_on
+        and unit.repo == parent.repo
+        and unit.state not in (MERGED, CLOSED)
     ]
 
 
@@ -282,7 +402,7 @@ def build_remove_worktree(repos: dict[str, Path], *, root: Path) -> Callable[...
     return remove
 
 
-def on_closed(pr: int, *, store: UnitStore, log: Log = print) -> None:
+def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = print) -> bool:
     """Record that a PR was closed without merging.
 
     Deliberately not propagated to whatever was stacked on it: closing is a
@@ -292,21 +412,31 @@ def on_closed(pr: int, *, store: UnitStore, log: Log = print) -> None:
     unit = _find(store, pr)
     if unit is None:
         log(f"closed #{pr}: no unit recorded for it, ignoring")
-        return
+        return True
 
-    store.set_state(unit.id, CLOSED)
+    try:
+        with claim(unit):
+            store.set_state(unit.id, CLOSED)
+    except BranchBusy as error:
+        return _deferred(f"closed #{pr}", unit, error, log)
     log(f"closed #{pr}: {unit.id} — anything stacked on it is left as it stands")
+    return True
 
 
-def on_hold(pr: int, *, store: UnitStore, log: Log = print) -> None:
+def on_hold(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = print) -> bool:
     """A reviewer has taken the unit over. Nothing automatic touches it again."""
     unit = _find(store, pr)
     if unit is None:
         log(f"hold #{pr}: no unit recorded for it, ignoring")
-        return
+        return True
 
-    store.set_state(unit.id, HELD)
+    try:
+        with claim(unit):
+            store.set_state(unit.id, HELD)
+    except BranchBusy as error:
+        return _deferred(f"hold #{pr}", unit, error, log)
     log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
+    return True
 
 
 def on_rework(
@@ -317,8 +447,9 @@ def on_rework(
     store: UnitStore,
     fetch_review: Callable[[int], list[str]] | None = None,
     fetch_checks: Callable[[dict | None], str] | None = None,
+    claim: Claim = _unclaimed,
     log: Log = print,
-) -> None:
+) -> bool:
     """Put a unit back in the queue with what review asked for.
 
     The reviewer's own words, not just "new comment": the tick that reworks a
@@ -329,8 +460,37 @@ def on_rework(
     unit = _find(store, pr)
     if unit is None:
         log(f"rework #{pr}: no unit recorded for it, ignoring")
-        return
+        return True
 
+    try:
+        with claim(unit):
+            # Re-read under the lock: a build that has just ended moved it.
+            _requeue(
+                store.get(unit.id),
+                pr=pr,
+                reason=reason,
+                pull=pull,
+                store=store,
+                fetch_review=fetch_review,
+                fetch_checks=fetch_checks,
+                log=log,
+            )
+    except BranchBusy as error:
+        return _deferred(f"rework #{pr}", unit, error, log)
+    return True
+
+
+def _requeue(
+    unit: StoredUnit,
+    *,
+    pr: int,
+    reason: str,
+    pull: dict | None,
+    store: UnitStore,
+    fetch_review: Callable[[int], list[str]] | None,
+    fetch_checks: Callable[[dict | None], str] | None,
+    log: Log,
+) -> None:
     if unit.state == HELD:
         # A human has taken it over; requeuing would push over work they are
         # in the middle of.
@@ -564,6 +724,17 @@ def _default_retarget(pr: int, new_base: str, *, repo_slug: str) -> None:
     retarget_pr(pr, new_base, repo_slug=repo_slug)
 
 
+def build_retarget() -> Callable[[StoredUnit, str], None]:
+    """Point a unit's PR at a new base without touching its tree: what a
+    merge can still do for a child whose build is running."""
+
+    def retarget(unit: StoredUnit, new_base: str) -> None:
+        if unit.pr:
+            _default_retarget(unit.pr, new_base, repo_slug=repo_slug(unit.repo))
+
+    return retarget
+
+
 def _default_comment(pr: int, body: str, *, repo_slug: str, posts_root: Path | None) -> None:
     """Post as the pipeline: marked, and recorded so the poller skips it.
 
@@ -596,40 +767,46 @@ def build_dispatch(
     delete_branch: Callable[..., None] | None = None,
     fetch_review: Callable[..., list[str]] | None = None,
     fetch_checks: Callable[..., str] | None = None,
+    claim: Claim = _unclaimed,
+    retarget: Callable[[StoredUnit, str], None] | None = None,
     log: Log = print,
-) -> Callable[..., None]:
+) -> Callable[..., bool]:
     """The callable `gh_poller` hands each event to.
 
     The event names are the poller's contract; an unhandled one is logged
     rather than dropped, because silence here is indistinguishable from a
-    working pipeline with nothing to do.
+    working pipeline with nothing to do. False means the event was deferred
+    because its unit is being built, and the poller keeps it to report again.
     """
 
-    def dispatch(event: str, number: int, **kwargs) -> None:
+    def dispatch(event: str, number: int, **kwargs) -> bool:
         if event == "merged":
-            on_merged(
+            return on_merged(
                 number,
                 store=store,
                 restack=restack,
                 remove_worktree=remove_worktree,
                 delete_branch=delete_branch,
+                claim=claim,
+                retarget=retarget,
                 log=log,
             )
-        elif event == "closed":
-            on_closed(number, store=store, log=log)
-        elif event == "hold":
-            on_hold(number, store=store, log=log)
-        elif event == "rework":
-            on_rework(
+        if event == "closed":
+            return on_closed(number, store=store, claim=claim, log=log)
+        if event == "hold":
+            return on_hold(number, store=store, claim=claim, log=log)
+        if event == "rework":
+            return on_rework(
                 number,
                 reason=kwargs.get("reason", "unspecified"),
                 pull=kwargs.get("pull"),
                 store=store,
                 fetch_review=_review_fetcher(store, number, fetch_review),
                 fetch_checks=_check_fetcher(store, number, fetch_checks),
+                claim=claim,
                 log=log,
             )
-        else:
-            log(f"unhandled poller event {event!r} for #{number}")
+        log(f"unhandled poller event {event!r} for #{number}")
+        return True
 
     return dispatch

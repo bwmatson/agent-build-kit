@@ -22,7 +22,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,12 +34,14 @@ from agent_build_kit.pipeline.archive import (
     is_ready_to_archive,
 )
 from agent_build_kit.pipeline.events import (
+    build_claim,
     build_delete_branch,
     build_dispatch,
     build_fetch_check_logs,
     build_fetch_review,
     build_remove_worktree,
     build_restack,
+    build_retarget,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gh_poller import Poller
@@ -50,6 +52,7 @@ from agent_build_kit.pipeline.shell import gh, git
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
+    HELD,
     IN_FLIGHT,
     IN_REVIEW,
     MERGED,
@@ -292,14 +295,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # planning against the pre-poll graph builds against a stale picture.
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
-    fetch_all(inst)
-
-    try:
-        poll_all(inst, store=store)
-    except Exception as error:  # noqa: BLE001
-        # GitHub being unreachable is a reason to skip the update, not to stop
-        # building units whose work doesn't depend on it.
-        log(f"poll skipped — {type(error).__name__}: {error}")
+    _refresh(inst, store=store)
 
     reclaim_stale(inst, store=store)
     plan_all(inst, store=store)
@@ -316,19 +312,13 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     for change in archived:
         log(f"archived {change}")
 
-    ready = ready_units(
-        list(units),
-        max_concurrent=inst.max_concurrent_stacks,
-        depth_cap=inst.stack_depth_cap,
-    )
-    if only := getattr(args, "only", None):
-        # Everything else still happens — polling, planning, archiving — so
-        # the store stays current; only building is narrowed. For pushing one
-        # unit through when usage is tight, without a second competing for it.
-        held_back = [unit.id for unit in ready if unit.id not in only]
-        ready = [unit for unit in ready if unit.id in only]
-        if held_back:
-            log(f"--only: not building {', '.join(held_back)}")
+    # Everything else still happens — polling, planning, archiving — so the
+    # store stays current; only building is narrowed. For pushing one unit
+    # through when usage is tight, without a second competing for it.
+    only = frozenset(getattr(args, "only", None) or ())
+    if only:
+        log(f"--only: building nothing but {', '.join(sorted(only))}")
+    ready = _evaluate(inst, units, started=set(), building=set(), only=only)
     if not ready:
         log("nothing ready to build")
         return 0
@@ -341,6 +331,45 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # Here rather than at the commit step: catching it there would mean
     # paying for two Claude runs first, and again every tick. After the dry
     # run returns, so `--dry-run` still reports what is pending.
+    if _refuse_unconfigured(inst, ready):
+        return 1
+
+    return _schedule(inst, ready, store=store, only=only)
+
+
+def _evaluate(
+    inst: Installation,
+    units: list[StoredUnit],
+    *,
+    started: set[str],
+    building: set[str],
+    only: frozenset[str],
+) -> list[Unit]:
+    """What this pass may start now.
+
+    `ready_units` decides from the stored state alone, which lags the pass: a
+    unit just handed to the pool is still `planned` until its build marks it
+    `running`, and one whose build ended held is `planned` again. So the
+    graph it sees counts every build in flight as running — keeping the
+    concurrency cap and blocking its dependents until it finishes — and shows
+    what this pass has already started, or `--only` excludes, as held. The
+    answer is filtered again too: never handing a unit out twice is what
+    guarantees the pass ends.
+    """
+    view: list[Unit] = []
+    for unit in units:
+        if unit.id in building:
+            unit = unit.model_copy(update={"state": RUNNING})
+        elif unit.state == PLANNED and (unit.id in started or (only and unit.id not in only)):
+            unit = unit.model_copy(update={"state": HELD})
+        view.append(unit)
+    ready = ready_units(
+        view, max_concurrent=inst.max_concurrent_stacks, depth_cap=inst.stack_depth_cap
+    )
+    return [unit for unit in ready if unit.id not in started]
+
+
+def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
     unconfigured = [repo for repo in {unit.repo for unit in ready} if not _has_identity(inst, repo)]
     if unconfigured:
         log(
@@ -349,16 +378,90 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
             "identity instead of the account that owns the repo. Set it with "
             "`git -C <repo> config user.email <account>@users.noreply.github.com`."
         )
-        return 1
+    return bool(unconfigured)
 
-    # All at once. `ready_units` has already applied the concurrency cap and
-    # the dependency rules, so every unit here is independent of the others
-    # and there is no reason for one to wait on another's hour-long build.
-    # A pause in one does not stop the rest: they have already started, and
-    # each checks the usage guard itself before its first Claude run.
-    with ThreadPoolExecutor(max_workers=len(ready), thread_name_prefix="unit") as pool:
-        list(pool.map(lambda unit: _build(inst, unit, store=store, graph=list(units)), ready))
-    return 0
+
+def _schedule(
+    inst: Installation,
+    ready: list[Unit],
+    *,
+    store: UnitStore,
+    only: frozenset[str],
+) -> int:
+    """Keep the build slots full until nothing more is ready.
+
+    Every completion may release something — a parent's PR opening lets its
+    child stack on it, a dependency merging releases its dependent — so each
+    one is followed by a refresh from GitHub and a fresh evaluation, rather
+    than waiting for the whole batch and the next tick. A build reporting that
+    the pass should stop, or a pause recorded meanwhile, ends submission; the
+    builds already running are still awaited, since each checks the usage
+    guard itself and killing one would leave its work uncommitted.
+
+    The refresh runs while other builds are still going, so what it hears may
+    concern one of them. The event handlers leave a unit whose build holds its
+    lock untouched and the poller reports the event again later — see
+    `events` — which the refresh after that build's own completion does.
+    """
+    started: set[str] = set()
+    building: dict[Future[bool], Unit] = {}
+    stopping = False
+    refused = False
+    with ThreadPoolExecutor(
+        max_workers=inst.max_concurrent_stacks, thread_name_prefix="unit"
+    ) as pool:
+        while True:
+            for unit in ready:
+                started.add(unit.id)
+                building[pool.submit(_build, inst, unit, store=store)] = unit
+            if not building:
+                return 1 if refused else 0
+
+            done, _ = wait(building, return_when=FIRST_COMPLETED)
+            for future in done:
+                building.pop(future)
+                if not future.result():
+                    stopping = True
+            # A build still in flight — or another tick — may already have
+            # paused the pipeline; its report is not needed to stop here.
+            stopping = stopping or bool(is_paused(_paused_marker(inst)))
+            if stopping or refused:
+                ready = []
+                continue
+
+            _refresh(inst, store=store)
+            ready = _evaluate(
+                inst,
+                store.all(),
+                started=started,
+                building={unit.id for unit in building.values()},
+                only=only,
+            )
+            if ready:
+                log(f"ready: {', '.join(unit.id for unit in ready)}")
+                if _refuse_unconfigured(inst, ready):
+                    refused = True
+                    ready = []
+
+
+def _refresh(inst: Installation, *, store: UnitStore) -> None:
+    """Fetch and poll, as the top of the tick does: a merge only a poll
+    reveals may release a dependent, and review feedback should not wait for
+    a pass that now lasts as long as its longest build.
+
+    Neither may end the pass. `fetch_all` logs a failed fetch itself, but
+    taking a repo's lock or choosing its token can still raise; builds then
+    go on from what was last fetched."""
+    try:
+        fetch_all(inst)
+    except Exception as error:  # noqa: BLE001
+        log(f"fetch skipped — {type(error).__name__}: {error}")
+    try:
+        poll_all(inst, store=store)
+    except Exception as error:  # noqa: BLE001
+        # GitHub being unreachable is a reason to skip the update, not to stop
+        # building units whose work doesn't depend on it.
+        log(f"poll skipped — {type(error).__name__}: {error}")
 
 
 def _branch_is_held(inst: Installation, branch: str) -> bool:
@@ -662,6 +765,10 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         delete_branch=build_delete_branch(checkouts),
         fetch_review=build_fetch_review(checkouts),
         fetch_checks=build_fetch_check_logs(),
+        # A pass polls between builds, so an event may name a unit still
+        # building; the handlers leave it to a later poll. See `events`.
+        claim=build_claim(inst.state_dir / "locks"),
+        retarget=build_retarget(),
         log=log,
     )
 
@@ -675,7 +782,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         ).poll()
 
 
-def _build(inst: Installation, unit: Unit, *, store: UnitStore, graph: list[StoredUnit]) -> bool:
+def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
     """Build one unit. Returns False only when the tick should stop entirely.
 
     Nothing in here may raise. A tick runs unattended on a timer, so a
@@ -685,21 +792,26 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore, graph: list[Stor
     branch = branch_name(unit)
     try:
         with branch_lock(branch, root=inst.state_dir / "locks"):
-            # Re-read under the lock. `ready` was worked out when the tick
-            # started, and ticks overlap to build in parallel: by the time this
-            # one reaches a unit, another may have built it and opened its PR.
-            # Building it again would re-verify, re-push and re-open that PR.
+            # Re-read under the lock. `ready` comes from the pass's latest
+            # evaluation, and ticks overlap to build in parallel: by the time
+            # this one reaches a unit, another may have built it and opened its
+            # PR. Building it again would re-verify, re-push and re-open that
+            # PR. A poll may also have held or closed it since.
             current = store.get(unit.id).state
             if current != PLANNED:
-                log(f"{unit.id}: skipped, another tick has taken it ({current})")
+                log(f"{unit.id}: skipped, it is now {current}")
                 return True
+            # The base too, from the store rather than that evaluation: a
+            # parent may have merged since, and `base_moved` compares against
+            # this.
+            graph = store.all()
             runner = build_runner(
                 unit,
                 store=store,
                 installation=inst,
                 log=lambda message: log(f"{unit.id}: {message}"),
             )
-            outcome = runner.run(unit, base=base_of(unit, list(graph)), graph=graph)
+            outcome = runner.run(unit, base=base_of(unit, graph), graph=graph)
     except NotImplementedError as error:
         # A toolchain profile the framework does not implement yet: not the
         # unit's fault, and nothing a retry changes. Held for a person.

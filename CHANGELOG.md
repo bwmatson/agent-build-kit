@@ -22,6 +22,13 @@
   `.gitignore` (new ones get it from `abk init`).
 - `tracks.model` still defaults to Claude Code's `sonnet` and is not resolved
   per runtime: a workspace selecting another runtime sets it.
+- `abk tick` keeps its build slots full: every finished build is followed by
+  a fetch, a poll and a fresh readiness check, and the pass goes on until
+  nothing is ready or in flight. A pass can now run for hours; a timer's next
+  tick waits for it. Poll events for a unit whose build is running are left
+  for a later poll instead of being acted on mid-build, and a unit whose
+  parent merged while it built stops before pushing and is restacked when it
+  resumes.
 
 ## 0.1.0 — 2026-09-28
 

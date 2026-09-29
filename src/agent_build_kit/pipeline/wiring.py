@@ -49,7 +49,7 @@ from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import REVIEWED, Unit, branch_name
+from agent_build_kit.pipeline.units import REVIEWED, Unit, base_of, branch_name, local_ref
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -854,6 +854,35 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., str]:
     return upstream_incomplete
 
 
+def _tip(tree: Path, ref: str) -> str:
+    return git(tree, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False).stdout.strip()
+
+
+def build_base_moved(store: UnitStore) -> Callable[..., str]:
+    """Why a unit's base is no longer the one its run started on, if it isn't.
+
+    Two ways. A parent merging while its child builds: `events.on_merged` does
+    not rebase a tree a build is using, so the build has to notice itself,
+    from the store. And a parent restacked while its child builds — its own
+    parent merged — keeps its name but not its commits: `start`, the base's
+    tip when the run set up its worktree, is then no longer under the base. Either
+    way the build stops before its next step. Pushing on regardless would open
+    its PR carrying the parent's old commits.
+    """
+
+    def base_moved(unit: Unit, base: str, *, tree: Path | None = None, start: str = "") -> str:
+        now = base_of(unit, store.all())
+        if now != base:
+            return f"its base moved from {base} to {now} while it built"
+        # Advanced is fine — a parent's rework adds on top, and the review or
+        # the resume's restack takes it in. Rewritten is not.
+        if tree is not None and start and not _is_ancestor(tree, start, local_ref(base)):
+            return f"its base {base} was rewritten while it built"
+        return ""
+
+    return base_moved
+
+
 def dev_stack_underneath(
     unit: Unit,
     installation: Installation,
@@ -945,6 +974,8 @@ def build_runner(
         commit=build_commit(unit_id=unit.id, fix=run_claude),
         branch_commits=_branch_commits,
         upstream_incomplete=build_upstream_incomplete(store),
+        base_moved=build_base_moved(store),
+        base_tip=_tip,
         restack_onto=build_restack_onto(store),
         run_tier1=build_tier1(profile=profile, root_extras=repo.tests.root_extras),
         run_tier2=tier2.run,

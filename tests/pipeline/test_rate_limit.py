@@ -165,7 +165,7 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
 
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kw: Refusing())
 
-    keep_going = cli._build(inst, store.get("c/1"), store=store, graph=store.all())
+    keep_going = cli._build(inst, store.get("c/1"), store=store)
 
     assert keep_going is False, "no retry loop: the rest of the round is abandoned"
     assert store.get("c/1").state != "failed"

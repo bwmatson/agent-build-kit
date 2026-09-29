@@ -29,8 +29,9 @@ import json
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SkipValidation
 
 from agent_build_kit.config import active, models
 from agent_build_kit.model import Frozen
@@ -377,6 +378,16 @@ class RunOutcome(Frozen):
     pr: int | None = None
 
 
+class BaseMoved(Protocol):
+    """`UnitRunner.base_moved`'s shape, so the type checker holds stubs to it.
+
+    A field typed by a Protocol needs `SkipValidation`: pydantic would build
+    an isinstance check, and a Protocol is not a class it can check against.
+    """
+
+    def __call__(self, unit: Unit, base: str, /, *, tree: Path, start: str) -> str: ...
+
+
 class UnitRunner(BaseModel):
     """Runs one unit, given the ways to do each step.
 
@@ -397,6 +408,12 @@ class UnitRunner(BaseModel):
     commit: Callable[..., int]
     branch_commits: Callable[..., int]
     upstream_incomplete: Callable[..., str]
+    # Why the base this run started on is no longer the unit's base — a
+    # parent merged, or was restacked, while it built — or "". Given the
+    # worktree and the base's tip when the run set it up (`base_tip`). See
+    # `wiring.build_base_moved`.
+    base_moved: SkipValidation[BaseMoved] = lambda unit, base, **kwargs: ""
+    base_tip: Callable[[Path, str], str] = lambda tree, ref: ""
     restack_onto: Callable[..., Restacked | None]
     run_tier1: Callable[..., tuple[bool, str]]
     run_tier2: Callable[..., tuple[bool, str]]
@@ -433,6 +450,13 @@ class UnitRunner(BaseModel):
         self.store.set_state(unit.id, "running", branch=branch)
         ref = local_ref(base)
         tree = self.worktree(unit, ref)
+        # The tip of the base this build is placed on, taken before the
+        # restack or adapt below so that a rewrite during them is caught too:
+        # an adapt runs a model for minutes, and a parent restacked meanwhile
+        # keeps its branch name and rewrites its commits, which only a
+        # comparison against this can see. A base that moves before the
+        # restack costs one needless hold; the resume records it again.
+        start = self.base_tip(tree, ref)
 
         existing = self.branch_commits(tree, ref)
         self.log(
@@ -486,11 +510,16 @@ class UnitRunner(BaseModel):
             """Stop before `next_step` if the unit should not go on yet.
 
             Between steps, never mid-step: abandoning a step throws away what
-            it produced, and every step ends in a commit. Two reasons to stop:
+            it produced, and every step ends in a commit. Three reasons to stop:
 
             - Something upstream went back for rework. Back to `planned`, which
               the dependency check already gates on, so the unit resumes by
               itself once the upstream is through review again.
+            - The base moved: a parent merged while this built, or was
+              restacked and so rewritten under the same name. The merge leaves
+              a building branch alone rather than rebase the tree in use, so
+              it is moved here instead — the resume's restack puts it on its
+              new base before anything reaches a PR.
             - The usage window filled. A unit loops — build, review, rework,
               review again — and checking only when it started let one run on
               for hours past the threshold.
@@ -500,7 +529,9 @@ class UnitRunner(BaseModel):
             build came back to commits and no feedback, read that as finished
             work, and skipped its review.
             """
-            if why := self.upstream_incomplete(unit):
+            if why := self.upstream_incomplete(unit) or self.base_moved(
+                unit, base, tree=tree, start=start
+            ):
                 self.log(f"held before {next_step}: {why}")
                 self.store.set_state(
                     unit.id, PLANNED, note=f"held before {next_step}: {why}", resume_from=next_step

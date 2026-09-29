@@ -22,8 +22,11 @@ import pytest
 from agent_build_kit.config import models
 from agent_build_kit.forges import RepoId
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
+    _tip,
+    build_base_moved,
     build_commit,
     build_open_pr,
     build_push,
@@ -32,7 +35,7 @@ from agent_build_kit.pipeline.wiring import (
     build_tier1,
 )
 from tests.conftest import make_installation
-from tests.factories import init_repo, unit
+from tests.factories import git, init_repo, unit
 
 
 class Recorder:
@@ -854,3 +857,56 @@ def test_a_rejected_commit_goes_back_to_the_build_run_s_own_agent(
     )
 
     assert fixes == [runner.run_claude]
+
+
+def test_a_base_that_moved_while_the_unit_built_is_reported(tmp_path: Path) -> None:
+    """Read from the store at each step: the poll that records a parent's
+    merge runs between builds, while this one is still going."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("add-marker/1"), unit("add-marker/2", depends_on=("add-marker/1",))])
+    store.set_state("add-marker/1", IN_REVIEW, pr=1, branch="spec/add-marker/1")
+    base_moved = build_base_moved(store)
+    child = store.get("add-marker/2")
+
+    assert base_moved(child, "spec/add-marker/1") == ""
+
+    store.set_state("add-marker/1", MERGED)
+
+    assert "spec/add-marker/1 to main" in base_moved(child, "spec/add-marker/1")
+
+
+def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(
+    tmp_path: Path,
+) -> None:
+    """The parent's own parent merged mid-pass and the parent was restacked:
+    still reviewed, still the same branch name, but no longer the commits the
+    child is built on. Only the tip the run started on can tell."""
+    repo = init_repo(tmp_path / "r")
+
+    def commit(name: str) -> None:
+        (repo / name).write_text(name)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", name)
+
+    commit("base.txt")
+    git(repo, "checkout", "-q", "-b", "spec/add-marker/1")
+    commit("parent.txt")
+    git(repo, "checkout", "-q", "main")
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("add-marker/1"), unit("add-marker/2", depends_on=("add-marker/1",))])
+    store.set_state("add-marker/1", IN_REVIEW, pr=1, branch="spec/add-marker/1")
+    base_moved = build_base_moved(store)
+    child = store.get("add-marker/2")
+    start = _tip(repo, "spec/add-marker/1")
+
+    # advanced: a parent's later round on top of what the child has
+    git(repo, "checkout", "-q", "spec/add-marker/1")
+    commit("parent-round-2.txt")
+    assert base_moved(child, "spec/add-marker/1", tree=repo, start=start) == ""
+
+    # rewritten: the restack force-moves it onto a main that has moved on
+    git(repo, "checkout", "-q", "main")
+    commit("merged-grandparent.txt")
+    git(repo, "branch", "-f", "spec/add-marker/1", "main")
+    reason = base_moved(child, "spec/add-marker/1", tree=repo, start=start)
+    assert "spec/add-marker/1 was rewritten" in reason

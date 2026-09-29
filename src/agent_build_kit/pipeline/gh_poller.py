@@ -26,7 +26,8 @@ from agent_build_kit.config import active
 from agent_build_kit.pipeline.shell import gh_out
 
 Gh = Callable[[list[str]], str]
-Dispatch = Callable[..., None]
+# Returning False defers the event: the change is kept, to be reported again.
+Dispatch = Callable[..., bool | None]
 
 # `reviewDecision` and `reviews` are here because `comments` alone misses a
 # normal GitHub review entirely: it returns issue-level comments only, so a
@@ -198,14 +199,19 @@ class Poller(BaseModel):
                 # inside one interval would be recorded as merged with nobody
                 # told, and since the poller reports only changes, no later
                 # poll could ever report it.
-                self._dispatch_terminal(int(number), current, pull)
+                if self._dispatch_terminal(int(number), current, pull) is False:
+                    del updated[number]
                 continue
 
-            self._dispatch_changes(int(number), known[number], current, pull)
+            if self._dispatch_changes(int(number), known[number], current, pull) is False:
+                # Deferred: its unit is being built (see `events`). Recording
+                # the new snapshot would make this the last time the change is
+                # seen, so the old one stays and the next poll reports it again.
+                updated[number] = known[number]
 
         PrState.save(self.state_path, updated)
 
-    def _dispatch_terminal(self, number: int, current: dict, pull: dict) -> None:
+    def _dispatch_terminal(self, number: int, current: dict, pull: dict) -> bool | None:
         """Report a PR we are meeting for the first time if it is done — or if
         its CI is already red.
 
@@ -215,18 +221,19 @@ class Poller(BaseModel):
         failing, and the PR sat red while the tick built on it.
         """
         if current["merged"]:
-            self.dispatch("merged", number, pull=pull)
-        elif current["state"] == "CLOSED":
-            self.dispatch("closed", number, pull=pull)
-        elif current["failing_checks"]:
-            self.dispatch(
+            return self.dispatch("merged", number, pull=pull)
+        if current["state"] == "CLOSED":
+            return self.dispatch("closed", number, pull=pull)
+        if current["failing_checks"]:
+            return self.dispatch(
                 "rework",
                 number,
                 pull=pull,
                 reason=f"failing checks: {', '.join(current['failing_checks'])}",
             )
+        return None
 
-    def _dispatch_changes(self, number: int, before: dict, after: dict, pull: dict) -> None:
+    def _dispatch_changes(self, number: int, before: dict, after: dict, pull: dict) -> bool | None:
         """`before` is read from disk, so it may predate a field `after` has.
 
         Every lookup into it therefore tolerates absence, reading a missing
@@ -234,23 +241,19 @@ class Poller(BaseModel):
         poll fail with KeyError against state recorded the day before.
         """
         if after["merged"] and not before.get("merged"):
-            self.dispatch("merged", number, pull=pull)
-            return
+            return self.dispatch("merged", number, pull=pull)
 
         if after["state"] == "CLOSED" and before.get("state") != "CLOSED":
             # Closed without merging is a decision, not a defect: continuing
             # would rebuild work that was deliberately dropped.
-            self.dispatch("closed", number, pull=pull)
-            return
+            return self.dispatch("closed", number, pull=pull)
 
         labels_added = set(after["labels"]) - set(before.get("labels") or [])
         if HOLD_LABEL in labels_added:
-            self.dispatch("hold", number, pull=pull)
-            return
+            return self.dispatch("hold", number, pull=pull)
 
         if REWORK_LABEL in labels_added:
-            self.dispatch("rework", number, pull=pull, reason="agent:rework label")
-            return
+            return self.dispatch("rework", number, pull=pull, reason="agent:rework label")
 
         # Before the comment check: a review carrying both a decision and a
         # note should report the decision, which is the actionable half.
@@ -260,21 +263,20 @@ class Poller(BaseModel):
             # Only on the transition. The decision stays CHANGES_REQUESTED until
             # a later review supersedes it, so reporting it every poll would
             # rework the unit every five minutes all night.
-            self.dispatch("rework", number, pull=pull, reason="review: changes requested")
-            return
+            return self.dispatch("rework", number, pull=pull, reason="review: changes requested")
 
         if "comment_ids" in before:
             new_comment = bool(set(after["comment_ids"]) - set(before["comment_ids"]))
         else:
             new_comment = after["last_comment"] != before.get("last_comment")
         if new_comment:
-            self.dispatch("rework", number, pull=pull, reason="new comment")
-            return
+            return self.dispatch("rework", number, pull=pull, reason="new comment")
 
         newly_failing = set(after["failing_checks"]) - set(before.get("failing_checks") or [])
         if newly_failing:
             # Only newly failing: a check that was already red is not news, and
             # green is the expected state rather than an event.
-            self.dispatch(
+            return self.dispatch(
                 "rework", number, pull=pull, reason=f"failing checks: {', '.join(newly_failing)}"
             )
+        return None

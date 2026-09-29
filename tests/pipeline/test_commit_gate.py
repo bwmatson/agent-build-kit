@@ -238,7 +238,7 @@ def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record
 
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Rejected())
 
-    cli._build(inst, store.get("add-marker/1"), store=store, graph=store.all())
+    cli._build(inst, store.get("add-marker/1"), store=store)
 
     unit = store.get("add-marker/1")
     assert unit.state == "failed"

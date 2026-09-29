@@ -10,15 +10,18 @@ how a child PR starts showing its parent's diff as its own — or worse, how a
 force-push lands commits nobody reviewed on a base that already has them.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.pipeline import events
+from agent_build_kit.pipeline.gh_poller import Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
 
 
@@ -780,3 +783,224 @@ def test_the_failed_run_is_found_from_the_check_s_link() -> None:
     assert match is not None and match["run"] == "36247510537"
     line = "config-check\tRun pytest\t2026-01-01T14:09:07.0730165Z 1 failed, 14 passed"
     assert LOG_PREFIX.sub("", line) == "1 failed, 14 passed"
+
+
+# --- a unit being built is left alone ----------------------------------------------
+#
+# A pass polls between builds, so an event can name a unit whose build still
+# holds its branch lock. Acting then would rebase the tree the agent is
+# writing to, or be overwritten when the build records how it ended.
+
+
+@pytest.fixture
+def locks(tmp_path: Path) -> Path:
+    return tmp_path / "locks"
+
+
+def test_a_merge_does_not_restack_a_child_that_is_being_built(
+    store: UnitStore, locks: Path
+) -> None:
+    """The merge itself stands and the child's PR is pointed at its new base,
+    which touches no tree; its branch is left for its build, which stops on
+    seeing its base moved."""
+    store.set_state("add-marker/2", RUNNING)
+    recorder = Recorder()
+    retargeted: list[tuple[str, str]] = []
+
+    with branch_lock("spec/add-marker/2", root=locks):
+        handled = events.on_merged(
+            1,
+            store=store,
+            restack=recorder,
+            claim=events.build_claim(locks),
+            retarget=lambda child, base: retargeted.append((child.id, base)),
+            log=lambda m: None,
+        )
+
+    assert handled
+    assert recorder.restacked == []
+    assert store.get("add-marker/1").state == MERGED
+    assert store.get("add-marker/2").state == RUNNING
+    assert retargeted == [("add-marker/2", "main")]
+
+
+def test_a_merge_keeps_the_parent_branch_a_child_is_building_on(
+    store: UnitStore, locks: Path
+) -> None:
+    """The child's build started on the parent's local branch and keeps
+    diffing against it until its next step holds it. Deleted under it, the
+    build counts no commits of its own and fails instead of being held."""
+    store.set_state("add-marker/2", RUNNING)
+    removed: list[tuple[str, str]] = []
+    deleted: list[tuple[str, str]] = []
+
+    with branch_lock("spec/add-marker/2", root=locks):
+        events.on_merged(
+            1,
+            store=store,
+            restack=Recorder(),
+            remove_worktree=lambda repo, branch: removed.append((repo, branch)),
+            delete_branch=lambda repo, branch: deleted.append((repo, branch)),
+            claim=events.build_claim(locks),
+            log=lambda m: None,
+        )
+
+    assert removed == [("app", "spec/add-marker/1")], "the parent's own tree still goes"
+    assert deleted == []
+
+
+def test_a_merge_keeps_the_parent_branch_a_starting_build_has_taken_as_base(
+    store: UnitStore, locks: Path
+) -> None:
+    """A build holds its lock and fixes its base ref while the unit is still
+    `planned` — it only writes `running` later. Deleted then, a first build
+    cannot create its worktree and a resume counts no commits of its own."""
+    store.set_state("add-marker/2", PLANNED)
+    recorder = Recorder()
+    removed: list[tuple[str, str]] = []
+    deleted: list[tuple[str, str]] = []
+
+    with branch_lock("spec/add-marker/2", root=locks):
+        events.on_merged(
+            1,
+            store=store,
+            restack=recorder,
+            remove_worktree=lambda repo, branch: removed.append((repo, branch)),
+            delete_branch=lambda repo, branch: deleted.append((repo, branch)),
+            claim=events.build_claim(locks),
+            log=lambda m: None,
+        )
+
+    assert deleted == []
+    assert recorder.restacked == [], "its own resume restacks it"
+    assert removed == [("app", "spec/add-marker/1")]
+    assert store.get("add-marker/2").state == PLANNED
+
+
+def test_a_merge_restacks_a_child_nothing_is_building(store: UnitStore, locks: Path) -> None:
+    recorder = Recorder()
+    deleted: list[tuple[str, str]] = []
+
+    events.on_merged(
+        1,
+        store=store,
+        restack=recorder,
+        delete_branch=lambda repo, branch: deleted.append((repo, branch)),
+        claim=events.build_claim(locks),
+    )
+
+    assert [moved["branch"] for moved in recorder.restacked] == ["spec/add-marker/2"]
+    assert deleted == [("app", "spec/add-marker/1")]
+    assert not list(locks.glob("*.lock")), "the handler's own hold is released"
+
+
+def test_a_merge_over_a_rework_in_progress_waits_for_the_build(
+    store: UnitStore, locks: Path
+) -> None:
+    """Someone merged a PR its unit is still reworking. Recorded now, the
+    build's own `in_review` at the end would overwrite `merged`."""
+    store.set_state("add-marker/1", RUNNING)
+    recorder = Recorder()
+
+    with branch_lock("spec/add-marker/1", root=locks):
+        handled = events.on_merged(
+            1, store=store, restack=recorder, claim=events.build_claim(locks), log=lambda m: None
+        )
+
+    assert handled is False, "deferred, so the poller reports it again"
+    assert store.get("add-marker/1").state == RUNNING
+    assert recorder.restacked == []
+
+
+@pytest.mark.parametrize(
+    "handle",
+    [
+        lambda store, claim: events.on_rework(
+            1, reason="new comment", store=store, claim=claim, log=lambda m: None
+        ),
+        lambda store, claim: events.on_hold(1, store=store, claim=claim, log=lambda m: None),
+        lambda store, claim: events.on_closed(1, store=store, claim=claim, log=lambda m: None),
+    ],
+    ids=["rework", "hold", "closed"],
+)
+def test_an_event_for_a_unit_being_built_changes_nothing(
+    store: UnitStore, locks: Path, handle
+) -> None:
+    store.set_state("add-marker/1", RUNNING)
+    store.set_feedback("add-marker/1", "what the build is addressing")
+
+    with branch_lock("spec/add-marker/1", root=locks):
+        handled = handle(store, events.build_claim(locks))
+
+    assert handled is False
+    after = store.get("add-marker/1")
+    assert (after.state, after.feedback) == (RUNNING, "what the build is addressing")
+
+
+def _pull(**overrides) -> dict:
+    return {
+        "number": 1,
+        "headRefName": "spec/add-marker/1",
+        "state": "OPEN",
+        "mergedAt": None,
+        "labels": [],
+        "comments": [],
+        "statusCheckRollup": [],
+        "reviewDecision": "",
+        "reviews": [],
+        **overrides,
+    }
+
+
+def _poller(tmp_path: Path, store: UnitStore, locks: Path, pages: list[list[dict]]) -> Poller:
+    calls = iter(pages)
+    return Poller(
+        repo="example/app",
+        state_path=tmp_path / "prs-app.json",
+        gh=lambda args: json.dumps(next(calls)),
+        dispatch=events.build_dispatch(
+            store, restack=Recorder(), claim=events.build_claim(locks), log=lambda m: None
+        ),
+    )
+
+
+def test_a_hold_that_arrives_mid_build_survives_the_build_finishing(
+    tmp_path: Path, store: UnitStore, locks: Path
+) -> None:
+    """The build ends by recording `in_review`. A hold written before that is
+    overwritten by it; a hold reported again after it stands."""
+    held = _pull(labels=[{"name": "agent:hold"}])
+    poller = _poller(tmp_path, store, locks, [[_pull()], [held], [held]])
+    poller.poll()
+    store.set_state("add-marker/1", RUNNING)
+
+    with branch_lock("spec/add-marker/1", root=locks):
+        poller.poll()
+        store.set_state("add-marker/1", IN_REVIEW)  # how the build ends
+
+    poller.poll()
+
+    assert store.get("add-marker/1").state == events.HELD
+
+
+def test_a_review_that_arrives_mid_rework_is_not_dropped(
+    tmp_path: Path, store: UnitStore, locks: Path
+) -> None:
+    """The build clears the feedback it started with once it has pushed. A
+    new review written mid-build was cleared with it; reported again after the
+    build, it requeues the unit with the reviewer's words."""
+    reviewed = _pull(comments=[{"id": "c9", "body": "rename the flag too"}])
+    poller = _poller(tmp_path, store, locks, [[_pull()], [reviewed], [reviewed]])
+    poller.poll()
+    store.set_state("add-marker/1", RUNNING)
+    store.set_feedback("add-marker/1", "an earlier review")
+
+    with branch_lock("spec/add-marker/1", root=locks):
+        poller.poll()
+        store.set_feedback("add-marker/1", "")  # how the build ends
+        store.set_state("add-marker/1", IN_REVIEW)
+
+    poller.poll()
+
+    assert store.get("add-marker/1").state == PLANNED
+    assert store.get("add-marker/1").feedback == "rename the flag too"
