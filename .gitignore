@@ -4,3 +4,6 @@ __pycache__/
 .env
 dist/
 *.egg-info/
+
+# Installed copies of this framework's own skills; the source is src/agent_build_kit/skills/.
+.claude/
