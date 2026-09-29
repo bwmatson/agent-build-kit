@@ -868,9 +868,9 @@ def test_the_loop_is_bounded(tmp_path: Path) -> None:
 
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
-    assert outcome.status == "failed"
+    assert outcome.status == "held", "spent rounds hand the unit to a person"
     assert recorder.events.count("review") == active().limits.max_review_rounds
-    assert "tier1" not in recorder.events, "an unapproved branch is not verified or pushed"
+    assert "tier1" not in recorder.events, "an unapproved branch is not verified"
 
 
 def test_what_the_reviewer_last_said_survives_the_failure(tmp_path: Path) -> None:
@@ -894,9 +894,10 @@ def test_an_unreadable_verdict_does_not_pass_the_branch(tmp_path: Path) -> None:
     recorder = Recorder()
     recorder.verdicts = ["I think it looks fine, honestly"] * 20
 
-    assert (
-        make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[]).status == "failed"
-    )
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert outcome.status != "open"
+    assert store.get(unit().id).approved == ""
 
 
 def test_a_unit_stops_when_its_upstream_goes_back_for_rework(tmp_path: Path) -> None:
@@ -1309,8 +1310,8 @@ def test_a_first_build_has_nobody_to_reply_to(tmp_path: Path) -> None:
 
 
 def test_no_rework_follows_the_last_review(tmp_path: Path) -> None:
-    """Nothing would review it: the unit fails either way, having paid for a
-    rework nobody sees."""
+    """Nothing would review it: the unit goes to a person either way, having
+    paid for a rework nobody sees."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder()
@@ -1318,7 +1319,7 @@ def test_no_rework_follows_the_last_review(tmp_path: Path) -> None:
 
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
-    assert outcome.status == "failed"
+    assert outcome.status == "held"
     assert recorder.events.count("review") == 3
     assert recorder.events.count("claude:rework") == 2
 
@@ -1340,7 +1341,7 @@ def test_tasks_are_ticked_when_the_unit_is_through_the_loop_not_before(tmp_path:
     recorder = Recorder()
     original_review = recorder.review
 
-    def review(*, cwd: Path) -> str:
+    def review(*, cwd: Path, context: str = "") -> str:
         seen_at_review.append(tasks.read_text())
         return original_review(cwd=cwd)
 
@@ -1416,8 +1417,12 @@ def test_a_unit_resumed_before_a_rework_review_gets_the_rework_reviewer(tmp_path
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "run_review": lambda *, cwd: used.append("standard") or recorder.review(cwd=cwd),
-            "run_rework_review": lambda *, cwd: used.append("rework") or recorder.review(cwd=cwd),
+            "run_review": lambda *, cwd, context="": (
+                used.append("standard") or recorder.review(cwd=cwd)
+            ),
+            "run_rework_review": lambda *, cwd, context="": (
+                used.append("rework") or recorder.review(cwd=cwd)
+            ),
         }
     )
 
@@ -1440,7 +1445,7 @@ def test_each_step_is_recorded_as_it_starts(tmp_path: Path) -> None:
         seen.append(store.get(unit().id).resume_from)
         return original_claude(prompt, cwd=cwd)
 
-    def review(*, cwd: Path) -> str:
+    def review(*, cwd: Path, context: str = "") -> str:
         seen.append(store.get(unit().id).resume_from)
         return original_review(cwd=cwd)
 
@@ -1727,7 +1732,7 @@ def test_a_later_review_sees_what_earlier_rounds_asked_and_what_was_done(
 
     runner.run(unit(), base="main", graph=[])
 
-    assert recorder.contexts[0] == "", "the first review has no history"
+    assert "The builder's response" not in recorder.contexts[0], "the first review has no history"
     later = recorder.contexts[1]
     assert "round 2 of the loop" in later
     assert "fill times out on long text" in later

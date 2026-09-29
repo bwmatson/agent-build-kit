@@ -64,12 +64,20 @@ more task groups of a change.
 
 ### `held`
 
-Two ways in: a reviewer put the `agent:hold` label on the PR, or the tick
-found it cannot build the unit (the unit's `history` entry says which — a
-toolchain profile the framework does not implement yet, for instance).
+Four ways in: a reviewer put the `agent:hold` label on the PR, the review loop
+itself held it, or the tick found it cannot build the unit (the unit's
+`history` entry says which — a toolchain profile the framework does not
+implement yet, for instance).
 
 - A reviewer's hold: the human is driving. Finish the PR by hand, or remove
   the label and comment what should change; the next poll picks either up.
+- The review loop's own hold: read the unit's `feedback` and its last
+  `history` entry to see which of these it is. A change only a person can
+  make (`needs_human`) or a repeated disagreement need a decision on the
+  point itself; a problem the reviewer says is an open-ended class needs a
+  decision on the approach, not another round; rounds spent with blocking work
+  outstanding leaves a pushed branch and a PR carrying the open points, ready
+  to finish by hand.
 - A toolchain hold: nothing a retry fixes. Either build the unit by hand on
   its branch, or change the plan.
 

@@ -222,9 +222,32 @@ is blocked that way and the reason holds, set `needs_human` to true and say in
 `feedback` exactly what a person must change. The loop then stops and waits for
 one, instead of asking the builder again for something it cannot do.
 
+**You may approve and still record something.** A `follow_ups` entry kinded
+`"optional"` — a name that could be better, a small refactor, a doc line —
+approves alongside it and is kept where the change's next unit and this PR's
+reviewer will see it, instead of spending another round or being dropped.
+Never kind it `"optional"` for a `correctness` problem, a `test_passes_regardless`
+(a test whose fakes let it pass whatever the code does), a `missing_test` a task
+asked for, or anything the command `policy` forbids — those always block,
+whatever `approved` says. Deferral is for work that can wait, not for work
+that is merely inconvenient to fix now.
+
+**Escalate instead of spending another round when:**
+- you find another instance of a kind an earlier round of this same review
+  already raised, and the kind is open-ended — a list of spellings for an
+  effect, not a finite set — so the next round would just find the next
+  instance. Set `"escalate": "class"` and say in `reasoning` why the kind
+  cannot be enumerated; a person decides how to change the approach.
+- the builder declined a point you raised, with a reason, and you still think
+  it is wrong. Do not ask a third time: set `"escalate": "disagreement"` and
+  say in `reasoning` why the builder's reason does not hold.
+
 Reply with JSON and nothing else:
 {"approved": true|false, "feedback": "what to change, empty when approved",
- "needs_human": false}
+ "needs_human": false,
+ "follow_ups": [{"kind": "optional|correctness|test_passes_regardless|missing_test|policy",
+                 "point": "..."}],
+ "escalate": "", "reasoning": ""}
 """
 
 # Read-only. The reviewer physically cannot edit the branch, so the separation
