@@ -19,11 +19,34 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 
 # Long enough to say what a message is about, short enough to scan.
 WIDTH = 160
+
+
+class ResultEvent(BaseModel):
+    """The `result` event that closes a run: the fields abk reads from it.
+
+    Not `model.Frozen`: the event also carries a session id, token counts,
+    costs and whatever a later claude adds, none of which abk reads, and a new
+    key there is no reason to lose the one event that says how the run ended.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    type: Literal["result"]
+    # `success`, or an error subtype: `error_during_execution`, `error_max_turns`.
+    subtype: str = ""
+    is_error: bool = False
+    # A `success` result's answer; an error subtype has none.
+    result: str | None = None
+    # What went wrong, on an error subtype.
+    errors: list[str] = []
 
 
 def stream_run(
@@ -57,19 +80,20 @@ def stream_run(
 def final_text(stdout: str) -> str:
     """The run's answer: the `result` event's text, or stdout as it stands
     when it is not a stream (an injected runner in a test, or an old claude)."""
-    for line in reversed(stdout.splitlines()):
-        event = _parse(line)
-        if event and event.get("type") == "result" and isinstance(event.get("result"), str):
-            return event["result"]
-    return stdout
+    event = result_event(stdout)
+    return event.result if event is not None and event.result is not None else stdout
 
 
-def result_event(stdout: str) -> dict | None:
-    """The run's closing `result` event, or None when there is none."""
+def result_event(stdout: str) -> ResultEvent | None:
+    """The run's closing `result` event, or None when there is none or it is
+    not the shape a result event has."""
     for line in reversed(stdout.splitlines()):
         event = _parse(line)
         if event and event.get("type") == "result":
-            return event
+            try:
+                return ResultEvent.model_validate(event)
+            except ValidationError:
+                return None
     return None
 
 
@@ -90,8 +114,7 @@ def own_words(stdout: str) -> str:
     """
     event = result_event(stdout)
     if event is not None:
-        said = [event.get("result")] + list(event.get("errors") or [])
-        return "\n".join(part for part in said if isinstance(part, str) and part)
+        return "\n".join(part for part in [event.result, *event.errors] if part)
     return "\n".join(line for line in stdout.splitlines() if _parse(line) is None)
 
 
