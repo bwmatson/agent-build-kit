@@ -6,9 +6,9 @@ researches a recommendation document per language, and asks a model to
 write each repo's first changes. Every step after the layout is skippable,
 and a second run over an existing planning repo writes only what is missing.
 
-The three module attributes below are injection points: tests replace them
-so no run here reaches the real OpenSpec CLI, the real `claude`, or a
-terminal.
+The module attributes below are injection points: tests replace them so no
+run here reaches the real OpenSpec CLI, the real `claude`, a terminal, or an
+installation's own fix command.
 """
 
 from __future__ import annotations
@@ -37,6 +37,8 @@ LANGUAGE_ALIAS = {"typescript": "javascript"}
 ask: Callable[[str], str] = input
 run_openspec: openspec.Run | None = None
 run_claude: RunClaude | None = None
+# Runs the installation's `runtimes.<name>.policy_fix`, once the operator agrees.
+run_fix: Callable[..., subprocess.CompletedProcess] | None = None
 
 
 class InitError(Exception):

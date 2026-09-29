@@ -127,6 +127,8 @@ class ClaudeCodeRuntime:
     policy_coverage: PolicyCoverage = "all_calls"
     supports_usage_tracking: bool = True
     supports_streaming: bool = True
+    # `claude` on PATH is all it needs.
+    requires: tuple[str, ...] = ()
 
     def __init__(
         self,

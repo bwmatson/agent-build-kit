@@ -30,6 +30,7 @@ class _Double:
     policy_coverage: PolicyCoverage = "none"
     supports_usage_tracking = False
     supports_streaming = False
+    requires: tuple[str, ...] = ()
 
     def __init__(self, name: str) -> None:
         self.name = name

@@ -130,6 +130,10 @@ class AgentRuntime(Protocol):
     policy_coverage: PolicyCoverage
     supports_usage_tracking: bool
     supports_streaming: bool
+    # The facts this runtime cannot run without, by their key in its
+    # `runtimes.<name>` entry in abk.yaml (`command`, ...): a selection that
+    # leaves one out fails at load. Empty for a runtime abk can default.
+    requires: tuple[str, ...]
 
     def run(self, request: AgentRequest) -> AgentResult:
         """Run one prompt to completion and report the result.

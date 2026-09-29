@@ -22,6 +22,7 @@ class StandInRuntime:
     policy_coverage: PolicyCoverage = "all_calls"
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
+    requires: tuple[str, ...] = ()
 
     def __init__(
         self,
