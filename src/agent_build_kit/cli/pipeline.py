@@ -23,7 +23,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
@@ -62,9 +62,12 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
+    Limits,
     RateLimited,
+    UsageReading,
     current_usage,
     may_start_unit,
+    threshold_at,
 )
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import build_commit, build_runner
@@ -94,6 +97,27 @@ def _paused_marker(inst: Installation) -> Path:
 # --- status / graph -------------------------------------------------------------
 
 
+def _usage_line(reading: UsageReading) -> str:
+    """Each window's usage against the threshold that applies to it *now*.
+
+    The threshold moves as a window nears its reset, so printing the configured
+    floor alone would leave `abk status` unable to explain why a run at 78% was
+    allowed, or a pause at 71% was not lifted.
+    """
+    limits = Limits.configured()
+    now = datetime.now(UTC)
+
+    parts = []
+    for window in reversed(reading.windows):
+        threshold = threshold_at(window, now=now, limits=limits)
+        detail = f"{window.used_pct}%/{threshold}%"
+        if window.resets_at:
+            minutes = max(0, int((window.resets_at - now).total_seconds() // 60))
+            detail += f", resets in {minutes // 60}h{minutes % 60:02d}m"
+        parts.append(f"{window.name} {detail}")
+    return ", ".join(parts)
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
@@ -102,10 +126,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     reading = current_usage()
     if reading:
-        log(
-            f"usage: session {reading.session_pct}%, weekly {reading.weekly_pct}% "
-            f"({reading.source})"
-        )
+        log(f"usage: {_usage_line(reading)} ({reading.source})")
     else:
         log("usage: unknown")
 

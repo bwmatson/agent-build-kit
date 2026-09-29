@@ -5,9 +5,18 @@ runtime the pipeline knows how to talk to — every call site below still shells
 out to `claude -p` directly. This document specifies the shape that should sit
 behind those calls, so that adding a second runtime is writing an adapter
 against a fixed Protocol, not another round of the same subprocess plumbing.
-Sections marked **TO BE FILLED IN** are placeholders until Hermes's and
-OpenClaw's own specs (and enough of ADK's operational detail) are in hand;
-everything else here is settled enough to build against.
+
+The second adapter is not another product's SDK. It is **ACP, the Agent Client
+Protocol** ([agentclientprotocol.com](https://agentclientprotocol.com)) — a
+JSON-RPC protocol between a client and a coding agent, spoken today by a few
+dozen agents either natively or through an adapter. One `acp` adapter therefore
+buys every one of them, and which agent a workspace uses becomes a command in
+its `abk.yaml` rather than a module in this repo. That matters beyond tidiness:
+a module here may not name a particular installation's tools at all.
+
+Beware the acronym collision: the *Agent Communication Protocol* (agent to
+agent, framework-agnostic) is a different, discontinued thing. This is the
+editor-to-coding-agent one.
 
 ## Why
 
@@ -19,7 +28,7 @@ flags (`--add-dir`, `--settings`, `--allowedTools`/`--disallowedTools`,
 Two subsystems assume Claude Code more deeply still: the policy hook
 (`hooks/policy.py`) is a `PreToolUse` JSON stdin/stdout contract Claude Code
 runs before each tool call, and the usage guard (`pipeline/usage_guard.py`)
-polls Anthropic's usage endpoint with Claude Code's own stored OAuth token.
+polls the provider's usage endpoint with Claude Code's own stored OAuth token.
 
 This is the same problem `forges/base.py` and `profiles/base.py` already
 solved for code hosts and toolchains: one caller, several possible answerers.
@@ -30,15 +39,13 @@ an in-process registry filled by `_load_builtin`.
 
 **Cross-references.** See [architecture.md](architecture.md)'s "The guards"
 section for how the policy hook and usage guard read today — accurate only
-because Claude Code is the sole runtime; once this generalizes, that section
-should gain a pointer here rather than stating Claude Code specifics as
-unconditional fact (not done in this pass — this is a design document only).
-See [toolchain-profiles.md](toolchain-profiles.md) for the sibling pattern.
+because Claude Code is the sole runtime. See
+[toolchain-profiles.md](toolchain-profiles.md) for the sibling pattern.
 `AgentRuntime` and `ToolchainProfile` are orthogonal — a build step asks the
 runtime "run this prompt" and the profile "what command tests this" — except
-that `ToolchainProfile.allowed_tools` is already written in Claude Code's own
-`--allowedTools` syntax, a coupling this document does not resolve (see
-Open questions).
+that `ToolchainProfile.allowed_tools` is written in Claude Code's own
+`--allowedTools` syntax, which no other runtime can honour; see
+"Tool scoping" below.
 
 ## The seven call sites today
 
@@ -57,9 +64,33 @@ today — each runs its own `subprocess.run` with its own refusal handling (or
 none, for `restack`). Part of what this abstraction fixes is that there is
 currently no single executor, no single refusal/rate-limit interpretation, and
 no single streaming path — just seven places that each learned to talk to
-Claude Code slightly differently.
+Claude Code slightly differently. Two of them are not even injectable for
+tests: `tracks/runner.run_phase_command` is monkeypatched as a module
+attribute, and `restack.claude_resolver` is hardcoded one level down from the
+`resolve=` seam.
 
 ## The protocol
+
+`AgentRuntime` is a **`typing.Protocol`**, and that is what keeps adapters
+consistent with each other: structural, not inherited, for the reason `Forge`
+and `ToolchainProfile` are — an adapter owns its own code, a test double is a
+plain class, and the handful of things every adapter needs (the registry,
+`implemented`) are free functions and a plain flag, not inherited behaviour.
+Conformance is checked where this repo already checks types: every adapter
+module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
+`poe format` fails on drift, and `runtimes/__init__.py` types its registry
+`dict[str, AgentRuntime]` so each registration is a checked assignment.
+
+| Member | Kind | What it answers |
+|---|---|---|
+| `name` | attr | the key an installation names in `abk.yaml` |
+| `implemented` | attr | False while an adapter is declared but unfinished |
+| `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
+| `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
+| `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
+| `run(request)` | method | run one prompt to completion, report the result |
+| `get_usage_status()` | method | where an account-level usage window stands, or None |
+| `check_policy(cwd)` | method | whether this agent actually refuses what abk forbids |
 
 `runtimes/base.py`:
 
@@ -70,11 +101,6 @@ with.
 Every "run the agent and get a result" call in the pipeline goes through one
 `AgentRuntime.run()`, given an `AgentRequest` built from abk-level concepts (a
 role, a working directory, a tool policy) rather than one runtime's CLI flags.
-
-A `Protocol`, not a base class, for the reason `Forge` and `ToolchainProfile`
-are: an adapter owns its own code, a test double is a plain class, and the
-handful of things every adapter needs (the registry, `implemented`) are free
-functions and a plain flag, not inherited behaviour.
 """
 
 from __future__ import annotations
@@ -97,16 +123,21 @@ PermissionMode = Literal["edit", "read_only"]
 # role at the same model name.
 Role = Literal["implement", "rework", "review", "rework_review", "generic"]
 
+# How much of what an agent does abk can interpose on. `all_calls`: every
+# tool call reaches abk before it runs (Claude Code's hook; an ACP agent that
+# defers file and terminal work to the client). `agent_flagged`: only the
+# calls the agent itself decides to ask about. `none`: nothing.
+PolicyCoverage = Literal["all_calls", "agent_flagged", "none"]
+
 
 class ToolPolicy(Frozen):
     """What a run may touch, in abk's own terms — not a runtime's flag syntax.
 
     `pipeline/command_policy.check_command` already enforces the command-level
-    rules (deny `gh pr merge`, a bare force-push, ...) as pure Python; this
-    carries only what a runtime needs to *apply* that somewhere — which
+    rules (deny a pull-request merge, a bare force-push, ...) as pure Python;
+    this carries only what a runtime needs to *apply* that somewhere — which
     directory is read-only, which branch prefix scopes the rule — not the
-    rules themselves. A runtime with no way to intercept tool calls at all
-    cannot honour this; see "Tool policy without a hook contract".
+    rules themselves.
     """
 
     specs_dir: Path | None = None  # read-only; None when this run is meant to write there
@@ -121,7 +152,7 @@ class AgentRequest(Frozen):
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir
     model: str | None = None  # already resolved to this runtime's own name — see Config
-    allowed_tools: str = ""  # today, Claude Code's --allowedTools syntax — see Open questions
+    allowed_tools: str = ""  # Claude Code's --allowedTools syntax; see Tool scoping
     denied_tools: str = ""  # ditto, --disallowedTools
     permission_mode: PermissionMode = "edit"
     policy: ToolPolicy | None = None  # None: no enforcement asked for (a read-only run)
@@ -135,12 +166,26 @@ class AgentResult(Frozen):
     text: str  # the run's final answer — what plain `-p` would have printed
     raw: str = ""  # everything, for diagnostics a caller doesn't otherwise need
     error: str = ""  # set when ok is False
+    stop_reason: str = ""  # the runtime's own word for why the turn ended, for diagnostics
+
+
+class PolicyReport(Frozen):
+    """Whether this runtime's agent actually refuses what abk forbids.
+
+    `unenforced` names the forbidden command classes that were *not*
+    intercepted, in abk's own words; `fix` is what an operator should run
+    about it, which the installation supplies and abk never interprets.
+    """
+
+    ok: bool
+    unenforced: tuple[str, ...] = ()
+    fix: str = ""
 
 
 class AgentInterrupted(RuntimeError):
-    """The run was killed (a signal, a timeout the runtime itself enforces),
-    not refused and not broken. Says nothing about the work: `reclaim_stale`
-    recovers it rather than the unit being marked failed."""
+    """The run was killed (a signal, a timeout the runtime itself enforces, a
+    cancelled turn), not refused and not broken. Says nothing about the work:
+    `reclaim_stale` recovers it rather than the unit being marked failed."""
 
 
 class AgentRateLimited(RuntimeError):
@@ -165,17 +210,9 @@ class UsageStatus(Frozen):
 
 class AgentRuntime(Protocol):
     name: str
-    # False while a runtime is declared but unfinished: callers hold rather
-    # than fail — except a runtime, unlike a profile, is load-bearing for
-    # every step, so see "Migration" for why this may need to refuse at
-    # config-load time instead of per-unit.
     implemented: bool
-    # Whether this runtime has an equivalent to Claude Code's PreToolUse hook
-    # (or any other tool-call interception point abk can hand a ToolPolicy to).
-    supports_tool_policy_hooks: bool
-    # Whether get_usage_status can ever answer.
+    policy_coverage: PolicyCoverage
     supports_usage_tracking: bool
-    # Whether AgentRequest.on_event will ever be called.
     supports_streaming: bool
 
     def run(self, request: AgentRequest) -> AgentResult:
@@ -191,6 +228,10 @@ class AgentRuntime(Protocol):
         """None when unsupported, or when this call could not get a reading —
         the caller (usage_guard) already treats both the same way."""
         ...
+
+    def check_policy(self, cwd: Path) -> PolicyReport:
+        """Whether the forbidden command classes really are refused here."""
+        ...
 ```
 
 `runtimes/__init__.py` mirrors `forges`/`profiles`: `get(name)` returns the
@@ -200,196 +241,244 @@ no plugin discovery.
 
 ## Selecting a runtime, and per-role models
 
-```yaml
-runtime: claude_code   # agent_build_kit.runtimes registry — like a repo's forge/profile
+An existing `abk.yaml` needs no edit. `runtime` defaults to `claude_code`,
+which requires no installation facts, and the flat `models:` block keeps
+meaning "the active runtime's models":
 
+```yaml
+models:                   # unchanged; no runtimes: block needed at all
+  implement: opus
+  rework: opus
+  review: opus
+  rework_review: fable
+```
+
+A `runtimes:` entry appears only for a runtime that needs a fact abk cannot
+default — `acp` has no default agent to spawn — and only for the runtimes a
+workspace actually uses:
+
+```yaml
+runtime: acp
 runtimes:
-  claude_code:
-    models:
-      implement: opus
-      rework: opus
-      review: opus
-      rework_review: fable
-  google_adk:      # not implemented — see the placeholder table below
-    models: {}
-  hermes:
-    models: {}
-  openclaw:
-    models: {}
+  acp:
+    command: [some-agent, acp]                  # how to spawn the ACP agent
+    policy_fix: [scripts/constrain-agent.sh]    # what `abk init` offers to run
+    models: {implement: "..."}                  # only when two runtimes' names must coexist
 ```
 
 **Workspace-level, not per-repo.** A repo's `forge`/`profile` choice is about
 that repo's host and toolchain; `runtime` decides what executes *every*
 build/review/rework/track step across the whole workspace — a mixed-runtime
 workspace would mean two policy models, two usage windows, two of everything,
-which nobody has asked for. See Open questions for whether that ever changes.
+which nobody has asked for.
 
-`ModelsConfig` moves from one flat block to one block per runtime, keyed the
-way `repos` already is. `models()` (`config.py`) resolves
-`active().runtimes[active().runtime].models`; a runtime whose config omits a
-role falls back to that runtime adapter's own baked-in default (the way
-`implement: str = "opus"` is a default today) — never Claude Code's defaults
-leaking into an ADK config. Role → model is deliberately many-to-one: a
-runtime with no "expensive vs. cheap reviewer" split may point
-`rework_review` at the same model as `review`; nothing requires four distinct
-names, and a `generic` role (init/research/propose, the planner) may fall back
-to `implement`'s model when a runtime's config doesn't distinguish it.
+Precisely because it is workspace-level, flipping it in `abk.yaml` moves every
+repo at once, which is a poor way to try a runtime out. **`ABK_RUNTIME`**
+overrides it for one machine or one invocation, the way `ABK_IMPLEMENT_MODEL`
+and its siblings already override `models`.
 
-## Optional capabilities
+`models()` resolves the flat block, then `runtimes.<active>.models` where
+present, then the `ABK_*_MODEL` overrides; a role no config names falls back to
+that adapter's own baked-in default. Role to model is deliberately
+many-to-one: a runtime with no "expensive versus cheap reviewer" split may
+point `rework_review` at the same model as `review`, and a `generic` role
+(init's research and propose, the planner) may fall back to `implement`'s.
 
-### Tool policy without a hook contract
+## Tool scoping
+
+`AgentRequest.allowed_tools`/`denied_tools` carry Claude Code's own
+`--allowedTools` patterns, and `ToolchainProfile.allowed_tools` extends them in
+the same syntax. ACP standardizes no equivalent: an agent's tool set comes from
+its own configuration, and the protocol has no "these tools only" parameter on
+a session. So the `acp` adapter documents these two fields as inert on its
+path, and a workspace scopes its agent's tools in that agent's own config. This
+is a real reduction in expressiveness, not a detail to gloss: it is why the
+policy work below does not lean on tool scoping for anything load-bearing.
+
+## Policy enforcement without a hook contract
 
 The enforcement *logic* (`pipeline/command_policy.check_command`) is already
-pure Python, owned by abk, and runtime-agnostic. Only the *wiring* — Claude
-Code's `PreToolUse` JSON contract, registered per run via `--settings` — is
-Claude-Code-specific. Each adapter answers `supports_tool_policy_hooks`.
+pure Python, owned by abk, and runtime-agnostic. Only the *wiring* is
+Claude-Code-specific: a `PreToolUse` JSON contract registered per run via
+`--settings`. Each adapter declares its `policy_coverage`, and there are three
+real cases.
 
-- **True** (Claude Code today): `run()` builds the same `--settings`
-  registration as now, and folds the same denies into `denied_tools` too, for
-  the reason `wiring.py` already documents — two independent things have to
-  fail before an agent can merge its own PR.
-- **False**, two fallback tiers, in order of preference:
-  1. **abk-mediated tool execution** — available only for a runtime whose
-     invocation model gives abk the tool implementations themselves (an SDK
-     where abk registers a Bash-equivalent tool with its own handler), rather
-     than a fully opaque CLI or hosted call. There, the adapter wraps that
-     tool with `command_policy.check_command` itself before letting it run —
-     no Protocol addition needed, since this happens inside the adapter's own
-     `run()`, not a plug-in point `AgentRuntime` has to expose.
-  2. **Best-effort / unavailable** — a CLI or hosted-API runtime with no
-     interception point at all can only be as strict as its own
-     `allowed_tools`/`denied_tools` string lets it be, plus what never
-     depended on the hook in the first place (nothing merges without human
-     review; the push gate still runs in command form on every branch). This
-     must be documented plainly per runtime, not silently weaker than Claude
-     Code's guarantee — `abk doctor` should warn (not error) when the active
-     runtime has `supports_tool_policy_hooks=False`, so an operator decides
-     whether that runtime is safe for their workspace.
+**`all_calls`, through a hook** — Claude Code today. `run()` builds the same
+`--settings` registration as now, and folds the same denies into
+`denied_tools` too, for the reason `wiring.py` already documents: two
+independent things have to fail before an agent can merge its own pull
+request. Note the asymmetry this arrangement is stuck with — a hook that
+crashes *fails open* in Claude Code, which is why `hooks/policy.py` denies on
+every unexpected path.
 
-### Usage tracking is optional
+**`all_calls`, by being the executor** — the strongest case, and it is ACP's.
+`fs/read_text_file`, `fs/write_text_file` and the `terminal/*` methods are
+*client* capabilities advertised at `initialize`, and the specification is
+explicit that an agent "MUST NOT" call one the client did not advertise. An
+adapter that advertises them runs every command itself, applying
+`check_command` before it does, and resolves file writes against the worktree
+before performing them. Nothing fails open, because nothing is delegated.
+Whether a given agent actually routes its work through those methods is the
+agent's choice, which is why this cannot be assumed — see `check_policy`.
+
+**`agent_flagged`, through permission requests** — what is left when an agent
+executes its own tools. `session/request_permission` reaches the client with
+the tool call's `kind` (`read`, `edit`, `execute`, ...), its `rawInput`, the
+`locations` it would touch, and an **agent-supplied** list of options whose
+kinds are `allow_once`, `allow_always`, `reject_once`, `reject_always`; the
+client answers with one option's id. An adapter answers `execute` with
+`check_command` and `edit` by resolving `locations` against the worktree and
+the read-only specs directory. Two limits are structural: the agent decides
+*which* calls to ask about, and the client can only pick from the options
+offered — so if no rejecting option is offered, the adapter cancels the turn
+rather than allowing it. This is a weaker guarantee than the two above and
+must be documented per runtime, never assumed equivalent.
+
+**`none`** — an agent with no interception point at all can only be as strict
+as its own configuration makes it. `abk doctor` says so plainly.
+
+## Proving the constraint: `check_policy`
+
+A runtime whose agent runs its own tools is only as constrained as that
+agent's own configuration, and abk must not take that on trust — a
+`policy_coverage` of `agent_flagged` states a capability, not a fact about
+this machine. `check_policy` establishes the fact.
+
+- **A local answer, where one exists.** Claude Code's adapter answers without
+  calling anything: the hook is registered per run and the same denies are
+  passed as flags.
+- **A probe run, otherwise.** In a throwaway worktree with no remote, the
+  adapter asks the agent to attempt one representative command per forbidden
+  class — a force push, an amend, a merge of a pull request, a write into the
+  specs directory. A class passes when abk either receives a permission
+  request it can reject or the agent reports the attempt blocked; it fails
+  when the command ran. The command shapes come from abk's own
+  `command_policy` and `forges.denies()`, so this names no product, and every
+  attempt is harmless in that worktree even if it does run.
+- **`abk init` asks before changing anything.** It runs the check for the
+  configured runtime, prints each unenforced class in abk's own words, and
+  offers to run `runtimes.<name>.policy_fix` — a command the installation
+  supplies, whose contents abk never inspects. This is the shape
+  `cli/doctor.py`'s `_forge_access` already uses with `forge.access_fix`.
+  Declining leaves the workspace untouched and says which guarantee is
+  missing.
+- **`abk doctor` fails rather than warns** when a class is unenforced, and
+  prints the `policy_fix` command. A probe costs one small agent call, so the
+  result is cached in the state directory with a short TTL, as the usage
+  reading already is.
+
+## Usage tracking is optional
 
 `get_usage_status()` returns `None` for two different reasons, and callers
 must not conflate them:
 
-- the runtime has no such concept at all (`supports_usage_tracking=False`,
-  e.g. a hosted API billed per token with no shared session window — there is
-  nothing to protect, so the usage-guard *step* should be skipped for that
-  runtime entirely, as a capability check, not a per-tick call);
+- the runtime has no such concept at all (`supports_usage_tracking=False`) —
+  ACP is this case, and not merely because the protocol declines to standardize
+  a window: an agent reached over ACP is billed on demand, per token, with no
+  shared ceiling over a time window to exhaust. There is nothing to protect and
+  nothing to wait for, so such a runtime may run as long as the work takes. The
+  usage-guard *step* is skipped for it entirely, as a capability check rather
+  than a per-tick call, and the `limits.usage_*` percentages are inert. **The "unknown
+  reading pauses" rule must not leak into this path** — a runtime that never
+  had a window would otherwise pause forever on a reading it can never give.
+  What the protocol's `usage_update` notification does carry — context
+  occupancy and cumulative cost — is diagnostic, not a ceiling;
 - the runtime generally supports it but this call couldn't get a reading even
   though `supports_usage_tracking=True` (Claude Code today, when neither the
-  live endpoint nor `~/.claude.json` answers) — this keeps today's rule: **an
+  live endpoint nor its own cache answers) — this keeps today's rule: **an
   unknown reading pauses.**
 
-`usage_guard.refresh_login`'s tiny `haiku` call exists only to force Claude
-Code's own OAuth token to refresh; it stays private to the Claude Code
-adapter's `get_usage_status` implementation, not a Protocol member — no other
-runtime's usage polling is expected to need an equivalent trick, and one that
-does can do it inside its own adapter the same way.
+`usage_guard.refresh_login`'s tiny call exists only to force Claude Code's own
+OAuth token to refresh; it stays private to that adapter's
+`get_usage_status`, not a Protocol member.
+
+`AgentRateLimited` still has a job on a usage-tracking runtime, where it means
+a window is spent and the pipeline should pause until it resets. On a runtime
+without a window it should not be raised at all: a provider's transient refusal
+is that turn failing, reported as `AgentResult(ok=False, ...)` for the unit's
+own retry to handle, not a reason to stop starting units.
 
 ## Skills stay outside the protocol
 
-`src/agent_build_kit/skills/` (`abk-authoring`, `abk-config`, `abk-pipeline`)
-are `SKILL.md` files with YAML frontmatter, installed into a repo's
-`.claude/skills/` by `abk install-skills`, and discovered by Claude Code's own
-skill-loading convention when a *person* (or an interactive Claude Code
-session) works in a repo abk manages. That is a different audience from
-`AgentRuntime`: the unattended pipeline's build/review/rework calls get their
-instructions from prompt text (`REVIEW_PROMPT`, the track playbooks) plus the
-target repo's `CLAUDE.md`, never from a Skill. Skills are onboarding/reference
-material for whoever — human or agent — is driving the repo interactively,
-orthogonal to which runtime executes the pipeline's own steps.
+`src/agent_build_kit/skills/` are `SKILL.md` files with YAML frontmatter,
+installed into a repo's `.claude/skills/` by `abk install-skills`, and
+discovered by Claude Code's own skill-loading convention when a *person* (or
+an interactive session) works in a repo abk manages. That is a different
+audience from `AgentRuntime`: the unattended pipeline's build/review/rework
+calls get their instructions from prompt text (`REVIEW_PROMPT`, the track
+playbooks) plus the target repo's `CLAUDE.md`, never from a Skill.
 
-Conclusion: Skills packaging is **not a member of `AgentRuntime`.** Adding a
-second pipeline runtime does not, by itself, obligate a parallel Skills
-mechanism. If Hermes, OpenClaw or ADK eventually ship an equivalent discovery
-convention for their own interactive product (a manifest, an instructions
-directory, an MCP-style tool-description registry), `skills/install()` gains
-a second output format behind the same source-of-truth `SKILL.md` content —
-a packaging detail inside `skills/`, not a Protocol method.
+Conclusion: Skills packaging is **not a member of `AgentRuntime`.** If another
+agent ships an equivalent discovery convention, `skills/install()` gains a
+second output format behind the same source-of-truth `SKILL.md` content — a
+packaging detail inside `skills/`, not a Protocol method.
 
 ## Migration steps
 
 1. Add `runtimes/base.py` — the Protocol and value objects above — and
-   `runtimes/__init__.py` with the registry (`get`, `register`, `_load_builtin`).
+   `runtimes/__init__.py` with the registry (`get`, `register`,
+   `_load_builtin`).
 2. Add `runtimes/claude_code.py`: move the existing subprocess logic behind
-   `ClaudeCodeRuntime`, with **zero behavior change** for current users —
-   same `claude` binary, same flags, same hook, same usage semantics, just
-   reached through `.run(request)` / `.get_usage_status()` instead of each
-   call site building its own argv. Concretely it absorbs:
+   `ClaudeCodeRuntime`, with **zero behaviour change** for current users —
+   same binary, same flags, same hook, same usage semantics, just reached
+   through `.run(request)` instead of each call site building its own argv.
+   Concretely it absorbs:
    - `init/claude_call.claude_text` as the low-level executor;
    - `pipeline/claude_stream.stream_run`/`describe`/`final_text` as its
      streaming machinery, wired to `AgentRequest.on_event`;
    - `hooks/policy.hook_settings` plus `wiring.py`'s `ALLOWED`/`DISALLOWED`/
      `allowed_tools()` composition, applied when `request.policy is not None`;
-   - `pipeline/usage_guard`'s `read_live_usage`/`read_cached_usage`/
-     `current_usage`/`refresh_login` behind `get_usage_status()`;
-   - `check_refusal`'s `Interrupted`/`RateLimited`/plain-`RuntimeError`
-     distinction, raising `AgentInterrupted`/`AgentRateLimited` from here.
-   `implemented = True`, `supports_tool_policy_hooks = True`,
+   - `pipeline/usage_guard`'s reading and refusal logic behind
+     `get_usage_status()`, raising `AgentInterrupted`/`AgentRateLimited`.
+
+   `implemented = True`, `policy_coverage = "all_calls"`,
    `supports_usage_tracking = True`, `supports_streaming = True`.
 3. Update each of the seven call sites to build an `AgentRequest` and call
-   `runtimes.get(active().runtime).run(request)` instead of shelling out
-   directly: `wiring.build_run_claude`/`build_run_review`,
-   `planner.plan_round`'s `_claude`, `restack.claude_resolver`,
-   `tracks/runner.build_command`+`run_phase_command`, `init/research.research`,
-   `init/propose.propose`. Each already accepts an injectable callable for
-   tests (`run`, `run_claude`, `run_openspec`); that seam stays — it now
-   defaults to resolving the active runtime instead of calling `claude`
-   directly, so existing tests that inject a fake keep working unchanged.
-4. Generalize `config.ModelsConfig`/`abk.yaml` as in "Selecting a runtime"
-   above; update `models()` to resolve per active runtime.
-5. Add stub adapters `runtimes/google_adk.py`, `runtimes/hermes.py`,
-   `runtimes/openclaw.py`: declared, `implemented = False`, every method
-   raises `NotImplementedError`, capability flags left as documented
-   best-guesses (see the table below), registered in `_load_builtin` beside
-   `claude_code`.
-6. **Open design point, not resolved here:** unlike an unimplemented
-   `ToolchainProfile` (which only affects one repo's tier-1/tier-2 commands,
-   and a unit in that repo simply goes `held`), an unimplemented
-   `AgentRuntime` affects *every* step — planning, building, tracks all call
-   it. Holding every unit in the workspace the way `node_npm` holds one repo's
-   units is probably the wrong failure mode; `Installation`/`abk doctor`
-   should more likely refuse to load a workspace configured with a
-   non-implemented runtime, failing at config-load time with a clear message,
-   rather than deferring to per-unit `held` states that would cover the whole
-   pipeline in silence. Decide this when the first stub is actually wired in,
-   not now.
+   `runtimes.get(...).run(request)` instead of shelling out. Five already
+   accept an injectable callable for tests; that seam stays and now defaults
+   to resolving the active runtime. The other two get one: an injectable
+   executor on `tracks/runner`, and a `resolve=` default on
+   `restack.resolved_move` — and `planner` and `restack` gain the refusal
+   interpretation they lack today.
+4. Add `runtime`, the optional `runtimes` mapping and `ABK_RUNTIME` as in
+   "Selecting a runtime"; add a `_runtime` check to `abk doctor` and the
+   `check_policy` ask to `abk init`.
+5. Add `runtimes/acp.py` behind an `acp` extra, with the permission handling
+   and client capabilities described above.
+
+Unlike an unimplemented `ToolchainProfile` — which affects one repo's commands
+and simply holds that repo's units — an unimplemented or misconfigured
+`AgentRuntime` affects *every* step. Holding every unit in the workspace is
+the wrong failure mode: configuration that cannot work (an unknown runtime, a
+selected runtime with no spawn command) fails at config-load time with a clear
+message.
 
 ## Per-runtime status
 
-| Runtime | Invocation model | Tool execution / sandboxing | Model naming | Streaming | Tool policy hook equivalent | Usage/rate tracking equivalent | Status |
-|---|---|---|---|---|---|---|---|
-| `claude_code` | local CLI (`claude -p`), subprocess | Claude Code's own tool set, gated by `--allowedTools`/`--disallowedTools` + `PreToolUse` hook | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | `PreToolUse` hook, `--settings` per run | live usage endpoint with Claude Code's OAuth token, falling back to `~/.claude.json`'s cache | **implemented** |
-| `google_adk` | **TO BE FILLED IN** — SDK (Python/Java) invoked in-process, a local dev server, or a hosted Agent Engine deployment? Each implies a very different `run()` | **TO BE FILLED IN** — ADK's own tool-calling contract; does it expose a pre-tool-call callback abk could hand a `ToolPolicy`? | **TO BE FILLED IN** — Gemini model ids (`gemini-2.5-pro` etc.), and whether ADK lets abk pick a model per agent invocation or only per agent definition | **TO BE FILLED IN** — ADK has streaming events for its own UI; whether they're capturable from a scripted caller is unknown | **TO BE FILLED IN** — does ADK have a before-tool-call callback usable as a hook-equivalent? | **TO BE FILLED IN** — Google Cloud billing/quota, not an Anthropic-style subscription window; likely `supports_usage_tracking = False` unless a Cloud quota API is worth polling | **not implemented** |
-| `hermes` | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **not implemented** |
-| `openclaw` | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **TO BE FILLED IN** | **not implemented** |
+| Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
+|---|---|---|---|---|---|---|
+| `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented** (today, inline) |
+| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **not implemented** |
 
 ## Open questions
 
-These can't be resolved without the missing specs, and are flagged rather than
-guessed at:
-
-- **Does Hermes (or OpenClaw) support anything like `PreToolUse` hooks**, or
-  any interception point at all? Until known, both adapters must default to
-  `supports_tool_policy_hooks = False` and the "best-effort/unavailable" path.
-- **Is OpenClaw a hosted API, a local CLI, or an SDK?** This decides whether
-  `AgentRequest.cwd`/`add_dirs` mean anything (a hosted API has no local
-  filesystem concept of "worktree") or whether the adapter has to synthesize
-  an equivalent (upload/mount a workspace) — a materially different `run()`
-  shape than Claude Code's.
-- **Does ADK expose a "run to completion, get final text" call at all**, or
-  only a session/turn-based conversational API abk would have to drive turn
-  by turn to reach an equivalent of `-p`'s one-shot behavior?
-- **Do any of the three have an equivalent of a shared, account-level usage
-  window** (a subscription-style ceiling separate from raw token billing), or
-  is `supports_usage_tracking = False` simply correct for all three, making
-  the usage-guard step a Claude-Code-only concern in practice?
-- **Does `profile.allowed_tools`'s Claude-Code-flavored syntax
-  (`Bash(uv run *)`) need its own per-runtime translation**, or does every
-  non-Claude-Code adapter simply not support tool-pattern scoping at all
-  (falling back to the coarser allow/deny-by-tool-name split, if that)? This
-  document treats it as unresolved, not blocking — see "Why."
-- **Is workspace-level runtime selection (one runtime for the whole
-  workspace) actually sufficient**, or will there be a real case for one repo
-  building under Claude Code while another builds under ADK? Nothing today
-  suggests it, but the `abk.yaml` shape above assumes not.
+- **Whether ACP v2 is worth following.** v1 is stable and is what an adapter
+  should speak; v2 is a published draft that reworks permission requests and
+  moves past strictly turn-based interaction, and its own guidance is to
+  support both side by side for some time. Build v1, negotiate later.
+- **Whether the Python SDK is the right substrate.** It exists and is
+  pydantic-plus-asyncio only, which suits this repo, but it is pre-1.0 while
+  the TypeScript and Rust SDKs are 1.0. Pin it, and expect at least one bump.
+- **Whether `policy_coverage` should be a hard gate rather than a doctor
+  failure.** Today's answer: `abk doctor` fails on an unenforced class and
+  `abk init` offers the fix, but nothing stops an operator running a tick
+  anyway. If that turns out to be too permissive, the gate belongs in
+  `may_start_unit`, beside the usage check, not in the adapter.
+- **What a run's sessions cost an agent that keeps them.** An agent whose
+  sessions persist will accumulate one per build, review and rework. Whether
+  abk should clean them up, and whether ACP even exposes a way to, is unknown
+  until the first sustained run.
+- **Is workspace-level runtime selection actually sufficient**, or will there
+  be a real case for one repo building under one agent while another builds
+  under a different one? Nothing today suggests it, and `ABK_RUNTIME` covers
+  trialling; the `abk.yaml` shape above assumes not.

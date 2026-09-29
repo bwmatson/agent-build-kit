@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- The usage threshold ramps instead of being flat: each window (five-hour
+  session, seven-day week) may be run from `limits.usage_pause_pct` up to
+  `limits.usage_ceiling_pct` (90) over the last `limits.usage_relief_fraction`
+  of *that* window, measured against its own reset. Quota unused at a reset is
+  lost, and the ceiling stays below the point where credits pay. A pause now
+  resumes when the ramp would offer `limits.usage_resume_buffer_pct` of room
+  above current usage, capped at six hours so a weekly window resetting days
+  out re-reads rather than sleeping through it. `abk status` prints each
+  window as `used%/threshold%` with its time to reset.
+
 ## 0.1.0 — 2026-09-28
 
 First release, extracted from a private planning repo where the pipeline had

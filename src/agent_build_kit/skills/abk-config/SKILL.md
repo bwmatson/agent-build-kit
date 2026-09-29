@@ -56,14 +56,17 @@ limits:
   max_concurrent_stacks: 4    # units implemented at once, across repos
   min_unit_lines: 500         # estimated lines before a unit stops growing
   max_review_rounds: 3        # review rounds before a unit fails
-  usage_pause_pct: 70         # % of the usage window at which no unit starts
+  usage_pause_pct: 70         # % of a usage window at which no unit starts
+  usage_ceiling_pct: 90       # what that rises to at that window's reset
+  usage_relief_fraction: 0.25 # trailing part of a window the rise spans
+  usage_resume_buffer_pct: 5  # room above current usage a resume waits for
   max_plan_attempts: 3        # times one tasks.md is sent to the planner
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet
                               # no dollar budget — every phase is bounded by
-                              # the same session/weekly usage window as
-                              # limits.usage_pause_pct above
+                              # the same session/weekly usage windows, and
+                              # the same ramped thresholds, as limits above
   implement_max_prs: 3
   allowed_tools: "..."        # Claude Code --allowedTools syntax
   disallowed_tools: "..."

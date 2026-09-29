@@ -4,8 +4,16 @@ The account is on a subscription, so the constraint isn't dollars — it's the
 plan's usage window, shared with the user's own interactive sessions. Credits
 are enabled past the plan limit, which means running to 100% spends real money
 instead of stopping. So unattended work stops starting new units at
-`spec_usage_pause_pct` (70 by default) and schedules a resume after the window
-resets.
+`limits.usage_pause_pct` (70 by default) and schedules a resume.
+
+**The threshold is not flat.** Quota left unused when a window resets is simply
+lost, and the reasons to hold back — room for units already running, room for
+the user's own sessions — shrink as the reset approaches. So each window's
+threshold ramps from `usage_pause_pct` up to `usage_ceiling_pct` (90) over the
+last `usage_relief_fraction` of that window, and each window is measured
+against *its own* reset: the five-hour session and the seven-day week ramp
+independently. The ceiling stays below 100 so relief never reaches the point
+where credits start paying.
 
 **Where the numbers come from**, in the order tried:
 
@@ -67,7 +75,28 @@ RESUME_GRACE = timedelta(minutes=2)
 # enough to pick up a recovered endpoint, long enough not to spin.
 UNKNOWN_RETRY = timedelta(minutes=30)
 
+# The two windows' lengths, which the endpoint doesn't report. A window's start
+# is its reset minus its length, and that is all the ramp needs.
+SESSION_WINDOW = timedelta(hours=5)
+WEEKLY_WINDOW = timedelta(days=7)
+
+# The longest resume a pause may schedule. A weekly window can reset days out,
+# and `pause_until` never shortens an existing pause, so an honest "resume when
+# the week resets" would wedge the pipeline for that long — this makes it
+# re-read instead. Being woken to pause again is cheap; sleeping through a
+# reset is not.
+MAX_SCHEDULED_PAUSE = timedelta(hours=6)
+
 Fetch = Callable[[str, dict[str, str]], object]
+
+
+class Window(Frozen):
+    """One usage window as the ramp sees it: how full, and when it resets."""
+
+    name: Literal["session", "weekly"]
+    used_pct: int
+    resets_at: datetime | None
+    length: timedelta
 
 
 class UsageReading(Frozen):
@@ -78,6 +107,10 @@ class UsageReading(Frozen):
     # None when no five-hour window is open: nothing has been used since the
     # last one ended, so there is nothing to reset. Not "unknown".
     resets_at: datetime | None
+    # The same, for the seven-day window. Defaulted because the older readings
+    # cached on disk predate it; absent reads as "no window open", which only
+    # ever costs the weekly ramp, never headroom nobody measured.
+    weekly_resets_at: datetime | None = None
     observed_at: datetime
     source: str
     credits_enabled: bool
@@ -91,6 +124,30 @@ class UsageReading(Frozen):
     @property
     def is_live(self) -> bool:
         return self.source == "live"
+
+    @property
+    def session_resets_at(self) -> datetime | None:
+        """`resets_at` under the name the ramp uses, now that there are two."""
+        return self.resets_at
+
+    @property
+    def windows(self) -> tuple[Window, ...]:
+        """Both windows, weekly first — the order `may_start_unit` reports
+        them in, so the longer window is named when both are over."""
+        return (
+            Window(
+                name="weekly",
+                used_pct=self.weekly_pct,
+                resets_at=self.weekly_resets_at,
+                length=WEEKLY_WINDOW,
+            ),
+            Window(
+                name="session",
+                used_pct=self.session_pct,
+                resets_at=self.resets_at,
+                length=SESSION_WINDOW,
+            ),
+        )
 
 
 class Decision(Frozen):
@@ -203,6 +260,7 @@ def _reading_from_payload(
             session_pct=int(float(session["utilization"])),
             weekly_pct=int(float(weekly["utilization"])),
             resets_at=_reset_time(session.get("resets_at")),
+            weekly_resets_at=_reset_time(weekly.get("resets_at")),
             observed_at=observed_at,
             source=source,
             credits_enabled=bool(credits.get("is_enabled", False)),
@@ -236,6 +294,69 @@ def _resume_after(reading: UsageReading) -> datetime:
     if reading.resets_at is None:
         return datetime.now(UTC) + UNKNOWN_RETRY
     return reading.resets_at + RESUME_GRACE
+
+
+class Limits(Frozen):
+    """The four numbers the ramp is made of, passed in rather than read from
+    the active config, so the arithmetic can be tested without one."""
+
+    pause_pct: int
+    ceiling_pct: int
+    relief_fraction: float
+    resume_buffer_pct: int
+
+    @classmethod
+    def configured(cls) -> Limits:
+        limits = active().limits
+        return cls(
+            pause_pct=limits.usage_pause_pct,
+            ceiling_pct=limits.usage_ceiling_pct,
+            relief_fraction=limits.usage_relief_fraction,
+            resume_buffer_pct=limits.usage_resume_buffer_pct,
+        )
+
+
+def threshold_at(window: Window, *, now: datetime, limits: Limits) -> int:
+    """The percent this window may be run to at `now`.
+
+    `pause_pct` for most of the window, then a straight line up to
+    `ceiling_pct`, reached at the reset. A window with no reset time isn't
+    open, so nothing is close to running out: the base applies.
+    """
+    if window.resets_at is None:
+        return limits.pause_pct
+
+    span = window.length * limits.relief_fraction
+    remaining = window.resets_at - now
+    if remaining >= span:
+        return limits.pause_pct
+    if remaining <= timedelta(0):
+        return limits.ceiling_pct
+
+    elapsed = 1 - remaining / span
+    return round(limits.pause_pct + (limits.ceiling_pct - limits.pause_pct) * elapsed)
+
+
+def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | None:
+    """When the ramp will first offer room to work, or None if it never will.
+
+    "Room" is the window's current usage plus `resume_buffer_pct`: waking at
+    the moment the threshold merely equals what is already used would start a
+    unit with nothing left to finish it. Usage only grows inside a window, so
+    this is the earliest the answer can change — never a promise that it has.
+    """
+    if window.resets_at is None:
+        return None
+
+    target = window.used_pct + limits.resume_buffer_pct
+    if target <= limits.pause_pct:
+        return now
+    if target > limits.ceiling_pct:
+        return None
+
+    reach = (target - limits.pause_pct) / (limits.ceiling_pct - limits.pause_pct)
+    span = window.length * limits.relief_fraction
+    return max(now, window.resets_at - span * (1 - reach))
 
 
 def token_expired(path: Path | None = None, *, now: datetime | None = None) -> bool:
@@ -367,6 +488,7 @@ def read_cached_usage(path: Path | None = None) -> UsageReading | None:
             session_pct=int(float(session["utilization"])),
             weekly_pct=int(float(weekly["utilization"])),
             resets_at=_reset_time(session.get("resets_at")),
+            weekly_resets_at=_reset_time(weekly.get("resets_at")),
             observed_at=datetime.fromtimestamp(cached["fetchedAtMs"] / 1000, tz=UTC),
             source="claude.json",
             # This cache carries no credits state. Absence is not "disabled",
@@ -473,20 +595,25 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
     nothing is ever left half-committed or unpushed by a pause. The headroom
     above the threshold is what pays for them finishing.
 
-    **The threshold is the operative limit.** The credits checks below are
-    backstops for the case where something has already gone wrong; they can
-    only ever stop work earlier, never permit more of it. Available credits
-    are the user's reserve, not headroom for the pipeline, so a healthy credit
-    balance does not raise the ceiling past `spec_usage_pause_pct`.
+    **The threshold is the operative limit.** It rises from
+    `usage_pause_pct` towards `usage_ceiling_pct` as a window nears its reset
+    (`threshold_at`), and each window is judged against its own. The credits
+    checks below are backstops for the case where something has already gone
+    wrong; they can only ever stop work earlier, never permit more of it.
+    Available credits are the user's reserve, not headroom for the pipeline,
+    so a healthy credit balance does not raise the ceiling past
+    `usage_ceiling_pct`.
     """
-    threshold = active().limits.usage_pause_pct
+    now = datetime.now(UTC)
 
     if reading is None:
         return Decision(
             may_start=False,
             reason="usage is unknown: neither the usage endpoint nor ~/.claude.json could be read",
-            resume_at=datetime.now(UTC) + UNKNOWN_RETRY,
+            resume_at=now + UNKNOWN_RETRY,
         )
+
+    limits = Limits.configured()
 
     # Backstops first, so they can only make the answer stricter. Past the
     # plan limit the next call is billed to credits, which is never something
@@ -520,18 +647,58 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
             resume_at=_resume_after(reading),
         )
 
-    for window, used in (("weekly", reading.weekly_pct), ("session", reading.session_pct)):
-        if used >= threshold:
+    for window in reading.windows:
+        threshold = threshold_at(window, now=now, limits=limits)
+        if window.used_pct >= threshold:
             return Decision(
                 may_start=False,
-                reason=f"{window} usage at {used}% (threshold {threshold}%, {reading.source})",
-                resume_at=_resume_after(reading),
+                reason=(
+                    f"{window.name} usage at {window.used_pct}% "
+                    f"({_threshold_note(window, threshold, limits)}, {reading.source})"
+                ),
+                resume_at=_resume_to(window, now=now, limits=limits),
             )
 
     return Decision(
         may_start=True,
         reason=(
             f"session {reading.session_pct}%, weekly {reading.weekly_pct}% "
-            f"(threshold {threshold}%, {reading.source})"
+            f"({_thresholds_note(reading, now=now, limits=limits)}, {reading.source})"
         ),
     )
+
+
+def _threshold_note(window: Window, threshold: int, limits: Limits) -> str:
+    """The threshold, and — while it is moving — what it is moving towards."""
+    if threshold >= limits.ceiling_pct or window.resets_at is None:
+        return f"threshold {threshold}%"
+    if threshold > limits.pause_pct:
+        return (
+            f"threshold {threshold}%, ramping to {limits.ceiling_pct}% by {_hhmm(window.resets_at)}"
+        )
+    return f"threshold {threshold}%"
+
+
+def _thresholds_note(reading: UsageReading, *, now: datetime, limits: Limits) -> str:
+    parts = [
+        f"{window.name} {threshold_at(window, now=now, limits=limits)}%"
+        for window in reversed(reading.windows)
+    ]
+    return "thresholds " + ", ".join(parts)
+
+
+def _hhmm(moment: datetime) -> str:
+    return f"{moment:%m-%d %H:%M UTC}"
+
+
+def _resume_to(window: Window, *, now: datetime, limits: Limits) -> datetime:
+    """When to look again after a window's threshold refused a unit.
+
+    The ramp may clear the current usage before the reset does; if it never
+    will, the reset is the answer. Either way the wait is capped, so a weekly
+    window that resets days out doesn't put the pipeline to sleep for days.
+    """
+    relief = relief_at(window, now=now, limits=limits)
+    if relief is None:
+        relief = window.resets_at + RESUME_GRACE if window.resets_at else now + UNKNOWN_RETRY
+    return min(relief, now + MAX_SCHEDULED_PAUSE)

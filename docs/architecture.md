@@ -218,7 +218,10 @@ archives), and never twice. A conflict raises rather than being auto-resolved.
 
 ## The guards
 
-None of these rely on the prompt being followed.
+None of these rely on the prompt being followed. All three read as they do
+because Claude Code is the only runtime today; the hook contract and the usage
+window are its own, and what generalizing them would mean is
+[agent-runtimes.md](agent-runtimes.md).
 
 **The policy hook** (`hooks/policy.py`, `pipeline/command_policy.py`). Every
 agent run passes `--settings` registering a `PreToolUse` hook for `Bash`,
@@ -242,14 +245,25 @@ before an agent can merge its own PR.
 
 **The usage guard** (`usage_guard.py`, `pause.py`). The account is a
 subscription with a usage window shared with the user's own sessions, and
-credits past the plan limit cost money. No new unit starts once the session
-or weekly window is at `limits.usage_pause_pct`; the reading comes live from
-the usage endpoint with Claude Code's stored OAuth token (cached three
-minutes), falling back to Claude Code's own cache when it is under an hour
-old. **An unknown reading pauses.** A pause writes `runs/paused.json` with a
-deadline and reason and schedules its own resume — a `systemd-run --user`
-transient unit running `uv run abk tick` just after the window resets, or
-thirty minutes later when nothing says when. A `claude` call refused
+credits past the plan limit cost money. No new unit starts once a window is
+at its threshold; the reading comes live from the usage endpoint with Claude
+Code's stored OAuth token (cached three minutes), falling back to Claude
+Code's own cache when it is under an hour old. **An unknown reading pauses.**
+
+The threshold is not flat, and the two windows do not share one: quota unused
+when a window resets is lost, so each window's threshold ramps from
+`limits.usage_pause_pct` to `limits.usage_ceiling_pct` over the last
+`limits.usage_relief_fraction` of *that* window — the session against the
+five-hour reset, the week against the seven-day one. The ceiling is validated
+below 100, so relief never reaches the point where credits pay.
+
+A pause writes `runs/paused.json` with a deadline and reason and schedules its
+own resume — a `systemd-run --user` transient unit running `uv run abk tick`
+at the moment the ramp would clear the current usage plus
+`limits.usage_resume_buffer_pct`, else just after the window resets, else
+thirty minutes later when nothing says when. No resume is scheduled more than
+six hours out, so a weekly window resetting days away re-reads rather than
+sleeping through everything. A `claude` call refused
 mid-unit with a rate-limit message pauses too; a `claude` killed by a signal
 leaves the unit `running` for the next tick's `reclaim_stale`, which commits
 whatever the run left and requeues it at the step it was in.

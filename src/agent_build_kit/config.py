@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_validator
 
 from agent_build_kit.model import Frozen
 
@@ -91,10 +91,35 @@ class LimitsConfig(Frozen):
     min_unit_lines: int = 500
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
-    # Percent of the Claude usage window at which no NEW unit starts.
+    # Percent of the Claude usage window at which no NEW unit starts, for
+    # most of a window. Near the reset this rises — see `usage_ceiling_pct`.
     usage_pause_pct: int = 70
+    # The most a window may ever be run to: the threshold at the moment it
+    # resets. Quota not used before a reset is lost, and the headroom the
+    # pause protects matters less the closer the reset is. Below 100 because
+    # credits pay past the plan limit.
+    usage_ceiling_pct: Annotated[int, Field(ge=0, lt=100)] = 90
+    # The trailing fraction of a window over which the threshold ramps from
+    # `usage_pause_pct` to `usage_ceiling_pct`. 0.25 is the last ~75 minutes
+    # of a five-hour session, the last ~42 hours of the week.
+    usage_relief_fraction: Annotated[float, Field(gt=0, le=1)] = 0.25
+    # How much room above the current usage the ramp must offer before a
+    # paused pipeline is woken: enough that a unit which starts can finish,
+    # rather than being admitted exactly at the margin.
+    usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
+
+    @model_validator(mode="after")
+    def _ceiling_above_pause(self) -> LimitsConfig:
+        """A ceiling under the pause percent would make the threshold *fall*
+        as a reset approaches, which is the opposite of what it is for."""
+        if self.usage_ceiling_pct < self.usage_pause_pct:
+            raise ValueError(
+                f"usage_ceiling_pct ({self.usage_ceiling_pct}) is below "
+                f"usage_pause_pct ({self.usage_pause_pct})"
+            )
+        return self
 
 
 class TracksConfig(Frozen):

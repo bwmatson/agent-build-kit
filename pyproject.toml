@@ -40,6 +40,13 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pyrefly]
 python-version = "3.12"
 search-path = ["src", "."]
+# Spelled out rather than left to pyrefly's default `**/*.py*` discovery: under
+# pre-commit, in a git worktree (which is where every unattended build runs),
+# that default is dropped as "matched by project-excludes or an ignore file"
+# and the hook then fails with "No Python files matched patterns" — a green
+# checkout and a red build for the same commit. An explicit list does not
+# depend on that scan.
+project-includes = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

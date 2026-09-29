@@ -65,7 +65,29 @@ github:
                                 # ignores everything else, and force-with-lease
                                 # is permitted only under it.
 
-models:                         # bare aliases, not pinned ids
+runtime: claude_code            # what executes every build/review/rework step,
+                                # for the whole workspace. The registry in
+                                # agent_build_kit.runtimes names the choices —
+                                # see agent-runtimes.md. ABK_RUNTIME overrides
+                                # it per machine, for trying one out without
+                                # moving every repo at once.
+
+runtimes: {}                    # one entry per runtime that needs a fact abk
+                                # cannot default, and only for the runtimes
+                                # this workspace uses. `claude_code` needs
+                                # none, so a workspace on it leaves this out.
+  # acp:                        # an agent speaking the Agent Client Protocol
+  #   command: [some-agent, acp]          # how to spawn it
+  #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when
+  #                                       # the agent does not refuse what the
+  #                                       # command policy forbids
+  #   models: {implement: "..."}          # only when a second runtime's model
+  #                                       # names must coexist with the block
+  #                                       # below
+
+models:                         # bare aliases, not pinned ids. These are the
+                                # ACTIVE runtime's models; a runtimes.<name>.
+                                # models block overrides them when present.
   implement: opus               # the tests and implementation runs
   rework: opus                  # reworks, restack conflict resolution, adapt
   review: opus                  # the first review of a fresh build
@@ -80,8 +102,14 @@ limits:
   min_unit_lines: 500           # estimated changed lines before the planner
                                 # stops absorbing the next task group
   max_review_rounds: 3          # review rounds before a unit fails
-  usage_pause_pct: 70           # % of the session or weekly usage window at
-                                # which no new unit starts
+  usage_pause_pct: 70           # % of a usage window at which no new unit
+                                # starts, for most of that window
+  usage_ceiling_pct: 90         # what that rises to at the window's reset;
+                                # below 100, where credits start paying
+  usage_relief_fraction: 0.25   # the trailing part of a window the rise is
+                                # spread over (a session's last ~75 minutes)
+  usage_resume_buffer_pct: 5    # room above current usage the rising
+                                # threshold must offer before a pause lifts
   max_plan_attempts: 3          # planner attempts per version of a tasks.md
 
 tracks:                         # the scheduled tracks (docs/tracks.md)
@@ -216,7 +244,13 @@ loaded (`abk init` writes `.env.example` to copy).
 | `GH_TOKEN` (or `ABK_GH_TOKEN`) | one GitHub token for every `gh` call, instead of the per-owner lookup `gh auth token --user <owner>`. Read from `.env`, since pydantic-settings does not export to the environment and a bare `GH_TOKEN=` there would never reach a subprocess otherwise. | unset: per-owner lookup |
 | `ABK_WORKTREE_ROOT` | overrides `planning.worktree_root` on this machine | unset |
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
+| `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |
 | `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of `models.*` | unset: the file's |
+
+The model overrides name the *active* runtime's models: a role's model is
+resolved against whichever runtime is selected, so an override naming a model
+one runtime knows and another does not applies only while that runtime is in
+force. See [agent-runtimes.md](agent-runtimes.md).
 
 Two more are read outside the settings layer because they belong to Claude
 Code: `CLAUDE_CODE_OAUTH_TOKEN`, used by the usage guard ahead of the token

@@ -94,6 +94,11 @@ holds the failure; `abk verify <change>` reruns it once the cause is fixed.
 ## When the pipeline is paused
 
 `abk status` prints `paused until … — <reason>`. The usual reason is the
-usage window: no new unit starts above `limits.usage_pause_pct`, and a
-resume is scheduled for when the window resets. Nothing needs doing; a tick
-before that time exits without work.
+usage windows: no new unit starts above the threshold for the window named
+in the reason — `limits.usage_pause_pct` for most of a window, rising to
+`limits.usage_ceiling_pct` as that window's reset nears — and a resume is
+scheduled for when the rising threshold would clear the current usage, or
+for the reset. Nothing needs doing; a tick before that time exits without
+work. `abk status` prints each window as `used%/threshold%` with its time to
+reset, which is what explains a pause at a percentage the configured floor
+alone doesn't account for.

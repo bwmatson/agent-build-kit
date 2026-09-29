@@ -25,8 +25,9 @@ point; the pipeline registers it per run as
 One pass of the loop, the command the timer runs every few minutes. In
 order: exit silently if nothing needs a tick (no unit `planned`/`running`/
 `in_review` and every change planned in its current form); stop if paused;
-read the usage window and pause if it is past `limits.usage_pause_pct` or
-unknown; `git fetch --prune origin` in every repo; poll GitHub; reclaim units
+read the usage windows and pause if either is past the threshold that applies
+to it now (`limits.usage_pause_pct`, rising towards `usage_ceiling_pct` as
+that window's reset nears) or unknown; `git fetch --prune origin` in every repo; poll GitHub; reclaim units
 left `running` by a dead process; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then build every
 ready unit in parallel.

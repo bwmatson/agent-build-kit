@@ -33,9 +33,13 @@ def write_anchor(
     weekly_pct: int = 10,
     fetched: datetime | None = None,
     resets_in: timedelta = timedelta(hours=2),
+    # Far enough out that the weekly ramp is not in play unless a test asks
+    # for it: the two windows reset on their own schedules, days apart.
+    weekly_resets_in: timedelta = timedelta(days=3),
 ) -> Path:
     fetched = fetched or datetime.now(UTC)
     resets_at = (datetime.now(UTC) + resets_in).isoformat()
+    weekly_resets_at = (datetime.now(UTC) + weekly_resets_in).isoformat()
     path = tmp_path / ".claude.json"
     path.write_text(
         json.dumps(
@@ -44,7 +48,7 @@ def write_anchor(
                     "fetchedAtMs": int(fetched.timestamp() * 1000),
                     "utilization": {
                         "five_hour": {"utilization": session_pct, "resets_at": resets_at},
-                        "seven_day": {"utilization": weekly_pct, "resets_at": resets_at},
+                        "seven_day": {"utilization": weekly_pct, "resets_at": weekly_resets_at},
                     },
                 }
             }
@@ -62,6 +66,9 @@ def test_reads_both_windows_and_when_it_was_written(tmp_path: Path) -> None:
     assert anchor.session_pct == 32
     assert anchor.weekly_pct == 4
     assert anchor.resets_at is not None and anchor.resets_at > datetime.now(UTC)
+    # Each window resets on its own clock, and the ramp needs both.
+    assert anchor.weekly_resets_at is not None
+    assert anchor.weekly_resets_at > anchor.resets_at
 
 
 def test_a_missing_file_is_not_an_error_but_is_unknown(tmp_path: Path) -> None:
