@@ -76,6 +76,9 @@ runtimes: {}                    # one entry per runtime that needs a fact abk
                                 # cannot default, and only for the runtimes
                                 # this workspace uses. `claude_code` needs
                                 # none, so a workspace on it leaves this out.
+                                # An unknown `runtime`, or one missing a fact
+                                # its adapter requires, fails at load; only
+                                # the selected runtime's entry is checked.
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when
@@ -112,7 +115,10 @@ limits:
                                 # threshold must offer before a pause lifts
   max_plan_attempts: 3          # planner attempts per version of a tasks.md
 
-tracks:                         # the scheduled tracks (docs/tracks.md)
+tracks:                         # the scheduled tracks (docs/tracks.md); their
+                                # model and tool lists stay here, not under
+                                # runtimes.<name>: they say what a track may
+                                # do, not which runtime runs it
   model: sonnet
   implement_max_prs: 3          # PRs one implement pass may open per repo
   allowed_tools: >-             # Claude Code --allowedTools syntax
@@ -265,4 +271,7 @@ it: `state_dir`, `specs_dir`, `changes_dir`, `graph_page`, `worktree_root`,
 that object to every command. Leaf modules that need one scalar — a limit, a
 prefix, a model — call `config.active()`, set once by `Installation.activate()`
 and defaulting to an empty workspace so the library is usable without a file
-on disk. `config.models()` applies the `ABK_*_MODEL` overrides.
+on disk. `config.runtime_name()` is the runtime in force (`ABK_RUNTIME`, then
+`runtime`), and `runtimes.active()` its adapter. `config.models()` resolves the
+flat `models` block, then that runtime's `runtimes.<name>.models`, then the
+`ABK_*_MODEL` overrides.

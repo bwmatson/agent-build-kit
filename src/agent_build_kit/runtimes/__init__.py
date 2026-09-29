@@ -15,7 +15,7 @@ from agent_build_kit.runtimes.base import (
 
 _REGISTRY: dict[str, AgentRuntime] = {}
 
-# What every call site runs when it is not handed a runtime.
+# What a workspace runs on when abk.yaml and the machine name no other.
 DEFAULT = "claude_code"
 
 
@@ -33,8 +33,11 @@ def get(name: str) -> AgentRuntime:
 
 def active() -> AgentRuntime:
     """The runtime a call site uses unless it is given one. Resolved per
-    call, never captured at import."""
-    return get(DEFAULT)
+    call, never captured at import: this machine's `ABK_RUNTIME`, then the
+    active workspace's `runtime:`."""
+    from agent_build_kit import config
+
+    return get(config.runtime_name())
 
 
 def names() -> list[str]:

@@ -3,9 +3,9 @@
 **Status: partly implemented.** The Protocol and its registry
 (`runtimes/base.py`, `runtimes/__init__.py`), the Claude Code adapter
 (`runtimes/claude_code.py`, the one module that builds a `claude` argv), and
-every call site going through `AgentRuntime.run()` are in place. Not yet
-implemented: choosing a runtime in `abk.yaml` or the environment, per-runtime
-model names, the `doctor` and `init` runtime checks, and the `acp` adapter —
+every call site going through `AgentRuntime.run()`, choosing a runtime in
+`abk.yaml` or the environment, per-runtime model names, and the `doctor` and
+`init` runtime checks are in place. Not yet implemented: the `acp` adapter —
 Claude Code is still the only registered runtime. This document specifies the
 whole shape, so that adding a second runtime is writing an adapter against a
 fixed Protocol, not another round of the same subprocess plumbing.
@@ -315,6 +315,20 @@ many-to-one: a runtime with no "expensive versus cheap reviewer" split may
 point `rework_review` at the same model as `review`, and a `generic` role
 (init's research and propose, the planner) may fall back to `implement`'s.
 
+**The tracks keep their own `tracks.model` and tool lists**, under `tracks:`,
+rather than moving under `runtimes.<name>`. They describe what a scheduled
+track may do, not which runtime runs it, and like `AgentRequest.allowed_tools`
+they are written in Claude Code's `--allowedTools` syntax, which a runtime
+that cannot honour it ignores. If a second runtime turns out to need its own
+track model, that is a `track` role in `runtimes.<name>.models`, not a move.
+
+**A selection that cannot work fails at load.** `config.load` resolves the
+runtime in force (`ABK_RUNTIME`, then `runtime:`) against the registry, and
+checks every fact its adapter lists in `requires` is set in its
+`runtimes.<name>` entry; an unknown name, or a missing fact, is a
+`ConfigError` naming it. Only the selected runtime's entry is checked, so an
+entry left over from trying another runtime out is never made to be complete.
+
 ## Tool scoping
 
 `AgentRequest.allowed_tools`/`denied_tools` carry Claude Code's own
@@ -395,8 +409,9 @@ this machine. `check_policy` establishes the fact.
   missing.
 - **`abk doctor` fails rather than warns** when a class is unenforced, and
   prints the `policy_fix` command. A probe costs one small agent call, so the
-  result is cached in the state directory with a short TTL, as the usage
-  reading already is.
+  result is cached in the state directory (`runs/policy-check.json`, per
+  runtime) for 15 minutes, as the usage reading already is
+  (`runtimes/policy_check.py`); `abk init` asks afresh after running the fix.
 
 ## Usage tracking is optional
 
@@ -446,7 +461,7 @@ packaging detail inside `skills/`, not a Protocol method.
 
 ## Migration steps
 
-Steps 1 to 3 are done; 4 and 5 are not.
+Steps 1 to 4 are done; 5 is not.
 
 1. Add `runtimes/base.py` — the Protocol and value objects above — and
    `runtimes/__init__.py` with the registry (`get`, `register`,

@@ -129,6 +129,8 @@ class ClaudeCodeRuntime:
     supports_streaming: bool = True
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
+    # What `abk doctor` looks for on PATH when abk.yaml names no command.
+    agent_command: tuple[str, ...] = ("claude",)
 
     def __init__(
         self,

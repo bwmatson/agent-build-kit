@@ -26,6 +26,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
+from agent_build_kit import runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
@@ -80,6 +81,28 @@ class ModelsConfig(Frozen):
     # A rework is a small targeted edit and the model that made it is the worst
     # judge of whether it landed, so a different model reviews it.
     rework_review: str = "fable"
+
+
+class RuntimeModelsConfig(Frozen):
+    """One runtime's own names for the roles in `ModelsConfig`. A role left
+    out keeps the flat `models:` block's name."""
+
+    implement: str | None = None
+    rework: str | None = None
+    review: str | None = None
+    rework_review: str | None = None
+
+
+class RuntimeConfig(Frozen):
+    """What one agent runtime needs from this installation (`runtimes.<name>`)."""
+
+    # The argv that starts the runtime's agent, for a runtime that spawns one.
+    command: list[str] | None = None
+    # What an operator runs to make the agent refuse what abk forbids, when the
+    # runtime's policy check finds a class unenforced. abk only runs it when
+    # asked to, and never interprets it.
+    policy_fix: list[str] | None = None
+    models: RuntimeModelsConfig = RuntimeModelsConfig()
 
 
 class LimitsConfig(Frozen):
@@ -289,6 +312,10 @@ class WorkspaceConfig(Frozen):
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()
     github: GithubConfig = GithubConfig()
+    # The agent runtime (runtimes/) every call runs on; ABK_RUNTIME overrides it.
+    runtime: str = runtimes.DEFAULT
+    # Per-runtime facts, only the selected runtime's demanded.
+    runtimes: dict[str, RuntimeConfig] = {}
     models: ModelsConfig = ModelsConfig()
     limits: LimitsConfig = LimitsConfig()
     tracks: TracksConfig = TracksConfig()
@@ -328,9 +355,34 @@ def load(path: Path) -> WorkspaceConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
     try:
-        return WorkspaceConfig.model_validate(raw)
+        loaded = WorkspaceConfig.model_validate(raw)
     except ValidationError as error:
         raise ConfigError(f"{path} does not match the schema:\n{error}") from error
+    _check_runtime(loaded, path)
+    return loaded
+
+
+def runtime_name(config: WorkspaceConfig | None = None) -> str:
+    """The runtime in force: this machine's `ABK_RUNTIME`, then the file's."""
+    from agent_build_kit.settings import settings
+
+    return settings.runtime or (config or _active).runtime
+
+
+def _check_runtime(config: WorkspaceConfig, path: Path) -> None:
+    """A selection that cannot work fails here, not when every unit is held:
+    an unknown runtime, or one missing a fact it cannot run without."""
+    name = runtime_name(config)
+    try:
+        runtime = runtimes.get(name)
+    except KeyError as error:
+        raise ConfigError(f"{path}: {error.args[0]}") from None
+    entry = config.runtimes.get(name, RuntimeConfig())
+    missing = [fact for fact in runtime.requires if not getattr(entry, fact, None)]
+    if missing:
+        raise ConfigError(
+            f"{path}: runtime {name!r} needs {', '.join(f'runtimes.{name}.{m}' for m in missing)}"
+        )
 
 
 def dump(config: WorkspaceConfig) -> str:
@@ -360,13 +412,16 @@ def active_root() -> Path | None:
 
 
 def models() -> ModelsConfig:
-    """The active workspace's models, with this machine's overrides applied."""
+    """The active workspace's models for the runtime in force: the flat block,
+    then that runtime's own `runtimes.<name>.models`, then this machine's
+    overrides."""
     from agent_build_kit.settings import settings
 
     base = _active.models
+    own = _active.runtimes.get(runtime_name(), RuntimeConfig()).models
     return ModelsConfig(
-        implement=settings.implement_model or base.implement,
-        rework=settings.rework_model or base.rework,
-        review=settings.review_model or base.review,
-        rework_review=settings.rework_review_model or base.rework_review,
+        implement=settings.implement_model or own.implement or base.implement,
+        rework=settings.rework_model or own.rework or base.rework,
+        review=settings.review_model or own.review or base.review,
+        rework_review=settings.rework_review_model or own.rework_review or base.rework_review,
     )

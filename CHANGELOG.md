@@ -11,6 +11,13 @@
   above current usage, capped at six hours so a weekly window resetting days
   out re-reads rather than sleeping through it. `abk status` prints each
   window as `used%/threshold%` with its time to reset.
+- A workspace names its agent runtime in `abk.yaml` (`runtime:`, default
+  `claude_code`), with an optional `runtimes.<name>` entry for its command,
+  its policy fix and its own model names; `ABK_RUNTIME` overrides it on one
+  machine. An unknown runtime or a missing required fact fails at load.
+  `abk doctor` reports the runtime, its policy coverage, and any forbidden
+  command class it does not refuse; `abk init` offers to run the
+  installation's fix, only once asked.
 
 ## 0.1.0 — 2026-09-28
 

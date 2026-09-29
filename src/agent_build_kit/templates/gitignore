@@ -8,6 +8,8 @@
 # run logs beside it are committed; the locks are not.
 runs/*.lock
 runs/locks/
+# The runtime's last policy check, reused by `abk doctor` and `abk init`.
+runs/policy-check.json
 
 # Local tooling.
 __pycache__/
