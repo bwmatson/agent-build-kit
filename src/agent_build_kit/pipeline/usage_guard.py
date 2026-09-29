@@ -53,6 +53,7 @@ from typing import Literal
 
 from agent_build_kit.config import active, active_root
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.claude_stream import own_words
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
@@ -580,7 +581,7 @@ def check_refusal(result: subprocess.CompletedProcess) -> None:
     if result.returncode < 0:
         raise Interrupted(f"claude was killed by signal {-result.returncode}")
 
-    text = f"{result.stdout}\n{result.stderr}".strip()
+    text = f"{own_words(result.stdout)}\n{result.stderr}".strip()
     reset = rate_limit_reset(text)
     if reset is not False:
         raise RateLimited(text or "claude reported a usage limit", resets_at=reset)

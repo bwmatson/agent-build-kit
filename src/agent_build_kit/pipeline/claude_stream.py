@@ -19,6 +19,9 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 
@@ -26,8 +29,27 @@ STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 WIDTH = 160
 
 
+class ResultEvent(BaseModel):
+    """The `result` event that closes a run: the fields abk reads from it.
+
+    Not `model.Frozen`: the event also carries a session id, token counts,
+    costs and whatever a later claude adds, none of which abk reads, and a new
+    key there is no reason to lose the one event that says how the run ended.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    type: Literal["result"]
+    # `success`, or an error subtype: `error_during_execution`, `error_max_turns`.
+    subtype: str = ""
+    # A `success` result's answer; an error subtype has none.
+    result: str | None = None
+    # What went wrong, on an error subtype.
+    errors: list[str] = []
+
+
 def stream_run(
-    args: list[str], *, cwd: Path, on_event: Callable[[dict], None]
+    args: list[str], *, cwd: Path | None, on_event: Callable[[dict], None]
 ) -> subprocess.CompletedProcess[str]:
     """Run `args`, calling `on_event` for each JSON line as it is printed.
 
@@ -57,11 +79,42 @@ def stream_run(
 def final_text(stdout: str) -> str:
     """The run's answer: the `result` event's text, or stdout as it stands
     when it is not a stream (an injected runner in a test, or an old claude)."""
+    event = result_event(stdout)
+    return event.result if event is not None and event.result is not None else stdout
+
+
+def result_event(stdout: str) -> ResultEvent | None:
+    """The run's closing `result` event, or None when there is none or it is
+    not the shape a result event has."""
     for line in reversed(stdout.splitlines()):
         event = _parse(line)
-        if event and event.get("type") == "result" and isinstance(event.get("result"), str):
-            return event["result"]
-    return stdout
+        if event and event.get("type") == "result":
+            try:
+                return ResultEvent.model_validate(event)
+            except ValidationError:
+                return None
+    return None
+
+
+def own_words(stdout: str) -> str:
+    """What the CLI itself said about how the run ended, and nothing the run
+    did on the way: the `result` event's text and its `errors`, or, with no
+    such event, the lines that are not events.
+
+    Which of the two the event carries depends on its subtype: a `success`
+    result (a usage-limit refusal among them, flagged `is_error`) says it in
+    `result`; an error subtype (`error_during_execution`, `error_max_turns`)
+    has no `result` and lists what went wrong in `errors`.
+
+    A failed run is classified on this, never on the whole transcript. A
+    stream carries every event's uuid, token counts, the files the agent read
+    and its own prose, any of which can contain "429" or "rate limit" — so
+    reading all of it turns an ordinary failure into a pause.
+    """
+    event = result_event(stdout)
+    if event is not None:
+        return "\n".join(part for part in [event.result, *event.errors] if part)
+    return "\n".join(line for line in stdout.splitlines() if _parse(line) is None)
 
 
 def describe(event: dict) -> list[str]:

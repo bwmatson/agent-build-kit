@@ -52,10 +52,10 @@ that `ToolchainProfile.allowed_tools` is written in Claude Code's own
 | Site | What it runs | Claude-Code-specific about it |
 |---|---|---|
 | `pipeline/wiring.py` `build_run_claude`/`build_run_review` | build, rework, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
-| `pipeline/planner.py:338` `_claude` | the planning graph call | plain `claude -p ... --output-format text`; no cwd, no tool policy, no injected executor shared with anything else |
-| `pipeline/restack.py:406` `claude_resolver` | conflict resolution edit | `--allowedTools` only, no model, no commit — a narrower Claude Code call than the others, built independently |
+| `pipeline/planner.py:338` `_claude` | the planning graph call | plain `claude -p ... --output-format text`; no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
+| `pipeline/restack.py:406` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
 | `tracks/runner.py:330` `build_command` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format json` |
-| `init/research.py:126` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format text` |
+| `init/research.py:126` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format text`; no `--permission-mode` |
 | `init/propose.py:266` `propose` | writes an OpenSpec change | `--add-dir`, `--settings` (hook), `--allowedTools`, `--permission-mode acceptEdits` |
 | `init/claude_call.py` `claude_text` | the shared low-level executor | `subprocess.run` + `check_refusal`; `research.py` and `propose.py` build their own argv and pass it through this |
 
@@ -112,11 +112,15 @@ from typing import Literal, Protocol
 
 from agent_build_kit.model import Frozen
 
-# abk's own vocabulary for what a run may do to its worktree — not a
-# runtime's own permission string. "edit" is Claude Code's acceptEdits;
-# "read_only" is a review run that carries no edit tools at all. A runtime
-# with only one mode ignores the field.
-PermissionMode = Literal["edit", "read_only"]
+# abk's own vocabulary for what a run may do beyond its tool list — not a
+# runtime's own permission string. "edit": file edits in its working
+# directory are accepted without asking (Claude Code's acceptEdits), as a
+# build, a review and a proposal have always run. "allowed_tools_only":
+# nothing is granted but what `allowed_tools` names (no Claude Code
+# permission mode at all), as the planner, research and the restack resolver
+# have always run — the resolver edits because its tool list says so. A
+# runtime with only one mode ignores the field.
+PermissionMode = Literal["edit", "allowed_tools_only"]
 
 # The abk-level roles every call site resolves a model for today
 # (config.ModelsConfig). A runtime with no equivalent split may point every
@@ -157,6 +161,13 @@ class AgentRequest(Frozen):
     permission_mode: PermissionMode = "edit"
     policy: ToolPolicy | None = None  # None: no enforcement asked for (a read-only run)
     on_event: Callable[[str], None] | None = None  # one line per step of progress, if supported
+    # A named checkout the runtime makes for this run itself, off cwd's repo —
+    # a track phase's; Claude Code's --worktree. None: the run works in cwd.
+    worktree: str | None = None
+    # The caller keeps the run's whole machine-readable record (`AgentResult.raw`),
+    # not only its answer — a track phase writes it to its raw output file.
+    # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.
+    keep_record: bool = False
 
 
 class AgentResult(Frozen):
@@ -205,6 +216,8 @@ class UsageStatus(Frozen):
     session_pct: int
     weekly_pct: int
     resets_at: datetime | None
+    # When the reading was taken: a cached one may be hours old.
+    observed_at: datetime
     source: str
 
 

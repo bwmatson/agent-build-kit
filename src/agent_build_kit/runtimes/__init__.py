@@ -34,7 +34,11 @@ def names() -> list[str]:
 
 
 def _load_builtin() -> None:
-    """No built-in adapter ships yet; the Claude Code one registers here."""
+    if _REGISTRY:
+        return
+    from agent_build_kit.runtimes import claude_code
+
+    register(claude_code.RUNTIME)
 
 
 __all__ = [
