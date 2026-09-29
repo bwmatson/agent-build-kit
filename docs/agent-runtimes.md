@@ -1,10 +1,14 @@
 # Agent runtimes
 
-**Status: design proposal, not implemented.** Claude Code is still the only
-runtime the pipeline knows how to talk to — every call site below still shells
-out to `claude -p` directly. This document specifies the shape that should sit
-behind those calls, so that adding a second runtime is writing an adapter
-against a fixed Protocol, not another round of the same subprocess plumbing.
+**Status: partly implemented.** The Protocol and its registry
+(`runtimes/base.py`, `runtimes/__init__.py`), the Claude Code adapter
+(`runtimes/claude_code.py`, the one module that builds a `claude` argv), and
+every call site going through `AgentRuntime.run()` are in place. Not yet
+implemented: choosing a runtime in `abk.yaml` or the environment, per-runtime
+model names, the `doctor` and `init` runtime checks, and the `acp` adapter —
+Claude Code is still the only registered runtime. This document specifies the
+whole shape, so that adding a second runtime is writing an adapter against a
+fixed Protocol, not another round of the same subprocess plumbing.
 
 The second adapter is not another product's SDK. It is **ACP, the Agent Client
 Protocol** ([agentclientprotocol.com](https://agentclientprotocol.com)) — a
@@ -47,27 +51,41 @@ that `ToolchainProfile.allowed_tools` is written in Claude Code's own
 `--allowedTools` syntax, which no other runtime can honour; see
 "Tool scoping" below.
 
-## The seven call sites today
+## The seven call sites before the seam
 
-| Site | What it runs | Claude-Code-specific about it |
+Before the seam, each of these built its own `claude` argv:
+
+| Site | What it ran | What was Claude-Code-specific about it |
 |---|---|---|
 | `pipeline/wiring.py` `build_run_claude`/`build_run_review` | build, rework, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
-| `pipeline/planner.py:338` `_claude` | the planning graph call | plain `claude -p ... --output-format text`; no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
-| `pipeline/restack.py:406` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
-| `tracks/runner.py:330` `build_command` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format json` |
-| `init/research.py:126` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format text`; no `--permission-mode` |
-| `init/propose.py:266` `propose` | writes an OpenSpec change | `--add-dir`, `--settings` (hook), `--allowedTools`, `--permission-mode acceptEdits` |
-| `init/claude_call.py` `claude_text` | the shared low-level executor | `subprocess.run` + `check_refusal`; `research.py` and `propose.py` build their own argv and pass it through this |
+| `pipeline/planner.py` | the planning graph call | plain `claude -p ... --output-format text`; no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
+| `pipeline/restack.py` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
+| `tracks/runner.py` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format json` |
+| `init/research.py` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format text`; no `--permission-mode` |
+| `init/propose.py` `propose` | writes an OpenSpec change | `--add-dir`, `--settings` (hook), `--allowedTools`, `--permission-mode acceptEdits` |
+| `init/claude_call.py` | the shared low-level executor | `subprocess.run` + `check_refusal`; `research.py` and `propose.py` built their own argv and passed it through this |
 
-Note that `planner.py` and `restack.py` don't even go through `claude_call`
-today — each runs its own `subprocess.run` with its own refusal handling (or
-none, for `restack`). Part of what this abstraction fixes is that there is
-currently no single executor, no single refusal/rate-limit interpretation, and
+`planner.py` and `restack.py` did not go through `claude_call` — each ran its
+own `subprocess.run` with its own refusal handling (or none, for `restack`).
+There was no single executor, no single refusal/rate-limit interpretation, and
 no single streaming path — just seven places that each learned to talk to
-Claude Code slightly differently. Two of them are not even injectable for
-tests: `tracks/runner.run_phase_command` is monkeypatched as a module
-attribute, and `restack.claude_resolver` is hardcoded one level down from the
-`resolve=` seam.
+Claude Code slightly differently, two of them not injectable for tests.
+
+Now each site builds an `AgentRequest` and hands it to a runtime, the active
+one unless a test injects another:
+
+| Site | Where its request is built |
+|---|---|
+| build, rework, review, rework-review | `pipeline/wiring.py` `build_run_claude` (`build_run_review` wraps it); `runtime=` injects |
+| the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects |
+| conflict resolution | `pipeline/restack.py` `claude_resolver`; `runtime=` injects, and a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
+| the scheduled tracks | `tracks/runner.py` `phase_request`, run by `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |
+| research | `init/research.py` `research` |
+| a proposal | `init/propose.py` `propose` |
+| the login refresh before a usage read | `runtimes/claude_code.py` `refresh_login` — Claude Code's own, not a request |
+
+`init/claude_call.py` now only resolves which runtime an init step uses
+(`runtime_for`) and turns a failed result into an error (`succeeded`).
 
 ## The protocol
 
@@ -428,6 +446,8 @@ packaging detail inside `skills/`, not a Protocol method.
 
 ## Migration steps
 
+Steps 1 to 3 are done; 4 and 5 are not.
+
 1. Add `runtimes/base.py` — the Protocol and value objects above — and
    `runtimes/__init__.py` with the registry (`get`, `register`,
    `_load_builtin`).
@@ -470,7 +490,7 @@ message.
 
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
 |---|---|---|---|---|---|---|
-| `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented** (today, inline) |
+| `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
 | `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **not implemented** |
 
 ## Open questions

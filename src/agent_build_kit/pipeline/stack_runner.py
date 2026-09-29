@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.pr_replies import last_json
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, Unit, branch_name, local_ref
+from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 # Where a unit stopped between steps, so its resume starts there. See
 # `checkpoint` in `StackRunner.run`. Also recorded as each step starts, so a
@@ -446,6 +447,10 @@ class UnitRunner(BaseModel):
             # on. Judging it against that base would judge work it does not have.
             try:
                 restacked = self.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
+            except (AgentRateLimited, AgentInterrupted):
+                # The resolver could not run, which says nothing about the
+                # branch: the tick pauses or reclaims, and the unit is not failed.
+                raise
             except Exception as error:  # noqa: BLE001
                 # `move_branch_onto` resolves what it can and raises otherwise.
                 # Carrying on would verify a half-rebased branch.

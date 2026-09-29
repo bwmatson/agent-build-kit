@@ -44,7 +44,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -53,7 +52,7 @@ from typing import Literal
 
 from agent_build_kit.config import active, active_root
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.claude_stream import own_words
+from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
@@ -387,14 +386,14 @@ def refresh_login() -> None:
     paused, and nothing ran Claude to refresh it — every minute from the
     window's reset until someone opened a session. One tiny haiku call breaks
     the circle; it is made only once the token has expired.
+
+    The call itself is the Claude Code adapter's, the one place a `claude`
+    argv is built. Imported here rather than at the top: the adapter reads
+    usage through this module.
     """
-    subprocess.run(
-        ["claude", "-p", "Reply with OK and nothing else.", "--model", "haiku"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
+    from agent_build_kit.runtimes import claude_code
+
+    claude_code.refresh_login()
 
 
 def read_live_usage(
@@ -525,28 +524,13 @@ RATE_LIMIT_MARKERS = (
 RESET_EPOCH = re.compile(r"limit reached\|(\d{10,})")
 
 
-class Interrupted(RuntimeError):
-    """The claude process was killed by a signal, not refused and not broken.
-
-    Says nothing about the work, so it must not fail the unit: stealth-
-    browser-mcp/2's rework was SIGKILLed fourteen seconds in, recorded as
-    failed, and had its tasks unticked. The unit is left `running` for the
-    next tick's `reclaim_stale`, which recovers it as it does any run whose
-    process died.
-    """
-
-
-class RateLimited(RuntimeError):
-    """Anthropic refused the call: a usage window is exhausted.
-
-    Distinct from an ordinary failure because the response is different. The
-    unit is fine and the account is out of room, so the pipeline pauses rather
-    than marking real work failed and dropping it from the plan.
-    """
-
-    def __init__(self, message: str, *, resets_at: datetime | None = None) -> None:
-        super().__init__(message)
-        self.resets_at = resets_at
+# What the agent runtime raises, under the names the pipeline catches them by.
+# A killed run says nothing about the work, so it must not fail the unit: it
+# is left `running` for the next tick's `reclaim_stale`. A refusal means the
+# unit is fine and the account is out of room, so the pipeline pauses rather
+# than marking real work failed and dropping it from the plan.
+Interrupted = AgentInterrupted
+RateLimited = AgentRateLimited
 
 
 def rate_limit_reset(text: str) -> datetime | None | Literal[False]:
@@ -564,29 +548,6 @@ def rate_limit_reset(text: str) -> datetime | None | Literal[False]:
 
     match = RESET_EPOCH.search(lowered)
     return datetime.fromtimestamp(int(match.group(1)), UTC) if match else None
-
-
-def check_refusal(result: subprocess.CompletedProcess) -> None:
-    """Turn a failed `claude` call into the right kind of exception.
-
-    A non-zero exit used to be ignored — the empty stdout flowed on, the
-    commit step found nothing staged, and the unit was recorded as the model
-    having produced nothing. Two different things were hidden behind that: a
-    run that broke, whose half-finished edits are on disk and must not be
-    committed as a finished unit, and an account that is simply out of room.
-    """
-    if not result.returncode:
-        return
-
-    if result.returncode < 0:
-        raise Interrupted(f"claude was killed by signal {-result.returncode}")
-
-    text = f"{own_words(result.stdout)}\n{result.stderr}".strip()
-    reset = rate_limit_reset(text)
-    if reset is not False:
-        raise RateLimited(text or "claude reported a usage limit", resets_at=reset)
-
-    raise RuntimeError(f"claude exited {result.returncode}: {text}")
 
 
 def may_start_unit(reading: UsageReading | None) -> Decision:

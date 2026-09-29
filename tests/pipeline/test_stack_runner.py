@@ -16,6 +16,7 @@ of the run rather than shelling out to Claude, git and gh.
 """
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ import pytest
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name
+from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from tests.factories import unit
 
 
@@ -743,6 +745,37 @@ def test_a_conflicted_restack_fails_the_unit_rather_than_guessing(tmp_path: Path
     assert outcome.status == "failed"
     assert "sessions.py" in store.get(unit().id).feedback
     assert "push" not in recorder.events
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        RateLimited("usage limit reached", resets_at=datetime(2030, 1, 1, tzinfo=UTC)),
+        Interrupted("claude was killed by signal 15"),
+    ],
+    ids=["rate-limited", "interrupted"],
+)
+def test_a_restack_the_resolver_could_not_run_is_not_a_conflict(
+    tmp_path: Path, refusal: Exception
+) -> None:
+    """A spent window or a killed run says nothing about the branch: it
+    reaches the tick, which pauses or reclaims, and the unit is not failed."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 2
+
+    def refused(**kw):
+        raise refusal
+
+    runner.restack_onto = refused
+
+    with pytest.raises(type(refusal)):
+        runner.run(unit(), base="spec/add-marker/0", graph=[])
+
+    assert store.get(unit().id).state != "failed"
+    assert "conflicted" not in store.get(unit().id).feedback
 
 
 def test_a_fresh_unit_has_nothing_to_restack(tmp_path: Path) -> None:

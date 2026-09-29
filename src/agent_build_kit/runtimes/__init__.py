@@ -15,6 +15,9 @@ from agent_build_kit.runtimes.base import (
 
 _REGISTRY: dict[str, AgentRuntime] = {}
 
+# What every call site runs when it is not handed a runtime.
+DEFAULT = "claude_code"
+
 
 def register(runtime: AgentRuntime) -> None:
     _REGISTRY[runtime.name] = runtime
@@ -26,6 +29,12 @@ def get(name: str) -> AgentRuntime:
         return _REGISTRY[name]
     except KeyError:
         raise KeyError(f"unknown agent runtime {name!r} (known: {', '.join(names())})") from None
+
+
+def active() -> AgentRuntime:
+    """The runtime a call site uses unless it is given one. Resolved per
+    call, never captured at import."""
+    return get(DEFAULT)
 
 
 def names() -> list[str]:
@@ -50,6 +59,7 @@ __all__ = [
     "PolicyReport",
     "ToolPolicy",
     "UsageStatus",
+    "active",
     "get",
     "names",
     "register",

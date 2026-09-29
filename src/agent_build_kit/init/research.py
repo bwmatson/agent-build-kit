@@ -17,7 +17,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from agent_build_kit.init.claude_call import RunClaude, claude_text
+from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
+from agent_build_kit.runtimes import AgentRequest
+from agent_build_kit.runtimes.base import AgentRuntime
 
 ALLOWED_TOOLS = "Read Grep Glob WebSearch WebFetch"
 
@@ -118,20 +120,16 @@ def research(
     output: Path,
     run_claude: RunClaude | None = None,
     today: date | None = None,
+    runtime: AgentRuntime | None = None,
 ) -> Path:
     """Write `output` (`docs/recommendations/<language>.md`) and return it."""
-    run = run_claude or claude_text
     day = today or date.today()
-    argv = [
-        "claude",
-        "-p",
-        build_prompt(language, built_in=built_in, today=day),
-        "--output-format",
-        "text",
-        "--allowedTools",
-        ALLOWED_TOOLS,
-    ]
-    text = run(argv)
+    request = AgentRequest(
+        prompt=build_prompt(language, built_in=built_in, today=day),
+        allowed_tools=ALLOWED_TOOLS,
+        permission_mode="allowed_tools_only",
+    )
+    text = succeeded(runtime_for(run_claude, runtime).run(request))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(render(language, text, today=day, seeded=built_in is not None))
     return output

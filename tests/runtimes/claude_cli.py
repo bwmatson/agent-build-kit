@@ -5,7 +5,14 @@ what the CLI hands back — an exit code, stdout and stderr — and the events o
 a streamed run are replayed to it line by line from stdout, the way
 `claude_stream.stream_run` reads them from the real process.
 
-The streams below carry what `claude -p --output-format stream-json
+Which helper fits depends on the output format the call asks for: a
+`--output-format text` call prints plain text (a refusal is the bare
+`Claude AI usage limit reached|<epoch>` line), a `--output-format json` call
+prints one result event (`record`, `refused_record`), and only a streamed
+call prints the transcripts below (`finished_build`, `failed_build`,
+`refused`).
+
+The streams carry what `claude -p --output-format stream-json
 --verbose` prints: the init event with its tool list and session, assistant
 messages with usage and a null stop reason, the user turn carrying a tool
 result, and a result event with its cost, usage and permission denials — not
@@ -109,6 +116,13 @@ def record(answer: str) -> str:
     """What `--output-format json` prints: the closing result event alone, on
     one line, with the session, cost and usage a track keeps."""
     return json.dumps(_result(answer)) + "\n"
+
+
+def refused_record(message: str) -> str:
+    """What `--output-format json` prints for a run the account had no room
+    for: the closing result event alone, flagged `is_error`, its `result`
+    the refusal."""
+    return json.dumps(_result(message, is_error=True, turns=1, ms=412)) + "\n"
 
 
 def finished_build(cwd: Path, answer: str) -> str:

@@ -16,6 +16,7 @@ build their own `Installation` and activate it.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,7 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import pause, usage_guard
+from agent_build_kit.pipeline import pause
 from agent_build_kit.runtimes import claude_code
 
 
@@ -44,20 +45,22 @@ def no_real_timers(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refreshing the login is a real `claude` call. A test that means to
-    exercise it injects `refresh=`; anything else reaching it fails."""
+    exercise it injects `refresh=`; anything else reaching it fails. Patched
+    in the adapter, which makes the call: `usage_guard.refresh_login` hands
+    it there."""
 
     def refuse() -> None:
         raise AssertionError("a test tried to make a real claude call to refresh the login")
 
-    monkeypatch.setattr(usage_guard, "refresh_login", refuse)
+    monkeypatch.setattr(claude_code, "refresh_login", refuse)
 
 
 @pytest.fixture(autouse=True)
 def no_real_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     """Running an agent through the runtime adapter is a real `claude`
     process. A test that means to run one injects `execute=`; anything else
-    reaching the adapter's real executor fails. The call sites that still
-    spawn `claude` themselves are not covered by this guard."""
+    reaching the adapter's real executor fails. A call site that still spawns
+    `claude` itself is stopped by `no_direct_claude` instead."""
 
     def refuse(*args, **kwargs):
         raise AssertionError("a test tried to spawn a real agent process — inject `execute=`")
@@ -79,6 +82,28 @@ def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(claude_code, "read_live_usage", refuse)
     monkeypatch.setattr(claude_code, "read_cached_usage", refuse)
+
+
+class _NoClaudePopen(subprocess.Popen):
+    """`subprocess.Popen`, refusing to start a `claude` process. Every other
+    command — git, the fixture repos' own tools — runs as it would."""
+
+    def __init__(self, args, *pargs, **kwargs) -> None:
+        program = args[0] if isinstance(args, list | tuple) and args else args
+        if Path(str(program)).name == "claude":
+            raise AssertionError(
+                "a test spawned `claude` directly, not through the agent runtime — "
+                "inject a runtime, or `execute=` on the adapter"
+            )
+        super().__init__(args, *pargs, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def no_direct_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Behind `no_real_agent`: a call site that builds and spawns its own
+    `claude` argv, instead of going through the runtime, fails rather than
+    starting a real agent on the machine running the suite."""
+    monkeypatch.setattr(subprocess, "Popen", _NoClaudePopen)
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:

@@ -19,8 +19,13 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.pipeline.usage_guard import read_cached_usage, read_live_usage
+from agent_build_kit.pipeline.usage_guard import refresh_login as real_usage_guard_refresh
+from agent_build_kit.runtimes import claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.runtimes.claude_code import refresh_login as real_refresh_login
 from tests.runtimes.claude_cli import no_agent
 
 # What GET /api/oauth/usage answers, as the /usage panel sees it.
@@ -141,3 +146,42 @@ def test_no_reading_anywhere_is_none(tmp_path: Path) -> None:
     )
 
     assert runtime.get_usage_status() is None
+
+
+def test_refreshing_the_login_is_the_adapter_s_smallest_claude_call() -> None:
+    """The adapter is the one place a `claude` argv is built — this one too."""
+    calls: list[tuple[list[str], dict]] = []
+
+    real_refresh_login(run=lambda argv, **kwargs: calls.append((argv, kwargs)))
+
+    assert calls == [
+        (
+            ["claude", "-p", "Reply with OK and nothing else.", "--model", "haiku"],
+            {"capture_output": True, "text": True, "check": False, "timeout": 120},
+        )
+    ]
+
+
+def test_a_live_reading_refreshes_an_expired_login_through_the_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    given: dict = {}
+    refreshed: list[bool] = []
+    monkeypatch.setattr(claude_code, "read_live_usage", lambda **kw: given.update(kw))
+    monkeypatch.setattr(claude_code, "read_cached_usage", lambda: None)
+    monkeypatch.setattr(claude_code, "refresh_login", lambda: refreshed.append(True))
+
+    ClaudeCodeRuntime(execute=no_agent).get_usage_status()
+    given["refresh"]()
+
+    assert refreshed == [True]
+
+
+def test_the_usage_guard_s_own_refresh_is_the_adapter_s(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kept for `current_usage`, which reads before any runtime is chosen."""
+    refreshed: list[bool] = []
+    monkeypatch.setattr(claude_code, "refresh_login", lambda: refreshed.append(True))
+
+    real_usage_guard_refresh()
+
+    assert refreshed == [True]

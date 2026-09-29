@@ -18,19 +18,16 @@ Two guarantees are enforced here rather than trusted to the prompt:
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
-from agent_build_kit import forges, profiles
+from agent_build_kit import forges, profiles, runtimes
 from agent_build_kit.config import RepoConfig, active, active_root, models
 from agent_build_kit.forges import OpensPullRequests, PostsStatuses, RepoId
-from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.claude_stream import STREAM_FLAGS, describe, final_text, stream_run
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import build_post_replies
 from agent_build_kit.pipeline.restack import (
@@ -53,10 +50,12 @@ from agent_build_kit.pipeline.tier2 import (
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import REVIEWED, Unit, branch_name
-from agent_build_kit.pipeline.usage_guard import check_refusal, current_usage, may_start_unit
+from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
-from agent_build_kit.runtimes.claude_code import DISALLOWED  # one deny list for both argv builders
+from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
+from agent_build_kit.runtimes.base import Role
+from agent_build_kit.runtimes.claude_code import through
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -80,7 +79,8 @@ def _specs_dir(planning_repo: Path | None) -> Path:
 def _run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """The default runner the factories below accept a replacement for.
 
-    Everything here is git, uv, docker or claude. Talking to a code host goes
+    Everything here is git, uv or docker; an agent is reached through its
+    runtime. Talking to a code host goes
     through its forge, which is the only place that knows how - there is no
     second way to reach one from the pipeline.
     """
@@ -94,11 +94,16 @@ def build_run_claude(
     model: str | None = None,
     allowed_tools: str | None = None,
     log: Callable[[str], None] | None = None,
+    runtime: AgentRuntime | None = None,
+    role: Role = "implement",
 ) -> Callable[..., str]:
-    """A scoped `claude -p` call inside a unit's worktree.
+    """A scoped agent run inside a unit's worktree, policed by the hook and
+    the deny list the runtime applies for a `ToolPolicy`.
 
-    Streamed: each message and tool call goes to `log` as it happens, so the
-    tick log shows what a twenty-minute run is doing (see `claude_stream`).
+    Streamed where the runtime can: each message and tool call goes to `log`
+    as it happens, so the tick log shows what a twenty-minute run is doing.
+    `run` is the older injection point — Claude Code, run through it rather
+    than the real process.
 
     No `--max-budget-usd`. The session window is the real limit, and
     `usage_guard` reads it live from Anthropic rather than inferring it from a
@@ -110,44 +115,33 @@ def build_run_claude(
     specs = _specs_dir(planning_repo)
     model = model or models().implement
 
-    def on_event(event: dict, *, cwd: Path) -> None:
-        for line in describe(event):
-            # Relative to the worktree: its absolute path is the same long
-            # prefix on every line and says nothing.
-            (log or print)(f"  {line.replace(f'{cwd}/', '')}")
-
     def run_claude(prompt: str, *, cwd: Path) -> str:
-        result = (run or partial(stream_run, on_event=partial(on_event, cwd=cwd)))(
-            [
-                "claude",
-                "-p",
-                prompt,
-                # The specs, and nothing else in the planning repo. The
-                # unit is built in the target repo's worktree but its spec
-                # lives here, so some access is required — while units run in
-                # the planning repo holds the run log, the unit store and
-                # the pipeline's own source, none of which is an agent's
-                # business. In the pilot, before worktrees moved out of this
-                # repo, unit 2's agent reached into unit 1's worktree through
-                # this flag and committed there under an invented unit id.
-                "--add-dir",
-                str(specs),
-                "--settings",
-                json.dumps(hook_settings(specs, branch_prefix=active().github.branch_prefix)),
-                "--allowedTools",
-                allowed_tools or ALLOWED,
-                "--disallowedTools",
-                DISALLOWED,
-                "--permission-mode",
-                "acceptEdits",
-                "--model",
-                model,
-                *STREAM_FLAGS,
-            ],
-            cwd=cwd,
+        agent = runtime or (through(run) if run else runtimes.active())
+        result = agent.run(
+            AgentRequest(
+                prompt=prompt,
+                role=role,
+                cwd=cwd,
+                # The specs, and nothing else in the planning repo. The unit
+                # is built in the target repo's worktree but its spec lives
+                # here, so some access is required — while the planning repo
+                # holds the run log, the unit store and the pipeline's own
+                # source, none of which is an agent's business. In the pilot,
+                # before worktrees moved out of this repo, unit 2's agent
+                # reached into unit 1's worktree through this and committed
+                # there under an invented unit id.
+                add_dirs=(specs,),
+                model=model,
+                allowed_tools=allowed_tools or ALLOWED,
+                permission_mode="edit",
+                policy=ToolPolicy(specs_dir=specs, branch_prefix=active().github.branch_prefix),
+                on_event=log or print,
+            )
         )
-        check_refusal(result)
-        return final_text(result.stdout)
+        if not result.ok:
+            # Half-finished edits are on disk: carrying on would commit them.
+            raise RuntimeError(result.error)
+        return result.text
 
     return run_claude
 
@@ -237,6 +231,8 @@ def build_run_review(
     planning_repo: Path | None = None,
     model: str | None = None,
     log: Callable[[str], None] | None = None,
+    runtime: AgentRuntime | None = None,
+    role: Role = "review",
 ) -> Callable[..., str]:
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
@@ -248,6 +244,8 @@ def build_run_review(
         model=model or models().review,
         allowed_tools=REVIEW_TOOLS,
         log=log,
+        runtime=runtime,
+        role=role,
     )
 
     def run_review(*, cwd: Path, context: str = "") -> str:
@@ -930,11 +928,18 @@ def build_runner(
         may_start=build_may_start(),
         run_claude=run_claude,
         run_rework=build_run_claude(
-            planning_repo=planning_repo, model=models().rework, allowed_tools=tools, log=log
+            planning_repo=planning_repo,
+            model=models().rework,
+            allowed_tools=tools,
+            log=log,
+            role="rework",
         ),
         run_review=build_run_review(planning_repo=planning_repo, log=log),
         run_rework_review=build_run_review(
-            planning_repo=planning_repo, model=models().rework_review, log=log
+            planning_repo=planning_repo,
+            model=models().rework_review,
+            log=log,
+            role="rework_review",
         ),
         # A rejected commit goes back to the build run's agent, same policy.
         commit=build_commit(unit_id=unit.id, fix=run_claude),
