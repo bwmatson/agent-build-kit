@@ -1,9 +1,10 @@
-"""Watching GitHub for the things that should wake the pipeline.
+"""Watching a repo's host for the things that should wake the pipeline.
 
 Webhooks would need a publicly reachable endpoint and nothing here is exposed,
-so this polls instead (docs/architecture.md). On a single GitHub
-account there is no approve or request-changes state either, so the signals
-are comments, labels, merges, closures and check results.
+so this polls instead (docs/architecture.md). The signals are comments,
+labels, merges, closures and check results — everything a `forges.PullRequest`
+carries. Which host answers is the forge's business: this module reads only
+that value, so a second host changes nothing below.
 
 One property shapes everything below: **only act on a change.** A poll that
 re-dispatched what it saw last time would rework the same unit every five
@@ -23,21 +24,13 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active
-from agent_build_kit.pipeline.shell import gh_out
+from agent_build_kit.forges import PullRequest
+from agent_build_kit.pipeline.units import CLOSED, MERGED
 
-Gh = Callable[[list[str]], str]
+# Raises on failure, which is what drives the backoff below.
+ListPrs = Callable[[], list[PullRequest]]
 # Returning False defers the event: the change is kept, to be reported again.
 Dispatch = Callable[..., bool | None]
-
-# `reviewDecision` and `reviews` are here because `comments` alone misses a
-# normal GitHub review entirely: it returns issue-level comments only, so a
-# reviewer who leaves inline notes on the diff and submits CHANGES_REQUESTED
-# registers as silence: one inline comment, a CHANGES_REQUESTED decision, and
-# `comments: []`.
-FIELDS = (
-    "number,headRefName,baseRefName,state,isDraft,mergedAt,labels,comments,"
-    "statusCheckRollup,reviewDecision,reviews"
-)
 
 # After this many consecutive failures, stop trying for a while: hammering a
 # broken endpoint every five minutes achieves nothing and looks like abuse.
@@ -64,33 +57,27 @@ class PrState:
         path.write_text(json.dumps(state, indent=2) + "\n")
 
 
-def _comment_ids(pull: dict, ignore: Collection[str] = ()) -> list[str]:
+def _comment_ids(pull: PullRequest, ignore: Collection[str] = ()) -> list[str]:
     """Every comment and submitted review on the PR, by id.
 
     `ignore` is what the pipeline posted itself (`pr_replies.own_posts`): its
-    replies to a review are not a new review, and counting them would send
-    the unit back for rework in response to its own answer.
+    replies to a review are not a new review, and counting them would send the
+    unit back for rework in response to its own answer.
 
-    Not a PENDING review: that is a draft the reviewer has not submitted.
-    GitHub shows it to its own author, and the repo is read as its owner — so
-    a review still being written would count as a new comment and send the
+    What counts as a comment at all is the forge's ruling — GitHub leaves out
+    a review the reviewer has not submitted, Azure DevOps the notes its own
+    server writes on every push — because a draft counted here would send the
     unit back for rework with nothing to act on.
     """
-    ids = [str(item["id"]) for item in (pull.get("comments") or []) if item.get("id")]
-    ids += [
-        str(item["id"])
-        for item in (pull.get("reviews") or [])
-        if item.get("id") and item.get("state") != "PENDING"
-    ]
-    return [i for i in ids if i not in ignore]
+    return [i for i in pull.conversation if i not in ignore]
 
 
-def _snapshot(pull: dict, ignore: Collection[str] = ()) -> dict:
-    checks = pull.get("statusCheckRollup") or []
+def _snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
     ids = _comment_ids(pull, ignore)
     return {
-        "state": pull.get("state"),
-        "merged": bool(pull.get("mergedAt")),
+        # `units` vocabulary, as `PullRequest.state` already is: merged,
+        # closed, or open.
+        "state": pull.state,
         # The newest of either kind. A reviewer commenting on a line is
         # reviewing, and reading only issue-level comments made a whole diff
         # review look like nothing happening.
@@ -101,14 +88,34 @@ def _snapshot(pull: dict, ignore: Collection[str] = ()) -> dict:
         # comment was never "last" and went unseen. Kept for snapshots
         # recorded before this field existed.
         "comment_ids": sorted(ids),
-        "review_decision": pull.get("reviewDecision") or "",
-        "labels": sorted(label.get("name", "") for label in pull.get("labels") or []),
-        "failing_checks": sorted(
-            check.get("name", "")
-            for check in checks
-            if str(check.get("conclusion", "")).upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
+        "review_decision": pull.review_decision,
+        "labels": sorted(pull.labels),
+        "failing_checks": sorted(pull.failing_checks),
+        "head": pull.head,
+    }
+
+
+def _migrate(before: dict) -> dict:
+    """An older snapshot, in the words the GitHub API used to hand over.
+
+    These files are machine-local and survive an upgrade, so a snapshot
+    written before the forges existed has `merged: true` and `CHANGES_REQUESTED`
+    where this one has a `units` state. Read as is, every in-flight PR would
+    look changed on the first poll after the upgrade and be reworked once for
+    nothing.
+    """
+    if "merged" not in before:
+        return before
+    return {
+        **before,
+        "state": MERGED
+        if before.get("merged")
+        else CLOSED
+        if before.get("state") == "CLOSED"
+        else "open",
+        "review_decision": (
+            "changes_requested" if before.get("review_decision") == "CHANGES_REQUESTED" else ""
         ),
-        "head": pull.get("headRefName"),
     }
 
 
@@ -124,40 +131,19 @@ class Poller(BaseModel):
     repo: str
     state_path: Path
     dispatch: Dispatch
-    # Raises on failure, which is what drives the backoff below.
-    gh: Gh = gh_out
+    # Every PR in the repo, from its own host.
+    list_prs: ListPrs
     # Comment and review ids the pipeline posted on a PR itself, by number.
     ignore: Callable[[int], set[str]] = lambda number: set()
     failures: int = 0
     quiet_until: datetime | None = None
-
-    def _fetch(self) -> list[dict]:
-        raw = self.gh(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--repo",
-                self.repo,
-                "--state",
-                "all",
-                "--limit",
-                "100",
-                "--json",
-                FIELDS,
-            ]
-        )
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            raise ValueError("expected a list of pull requests")
-        return data
 
     def poll(self) -> None:
         if self.quiet_until and datetime.now(UTC) < self.quiet_until:
             return
 
         try:
-            pulls = self._fetch()
+            pulls = self.list_prs()
         except Exception:
             # A bad poll costs one cycle. The recorded state is left untouched,
             # so nothing is re-dispatched when the endpoint recovers.
@@ -178,13 +164,13 @@ class Poller(BaseModel):
         updated = dict(known)
 
         for pull in pulls:
-            head = pull.get("headRefName", "")
             # Never touch a branch a human owns: the pipeline may only rework
-            # and force-push its own.
-            if not head.startswith(active().github.branch_prefix):
+            # and force-push its own. Checked here as well as by the forge:
+            # this is the rule that keeps a force-push off someone's work.
+            if not pull.head.startswith(active().github.branch_prefix):
                 continue
 
-            number = str(pull["number"])
+            number = str(pull.number)
             current = _snapshot(pull, self.ignore(int(number)))
             updated[number] = current
 
@@ -203,7 +189,7 @@ class Poller(BaseModel):
                     del updated[number]
                 continue
 
-            if self._dispatch_changes(int(number), known[number], current, pull) is False:
+            if self._dispatch_changes(int(number), _migrate(known[number]), current, pull) is False:
                 # Deferred: its unit is being built (see `events`). Recording
                 # the new snapshot would make this the last time the change is
                 # seen, so the old one stays and the next poll reports it again.
@@ -211,7 +197,7 @@ class Poller(BaseModel):
 
         PrState.save(self.state_path, updated)
 
-    def _dispatch_terminal(self, number: int, current: dict, pull: dict) -> bool | None:
+    def _dispatch_terminal(self, number: int, current: dict, pull: PullRequest) -> bool | None:
         """Report a PR we are meeting for the first time if it is done — or if
         its CI is already red.
 
@@ -220,9 +206,9 @@ class Poller(BaseModel):
         PR's starting state and never reported: nothing afterwards was *newly*
         failing, and the PR sat red while the tick built on it.
         """
-        if current["merged"]:
+        if current["state"] == MERGED:
             return self.dispatch("merged", number, pull=pull)
-        if current["state"] == "CLOSED":
+        if current["state"] == CLOSED:
             return self.dispatch("closed", number, pull=pull)
         if current["failing_checks"]:
             return self.dispatch(
@@ -233,17 +219,19 @@ class Poller(BaseModel):
             )
         return None
 
-    def _dispatch_changes(self, number: int, before: dict, after: dict, pull: dict) -> bool | None:
+    def _dispatch_changes(
+        self, number: int, before: dict, after: dict, pull: PullRequest
+    ) -> bool | None:
         """`before` is read from disk, so it may predate a field `after` has.
 
         Every lookup into it therefore tolerates absence, reading a missing
         field as unchanged. Adding `review_decision` without this made every
         poll fail with KeyError against state recorded the day before.
         """
-        if after["merged"] and not before.get("merged"):
+        if after["state"] == MERGED and before.get("state") != MERGED:
             return self.dispatch("merged", number, pull=pull)
 
-        if after["state"] == "CLOSED" and before.get("state") != "CLOSED":
+        if after["state"] == CLOSED and before.get("state") != CLOSED:
             # Closed without merging is a decision, not a defect: continuing
             # would rebuild work that was deliberately dropped.
             return self.dispatch("closed", number, pull=pull)
@@ -257,12 +245,12 @@ class Poller(BaseModel):
 
         # Before the comment check: a review carrying both a decision and a
         # note should report the decision, which is the actionable half.
-        if after["review_decision"] == "CHANGES_REQUESTED" and (
-            before.get("review_decision") != "CHANGES_REQUESTED"
+        if after["review_decision"] == "changes_requested" and (
+            before.get("review_decision") != "changes_requested"
         ):
-            # Only on the transition. The decision stays CHANGES_REQUESTED until
-            # a later review supersedes it, so reporting it every poll would
-            # rework the unit every five minutes all night.
+            # Only on the transition. The decision stays as it is until a later
+            # review supersedes it, so reporting it every poll would rework the
+            # unit every five minutes all night.
             return self.dispatch("rework", number, pull=pull, reason="review: changes requested")
 
         if "comment_ids" in before:

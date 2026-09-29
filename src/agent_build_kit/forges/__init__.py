@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from agent_build_kit.forges.base import (
-    AnswersReviews,
     Forge,
-    OpensPullRequests,
-    PostsStatuses,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -92,10 +89,7 @@ def _load_builtin() -> None:
 
 
 __all__ = [
-    "AnswersReviews",
     "Forge",
-    "OpensPullRequests",
-    "PostsStatuses",
     "PullRequest",
     "RepoId",
     "ReviewNote",

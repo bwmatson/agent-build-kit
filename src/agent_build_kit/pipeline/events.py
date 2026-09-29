@@ -32,13 +32,14 @@ overwritten by the state the build records when it ends.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
 
+from agent_build_kit import forges
+from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
     Moved,
@@ -46,10 +47,9 @@ from agent_build_kit.pipeline.restack import (
     blast_radius_note,
     push_with_lease,
     resolved_move,
-    retarget_pr,
 )
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
-from agent_build_kit.pipeline.shell import gh, gh_json, git, repo_slug
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -300,56 +300,49 @@ def build_delete_branch(repos: dict[str, Path]) -> Callable[..., None]:
     return delete
 
 
-def review_lines(*, reviews: list[dict], comments: list[dict]) -> list[str]:
-    """The reviewer's words, skipping anything GitHub says is outdated.
+def review_lines(notes: list[ReviewNote]) -> list[str]:
+    """The reviewer's words, skipping anything the host says is stale.
 
-    An inline comment whose code has changed comes back with `line: null` and
-    its old position in `original_line`. After a rework that is precisely the
-    comment the rework addressed, so replaying it tells the agent to redo work
-    it has already done — and every later round would carry every earlier
-    comment with it. A comment on a line goes outdated the moment its fix
-    lands.
+    A note goes stale when the code it sat on changes — GitHub reports
+    `line: null`, Azure DevOps resolves the thread — and the forge reports
+    either as `live=False`. After a rework that is precisely the note the
+    rework addressed, so replaying it tells the agent to redo work it has
+    already done, and every later round would carry every earlier note with it.
 
     A submitted review's own body is not anchored to a line, so it has nothing
     to go stale against and is always included.
 
     The pipeline's own replies (marked with `pr_replies.MARKER`) are left out:
     they answer the review, and read back as review they would have the next
-    rework respond to itself. Each inline comment carries its id, which is
-    how the rework says which thread each of its replies belongs in.
+    rework respond to itself. Each inline note carries its id, which is how the
+    rework says which thread each of its replies belongs in.
     """
-    out = [
-        body for r in reviews if (body := str(r.get("body") or "").strip()) and MARKER not in body
-    ]
-    for comment in comments:
-        body = str(comment.get("body") or "").strip()
-        if body and MARKER not in body and comment.get("line") is not None:
-            where = f"{comment.get('path', '?')}:{comment['line']}"
-            tag = f"[comment {comment['id']}] " if comment.get("id") else ""
-            out.append(f"{tag}{where} — {body}")
-    return [line for line in out if line]
+    out = []
+    for note in notes:
+        body = note.body.strip()
+        if not body or MARKER in body:
+            continue
+        if note.line is None and not note.path:
+            out.append(body)
+        elif note.live:
+            tag = f"[comment {note.id}] " if note.id else ""
+            out.append(f"{tag}{note.path or '?'}:{note.line} — {body}")
+    return out
 
 
-def build_fetch_review(repos: dict[str, Path]) -> Callable[..., list[str]]:
-    """The reviewer's words on a PR: review bodies, then live inline comments.
+def build_fetch_review(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[..., list[str]]:
+    """The reviewer's words on a PR, asked of whichever host it lives on.
 
-    Two requests, made only when a rework is already being dispatched. Adding
-    them to the poll itself would be one extra request per open PR per tick.
+    Fetched only when a rework is already being dispatched: asking during the
+    poll itself would cost one request per open PR per tick.
     """
+    for_repo = for_repo or forges.for_repo
 
     def fetch(repo: str, pr: int) -> list[str]:
-        slug = repo_slug(repo)
-
-        # The repo is named in the path, not with --repo, so the slug is
-        # passed explicitly — otherwise the call would run as whichever
-        # account happens to be active.
-        def items(kind: str) -> list[dict]:
-            found = gh_json(
-                ["gh", "api", "--paginate", f"repos/{slug}/pulls/{pr}/{kind}"], slug=slug
-            )
-            return found if isinstance(found, list) else []
-
-        return review_lines(reviews=items("reviews"), comments=items("comments"))
+        forge, repo_id = for_repo(repo)
+        return review_lines(forge.review_notes(repo_id, pr))
 
     return fetch
 
@@ -360,32 +353,23 @@ RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
 LOG_PREFIX = re.compile(r"^[^\t]*\t[^\t]*\t\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 
 
-def build_fetch_check_logs() -> Callable[..., str]:
+def build_fetch_check_logs(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[..., str]:
     """The failed CI jobs' logs for a PR, for the rework that fixes them.
 
     The poller already sends a unit back when a check starts failing, but the
-    rework used to get only "failing checks: <name>" — and when the failure
-    is a test tier 1 never ran, nothing local can say why.
+    rework used to get only "failing checks: <name>" — and when the failure is
+    a test tier 1 never ran, nothing local can say why. Which logs those are,
+    and how to reach them, is the forge's business.
     """
+    for_repo = for_repo or forges.for_repo
 
-    def fetch(repo: str, pull: dict | None) -> str:
-        slug = repo_slug(repo)
-        failed = [
-            check
-            for check in (pull or {}).get("statusCheckRollup") or []
-            if str(check.get("conclusion", "")).upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
-        ]
-        runs = sorted(
-            {m["run"] for c in failed if (m := RUN_URL.search(str(c.get("detailsUrl", ""))))}
-        )
-        parts = []
-        for run in runs:
-            result = gh(["gh", "run", "view", run, "--repo", slug, "--log-failed"], slug=slug)
-            text = "\n".join(LOG_PREFIX.sub("", line) for line in result.stdout.splitlines())
-            names = ", ".join(str(c.get("name")) for c in failed)
-            tail = text[-CHECK_LOG_CHARS:]
-            parts.append(f"CI run {run} ({names}), end of its failed log:\n```\n{tail}\n```")
-        return "\n\n".join(parts)
+    def fetch(repo: str, pull: PullRequest | None) -> str:
+        if pull is None:
+            return ""
+        forge, repo_id = for_repo(repo)
+        return forge.failed_check_logs(repo_id, pull)
 
     return fetch
 
@@ -444,10 +428,10 @@ def on_rework(
     pr: int,
     *,
     reason: str,
-    pull: dict | None = None,
+    pull: PullRequest | None = None,
     store: UnitStore,
     fetch_review: Callable[[int], list[str]] | None = None,
-    fetch_checks: Callable[[dict | None], str] | None = None,
+    fetch_checks: Callable[[PullRequest | None], str] | None = None,
     claim: Claim = _unclaimed,
     log: Log = print,
 ) -> bool:
@@ -486,10 +470,10 @@ def _requeue(
     *,
     pr: int,
     reason: str,
-    pull: dict | None,
+    pull: PullRequest | None,
     store: UnitStore,
     fetch_review: Callable[[int], list[str]] | None,
-    fetch_checks: Callable[[dict | None], str] | None,
+    fetch_checks: Callable[[PullRequest | None], str] | None,
     log: Log,
 ) -> None:
     if unit.state == HELD:
@@ -523,7 +507,7 @@ def _requeue(
 
 def _check_fetcher(
     store: UnitStore, number: int, fetch_checks: Callable[..., str] | None
-) -> Callable[[dict | None], str] | None:
+) -> Callable[[PullRequest | None], str] | None:
     """Bind a PR's repo to the check-log fetcher, as `_review_fetcher` does."""
     if fetch_checks is None:
         return None
@@ -545,7 +529,7 @@ def _review_fetcher(
     return lambda number: fetch(unit.repo, number)
 
 
-def _latest_comment(pull: dict | None) -> str:
+def _latest_comment(pull: PullRequest | None) -> str:
     """The newest comment's text, which is what the reviewer actually wrote.
 
     A failing check dispatches rework too and carries no comment, so the
@@ -556,8 +540,8 @@ def _latest_comment(pull: dict | None) -> str:
     """
     comments = [
         body
-        for c in (pull or {}).get("comments") or []
-        if (body := str(c.get("body", "")).strip()) and MARKER not in body
+        for raw in (pull.comment_bodies if pull else ())
+        if (body := raw.strip()) and MARKER not in body
     ]
     return comments[-1] if comments else ""
 
@@ -616,7 +600,7 @@ def build_restack(
         # its base branch merged away, a PR left pointing at it would be
         # closed by GitHub.
         if child.pr:
-            retarget(child.pr, new_base, repo_slug=repo_slug(child.repo))
+            retarget(child.pr, new_base, repo=child.repo)
 
         # Both sides are planned work, so the resolver is told what each was
         # for rather than left to infer it from the diff — see `resolved_move`,
@@ -707,7 +691,7 @@ def build_restack(
                     new_base=new_base,
                     reason=f"{parent.id} merged",
                 ),
-                repo_slug=repo_slug(child.repo),
+                repo=child.repo,
             )
 
     return restack
@@ -721,8 +705,9 @@ def _default_push(repo: Path, branch: str, *, last_pushed: str | None) -> str:
     return push_with_lease(repo, branch, last_pushed=last_pushed)
 
 
-def _default_retarget(pr: int, new_base: str, *, repo_slug: str) -> None:
-    retarget_pr(pr, new_base, repo_slug=repo_slug)
+def _default_retarget(pr: int, new_base: str, *, repo: str) -> None:
+    forge, repo_id = forges.for_repo(repo)
+    forge.update_pr(repo_id, pr, base=new_base)
 
 
 def build_retarget() -> Callable[[StoredUnit, str], None]:
@@ -731,33 +716,22 @@ def build_retarget() -> Callable[[StoredUnit, str], None]:
 
     def retarget(unit: StoredUnit, new_base: str) -> None:
         if unit.pr:
-            _default_retarget(unit.pr, new_base, repo_slug=repo_slug(unit.repo))
+            _default_retarget(unit.pr, new_base, repo=unit.repo)
 
     return retarget
 
 
-def _default_comment(pr: int, body: str, *, repo_slug: str, posts_root: Path | None) -> None:
+def _default_comment(pr: int, body: str, *, repo: str, posts_root: Path | None) -> None:
     """Post as the pipeline: marked, and recorded so the poller skips it.
 
-    `gh pr comment` left no id to record, so the poller read the pipeline's own
-    note as a new comment and would have sent the unit to rework over it.
+    Recorded by the ids the forge reports, because a comment the poller cannot
+    recognise as the pipeline's own reads as a reviewer's and sends the unit
+    to rework over it.
     """
-    result = gh(
-        [
-            "gh",
-            "api",
-            "-X",
-            "POST",
-            f"repos/{repo_slug}/issues/{pr}/comments",
-            "-f",
-            f"body={body}\n{MARKER}",
-        ],
-        slug=repo_slug,
-    )
-    if posts_root is not None and not result.returncode:
-        node_id = json.loads(result.stdout or "{}").get("node_id")
-        if node_id:
-            record_posts(posts_root, repo_slug, pr, [node_id])
+    forge, repo_id = forges.for_repo(repo)
+    posted = forge.post_comment(repo_id, pr, body=f"{body}\n{MARKER}")
+    if posts_root is not None and posted:
+        record_posts(posts_root, forges.key(repo_id), pr, posted)
 
 
 def build_dispatch(

@@ -25,7 +25,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_build_kit.pipeline.shell import repo_slug
+from agent_build_kit import forges
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, RUNNING, waiting_on
 
@@ -142,6 +142,13 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
     return "\n".join(lines)
 
 
+def _pr_url(unit: StoredUnit) -> str:
+    """Where this unit's PR lives, asked of the repo's own host - a workspace
+    can hold repos on more than one."""
+    forge, repo = forges.for_repo(unit.repo)
+    return forge.web_url(repo, pr=unit.pr)
+
+
 def render_markdown(units: list[StoredUnit]) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
@@ -152,11 +159,7 @@ def render_markdown(units: list[StoredUnit]) -> str:
             f"- `{unit.id}` ({unit.repo}) — "
             # Absolute: the PR is in the unit's repo, not the planning repo
             # this page is committed to.
-            + (
-                f"[#{unit.pr}](https://github.com/{repo_slug(unit.repo)}/pull/{unit.pr})"
-                if unit.pr
-                else "PR not opened yet"
-            )
+            + (f"[#{unit.pr}]({_pr_url(unit)})" if unit.pr else "PR not opened yet")
             for unit in sorted(awaiting, key=lambda u: u.id)
         )
         or "- Nothing is waiting on review."

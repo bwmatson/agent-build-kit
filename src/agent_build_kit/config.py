@@ -26,7 +26,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
-from agent_build_kit import runtimes
+from agent_build_kit import forges, runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
@@ -376,7 +376,18 @@ def load(path: Path) -> WorkspaceConfig:
     except ValidationError as error:
         raise ConfigError(f"{path} does not match the schema:\n{error}") from error
     _check_runtime(loaded, path)
+    _check_forges(loaded, path)
     return loaded
+
+
+def _check_forges(config: WorkspaceConfig, path: Path) -> None:
+    """A repo on a host abk has no forge for fails here, not once every unit
+    in it is held with the same message per tick."""
+    for name, repo in config.repos.items():
+        try:
+            forges.get(repo.forge)
+        except KeyError as error:
+            raise ConfigError(f"{path}: repo {name!r}: {error.args[0]}") from None
 
 
 def runtime_name(config: WorkspaceConfig | None = None) -> str:

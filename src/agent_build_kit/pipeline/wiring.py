@@ -26,7 +26,7 @@ from pathlib import Path
 
 from agent_build_kit import forges, profiles, runtimes
 from agent_build_kit.config import RepoConfig, active, active_root, models
-from agent_build_kit.forges import OpensPullRequests, PostsStatuses, RepoId
+from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import build_post_replies
@@ -435,7 +435,7 @@ def build_push(store: UnitStore, *, push: Callable[..., str] | None = None) -> C
 
 
 def build_post_status(
-    *, for_repo: Callable[[str], tuple[PostsStatuses, RepoId]] | None = None
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[str, Tier2Result], None]:
     """Post a tier 2 result as a commit status on whichever host the repo lives on."""
     for_repo = for_repo or forges.for_repo
@@ -448,7 +448,7 @@ def build_post_status(
 
 
 def build_open_pr(
-    *, for_repo: Callable[[str], tuple[OpensPullRequests, RepoId]] | None = None
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[..., int]:
     """Create the unit's PR, or update the one it already has.
 

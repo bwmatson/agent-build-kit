@@ -31,7 +31,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from agent_build_kit import forges
-from agent_build_kit.forges import AnswersReviews, RepoId
+from agent_build_kit.forges import Forge, RepoId
 
 MARKER = "<!-- spec-driven:reply -->"
 
@@ -123,7 +123,7 @@ def _signed(body: str, sha: str) -> str:
 def build_post_replies(
     *,
     root: Path,
-    for_repo: Callable[[str], tuple[AnswersReviews, RepoId]] | None = None,
+    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
     log: Callable[[str], None] = print,
 ) -> Callable[..., None]:
     """Post a rework's answer to its PR, recording what was posted."""
@@ -149,7 +149,7 @@ def build_post_replies(
         )
 
     def _post_all(
-        forge: AnswersReviews,
+        forge: Forge,
         repo_id: RepoId,
         answer: Answer,
         pr: int,

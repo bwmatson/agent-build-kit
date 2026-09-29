@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import json
 import re
+from typing import TYPE_CHECKING
 
-from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges.base import PullRequest, RepoId, ReviewNote, Run, key
 from agent_build_kit.pipeline import units
 from agent_build_kit.pipeline.shell import gh, gh_json, gh_out
+
+if TYPE_CHECKING:
+    from agent_build_kit.config import RepoConfig
 
 # What `gh pr list` must return for a PullRequest to be built. `reviewDecision`
 # and `reviews` are here because `comments` alone misses a normal review
@@ -150,13 +153,19 @@ class GitHubForge:
         return int(url.strip().rstrip("/").rsplit("/", 1)[-1])
 
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
-        args = ["gh", "pr", "edit", str(pr), "--repo", key(repo)]
-        if base:
-            args += ["--base", base]
-        if body:
-            args += ["--body", body]
-        if len(args) > 5:
-            gh(args)
+        """Change a PR's base or body, never raising.
+
+        GitHub often retargets a PR on its own when its base branch is deleted
+        on merge, but not always, and one left pointing at a deleted branch
+        shows a diff containing everything. Doing it explicitly is harmless
+        when GitHub already has - and not worth failing a restack over when it
+        does not work.
+        """
+        changes = ["--base", base] if base else []
+        changes += ["--body", body] if body else []
+        if not changes:
+            return
+        gh(["gh", "pr", "edit", str(pr), "--repo", key(repo), *changes])
 
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
@@ -222,6 +231,9 @@ class GitHubForge:
             draft=bool(pull.get("isDraft")),
             labels=tuple(sorted(str(label.get("name", "")) for label in pull.get("labels") or [])),
             conversation=tuple(_conversation(pull)),
+            comment_bodies=tuple(
+                str(item.get("body") or "") for item in pull.get("comments") or []
+            ),
             review_decision=(
                 "changes_requested" if pull.get("reviewDecision") == "CHANGES_REQUESTED" else ""
             ),
@@ -233,6 +245,16 @@ class GitHubForge:
                 )
             ),
         )
+
+    def pr_files(self, repo: RepoId, pr: int) -> list[str]:
+        slug = key(repo)
+        result = gh(
+            ["gh", "pr", "view", str(pr), "--repo", slug, "--json", "files",
+             "--jq", ".files[].path"]
+        )  # fmt: skip
+        if result.returncode:
+            raise RuntimeError(f"gh pr view {pr} ({slug}): {result.stderr.strip()}")
+        return result.stdout.split()
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         """The reviewer's words: review bodies, then inline comments.

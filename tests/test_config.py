@@ -52,3 +52,28 @@ def test_abk_yaml_with_the_floor_above_the_ceiling_fails_to_load(tmp_path: Path)
     message = str(refused.value)
     assert "1500" in message and "900" in message
     assert "min_unit_lines" in message
+
+
+def test_a_repo_on_an_unknown_forge_fails_at_load_naming_it_and_the_known_ones(
+    tmp_path: Path,
+) -> None:
+    """The same rule the runtime selection follows: a host abk cannot reach
+    fails here, rather than every unit in that repo being held with the
+    failure named once per tick."""
+    path = tmp_path / "abk.yaml"
+    path.write_text("repos:\n  app:\n    path: app\n    slug: example/app\n    forge: nonesuch\n")
+
+    with pytest.raises(ConfigError) as refused:
+        load(path)
+
+    message = str(refused.value)
+    assert "nonesuch" in message
+    assert "github" in message, "the known forges are named, as for a runtime"
+    assert "app" in message, "and which repo asked for it"
+
+
+def test_a_repo_on_a_known_forge_loads(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("repos:\n  app:\n    path: app\n    slug: example/app\n    forge: github\n")
+
+    assert load(path).repos["app"].forge == "github"

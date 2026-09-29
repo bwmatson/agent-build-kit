@@ -30,7 +30,7 @@ from pathlib import Path
 
 from pydantic import Field
 
-from agent_build_kit.forges import PostsStatuses, RepoId
+from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 
 # Shown on the PR beside the Actions checks.
@@ -144,7 +144,7 @@ on the developer host.
 """
 
 
-def post_status(forge: PostsStatuses, repo: RepoId, result: Tier2Result) -> None:
+def post_status(forge: Forge, repo: RepoId, result: Tier2Result) -> None:
     """Publish the tier 2 result as a commit status on the tested SHA.
 
     Called after the push: a host rejects a status for a commit it has not

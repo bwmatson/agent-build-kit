@@ -31,7 +31,7 @@ from pathlib import Path
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import gh, git
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
@@ -372,20 +372,6 @@ def push_with_lease(repo: Path, branch: str, *, last_pushed: str | None) -> str:
         raise RuntimeError(f"pushing {branch} failed:\n{combined}")
 
     return git(repo, "rev-parse", branch).stdout.strip()
-
-
-def retarget_pr(pr: int, new_base: str, *, repo_slug: str, run: Runner | None = None) -> None:
-    """Point a PR at its new base after the old one merged.
-
-    GitHub often retargets automatically when a base branch is deleted on
-    merge, but not always, and a PR left pointing at a deleted branch shows a
-    diff containing everything. Doing it explicitly is harmless when GitHub
-    already has.
-    """
-    # Never raises: GitHub often retargets on its own when a base branch is
-    # deleted, so a failure here is not worth failing a restack over.
-    run = run or (lambda args: gh(args).stdout)
-    run(["gh", "pr", "edit", str(pr), "--repo", repo_slug, "--base", new_base])
 
 
 def blast_radius_note(*, branch: str, old_base: str, new_base: str, reason: str) -> str:

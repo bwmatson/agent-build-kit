@@ -1,9 +1,10 @@
-"""Watching GitHub for the things that should wake the pipeline.
+"""Watching a repo's host for the things that should wake the pipeline.
 
 Webhooks would need a public endpoint, and nothing here is exposed, so the
-runner polls (docs/architecture.md). On a single account there is
-no approve/request-changes state either, so the signals are comments, labels,
-merges, closures and check results.
+runner polls (docs/architecture.md). The signals are comments, labels, merges,
+closures and check results — whatever the forge reports on a `PullRequest`.
+Nothing here builds a host's JSON: how a merge or a stale comment is
+recognised belongs to that forge's own tests.
 
 The property that shapes the whole module: **only act on a change.** A poll
 that re-dispatches what it saw last time would rework a unit every five
@@ -15,45 +16,47 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.gh_poller import Poller, PrState, _snapshot
+from agent_build_kit.forges import PullRequest
+from agent_build_kit.pipeline.pr_poller import Poller, PrState, _snapshot
+from agent_build_kit.pipeline.units import CLOSED, MERGED
 
 
-def pr(number: int = 4, **overrides) -> dict:
+def pr(number: int = 4, **overrides) -> PullRequest:
     defaults: dict = {
         "number": number,
-        "headRefName": "spec/add-marker/1",
-        "baseRefName": "main",
-        "state": "OPEN",
-        "isDraft": False,
-        "mergedAt": None,
-        "labels": [],
-        "comments": [],
-        "statusCheckRollup": [],
-        "reviewDecision": "",
-        "reviews": [],
+        "head": "spec/add-marker/1",
+        "base": "main",
+        "state": "open",
     }
-    return {**defaults, **overrides}
+    return PullRequest(**{**defaults, **overrides})
 
 
-class FakeGh:
-    def __init__(self, pages: list[list[dict]]) -> None:
+def said(*ids: str) -> dict:
+    """A PR carrying these comment ids, which is all the poller diffs on."""
+    return {"conversation": ids, "comment_bodies": tuple(f"comment {i}" for i in ids)}
+
+
+class FakePrs:
+    """One page of pull requests per poll, the last repeating."""
+
+    def __init__(self, pages: list[list[PullRequest]]) -> None:
         self.pages = pages
         self.calls = 0
 
-    def __call__(self, args: list[str]) -> str:
+    def __call__(self) -> list[PullRequest]:
         page = self.pages[min(self.calls, len(self.pages) - 1)]
         self.calls += 1
-        return json.dumps(page)
+        return page
 
 
 @pytest.fixture
 def poller(tmp_path: Path):
-    def build(pages: list[list[dict]], **kw) -> tuple[Poller, list[tuple[str, int]]]:
+    def build(pages: list[list[PullRequest]], **kw) -> tuple[Poller, list[tuple[str, int]]]:
         seen: list[tuple[str, int]] = []
         instance = Poller(
             repo="app",
             state_path=tmp_path / "poll.json",
-            gh=FakeGh(pages),
+            list_prs=FakePrs(pages),
             dispatch=lambda action, pr_number, **_: seen.append((action, pr_number)),
             **kw,
         )
@@ -64,7 +67,7 @@ def poller(tmp_path: Path):
 
 def test_a_first_poll_records_state_without_dispatching_everything(poller) -> None:
     """Otherwise the first run after a restart reworks every open PR at once."""
-    instance, seen = poller([[pr(), pr(5, headRefName="spec/add-marker/2")]])
+    instance, seen = poller([[pr(), pr(5, head="spec/add-marker/2")]])
 
     instance.poll()
 
@@ -84,8 +87,8 @@ def test_prs_that_are_not_ours_are_ignored(poller) -> None:
     """A human's PR must never be reworked or force-pushed by the pipeline."""
     instance, seen = poller(
         [
-            [pr(9, headRefName="fix/manual-thing")],
-            [pr(9, headRefName="fix/manual-thing", comments=[{"id": "c1", "body": "hi"}])],
+            [pr(9, head="fix/manual-thing")],
+            [pr(9, head="fix/manual-thing", **said("c1"))],
         ]
     )
     instance.poll()
@@ -98,7 +101,7 @@ def test_prs_that_are_not_ours_are_ignored(poller) -> None:
 def test_a_new_comment_asks_for_rework(poller) -> None:
     """With no request-changes state on a single account, a comment is how
     feedback arrives."""
-    instance, seen = poller([[pr()], [pr(comments=[{"id": "c1", "body": "please rename this"}])]])
+    instance, seen = poller([[pr()], [pr(**said("c1"))]])
     instance.poll()
 
     instance.poll()
@@ -107,7 +110,7 @@ def test_a_new_comment_asks_for_rework(poller) -> None:
 
 
 def test_the_same_comment_twice_is_not_two_reworks(poller) -> None:
-    commented = pr(comments=[{"id": "c1", "body": "please rename this"}])
+    commented = pr(**said("c1"))
     instance, seen = poller([[pr()], [commented], [commented]])
     instance.poll()
     instance.poll()
@@ -118,7 +121,7 @@ def test_the_same_comment_twice_is_not_two_reworks(poller) -> None:
 
 
 def test_a_merge_moves_the_stack_along(poller) -> None:
-    instance, seen = poller([[pr()], [pr(state="MERGED", mergedAt="2026-09-23T12:00:00Z")]])
+    instance, seen = poller([[pr()], [pr(state=MERGED)]])
     instance.poll()
 
     instance.poll()
@@ -129,7 +132,7 @@ def test_a_merge_moves_the_stack_along(poller) -> None:
 def test_a_closed_pr_stops_the_stack_rather_than_reworking_it(poller) -> None:
     """Closed without merging is a decision, not a defect: continuing would
     rebuild work that was deliberately dropped."""
-    instance, seen = poller([[pr()], [pr(state="CLOSED")]])
+    instance, seen = poller([[pr()], [pr(state=CLOSED)]])
     instance.poll()
 
     instance.poll()
@@ -142,7 +145,7 @@ def test_a_failed_check_asks_for_rework(poller) -> None:
     instance, seen = poller(
         [
             [pr()],
-            [pr(statusCheckRollup=[{"name": "CI", "conclusion": "FAILURE"}])],
+            [pr(failing_checks=("CI",))],
         ]
     )
     instance.poll()
@@ -155,9 +158,7 @@ def test_a_failed_check_asks_for_rework(poller) -> None:
 def test_a_passing_check_is_not_an_event(poller) -> None:
     """Green is the expected state; dispatching on it would wake the pipeline
     for every successful run."""
-    instance, seen = poller(
-        [[pr()], [pr(statusCheckRollup=[{"name": "CI", "conclusion": "SUCCESS"}])]]
-    )
+    instance, seen = poller([[pr()], [pr()]])
     instance.poll()
 
     instance.poll()
@@ -166,7 +167,7 @@ def test_a_passing_check_is_not_an_event(poller) -> None:
 
 
 def test_the_hold_label_stops_a_stack_advancing(poller) -> None:
-    instance, seen = poller([[pr()], [pr(labels=[{"name": "agent:hold"}])]])
+    instance, seen = poller([[pr()], [pr(labels=("agent:hold",))]])
     instance.poll()
 
     instance.poll()
@@ -175,7 +176,7 @@ def test_the_hold_label_stops_a_stack_advancing(poller) -> None:
 
 
 def test_the_rework_label_is_feedback_given_elsewhere(poller) -> None:
-    instance, seen = poller([[pr()], [pr(labels=[{"name": "agent:rework"}])]])
+    instance, seen = poller([[pr()], [pr(labels=("agent:rework",))]])
     instance.poll()
 
     instance.poll()
@@ -186,7 +187,7 @@ def test_the_rework_label_is_feedback_given_elsewhere(poller) -> None:
 def test_state_survives_a_restart(poller, tmp_path: Path) -> None:
     """Each tick is a new process; in-memory state would re-dispatch
     everything every five minutes."""
-    commented = pr(comments=[{"id": "c1", "body": "hi"}])
+    commented = pr(**said("c1"))
     first, _ = poller([[pr()]])
     first.poll()
 
@@ -200,20 +201,25 @@ def test_state_survives_a_restart(poller, tmp_path: Path) -> None:
 
 
 def test_a_broken_response_does_not_lose_the_state(poller, tmp_path: Path) -> None:
-    """A bad poll should cost one cycle, not re-dispatch history."""
+    """A bad poll should cost one cycle, not re-dispatch history. A forge that
+    cannot answer raises — an unauthenticated host answering with a sign-in
+    page must not read as "no pull requests"."""
     instance, seen = poller([[pr()]])
     instance.poll()
+
+    def refuses() -> list[PullRequest]:
+        raise ValueError("expected a list of pull requests")
 
     broken = Poller(
         repo="app",
         state_path=tmp_path / "poll.json",
-        gh=lambda args: "not json",
+        list_prs=refuses,
         dispatch=lambda action, pr_number, **_: seen.append((action, pr_number)),
     )
     broken.poll()
 
     assert seen == []
-    assert PrState.load(tmp_path / "poll.json")["4"]["state"] == "OPEN"
+    assert PrState.load(tmp_path / "poll.json")["4"]["state"] == "open"
 
 
 def test_repeated_failures_back_off(poller, tmp_path: Path) -> None:
@@ -221,14 +227,14 @@ def test_repeated_failures_back_off(poller, tmp_path: Path) -> None:
     looks like abuse from the other side."""
     failures = {"n": 0}
 
-    def broken(args: list[str]) -> str:
+    def broken() -> list[PullRequest]:
         failures["n"] += 1
-        raise RuntimeError("gh: could not connect")
+        raise RuntimeError("could not reach the host")
 
     instance = Poller(
         repo="app",
         state_path=tmp_path / "poll.json",
-        gh=broken,
+        list_prs=broken,
         dispatch=lambda *a, **k: None,
     )
 
@@ -250,7 +256,7 @@ def test_a_repo_polled_before_with_no_prs_is_not_a_first_run(tmp_path: Path) -> 
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps([pr(1, mergedAt="2026-09-24T00:00:00Z")]),
+        list_prs=lambda: [pr(1, state=MERGED)],
     ).poll()
 
     assert seen == [("merged", 1)]
@@ -265,9 +271,7 @@ def test_a_genuinely_first_poll_still_dispatches_nothing(tmp_path: Path) -> None
         repo="o/r",
         state_path=tmp_path / "never-polled.json",
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps(
-            [pr(1, mergedAt="2026-09-24T00:00:00Z"), pr(2, mergedAt="2026-09-24T00:00:00Z")]
-        ),
+        list_prs=lambda: [pr(1, state=MERGED), pr(2, state=MERGED)],
     ).poll()
 
     assert seen == []
@@ -285,7 +289,7 @@ def test_a_pr_created_and_merged_between_polls_is_not_lost(tmp_path: Path) -> No
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps([pr(9), pr(14, mergedAt="2026-09-24T00:00:00Z")]),
+        list_prs=lambda: [pr(9), pr(14, state=MERGED)],
     ).poll()
 
     assert ("merged", 14) in seen
@@ -302,7 +306,7 @@ def test_a_pr_first_seen_still_open_is_only_recorded(tmp_path: Path) -> None:
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps([pr(9), pr(14)]),
+        list_prs=lambda: [pr(9), pr(14)],
     ).poll()
 
     assert seen == []
@@ -321,7 +325,7 @@ def test_changes_requested_asks_for_rework(tmp_path: Path) -> None:
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, k.get("reason", ""))),
-        gh=lambda args: json.dumps([pr(16, reviewDecision="CHANGES_REQUESTED")]),
+        list_prs=lambda: [pr(16, review_decision="changes_requested")],
     ).poll()
 
     assert seen and seen[0][0] == "rework"
@@ -339,7 +343,7 @@ def test_an_approval_is_not_rework(tmp_path: Path) -> None:
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, k)),
-        gh=lambda args: json.dumps([pr(16, reviewDecision="APPROVED")]),
+        list_prs=lambda: [pr(16, review_decision="")],
     ).poll()
 
     assert seen == []
@@ -349,54 +353,14 @@ def test_changes_requested_only_fires_once(tmp_path: Path) -> None:
     """It stays CHANGES_REQUESTED until a new review supersedes it, so a poll
     every five minutes would otherwise rework the unit all night."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"16": _snapshot(pr(16, reviewDecision="CHANGES_REQUESTED"))}))
+    state.write_text(json.dumps({"16": _snapshot(pr(16, review_decision="changes_requested"))}))
     seen: list[tuple] = []
 
     Poller(
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, k)),
-        gh=lambda args: json.dumps([pr(16, reviewDecision="CHANGES_REQUESTED")]),
-    ).poll()
-
-    assert seen == []
-
-
-def test_an_inline_review_comment_counts_as_a_comment(tmp_path: Path) -> None:
-    """A reviewer commenting on a line is reviewing. Reading only issue-level
-    comments meant an entire diff review registered as silence."""
-    state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"16": _snapshot(pr(16))}))
-    seen: list[tuple] = []
-
-    Poller(
-        repo="o/r",
-        state_path=state,
-        dispatch=lambda event, number, **k: seen.append((event, k.get("reason", ""))),
-        gh=lambda args: json.dumps(
-            [pr(16, reviews=[{"id": "r1", "state": "COMMENTED", "body": "this needs a look"}])]
-        ),
-    ).poll()
-
-    assert seen and seen[0][0] == "rework"
-
-
-def test_a_review_still_being_written_is_not_a_comment(tmp_path: Path) -> None:
-    """A PENDING review is the reviewer's unsubmitted draft. GitHub shows it to
-    its author — whose account the pipeline reads that repo as — and treating
-    it as a comment sends the unit back for rework mid-review, with nothing
-    to act on."""
-    state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"17": _snapshot(pr(17))}))
-    seen: list[tuple] = []
-
-    Poller(
-        repo="o/r",
-        state_path=state,
-        dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps(
-            [pr(17, reviews=[{"id": "r1", "state": "PENDING", "body": ""}])]
-        ),
+        list_prs=lambda: [pr(16, review_decision="changes_requested")],
     ).poll()
 
     assert seen == []
@@ -413,9 +377,7 @@ def test_the_pipeline_s_own_replies_are_not_a_new_comment(tmp_path: Path) -> Non
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps(
-            [pr(17, reviews=[{"id": "PRR_mine", "state": "COMMENTED", "body": ""}])]
-        ),
+        list_prs=lambda: [pr(17, **said("PRR_mine"))],
         ignore=lambda number: {"PRR_mine"},
     ).poll()
 
@@ -425,19 +387,17 @@ def test_the_pipeline_s_own_replies_are_not_a_new_comment(tmp_path: Path) -> Non
 def test_a_plain_comment_after_a_review_is_still_a_new_comment(tmp_path: Path) -> None:
     """Comments were compared by "the last id", taken from a list with every
     issue comment ahead of every review — so once a PR had a review, a later
-    plain comment was never last, and a reviewer's follow-up went unseen."""
-    review = {"id": "PRR_1", "state": "COMMENTED", "body": "a review"}
+    plain comment was never last, and a reviewer's follow-up went unseen. The
+    whole set is compared instead, whatever order the host lists it in."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"17": _snapshot(pr(17, reviews=[review]))}))
+    state.write_text(json.dumps({"17": _snapshot(pr(17, **said("PRR_1")))}))
     seen: list[tuple] = []
 
     Poller(
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps(
-            [pr(17, reviews=[review], comments=[{"id": "IC_2", "body": "one more thing"}])]
-        ),
+        list_prs=lambda: [pr(17, **said("PRR_1", "IC_2"))],
     ).poll()
 
     assert seen == [("rework", 17)]
@@ -464,7 +424,7 @@ def test_state_recorded_before_a_field_existed_still_polls(tmp_path: Path) -> No
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number)),
-        gh=lambda args: json.dumps([pr(16, reviewDecision="CHANGES_REQUESTED")]),
+        list_prs=lambda: [pr(16, review_decision="changes_requested")],
     ).poll()
 
     assert seen == [("rework", 16)], "a field absent from the old snapshot reads as unchanged"
@@ -477,13 +437,12 @@ def test_a_pr_first_seen_with_ci_already_red_is_reworked(tmp_path: Path) -> None
     state = tmp_path / "prs.json"
     state.write_text(json.dumps({}))
     seen: list[tuple] = []
-    failing = {"name": "config-check", "conclusion": "FAILURE"}
 
     Poller(
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number, k.get("reason"))),
-        gh=lambda args: json.dumps([pr(20, statusCheckRollup=[failing])]),
+        list_prs=lambda: [pr(20, failing_checks=("config-check",))],
     ).poll()
 
     assert seen == [("rework", 20, "failing checks: config-check")]
@@ -492,7 +451,7 @@ def test_a_pr_first_seen_with_ci_already_red_is_reworked(tmp_path: Path) -> None
 def test_a_deferred_event_is_reported_again_until_it_is_handled(tmp_path: Path) -> None:
     """A handler defers an event for a unit still being built. Recording the
     change anyway would make that the only time it is ever seen."""
-    held = pr(labels=[{"name": "agent:hold"}])
+    held = pr(labels=("agent:hold",))
     pages = iter([[pr()], [held], [held], [held]])
     answers = iter([False, True])
     seen: list[str] = []
@@ -504,7 +463,7 @@ def test_a_deferred_event_is_reported_again_until_it_is_handled(tmp_path: Path) 
     instance = Poller(
         repo="o/r",
         state_path=tmp_path / "prs.json",
-        gh=lambda args: json.dumps(next(pages)),
+        list_prs=lambda: next(pages),
         dispatch=dispatch,
     )
     for _ in range(4):
@@ -516,7 +475,7 @@ def test_a_deferred_event_is_reported_again_until_it_is_handled(tmp_path: Path) 
 def test_a_deferred_event_on_a_pr_seen_for_the_first_time_is_kept(tmp_path: Path) -> None:
     state = tmp_path / "prs.json"
     state.write_text(json.dumps({}))
-    merged = pr(20, mergedAt="2026-01-01T00:00:00Z", state="MERGED")
+    merged = pr(20, state=MERGED)
     answers = iter([False, True])
     seen: list[str] = []
 
@@ -524,10 +483,60 @@ def test_a_deferred_event_on_a_pr_seen_for_the_first_time_is_kept(tmp_path: Path
         seen.append(event)
         return next(answers)
 
-    instance = Poller(
-        repo="o/r", state_path=state, gh=lambda args: json.dumps([merged]), dispatch=dispatch
-    )
+    instance = Poller(repo="o/r", state_path=state, list_prs=lambda: [merged], dispatch=dispatch)
     for _ in range(3):
         instance.poll()
 
     assert seen == ["merged", "merged"]
+
+
+def test_a_snapshot_written_before_the_forges_existed_dispatches_nothing(tmp_path: Path) -> None:
+    """These files survive an upgrade. One written when the snapshot held
+    GitHub's own words — `merged: true`, `CHANGES_REQUESTED` — must not read as
+    "everything changed": every in-flight PR would be reworked once for
+    nothing, and a merged one restacked a second time."""
+    state = tmp_path / "prs.json"
+    state.write_text(
+        json.dumps(
+            {
+                "16": {
+                    "state": "OPEN",
+                    "merged": False,
+                    "last_comment": "c1",
+                    "comment_ids": ["c1"],
+                    "review_decision": "CHANGES_REQUESTED",
+                    "labels": [],
+                    "failing_checks": [],
+                    "head": "spec/add-marker/1",
+                }
+            }
+        )
+    )
+    seen: list[tuple] = []
+
+    Poller(
+        repo="o/r",
+        state_path=state,
+        dispatch=lambda event, number, **k: seen.append((event, number)),
+        list_prs=lambda: [pr(16, review_decision="changes_requested", **said("c1"))],
+    ).poll()
+
+    assert seen == []
+    assert PrState.load(state)["16"]["state"] == "open", "and it is rewritten in the new words"
+
+
+def test_a_merge_recorded_in_the_old_words_is_not_reported_twice(tmp_path: Path) -> None:
+    state = tmp_path / "prs.json"
+    state.write_text(
+        json.dumps({"16": {"state": "OPEN", "merged": True, "comment_ids": [], "labels": []}})
+    )
+    seen: list[tuple] = []
+
+    Poller(
+        repo="o/r",
+        state_path=state,
+        dispatch=lambda event, number, **k: seen.append((event, number)),
+        list_prs=lambda: [pr(16, state=MERGED)],
+    ).poll()
+
+    assert seen == []

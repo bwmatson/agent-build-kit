@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.forges import RepoId
 from agent_build_kit.pipeline.tier2 import (
     STATUS_CONTEXT,
     Tier2Result,
@@ -24,6 +23,7 @@ from agent_build_kit.pipeline.tier2 import (
     post_status,
     stack_lock,
 )
+from tests.forges.stand_in import StandInForge
 
 
 def test_a_second_run_waits_for_the_first(tmp_path: Path) -> None:
@@ -117,31 +117,14 @@ def test_a_failing_run_is_not_a_snapshot_to_publish() -> None:
     assert result().ok
 
 
-class FakeForge:
-    """Records the one call the tier 2 gate makes; what the argv looks like is
-    the forge's own test."""
-
-    def __init__(self) -> None:
-        self.posted: list[dict] = []
-
-    def post_status(self, repo, *, sha: str, ok: bool, context: str, description: str) -> None:
-        self.posted.append(
-            {"repo": repo, "sha": sha, "ok": ok, "context": context, "description": description}
-        )
-
-
-def repo_id() -> RepoId:
-    return RepoId(forge="fake", account="owner", name="repo")
-
-
 def test_the_status_is_posted_for_the_sha_that_was_tested() -> None:
     """A snapshot is only valid for the commit it ran against: a restack
     changes the SHA, and the old result says nothing about the new one."""
-    forge = FakeForge()
+    forge = StandInForge()
 
-    post_status(forge, repo_id(), result())
+    post_status(forge, forge.repo_id(), result())
 
-    [posted] = forge.posted
+    [posted] = forge.statuses
     assert posted["sha"] == "abc1234def"
     assert posted["context"] == STATUS_CONTEXT
     assert posted["ok"]
@@ -151,8 +134,8 @@ def test_the_status_is_posted_for_the_sha_that_was_tested() -> None:
 def test_a_failed_run_posts_a_failure_status_when_asked() -> None:
     """Only reachable for a re-run of an already-pushed commit — the usual
     path never pushes a failing unit at all."""
-    forge = FakeForge()
+    forge = StandInForge()
 
-    post_status(forge, repo_id(), result(failed=1))
+    post_status(forge, forge.repo_id(), result(failed=1))
 
-    assert not forge.posted[0]["ok"]
+    assert not forge.statuses[0]["ok"]
