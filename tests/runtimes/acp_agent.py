@@ -7,21 +7,27 @@ its model choice as a config option, the commands it offers, thought and
 message chunks, tool calls started and updated, and a prompt answered with an
 end-of-turn reason.
 
-    python acp_agent.py RECORD [--stop REASON] [--no-additional-dirs] [--fail HOW]
+    python acp_agent.py RECORD [--stop REASON] [--no-additional-dirs] [--linger] [--fail HOW]
 
 Every request the client sends is appended to RECORD as one JSON line —
 `{"method": ..., "params": ...}`, the params as they arrived on the wire — so
 a test can say what the adapter asked for. `--stop` is the end-of-turn reason
 the prompt is answered with (`end_turn` unless given).
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
-unadvertised. `--fail` breaks the prompt partway through, after the preamble:
+unadvertised. `--linger` starts a child in the agent's own process group that
+inherits its stderr and sleeps for `HANG_SECONDS`, writing the child's pid to
+`orphan_pid_file(RECORD)`, then ends the turn as usual and exits once its input
+closes: an agent that is gone while something it started still holds stderr.
+`--fail` breaks the prompt partway through, after the preamble:
 `exit` writes `STDERR_LINE` to stderr and exits 3, `kill` sends the agent
 SIGKILL, `error` answers the prompt with an internal error, and `hang` closes
 its stdout, writes `STDERR_LINE` to stderr and lingers for `HANG_SECONDS`
 without exiting, as an agent whose stdio loop died while its process did not.
 `orphan` first starts a child that inherits its stderr and sleeps for
 `HANG_SECONDS`, writing the child's pid to `orphan_pid_file(RECORD)`, then does
-what `hang` does: a wrapper whose real agent keeps stderr open.
+what `hang` does: a wrapper whose real agent keeps stderr open. `detach` is
+`orphan` with the child in a session of its own, out of reach of a kill of the
+agent's process group.
 """
 
 from __future__ import annotations
@@ -105,11 +111,18 @@ def _model_option(current: str) -> SessionConfigOptionSelect:
 
 class FakeAgent:
     def __init__(
-        self, record: Path, stop: str, *, additional_dirs: bool = True, fail: str | None = None
+        self,
+        record: Path,
+        stop: str,
+        *,
+        additional_dirs: bool = True,
+        linger: bool = False,
+        fail: str | None = None,
     ) -> None:
         self._record = record
         self._stop = stop
         self._additional_dirs = additional_dirs
+        self._linger = linger
         self._fail = fail
         self._model = DEFAULT_MODEL
         self._client: Client | None = None
@@ -224,14 +237,9 @@ class FakeAgent:
             os.kill(os.getpid(), signal.SIGKILL)
         if self._fail == "error":
             raise RequestError.internal_error({"details": "the model endpoint went away"})
-        if self._fail == "orphan":
-            child = subprocess.Popen(
-                [sys.executable, "-c", f"import time; time.sleep({HANG_SECONDS})"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-            )
-            orphan_pid_file(self._record).write_text(str(child.pid))
-        if self._fail in ("hang", "orphan"):
+        if self._linger or self._fail in ("orphan", "detach"):
+            self._leave_child(new_session=self._fail == "detach")
+        if self._fail in ("hang", "orphan", "detach"):
             os.close(1)
             print(STDERR_LINE, file=sys.stderr, flush=True)
             time.sleep(HANG_SECONDS)
@@ -262,6 +270,16 @@ class FakeAgent:
             await send(update_agent_message_text(chunk))
         return PromptResponse(stop_reason=self._stop)
 
+    def _leave_child(self, *, new_session: bool) -> None:
+        """Start a child that holds this agent's stderr for `HANG_SECONDS`."""
+        child = subprocess.Popen(
+            [sys.executable, "-c", f"import time; time.sleep({HANG_SECONDS})"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            start_new_session=new_session,
+        )
+        orphan_pid_file(self._record).write_text(str(child.pid))
+
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
         self._log("session/cancel", {"sessionId": session_id})
 
@@ -274,28 +292,43 @@ class FakeAgent:
 
 
 def orphan_pid_file(record: Path) -> Path:
-    """Where `--fail orphan` writes the pid of the child it leaves behind."""
+    """Where `--linger` and `--fail orphan`/`detach` write the pid of the child
+    they leave behind."""
     return record.with_suffix(".orphan")
 
 
 def command(
-    record: Path, *, stop: str = "end_turn", additional_dirs: bool = True, fail: str | None = None
+    record: Path,
+    *,
+    stop: str = "end_turn",
+    additional_dirs: bool = True,
+    linger: bool = False,
+    fail: str | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one."""
     argv = [sys.executable, str(Path(__file__).resolve()), str(record), "--stop", stop]
     if not additional_dirs:
         argv.append("--no-additional-dirs")
+    if linger:
+        argv.append("--linger")
     if fail:
         argv += ["--fail", fail]
     return argv
 
 
 def use_agent(
-    record: Path, *, stop: str = "end_turn", additional_dirs: bool = True, fail: str | None = None
+    record: Path,
+    *,
+    stop: str = "end_turn",
+    additional_dirs: bool = True,
+    linger: bool = False,
+    fail: str | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
-    use_command(command(record, stop=stop, additional_dirs=additional_dirs, fail=fail))
+    use_command(
+        command(record, stop=stop, additional_dirs=additional_dirs, linger=linger, fail=fail)
+    )
 
 
 def use_command(argv: list[str] | None) -> None:
@@ -321,9 +354,16 @@ def main() -> None:
     parser.add_argument("record", type=Path)
     parser.add_argument("--stop", default="end_turn")
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
-    parser.add_argument("--fail", choices=["exit", "kill", "error", "hang", "orphan"])
+    parser.add_argument("--linger", action="store_true")
+    parser.add_argument("--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach"])
     args = parser.parse_args()
-    agent = FakeAgent(args.record, args.stop, additional_dirs=args.additional_dirs, fail=args.fail)
+    agent = FakeAgent(
+        args.record,
+        args.stop,
+        additional_dirs=args.additional_dirs,
+        linger=args.linger,
+        fail=args.fail,
+    )
     asyncio.run(run_agent(agent))
 
 

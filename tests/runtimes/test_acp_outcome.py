@@ -304,11 +304,37 @@ def test_an_agent_abk_had_to_kill_is_a_failed_result_not_an_interruption(
 
 
 def _gone(pid: int) -> bool:
+    """Whether `pid` has exited. A zombie counts: once its parent is gone it
+    waits on whatever adopted it to reap it, which need not be prompt."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return True
-    return False
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    # The state follows the command name, which is in parentheses.
+    return stat.rpartition(")")[2].split()[0] == "Z"
+
+
+def _gone_soon(pid: int) -> bool:
+    deadline = time.monotonic() + 5
+    while not _gone(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return _gone(pid)
+
+
+def _run_bounded(request: AgentRequest) -> tuple[AgentResult | None, float]:
+    """Run on a thread, so a run that never returns fails the test instead of
+    hanging it: the result, or None if it did not return, and how long it took."""
+    results: list[AgentResult] = []
+    run = threading.Thread(target=lambda: results.append(AcpRuntime().run(request)), daemon=True)
+    started = time.monotonic()
+    run.start()
+    run.join(timeout=10)
+    elapsed = time.monotonic() - started
+    return (None if run.is_alive() else results[0]), elapsed
 
 
 def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
@@ -321,29 +347,67 @@ def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
     monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
     record = tmp_path / "agent.jsonl"
     use_agent(record, fail="orphan")
-    results: list[AgentResult] = []
-    run = threading.Thread(
-        target=lambda: results.append(AcpRuntime().run(_request(worktree, specs))), daemon=True
-    )
 
-    started = time.monotonic()
-    run.start()
-    run.join(timeout=10)
-    elapsed = time.monotonic() - started
+    result, elapsed = _run_bounded(_request(worktree, specs))
     orphan = int(orphan_pid_file(record).read_text())
-    deadline = time.monotonic() + 5
-    while not _gone(orphan) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    left = not _gone(orphan)
+    left = not _gone_soon(orphan)
     if left:
         os.kill(orphan, signal.SIGKILL)
 
-    assert not run.is_alive(), "run() did not return"
+    assert result is not None, "run() did not return"
     assert elapsed < 5
-    [result] = results
     assert result.ok is False
     assert "killed" in result.error
     assert STDERR_LINE in result.error
+    assert not left, "the agent's child outlived the run"
+
+
+def test_a_process_out_of_reach_of_the_kill_does_not_hold_the_run_open(
+    tmp_path: Path, worktree: Path, specs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A process the agent started in a session of its own escapes the kill
+    of the agent's group and keeps stderr open for as long as it lives: the
+    run stops waiting for stderr after the grace and ends all the same."""
+    monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, fail="detach")
+
+    result, elapsed = _run_bounded(_request(worktree, specs))
+    # Out of abk's reach by design, so the test cleans it up itself.
+    detached = orphan_pid_file(record)
+    if detached.exists():
+        try:
+            os.kill(int(detached.read_text()), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    assert result is not None, "run() did not return"
+    assert elapsed < 5
+    assert result.ok is False
+    assert "killed" in result.error
+    assert STDERR_LINE in result.error
+
+
+def test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_killed(
+    tmp_path: Path, worktree: Path, specs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The agent answers and exits, but a process it started in its group
+    still holds stderr: the answer stands, and that process is killed rather
+    than left running after the tick."""
+    monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, linger=True)
+
+    result, elapsed = _run_bounded(_request(worktree, specs))
+    child = int(orphan_pid_file(record).read_text())
+    left = not _gone_soon(child)
+    if left:
+        os.kill(child, signal.SIGKILL)
+
+    assert result is not None, "run() did not return"
+    assert elapsed < 5
+    assert result.ok is True
+    assert result.text == ANSWER
     assert not left, "the agent's child outlived the run"
 
 

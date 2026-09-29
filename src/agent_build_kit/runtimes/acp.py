@@ -64,6 +64,9 @@ EXIT_GRACE = 5.0
 # Bytes of the agent's stderr read at a time.
 STDERR_CHUNK = 64 * 1024
 
+# Seconds between looks at whether the agent has exited.
+EXIT_POLL = 0.05
+
 # How long a turn that did not end normally reads in the unit's log: each
 # calls for something different of whoever reads it.
 STOPPED: dict[str, str] = {
@@ -329,8 +332,12 @@ class _Drained:
         self._task = asyncio.create_task(self._drain(stream))
 
     async def _drain(self, stream: asyncio.StreamReader) -> None:
-        while chunk := await stream.read(STDERR_CHUNK):
-            self._said += chunk
+        try:
+            while chunk := await stream.read(STDERR_CHUNK):
+                self._said += chunk
+        except OSError:
+            # A pipe that broke has ended as surely as one that closed.
+            pass
 
     async def said(self) -> tuple[str, bool]:
         """What the stream said, waiting at most `EXIT_GRACE` for its end, and
@@ -353,6 +360,19 @@ def _kill_group(process: asyncio.subprocess.Process) -> None:
         pass
 
 
+async def _exited(process: asyncio.subprocess.Process, timeout: float | None) -> bool:
+    """Whether the agent exited within `timeout` seconds (None: however long
+    it takes). Not `process.wait()`: that also waits for the agent's pipes to
+    close, which a process it left behind can keep open for good."""
+    loop = asyncio.get_running_loop()
+    deadline = None if timeout is None else loop.time() + timeout
+    while process.returncode is None:
+        if deadline is not None and loop.time() >= deadline:
+            return False
+        await asyncio.sleep(EXIT_POLL)
+    return True
+
+
 async def _ended(process: asyncio.subprocess.Process, stderr: _Drained) -> tuple[str, bool]:
     """Wait for the agent to exit once its input is closed: what it said on
     stderr, for an error, and whether it had to be killed for not exiting —
@@ -360,18 +380,18 @@ async def _ended(process: asyncio.subprocess.Process, stderr: _Drained) -> tuple
     if process.stdin is not None and not process.stdin.is_closing():
         process.stdin.close()
     killed = False
-    if process.returncode is None:
-        try:
-            await asyncio.wait_for(process.wait(), timeout=EXIT_GRACE)
-        except TimeoutError:
-            _kill_group(process)
-            killed = True
-            await process.wait()
+    if not await _exited(process, EXIT_GRACE):
+        _kill_group(process)
+        killed = True
+        await _exited(process, None)
     said, closed = await stderr.said()
     if not closed:
         # The agent is gone but something it started still holds its stderr:
-        # nothing abk should leave running.
+        # nothing abk should leave running. One that left the agent's session
+        # is out of reach and may hold it for good, so abk lets go of its end.
         _kill_group(process)
+        # Process exposes no close of its own; its transport is not in the stubs.
+        process._transport.close()  # pyrefly: ignore[missing-attribute]
     return said, killed
 
 
