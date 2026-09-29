@@ -31,11 +31,18 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
     hooks:
+      # Format first, lint second. The other order fails a commit over a line
+      # the formatter would have wrapped one hook later — `E501` on a 105-column
+      # line that `ruff-format` then rewrapped, reported against a file that was
+      # already clean by the time the run ended. An unattended build treats a
+      # rejected commit as the end of a unit, so a stale verdict is expensive.
+      # The residual case is a `--fix` that leaves something unformatted, which
+      # the next run formats; that one is self-healing, and the one above was not.
+      - id: ruff-format
       # --fix is hook behavior, not lint config: a bare `ruff check` in the
       # editor should report, not rewrite.
       - id: ruff
         args: [--fix]
-      - id: ruff-format
 
   - repo: https://github.com/facebook/pyrefly-pre-commit
     rev: 1.2.0
