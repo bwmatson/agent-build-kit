@@ -20,7 +20,6 @@ from functools import partial
 from pathlib import Path
 
 from agent_build_kit.pipeline.usage_guard import read_cached_usage, read_live_usage
-from agent_build_kit.runtimes import UsageStatus
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.runtimes.claude_cli import no_agent
 
@@ -85,12 +84,8 @@ def _claude_json(tmp_path: Path, *, session_pct: float, weekly_pct: float) -> Pa
     return path
 
 
-def _nothing_cached() -> None:
-    return None
-
-
 def test_every_forbidden_class_is_enforced_without_running_an_agent(tmp_path: Path) -> None:
-    runtime = ClaudeCodeRuntime(execute=no_agent, read_live=_nothing_cached)
+    runtime = ClaudeCodeRuntime(execute=no_agent)
 
     report = runtime.check_policy(tmp_path)
 
@@ -106,17 +101,22 @@ def test_usage_comes_from_the_live_endpoint_first(tmp_path: Path) -> None:
         read_cached=partial(read_cached_usage, cached),
     )
 
-    assert runtime.get_usage_status() == UsageStatus(
-        session_pct=14,
-        weekly_pct=6,
-        resets_at=datetime.fromisoformat("2026-09-28T04:50:00.460447+00:00"),
-        source="live",
-    )
+    status = runtime.get_usage_status()
+
+    assert status is not None
+    assert status.model_dump(exclude={"observed_at"}) == {
+        "session_pct": 14,
+        "weekly_pct": 6,
+        "resets_at": datetime.fromisoformat("2026-09-28T04:50:00.460447+00:00"),
+        "source": "live",
+    }
+    assert datetime.now(UTC) - status.observed_at < timedelta(minutes=1)
 
 
 def test_usage_falls_back_to_claude_code_s_own_cache(tmp_path: Path) -> None:
     """The endpoint is undocumented and may refuse; the cache is what the
-    usage guard reads then."""
+    usage guard reads then — saying how old it is, which the guard's
+    stale-cache rule needs."""
     cached = _claude_json(tmp_path, session_pct=32.0, weekly_pct=4.0)
     runtime = ClaudeCodeRuntime(
         execute=no_agent,
@@ -129,6 +129,7 @@ def test_usage_falls_back_to_claude_code_s_own_cache(tmp_path: Path) -> None:
     assert status is not None
     assert (status.session_pct, status.weekly_pct, status.source) == (32, 4, "claude.json")
     assert status.resets_at is not None
+    assert timedelta(minutes=4) < datetime.now(UTC) - status.observed_at < timedelta(minutes=6)
 
 
 def test_no_reading_anywhere_is_none(tmp_path: Path) -> None:

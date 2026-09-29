@@ -164,6 +164,7 @@ class ClaudeCodeRuntime:
             session_pct=reading.session_pct,
             weekly_pct=reading.weekly_pct,
             resets_at=reading.resets_at,
+            observed_at=reading.observed_at,
             source=reading.source,
         )
 

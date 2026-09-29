@@ -56,15 +56,9 @@ from agent_build_kit.pipeline.units import REVIEWED, Unit, branch_name
 from agent_build_kit.pipeline.usage_guard import check_refusal, current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.runtimes.claude_code import DISALLOWED  # one deny list for both argv builders
 
 Run = Callable[..., subprocess.CompletedProcess]
-
-# Passed in addition to the hook. Redundant by design: two independent things
-# have to fail before the agent can merge its own PR.
-DISALLOWED = (
-    "Bash(gh pr merge*) Bash(git push --force *) Bash(git reset --hard*) "
-    "Bash(rm -rf*) Bash(git branch -D*)"
-)
 
 # gh is read-only for agents. What they have to say on a PR the pipeline posts
 # after the push (see `pr_replies`), as the account that owns the repo. The

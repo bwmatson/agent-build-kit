@@ -44,7 +44,13 @@ def _values() -> list[BaseModel]:
         AgentResult(ok=False, text="", raw="{}", error="exit 1", stop_reason="refusal"),
         PolicyReport(ok=False, unenforced=("pushing to a default branch",), fix="constrain"),
         ToolPolicy(specs_dir=None, branch_prefix="spec/"),
-        UsageStatus(session_pct=40, weekly_pct=12, resets_at=None, source="cache"),
+        UsageStatus(
+            session_pct=40,
+            weekly_pct=12,
+            resets_at=None,
+            observed_at=datetime(2026, 9, 28, 3, tzinfo=UTC),
+            source="cache",
+        ),
     ]
 
 

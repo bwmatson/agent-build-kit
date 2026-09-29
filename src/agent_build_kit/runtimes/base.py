@@ -69,6 +69,7 @@ class AgentRequest(Frozen):
     worktree: str | None = None
     # The caller keeps the run's whole machine-readable record (`AgentResult.raw`),
     # not only its answer — a track phase writes it to its raw output file.
+    # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.
     keep_record: bool = False
 
 
@@ -118,6 +119,8 @@ class UsageStatus(Frozen):
     session_pct: int
     weekly_pct: int
     resets_at: datetime | None
+    # When the reading was taken: a cached one may be hours old.
+    observed_at: datetime
     source: str
 
 

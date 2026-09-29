@@ -4,7 +4,8 @@ The suite once scheduled a real systemd timer on the developer's machine every
 time it ran, through tests that reach `pause_until` without injecting a
 scheduler. A test that needs the scheduler injects its own; everything else
 gets one that fails loudly rather than touching the host. The same goes for
-refreshing the Claude login, and for spawning a real agent.
+refreshing the Claude login, for spawning a real agent, and for the adapter's
+reading of the real usage window.
 
 Every test also runs against a workspace: the leaf modules read the branch
 prefix, the repo set and the limits from `config.active()`, so a default
@@ -62,6 +63,22 @@ def no_real_agent(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("a test tried to spawn a real agent process — inject `execute=`")
 
     monkeypatch.setattr(claude_code, "spawn", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The adapter's default usage readers call the live endpoint with the
+    machine's own token, and read the machine's own Claude Code cache. A test
+    that means to read usage injects `read_live=` and `read_cached=`."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            "a test tried to read this machine's real usage window — inject `read_live=`"
+            " and `read_cached=`"
+        )
+
+    monkeypatch.setattr(claude_code, "read_live_usage", refuse)
+    monkeypatch.setattr(claude_code, "read_cached_usage", refuse)
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:

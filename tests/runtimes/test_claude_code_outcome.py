@@ -32,7 +32,14 @@ from agent_build_kit.runtimes import (
     claude_code,
 )
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
-from tests.runtimes.claude_cli import FakeClaude, failed_build, finished_build, refused, stream
+from tests.runtimes.claude_cli import (
+    FakeClaude,
+    failed_build,
+    finished_build,
+    record,
+    refused,
+    stream,
+)
 
 
 def _request(cwd: Path, *, on_event=None) -> AgentRequest:
@@ -204,6 +211,36 @@ def test_a_refusal_on_stderr_is_still_a_refusal(tmp_path: Path) -> None:
 
     with pytest.raises(AgentRateLimited):
         ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+
+def test_a_kept_record_is_the_raw_output_and_its_answer_the_text(tmp_path: Path) -> None:
+    """A track phase writes the whole record to its raw output file and reads
+    the answer out of it."""
+    fake = FakeClaude(stdout=record("No findings."))
+    request = AgentRequest(prompt="Run the health track for app.", cwd=tmp_path, keep_record=True)
+
+    result = ClaudeCodeRuntime(execute=fake).run(request)
+
+    assert result.ok is True
+    assert result.text == "No findings."
+    assert result.raw == fake.stdout
+    kept = json.loads(result.raw)
+    assert kept["session_id"] and kept["total_cost_usd"] and kept["usage"]
+
+
+def test_streaming_wins_over_a_kept_record(tmp_path: Path) -> None:
+    """Asked for both, the run streams: `raw` is its event lines, not the
+    single JSON record."""
+    fake = FakeClaude(stdout=finished_build(tmp_path, "done"))
+    request = AgentRequest(
+        prompt="Implement.", cwd=tmp_path, on_event=lambda line: None, keep_record=True
+    )
+
+    result = ClaudeCodeRuntime(execute=fake).run(request)
+
+    assert fake.argv[fake.argv.index("--output-format") + 1] == "stream-json"
+    assert result.text == "done"
+    assert len(result.raw.splitlines()) > 1
 
 
 def test_a_finished_run_says_how_it_ended(tmp_path: Path) -> None:

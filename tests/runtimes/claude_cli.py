@@ -105,6 +105,12 @@ def stream(*events: dict) -> str:
     return "".join(json.dumps(event) + "\n" for event in events)
 
 
+def record(answer: str) -> str:
+    """What `--output-format json` prints: the closing result event alone, on
+    one line, with the session, cost and usage a track keeps."""
+    return json.dumps(_result(answer)) + "\n"
+
+
 def finished_build(cwd: Path, answer: str) -> str:
     """A build that says what it will do, edits one file, and answers."""
     return stream(

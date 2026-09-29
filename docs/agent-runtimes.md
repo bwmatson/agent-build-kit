@@ -161,6 +161,13 @@ class AgentRequest(Frozen):
     permission_mode: PermissionMode = "edit"
     policy: ToolPolicy | None = None  # None: no enforcement asked for (a read-only run)
     on_event: Callable[[str], None] | None = None  # one line per step of progress, if supported
+    # A named checkout the runtime makes for this run itself, off cwd's repo —
+    # a track phase's; Claude Code's --worktree. None: the run works in cwd.
+    worktree: str | None = None
+    # The caller keeps the run's whole machine-readable record (`AgentResult.raw`),
+    # not only its answer — a track phase writes it to its raw output file.
+    # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.
+    keep_record: bool = False
 
 
 class AgentResult(Frozen):
@@ -209,6 +216,8 @@ class UsageStatus(Frozen):
     session_pct: int
     weekly_pct: int
     resets_at: datetime | None
+    # When the reading was taken: a cached one may be hours old.
+    observed_at: datetime
     source: str
 
 
