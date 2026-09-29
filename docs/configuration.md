@@ -101,6 +101,9 @@ limits:
                                 # (PRs awaiting review are unbounded)
   min_unit_lines: 500           # estimated changed lines before the planner
                                 # stops absorbing the next task group
+  max_unit_lines: 1000          # estimated changed lines one unit may carry;
+                                # must exceed min_unit_lines. Shapes plans
+                                # only — a branch is not measured against it
   max_review_rounds: 3          # review rounds before a unit fails
   usage_pause_pct: 70           # % of a usage window at which no new unit
                                 # starts, for most of that window

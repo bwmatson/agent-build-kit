@@ -44,7 +44,7 @@ from agent_build_kit.pipeline.events import (
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gh_poller import Poller
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
-from agent_build_kit.pipeline.planner import plan_round
+from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
 from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.shell import gh, git
 from agent_build_kit.pipeline.tier2 import stack_lock
@@ -533,6 +533,13 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
                 # them is not a dependency on nothing.
                 known={u.id for u in store.all()},
             )
+        except GroupTooLarge as error:
+            # Fixed in tasks.md, not in the plan: every attempt is spent at
+            # once, so the change waits for that edit instead of re-asking.
+            planned[change] = {"hash": digest, "attempts": max_attempts, "ok": False}
+            _write_planned(inst, planned)
+            log(f"not planning {change}: {error}")
+            continue
         except Exception as error:  # noqa: BLE001
             attempts = (record.get("attempts", 0) if record.get("hash") == digest else 0) + 1
             planned[change] = {"hash": digest, "attempts": attempts, "ok": False}

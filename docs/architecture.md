@@ -74,6 +74,16 @@ dependency, no cycle, the acceptance group alone in its unit and downstream of
 everything it exercises. A bad plan costs one round; `limits.max_plan_attempts`
 bounds the retries per version of the file.
 
+Unit size is bounded from both sides. Groups are combined until the estimate
+reaches `limits.min_unit_lines`, and never past `limits.max_unit_lines`: the
+planner's prompt states the ceiling, and a plan with a unit estimated over it
+is rejected and re-asked.
+A single group estimated over the ceiling cannot be fixed by grouping, so the
+change is left unplanned with a message naming the group and saying its tasks
+must be split, and no further attempts are spent on that version of the file.
+The ceiling shapes plans only. An estimate is not checked against the branch,
+so a unit can still land larger than the ceiling.
+
 `UnitStore.upsert` merges the plan into `runs/units.json` by id: shape from
 the plan, state/branch/PR/feedback from what is already recorded. A unit the
 plan dropped becomes `unplanned` only if it never started.

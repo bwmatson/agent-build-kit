@@ -37,7 +37,7 @@ def group(number: int, repo: str = "app", tier: str = "tier1", lines: int = 200,
 def test_small_consecutive_groups_become_one_unit() -> None:
     """The chain-of-tiny-PRs problem: three 200-line groups in a row are one
     PR's worth of work, not three."""
-    units = plan_units("add-marker", [group(1), group(2), group(3)], min_lines=500)
+    units = plan_units("add-marker", [group(1), group(2), group(3)], min_lines=500, max_lines=1000)
 
     assert len(units) == 1
     assert units[0].estimated_lines == 600
@@ -48,21 +48,29 @@ def test_absorbing_stops_once_the_floor_is_reached() -> None:
     """A floor, not a target: it stops as soon as it's met rather than
     sweeping up everything that follows."""
     units = plan_units(
-        "add-marker", [group(1, lines=300), group(2, lines=300), group(3)], min_lines=500
+        "add-marker",
+        [group(1, lines=300), group(2, lines=300), group(3)],
+        min_lines=500,
+        max_lines=1000,
     )
 
     assert [u.groups for u in units] == [(1, 2), (3,)]
 
 
 def test_a_group_bigger_than_the_floor_stands_alone() -> None:
-    units = plan_units("add-marker", [group(1, lines=900), group(2)], min_lines=500)
+    units = plan_units("add-marker", [group(1, lines=900), group(2)], min_lines=500, max_lines=1000)
 
     assert [u.groups for u in units] == [(1,), (2,)]
 
 
 def test_a_fan_out_group_ends_its_unit_however_small() -> None:
     """Stopping early is worth it when finishing unblocks other work."""
-    units = plan_units("add-marker", [group(1, lines=50, fans_out=True), group(2)], min_lines=500)
+    units = plan_units(
+        "add-marker",
+        [group(1, lines=50, fans_out=True), group(2)],
+        min_lines=500,
+        max_lines=1000,
+    )
 
     assert [u.groups for u in units] == [(1,), (2,)]
 
@@ -74,6 +82,7 @@ def test_units_never_span_repos() -> None:
         "add-marker",
         [group(1, repo="platform", lines=50), group(2, repo="app", lines=50)],
         min_lines=500,
+        max_lines=1000,
     )
 
     assert [(u.repo, u.groups) for u in units] == [("platform", (1,)), ("app", (2,))]
@@ -85,6 +94,7 @@ def test_tiers_do_not_split_a_unit() -> None:
         "add-marker",
         [group(1, tier="tier1", lines=200), group(2, tier="tier2", lines=200)],
         min_lines=300,
+        max_lines=1000,
     )
 
     assert len(units) == 1
@@ -96,10 +106,40 @@ def test_units_depend_on_the_one_before_them_in_the_same_repo() -> None:
         "add-marker",
         [group(1, lines=600), group(2, lines=600), group(3, repo="platform")],
         min_lines=500,
+        max_lines=1000,
     )
 
     assert units[1].depends_on == (units[0].id,)
     assert units[2].depends_on == (units[1].id,), "cross-repo order is still order"
+
+
+def test_groups_are_not_combined_past_the_ceiling() -> None:
+    """The floor would keep absorbing a 400-line group into the next; the
+    ceiling says 1,100 lines is past what one PR should carry, so they split
+    even though the first is under the floor on its own."""
+    units = plan_units(
+        "add-marker",
+        [group(1, lines=400), group(2, lines=700), group(3, lines=200)],
+        min_lines=500,
+        max_lines=1000,
+    )
+
+    assert [u.groups for u in units] == [(1,), (2,), (3,)]
+    assert all(u.estimated_lines <= 1000 for u in units)
+
+
+def test_under_the_ceiling_the_floor_still_groups() -> None:
+    """The ceiling bounds grouping from above without stopping small groups
+    being combined below it: the first two still go together, and only the
+    700-line group that would take them past 1,000 starts a unit of its own."""
+    units = plan_units(
+        "add-marker",
+        [group(1, lines=200), group(2, lines=200), group(3, lines=700), group(4, lines=200)],
+        min_lines=500,
+        max_lines=1000,
+    )
+
+    assert [u.groups for u in units] == [(1, 2), (3,), (4,)]
 
 
 def test_branch_names_are_deterministic() -> None:
