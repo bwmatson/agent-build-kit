@@ -15,6 +15,7 @@ killed for failing to exit, which is a failure. `AgentRequest.allowed_tools`/
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import sys
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from acp import PROTOCOL_VERSION, RequestError, connect_to_agent, text_block
+from acp.connection import StreamEvent
 from acp.interfaces import Agent, Client
 from acp.schema import (
     AgentMessageChunk,
@@ -169,7 +171,11 @@ class AcpRuntime:
     # There is no default agent to spawn.
     requires: tuple[str, ...] = ("command",)
     agent_command: tuple[str, ...] = ()
-    default_models: ModelsConfig = ModelsConfig()
+    # No name is this runtime's own — an empty role means the agent's own
+    # default, which `_turn` reads as "select nothing" (docs/agent-runtimes.md).
+    default_models: ModelsConfig = ModelsConfig(
+        implement="", rework="", review="", rework_review=""
+    )
 
     def __init__(self) -> None:
         # The models already reported as not on offer, and whether the agent's
@@ -216,15 +222,32 @@ class AcpRuntime:
         # Drained as it arrives, so an agent that logs a lot never blocks on
         # a full pipe; kept for the error when the run breaks.
         stderr = _Drained(process.stderr)
+        # The whole exchange, one JSON-RPC message per line, for `keep_record`
+        # (AgentResult.raw) — a caller's only way to see what the agent did
+        # beyond the streamed progress lines and the final answer.
+        raw_lines: list[str] = []
+
+        def _record(event: StreamEvent) -> None:
+            raw_lines.append(json.dumps(event.message))
+
         # No file or terminal capability is advertised, so the agent must not
         # call those methods; one that does is answered "method not found".
-        conn = connect_to_agent(cast(Client, session), process.stdin, process.stdout)
+        conn = connect_to_agent(
+            cast(Client, session), process.stdin, process.stdout, observers=[_record]
+        )
+        ended_already = False
         try:
             stop_reason = await self._turn(conn, session, request)
         except RequestError as exc:
-            return AgentResult(ok=False, text="", error=f"the agent answered an error: {exc}")
+            return AgentResult(
+                ok=False,
+                text="",
+                error=f"the agent answered an error: {exc}",
+                raw="\n".join(raw_lines),
+            )
         except (ConnectionError, EOFError) as exc:
             said, killed = await _ended(process, stderr)
+            ended_already = True
             if killed:
                 # Its stdio went but its process stayed: the agent broke, and
                 # the kill that ended it is ours, so it is no interruption.
@@ -233,27 +256,38 @@ class AcpRuntime:
                     text="",
                     error=f"the agent went away: {exc}; it did not exit and was killed. "
                     f"{said}".strip(),
+                    raw="\n".join(raw_lines),
                 )
             if process.returncode is not None and process.returncode < 0:
                 raise AgentInterrupted(
                     f"the agent was killed by signal {-process.returncode}"
                 ) from exc
             return AgentResult(
-                ok=False, text="", error=f"the agent went away: {exc} {said}".strip()
+                ok=False,
+                text="",
+                error=f"the agent went away: {exc} {said}".strip(),
+                raw="\n".join(raw_lines),
             )
         finally:
             session.said()
             await conn.close()
-            # After the branch above this is a no-op: the process has exited
-            # and the stderr task is done, so it returns at once.
-            await _ended(process, stderr)
+            if not ended_already:
+                await _ended(process, stderr)
 
         if stop_reason == "cancelled":
             raise AgentInterrupted("the agent's turn was cancelled")
         if stop_reason != "end_turn":
             error = STOPPED.get(stop_reason, f"the turn ended with {stop_reason!r}")
-            return AgentResult(ok=False, text=session.answer, error=error, stop_reason=stop_reason)
-        return AgentResult(ok=True, text=session.answer, stop_reason=stop_reason)
+            return AgentResult(
+                ok=False,
+                text=session.answer,
+                error=error,
+                stop_reason=stop_reason,
+                raw="\n".join(raw_lines),
+            )
+        return AgentResult(
+            ok=True, text=session.answer, stop_reason=stop_reason, raw="\n".join(raw_lines)
+        )
 
     async def _turn(self, conn: Any, session: _Session, request: AgentRequest) -> str:
         initialized = await conn.initialize(
@@ -271,6 +305,11 @@ class AcpRuntime:
             await self._select_model(
                 conn, session, opened.session_id, opened.config_options, request.model
             )
+        # `session.answer` is only the full text once every `session/update`
+        # notification up to the answer has been handled: this library
+        # (pinned in pyproject.toml) awaits that before `prompt()` returns,
+        # and `conn.close()` cancels any still in flight, so a version bump
+        # that changes the ordering could silently truncate it.
         response = await conn.prompt(
             session_id=opened.session_id, prompt=[text_block(request.prompt)]
         )
@@ -299,13 +338,21 @@ class AcpRuntime:
         self, conn: Any, session: _Session, session_id: str, options: list[Any] | None, model: str
     ) -> None:
         """Selected when the agent offers it; otherwise the run carries on
-        with the agent's own default, which is not a failure."""
+        with the agent's own default, which is not a failure — nor is the
+        agent refusing to set it once offered."""
         option = _model_option(options)
         if option is not None and model in _offered(option):
             if option.current_value != model:
-                await conn.set_config_option(
-                    config_id=option.id, session_id=session_id, value=model
-                )
+                try:
+                    await conn.set_config_option(
+                        config_id=option.id, session_id=session_id, value=model
+                    )
+                except RequestError as exc:
+                    if model not in self._unoffered:
+                        self._unoffered.add(model)
+                        session.notice(
+                            f"the agent refused model {model!r}: {exc}; running on its default"
+                        )
             return
         if model not in self._unoffered:
             self._unoffered.add(model)

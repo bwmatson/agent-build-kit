@@ -322,8 +322,9 @@ and its siblings already override `models`.
 `runtimes.<active>.models` where present, then the flat block — only the roles
 the file actually names there — then the active adapter's own
 `default_models`. A role no config names never falls back to another
-runtime's names: `claude_code` declares today's `opus`/`fable`, another
-adapter its own. Role to model is deliberately
+runtime's names: `claude_code` declares today's `opus`/`fable`; `acp`
+declares no names at all, and a role no config names runs on whichever agent
+`runtimes.acp.command` spawns and its own default. Role to model is deliberately
 many-to-one: a runtime with no "expensive versus cheap reviewer" split may
 point `rework_review` at the same model as `review`, and a `generic` role
 (init's research and propose, the planner) may fall back to `implement`'s.

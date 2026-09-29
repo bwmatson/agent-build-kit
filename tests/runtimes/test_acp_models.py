@@ -14,7 +14,7 @@ import pytest
 
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.acp import AcpRuntime
-from tests.runtimes.acp_agent import ANSWER, DEFAULT_MODEL, requests, use_agent
+from tests.runtimes.acp_agent import ANSWER, DEFAULT_MODEL, MODEL_AT_PROMPT, requests, use_agent
 
 
 @pytest.fixture
@@ -39,8 +39,8 @@ def test_an_offered_model_is_selected_for_the_session(tmp_path: Path, worktree: 
     assert session["cwd"] == str(worktree)
     chosen = requests(record, "session/set_config_option")
     assert [(c["configId"], c["value"]) for c in chosen] == [("model", "deep-2")]
-    [prompt] = requests(record, "session/prompt")
-    assert prompt["model"] == "deep-2"
+    [at_prompt] = requests(record, MODEL_AT_PROMPT)
+    assert at_prompt["model"] == "deep-2"
 
 
 def test_a_model_the_agent_does_not_offer_runs_on_its_default(
@@ -56,8 +56,8 @@ def test_a_model_the_agent_does_not_offer_runs_on_its_default(
     assert result.ok is True
     assert result.text == ANSWER
     assert not any(c["value"] == "opus" for c in requests(record, "session/set_config_option"))
-    [prompt] = requests(record, "session/prompt")
-    assert prompt["model"] == DEFAULT_MODEL
+    [at_prompt] = requests(record, MODEL_AT_PROMPT)
+    assert at_prompt["model"] == DEFAULT_MODEL
     assert "opus" in capsys.readouterr().err
 
 
@@ -74,3 +74,33 @@ def test_the_mismatch_is_reported_once_not_once_per_run(
 
     reports = [line for line in capsys.readouterr().err.splitlines() if "opus" in line]
     assert len(reports) == 1, reports
+
+
+def test_default_models_are_this_runtime_s_own_not_claude_code_s() -> None:
+    """A runtime's `default_models` is what a role resolves to once nothing
+    in abk.yaml or the environment names one (`config.models()`) — never
+    another runtime's names, and acp has no default agent of its own to name
+    one for."""
+    defaults = AcpRuntime().default_models
+    assert defaults.implement == ""
+    assert defaults.rework == ""
+    assert defaults.review == ""
+    assert defaults.rework_review == ""
+
+
+def test_no_model_named_sends_no_selection_and_reports_nothing(
+    tmp_path: Path, worktree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`ModelsConfig.pick` falls back to this on an unconfigured workspace, so
+    an empty name must be silent, not a report of a model the agent does not
+    offer once per run."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record)
+    lines: list[str] = []
+
+    result = AcpRuntime().run(_request(worktree, "").model_copy(update={"on_event": lines.append}))
+
+    assert result.ok is True
+    assert requests(record, "session/set_config_option") == []
+    assert capsys.readouterr().err == ""
+    assert not any("model" in line.lower() for line in lines)

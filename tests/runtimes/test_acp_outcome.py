@@ -21,6 +21,7 @@ their own. A callback that breaks never takes the run down with it.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import threading
@@ -93,6 +94,37 @@ def test_a_prompt_is_answered_with_the_agent_s_final_text(
     assert [block["text"] for block in prompt["prompt"]] == ["Implement group 1 of add-marker."]
 
 
+def test_keep_record_returns_the_whole_exchange_as_one_json_line_each(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """A track phase (`worktree=None`, `keep_record=True`) writes `raw` to its
+    raw output file; under acp that must be the session's real traffic, not
+    an empty string, since there is no other machine-readable record of it."""
+    use_agent(tmp_path / "agent.jsonl")
+
+    result = AcpRuntime().run(_request(worktree, specs, keep_record=True))
+
+    assert result.ok is True
+    lines = [json.loads(line) for line in result.raw.splitlines() if line]
+    assert lines
+    assert any(line.get("method") == "session/update" for line in lines)
+    assert any(line.get("result", {}).get("stopReason") == "end_turn" for line in lines)
+
+
+def test_a_ceiling_result_also_carries_its_raw_record(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """The record is set once the agent has run, whether the turn ended
+    normally or not — a held unit's raw output should still show what the
+    agent said before it hit the ceiling."""
+    use_agent(tmp_path / "agent.jsonl", stop="max_tokens")
+
+    result = AcpRuntime().run(_request(worktree, specs, keep_record=True))
+
+    assert result.ok is False
+    assert result.raw != ""
+
+
 def test_the_session_works_in_the_worktree_and_can_read_the_extra_directories(
     tmp_path: Path, worktree: Path, specs: Path
 ) -> None:
@@ -126,7 +158,10 @@ def test_extra_directories_go_only_to_an_agent_that_takes_them(
 
     assert result.ok is True
     sessions = requests(record, "session/new")
-    assert [session["additionalDirectories"] for session in sessions] == [None, None]
+    assert len(sessions) == 2
+    # `exclude_none` drops an unset field from the wire entirely, so its
+    # absence — not a `None` value — is what proves it was never sent.
+    assert all("additionalDirectories" not in session for session in sessions)
     told = [line for line in lines if str(specs) in line]
     assert len(told) == 1, lines
 
@@ -214,7 +249,10 @@ def test_a_step_that_passes_tool_lists_runs_and_the_lists_are_ignored(
     tmp_path: Path, worktree: Path, specs: Path
 ) -> None:
     """The protocol has no per-session tool list, so both fields are inert:
-    nothing of them reaches the agent, and the run goes ahead."""
+    nothing of them reaches the agent, and the run goes ahead. Checked
+    against the whole record, not just the calls expected to carry a tool
+    list — the fields must not leak through `_meta`, `initialize` or
+    `session/set_config_option` either."""
     record = tmp_path / "agent.jsonl"
     use_agent(record)
 
@@ -224,7 +262,7 @@ def test_a_step_that_passes_tool_lists_runs_and_the_lists_are_ignored(
 
     assert result.ok is True
     assert result.text == ANSWER
-    sent = str(requests(record, "session/new")) + str(requests(record, "session/prompt"))
+    sent = record.read_text()
     assert "Bash(uv run *)" not in sent
     assert "WebFetch" not in sent
 
@@ -275,6 +313,7 @@ def test_an_agent_that_exits_mid_turn_is_a_failed_result_carrying_its_stderr(
 
     assert result.ok is False
     assert STDERR_LINE in result.error
+    assert result.raw != ""
 
 
 def test_an_agent_killed_by_a_signal_is_an_interruption(
@@ -301,6 +340,7 @@ def test_an_agent_abk_had_to_kill_is_a_failed_result_not_an_interruption(
     assert result.ok is False
     assert "killed" in result.error
     assert STDERR_LINE in result.error
+    assert result.raw != ""
 
 
 def _gone(pid: int) -> bool:
@@ -420,3 +460,4 @@ def test_an_error_answering_the_prompt_is_a_failed_result(
 
     assert result.ok is False
     assert "the agent answered an error" in result.error
+    assert result.raw != ""

@@ -9,9 +9,14 @@ end-of-turn reason.
 
     python acp_agent.py RECORD [--stop REASON] [--no-additional-dirs] [--linger] [--fail HOW]
 
-Every request the client sends is appended to RECORD as one JSON line —
-`{"method": ..., "params": ...}`, the params as they arrived on the wire — so
-a test can say what the adapter asked for. `--stop` is the end-of-turn reason
+Every request and notification the client sends is appended to RECORD as one
+JSON line — `{"method": ..., "params": ...}`, exactly as it arrived on the
+wire, captured through the library's own connection observer rather than
+rebuilt from the handler's keyword arguments — so a test can say what the
+adapter actually put on the wire, `_meta` included. The model in force at
+prompt time, which the wire's `session/prompt` carries no field for, is
+recorded separately as its own pseudo-method line (`MODEL_AT_PROMPT`).
+`--stop` is the end-of-turn reason
 the prompt is answered with (`end_turn` unless given).
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
 unadvertised. `--linger` starts a child in the agent's own process group that
@@ -58,6 +63,7 @@ from acp import (
     update_agent_thought_text,
     update_tool_call,
 )
+from acp.connection import StreamDirection, StreamEvent
 from acp.helpers import update_available_commands
 from acp.interfaces import Agent, Client
 from acp.schema import (
@@ -81,6 +87,12 @@ SESSION = "sess_7Hq2Zk4PxYwVb9nR"
 # client picks another.
 MODELS = ("swift-1", "deep-2")
 DEFAULT_MODEL = MODELS[0]
+
+# The wire's `session/prompt` carries no model field, so the fake records the
+# model it is about to answer with as a line of its own, in the same
+# `{"method", "params"}` shape as every wire message: a pseudo-method a test
+# can look up with `requests()` like any other.
+MODEL_AT_PROMPT = "test/model_at_prompt"
 
 # Messages arrive in pieces, as a model's output streams: the preamble a word
 # at a time, the final answer — which the review step parses as JSON — in two.
@@ -131,25 +143,24 @@ class FakeAgent:
     def on_connect(self, conn: Client) -> None:
         self._client = conn
 
-    def _log(self, method: str, params: dict[str, Any]) -> None:
+    def observe(self, event: StreamEvent) -> None:
+        """The connection's own record of what it received, byte for byte —
+        not rebuilt from a handler's keyword arguments, so nothing a handler
+        does not itself name (`_meta`, an unhandled field) goes missing."""
+        if event.direction != StreamDirection.INCOMING:
+            return
+        method = event.message.get("method")
+        if method is None:
+            return
+        self._write(method, event.message.get("params") or {})
+
+    def _write(self, method: str, params: dict[str, Any]) -> None:
         with self._record.open("a") as out:
-            out.write(json.dumps({"method": method, "params": params}, default=str) + "\n")
+            out.write(json.dumps({"method": method, "params": params}) + "\n")
 
     async def initialize(
         self, protocol_version: int, client_capabilities=None, client_info=None, **kwargs: Any
     ) -> InitializeResponse:
-        self._log(
-            "initialize",
-            {
-                "protocolVersion": protocol_version,
-                "clientCapabilities": client_capabilities.model_dump(by_alias=True, mode="json")
-                if client_capabilities is not None
-                else None,
-                "clientInfo": client_info.model_dump(by_alias=True, mode="json")
-                if client_info is not None
-                else None,
-            },
-        )
         return InitializeResponse(
             protocol_version=PROTOCOL_VERSION,
             agent_capabilities=AgentCapabilities(
@@ -166,20 +177,11 @@ class FakeAgent:
         )
 
     async def authenticate(self, method_id: str, **kwargs: Any) -> None:
-        self._log("authenticate", {"methodId": method_id})
         return None
 
     async def new_session(
         self, cwd: str, additional_directories=None, mcp_servers=None, **kwargs: Any
     ) -> NewSessionResponse:
-        self._log(
-            "session/new",
-            {
-                "cwd": cwd,
-                "additionalDirectories": additional_directories,
-                "mcpServers": [s.model_dump(by_alias=True, mode="json") for s in mcp_servers or []],
-            },
-        )
         return NewSessionResponse(
             session_id=SESSION,
             modes=SessionModeState(
@@ -195,27 +197,18 @@ class FakeAgent:
     async def set_config_option(
         self, config_id: str, session_id: str, value: str | bool, **kwargs: Any
     ) -> SetSessionConfigOptionResponse:
-        self._log(
-            "session/set_config_option",
-            {"configId": config_id, "sessionId": session_id, "value": value},
-        )
         if config_id == "model" and value in MODELS:
             self._model = str(value)
         return SetSessionConfigOptionResponse(config_options=[_model_option(self._model)])
 
     async def set_session_mode(self, session_id: str, mode_id: str, **kwargs: Any) -> None:
-        self._log("session/set_mode", {"sessionId": session_id, "modeId": mode_id})
         return None
 
     async def prompt(self, session_id: str, prompt: list, **kwargs: Any) -> PromptResponse:
-        self._log(
-            "session/prompt",
-            {
-                "sessionId": session_id,
-                "prompt": [block.model_dump(by_alias=True, mode="json") for block in prompt],
-                "model": self._model,
-            },
-        )
+        # The wire's `session/prompt` params carry no model field — the
+        # session already carries whichever model was selected — so the
+        # model in force is recorded here, as its own line.
+        self._write(MODEL_AT_PROMPT, {"model": self._model})
         client = self._client
         assert client is not None
         cwd = Path.cwd()
@@ -282,14 +275,13 @@ class FakeAgent:
         orphan_pid_file(self._record).write_text(str(child.pid))
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
-        self._log("session/cancel", {"sessionId": session_id})
+        return None
 
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        self._log(method, params)
         return {}
 
     async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
-        self._log(method, params)
+        return None
 
 
 def orphan_pid_file(record: Path) -> Path:
@@ -366,7 +358,7 @@ def main() -> None:
         fail=args.fail,
     )
     # Only the methods these tests drive: the rest answer "method not found".
-    asyncio.run(run_agent(cast(Agent, agent)))
+    asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))
 
 
 if __name__ == "__main__":
