@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.usage_guard import RateLimited
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.init.test_propose import detection, valid_report, write_change
-from tests.runtimes.claude_cli import FakeClaude, refused
+from tests.runtimes.claude_cli import FakeClaude
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import (
     DENIED,
@@ -94,11 +94,9 @@ def test_under_claude_code_research_sends_the_command_it_sent_before(tmp_path: P
 
 
 def test_refused_research_is_a_rate_limit_and_writes_nothing(tmp_path: Path) -> None:
-    fake = FakeClaude(
-        stdout=refused(tmp_path, "Claude AI usage limit reached|1919763200"), returncode=1
-    )
+    fake = FakeClaude(stdout="Claude AI usage limit reached|1919763200\n", returncode=1)
 
-    with pytest.raises(RateLimited):
+    with pytest.raises(RateLimited) as caught:
         research(
             "python",
             built_in="seed",
@@ -107,6 +105,8 @@ def test_refused_research_is_a_rate_limit_and_writes_nothing(tmp_path: Path) -> 
             today=TODAY,
         )
 
+    assert caught.value.resets_at is not None
+    assert caught.value.resets_at.year == 2030
     assert not (tmp_path / "python.md").exists()
 
 
@@ -198,13 +198,13 @@ def test_a_refused_proposal_is_a_rate_limit_without_a_repair_round(
     planning: Path, app: Path
 ) -> None:
     """A refusal is not a change that failed validation: nothing is retried."""
-    fake = FakeClaude(
-        stdout=refused(planning, "Claude AI usage limit reached|1919763200"), returncode=1
-    )
+    fake = FakeClaude(stdout="Claude AI usage limit reached|1919763200\n", returncode=1)
 
-    with pytest.raises(RateLimited):
+    with pytest.raises(RateLimited) as caught:
         _propose(planning, app, runtime=ClaudeCodeRuntime(execute=fake))
 
+    assert caught.value.resets_at is not None
+    assert caught.value.resets_at.year == 2030
     assert len(fake.calls) == 1
 
 

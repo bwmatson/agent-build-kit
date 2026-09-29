@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.usage_guard import RateLimited
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.factories import git, init_repo
-from tests.runtimes.claude_cli import FakeClaude, failed_build, refused
+from tests.runtimes.claude_cli import FakeClaude
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import RESOLVER_TOOLS, flags
 
@@ -99,9 +99,7 @@ def test_a_resolution_refused_for_a_spent_window_is_a_rate_limit(conflicting: Pa
     resets, and the branch is left exactly where it was, with no rebase in
     progress, for the restack to be tried again then."""
     before = git(conflicting, "rev-parse", "spec/c/2")
-    fake = FakeClaude(
-        stdout=refused(conflicting, "Claude AI usage limit reached|1919763200"), returncode=1
-    )
+    fake = FakeClaude(stdout="Claude AI usage limit reached|1919763200\n", returncode=1)
 
     with pytest.raises(RateLimited) as caught:
         move(
@@ -120,9 +118,7 @@ def test_a_resolution_refused_for_a_spent_window_is_a_rate_limit(conflicting: Pa
 def test_a_resolution_that_fails_stops_the_move_naming_the_resolver(conflicting: Path) -> None:
     """A run that broke is not a resolution that left the markers in: the
     move stops on what the CLI said went wrong."""
-    fake = FakeClaude(
-        stdout=failed_build(conflicting, "Stream closed before the turn ended"), returncode=1
-    )
+    fake = FakeClaude(stderr="Error: Stream closed before the turn ended", returncode=1)
 
     with pytest.raises(RestackConflict, match="conflict resolver failed") as caught:
         move(

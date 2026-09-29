@@ -79,7 +79,7 @@ one unless a test injects another:
 | build, rework, review, rework-review | `pipeline/wiring.py` `build_run_claude` (`build_run_review` wraps it); `runtime=` injects |
 | the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects |
 | conflict resolution | `pipeline/restack.py` `claude_resolver`; `runtime=` injects, and a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
-| the scheduled tracks | `tracks/runner.py` `phase_request`, run by `claude_phase` |
+| the scheduled tracks | `tracks/runner.py` `phase_request`, run by `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |
 | research | `init/research.py` `research` |
 | a proposal | `init/propose.py` `propose` |
 | the login refresh before a usage read | `runtimes/claude_code.py` `refresh_login` — Claude Code's own, not a request |

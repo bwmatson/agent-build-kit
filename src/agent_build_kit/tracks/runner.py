@@ -368,7 +368,9 @@ def claude_phase(
     project's checkout, the planning repo added as an extra dir for run
     logs), writes its raw record under the planning root, and returns 0 or 1.
     Never raises on a failed run — an otherwise failed phase should not stop
-    whatever phase or project runs after it. No dollar budget: the session
+    whatever phase or project runs after it. A refused run — the window
+    spent, or the process killed — keeps no raw output file: it is not a
+    run, and what the CLI said of it is logged whole. No dollar budget: the session
     window is the limit, and `has_headroom` (below) is what keeps a timer
     from spending into credits — a guessed dollar ceiling beside that drifts
     from real cost, and set too low it refuses to start a run rather than

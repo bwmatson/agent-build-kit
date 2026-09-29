@@ -17,7 +17,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.tracks import runner
-from tests.runtimes.claude_cli import FakeClaude, record
+from tests.runtimes.claude_cli import FakeClaude, record, refused_record
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import flags
 from tests.tracks.test_runner import make_installation, project
@@ -119,6 +119,74 @@ def test_a_failed_discovery_still_runs_implement_through_the_runtime(inst: Insta
 
     assert runner.DISPATCH["improve"](inst, project(inst), None, runtime=runtime) == 1
     assert [r.worktree for r in runtime.requests] == [None, f"abk-{runner.RUN_ID}"]
+
+
+# What the CLI hands back for each refusal, and what the log must say of it.
+REFUSALS = {
+    "a spent window": (
+        dict(stdout=refused_record("Claude AI usage limit reached|1919763200"), returncode=1),
+        "usage limit reached",
+    ),
+    "an interruption": (dict(returncode=-15), "killed by signal 15"),
+}
+
+
+@pytest.mark.parametrize("answer, said", REFUSALS.values(), ids=REFUSALS.keys())
+def test_a_refused_phase_is_reported_never_raised(
+    inst: Installation, answer: dict, said: str, capsys
+) -> None:
+    """A phase the runtime refused — the window spent, or the process
+    killed — is logged as stopped, saying why, and fails the phase without
+    raising. It keeps no raw output file: a refusal is not a run, and what
+    the CLI said is all it has, which the log line carries whole."""
+    fake = FakeClaude(**answer)
+
+    assert runner.implement(inst, project(inst), runtime=ClaudeCodeRuntime(execute=fake)) == 1
+
+    out = capsys.readouterr().out
+    assert "[app] implement phase stopped" in out
+    assert said in out
+    assert not (runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-implement.json").exists()
+
+
+@pytest.mark.parametrize("answer, said", REFUSALS.values(), ids=REFUSALS.keys())
+def test_a_refused_discovery_still_runs_implement(
+    inst: Installation, answer: dict, said: str, capsys
+) -> None:
+    """The documented contract: a track never raises, and the implement pass
+    after a refused discovery phase still runs."""
+    fake = FakeClaude(**answer)
+    assert (
+        runner.DISPATCH["improve"](
+            inst, project(inst), None, runtime=ClaudeCodeRuntime(execute=fake)
+        )
+        == 1
+    )
+
+    assert ["--worktree" in argv for argv, _ in fake.calls] == [False, True]
+    stopped = [line for line in capsys.readouterr().out.splitlines() if "phase stopped" in line]
+    assert len(stopped) == 2
+    assert "[app] improve phase stopped" in stopped[0]
+    assert "[app] implement phase stopped" in stopped[1]
+    assert all(said in line for line in stopped)
+
+
+def test_a_dry_run_on_another_runtime_prints_the_request_and_runs_nothing(
+    inst: Installation, capsys
+) -> None:
+    """Not a `claude` command: what the runtime would be asked, prompt elided."""
+    runtime = StandInRuntime()
+
+    assert runner.implement(inst, project(inst), dry_run=True, runtime=runtime) == 0
+
+    out = capsys.readouterr().out
+    assert "# Mission: implement phase — project `app`" in out
+    assert "implement: stand_in request (prompt elided)" in out
+    assert "'model': 'haiku'" in out
+    assert f"'worktree': 'abk-{runner.RUN_ID}'" in out
+    assert "claude -p" not in out
+    assert runtime.requests == []
+    assert not runner.raw_output_dir(inst).exists()
 
 
 def test_with_no_runtime_given_a_phase_uses_the_active_one(inst: Installation) -> None:

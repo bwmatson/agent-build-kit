@@ -13,10 +13,10 @@ import json
 
 import pytest
 
-from agent_build_kit.pipeline.planner import build_prompt, plan_round
+from agent_build_kit.pipeline.planner import PlannerError, build_prompt, plan_round
 from agent_build_kit.pipeline.usage_guard import RateLimited
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
-from tests.runtimes.claude_cli import FakeClaude, failed_build, refused
+from tests.runtimes.claude_cli import FakeClaude
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_argv import flags
 
@@ -66,12 +66,10 @@ def test_under_claude_code_the_graph_call_sends_the_command_it_sent_before() -> 
     assert fake.calls[0][1] is None
 
 
-def test_a_refused_graph_call_is_a_rate_limit(tmp_path) -> None:
+def test_a_refused_graph_call_is_a_rate_limit() -> None:
     """The same interpretation a build run gets: the window is spent, and it
-    says when it resets."""
-    fake = FakeClaude(
-        stdout=refused(tmp_path, "Claude AI usage limit reached|1919763200"), returncode=1
-    )
+    says when it resets. A text-mode call prints the refusal as a plain line."""
+    fake = FakeClaude(stdout="Claude AI usage limit reached|1919763200\n", returncode=1)
 
     with pytest.raises(RateLimited) as caught:
         plan_round(changes=CHANGES, in_flight=[], runtime=ClaudeCodeRuntime(execute=fake))
@@ -80,24 +78,20 @@ def test_a_refused_graph_call_is_a_rate_limit(tmp_path) -> None:
     assert caught.value.resets_at.year == 2030
 
 
-def test_a_failed_graph_call_fails_the_attempt_on_what_the_cli_said(tmp_path) -> None:
-    """Not a complaint that the transcript held no plan: the run failed, and
-    the attempt is recorded as failing for the reason the CLI gave."""
-    fake = FakeClaude(
-        stdout=failed_build(tmp_path, "Stream closed before the turn ended"), returncode=1
-    )
+def test_a_failed_graph_call_fails_the_attempt_on_what_the_cli_said() -> None:
+    """Not a complaint that the output held no plan: the run failed, and the
+    attempt is recorded as failing for the reason the CLI gave."""
+    fake = FakeClaude(stderr="Error: Stream closed before the turn ended", returncode=1)
 
-    with pytest.raises(Exception, match="Stream closed before the turn ended") as caught:
+    with pytest.raises(PlannerError, match="Stream closed before the turn ended"):
         plan_round(changes=CHANGES, in_flight=[], runtime=ClaudeCodeRuntime(execute=fake))
-
-    assert not isinstance(caught.value, RateLimited)
 
 
 def test_a_failed_run_is_not_read_as_a_plan() -> None:
     """Whatever text a failed run left behind, it schedules nothing."""
     runtime = StandInRuntime(ok=False, answer=json.dumps(PLAN), error="claude exited 1: broken")
 
-    with pytest.raises(Exception, match="broken"):
+    with pytest.raises(PlannerError, match="broken"):
         plan_round(changes=CHANGES, in_flight=[], runtime=runtime)
 
 
