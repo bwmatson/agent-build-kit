@@ -49,9 +49,14 @@ def env() -> dict[str, str]:
     The whole environment, not just the token: `az` needs PATH and HOME, and a
     partial env is the kind of thing that works until it runs under systemd.
     """
+    # `az` is a Python program, and on a Windows host it otherwise writes its
+    # JSON in the console's code page: one em-dash in a review comment then
+    # arrives as a byte no UTF-8 decoder accepts, and the poll dies on what a
+    # reviewer happened to type.
+    base = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     if not settings.ado_pat:
-        return dict(os.environ)
-    return {**os.environ, "AZURE_DEVOPS_EXT_PAT": settings.ado_pat}
+        return base
+    return {**base, "AZURE_DEVOPS_EXT_PAT": settings.ado_pat}
 
 
 def call(args: list[str], *, org: str, run: Run | None = None) -> subprocess.CompletedProcess:
@@ -61,6 +66,10 @@ def call(args: list[str], *, org: str, run: Run | None = None) -> subprocess.Com
         ["az", *args, "--org", org, "--output", "json"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        # Never let one undecodable byte end a poll: what a reviewer typed is
+        # data, and the worst it may cost is that character.
+        errors="replace",
         check=False,
         env=env(),
     )

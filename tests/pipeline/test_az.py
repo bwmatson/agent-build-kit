@@ -100,3 +100,26 @@ def test_an_empty_answer_is_an_empty_answer() -> None:
 
 def test_the_organisation_url_is_built_from_the_account_name() -> None:
     assert az.org_url("3CInternalAI") == "https://dev.azure.com/3CInternalAI"
+
+
+def test_the_call_asks_az_for_utf_8() -> None:
+    """`az` is a Python program, and on a Windows host it otherwise writes its
+    JSON in the console's code page. One em-dash in a review comment then
+    arrives as a byte no UTF-8 decoder accepts, and the poll dies on what a
+    reviewer happened to type — which is how this was found."""
+    run, calls = recorded("[]")
+
+    az.json_out(["repos", "pr", "list"], org="https://dev.azure.com/acme", run=run)
+
+    assert calls[0]["env"]["PYTHONIOENCODING"] == "utf-8"
+
+
+def test_an_undecodable_byte_costs_a_character_not_the_poll() -> None:
+    """Belt and braces beside the environment: whatever a reviewer typed is
+    data, and no byte in it may end a tick."""
+    run, calls = recorded("[]")
+
+    az.json_out(["repos", "pr", "list"], org="https://dev.azure.com/acme", run=run)
+
+    assert calls[0]["errors"] == "replace"
+    assert calls[0]["encoding"] == "utf-8"

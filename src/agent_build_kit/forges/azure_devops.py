@@ -158,6 +158,43 @@ class AzureDevOpsForge:
             return f"cannot tell what guards {branch}: {error}"
         return "" if found else f"no branch policy guards {branch}"
 
+    def _rest(
+        self,
+        repo: RepoId,
+        resource: str,
+        *,
+        method: str = "GET",
+        payload: object = None,
+        run: Run | None = None,
+        **route: object,
+    ) -> object:
+        """One REST call through `az devops invoke`.
+
+        Not `az rest`: the extension implements PAT-else-`az login` itself,
+        and `az rest` in PAT mode wants the secret in argv, where `ps` can
+        read it.
+        """
+        args = [
+            "devops",
+            "invoke",
+            "--area",
+            "git",
+            "--resource",
+            resource,
+            "--route-parameters",
+            f"project={repo.project}",
+            f"repositoryId={repo.name}",
+            *(f"{name}={value}" for name, value in route.items()),
+            "--http-method",
+            method,
+            "--api-version",
+            _API,
+        ]
+        if payload is None:
+            return az.json_out(args, org=az.org_url(repo.account), run=run)
+        with az.body_file(payload) as body:
+            return az.json_out([*args, "--in-file", body], org=az.org_url(repo.account), run=run)
+
     # --- pull requests --------------------------------------------------------------
 
     def list_prs(
@@ -185,7 +222,22 @@ class AzureDevOpsForge:
         if not isinstance(found, list):
             raise az.AzError("expected a list of pull requests")
         pulls = [_view(pull) for pull in found]
-        return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
+        if head_prefix:
+            pulls = [p for p in pulls if p.head.startswith(head_prefix)]
+        # What was said is a second call per pull request, so only the open
+        # ones are asked: a merged or abandoned one is dispatched on its state,
+        # and nothing said on it afterwards changes what the pipeline does.
+        return [p if p.state != "open" else self._said_on(repo, p, run=run) for p in pulls]
+
+    def _said_on(self, repo: RepoId, pull: PullRequest, *, run: Run | None = None) -> PullRequest:
+        """The pull request with what was said on it, for the poller to diff."""
+        notes = _notes(self._threads(repo, pull.number, run=run), live_only=False)
+        return pull.model_copy(
+            update={
+                "conversation": tuple(note.id for note in notes),
+                "comment_bodies": tuple(note.body for note in notes),
+            }
+        )
 
     def find_pr(self, repo: RepoId, *, head: str, run: Run | None = None) -> int | None:
         found = az.json_out(
@@ -259,29 +311,14 @@ class AzureDevOpsForge:
         shows a diff containing everything.
         """
         if base:
-            with az.body_file({"targetRefName": f"refs/heads/{base}"}) as payload:
-                az.json_out(
-                    [
-                        "devops",
-                        "invoke",
-                        "--area",
-                        "git",
-                        "--resource",
-                        "pullrequests",
-                        "--route-parameters",
-                        f"project={repo.project}",
-                        f"repositoryId={repo.name}",
-                        f"pullRequestId={pr}",
-                        "--http-method",
-                        "PATCH",
-                        "--api-version",
-                        _API,
-                        "--in-file",
-                        payload,
-                    ],
-                    org=az.org_url(repo.account),
-                    run=run,
-                )
+            self._rest(
+                repo,
+                "pullrequests",
+                method="PATCH",
+                payload={"targetRefName": f"refs/heads/{base}"},
+                pullRequestId=pr,
+                run=run,
+            )
         if body:
             az.json_out(
                 ["repos", "pr", "update", "--id", str(pr), "--description", body],
@@ -289,19 +326,65 @@ class AzureDevOpsForge:
                 run=run,
             )
 
+    def _threads(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
+        answered = self._rest(repo, "pullRequestThreads", pullRequestId=pr, run=run)
+        found = answered.get("value") if isinstance(answered, dict) else answered
+        return [t for t in found if isinstance(t, dict)] if isinstance(found, list) else []
+
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
         return self._todo("pr_files")
 
     # --- the rest, once review and checks land --------------------------------------
 
-    def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
-        return self._todo("review_notes")
+    def review_notes(self, repo: RepoId, pr: int, run: Run | None = None) -> list[ReviewNote]:
+        """The reviewer's words on a pull request, as threads.
 
-    def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]:
-        return self._todo("post_reply")
+        Everything a reviewer wrote lives in one of these, anchored to a line
+        or not. What is left out is the server talking to itself - see
+        `_notes`.
+        """
+        return _notes(self._threads(repo, pr, run=run))
 
-    def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
-        return self._todo("post_comment")
+    def post_reply(
+        self, repo: RepoId, pr: int, *, note_id: str, body: str, run: Run | None = None
+    ) -> list[str]:
+        """Answer one note, in the thread it was written in.
+
+        One comment, not a review of its own: there is no second object to
+        record, unlike GitHub, where a reply creates a bodyless review.
+        """
+        thread, _, comment = note_id.partition(".")
+        made = self._rest(
+            repo,
+            "pullRequestThreadComments",
+            method="POST",
+            # commentType 1 is `text`; the default would be `unknown`.
+            payload={"content": body, "parentCommentId": int(comment or 0), "commentType": 1},
+            pullRequestId=pr,
+            threadId=thread,
+            run=run,
+        )
+        if not isinstance(made, dict) or "id" not in made:
+            return []
+        return [f"{thread}.{made['id']}"]
+
+    def post_comment(
+        self, repo: RepoId, pr: int, *, body: str, run: Run | None = None
+    ) -> list[str]:
+        """Say something about the pull request rather than about one note,
+        which here means opening a thread with no file behind it."""
+        made = self._rest(
+            repo,
+            "pullRequestThreads",
+            method="POST",
+            payload={"comments": [{"content": body, "commentType": 1}], "status": "active"},
+            pullRequestId=pr,
+            run=run,
+        )
+        if not isinstance(made, dict) or "id" not in made:
+            return []
+        comments = made.get("comments") or [{}]
+        return [f"{made['id']}.{comments[0].get('id', 1)}"]
 
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
@@ -406,3 +489,46 @@ def _view(pull: dict) -> PullRequest:
         # request, and an empty answer here means "nothing new", which is the
         # safe reading while the forge is unfinished.
     )
+
+
+def _notes(threads: list[dict], *, live_only: bool = False) -> list[ReviewNote]:
+    """Every human comment in these threads, oldest first.
+
+    What is dropped is what the server wrote itself. Azure records "the
+    reference refs/heads/... was updated" on the thread list on *every push*,
+    along with reviewers being added and the like, and the pipeline pushes on
+    every rework and every restack - so counted as comments, each push would
+    rework the unit that just pushed, and it would never stop.
+
+    The test for that is `commentType == "system"` rather than
+    `commentType == "text"`: a real comment can carry a null type, and the
+    inverted rule drops a reviewer's words.
+
+    A note's id carries its thread's, because comment ids restart at 1 in
+    every thread - `1` alone would collide across a pull request's threads and
+    the poller would read two different comments as one.
+    """
+    notes = []
+    for thread in threads:
+        number = thread.get("id")
+        context = thread.get("threadContext") or {}
+        start = context.get("rightFileStart") or {}
+        # Nothing goes stale here on its own, the way GitHub reports
+        # `line: null` once the code a comment sat on has changed. A thread
+        # the reviewer resolved is the signal in its place.
+        live = str(thread.get("status") or "") == "active"
+        if live_only and not live:
+            continue
+        for comment in thread.get("comments") or []:
+            if comment.get("commentType") == "system" or comment.get("isDeleted"):
+                continue
+            notes.append(
+                ReviewNote(
+                    id=f"{number}.{comment.get('id')}",
+                    body=str(comment.get("content") or ""),
+                    path=str(context.get("filePath") or "").lstrip("/"),
+                    line=start.get("line"),
+                    live=live,
+                )
+            )
+    return notes

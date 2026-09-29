@@ -82,3 +82,100 @@ def reviewer(vote: int, *, container: bool = False) -> dict:
 def pull(**overrides) -> dict:
     """An open pull request with these fields changed."""
     return {**deepcopy(OPEN), **overrides}
+
+
+# --- review threads ---------------------------------------------------------------
+#
+# Recorded from a real pull request's `pullRequestThreads` response. Six of its
+# thirteen threads were the server talking to itself — see SYSTEM_PUSH below,
+# which is the shape that arrives on *every push*.
+
+# A reviewer's note on a line, with the pipeline's reply and the reviewer's
+# answer to that. Comment ids restart at 1 in every thread, which is why a
+# note's id has to carry the thread's.
+REVIEW_THREAD = {
+    "id": 478,
+    "status": "closed",
+    "isDeleted": None,
+    "publishedDate": "2026-09-24T18:02:11.483Z",
+    "lastUpdatedDate": "2026-09-26T14:51:02.117Z",
+    "threadContext": {
+        "filePath": "/poc/validate/effective_schema.py",
+        "rightFileStart": {"line": 14, "offset": 1},
+        "rightFileEnd": {"line": 14, "offset": 42},
+    },
+    "pullRequestThreadContext": None,
+    "properties": {},
+    "identities": None,
+    "comments": [
+        {
+            "id": 1,
+            "parentCommentId": 0,
+            "commentType": "text",
+            "content": "The declared schema does not match what extraction stores.",
+            "author": {"displayName": "A Reviewer", "uniqueName": "reviewer@example.com"},
+            "publishedDate": "2026-09-24T18:02:11.483Z",
+            "usersLiked": [],
+        },
+        {
+            "id": 2,
+            "parentCommentId": 478,
+            # Null, not "text". A rule that kept only "text" would drop this.
+            "commentType": None,
+            "content": "Addressed in a1b2c3d.",
+            "author": {"displayName": "A Reviewer", "uniqueName": "reviewer@example.com"},
+            "publishedDate": "2026-09-25T09:14:00.000Z",
+            "usersLiked": [],
+        },
+        {
+            "id": 3,
+            "parentCommentId": 1,
+            "commentType": "text",
+            "content": "Confirmed against real data, thanks.",
+            "author": {"displayName": "A Reviewer", "uniqueName": "reviewer@example.com"},
+            "publishedDate": "2026-09-26T14:51:02.117Z",
+            "usersLiked": [],
+        },
+    ],
+}
+
+# What Azure writes on the thread list every time a branch is pushed. The
+# pipeline pushes on every rework and every restack, so counted as a comment
+# this reworks the unit that just pushed, forever.
+SYSTEM_PUSH = {
+    "id": 473,
+    "status": None,
+    "threadContext": None,
+    "properties": {"CodeReviewRefNewCommits": {"$type": "String", "$value": "1"}},
+    "comments": [
+        {
+            "id": 1,
+            "parentCommentId": 0,
+            "commentType": "system",
+            "content": "The reference refs/heads/spec/add-marker/1 was updated.",
+            "author": {"displayName": "A Reviewer", "uniqueName": "reviewer@example.com"},
+            "usersLiked": [],
+        }
+    ],
+}
+
+SYSTEM_REVIEWER_ADDED = {
+    **deepcopy(SYSTEM_PUSH),
+    "id": 474,
+    "comments": [
+        {
+            **deepcopy(SYSTEM_PUSH["comments"][0]),
+            "content": "A Reviewer added Another Reviewer as a reviewer",
+        }
+    ],
+}
+
+
+def thread(**overrides) -> dict:
+    """A reviewer's thread with these fields changed."""
+    return {**deepcopy(REVIEW_THREAD), **overrides}
+
+
+def threads(*items: dict) -> dict:
+    """The response body: Azure wraps a list in `value`."""
+    return {"value": list(items), "count": len(items)}

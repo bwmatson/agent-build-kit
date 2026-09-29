@@ -137,14 +137,14 @@ def test_nothing_on_the_server_stops_a_merge_without_a_policy() -> None:
 def test_the_unfinished_half_holds_a_unit_rather_than_failing_it() -> None:
     """`implemented = False` is what `cli/pipeline._build` turns into `held`.
 
-    It stays False while the review round-trip is missing, even though the
-    pull request lifecycle works: a unit whose reviewer is never heard would
-    sit in review forever, which is worse than being held and said so."""
+    It stays False while the tier 2 gate cannot report: that gate posts a
+    status after every push, so a unit built here would fail on its own
+    success. Held says so; failed does not."""
     assert FORGE.implemented is False
     with pytest.raises(NotImplementedError) as refused:
-        FORGE.review_notes(REPO, 41)
+        FORGE.post_status(REPO, sha="abc123", ok=True, context="local/tier2", description="d")
 
-    assert "review_notes" in str(refused.value)
+    assert "post_status" in str(refused.value)
 
 
 def test_every_way_of_merging_is_denied_to_the_agent() -> None:
@@ -360,3 +360,108 @@ def test_a_branch_already_gone_is_not_an_error() -> None:
         return subprocess.CompletedProcess(args, 0, "[]", "")
 
     FORGE.delete_remote_branch(REPO, "spec/x/1", run=run)
+
+
+# --- the review round-trip --------------------------------------------------------
+
+
+def notes(*items: dict, calls: list[list[str]] | None = None) -> list:
+    return FORGE.review_notes(REPO, 41, run=answering(azure_answers.threads(*items), calls=calls))
+
+
+def test_the_server_s_own_comments_are_not_review() -> None:
+    """The trap this host has and GitHub does not. Azure writes "the reference
+    was updated" on the thread list on *every push*, and the pipeline pushes on
+    every rework and every restack — so counted as a comment, each push reworks
+    the unit that just pushed, forever."""
+    found = notes(azure_answers.SYSTEM_PUSH, azure_answers.SYSTEM_REVIEWER_ADDED)
+
+    assert found == []
+
+
+def test_a_comment_with_no_type_is_still_a_comment() -> None:
+    """`commentType` is null on real comments, so the rule is "skip system",
+    not "keep text" — inverted, it drops a reviewer's words."""
+    [bodies] = [[note.body for note in notes(azure_answers.REVIEW_THREAD)]]
+
+    assert "Addressed in a1b2c3d." in bodies
+
+
+def test_a_note_carries_its_thread_and_its_file() -> None:
+    found = notes(azure_answers.REVIEW_THREAD)
+
+    first = found[0]
+    assert first.id == "478.1", "comment ids restart per thread, so the thread's is part of it"
+    assert first.path == "poc/validate/effective_schema.py", "no leading slash"
+    assert first.line == 14
+
+
+def test_a_resolved_thread_is_not_replayed_to_the_next_rework() -> None:
+    """Nothing here goes stale on its own, the way GitHub reports `line: null`
+    once the code moves. A thread the reviewer resolved is the signal."""
+    assert all(not note.live for note in notes(azure_answers.REVIEW_THREAD))
+    assert all(note.live for note in notes(azure_answers.thread(status="active")))
+
+
+def test_the_threads_are_read_through_the_rest_api() -> None:
+    calls: list[list[str]] = []
+
+    notes(azure_answers.REVIEW_THREAD, calls=calls)
+
+    [args] = calls
+    assert args[:3] == ["az", "devops", "invoke"]
+    assert args[args.index("--resource") + 1] == "pullRequestThreads"
+    assert "pullRequestId=41" in args
+
+
+def test_a_reply_lands_in_the_thread_it_answers() -> None:
+    calls: list[list[str]] = []
+    sent: list[object] = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if "--in-file" in args:
+            sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return subprocess.CompletedProcess(args, 0, json.dumps({"id": 4}), "")
+
+    ids = FORGE.post_reply(REPO, 41, note_id="478.1", body="Now a frozen model.", run=run)
+
+    assert ids == ["478.4"], "what the next poll will see in the conversation"
+    assert "threadId=478" in calls[0]
+    assert sent == [{"content": "Now a frozen model.", "parentCommentId": 1, "commentType": 1}]
+
+
+def test_a_summary_opens_a_thread_of_its_own() -> None:
+    """Not anchored to a line: a rework's summary answers the review, not one
+    note in it."""
+    sent: list[dict] = []
+
+    def run(args, **kwargs):
+        if "--in-file" in args:
+            sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"id": 480, "comments": [{"id": 1}]}), ""
+        )
+
+    ids = FORGE.post_comment(REPO, 41, body="Also dropped the /mcp key.", run=run)
+
+    assert ids == ["480.1"]
+    [opened] = sent
+    assert opened["comments"][0]["content"] == "Also dropped the /mcp key."
+    assert opened["status"] == "active"
+
+
+def test_a_polled_pull_request_carries_its_conversation() -> None:
+    """What the poller diffs on. Without the ids there is no "new comment" to
+    notice, and a reviewer would go unheard."""
+    listing = [azure_answers.OPEN]
+    replies = azure_answers.threads(azure_answers.REVIEW_THREAD, azure_answers.SYSTEM_PUSH)
+
+    def run(args, **kwargs):
+        payload = replies if "pullRequestThreads" in args else listing
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    [pull] = FORGE.list_prs(REPO, run=run)
+
+    assert pull.conversation == ("478.1", "478.2", "478.3"), "the server's own are not in it"
+    assert pull.comment_bodies[0] == "The declared schema does not match what extraction stores."
