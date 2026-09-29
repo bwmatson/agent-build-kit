@@ -280,6 +280,15 @@ empty run. Results are cached by patch-id so a restack does not re-run them.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.
 
+**A rejected commit is a fix round before it is a failure.** The target repo's
+own commit gate (its pre-commit hooks) runs on every commit the pipeline makes.
+A rejection is retried once as is — a gate that rewrote the files has already
+fixed them — and then the gate's own output, file, line and rule as it printed
+them, goes to the build run's agent in the same worktree under the same tool
+policy, for a bounded number of rounds. Every attempt commits everything with
+the hooks on: no skipping flag, no narrowed set of paths. A gate that never
+accepts fails the unit with its last output on the unit's record.
+
 **Nothing reaches a PR unreviewed.** The runner pushes only the commit the
 review loop recorded as approved; a restack that left the diff byte-for-byte
 unchanged carries the approval over, and any other rewrite — a resolved

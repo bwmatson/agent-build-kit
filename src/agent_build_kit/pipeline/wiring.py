@@ -271,6 +271,20 @@ class CommitRejected(RuntimeError):
     """
 
 
+COMMIT_FIX_PROMPT = """\
+The repo's commit gate rejected your work. This is its output, unedited:
+
+{output}
+
+Fix what it reports in this worktree. Do not commit, and do not skip, disable
+or reconfigure the gate: the pipeline commits once you are done.
+"""
+
+# Fix rounds after the plain retry. Bounded so a gate the agent cannot satisfy
+# ends as a failure rather than a loop paid for by the round.
+COMMIT_FIX_ROUNDS = 2
+
+
 def build_commit(
     *, unit_id: str = "", run: Run | None = None, fix: Callable[..., str] | None = None
 ) -> Callable[..., int]:
@@ -278,27 +292,47 @@ def build_commit(
 
     The count is what tells the runner whether the implementation run produced
     anything, which decides whether a review is worth paying for.
+
+    A rejected commit is a fix round before it is a failure. Retried once as
+    is: a gate that rewrote the files (a formatter) has already fixed them.
+    Then, if it still rejects, its own output goes to `fix` — the agent that
+    wrote the work, in the same worktree — a bounded number of times. Every
+    attempt commits everything with the hooks on: the gate is the reason the
+    pipeline may push unattended, so nothing here goes around it.
     """
     run = run or _run
 
     def commit(message: str, *, cwd: Path) -> int:
-        run(["git", "add", "-A"], cwd=cwd)
-        if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
-            return 0  # Nothing staged: an empty commit would be a lie.
-
         # The unit id in the trailer keeps a branch's history readable without
         # the planning repo open beside it.
         body = f"{message}\n\nUnit: {unit_id}\n" if unit_id else message
-        result = run(["git", "commit", "-q", "-m", body], cwd=cwd)
-        if result.returncode:
-            # Distinct from "nothing staged" above. Both used to return 0, so a
-            # rejected commit — a failing pre-commit hook, most often — was
-            # reported to the runner as the model having produced nothing, and
-            # that misdiagnosis is the whole trail an unattended run leaves.
-            raise RuntimeError(
-                f"git commit was rejected in {cwd}:\n{result.stdout}\n{result.stderr}".strip()
-            )
-        return 1
+
+        def attempt() -> subprocess.CompletedProcess | None:
+            run(["git", "add", "-A"], cwd=cwd)
+            if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
+                return None  # Nothing staged: an empty commit would be a lie.
+            return run(["git", "commit", "-q", "-m", body], cwd=cwd)
+
+        result = attempt()
+        # The first retry carries no fix: a gate that rewrote files is done.
+        for fixer in [None, *([fix] * COMMIT_FIX_ROUNDS if fix else [])]:
+            if result is None or not result.returncode:
+                break
+            if fixer is not None:
+                output = f"{result.stdout}\n{result.stderr}".strip()
+                fixer(COMMIT_FIX_PROMPT.format(output=output), cwd=cwd)
+            result = attempt()
+        if result is None:
+            return 0
+        if not result.returncode:
+            return 1
+        # Distinct from "nothing staged" above. Both used to return 0, so a
+        # rejected commit was reported to the runner as the model having
+        # produced nothing, and that misdiagnosis is the whole trail an
+        # unattended run leaves.
+        raise CommitRejected(
+            f"git commit was rejected in {cwd}:\n{result.stdout}\n{result.stderr}".strip()
+        )
 
     return commit
 
@@ -870,6 +904,7 @@ def build_runner(
             return push(branch, cwd=cwd)
 
     tools = allowed_tools(profile)
+    run_claude = build_run_claude(planning_repo=planning_repo, allowed_tools=tools, log=log)
     return UnitRunner(
         store=store,
         planning_repo=planning_repo,
@@ -877,7 +912,7 @@ def build_runner(
         reset_to=_reset_to,
         tests_in=_tests_in,
         may_start=build_may_start(),
-        run_claude=build_run_claude(planning_repo=planning_repo, allowed_tools=tools, log=log),
+        run_claude=run_claude,
         run_rework=build_run_claude(
             planning_repo=planning_repo, model=models().rework, allowed_tools=tools, log=log
         ),
@@ -885,7 +920,8 @@ def build_runner(
         run_rework_review=build_run_review(
             planning_repo=planning_repo, model=models().rework_review, log=log
         ),
-        commit=build_commit(unit_id=unit.id),
+        # A rejected commit goes back to the build run's agent, same policy.
+        commit=build_commit(unit_id=unit.id, fix=run_claude),
         branch_commits=_branch_commits,
         upstream_incomplete=build_upstream_incomplete(store),
         restack_onto=build_restack_onto(store),
