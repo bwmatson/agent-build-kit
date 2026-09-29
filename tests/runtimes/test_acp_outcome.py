@@ -8,11 +8,11 @@ response, so nothing here parses text for refusal markers:
 - **Ended normally** is an answer: the final message's text.
 - **A token or turn ceiling, or a refusal**, is a failed result carrying its
   reason, each distinguishable from the others.
-- **Cancelled**, or the agent killed by a signal, is an interruption, which
-  leaves the unit recoverable rather than failed.
+- **Cancelled**, or the agent killed by a signal from elsewhere, is an
+  interruption, which leaves the unit recoverable rather than failed.
 - **Anything else that goes wrong** — no agent configured, one that will not
-  start, exits, or answers an error — is a failed result, never a bare
-  exception.
+  start, exits, answers an error, or lingers after its stdio goes and has to
+  be killed by abk — is a failed result, never a bare exception.
 
 Progress arrives as the agent's streamed updates: a message as one line
 however many chunks it streamed in, each tool call's start and status as
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.runtimes import AgentInterrupted, AgentRequest, ToolPolicy
+from agent_build_kit.runtimes import AgentInterrupted, AgentRequest, ToolPolicy, acp
 from agent_build_kit.runtimes.acp import AcpRuntime
 from tests.runtimes.acp_agent import (
     ANSWER,
@@ -280,6 +280,22 @@ def test_an_agent_killed_by_a_signal_is_an_interruption(
 
     with pytest.raises(AgentInterrupted, match="signal 9"):
         AcpRuntime().run(_request(worktree, specs))
+
+
+def test_an_agent_abk_had_to_kill_is_a_failed_result_not_an_interruption(
+    tmp_path: Path, worktree: Path, specs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its stdio went away but the process lingered, so abk killed it: that
+    signal is abk's own and says the agent broke, so the unit fails with the
+    agent's stderr rather than being reclaimed to break the same way again."""
+    monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
+    use_agent(tmp_path / "agent.jsonl", fail="hang")
+
+    result = AcpRuntime().run(_request(worktree, specs))
+
+    assert result.ok is False
+    assert "killed" in result.error
+    assert STDERR_LINE in result.error
 
 
 def test_an_error_answering_the_prompt_is_a_failed_result(

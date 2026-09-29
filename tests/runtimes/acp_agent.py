@@ -16,7 +16,9 @@ the prompt is answered with (`end_turn` unless given).
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
 unadvertised. `--fail` breaks the prompt partway through, after the preamble:
 `exit` writes `STDERR_LINE` to stderr and exits 3, `kill` sends the agent
-SIGKILL, and `error` answers the prompt with an internal error.
+SIGKILL, `error` answers the prompt with an internal error, and `hang` closes
+its stdout, writes `STDERR_LINE` to stderr and lingers for `HANG_SECONDS`
+without exiting, as an agent whose stdio loop died while its process did not.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ import json
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +80,8 @@ ANSWER = "".join(ANSWER_CHUNKS)
 TOOL_TITLE = "Edit src/app.py"
 THOUGHT = "The marker belongs beside the other module constants."
 STDERR_LINE = "fake-agent: the model endpoint refused the connection"
+# Far longer than any exit grace a test gives the adapter.
+HANG_SECONDS = 60
 
 
 def _model_option(current: str) -> SessionConfigOptionSelect:
@@ -215,6 +220,10 @@ class FakeAgent:
             os.kill(os.getpid(), signal.SIGKILL)
         if self._fail == "error":
             raise RequestError.internal_error({"details": "the model endpoint went away"})
+        if self._fail == "hang":
+            os.close(1)
+            print(STDERR_LINE, file=sys.stderr, flush=True)
+            time.sleep(HANG_SECONDS)
         await send(
             start_tool_call(
                 "call_01",
@@ -296,7 +305,7 @@ def main() -> None:
     parser.add_argument("record", type=Path)
     parser.add_argument("--stop", default="end_turn")
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
-    parser.add_argument("--fail", choices=["exit", "kill", "error"])
+    parser.add_argument("--fail", choices=["exit", "kill", "error", "hang"])
     args = parser.parse_args()
     agent = FakeAgent(args.record, args.stop, additional_dirs=args.additional_dirs, fail=args.fail)
     asyncio.run(run_agent(agent))

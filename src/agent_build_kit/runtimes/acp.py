@@ -6,7 +6,8 @@ over stdio, on its own event loop so callers stay synchronous.
 The prompt's response carries an end-of-turn reason, so the outcome is read
 from that and never from the answer's text: `end_turn` is an answer, a
 ceiling or a refusal is a failed result saying which, and `cancelled` is an
-interruption, as is an agent killed by a signal. `AgentRequest.allowed_tools`/
+interruption, as is an agent killed by a signal from elsewhere — not one abk
+killed for failing to exit, which is a failure. `AgentRequest.allowed_tools`/
 `denied_tools` are inert here — the protocol has no per-session tool list
 (docs/agent-runtimes.md) — and a named `worktree` is refused, not ignored.
 """
@@ -53,6 +54,9 @@ NAME = "acp"
 # A JSON-RPC message is one line; a file's contents can make that line far
 # longer than asyncio's 64 KiB default.
 LINE_LIMIT = 16 * 1024 * 1024
+
+# Seconds an agent has to exit once its input is closed before it is killed.
+EXIT_GRACE = 5.0
 
 # How long a turn that did not end normally reads in the unit's log: each
 # calls for something different of whoever reads it.
@@ -206,7 +210,16 @@ class AcpRuntime:
         except RequestError as exc:
             return AgentResult(ok=False, text="", error=f"the agent answered an error: {exc}")
         except (ConnectionError, EOFError) as exc:
-            said = await _ended(process, stderr)
+            said, killed = await _ended(process, stderr)
+            if killed:
+                # Its stdio went but its process stayed: the agent broke, and
+                # the kill that ended it is ours, so it is no interruption.
+                return AgentResult(
+                    ok=False,
+                    text="",
+                    error=f"the agent went away: {exc}; it did not exit and was killed. "
+                    f"{said}".strip(),
+                )
             if process.returncode is not None and process.returncode < 0:
                 raise AgentInterrupted(
                     f"the agent was killed by signal {-process.returncode}"
@@ -217,6 +230,8 @@ class AcpRuntime:
         finally:
             session.said()
             await conn.close()
+            # After the branch above this is a no-op: the process has exited
+            # and the stderr task is done, so it returns at once.
             await _ended(process, stderr)
 
         if stop_reason == "cancelled":
@@ -294,17 +309,23 @@ class AcpRuntime:
         raise NotImplementedError
 
 
-async def _ended(process: asyncio.subprocess.Process, stderr: asyncio.Task[bytes]) -> str:
-    """Wait for the agent to exit once its input is closed; what it said on
-    stderr, for an error."""
+async def _ended(
+    process: asyncio.subprocess.Process, stderr: asyncio.Task[bytes]
+) -> tuple[str, bool]:
+    """Wait for the agent to exit once its input is closed: what it said on
+    stderr, for an error, and whether it had to be killed for not exiting —
+    a signal of our own, not one it received from elsewhere."""
     if process.stdin is not None and not process.stdin.is_closing():
         process.stdin.close()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=5)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-    return (await stderr).decode(errors="replace").strip()
+    killed = False
+    if process.returncode is None:
+        try:
+            await asyncio.wait_for(process.wait(), timeout=EXIT_GRACE)
+        except TimeoutError:
+            process.kill()
+            killed = True
+            await process.wait()
+    return (await stderr).decode(errors="replace").strip(), killed
 
 
 RUNTIME = AcpRuntime()
