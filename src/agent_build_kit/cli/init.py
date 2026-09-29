@@ -6,9 +6,9 @@ researches a recommendation document per language, and asks a model to
 write each repo's first changes. Every step after the layout is skippable,
 and a second run over an existing planning repo writes only what is missing.
 
-The three module attributes below are injection points: tests replace them
-so no run here reaches the real OpenSpec CLI, the real `claude`, or a
-terminal.
+The module attributes below are injection points: tests replace them so no
+run here reaches the real OpenSpec CLI, the real `claude`, a terminal, or an
+installation's own fix command.
 """
 
 from __future__ import annotations
@@ -19,14 +19,16 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from agent_build_kit import openspec, skills
-from agent_build_kit.config import dump
+from agent_build_kit import config as config_module
+from agent_build_kit import openspec, runtimes, skills
+from agent_build_kit.config import CONFIG_FILENAME, ConfigError, dump
 from agent_build_kit.init.claude_call import RunClaude
 from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
 from agent_build_kit.init.scaffold import ScaffoldError, draft_config, write_planning_repo
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, load_config
+from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -37,6 +39,8 @@ LANGUAGE_ALIAS = {"typescript": "javascript"}
 ask: Callable[[str], str] = input
 run_openspec: openspec.Run | None = None
 run_claude: RunClaude | None = None
+# Runs the installation's `runtimes.<name>.policy_fix`, once the operator agrees.
+run_fix: Callable[..., subprocess.CompletedProcess] | None = None
 
 
 class InitError(Exception):
@@ -145,6 +149,75 @@ def _planned_work(
     return lines
 
 
+def _policy(
+    runtime: AgentRuntime, planning: Path, *, cache: Path, fresh: bool = False
+) -> PolicyReport | None:
+    """The runtime's policy answer, or None when it could not be had: said,
+    never kept, and init carries on without it."""
+    try:
+        return policy_check.checked(runtime, planning, cache=cache, fresh=fresh)
+    except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
+        print(
+            f"abk init: runtime {runtime.name} policy not checked: "
+            f"{type(error).__name__}: {error} (`abk doctor` checks it again)",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
+    """Report what the selected runtime does not refuse, and offer the
+    installation's fix: run only once the operator agrees, then checked again.
+    An installation's own command is never run unasked, so `--yes` only
+    prints it."""
+    path = planning / CONFIG_FILENAME
+    try:
+        loaded = load_config(path)
+        inst = Installation(loaded, planning)
+    except ConfigError as error:
+        print(f"abk init: runtime not checked: {error}", file=sys.stderr)
+        return
+    name = config_module.runtime_name(loaded)
+    runtime = runtimes.get(name)
+    if not runtime.implemented:
+        print(f"runtime {name} is not implemented yet; `abk doctor` says more")
+        return
+    cache = policy_check.cache_path(inst)
+    report = _policy(runtime, planning, cache=cache)
+    if report is None or report.ok:
+        return
+    missing = ", ".join(report.unenforced)
+    print(f"runtime {name} does not refuse: {missing}")
+    entry = config_module.runtime_entry(loaded)
+    fix = policy_check.fix_for(name, entry, report)
+    if not entry.policy_fix:
+        print(f"  fix: {fix}")
+        return
+    if not prompts:
+        print(f"  fix: run `{fix}` from {planning}")
+        return
+    if ask(f"run `{fix}` to enforce them? [y/N] ").strip().lower() not in ("y", "yes"):
+        print(f"not run; still unenforced: {missing}")
+        return
+    result = (run_fix or subprocess.run)(
+        entry.policy_fix, cwd=planning, capture_output=True, text=True, check=False
+    )
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    if result.returncode:
+        print(
+            f"abk init: `{fix}` exited {result.returncode}: {result.stderr.strip()}",
+            file=sys.stderr,
+        )
+    after = _policy(runtime, planning, cache=cache, fresh=True)
+    if after is None:
+        return
+    if after.ok:
+        print(f"runtime {name} now refuses every forbidden class")
+    else:
+        print(f"still unenforced: {', '.join(after.unenforced)}")
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     try:
@@ -241,6 +314,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             print(f"committed: abk init: workspace {', '.join(names)}")
     else:
         print("not committed: the planning repo had uncommitted changes before init ran")
+
+    _check_runtime_policy(planning, prompts=not args.yes)
 
     print(
         "\nNext steps:\n"

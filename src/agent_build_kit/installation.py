@@ -185,9 +185,18 @@ def _resolve(provider: object) -> str:
     raise ConfigError(f"unknown provider {provider!r}")
 
 
+def load_config(path: Path) -> WorkspaceConfig:
+    """The abk.yaml at `path`, loaded once its planning root's `.env` has been
+    read: a runtime selected there (`ABK_RUNTIME`) is the one `config.load`
+    checks, not whatever the process started with."""
+    env_file = path.parent / ".env"
+    settings_module.reload(env_file if env_file.exists() else None)
+    return config_module.load(path)
+
+
 def load_installation(config_path: Path | None = None, *, cwd: Path | None = None) -> Installation:
     """Locate, load and activate the installation for this process."""
     path = config_module.locate(config_path or settings_module.settings.config, cwd=cwd)
-    installation = Installation(config_module.load(path), path.parent)
+    installation = Installation(load_config(path), path.parent)
     installation.activate()
     return installation

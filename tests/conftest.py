@@ -128,7 +128,16 @@ def make_installation(root: Path, **overrides) -> Installation:
 
 @pytest.fixture(autouse=True)
 def workspace(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
-    """The default workspace every test sees, on its own planning root."""
+    """The default workspace every test sees, on its own planning root. A
+    runtime or model the developer's shell selects is not the suite's."""
+    for key in (
+        "ABK_RUNTIME",
+        "ABK_IMPLEMENT_MODEL",
+        "ABK_REWORK_MODEL",
+        "ABK_REVIEW_MODEL",
+        "ABK_REWORK_REVIEW_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
     root = tmp_path_factory.mktemp("planning")
     installation = make_installation(root)
     yield installation

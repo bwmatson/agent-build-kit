@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from agent_build_kit.config import ModelsConfig
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
 from agent_build_kit.runtimes.base import PolicyCoverage
 
@@ -22,6 +23,9 @@ class StandInRuntime:
     policy_coverage: PolicyCoverage = "all_calls"
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
+    requires: tuple[str, ...] = ()
+    agent_command: tuple[str, ...] = ()
+    default_models: ModelsConfig = ModelsConfig()
 
     def __init__(
         self,

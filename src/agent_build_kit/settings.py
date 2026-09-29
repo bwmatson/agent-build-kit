@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # upgrade is a deliberate change here rather than whatever npx fetched.
     openspec_version: str = "1.13.1"
 
+    # Overrides abk.yaml's `runtime` on this machine (ABK_RUNTIME). None = the file's.
+    runtime: str | None = None
+
     # Per-machine overrides of abk.yaml's `models`. None = use the file's.
     implement_model: str | None = None
     rework_model: str | None = None

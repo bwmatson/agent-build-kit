@@ -26,6 +26,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
+from agent_build_kit import runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
@@ -72,7 +73,9 @@ class GithubConfig(Frozen):
 
 class ModelsConfig(Frozen):
     """Which model runs which part of a unit. Bare aliases, not pinned ids, so
-    they track new releases on their own."""
+    they track new releases on their own. In abk.yaml's flat `models:` block
+    only the roles the file names count: one it leaves out takes the active
+    runtime's own `default_models` (`config.models()`), not these defaults."""
 
     implement: str = "opus"
     rework: str = "opus"
@@ -80,6 +83,28 @@ class ModelsConfig(Frozen):
     # A rework is a small targeted edit and the model that made it is the worst
     # judge of whether it landed, so a different model reviews it.
     rework_review: str = "fable"
+
+
+class RuntimeModelsConfig(Frozen):
+    """One runtime's own names for the roles in `ModelsConfig`. A role left
+    out keeps the flat `models:` block's name, or the runtime's default."""
+
+    implement: str | None = None
+    rework: str | None = None
+    review: str | None = None
+    rework_review: str | None = None
+
+
+class RuntimeConfig(Frozen):
+    """What one agent runtime needs from this installation (`runtimes.<name>`)."""
+
+    # The argv that starts the runtime's agent, for a runtime that spawns one.
+    command: list[str] | None = None
+    # What an operator runs to make the agent refuse what abk forbids, when the
+    # runtime's policy check finds a class unenforced. abk only runs it when
+    # asked to, and never interprets it.
+    policy_fix: list[str] | None = None
+    models: RuntimeModelsConfig = RuntimeModelsConfig()
 
 
 class LimitsConfig(Frozen):
@@ -138,6 +163,8 @@ class LimitsConfig(Frozen):
 class TracksConfig(Frozen):
     """The scheduled health/improve/recommend/implement tracks."""
 
+    # Claude Code's alias, sent as is to whichever runtime is active: not
+    # resolved per runtime, so a workspace on another runtime sets it.
     model: str = "sonnet"
     implement_max_prs: int = 3
     allowed_tools: str = (
@@ -302,6 +329,10 @@ class WorkspaceConfig(Frozen):
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()
     github: GithubConfig = GithubConfig()
+    # The agent runtime (runtimes/) every call runs on; ABK_RUNTIME overrides it.
+    runtime: str = runtimes.DEFAULT
+    # Per-runtime facts, only the selected runtime's demanded.
+    runtimes: dict[str, RuntimeConfig] = {}
     models: ModelsConfig = ModelsConfig()
     limits: LimitsConfig = LimitsConfig()
     tracks: TracksConfig = TracksConfig()
@@ -341,9 +372,43 @@ def load(path: Path) -> WorkspaceConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
     try:
-        return WorkspaceConfig.model_validate(raw)
+        loaded = WorkspaceConfig.model_validate(raw)
     except ValidationError as error:
         raise ConfigError(f"{path} does not match the schema:\n{error}") from error
+    _check_runtime(loaded, path)
+    return loaded
+
+
+def runtime_name(config: WorkspaceConfig | None = None) -> str:
+    """The runtime in force: this machine's `ABK_RUNTIME`, then the file's."""
+    from agent_build_kit.settings import settings
+
+    return settings.runtime or (config or _active).runtime
+
+
+def runtime_entry(
+    config: WorkspaceConfig | None = None, *, name: str | None = None
+) -> RuntimeConfig:
+    """The `runtimes.<name>` entry for the runtime in force (or for `name`),
+    or an empty one when the file has none."""
+    config = config or _active
+    return config.runtimes.get(name or runtime_name(config), RuntimeConfig())
+
+
+def _check_runtime(config: WorkspaceConfig, path: Path) -> None:
+    """A selection that cannot work fails here, not when every unit is held:
+    an unknown runtime, or one missing a fact it cannot run without."""
+    name = runtime_name(config)
+    try:
+        runtime = runtimes.get(name)
+    except KeyError as error:
+        raise ConfigError(f"{path}: {error.args[0]}") from None
+    entry = runtime_entry(config)
+    missing = [fact for fact in runtime.requires if not getattr(entry, fact, None)]
+    if missing:
+        raise ConfigError(
+            f"{path}: runtime {name!r} needs {', '.join(f'runtimes.{name}.{m}' for m in missing)}"
+        )
 
 
 def dump(config: WorkspaceConfig) -> str:
@@ -373,13 +438,23 @@ def active_root() -> Path | None:
 
 
 def models() -> ModelsConfig:
-    """The active workspace's models, with this machine's overrides applied."""
+    """The active workspace's models for the runtime in force, role by role:
+    this machine's `ABK_*_MODEL`, then that runtime's own
+    `runtimes.<name>.models`, then a role the flat `models:` block names, then
+    the runtime's own default — never another runtime's names."""
     from agent_build_kit.settings import settings
 
-    base = _active.models
+    own = runtime_entry().models
+    named = _active.models.model_fields_set
+    flat = {role: getattr(_active.models, role) for role in named}
+    default = runtimes.active().default_models
+
+    def pick(role: str, machine: str | None) -> str:
+        return machine or getattr(own, role) or flat.get(role) or getattr(default, role)
+
     return ModelsConfig(
-        implement=settings.implement_model or base.implement,
-        rework=settings.rework_model or base.rework,
-        review=settings.review_model or base.review,
-        rework_review=settings.rework_review_model or base.rework_review,
+        implement=pick("implement", settings.implement_model),
+        rework=pick("rework", settings.rework_model),
+        review=pick("review", settings.review_model),
+        rework_review=pick("rework_review", settings.rework_review_model),
     )

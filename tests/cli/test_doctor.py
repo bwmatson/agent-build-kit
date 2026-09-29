@@ -13,7 +13,10 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
+from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
+from agent_build_kit.settings import reload
 from tests.factories import git, init_repo
+from tests.runtimes.selectable import SelectableRuntime, select
 
 
 class Answers:
@@ -324,3 +327,203 @@ def test_a_library_member_needs_no_deploy_rule_of_its_own(workspace: Path, tmp_p
     checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
 
     assert checks["abk.yaml app"].status == "ok", checks["abk.yaml app"].detail
+
+
+# --- the agent runtime -------------------------------------------------------------------
+
+UNENFORCED = PolicyReport(
+    ok=False, unenforced=("merging a pull request", "pushing to a default branch")
+)
+
+
+def select_runtime(workspace: Path, name: str, entry: str = "") -> None:
+    """Name `name` as the workspace's runtime, with its `runtimes:` entry."""
+    text = (workspace / "abk.yaml").read_text() + f"runtime: {name}\n"
+    if entry:
+        text += f"runtimes:\n  {name}:\n{entry}"
+    (workspace / "abk.yaml").write_text(text)
+
+
+def test_the_active_runtime_is_reported(workspace: Path) -> None:
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["runtime"].status == "ok"
+    assert "claude_code" in checks["runtime"].detail
+    assert checks["runtime coverage"].status == "ok"
+    assert checks["runtime policy"].status == "ok"
+
+
+def test_a_runtime_whose_agent_is_not_on_path_fails(workspace: Path) -> None:
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "claude" else f"/usr/bin/{name}",
+        )
+    )
+
+    assert checks["runtime"].status == "FAIL"
+    assert "claude" in checks["runtime"].detail
+
+
+def test_a_configured_agent_command_that_does_not_resolve_fails(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    select(monkeypatch, SelectableRuntime("spawned", requires=("command",)))
+    select_runtime(workspace, "spawned", "    command: [some-agent, acp]\n")
+
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "some-agent" else f"/usr/bin/{name}",
+        )
+    )
+
+    assert checks["runtime"].status == "FAIL"
+    assert "some-agent" in checks["runtime"].detail
+
+
+def test_claude_code_s_configured_command_is_the_binary_checked(workspace: Path) -> None:
+    """The one the adapter spawns in place of `claude`, so doctor checks
+    what every run actually starts."""
+    select_runtime(workspace, "claude_code", "    command: [/opt/agent-wrapper]\n")
+
+    found = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "claude" else f"/usr/bin/{name}",
+        )
+    )
+    missing = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "/opt/agent-wrapper" else f"/usr/bin/{name}",
+        )
+    )
+
+    assert found["runtime"].status == "ok"
+    assert "/opt/agent-wrapper" in found["runtime"].detail
+    assert missing["runtime"].status == "FAIL"
+    assert "/opt/agent-wrapper" in missing["runtime"].detail
+
+
+def test_a_runtime_that_is_not_implemented_fails(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    select(monkeypatch, SelectableRuntime("planned", implemented=False))
+    select_runtime(workspace, "planned")
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["runtime"].status == "FAIL"
+    assert "planned" in checks["runtime"].detail
+    assert "not implemented" in checks["runtime"].detail
+
+
+def test_coverage_short_of_every_call_is_called_out(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    select(monkeypatch, SelectableRuntime("flagged", policy_coverage="agent_flagged"))
+    select_runtime(workspace, "flagged")
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["runtime coverage"].status == "warn"
+    assert "agent_flagged" in checks["runtime coverage"].detail
+
+
+def test_an_unenforced_class_fails_naming_it_and_printing_the_installation_s_fix(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    select(monkeypatch, SelectableRuntime("loose", reports=(UNENFORCED,)))
+    select_runtime(workspace, "loose", "    policy_fix: [scripts/constrain-agent.sh, --strict]\n")
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    policy = checks["runtime policy"]
+    assert policy.status == "FAIL"
+    assert "merging a pull request" in policy.detail
+    assert "pushing to a default branch" in policy.detail
+    assert "scripts/constrain-agent.sh --strict" in policy.fix
+
+
+def test_the_policy_check_is_not_rerun_within_its_window(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = select(monkeypatch, SelectableRuntime("probed", reports=(UNENFORCED,)))
+    select_runtime(workspace, "probed")
+
+    run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert len(runtime.checked) == 1
+    assert checks["runtime policy"].status == "FAIL"
+
+
+@pytest.fixture
+def settings_restored():
+    """Put back the settings a planning `.env` loaded."""
+    yield
+    reload(None)
+
+
+@pytest.mark.usefixtures("settings_restored")
+def test_an_unknown_runtime_the_planning_env_selects_is_a_failed_check(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Selected in the planning repo's `.env` and run from elsewhere, it is
+    still reported rather than raised."""
+    (workspace / ".env").write_text("ABK_RUNTIME=nonesuch\n")
+    monkeypatch.chdir(tmp_path)
+
+    checks = run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+
+    failed = [check for check in checks if check.status == "FAIL"]
+    assert [check.name for check in failed] == ["config"]
+    assert "nonesuch" in failed[0].detail
+
+
+def test_an_agent_that_cannot_start_is_not_asked_about_policy(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = select(monkeypatch, SelectableRuntime("spawned", agent_command=("some-agent",)))
+    select_runtime(workspace, "spawned")
+
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "some-agent" else f"/usr/bin/{name}",
+        )
+    )
+
+    assert checks["runtime"].status == "FAIL"
+    assert runtime.checked == []
+    assert checks["runtime policy"].status != "ok"
+    assert "some-agent" in checks["runtime policy"].detail
+
+
+class _Limited(SelectableRuntime):
+    """A runtime whose policy probe is refused for want of usage."""
+
+    def check_policy(self, cwd: Path) -> PolicyReport:
+        self.checked.append(cwd)
+        raise AgentRateLimited("usage window exhausted")
+
+
+def test_a_policy_check_that_raises_is_a_failed_check_and_not_kept(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = select(monkeypatch, _Limited("limited"))
+    select_runtime(workspace, "limited")
+
+    first = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+    run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+
+    assert first["runtime policy"].status == "FAIL"
+    assert "usage window exhausted" in first["runtime policy"].detail
+    # Nothing was kept, so the second run asked again.
+    assert len(runtime.checked) == 2

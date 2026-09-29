@@ -13,7 +13,8 @@ should know about how they relate — lives in `abk.yaml` in the planning
 repo and nowhere else. The framework knows nothing about any particular
 installation; a fact that belongs to one goes here, not in a prompt, a skill
 or a script. Machine-local values (tokens, a worktree root override, model
-overrides) go in the planning repo's `.env`, which is not committed.
+overrides, `ABK_RUNTIME`) go in the planning repo's `.env`, which is not
+committed.
 
 The schema is strict: an unknown key fails at load. `abk config --show`
 prints the effective config with every default filled in; `abk config
@@ -45,7 +46,21 @@ github:
                               # branches as; "" = origin
   branch_prefix: spec/        # marks a branch and its PR as agent-owned
 
-models:                       # bare aliases, not pinned ids
+runtime: claude_code          # the agent runtime every step runs on;
+                              # ABK_RUNTIME overrides it on one machine. An
+                              # unknown one fails at load.
+runtimes: {}                  # only for a runtime needing a fact abk cannot
+                              # default; only the selected one is checked
+  # <name>:
+  #   command: [some-agent, acp]          # argv that starts its agent
+  #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor
+  #   models: {review: "..."}             # this runtime's names for roles;
+  #                                       # a role left out keeps models:'s
+
+models:                       # bare aliases, not pinned ids; ABK_*_MODEL
+                              # overrides win over these and runtimes' own.
+                              # A role named nowhere takes the active
+                              # runtime's own default (these, on claude_code)
   implement: opus
   rework: opus
   review: opus
@@ -65,7 +80,8 @@ limits:
   max_plan_attempts: 3        # times one tasks.md is sent to the planner
 
 tracks:                       # the scheduled health/improve/recommend tracks
-  model: sonnet
+  model: sonnet               # Claude Code's alias, sent to any runtime as
+                              # is: set it when selecting another runtime
                               # no dollar budget — every phase is bounded by
                               # the same session/weekly usage windows, and
                               # the same ramped thresholds, as limits above
@@ -123,11 +139,14 @@ is 1 when anything failed.
 
 | Check | Failure means |
 |---|---|
-| config loads | `abk.yaml` is missing, malformed or has an unknown key. |
+| config loads | `abk.yaml` is missing, malformed or has an unknown key; or the selected runtime (`ABK_RUNTIME`, which may come from the planning repo's `.env`, else `runtime:`) is unknown, or is missing a fact it requires under `runtimes.<name>`. |
 | worktree root | `planning.worktree_root` is inside the planning repo. |
 | repo checkout | A repo's `path` does not exist, is not a git checkout, or has no repo-local `user.email` (commits made there would carry the wrong identity). |
 | gh account | `gh auth token --user <owner>` fails for an owner in `repos`; log that account in. |
 | node / openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run through `openspec.command`. |
+| runtime | The selected runtime is not implemented, or its agent command is not on PATH. |
+| runtime coverage (warn) | The runtime sees only some of the agent's tool calls (`agent_flagged` or `none`). |
+| runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is `runtimes.<name>.policy_fix`. `abk init` offers to run it. The answer is reused for 15 minutes. It also fails when the check could not be run because the runtime raised (e.g. its usage window is spent); nothing is cached, so run doctor again once the runtime can answer. It warns, unchecked, when the agent command does not resolve; fix the `runtime` check first. |
 | ssh key | A `deploy.ssh_key` does not exist. |
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. |

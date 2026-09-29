@@ -76,6 +76,9 @@ runtimes: {}                    # one entry per runtime that needs a fact abk
                                 # cannot default, and only for the runtimes
                                 # this workspace uses. `claude_code` needs
                                 # none, so a workspace on it leaves this out.
+                                # An unknown `runtime`, or one missing a fact
+                                # its adapter requires, fails at load; only
+                                # the selected runtime's entry is checked.
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when
@@ -87,7 +90,9 @@ runtimes: {}                    # one entry per runtime that needs a fact abk
 
 models:                         # bare aliases, not pinned ids. These are the
                                 # ACTIVE runtime's models; a runtimes.<name>.
-                                # models block overrides them when present.
+                                # models block overrides them when present,
+                                # and a role left out of both takes the
+                                # runtime's own default (these, on claude_code).
   implement: opus               # the tests and implementation runs
   rework: opus                  # reworks, restack conflict resolution, adapt
   review: opus                  # the first review of a fresh build
@@ -115,8 +120,12 @@ limits:
                                 # threshold must offer before a pause lifts
   max_plan_attempts: 3          # planner attempts per version of a tasks.md
 
-tracks:                         # the scheduled tracks (docs/tracks.md)
-  model: sonnet
+tracks:                         # the scheduled tracks (docs/tracks.md); their
+                                # model and tool lists stay here, not under
+                                # runtimes.<name>
+  model: sonnet                 # Claude Code's alias, sent to whichever
+                                # runtime is active and not resolved per
+                                # runtime: set it when selecting another
   implement_max_prs: 3          # PRs one implement pass may open per repo
   allowed_tools: >-             # Claude Code --allowedTools syntax
     Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch
@@ -268,4 +277,9 @@ it: `state_dir`, `specs_dir`, `changes_dir`, `graph_page`, `worktree_root`,
 that object to every command. Leaf modules that need one scalar — a limit, a
 prefix, a model — call `config.active()`, set once by `Installation.activate()`
 and defaulting to an empty workspace so the library is usable without a file
-on disk. `config.models()` applies the `ABK_*_MODEL` overrides.
+on disk. `config.runtime_name()` is the runtime in force (`ABK_RUNTIME`, then
+`runtime`), and `runtimes.active()` its adapter; `config.runtime_entry()` is
+its `runtimes.<name>` entry, or an empty one. `config.models()` resolves each
+role from the `ABK_*_MODEL` overrides, then that runtime's
+`runtimes.<name>.models`, then a role the flat `models` block names, then the
+adapter's own `default_models`.

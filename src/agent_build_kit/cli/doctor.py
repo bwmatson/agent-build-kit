@@ -17,12 +17,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import __version__, config, forges, openspec, profiles, skills
+from agent_build_kit import __version__, config, forges, openspec, profiles, runtimes, skills
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
-from agent_build_kit.installation import Installation, _resolve
+from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
+from agent_build_kit.runtimes import policy_check
 
 Run = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], str | None]
@@ -257,6 +258,78 @@ def _gaps(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
+def _runtime(inst: Installation, which: Which) -> list[Check]:
+    """Which runtime the pipeline runs on, whether it can start, how much it
+    interposes on, and whether it refuses what abk forbids."""
+    name = config.runtime_name(inst.config)
+    runtime = runtimes.get(name)
+    entry = config.runtime_entry(inst.config)
+    if not runtime.implemented:
+        return [
+            _fail(
+                "runtime",
+                f"{name} is not implemented yet",
+                "set `runtime:` in abk.yaml (or ABK_RUNTIME) to an implemented one",
+            )
+        ]
+    command = entry.command or list(runtime.agent_command)
+    startable = not command or which(command[0]) is not None
+    if startable:
+        checks = [_ok("runtime", name + (f" ({' '.join(command)})" if command else ""))]
+    else:
+        checks = [
+            _fail(
+                "runtime",
+                f"{name}: its agent command {command[0]} is not on PATH",
+                f"install it, or set `runtimes.{name}.command` in abk.yaml",
+            )
+        ]
+
+    if runtime.policy_coverage == "all_calls":
+        checks.append(_ok("runtime coverage", "all_calls: every tool call reaches the policy"))
+    else:
+        checks.append(
+            _warn(
+                "runtime coverage",
+                f"{runtime.policy_coverage}: abk sees only some of what the agent does",
+                "rely on the runtime's own configuration for what abk forbids",
+            )
+        )
+
+    if not startable:
+        # A probe would spawn the very command that does not resolve.
+        checks.append(
+            _warn(
+                "runtime policy",
+                f"not checked: the agent command {command[0]} does not resolve",
+                "fix the runtime check above, then run `abk doctor` again",
+            )
+        )
+        return checks
+    try:
+        report = policy_check.checked(runtime, inst.root, cache=policy_check.cache_path(inst))
+    except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
+        checks.append(
+            _fail(
+                "runtime policy",
+                f"could not be checked: {type(error).__name__}: {error}",
+                "run `abk doctor` again once the runtime can answer",
+            )
+        )
+        return checks
+    if report.ok:
+        checks.append(_ok("runtime policy", "every forbidden class is refused"))
+    else:
+        checks.append(
+            _fail(
+                "runtime policy",
+                f"not refused: {', '.join(report.unenforced)}",
+                policy_check.fix_for(name, entry, report),
+            )
+        )
+    return checks
+
+
 def _skills(inst: Installation) -> list[Check]:
     checks = []
     targets = {"planning": inst.root, **inst.checkouts}
@@ -288,7 +361,7 @@ def run_doctor(
     which = which or shutil.which
     try:
         path = config.locate(config_path, cwd=cwd)
-        loaded: WorkspaceConfig = config.load(path)
+        loaded: WorkspaceConfig = load_config(path)
     except ConfigError as error:
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]
@@ -304,6 +377,7 @@ def run_doctor(
     checks += _repos(inst, run)
     checks += _forge_access(inst, run)
     checks += _toolchain(inst, run, which)
+    checks += _runtime(inst, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
     checks.append(_rules_drift(inst))
