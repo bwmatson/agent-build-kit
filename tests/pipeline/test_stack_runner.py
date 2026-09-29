@@ -681,6 +681,115 @@ def test_a_held_unit_goes_back_to_planned_so_it_resumes(tmp_path: Path) -> None:
     assert "held" in str(store.get(unit().id).history[-1])
 
 
+def test_a_unit_whose_parent_merged_while_it_built_stops_before_pushing(tmp_path: Path) -> None:
+    """The merge leaves a building branch where it is rather than rebase the
+    tree in use, so the build must notice itself. Going on would open its PR
+    against the merged branch; stopping at the step boundary lets the resume's
+    restack put it on its new base first."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    runner = make_runner(store, recorder, tmp_path)
+    runner.base_moved = lambda u, base, **kw: f"its base moved from {base} to main while it built"
+
+    outcome = runner.run(unit(), base="spec/add-marker/0", graph=[])
+
+    assert outcome.status == "held"
+    assert "push" not in recorder.events and "pr" not in recorder.events
+    assert store.get(unit().id).state == PLANNED
+    assert store.get(unit().id).resume_from == "implement", "resumes at the step it stopped before"
+
+
+def test_a_unit_whose_base_was_rewritten_while_it_built_stops_before_pushing(
+    tmp_path: Path,
+) -> None:
+    """Its parent was restacked mid-pass — the grandparent merged — so the base
+    keeps its name but not the commits this unit sits on. Pushing would open a
+    PR repeating the parent's old commits; the hold lets the resume's restack
+    move it first. The check is against the tip the run started on."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    runner = make_runner(store, recorder, tmp_path)
+    runner.base_tip = lambda tree, ref: f"tip of {ref}"
+    seen: list[tuple] = []
+
+    def base_moved(u, base, *, tree, start):
+        seen.append((tree, start))
+        # the restack lands while the review runs, after implement
+        return "its base spec/add-marker/0 was rewritten" if "review" in recorder.events else ""
+
+    runner.base_moved = base_moved
+
+    outcome = runner.run(unit(), base="spec/add-marker/0", graph=[])
+
+    assert "claude:impl" in recorder.events, "implement ran before the rewrite"
+    assert outcome.status == "held"
+    assert "rewritten" in outcome.detail
+    assert "push" not in recorder.events and "pr" not in recorder.events
+    assert store.get(unit().id).state == PLANNED
+    assert store.get(unit().id).resume_from == "verify"
+    assert seen and all(s == (tmp_path / "tree", "tip of spec/add-marker/0") for s in seen)
+
+
+def test_the_base_s_tip_is_recorded_before_a_resume_restacks(tmp_path: Path) -> None:
+    """The tip the build is placed on, not the one after the restack: taken
+    later, a base rewritten during the restack would be the tip compared
+    against, and every check would pass."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "base_tip": lambda tree, ref: recorder.events.append("base_tip") or "t",
+            "restack_onto": lambda **kw: recorder.events.append("restack") or None,
+        }
+    )
+
+    runner.run(unit(), base="spec/add-marker/0", graph=[])
+
+    assert recorder.events.index("base_tip") < recorder.events.index("restack")
+
+
+def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) -> None:
+    """The adapt runs a model for minutes. A parent restacked meanwhile — its
+    own parent merged — rewrites the base under the same name, and the unit,
+    reset onto the old tip, would push the parent's pre-rebase commits."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    tip = ["before"]
+    answer = json.dumps({"tests": [{"name": "test_click", "decision": "keep"}]})
+
+    def adapt(prompt: str, *, cwd: Path) -> str:
+        tip[0] = "rewritten"  # the parent is restacked while the port runs
+        return answer
+
+    def base_moved(u, base, *, tree, start):
+        return f"its base {base} was rewritten" if start != tip[0] else ""
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "base_tip": lambda tree, ref: tip[0],
+            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"},
+            "run_rework": adapt,
+            "base_moved": base_moved,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/add-marker/0", graph=[])
+
+    assert tip == ["rewritten"], "the adapt ran"
+    assert outcome.status == "held"
+    assert "rewritten" in outcome.detail
+    assert "push" not in recorder.events and "pr" not in recorder.events
+    assert store.get(unit().id).state == PLANNED
+
+
 def test_nothing_holds_when_the_upstream_is_fine(tmp_path: Path) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])

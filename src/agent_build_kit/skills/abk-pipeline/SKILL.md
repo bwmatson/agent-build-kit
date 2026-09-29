@@ -13,6 +13,11 @@ plan what is new, verify and archive what has merged, build what is ready —
 and every step is idempotent, so running one by hand changes nothing a timer
 would not have done.
 
+A pass keeps scheduling until it runs out of ready work: each build that
+finishes is followed by a fresh poll and readiness check, so whatever it
+unblocked starts in the same pass. A pass can therefore last hours; to see
+what the pipeline is doing, watch the pass, not a single unit.
+
 ## Commands
 
 | Command | What it does |

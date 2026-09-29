@@ -29,18 +29,35 @@ read the usage windows and pause if either is past the threshold that applies
 to it now (`limits.usage_pause_pct`, rising towards `usage_ceiling_pct` as
 that window's reset nears) or unknown; `git fetch --prune origin` in every repo; poll GitHub; reclaim units
 left `running` by a dead process; plan changes whose `tasks.md` changed; apply
-`Needs:` lines; verify and archive fully merged changes; then build every
-ready unit in parallel.
+`Needs:` lines; verify and archive fully merged changes; then build the ready
+units, up to `limits.max_concurrent_stacks` at once.
+
+The pass keeps building until nothing is in flight and nothing is ready. Every
+build that finishes is followed by another fetch, another poll and a fresh
+readiness check, so what it unblocked — a child whose parent is now in
+review, a dependent whose dependency merged — starts in the same pass. A pass
+can therefore run for hours. Planning, reclaiming, verifying and archiving
+happen only at its start. A poll event for a unit whose build is still running
+is left for a later poll rather than acted on mid-build. A unit is started at
+most once per pass: one this pass already built that a review sends back
+mid-pass waits for the next pass, while one requeued before this pass reached
+it is built in this one.
 
 - `--dry-run` runs everything up to the build and reports what is ready
   without building.
-- `--only UNIT` (repeatable) builds only those units if ready; polling,
-  planning and archiving still happen. For pushing one unit through when
-  usage is tight.
+- `--only UNIT` (repeatable) builds only those units if ready, at every
+  readiness check of the pass; polling, planning and archiving still happen.
+  For pushing one unit through when usage is tight.
+
+A build that pauses (the usage window spent, or rate limited) stops new
+builds from starting; builds already in flight are still awaited before the
+pass ends.
 
 Exit 0, including when paused or idle. Exit 1 when a repo about to be built
 has no repo-local `user.email` (agent commits would fall back to the machine's
-global identity). A unit that fails is recorded `failed`, not an exit status.
+global identity) — which can come mid-pass, after other units have already
+been built, since each readiness check can reach a new repo. A unit that fails
+is recorded `failed`, not an exit status.
 
 ### `abk status`
 
