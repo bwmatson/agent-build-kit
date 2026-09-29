@@ -76,6 +76,35 @@ def test_the_mismatch_is_reported_once_not_once_per_run(
     assert len(reports) == 1, reports
 
 
+def test_a_model_the_agent_refuses_to_set_runs_on_its_default(
+    tmp_path: Path, worktree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The model is offered, but the agent's own answer to setting it is an
+    error: the run carries on rather than failing, and reports the refusal
+    once across both runs, the same as a model never offered at all."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, fail="set_model")
+    runtime = AcpRuntime()
+
+    first = runtime.run(_request(worktree, "deep-2"))
+    second = runtime.run(_request(worktree, "deep-2"))
+
+    assert first.ok is True
+    assert first.text == ANSWER
+    assert second.ok is True
+    assert second.text == ANSWER
+    chosen = requests(record, "session/set_config_option")
+    assert [(c["configId"], c["value"]) for c in chosen] == [
+        ("model", "deep-2"),
+        ("model", "deep-2"),
+    ]
+    at_prompt = requests(record, MODEL_AT_PROMPT)
+    assert [entry["model"] for entry in at_prompt] == [DEFAULT_MODEL, DEFAULT_MODEL]
+    reports = [line for line in capsys.readouterr().err.splitlines() if "deep-2" in line]
+    assert len(reports) == 1, reports
+    assert "refus" in reports[0]
+
+
 def test_default_models_are_this_runtime_s_own_not_claude_code_s() -> None:
     """A runtime's `default_models` is what a role resolves to once nothing
     in abk.yaml or the environment names one (`config.models()`) — never

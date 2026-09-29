@@ -178,9 +178,11 @@ class AcpRuntime:
     )
 
     def __init__(self) -> None:
-        # The models already reported as not on offer, and whether the agent's
-        # lack of extra workspace roots has been: once per runtime, not once
-        # per unit a tick runs through it.
+        # The models already reported as not on offer or refused once set —
+        # both share this set, so a model reported for one reason is not
+        # reported again for the other — and whether the agent's lack of
+        # extra workspace roots has been: once per runtime, not once per unit
+        # a tick runs through it.
         self._unoffered: set[str] = set()
         self._no_roots_told = False
 

@@ -32,7 +32,9 @@ without exiting, as an agent whose stdio loop died while its process did not.
 `HANG_SECONDS`, writing the child's pid to `orphan_pid_file(RECORD)`, then does
 what `hang` does: a wrapper whose real agent keeps stderr open. `detach` is
 `orphan` with the child in a session of its own, out of reach of a kill of the
-agent's process group.
+agent's process group. `set_model` leaves the model on offer but answers every
+`session/set_config_option` for it with a JSON-RPC error, as an agent that
+offers a model and then refuses to switch to it.
 """
 
 from __future__ import annotations
@@ -197,6 +199,8 @@ class FakeAgent:
     async def set_config_option(
         self, config_id: str, session_id: str, value: str | bool, **kwargs: Any
     ) -> SetSessionConfigOptionResponse:
+        if config_id == "model" and self._fail == "set_model":
+            raise RequestError.internal_error({"details": "the model is not available to select"})
         if config_id == "model" and value in MODELS:
             self._model = str(value)
         return SetSessionConfigOptionResponse(config_options=[_model_option(self._model)])
@@ -348,7 +352,9 @@ def main() -> None:
     parser.add_argument("--stop", default="end_turn", choices=get_args(StopReason))
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
     parser.add_argument("--linger", action="store_true")
-    parser.add_argument("--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach"])
+    parser.add_argument(
+        "--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach", "set_model"]
+    )
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,

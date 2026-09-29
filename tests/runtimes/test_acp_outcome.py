@@ -122,7 +122,8 @@ def test_a_ceiling_result_also_carries_its_raw_record(
     result = AcpRuntime().run(_request(worktree, specs, keep_record=True))
 
     assert result.ok is False
-    assert result.raw != ""
+    lines = [json.loads(line) for line in result.raw.splitlines() if line]
+    assert any(line.get("result", {}).get("stopReason") == "max_tokens" for line in lines)
 
 
 def test_the_session_works_in_the_worktree_and_can_read_the_extra_directories(
