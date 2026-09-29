@@ -30,6 +30,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.usage_guard import check_refusal
 from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
+from agent_build_kit.runtimes.base import AgentRuntime
 
 RunClaude = Callable[[str], str]
 
@@ -352,6 +353,7 @@ def plan_round(
     built: set[int] | None = None,
     known: set[str] | None = None,
     run_claude: RunClaude | None = None,
+    runtime: AgentRuntime | None = None,
 ) -> list[Unit]:
     """Ask for a graph and return it, or raise `PlannerError`.
 

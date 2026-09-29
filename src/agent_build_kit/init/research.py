@@ -18,6 +18,7 @@ from datetime import date
 from pathlib import Path
 
 from agent_build_kit.init.claude_call import RunClaude, claude_text
+from agent_build_kit.runtimes.base import AgentRuntime
 
 ALLOWED_TOOLS = "Read Grep Glob WebSearch WebFetch"
 
@@ -118,6 +119,7 @@ def research(
     output: Path,
     run_claude: RunClaude | None = None,
     today: date | None = None,
+    runtime: AgentRuntime | None = None,
 ) -> Path:
     """Write `output` (`docs/recommendations/<language>.md`) and return it."""
     run = run_claude or claude_text

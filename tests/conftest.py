@@ -16,6 +16,7 @@ build their own `Installation` and activate it.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -56,8 +57,8 @@ def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
 def no_real_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     """Running an agent through the runtime adapter is a real `claude`
     process. A test that means to run one injects `execute=`; anything else
-    reaching the adapter's real executor fails. The call sites that still
-    spawn `claude` themselves are not covered by this guard."""
+    reaching the adapter's real executor fails. A call site that still spawns
+    `claude` itself is stopped by `no_direct_claude` instead."""
 
     def refuse(*args, **kwargs):
         raise AssertionError("a test tried to spawn a real agent process — inject `execute=`")
@@ -79,6 +80,28 @@ def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(claude_code, "read_live_usage", refuse)
     monkeypatch.setattr(claude_code, "read_cached_usage", refuse)
+
+
+class _NoClaudePopen(subprocess.Popen):
+    """`subprocess.Popen`, refusing to start a `claude` process. Every other
+    command — git, the fixture repos' own tools — runs as it would."""
+
+    def __init__(self, args, *pargs, **kwargs) -> None:
+        program = args[0] if isinstance(args, list | tuple) and args else args
+        if Path(str(program)).name == "claude":
+            raise AssertionError(
+                "a test spawned `claude` directly, not through the agent runtime — "
+                "inject a runtime, or `execute=` on the adapter"
+            )
+        super().__init__(args, *pargs, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def no_direct_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Behind `no_real_agent`: a call site that builds and spawns its own
+    `claude` argv, instead of going through the runtime, fails rather than
+    starting a real agent on the machine running the suite."""
+    monkeypatch.setattr(subprocess, "Popen", _NoClaudePopen)
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:

@@ -32,6 +32,7 @@ from pathlib import Path
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import gh, git
+from agent_build_kit.runtimes.base import AgentRuntime
 
 Runner = Callable[[list[str]], str]
 
@@ -292,6 +293,7 @@ def resolved_move(
     onto_unit: str,
     onto_intent: str,
     move: Callable[..., Moved] | None = None,
+    resolve: Resolver | None = None,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 
@@ -393,7 +395,7 @@ def blast_radius_note(*, branch: str, old_base: str, new_base: str, reason: str)
     )
 
 
-def claude_resolver(prompt: str, *, cwd: Path) -> None:
+def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = None) -> None:
     """Resolve the conflicted files in `cwd` with a scoped Claude run.
 
     Deliberately narrow: no commit, no push, no test run. It edits the

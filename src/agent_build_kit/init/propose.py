@@ -26,6 +26,7 @@ from agent_build_kit.init.claude_call import RunClaude, claude_text
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.scaffold import render_rules
 from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.runtimes.base import AgentRuntime
 
 Kind = Literal["testing-infrastructure", "code-standards"]
 
@@ -245,6 +246,7 @@ def propose(
     run_claude: RunClaude | None = None,
     run_openspec: openspec.Run | None = None,
     repos: tuple[str, ...] | None = None,
+    runtime: AgentRuntime | None = None,
 ) -> str:
     """Write the change and return its name, or raise `ProposeError`."""
     run = run_claude or claude_text

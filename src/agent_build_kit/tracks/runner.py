@@ -48,6 +48,7 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
+from agent_build_kit.runtimes.base import AgentRuntime
 
 RUN_ID = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 TRACKS = ("health", "improve", "recommend")
@@ -366,6 +367,7 @@ def claude_phase(
     worktree: str | None,
     focus: str | None = None,
     dry_run: bool = False,
+    runtime: AgentRuntime | None = None,
 ) -> int:
     """Runs one claude -p phase for one project (cwd = that project's
     checkout, the planning repo added as an extra dir for run logs), writes
@@ -435,7 +437,12 @@ def has_headroom() -> bool:
 
 
 def implement(
-    inst: Installation, project: Project, focus: str | None = None, *, dry_run: bool = False
+    inst: Installation,
+    project: Project,
+    focus: str | None = None,
+    *,
+    dry_run: bool = False,
+    runtime: AgentRuntime | None = None,
 ) -> int:
     return claude_phase(
         inst,
@@ -448,7 +455,12 @@ def implement(
 
 
 def health(
-    inst: Installation, project: Project, focus: str | None = None, *, dry_run: bool = False
+    inst: Installation,
+    project: Project,
+    focus: str | None = None,
+    *,
+    dry_run: bool = False,
+    runtime: AgentRuntime | None = None,
 ) -> int:
     health_rc = claude_phase(
         inst,
@@ -486,7 +498,12 @@ def health(
 
 def discover_then_implement(track: str):
     def run(
-        inst: Installation, project: Project, focus: str | None = None, *, dry_run: bool = False
+        inst: Installation,
+        project: Project,
+        focus: str | None = None,
+        *,
+        dry_run: bool = False,
+        runtime: AgentRuntime | None = None,
     ) -> int:
         discover_rc = claude_phase(
             inst,
