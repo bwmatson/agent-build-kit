@@ -85,8 +85,67 @@ def _is_git(tokens: list[str], *subcommand: str) -> bool:
     )
 
 
+# Environment variables that switch a repo's commit gate off: pre-commit's
+# SKIP, husky's HUSKY=0, lefthook's LEFTHOOK=0.
+GATE_SWITCHES = {"SKIP", "HUSKY", "LEFTHOOK"}
+
+# `git commit` short options that take a value, so an `n` after one of them in
+# a cluster (`-mn`) is the value, not --no-verify.
+COMMIT_VALUED = set("mFCcSt")
+
+GATE_REASON = (
+    "the repo's commit gate is the reason the pipeline may push unattended, so it is never "
+    "skipped or reconfigured — fix what it reports and leave the commit to the pipeline"
+)
+
+
+def _switches_gate_off(tokens: list[str]) -> bool:
+    """A leading `SKIP=… cmd`, `env HUSKY=0 cmd` or `export SKIP=…`."""
+    for token in tokens:
+        name = token.split("=", 1)[0]
+        if "=" in token and not token.startswith("-"):
+            if name in GATE_SWITCHES:
+                return True
+        elif token not in WRAPPERS and token != "export":
+            return False
+    return False
+
+
+def _skips_commit_hooks(tokens: list[str]) -> bool:
+    """A `git … commit` that would not run the pre-commit hook."""
+    if not tokens or tokens[0] != "git":
+        return False
+    # Hooks can be pointed elsewhere on any git command: `-c core.hooksPath=`,
+    # `git config core.hooksPath …`. Config keys are case-insensitive.
+    if any("core.hookspath" in token.lower() for token in tokens):
+        return True
+    # Past git's own options (`-C dir`, `-c key=value`) to the subcommand.
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        index += 2 if tokens[index] in ("-C", "-c") else 1
+    if index >= len(tokens) or tokens[index] != "commit":
+        return False
+    args = iter(tokens[index + 1 :])
+    for arg in args:
+        # git accepts any unambiguous prefix of a long option.
+        if arg.startswith("--no-veri") and "--no-verify".startswith(arg):
+            return True
+        if arg in ("-m", "-F", "-C", "-c", "-t", "--message", "--file"):
+            next(args, None)
+        elif arg.startswith("-") and not arg.startswith("--"):
+            for flag in arg[1:]:
+                if flag == "n":
+                    return True
+                if flag in COMMIT_VALUED:
+                    break
+    return False
+
+
 def _check_segment(segment: str, branch: str) -> Verdict:
-    tokens = _strip_wrappers(_tokens(segment))
+    raw = _tokens(segment)
+    tokens = _strip_wrappers(raw)
+    if _switches_gate_off(raw) or _skips_commit_hooks(tokens):
+        return Verdict(allowed=False, reason=GATE_REASON)
     if not tokens:
         return Verdict(allowed=True)
 

@@ -70,7 +70,7 @@ from agent_build_kit.pipeline.usage_guard import (
     threshold_at,
 )
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
-from agent_build_kit.pipeline.wiring import build_commit, build_runner
+from agent_build_kit.pipeline.wiring import CommitRejected, build_commit, build_runner
 from agent_build_kit.pipeline.work_graph import NEEDS_LINE, cross_change_needs, validate_tasks
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 
@@ -726,8 +726,11 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore, graph: list[Stor
         return True
     except Exception as error:  # noqa: BLE001 — see the docstring.
         log(f"{unit.id}: failed, {type(error).__name__}: {error}")
+        # A rejected commit's reason is the gate's own output: on the unit's
+        # record, not only in a tick log someone would have to find.
+        note = str(error) if isinstance(error, CommitRejected) else ""
         try:
-            store.set_state(unit.id, "failed")
+            store.set_state(unit.id, "failed", note=note)
         except Exception as second:  # noqa: BLE001
             log(f"{unit.id}: could not be recorded as failed — {second}")
         return True

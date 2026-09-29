@@ -88,6 +88,42 @@ def test_amending_a_unit_branch_is_denied() -> None:
     assert not allowed("git amend")
 
 
+def test_the_commit_gate_cannot_be_skipped() -> None:
+    """The repo's pre-commit hooks are why the pipeline may push unattended.
+    Every way of committing without them is refused, however it is spelled."""
+    for command in [
+        "git commit --no-verify -m x",
+        "git commit --no-veri -m x",
+        "git commit -n -m x",
+        "git commit -anm x",
+        "git add -A && git commit -qn -m x",
+        "SKIP=ruff git commit -m x",
+        "env SKIP=ruff,pyrefly git commit -m x",
+        "HUSKY=0 git commit -m x",
+        "export SKIP=ruff",
+        "git -c core.hooksPath=/dev/null commit -m x",
+        "git -C . -c core.hooksPath=/tmp/none commit -m x",
+        "git config core.hooksPath /dev/null",
+        "git config core.hookspath /dev/null",
+    ]:
+        verdict = check_command(command, branch=SPEC)
+        assert not verdict.allowed, command
+        assert "gate" in verdict.reason
+
+
+def test_a_commit_that_runs_the_gate_is_not_mistaken_for_one_that_skips_it() -> None:
+    for command in [
+        'git commit -m "-n is not a flag here"',
+        "git commit -m -n",
+        "git commit -mn",
+        "git commit -q -m x",
+        "git log -n 3",
+        'git commit -m "SKIP=ruff is refused"',
+        "echo SKIP=ruff",
+    ]:
+        assert allowed(command), command
+
+
 def test_destructive_git_is_denied() -> None:
     for command in [
         "git reset --hard origin/main",
