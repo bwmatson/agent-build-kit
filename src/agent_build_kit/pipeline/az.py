@@ -24,7 +24,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Callable
+import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
 from agent_build_kit.settings import settings
 
@@ -83,3 +86,20 @@ def json_out(args: list[str], *, org: str, run: Run | None = None) -> object:
             f"az {' '.join(args)}: answered with something that is not JSON "
             f"(a sign-in page means the call was not authenticated): {text[:120]}"
         ) from None
+
+
+@contextmanager
+def body_file(payload: object) -> Iterator[str]:
+    """A request body as a file, because that is the only way to send one.
+
+    `az devops invoke` takes a body through `--in-file` and has no inline
+    form, so a REST call that carries one writes it out and removes it again.
+    """
+    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    try:
+        json.dump(payload, handle)
+        handle.close()
+        yield handle.name
+    finally:
+        handle.close()
+        Path(handle.name).unlink(missing_ok=True)

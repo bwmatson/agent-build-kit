@@ -27,10 +27,14 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
 from agent_build_kit.forges.base import PullRequest, RepoId, ReviewNote, Run
-from agent_build_kit.pipeline import az
+from agent_build_kit.pipeline import az, units
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
+
+# The REST version the pull request PATCH is made against; `az devops invoke`
+# defaults to 5.0, which predates fields this relies on.
+_API = "7.1"
 
 # `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>`, with or without the
 # ssh:// scheme, and `https://[user@]dev.azure.com/<org>/<project>/_git/<repo>`.
@@ -154,22 +158,141 @@ class AzureDevOpsForge:
             return f"cannot tell what guards {branch}: {error}"
         return "" if found else f"no branch policy guards {branch}"
 
-    # --- the rest, once the lifecycle lands -----------------------------------------
+    # --- pull requests --------------------------------------------------------------
 
-    def find_pr(self, repo: RepoId, *, head: str) -> int | None:
-        return self._todo("find_pr")
+    def list_prs(
+        self, repo: RepoId, *, head_prefix: str = "", run: Run | None = None
+    ) -> list[PullRequest]:
+        found = az.json_out(
+            [
+                "repos",
+                "pr",
+                "list",
+                "--project",
+                repo.project,
+                "--repository",
+                repo.name,
+                # Merged and abandoned included: a merge is precisely what the
+                # poller is waiting for, and it is only visible here.
+                "--status",
+                "all",
+                "--top",
+                "100",
+            ],
+            org=az.org_url(repo.account),
+            run=run,
+        )
+        if not isinstance(found, list):
+            raise az.AzError("expected a list of pull requests")
+        pulls = [_view(pull) for pull in found]
+        return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
 
-    def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
-        return self._todo("create_pr")
+    def find_pr(self, repo: RepoId, *, head: str, run: Run | None = None) -> int | None:
+        found = az.json_out(
+            [
+                "repos",
+                "pr",
+                "list",
+                "--project",
+                repo.project,
+                "--repository",
+                repo.name,
+                "--source-branch",
+                head,
+                "--status",
+                "all",
+                "--top",
+                "1",
+            ],
+            org=az.org_url(repo.account),
+            run=run,
+        )
+        if not isinstance(found, list) or not found:
+            return None
+        try:
+            return int(found[0]["pullRequestId"])
+        except (KeyError, TypeError, ValueError):
+            return None
 
-    def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
-        return self._todo("update_pr")
+    def create_pr(
+        self,
+        repo: RepoId,
+        *,
+        head: str,
+        base: str,
+        title: str,
+        body: str,
+        run: Run | None = None,
+    ) -> int:
+        made = az.json_out(
+            [
+                "repos",
+                "pr",
+                "create",
+                "--project",
+                repo.project,
+                "--repository",
+                repo.name,
+                "--source-branch",
+                head,
+                "--target-branch",
+                base,
+                "--title",
+                title,
+                "--description",
+                body,
+            ],
+            org=az.org_url(repo.account),
+            run=run,
+        )
+        if not isinstance(made, dict) or "pullRequestId" not in made:
+            raise az.AzError(f"creating a pull request for {head} answered without an id")
+        return int(made["pullRequestId"])
 
-    def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
-        return self._todo("list_prs")
+    def update_pr(
+        self, repo: RepoId, pr: int, *, base: str = "", body: str = "", run: Run | None = None
+    ) -> None:
+        """Change a PR's base or body.
+
+        The base goes through the REST API because `az repos pr update` has no
+        `--target-branch`, and a PR left pointing at a branch that merged away
+        shows a diff containing everything.
+        """
+        if base:
+            with az.body_file({"targetRefName": f"refs/heads/{base}"}) as payload:
+                az.json_out(
+                    [
+                        "devops",
+                        "invoke",
+                        "--area",
+                        "git",
+                        "--resource",
+                        "pullrequests",
+                        "--route-parameters",
+                        f"project={repo.project}",
+                        f"repositoryId={repo.name}",
+                        f"pullRequestId={pr}",
+                        "--http-method",
+                        "PATCH",
+                        "--api-version",
+                        _API,
+                        "--in-file",
+                        payload,
+                    ],
+                    org=az.org_url(repo.account),
+                    run=run,
+                )
+        if body:
+            az.json_out(
+                ["repos", "pr", "update", "--id", str(pr), "--description", body],
+                org=az.org_url(repo.account),
+                run=run,
+            )
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
         return self._todo("pr_files")
+
+    # --- the rest, once review and checks land --------------------------------------
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         return self._todo("review_notes")
@@ -188,8 +311,98 @@ class AzureDevOpsForge:
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         return self._todo("failed_check_logs")
 
-    def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
-        return self._todo("delete_remote_branch")
+    def delete_remote_branch(self, repo: RepoId, branch: str, run: Run | None = None) -> None:
+        """Remove the source branch, which a merge here leaves behind.
+
+        Azure refuses a ref delete that does not name the commit being
+        removed, so the ref is read first. A branch that is already gone is
+        not an error: the remote may have been cleaned up by hand, or by the
+        completion itself when the PR asked for it.
+        """
+        where = ["--project", repo.project, "--repository", repo.name]
+        found = az.json_out(
+            ["repos", "ref", "list", "--filter", f"heads/{branch}", *where],
+            org=az.org_url(repo.account),
+            run=run,
+        )
+        refs = found if isinstance(found, list) else []
+        at = next(
+            (
+                str(ref.get("objectId"))
+                for ref in refs
+                if _branch(ref.get("name")) == branch and ref.get("objectId")
+            ),
+            "",
+        )
+        if not at:
+            return
+        az.json_out(
+            ["repos", "ref", "delete", "--name", f"heads/{branch}", "--object-id", at, *where],
+            org=az.org_url(repo.account),
+            run=run,
+        )
 
 
 FORGE = AzureDevOpsForge()
+
+
+def _branch(ref: object) -> str:
+    """A branch name from a ref. Azure reports `refs/heads/x`, and a base of
+    `refs/heads/main` would be pushed to as a branch of that name."""
+    return str(ref or "").removeprefix("refs/heads/")
+
+
+def _decision(reviewers: list[dict]) -> str:
+    """Whether anybody has asked for changes.
+
+    Azure's scale is 10 approved, 5 approved with suggestions, 0 no vote, -5
+    waiting for the author, -10 rejected. So a negative vote asks for
+    something and 5 does not - read as rework, an approval with suggestions
+    would send the unit round the loop again on every poll for as long as the
+    vote stands.
+
+    A group (`isContainer`) votes on behalf of nobody: a required-reviewers
+    group sitting at -5 would rework the unit forever.
+    """
+    for reviewer in reviewers:
+        if reviewer.get("isContainer"):
+            continue
+        try:
+            vote = int(reviewer.get("vote", 0))
+        except (TypeError, ValueError):
+            continue
+        if vote < 0:
+            return "changes_requested"
+    return ""
+
+
+def _view(pull: dict) -> PullRequest:
+    """One pull request as the pipeline needs to see it.
+
+    `status` is the only field that says whether this was merged.
+    `mergeStatus: succeeded` means "can be merged" and is set on open pull
+    requests, and `lastMergeCommit` is populated on them too - reading either
+    as proof would mark every open PR merged, restacking its children and
+    deleting their branches.
+    """
+    status = str(pull.get("status") or "")
+    return PullRequest(
+        number=int(pull["pullRequestId"]),
+        head=_branch(pull.get("sourceRefName")),
+        base=_branch(pull.get("targetRefName")),
+        state=(
+            units.MERGED
+            if status == "completed"
+            else units.CLOSED
+            if status == "abandoned"
+            else "open"
+        ),
+        draft=bool(pull.get("isDraft")),
+        # `null`, not `[]`, when a pull request has none.
+        labels=tuple(sorted(str(label.get("name", "")) for label in pull.get("labels") or [])),
+        review_decision=_decision(pull.get("reviewers") or []),
+        # `conversation` and `failing_checks` stay empty until the review
+        # round-trip and the status checks land: both need a call per pull
+        # request, and an empty answer here means "nothing new", which is the
+        # safe reading while the forge is unfinished.
+    )
