@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # Overrides abk.yaml's `planning.worktree_root` on this machine.
     worktree_root: Path | None = None
 
+    # Where the user manager reads units from (timers.py). systemd honours
+    # XDG_CONFIG_HOME, so installing the units has to read it the same way, or
+    # they land where nothing looks for them. `~/.config` when unset.
+    config_home: Path | None = Field(
+        None, validation_alias=AliasChoices("XDG_CONFIG_HOME", "ABK_CONFIG_HOME")
+    )
+
     # The OpenSpec CLI version run through npx (openspec.py). A pin, so an
     # upgrade is a deliberate change here rather than whatever npx fetched.
     openspec_version: str = "1.13.1"

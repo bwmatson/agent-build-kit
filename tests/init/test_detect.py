@@ -217,3 +217,121 @@ def test_git_failures_go_through_the_injected_runner(tmp_path: Path) -> None:
     assert detection.slug is None
     assert detection.default_branch == "main"
     assert not detection.has_code
+
+
+# --- nested projects --------------------------------------------------------------
+
+
+def test_a_repo_whose_projects_are_nested_reports_both_languages(tmp_path: Path) -> None:
+    """The layout a monorepo-ish checkout actually has: nothing at the root, a
+    Python project two levels down and its web app one level below that. Reading
+    only the root said "no language detected", which left the repo with no
+    recommendations document and no proposed changes."""
+    repo = init_repo(tmp_path / "accelerators")
+    poc = repo / "pipelines" / "poc"
+    poc.mkdir(parents=True)
+    (poc / "pyproject.toml").write_text('[project]\nname = "poc"\n')
+    (poc / "uv.lock").write_text("")
+    web = poc / "web"
+    web.mkdir()
+    (web / "package.json").write_text("{}")
+    (web / "tsconfig.json").write_text("{}")
+
+    detection = detect_repo(repo)
+
+    assert detection.languages == ["python", "javascript", "typescript"]
+    assert detection.profile == "python-uv"
+    assert [
+        (project.path, project.languages, project.profile) for project in detection.projects
+    ] == [
+        ("pipelines/poc", ["python"], "python-uv"),
+        ("pipelines/poc/web", ["javascript", "typescript"], "node-npm"),
+    ]
+
+
+def test_a_root_project_is_reported_as_the_repo_itself(tmp_path: Path) -> None:
+    """The ordinary case keeps its answer: the root is the project, named `.`."""
+    repo = init_repo(tmp_path / "app")
+    (repo / "pyproject.toml").write_text('[project]\nname = "app"\n')
+
+    detection = detect_repo(repo)
+
+    assert detection.languages == ["python"]
+    assert [(project.path, project.languages) for project in detection.projects] == [
+        (".", ["python"])
+    ]
+
+
+def test_a_nested_javascript_project_alone_gets_the_node_profile(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "site")
+    app = repo / "apps" / "web"
+    app.mkdir(parents=True)
+    (app / "package.json").write_text("{}")
+
+    detection = detect_repo(repo)
+
+    assert detection.languages == ["javascript"]
+    assert detection.profile == "node-npm"
+
+
+def test_vendored_and_virtualenv_directories_are_not_scanned(tmp_path: Path) -> None:
+    """node_modules and .venv hold thousands of tooling files that say nothing
+    about what this repo is written in."""
+    repo = init_repo(tmp_path / "app")
+    for buried in (repo / "node_modules" / "left-pad", repo / ".venv" / "lib"):
+        buried.mkdir(parents=True)
+        (buried / "package.json").write_text("{}")
+        (buried / "pyproject.toml").write_text('[project]\nname = "x"\n')
+
+    detection = detect_repo(repo)
+
+    assert detection.languages == []
+    assert detection.projects == []
+
+
+def test_the_scan_stops_at_its_depth_limit(tmp_path: Path) -> None:
+    """A bound, so a large checkout is not walked end to end. Three levels
+    reaches a service's web app; a project below that is the owner's to name in
+    abk.yaml."""
+    repo = init_repo(tmp_path / "deep")
+    reachable = repo / "one" / "two" / "three"
+    reachable.mkdir(parents=True)
+    (reachable / "pyproject.toml").write_text('[project]\nname = "three"\n')
+    too_deep = repo / "a" / "b" / "c" / "d"
+    too_deep.mkdir(parents=True)
+    (too_deep / "package.json").write_text("{}")
+
+    detection = detect_repo(repo)
+
+    assert detection.languages == ["python"]
+    assert [project.path for project in detection.projects] == ["one/two/three"]
+
+
+def test_a_requirements_file_inside_a_project_is_not_a_project_of_its_own(tmp_path: Path) -> None:
+    """A deployment manifest is not a project. An Azure Functions directory
+    carries `requirements.txt` beside the code it deploys, inside a project that
+    already declares itself with a pyproject.toml; listing it as a project of
+    its own says the repo has a build it does not have."""
+    repo = init_repo(tmp_path / "accelerators")
+    poc = repo / "poc"
+    poc.mkdir()
+    (poc / "pyproject.toml").write_text('[project]\nname = "poc"\n')
+    functions = poc / "functions"
+    functions.mkdir()
+    (functions / "requirements.txt").write_text("azure-functions\n")
+
+    detection = detect_repo(repo)
+
+    assert [project.path for project in detection.projects] == ["poc"]
+
+
+def test_a_repo_declared_only_by_a_requirements_file_is_still_a_project(tmp_path: Path) -> None:
+    """The other side: plenty of Python repos declare themselves with nothing
+    else, and nothing above them claims them."""
+    repo = init_repo(tmp_path / "scripts")
+    (repo / "requirements.txt").write_text("requests\n")
+
+    detection = detect_repo(repo)
+
+    assert [project.path for project in detection.projects] == ["."]
+    assert detection.languages == ["python"]

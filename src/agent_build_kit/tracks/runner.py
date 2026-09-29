@@ -323,7 +323,6 @@ def build_command(
     inst: Installation,
     *,
     prompt: str,
-    budget_usd: float | None,
     worktree: str | None,
 ) -> list[str]:
     tracks = inst.config.tracks
@@ -339,7 +338,6 @@ def build_command(
         tracks.allowed_tools,
         "--disallowedTools",
         tracks.disallowed_tools,
-        *(["--max-budget-usd", str(budget_usd)] if budget_usd is not None else []),
         "--model",
         tracks.model,
         "--output-format",
@@ -365,7 +363,6 @@ def claude_phase(
     *,
     project: Project,
     name: str,
-    budget_usd: float | None,
     worktree: str | None,
     focus: str | None = None,
     dry_run: bool = False,
@@ -373,11 +370,15 @@ def claude_phase(
     """Runs one claude -p phase for one project (cwd = that project's
     checkout, the planning repo added as an extra dir for run logs), writes
     its raw JSON output under the planning root, and returns its exit code.
-    Never raises on a nonzero exit — a budget-exhausted or otherwise failed
-    phase should not stop whatever phase or project runs after it. A dry run
-    prints the rendered prompt and the command instead of running it."""
+    Never raises on a nonzero exit — an otherwise failed phase should not
+    stop whatever phase or project runs after it. No dollar budget: the
+    session window is the limit, and `has_headroom` (below) is what keeps a
+    timer from spending into credits — a guessed dollar ceiling beside that
+    drifts from real cost, and set too low it refuses to start a run rather
+    than bounding one. A dry run prints the rendered prompt and the command
+    instead of running it."""
     prompt = render_prompt(inst, project, name, focus)
-    cmd = build_command(inst, prompt=prompt, budget_usd=budget_usd, worktree=worktree)
+    cmd = build_command(inst, prompt=prompt, worktree=worktree)
     if dry_run:
         _print_dry_run(project, name, cmd)
         return 0
@@ -386,8 +387,7 @@ def claude_phase(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{RUN_ID}-{project.name}-{name}.json"
 
-    bound = f"${budget_usd} notional (tracks.budgets_usd)" if budget_usd else "session window only"
-    log(f"[{project.name}] phase: {name} ({bound})")
+    log(f"[{project.name}] phase: {name} (session window only)")
     result = run_phase_command(cmd, cwd=project.path)
     output_file.write_text(result.stdout)
 
@@ -437,15 +437,10 @@ def has_headroom() -> bool:
 def implement(
     inst: Installation, project: Project, focus: str | None = None, *, dry_run: bool = False
 ) -> int:
-    # No dollar budget: the session window is the limit, and `usage_guard`
-    # reads it live. A guessed ceiling beside that drifts from real cost, and
-    # set too low it refuses to start the run rather than bounding it.
-    # `has_headroom` is what keeps a timer from spending into credits.
     return claude_phase(
         inst,
         project=project,
         name="implement",
-        budget_usd=None,
         worktree=f"abk-{RUN_ID}",
         focus=focus,
         dry_run=dry_run,
@@ -459,7 +454,6 @@ def health(
         inst,
         project=project,
         name="health",
-        budget_usd=inst.config.tracks.budgets_usd.get("health"),
         worktree=None,
         dry_run=dry_run,
     )
@@ -498,7 +492,6 @@ def discover_then_implement(track: str):
             inst,
             project=project,
             name=track,
-            budget_usd=inst.config.tracks.budgets_usd.get(track),
             worktree=None,
             dry_run=dry_run,
         )

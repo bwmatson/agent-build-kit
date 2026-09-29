@@ -22,3 +22,8 @@ Conventions that hold across every repo:
 - A contract that crosses a repo boundary changes additively first: the
   widening lands alone, every consumer moves, and only then is the old shape
   removed.
+- A new module or interface earns its keep by how much it hides, not how
+  little it exposes: prefer one call that does the work over several thin
+  ones that mirror the caller's own steps, and don't let one module's
+  internal shape (a config's nested fields, an enum's exact members) become
+  something a distant caller has to know just to use it.

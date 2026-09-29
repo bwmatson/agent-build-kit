@@ -30,8 +30,8 @@ from pathlib import Path
 
 from pydantic import Field
 
+from agent_build_kit.forges import PostsStatuses, RepoId
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import gh
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
@@ -144,32 +144,20 @@ on the developer host.
 """
 
 
-def post_status(repo_slug: str, result: Tier2Result, *, run: Runner | None = None) -> None:
+def post_status(forge: PostsStatuses, repo: RepoId, result: Tier2Result) -> None:
     """Publish the tier 2 result as a commit status on the tested SHA.
 
-    Called after the push: GitHub rejects a status for a commit it hasn't
+    Called after the push: a host rejects a status for a commit it has not
     seen. The SHA is the one that was tested, never `HEAD` — those differ the
     moment a restack happens, and a status on the wrong commit is worse than
     none.
     """
-    run = run or (lambda args: gh(args).stdout)
-    state = "success" if result.ok else "failure"
-    description = (
-        f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
-    )
-
-    run(
-        [
-            "gh",
-            "api",
-            "-X",
-            "POST",
-            f"repos/{repo_slug}/statuses/{result.sha}",
-            "-f",
-            f"state={state}",
-            "-f",
-            f"context={STATUS_CONTEXT}",
-            "-f",
-            f"description={description[:139]}",
-        ]
+    forge.post_status(
+        repo,
+        sha=result.sha,
+        ok=result.ok,
+        context=STATUS_CONTEXT,
+        description=(
+            f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
+        ),
     )

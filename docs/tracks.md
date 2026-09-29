@@ -29,18 +29,20 @@ for the three scheduled ones.
    skipped, so a repo can be listed before it exists on GitHub.
 4. Per repo, in `abk.yaml` order: pull its default branch (a failure skips
    the repo and counts as failed), then dispatch:
-   - `health`: one phase, no worktree, budget `tracks.budgets_usd.health`.
-     Afterwards the run log's `**Status:** OK | PENDING RESOLUTION |
-     ATTENTION | URGENT` line is read back; `ATTENTION` or `URGENT` — a
-     genuinely new finding, not one already pending a PR — runs `implement`
-     for the same repo now. A missing or unparseable status means "can't
-     tell", and nothing more happens.
-   - `improve`, `recommend`: the discovery phase with its budget, then
-     `implement` — always, even when discovery exited non-zero; implement
-     falls back to the candidates the run logs already hold. Two invocations
-     so a heavy discovery pass cannot spend what the implementing phase needs.
-   - `implement`: one phase in a fresh `claude --worktree abk-<run id>`, with
-     no dollar budget — the usage window is the limit, read live.
+   - `health`: one phase, no worktree. Afterwards the run log's `**Status:**
+     OK | PENDING RESOLUTION | ATTENTION | URGENT` line is read back;
+     `ATTENTION` or `URGENT` — a genuinely new finding, not one already
+     pending a PR — runs `implement` for the same repo now. A missing or
+     unparseable status means "can't tell", and nothing more happens.
+   - `improve`, `recommend`: the discovery phase, then `implement` — always,
+     even when discovery exited non-zero; implement falls back to the
+     candidates the run logs already hold.
+   - `implement`: one phase in a fresh `claude --worktree abk-<run id>`.
+
+No phase carries a dollar budget — every one of them is bounded the same way
+as the headroom check in step 1: the usage window is the limit, read live.
+A guessed dollar ceiling beside that drifts from real cost, and set too low
+it refuses to start a run instead of bounding one.
 
 Exit 1 if any repo's phase exited non-zero; a non-zero exit is never fatal to
 the next phase or repo.
@@ -52,7 +54,7 @@ working directory:
 claude -p [--worktree abk-<run id>] --add-dir <planning root>
   --permission-mode acceptEdits
   --allowedTools "<tracks.allowed_tools>" --disallowedTools "<tracks.disallowed_tools>"
-  [--max-budget-usd <budget>] --model <tracks.model> --output-format json <prompt>
+  --model <tracks.model> --output-format json <prompt>
 ```
 
 The raw JSON goes to `<planning root>/<tracks.raw_output_dir>/<run id>-<repo>-<phase>.json`
@@ -126,12 +128,13 @@ is still checked.
 
 ## Budgets
 
-`tracks.budgets_usd` (`health` 7.5, `improve` 7.5, `recommend` 8.0 by
-default) is passed as `--max-budget-usd` to the discovery phases — a notional
-per-run ceiling. The `implement` phase has none: the usage window is the real
-limit, and a guessed ceiling set too low refuses to start the run rather than
-bounding it. `has_headroom` at the start of every track is what keeps a timer
-from spending into credits.
+No phase carries a dollar budget. The usage window is the real limit — a
+guessed dollar ceiling drifts from actual cost, and set too low it refuses to
+start a run rather than bounding one. `has_headroom` at the start of every
+track is what keeps a timer from spending into credits: it checks the same
+session/weekly usage-window percentage (`limits.usage_pause_pct`) the unit
+pipeline already uses to decide whether a new unit may start, and skips the
+whole run — before any repo, before any phase — if there's no headroom.
 
 ## The systemd templates
 

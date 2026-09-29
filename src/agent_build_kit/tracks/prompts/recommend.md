@@ -63,11 +63,12 @@ this is a bonus check, not a requirement to resolve everything.
 
 ## 3. Fan out
 
-Use the `Agent` tool to run these 4 playbooks from
+Use the `Agent` tool to run these 5 playbooks from
 `__PROMPTS_DIR__/categories/recommend/` in parallel:
 
 - `test-coverage-gaps`
 - `technical-debt`
+- `module-design`
 - `architecture-opportunities` — the one with real web access
   (`WebSearch`/`WebFetch`); it rotates through its research topics, one
   per run for this project, per its own playbook

@@ -81,9 +81,14 @@ def repo_summary(detection: RepoDetection) -> str:
         f"Languages: {', '.join(detection.languages) or 'none detected'}",
         f"Has code: {'yes' if detection.has_code else 'no — an empty or docs-only repo'}",
         f"Service directories: {', '.join(detection.service_dirs) or 'none'}",
+        f"Projects: {', '.join(project.path for project in detection.projects) or 'none'}",
         "Top level:\n" + "\n".join(f"  {entry}" for entry in entries),
     ]
-    tooling = [root / name for name in TOOLING_FILES]
+    # Every project's tooling, not just the root's: a repo can keep its
+    # pyproject.toml two levels down with a web app beside it, and a summary
+    # built from the root alone describes none of it.
+    searched = [root, *(root / project.path for project in detection.projects)]
+    tooling = [directory / name for directory in dict.fromkeys(searched) for name in TOOLING_FILES]
     tooling += sorted((root / ".github" / "workflows").glob("*.y*ml"))
     for path in tooling:
         if path.is_file():

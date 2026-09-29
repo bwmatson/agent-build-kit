@@ -295,11 +295,10 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     for change in archived:
         log(f"archived {change}")
 
-    limits = inst.config.limits
     ready = ready_units(
         list(units),
-        max_concurrent=limits.max_concurrent_stacks,
-        depth_cap=limits.stack_depth_cap,
+        max_concurrent=inst.max_concurrent_stacks,
+        depth_cap=inst.stack_depth_cap,
     )
     if only := getattr(args, "only", None):
         # Everything else still happens — polling, planning, archiving — so
@@ -457,7 +456,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
     nothing else.
     """
     planned = _planned_hashes(inst)
-    max_attempts = inst.config.limits.max_plan_attempts
+    max_attempts = inst.max_plan_attempts
 
     for tasks in inst.tasks_files():
         change = tasks.parent.name

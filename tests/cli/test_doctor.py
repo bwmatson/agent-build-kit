@@ -85,7 +85,7 @@ def test_a_healthy_workspace_is_all_ok(workspace: Path) -> None:
 
     assert {check.status for check in checks} == {"ok"}, [c for c in checks if c.status != "ok"]
     names = by_name(checks)
-    assert "repo app" in names and "gh example" in names and "openspec" in names
+    assert "repo app" in names and "forge app" in names and "openspec" in names
     assert "rules" in names and "abk.yaml app" in names
 
 
@@ -122,11 +122,13 @@ def test_repo_problems(workspace: Path, tmp_path: Path) -> None:
     assert "does not exist" in checks["repo platform"].detail
 
 
-def test_a_missing_gh_account_fails(workspace: Path) -> None:
+def test_a_repo_whose_host_will_not_answer_fails(workspace: Path) -> None:
+    """Named per repo, not per account: the question is whether the pipeline
+    can act on this repo, which is the same question on every host."""
     checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(owners=set()), which=which_all))
 
-    assert checks["gh example"].status == "FAIL"
-    assert "gh auth login" in checks["gh example"].fix
+    assert checks["forge app"].status == "FAIL"
+    assert "gh auth login" in checks["forge app"].fix
 
 
 def test_node_and_openspec(workspace: Path) -> None:

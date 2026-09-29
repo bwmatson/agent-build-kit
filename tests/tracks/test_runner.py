@@ -5,7 +5,7 @@ Two properties carried over from before the runner took an `Installation`:
 - **It doesn't start a track with no room in the session window.** A timer
   fires whether or not there is headroom, and an account with credits enabled
   spends real money past the window rather than queueing.
-- **`implement` carries no dollar budget.** The window is the limit;
+- **No phase carries a dollar budget.** The window is the limit;
   `usage_guard` reads it live. A guessed dollar ceiling beside that drifts
   from real cost, and set too low it refuses to start a run instead of
   bounding one.
@@ -121,18 +121,8 @@ def test_implement_runs_without_a_dollar_budget(inst, recorder) -> None:
     assert "--max-budget-usd" not in recorder[0]
 
 
-def test_a_phase_honours_the_configured_budget(tmp_path, recorder) -> None:
-    inst = make_installation(tmp_path, tracks={"budgets_usd": {"health": 4.25}})
-
-    runner.health(inst, project(inst))
-
-    cmd = recorder[0]
-    assert cmd[cmd.index("--max-budget-usd") + 1] == "4.25"
-
-
-def test_a_track_without_a_budget_entry_runs_unbounded(tmp_path, recorder) -> None:
-    inst = make_installation(tmp_path, tracks={"budgets_usd": {}})
-
+def test_health_runs_without_a_dollar_budget(inst, recorder) -> None:
+    """The session window is what bounds it — same as every other phase."""
     runner.health(inst, project(inst))
 
     assert "--max-budget-usd" not in recorder[0]

@@ -25,8 +25,9 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
-from agent_build_kit import profiles
+from agent_build_kit import forges, profiles
 from agent_build_kit.config import RepoConfig, active, active_root, models
+from agent_build_kit.forges import OpensPullRequests, PostsStatuses, RepoId
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.claude_stream import STREAM_FLAGS, describe, final_text, stream_run
@@ -39,14 +40,16 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     resolved_move,
 )
-from agent_build_kit.pipeline.shell import gh, git, repo_slug
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     Tier2Result,
     build_snapshot,
-    post_status,
     stack_lock,
+)
+from agent_build_kit.pipeline.tier2 import (
+    post_status as tier2_post_status,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import REVIEWED, Unit, branch_name
@@ -83,11 +86,10 @@ def _specs_dir(planning_repo: Path | None) -> Path:
 def _run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """The default runner the factories below accept a replacement for.
 
-    gh goes through `shell.gh`, so it is run as the account that owns the repo;
-    everything else — git, uv, docker, claude — runs as given.
+    Everything here is git, uv, docker or claude. Talking to a code host goes
+    through its forge, which is the only place that knows how - there is no
+    second way to reach one from the pipeline.
     """
-    if args and args[0] == "gh":
-        return gh(args, **kwargs)
     return subprocess.run(args, capture_output=True, text=True, check=False, **kwargs)
 
 
@@ -183,6 +185,15 @@ Every round you ask for costs a rework and another review, so:
   kind before moving on: every tool taking the same arguments, every caller of
   the function, every path under the same timeout or lock. Name each instance,
   not just the first one you hit.
+- **Watch for shallow interfaces.** A class or function whose public surface
+  is about as complex as what it hides — a getter/setter for every field, a
+  wrapper that mirrors what it wraps, a change that reaches into another
+  module's internal shape instead of asking it for what it needs — costs more
+  to keep than it is worth. Raise it as required when the fix is small and
+  local (collapsing duplicated logic behind one private method, adding a
+  named accessor instead of a raw reach-through); note it as optional, not
+  required, when fixing it well means a real design decision spanning several
+  callers — that is not a rework a builder should be sent back to make alone.
 - **Say what done looks like.** For each required change, state the outcome
   concretely — the behaviour, the value, the test that should exist and what it
   asserts — so it can be fixed in one attempt. Where one fix is clearly best,
@@ -366,86 +377,45 @@ def build_push(store: UnitStore, *, push: Callable[..., str] | None = None) -> C
     return do_push
 
 
-def _pr_number(url: str) -> int:
-    return int(url.strip().rstrip("/").rsplit("/", 1)[-1])
+def build_post_status(
+    *, for_repo: Callable[[str], tuple[PostsStatuses, RepoId]] | None = None
+) -> Callable[[str, Tier2Result], None]:
+    """Post a tier 2 result as a commit status on whichever host the repo lives on."""
+    for_repo = for_repo or forges.for_repo
+
+    def post(repo_name: str, result: Tier2Result) -> None:
+        forge, repo = for_repo(repo_name)
+        tier2_post_status(forge, repo, result)
+
+    return post
 
 
 def build_open_pr(
-    *, run: Run | None = None, existing: Callable[[str, str], int | None] | None = None
+    *, for_repo: Callable[[str], tuple[OpensPullRequests, RepoId]] | None = None
 ) -> Callable[..., int]:
     """Create the unit's PR, or update the one it already has.
 
     Every restack pushes the branch again, so this runs repeatedly for one
-    unit. A second `gh pr create` would fail outright, and the body would then
-    never reflect the restack.
+    unit. A second create would fail outright, and the body would then never
+    reflect the restack. Which host the PR is opened on is the forge's
+    business; this only knows that a unit has one.
     """
-    run = run or _run
-    # Closed over `run`, not the module-level one: otherwise injecting a
-    # recorder still lets the lookup shell out to the real gh.
-    existing = existing or (lambda branch, slug: _existing_pr(branch, slug, run=run))
+    for_repo = for_repo or forges.for_repo
 
     def open_pr(unit: Unit, *, body: str, base: str, cwd: Path) -> int:
-        slug = repo_slug(unit.repo)
+        forge, repo = for_repo(unit.repo)
         branch = branch_name(unit)
-        number = existing(branch, slug)
+        number = forge.find_pr(repo, head=branch)
 
         if number is None:
-            result = run(
-                [
-                    "gh",
-                    "pr",
-                    "create",
-                    "--repo",
-                    slug,
-                    "--base",
-                    base,
-                    "--head",
-                    branch,
-                    "--title",
-                    f"{unit.id}: {unit.title}",
-                    "--body",
-                    body,
-                ],
-                cwd=cwd,
+            return forge.create_pr(
+                repo, head=branch, base=base, title=f"{unit.id}: {unit.title}", body=body
             )
-            return _pr_number(result.stdout)
 
-        run(
-            ["gh", "pr", "edit", str(number), "--repo", slug, "--base", base, "--body", body],
-            cwd=cwd,
-        )
+        forge.update_pr(repo, number, base=base, body=body)
         return number
 
     return open_pr
-
-
-def _existing_pr(branch: str, slug: str, *, run: Run | None = None) -> int | None:
-    # `--repo` explicitly: without it gh infers the repo from the working
-    # directory's remote, which is right by luck rather than by design, and
-    # wrong the moment this is called from anywhere but the worktree.
-    run = run or _run
-    result = run(
-        [
-            "gh",
-            "pr",
-            "list",
-            "--repo",
-            slug,
-            "--head",
-            branch,
-            "--state",
-            "all",
-            "--json",
-            "number",
-            "--limit",
-            "1",
-        ]
-    )
-    try:
-        found = json.loads(result.stdout or "[]")
-        return int(found[0]["number"]) if found else None
-    except (ValueError, KeyError, IndexError):
-        return None
 
 
 def build_worktree(
@@ -529,7 +499,7 @@ class Tier2Session:
         self.lock = lock
         self._run = run or _run
         self._sha = sha or _head_sha
-        self._status = status or (lambda slug, result: post_status(slug, result))
+        self._status = status or build_post_status()
         self._timeout = timeout
         self.result: Tier2Result | None = None
 
@@ -639,7 +609,7 @@ class Tier2Session:
                 f"asked to post a status for {sha[:7]}, but tier 2 ran against a "
                 f"different commit ({self.result.sha[:7]})"
             )
-        self._status(repo_slug(self.unit.repo), self.result)
+        self._status(self.unit.repo, self.result)
 
 
 def _head_sha(cwd: Path) -> str:

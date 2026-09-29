@@ -121,6 +121,41 @@ def test_the_prompt_carries_the_repo_the_rules_and_the_recommendations(app: Path
     assert "- ruff" in prompt
 
 
+def test_the_prompt_carries_the_tooling_of_each_nested_project(tmp_path: Path) -> None:
+    """A repo whose projects sit below the root: the model was handed a top-level
+    listing and nothing else, because the tooling files it reads were looked for
+    at the root only. Each detected project brings its own, named by path."""
+    repo = init_repo(tmp_path / "accelerators")
+    poc = repo / "pipelines" / "poc"
+    poc.mkdir(parents=True)
+    (poc / "pyproject.toml").write_text('[project]\nname = "poc"\n')
+    web = poc / "web"
+    web.mkdir()
+    (web / "package.json").write_text('{"name": "web"}\n')
+
+    prompt = build_prompt(
+        "accelerators",
+        detection(
+            repo,
+            languages=["python", "javascript"],
+            projects=[
+                {"path": "pipelines/poc", "languages": ["python"]},
+                {"path": "pipelines/poc/web", "languages": ["javascript"]},
+            ],
+        ),
+        change="accelerators-code-standards",
+        kind="code-standards",
+        recommendations="## Linting\n\n- ruff\n",
+        repos=("accelerators",),
+    )
+
+    assert "pipelines/poc/pyproject.toml (first 60 lines)" in prompt
+    assert 'name = "poc"' in prompt
+    assert "pipelines/poc/web/package.json (first 60 lines)" in prompt
+    assert '"name": "web"' in prompt
+    assert "Projects: pipelines/poc, pipelines/poc/web" in prompt
+
+
 def test_the_code_standards_brief() -> None:
     prompt = build_prompt(
         "app",

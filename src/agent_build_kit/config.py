@@ -101,8 +101,6 @@ class TracksConfig(Frozen):
     """The scheduled health/improve/recommend/implement tracks."""
 
     model: str = "sonnet"
-    # Notional per-project-run ceilings passed as `--max-budget-usd`.
-    budgets_usd: dict[str, float] = {"health": 7.5, "improve": 7.5, "recommend": 8.0}
     implement_max_prs: int = 3
     allowed_tools: str = (
         "Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch "
@@ -173,14 +171,33 @@ class DeployConfig(Frozen):
     credentials: CredentialsConfig | None = None
 
 
+class ProjectConfig(Frozen):
+    """One project inside a repo: where it is, and what it is written in.
+
+    A repo's `profile` is one toolchain for the whole checkout. When the repo
+    holds more than one project - a Python service with a web app beneath it -
+    this is where each one's own path and toolchain are recorded.
+    """
+
+    # Relative to the repo root; `.` when the root itself is the project.
+    path: str
+    languages: list[str] = []
+    profile: str = "python-uv"
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
     slug: str
     default_branch: str = "main"
+    # The code host this repo lives on (forges/). Inferred by `abk init` from
+    # the origin URL; set it here when the origin does not say.
+    forge: str = "github"
     # The toolchain profile (profiles/): how to lint, test and read results.
     profile: str = "python-uv"
     languages: list[str] = []
+    # Every project found in the checkout, root first.
+    projects: list[ProjectConfig] = []
     # One paragraph for prompts and the planning context.
     description: str = ""
     # Repos this one depends on. Drives deploy order (consumed first), which

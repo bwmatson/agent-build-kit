@@ -37,11 +37,39 @@ _LOCKFILES = {"uv.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "po
 _NOT_CODE_DIRS = {".github", "docs"}
 
 _PYTHON_MARKERS = ("pyproject.toml", "uv.lock", "setup.py", "requirements.txt")
+_NODE_MARKERS = ("package.json",)
+# A file that declares a project. The rest of the markers above are satellites:
+# a `requirements.txt` is as often a deployment manifest sitting inside a
+# project - an Azure Functions directory beside the code it ships - as it is a
+# project of its own, and a lockfile never declares one.
+_DECLARES_PROJECT = ("pyproject.toml", "setup.py", "package.json")
 _SERVICE_MARKERS = ("Dockerfile", "pyproject.toml", "package.json")
 _SKIP_DIRS = {"node_modules", ".venv", "venv", "dist", "build"}
 
+# How far below the root a project may sit and still be found. A checkout does
+# not always keep its tooling at the top: `<repo>/pipelines/poc/pyproject.toml`
+# with `<repo>/pipelines/poc/web/package.json` beside it is one repo with two
+# projects, and reading only the root reported no language at all. Three levels
+# reaches that web app; deeper is the owner's to name in abk.yaml, and the bound
+# is what keeps a large checkout from being walked end to end.
+_SCAN_DEPTH = 3
+
 DEV_STACK_SCRIPT = "scripts/dev-stack.sh"
 _CREDENTIALS_ARRAY = re.compile(r"^\s*(?P<name>[A-Z_]+_CREDENTIALS)=\(", re.M)
+
+
+class ProjectDetection(Frozen):
+    """One project inside a checkout: where its tooling is, and what it is.
+
+    A repo is not always one project. A Python service with a web app beneath
+    it is two, each with its own toolchain, and the repo-level profile can only
+    name one of them - so each is recorded here, and abk.yaml shows both.
+    """
+
+    # Relative to the repo root; `.` when the root itself is the project.
+    path: str
+    languages: list[str] = []
+    profile: str = "python-uv"
 
 
 class RepoDetection(Frozen):
@@ -53,6 +81,9 @@ class RepoDetection(Frozen):
     default_branch: str
     languages: list[str]
     profile: str
+    # Every project found, root first, in scan order. Defaulted so a hand-built
+    # detection - the tests, a recorded answer - need only give what it asserts on.
+    projects: list[ProjectDetection] = []
     has_code: bool
     service_dirs: list[str]
     dev_stack_script: str | None
@@ -103,20 +134,83 @@ def _package_json(path: Path) -> dict:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _languages(path: Path, pyproject: dict, package: dict) -> tuple[list[str], str]:
+def project_dirs(path: Path) -> list[Path]:
+    """Every directory holding a tooling file, the root first, breadth first.
+
+    Bounded by `_SCAN_DEPTH`, and never inside a vendored or virtualenv
+    directory: `node_modules` holds thousands of `package.json` files that say
+    nothing about what this repo is written in.
+    """
+    found: list[Path] = []
+    level = [path]
+    for depth in range(_SCAN_DEPTH + 1):
+        if not level:
+            break
+        for directory in level:
+            if any((directory / marker).exists() for marker in _PYTHON_MARKERS + _NODE_MARKERS):
+                found.append(directory)
+        if depth == _SCAN_DEPTH:
+            break
+        level = [
+            child
+            for directory in level
+            for child in sorted(directory.iterdir())
+            if child.is_dir() and not child.name.startswith(".") and child.name not in _SKIP_DIRS
+        ]
+    return found
+
+
+def _languages_of(directory: Path) -> tuple[list[str], str]:
+    """What one project directory is written in, and the profile that fits it."""
     languages: list[str] = []
     profile = ""
-    if any((path / marker).exists() for marker in _PYTHON_MARKERS):
+    if any((directory / marker).exists() for marker in _PYTHON_MARKERS):
         languages.append("python")
         # The only Python profile; a repo without uv still gets the closest fit.
         profile = "python-uv"
-    if package or (path / "package.json").exists():
+    if (directory / "package.json").exists():
         languages.append("javascript")
-        if (path / "tsconfig.json").exists():
+        if (directory / "tsconfig.json").exists():
             languages.append("typescript")
         if not profile:
             profile = "node-npm"
     return languages, profile or "python-uv"
+
+
+def detect_projects(path: Path) -> list[ProjectDetection]:
+    """Every project in the checkout, root first, in scan order.
+
+    A directory with only satellite markers counts when nothing above it is
+    already a project, and does not when something is: that is the difference
+    between a repo that declares itself with a `requirements.txt` and a
+    deployment directory inside one that declares itself properly.
+    """
+    projects = []
+    claimed: list[Path] = []
+    for directory in project_dirs(path):
+        declares = any((directory / marker).exists() for marker in _DECLARES_PROJECT)
+        if not declares and any(parent in claimed for parent in directory.parents):
+            continue
+        languages, profile = _languages_of(directory)
+        relative = "." if directory == path else directory.relative_to(path).as_posix()
+        projects.append(ProjectDetection(path=relative, languages=languages, profile=profile))
+        claimed.append(directory)
+    return projects
+
+
+def _languages(projects: list[ProjectDetection]) -> tuple[list[str], str]:
+    """The repo's languages across every project, in a fixed order.
+
+    Python wins the profile wherever it was found: a repo with a Python service
+    and a web app beneath it is driven by the Python toolchain. The per-project
+    profiles above are what a caller needs to run either one's tooling.
+    """
+    found = {language for project in projects for language in project.languages}
+    languages = [name for name in ("python", "javascript", "typescript") if name in found]
+    profile = (
+        "python-uv" if "python" in found else "node-npm" if "javascript" in found else "python-uv"
+    )
+    return languages, profile
 
 
 def _dependency_refs(pyproject: dict, package: dict) -> list[str]:
@@ -164,7 +258,8 @@ def detect_repo(path: Path, *, run: Run | None = None) -> RepoDetection:
 
     pyproject = _pyproject(path)
     package = _package_json(path)
-    languages, profile = _languages(path, pyproject, package)
+    projects = detect_projects(path)
+    languages, profile = _languages(projects)
 
     script = path / DEV_STACK_SCRIPT
     credentials = None
@@ -180,6 +275,7 @@ def detect_repo(path: Path, *, run: Run | None = None) -> RepoDetection:
         default_branch=default_branch,
         languages=languages,
         profile=profile,
+        projects=projects,
         has_code=has_code,
         service_dirs=_service_dirs(path),
         dev_stack_script=DEV_STACK_SCRIPT if script.is_file() else None,

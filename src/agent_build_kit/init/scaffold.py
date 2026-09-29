@@ -30,6 +30,7 @@ from agent_build_kit.config import (
     DeployRule,
     DevStackConfig,
     NamesFrom,
+    ProjectConfig,
     RepoConfig,
     WorkspaceConfig,
     dump,
@@ -96,6 +97,12 @@ def draft_config(
             default_branch=detection.default_branch,
             profile=detection.profile,
             languages=list(detection.languages),
+            projects=[
+                ProjectConfig(
+                    path=project.path, languages=list(project.languages), profile=project.profile
+                )
+                for project in detection.projects
+            ],
             consumes=list(consumes[name]),
             dev_stack=DevStackConfig(script=detection.dev_stack_script)
             if detection.dev_stack_script

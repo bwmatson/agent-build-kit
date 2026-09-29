@@ -86,10 +86,6 @@ limits:
 
 tracks:                         # the scheduled tracks (docs/tracks.md)
   model: sonnet
-  budgets_usd:                  # --max-budget-usd per discovery phase; the
-    health: 7.5                 # implement phase has none (the usage window
-    improve: 7.5                # is its limit)
-    recommend: 8.0
   implement_max_prs: 3          # PRs one implement pass may open per repo
   allowed_tools: >-             # Claude Code --allowedTools syntax
     Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch

@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import models
-from agent_build_kit.pipeline.shell import repo_slug
+from agent_build_kit.forges import RepoId
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
@@ -29,9 +29,7 @@ from agent_build_kit.pipeline.wiring import (
     build_push,
     build_run_claude,
     build_run_review,
-    build_runner,
     build_tier1,
-    build_worktree,
 )
 from tests.conftest import make_installation
 from tests.factories import init_repo, unit
@@ -158,175 +156,69 @@ def test_the_push_uses_the_sha_we_last_recorded(tmp_path: Path) -> None:
     assert pushed[0] == ("spec/add-marker/1", None), "first push has nothing to protect"
 
 
+class FakeForge:
+    """A code host that records what the pipeline asked it to do.
+
+    The argv of each call is the forge's business and is asserted in
+    tests/forges/; here what matters is that a unit gets one PR, updated
+    afterwards rather than created twice.
+    """
+
+    name = "fake"
+    implemented = True
+    deletes_head_branch_on_merge = True
+    denied_commands = ()
+
+    def __init__(self, existing: int | None = None) -> None:
+        self.existing = existing
+        self.created: list[dict] = []
+        self.updated: list[dict] = []
+
+    def find_pr(self, repo, *, head):
+        return self.existing
+
+    def create_pr(self, repo, *, head, base, title, body):
+        self.created.append({"head": head, "base": base, "title": title, "body": body})
+        return 7
+
+    def update_pr(self, repo, pr, *, base="", body=""):
+        self.updated.append({"pr": pr, "base": base, "body": body})
+
+
+def forge_lookup(forge: FakeForge):
+    return lambda repo: (forge, RepoId(forge="fake", account="o", name="r"))
+
+
 def test_a_pr_is_created_once_and_updated_after_that(tmp_path: Path) -> None:
-    """Every restack pushes the branch again; a second `gh pr create` would
-    fail, and worse, a third would look like the unit was stuck."""
-    recorder = Recorder(stdout="https://github.com/o/r/pull/7")
-    open_pr = build_open_pr(run=recorder, existing=lambda branch, slug: None)
+    """Every restack pushes the branch again; a second create would fail, and
+    worse, a third would look like the unit was stuck."""
+    first_time = FakeForge(existing=None)
+    already_open = FakeForge(existing=7)
 
-    first = open_pr(unit(), body="b", base="main", cwd=tmp_path)
-
-    again = build_open_pr(run=recorder, existing=lambda branch, slug: 7)(
+    first = build_open_pr(for_repo=forge_lookup(first_time))(
+        unit(), body="b", base="main", cwd=tmp_path
+    )
+    again = build_open_pr(for_repo=forge_lookup(already_open))(
         unit(), body="b", base="main", cwd=tmp_path
     )
 
     assert first == again == 7
-    assert sum(1 for c in recorder.commands if "create" in c) == 1
-    assert any("edit" in c for c in recorder.commands)
+    assert len(first_time.created) == 1 and not first_time.updated
+    assert not already_open.created and already_open.updated == [
+        {"pr": 7, "base": "main", "body": "b"}
+    ]
 
 
 def test_the_pr_targets_the_units_base_branch(tmp_path: Path) -> None:
     """A stacked unit's PR must show only its own diff, which means basing it
     on its parent rather than on main."""
-    recorder = Recorder(stdout="https://github.com/o/r/pull/7")
+    forge = FakeForge(existing=None)
 
-    build_open_pr(run=recorder, existing=lambda branch, slug: None)(
+    build_open_pr(for_repo=forge_lookup(forge))(
         unit(), body="b", base="spec/add-marker/0", cwd=tmp_path
     )
 
-    command = recorder.commands[0]
-    assert "--base" in command
-    assert "spec/add-marker/0" in command
-
-
-def test_the_second_push_leases_against_what_the_first_one_published(tmp_path: Path) -> None:
-    """A first push needs no force; every push after a restack does, and the
-    lease is only safe if it names the SHA this runner itself published."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    leases: list[str | None] = []
-
-    def record(repo, branch, last_pushed) -> str:
-        leases.append(last_pushed)
-        return "sha2"
-
-    push = build_push(store, push=record)
-    push("spec/add-marker/1", cwd=tmp_path)
-    push("spec/add-marker/1", cwd=tmp_path)
-
-    assert leases == [None, "sha2"]
-
-
-def test_a_unit_is_worked_in_its_own_repos_worktree(tmp_path: Path) -> None:
-    """Units run in parallel and land in different repos; a shared checkout
-    would have two agents editing one working tree."""
-    asked: list[tuple] = []
-    worktree = build_worktree(
-        {"app": tmp_path / "app"},
-        root=tmp_path / "trees",
-        prepare=lambda repo, branch, base, root: asked.append((repo, branch, base)) or tmp_path,
-    )
-
-    worktree(unit(), "main")
-
-    assert asked == [(tmp_path / "app", "spec/add-marker/1", "main")]
-
-
-def test_a_unit_naming_a_repo_we_have_no_checkout_of_is_refused(tmp_path: Path) -> None:
-    """Better here than three steps later with a half-built worktree."""
-    worktree = build_worktree({"app": tmp_path}, root=tmp_path, prepare=lambda *a: tmp_path)
-
-    with pytest.raises(KeyError, match="platform"):
-        worktree(unit(repo="platform"), "main")
-
-
-def test_tier_two_runs_only_the_tests_that_need_the_live_stack(tmp_path: Path) -> None:
-    """Tier 1 already ran everything else; re-running it here would occupy the
-    single local stack for no new information."""
-    recorder = Recorder(stdout="1 passed in 2.00s")
-    session = Tier2Session(
-        unit(tier="tier2"), lock=tmp_path / "t2.lock", run=recorder, sha=lambda cwd: "abc1234"
-    )
-
-    ok, snapshot = session.run(cwd=tmp_path)
-
-    assert ok
-    assert "local_stack" in " ".join(recorder.commands[0])
-    assert "abc1234"[:7] in snapshot
-
-
-def test_a_failing_tier_two_run_reports_the_failure_not_a_snapshot(tmp_path: Path) -> None:
-    recorder = Recorder(stdout="1 failed in 2.00s", returncode=1)
-    session = Tier2Session(
-        unit(tier="tier2"), lock=tmp_path / "t2.lock", run=recorder, sha=lambda cwd: "abc1234"
-    )
-
-    ok, _ = session.run(cwd=tmp_path)
-
-    assert ok is False
-
-
-def test_the_tier_two_status_names_the_commit_that_was_tested(tmp_path: Path) -> None:
-    """It is posted after the push, and a restack between the two would make
-    HEAD a different commit — a status on the wrong commit is worse than none."""
-    recorder = Recorder(stdout="1 passed in 2.00s")
-    posted: list[tuple] = []
-    session = Tier2Session(
-        unit(tier="tier2"),
-        lock=tmp_path / "t2.lock",
-        run=recorder,
-        sha=lambda cwd: "abc1234",
-        status=lambda slug, result: posted.append((slug, result.sha)),
-    )
-    session.run(cwd=tmp_path)
-
-    session.post("abc1234", True)
-
-    assert posted[0][1] == "abc1234"
-
-
-def test_posting_a_status_for_an_untested_commit_is_refused(tmp_path: Path) -> None:
-    """The runner passes the pushed SHA; if it isn't the one tier 2 ran
-    against, the snapshot on the PR and the status would disagree."""
-    recorder = Recorder(stdout="1 passed in 2.00s")
-    session = Tier2Session(
-        unit(tier="tier2"),
-        lock=tmp_path / "t2.lock",
-        run=recorder,
-        sha=lambda cwd: "abc1234",
-        status=lambda slug, result: None,
-    )
-    session.run(cwd=tmp_path)
-
-    with pytest.raises(ValueError, match="different commit"):
-        session.post("def5678", True)
-
-
-def test_the_runner_is_assembled_with_every_step_bound(tmp_path: Path) -> None:
-    """A step left as None would surface as a TypeError partway through a real
-    unit, after the worktree and the first expensive model call."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit()])
-
-    runner = build_runner(unit(), store=store, installation=make_installation(tmp_path))
-
-    for step in (
-        "worktree",
-        "may_start",
-        "run_claude",
-        "run_review",
-        "commit",
-        "run_tier1",
-        "run_tier2",
-        "push",
-        "open_pr",
-        "post_status",
-    ):
-        assert callable(getattr(runner, step)), step
-
-
-def test_a_pr_lookup_names_its_repo(tmp_path: Path) -> None:
-    """Without `--repo`, gh infers it from the working directory's remote —
-    right by luck here, wrong the moment this is called from anywhere else,
-    and a lookup that errors reads as "no PR yet" and creates a second one."""
-    recorder = Recorder(stdout="https://github.com/o/r/pull/7")
-
-    build_open_pr(run=recorder)(unit(), body="b", base="main", cwd=tmp_path)
-
-    lookup = next(c for c in recorder.commands if "list" in c)
-    assert "--repo" in lookup
-    assert repo_slug("app") in lookup
+    assert forge.created[0]["base"] == "spec/add-marker/0"
 
 
 def test_a_rejected_commit_is_not_reported_as_nothing_to_commit(tmp_path: Path) -> None:

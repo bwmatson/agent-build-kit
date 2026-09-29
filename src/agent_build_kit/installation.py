@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from agent_build_kit import config as config_module
+from agent_build_kit import forges
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     CommandProvider,
@@ -24,6 +25,7 @@ from agent_build_kit.config import (
     WorkspaceConfig,
     YamlProvider,
 )
+from agent_build_kit.forges import Forge, RepoId
 
 
 class Installation:
@@ -91,8 +93,16 @@ class Installation:
     def slug(self, name: str) -> str:
         return self.repo(name).slug
 
-    def owners(self) -> set[str]:
-        return {repo.slug.split("/")[0] for repo in self.config.repos.values()}
+    def forge_of(self, name: str) -> tuple[Forge, RepoId]:
+        """The code host a repo is on, and its identity there.
+
+        Replaces `owners()`, which answered "every account this workspace
+        touches" - a question only the doctor asked, and one that assumed a
+        two-segment slug. Asking per repo is both narrower and host-agnostic.
+        """
+        repo = self.repo(name)
+        forge = forges.get(repo.forge)
+        return forge, forge.identity(repo)
 
     def deploy_order(self, names: list[str]) -> list[str]:
         """`names` with every repo after the ones it consumes."""
@@ -117,6 +127,20 @@ class Installation:
             if consumed in self.repos and self.repos[consumed].dev_stack is not None:
                 return consumed
         return None
+
+    # --- limits -----------------------------------------------------------------
+
+    @property
+    def max_concurrent_stacks(self) -> int:
+        return self.config.limits.max_concurrent_stacks
+
+    @property
+    def stack_depth_cap(self) -> int:
+        return self.config.limits.stack_depth_cap
+
+    @property
+    def max_plan_attempts(self) -> int:
+        return self.config.limits.max_plan_attempts
 
     # --- verify env ---------------------------------------------------------------
 

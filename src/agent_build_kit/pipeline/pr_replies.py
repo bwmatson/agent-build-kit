@@ -7,9 +7,10 @@ answer. Now the rework agent ends with a reply per comment it acted on or
 answered, and this posts them — in each comment's own thread, after the push,
 so what a reply describes is already on the PR.
 
-The agent writes the words and never touches GitHub: posting before the push
-would describe code the reviewer cannot see, and from inside a worktree `gh`
-runs as whichever account happens to be active, not the one owning the repo.
+The agent writes the words and never touches the host: posting before the push
+would describe code the reviewer cannot see, and from inside a worktree the
+client runs as whichever account happens to be active, not the one owning the
+repo.
 
 What is posted here must not come back as review. Two guards:
 
@@ -27,9 +28,10 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from agent_build_kit.pipeline.shell import gh, repo_slug
+from agent_build_kit import forges
+from agent_build_kit.forges import AnswersReviews, RepoId
 
 MARKER = "<!-- spec-driven:reply -->"
 
@@ -39,8 +41,15 @@ OWN_POSTS = "own-posts.json"
 
 
 class Reply(BaseModel):
-    comment_id: int
+    comment_id: str
     body: str
+
+    @field_validator("comment_id", mode="before")
+    @classmethod
+    def _as_text(cls, value: object) -> str:
+        """The agent echoes back the id the review prompt showed it, and what
+        that looks like is the forge's business - GitHub's are numbers."""
+        return str(value)
 
 
 class Answer(BaseModel):
@@ -114,18 +123,11 @@ def _signed(body: str, sha: str) -> str:
 def build_post_replies(
     *,
     root: Path,
-    post: Callable[..., dict] | None = None,
+    for_repo: Callable[[str], tuple[AnswersReviews, RepoId]] | None = None,
     log: Callable[[str], None] = print,
 ) -> Callable[..., None]:
     """Post a rework's answer to its PR, recording what was posted."""
-
-    def default_post(args: list[str], *, slug: str) -> dict:
-        result = gh(args, slug=slug)
-        if result.returncode:
-            raise RuntimeError(result.stderr.strip() or f"exit {result.returncode}")
-        return json.loads(result.stdout or "{}")
-
-    post = post or default_post
+    for_repo = for_repo or forges.for_repo
 
     def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> None:
         answer = parse_answer(answer_text)
@@ -133,62 +135,38 @@ def build_post_replies(
             log("no replies posted: the rework did not end with its answer as JSON")
             return
 
-        slug = repo_slug(repo)
+        forge, repo_id = for_repo(repo)
         posted: list[str] = []
         try:
-            _post_all(answer, slug, pr, sha, posted)
+            _post_all(forge, repo_id, answer, pr, sha, posted)
         finally:
             # Whatever did go out is recorded even if a later post raised:
             # an unrecorded reply is one the poller would read as review.
-            record_posts(root, slug, pr, [p for p in posted if p])
+            record_posts(root, forges.key(repo_id), pr, [p for p in posted if p])
         log(
             f"posted {len(answer.replies)} repl(ies)"
             + (" and a summary" if answer.summary.strip() else "")
         )
 
-    def _post_all(answer: Answer, slug: str, pr: int, sha: str, posted: list[str]) -> None:
+    def _post_all(
+        forge: AnswersReviews,
+        repo_id: RepoId,
+        answer: Answer,
+        pr: int,
+        sha: str,
+        posted: list[str],
+    ) -> None:
         for reply in answer.replies:
             try:
-                made = post(
-                    [
-                        "gh",
-                        "api",
-                        "-X",
-                        "POST",
-                        f"repos/{slug}/pulls/{pr}/comments/{reply.comment_id}/replies",
-                        "-f",
-                        f"body={_signed(reply.body, sha)}",
-                    ],
-                    slug=slug,
+                posted += forge.post_reply(
+                    repo_id, pr, note_id=reply.comment_id, body=_signed(reply.body, sha)
                 )
-                # The poller sees the review a reply creates, by node id.
-                review = post(
-                    [
-                        "gh",
-                        "api",
-                        f"repos/{slug}/pulls/{pr}/reviews/{made['pull_request_review_id']}",
-                    ],
-                    slug=slug,
-                )
-                posted += [str(made.get("node_id", "")), str(review.get("node_id", ""))]
-            except Exception as error:  # noqa: BLE001 — one bad id must not cost the rest
+            except Exception as error:  # noqa: BLE001 - one bad id must not cost the rest
                 log(f"reply to comment {reply.comment_id} not posted: {error}")
 
         if answer.summary.strip():
             try:
-                made = post(
-                    [
-                        "gh",
-                        "api",
-                        "-X",
-                        "POST",
-                        f"repos/{slug}/issues/{pr}/comments",
-                        "-f",
-                        f"body={_signed(answer.summary, sha)}",
-                    ],
-                    slug=slug,
-                )
-                posted.append(str(made.get("node_id", "")))
+                posted += forge.post_comment(repo_id, pr, body=_signed(answer.summary, sha))
             except Exception as error:  # noqa: BLE001
                 log(f"summary comment not posted: {error}")
 

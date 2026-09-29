@@ -61,7 +61,9 @@ limits:
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet
-  budgets_usd: {health: 7.5, improve: 7.5, recommend: 8.0}
+                              # no dollar budget — every phase is bounded by
+                              # the same session/weekly usage window as
+                              # limits.usage_pause_pct above
   implement_max_prs: 3
   allowed_tools: "..."        # Claude Code --allowedTools syntax
   disallowed_tools: "..."

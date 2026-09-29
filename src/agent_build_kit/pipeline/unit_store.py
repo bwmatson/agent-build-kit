@@ -246,61 +246,43 @@ class UnitStore:
         self._write(stored)
 
     @_exclusive
-    def set_feedback(self, unit_id: str, feedback: str) -> None:
-        """What review asked for, or `""` once a run has acted on it."""
+    def _update(self, unit_id: str, **fields: object) -> None:
         stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"feedback": feedback})
+        stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
 
-    @_exclusive
+    def set_feedback(self, unit_id: str, feedback: str) -> None:
+        """What review asked for, or `""` once a run has acted on it."""
+        self._update(unit_id, feedback=feedback)
+
     def record_step(self, unit_id: str, step: str) -> None:
         """The step a running unit is starting, so a run killed inside it
         resumes there. Not a state change, so no history entry."""
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"resume_from": step})
-        self._write(stored)
+        self._update(unit_id, resume_from=step)
 
-    @_exclusive
     def set_pending_replies(self, unit_id: str, replies: Sequence[str]) -> None:
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"pending_replies": tuple(replies)})
-        self._write(stored)
+        self._update(unit_id, pending_replies=tuple(replies))
 
-    @_exclusive
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"depends_on": tuple(depends_on)})
-        self._write(stored)
+        self._update(unit_id, depends_on=tuple(depends_on))
 
-    @_exclusive
     def set_review_rounds(self, unit_id: str, rounds: Sequence[dict]) -> None:
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"review_rounds": tuple(rounds)})
-        self._write(stored)
+        self._update(unit_id, review_rounds=tuple(rounds))
 
-    @_exclusive
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"predecessor_note": note})
-        self._write(stored)
+        self._update(unit_id, predecessor_note=note)
 
-    @_exclusive
     def record_approval(self, unit_id: str, sha: str) -> None:
         """The commit review approved — the only one the runner may push."""
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"approved": sha})
-        self._write(stored)
+        self._update(unit_id, approved=sha)
 
-    @_exclusive
     def record_push(self, unit_id: str, sha: str) -> None:
         """Remember what we published, so the next push can lease against it.
 
         Separate from `set_state` because a push is not a state change: a unit
         is pushed several times — once per restack — while staying `open`.
         """
-        stored = self._read()
-        stored[unit_id] = stored[unit_id].model_copy(update={"pushed": sha})
-        self._write(stored)
+        self._update(unit_id, pushed=sha)
 
 
 # State names that have been renamed, old to new. Read-side, so a store

@@ -20,7 +20,7 @@ from typing import Literal
 
 import yaml
 
-from agent_build_kit import __version__, config, openspec, profiles, skills
+from agent_build_kit import __version__, config, forges, openspec, profiles, skills
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import render_rules, rules_of
@@ -87,18 +87,22 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
-def _owners(inst: Installation, run: Run) -> list[Check]:
+def _forge_access(inst: Installation, run: Run) -> list[Check]:
+    """Whether each repo's host will answer for it.
+
+    Per repo rather than per account: "can we act here" is the question the
+    pipeline actually asks, and it is the same question on every host, where
+    "which accounts does this workspace touch" was a GitHub owner's shape.
+    """
     checks = []
-    for owner in sorted(inst.owners()):
-        result = run(
-            ["gh", "auth", "token", "--user", owner], capture_output=True, text=True, check=False
-        )
-        if result.returncode or not result.stdout.strip():
-            checks.append(
-                _fail(f"gh {owner}", "no token for this account", f"gh auth login (as {owner})")
-            )
+    for name in sorted(inst.repos):
+        forge, repo = inst.forge_of(name)
+        problem = forge.check_access(repo, run=run)
+        title = f"forge {name}"
+        if problem:
+            checks.append(_fail(title, problem, forge.access_fix(repo)))
         else:
-            checks.append(_ok(f"gh {owner}", "token available"))
+            checks.append(_ok(title, f"{forge.name} {forges.key(repo)}"))
     return checks
 
 
@@ -286,7 +290,7 @@ def run_doctor(
     inst.activate()
 
     checks += _repos(inst, run)
-    checks += _owners(inst, run)
+    checks += _forge_access(inst, run)
     checks += _toolchain(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)

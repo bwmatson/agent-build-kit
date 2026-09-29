@@ -10,7 +10,7 @@ import yaml
 
 from agent_build_kit import openspec
 from agent_build_kit.config import load
-from agent_build_kit.init.detect import RepoDetection
+from agent_build_kit.init.detect import ProjectDetection, RepoDetection
 from agent_build_kit.init.scaffold import (
     RULES_HEADER,
     ScaffoldError,
@@ -171,6 +171,31 @@ def test_context_mentions_each_repo_once_with_its_facts(tmp_path: Path) -> None:
     assert context.count("**app**") == 1
     assert "example/app" in context
     assert "languages: python" in context
+
+
+def test_the_draft_lists_each_project_in_the_repo(tmp_path: Path) -> None:
+    """A repo can hold more than one project - a Python service with a web app
+    under it - and abk.yaml is where a person sees which, and what each is
+    written in. The repo-level profile alone said "python-uv" and nothing about
+    where either project lives."""
+    detected = detection(
+        "accelerators",
+        tmp_path,
+        languages=["python", "javascript", "typescript"],
+        projects=[
+            ProjectDetection(path="pipelines/poc", languages=["python"], profile="python-uv"),
+            ProjectDetection(
+                path="pipelines/poc/web", languages=["javascript", "typescript"], profile="node-npm"
+            ),
+        ],
+    )
+
+    config = draft_config({"accelerators": detected}, planning_dir=tmp_path / "planning")
+
+    assert [(p.path, p.languages, p.profile) for p in config.repos["accelerators"].projects] == [
+        ("pipelines/poc", ["python"], "python-uv"),
+        ("pipelines/poc/web", ["javascript", "typescript"], "node-npm"),
+    ]
 
 
 def test_systemd_units_render_the_planning_path(tmp_path: Path) -> None:

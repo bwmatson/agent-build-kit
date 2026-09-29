@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.forges import RepoId
 from agent_build_kit.pipeline.tier2 import (
     STATUS_CONTEXT,
     Tier2Result,
@@ -116,28 +117,42 @@ def test_a_failing_run_is_not_a_snapshot_to_publish() -> None:
     assert result().ok
 
 
+class FakeForge:
+    """Records the one call the tier 2 gate makes; what the argv looks like is
+    the forge's own test."""
+
+    def __init__(self) -> None:
+        self.posted: list[dict] = []
+
+    def post_status(self, repo, *, sha: str, ok: bool, context: str, description: str) -> None:
+        self.posted.append(
+            {"repo": repo, "sha": sha, "ok": ok, "context": context, "description": description}
+        )
+
+
+def repo_id() -> RepoId:
+    return RepoId(forge="fake", account="owner", name="repo")
+
+
 def test_the_status_is_posted_for_the_sha_that_was_tested() -> None:
     """A snapshot is only valid for the commit it ran against: a restack
     changes the SHA, and the old result says nothing about the new one."""
-    calls: list[list[str]] = []
+    forge = FakeForge()
 
-    post_status(
-        "owner/repo",
-        result(),
-        run=lambda args: calls.append(args) or "",
-    )
+    post_status(forge, repo_id(), result())
 
-    args = calls[0]
-    assert "repos/owner/repo/statuses/abc1234def" in " ".join(args)
-    assert STATUS_CONTEXT in " ".join(args)
-    assert "success" in " ".join(args)
+    [posted] = forge.posted
+    assert posted["sha"] == "abc1234def"
+    assert posted["context"] == STATUS_CONTEXT
+    assert posted["ok"]
+    assert "0 failed" in posted["description"]
 
 
 def test_a_failed_run_posts_a_failure_status_when_asked() -> None:
     """Only reachable for a re-run of an already-pushed commit — the usual
     path never pushes a failing unit at all."""
-    calls: list[list[str]] = []
+    forge = FakeForge()
 
-    post_status("owner/repo", result(failed=1), run=lambda args: calls.append(args) or "")
+    post_status(forge, repo_id(), result(failed=1))
 
-    assert "failure" in " ".join(calls[0])
+    assert not forge.posted[0]["ok"]
