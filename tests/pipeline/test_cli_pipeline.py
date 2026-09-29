@@ -15,6 +15,7 @@ from typing import cast
 
 import pytest
 
+from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import _has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
@@ -27,6 +28,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from tests.conftest import make_installation
+from tests.runtimes.stand_in import StandInRuntime
 
 inst: Installation = cast(Installation, None)  # set per test by `isolated`
 
@@ -531,6 +533,110 @@ def test_editing_the_change_starts_the_attempts_over(tmp_path: Path, monkeypatch
     real_plan_all(inst, store=store)
 
     assert len(calls) == before + 1
+
+
+TWO_GROUPS = TASKS + "\n## 2. [app] [tier1] Use the marker\n\n- [ ] 2.1 Test: a\n- [ ] 2.2 Do a\n"
+
+
+def plan_output(*units: dict) -> str:
+    """What the planner model answers: prose around the JSON graph."""
+    body = [
+        {
+            "change": "add-marker",
+            "title": "Register the marker",
+            "repo": "app",
+            "tier": "tier1",
+            "depends_on": [],
+            **unit,
+        }
+        for unit in units
+    ]
+    return "Here is the plan.\n\n" + json.dumps({"units": body}) + "\n"
+
+
+def planner_answering(monkeypatch: pytest.MonkeyPatch, *answers: str) -> StandInRuntime:
+    """The runtime the real planner reaches, answering each graph call with
+    the next of `answers` and repeating the last once they run out."""
+    queue = list(answers)
+
+    def next_answer(request) -> None:
+        runtime.answer = queue.pop(0) if len(queue) > 1 else queue[0]
+
+    runtime = StandInRuntime(act=next_answer)
+    monkeypatch.setattr(runtimes, "active", lambda: runtime)
+    return runtime
+
+
+def test_a_plan_over_the_ceiling_is_re_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Combining two groups past the ceiling is a mistake the planner can fix,
+    so it is rejected like a malformed plan and asked again next tick."""
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = UnitStore(tmp_path / "units.json")
+    answers = [
+        plan_output({"id": "add-marker/1", "groups": [1, 2], "estimated_lines": 1400}),
+        plan_output(
+            {"id": "add-marker/1", "groups": [1], "estimated_lines": 700},
+            {
+                "id": "add-marker/2",
+                "groups": [2],
+                "estimated_lines": 700,
+                "depends_on": ["add-marker/1"],
+            },
+        ),
+    ]
+    runtime = planner_answering(monkeypatch, *answers)
+
+    real_plan_all(inst, store=store)
+
+    assert store.all() == []
+    assert "ceiling" in capsys.readouterr().out
+
+    real_plan_all(inst, store=store)
+
+    assert len(runtime.requests) == 2
+    assert [u.groups for u in store.all()] == [(1,), (2,)]
+
+
+def test_a_plan_that_keeps_ignoring_the_ceiling_uses_up_the_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = UnitStore(tmp_path / "units.json")
+    runtime = planner_answering(
+        monkeypatch,
+        plan_output({"id": "add-marker/1", "groups": [1, 2], "estimated_lines": 1400}),
+    )
+
+    for _ in range(inst.config.limits.max_plan_attempts + 2):
+        real_plan_all(inst, store=store)
+
+    assert len(runtime.requests) == inst.config.limits.max_plan_attempts
+    assert store.all() == []
+
+
+def test_a_group_too_large_to_plan_is_reported_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Re-asking cannot help: one group over the ceiling is fixed in tasks.md,
+    not in the plan. So the change is left unplanned, the log names the group
+    and says to split it, and no further planning attempt is spent on it."""
+    write_change(tmp_path, "add-marker", TASKS)
+    store = UnitStore(tmp_path / "units.json")
+    runtime = planner_answering(
+        monkeypatch, plan_output({"id": "add-marker/1", "groups": [1], "estimated_lines": 1500})
+    )
+
+    for _ in range(inst.config.limits.max_plan_attempts + 2):
+        real_plan_all(inst, store=store)
+
+    assert len(runtime.requests) == 1
+    assert store.all() == []
+    out = capsys.readouterr().out
+    assert "add-marker" in out
+    assert "group 1" in out
+    assert "split" in out
 
 
 def test_ticking_a_checkbox_does_not_trigger_a_replan(tmp_path: Path, monkeypatch) -> None:

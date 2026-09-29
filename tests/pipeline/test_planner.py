@@ -15,8 +15,9 @@ import json
 
 import pytest
 
-from agent_build_kit.pipeline.planner import PlannerError, parse_graph, plan_round
+from agent_build_kit.pipeline.planner import GroupTooLarge, PlannerError, parse_graph, plan_round
 from agent_build_kit.pipeline.work_graph import TaskGroup
+from tests.factories import activate_with
 
 GOOD = {
     "units": [
@@ -379,3 +380,69 @@ def test_the_prompt_says_how_to_place_the_acceptance_group() -> None:
     )
 
     assert "[acceptance]" in captured["prompt"]
+
+
+# --- the ceiling on a unit's size ---
+
+
+def test_the_prompt_tells_the_planner_the_ceiling() -> None:
+    """The packer and the planner must say the same thing: a ceiling only the
+    validator knows about spends a round on every plan that misses it."""
+    activate_with(limits={"min_unit_lines": 300, "max_unit_lines": 1234})
+    captured: dict = {}
+
+    plan_round(
+        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        in_flight=[],
+        run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
+    )
+
+    assert "1234" in captured["prompt"]
+
+
+def test_a_unit_combining_groups_past_the_ceiling_is_rejected() -> None:
+    """Groups 2 and 3 could have been two units; putting them in one past the
+    ceiling is a planning mistake, rejected with that reason so it is re-asked."""
+    output = graph_json(
+        [
+            planned(id="c/1", repo="platform", groups=[1], estimated_lines=100),
+            planned(id="c/2", repo="app", groups=[2, 3], estimated_lines=1400),
+        ]
+    )
+
+    with pytest.raises(PlannerError, match="ceiling") as rejected:
+        parse_graph(output, groups=GROUPS)
+
+    assert "c/2" in str(rejected.value)
+    assert not isinstance(rejected.value, GroupTooLarge)
+
+
+def test_the_ceiling_is_the_configured_one() -> None:
+    activate_with(limits={"min_unit_lines": 200, "max_unit_lines": 600})
+    output = graph_json(
+        [
+            planned(id="c/1", repo="platform", groups=[1], estimated_lines=100),
+            planned(id="c/2", repo="app", groups=[2, 3], estimated_lines=700),
+        ]
+    )
+
+    with pytest.raises(PlannerError, match="ceiling"):
+        parse_graph(output, groups=GROUPS)
+
+
+def test_one_group_over_the_ceiling_says_the_tasks_need_splitting() -> None:
+    """No grouping can fix a single group that is too large on its own — the
+    change was authored too coarsely, and the message says where."""
+    output = graph_json(
+        [
+            planned(id="c/1", repo="platform", groups=[1], estimated_lines=1500),
+            planned(id="c/2", repo="app", groups=[2, 3], estimated_lines=300),
+        ]
+    )
+
+    with pytest.raises(GroupTooLarge) as rejected:
+        parse_graph(output, groups=GROUPS)
+
+    message = str(rejected.value)
+    assert "group 1" in message
+    assert "split" in message
