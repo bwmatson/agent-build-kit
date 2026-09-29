@@ -23,7 +23,7 @@ implemented.
 |---|---|---|
 | `name` | `abk.yaml`, the registry | the key a repo names |
 | `detect_markers` | `abk init` | files whose presence in a repo root suggest this profile |
-| `allowed_tools` | every build run | tool patterns to allow beyond the base list, in `--allowedTools` syntax |
+| `allowed_tools` | every build run | tool patterns to allow beyond the base list, in `--allowedTools` syntax; no effect under the `acp` runtime (docs/agent-runtimes.md) |
 | `prompt_words` | the build prompts | `verify` ("what the checks pass means") and `stub` ("what a permitted stub looks like") |
 | `no_tests_collected_exit` | tier 2, verify | the runner's exit status when nothing was selected — a pass, not a failure |
 | `lint_command(base)` | tier 1 | lint scoped to the diff since `base` |

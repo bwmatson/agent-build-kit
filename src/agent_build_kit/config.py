@@ -167,6 +167,8 @@ class TracksConfig(Frozen):
     # resolved per runtime, so a workspace on another runtime sets it.
     model: str = "sonnet"
     implement_max_prs: int = 3
+    # Claude Code's --allowedTools/--disallowedTools syntax; neither list has
+    # any effect under the acp runtime.
     allowed_tools: str = (
         "Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch "
         "Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh pr *) "

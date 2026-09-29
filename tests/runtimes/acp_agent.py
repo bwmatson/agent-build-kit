@@ -7,12 +7,16 @@ its model choice as a config option, the commands it offers, thought and
 message chunks, tool calls started and updated, and a prompt answered with an
 end-of-turn reason.
 
-    python acp_agent.py RECORD [--stop REASON]
+    python acp_agent.py RECORD [--stop REASON] [--no-additional-dirs] [--fail HOW]
 
 Every request the client sends is appended to RECORD as one JSON line —
 `{"method": ..., "params": ...}`, the params as they arrived on the wire — so
 a test can say what the adapter asked for. `--stop` is the end-of-turn reason
 the prompt is answered with (`end_turn` unless given).
+`--no-additional-dirs` leaves the `additionalDirectories` session capability
+unadvertised. `--fail` breaks the prompt partway through, after the preamble:
+`exit` writes `STDERR_LINE` to stderr and exits 3, `kill` sends the agent
+SIGKILL, and `error` answers the prompt with an internal error.
 """
 
 from __future__ import annotations
@@ -20,6 +24,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,6 +35,7 @@ from acp import (
     InitializeResponse,
     NewSessionResponse,
     PromptResponse,
+    RequestError,
     SetSessionConfigOptionResponse,
     run_agent,
     start_tool_call,
@@ -45,6 +52,8 @@ from acp.schema import (
     AvailableCommand,
     Implementation,
     PromptCapabilities,
+    SessionAdditionalDirectoriesCapabilities,
+    SessionCapabilities,
     SessionConfigOptionSelect,
     SessionConfigSelectOption,
     SessionMode,
@@ -59,13 +68,15 @@ SESSION = "sess_7Hq2Zk4PxYwVb9nR"
 MODELS = ("swift-1", "deep-2")
 DEFAULT_MODEL = MODELS[0]
 
-# The final answer arrives in pieces, as a model's output streams; the review
-# step parses the joined text as JSON.
+# Messages arrive in pieces, as a model's output streams: the preamble a word
+# at a time, the final answer — which the review step parses as JSON — in two.
 PREAMBLE = "I'll add the marker to the app module."
+PREAMBLE_CHUNKS = tuple(word + " " for word in PREAMBLE.split())
 ANSWER_CHUNKS = ('{"approved": true, ', '"feedback": "", "needs_human": false}')
 ANSWER = "".join(ANSWER_CHUNKS)
 TOOL_TITLE = "Edit src/app.py"
 THOUGHT = "The marker belongs beside the other module constants."
+STDERR_LINE = "fake-agent: the model endpoint refused the connection"
 
 
 def _model_option(current: str) -> SessionConfigOptionSelect:
@@ -84,9 +95,13 @@ def _model_option(current: str) -> SessionConfigOptionSelect:
 
 
 class FakeAgent:
-    def __init__(self, record: Path, stop: str) -> None:
+    def __init__(
+        self, record: Path, stop: str, *, additional_dirs: bool = True, fail: str | None = None
+    ) -> None:
         self._record = record
         self._stop = stop
+        self._additional_dirs = additional_dirs
+        self._fail = fail
         self._model = DEFAULT_MODEL
         self._client: Client | None = None
 
@@ -117,6 +132,11 @@ class FakeAgent:
             agent_capabilities=AgentCapabilities(
                 load_session=False,
                 prompt_capabilities=PromptCapabilities(image=False, audio=False),
+                session_capabilities=SessionCapabilities(
+                    additional_directories=SessionAdditionalDirectoriesCapabilities()
+                    if self._additional_dirs
+                    else None
+                ),
             ),
             auth_methods=[],
             agent_info=Implementation(name="fake-agent", title="Fake Agent", version="0.3.1"),
@@ -186,7 +206,15 @@ class FakeAgent:
             )
         )
         await send(update_agent_thought_text(THOUGHT))
-        await send(update_agent_message_text(PREAMBLE))
+        for chunk in PREAMBLE_CHUNKS:
+            await send(update_agent_message_text(chunk))
+        if self._fail == "exit":
+            print(STDERR_LINE, file=sys.stderr, flush=True)
+            sys.exit(3)
+        if self._fail == "kill":
+            os.kill(os.getpid(), signal.SIGKILL)
+        if self._fail == "error":
+            raise RequestError.internal_error({"details": "the model endpoint went away"})
         await send(
             start_tool_call(
                 "call_01",
@@ -225,19 +253,33 @@ class FakeAgent:
         self._log(method, params)
 
 
-def command(record: Path, *, stop: str = "end_turn") -> list[str]:
+def command(
+    record: Path, *, stop: str = "end_turn", additional_dirs: bool = True, fail: str | None = None
+) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one."""
-    return [sys.executable, str(Path(__file__).resolve()), str(record), "--stop", stop]
+    argv = [sys.executable, str(Path(__file__).resolve()), str(record), "--stop", stop]
+    if not additional_dirs:
+        argv.append("--no-additional-dirs")
+    if fail:
+        argv += ["--fail", fail]
+    return argv
 
 
-def use_agent(record: Path, *, stop: str = "end_turn") -> None:
+def use_agent(
+    record: Path, *, stop: str = "end_turn", additional_dirs: bool = True, fail: str | None = None
+) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
+    use_command(command(record, stop=stop, additional_dirs=additional_dirs, fail=fail))
+
+
+def use_command(argv: list[str] | None) -> None:
+    """Set the active workspace's `runtimes.acp.command` to `argv` (None: unset)."""
     from agent_build_kit import config
     from agent_build_kit.config import RuntimeConfig
 
     current = config.active()
-    entry = RuntimeConfig(command=command(record, stop=stop))
+    entry = RuntimeConfig(command=argv)
     config.activate(current.model_copy(update={"runtimes": {"acp": entry}}), config.active_root())
 
 
@@ -253,8 +295,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("record", type=Path)
     parser.add_argument("--stop", default="end_turn")
+    parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
+    parser.add_argument("--fail", choices=["exit", "kill", "error"])
     args = parser.parse_args()
-    asyncio.run(run_agent(FakeAgent(args.record, args.stop)))
+    agent = FakeAgent(args.record, args.stop, additional_dirs=args.additional_dirs, fail=args.fail)
+    asyncio.run(run_agent(agent))
 
 
 if __name__ == "__main__":

@@ -127,7 +127,8 @@ tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # runtime is active and not resolved per
                                 # runtime: set it when selecting another
   implement_max_prs: 3          # PRs one implement pass may open per repo
-  allowed_tools: >-             # Claude Code --allowedTools syntax
+  allowed_tools: >-             # Claude Code --allowedTools syntax; both
+                                # lists have no effect under the acp runtime
     Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch
     Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh pr *)
     Bash(gh repo view*) Bash(docker compose config*)

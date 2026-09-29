@@ -6,8 +6,9 @@ over stdio, on its own event loop so callers stay synchronous.
 The prompt's response carries an end-of-turn reason, so the outcome is read
 from that and never from the answer's text: `end_turn` is an answer, a
 ceiling or a refusal is a failed result saying which, and `cancelled` is an
-interruption. `AgentRequest.allowed_tools`/`denied_tools` are inert here —
-the protocol has no per-session tool list (docs/agent-runtimes.md).
+interruption, as is an agent killed by a signal. `AgentRequest.allowed_tools`/
+`denied_tools` are inert here — the protocol has no per-session tool list
+(docs/agent-runtimes.md) — and a named `worktree` is refused, not ignored.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from acp.schema import (
     ClientCapabilities,
     DeniedOutcome,
     Implementation,
+    InitializeResponse,
     PermissionOption,
     RequestPermissionResponse,
     SessionConfigOptionSelect,
@@ -69,6 +71,9 @@ class _Session:
         self._report = report
         # The message since the last tool call: the one that closes the turn.
         self._message: list[str] = []
+        # The message not yet reported: it streams in token-sized chunks, and
+        # reads as one line once something else starts or the turn ends.
+        self._unsaid: list[str] = []
         self._titles: dict[str, str] = {}
 
     @property
@@ -82,12 +87,14 @@ class _Session:
         if isinstance(update, AgentMessageChunk):
             if isinstance(update.content, TextContentBlock):
                 self._message.append(update.content.text)
-                self._tell(f"says: {update.content.text}")
+                self._unsaid.append(update.content.text)
         elif isinstance(update, ToolCallStart):
+            self.said()
             self._message = []
             self._titles[update.tool_call_id] = update.title
             self._tell(update.title)
         elif isinstance(update, ToolCallProgress):
+            self.said()
             self._message = []
             title = update.title or self._titles.get(update.tool_call_id, update.tool_call_id)
             if update.status:
@@ -98,6 +105,19 @@ class _Session:
     ) -> RequestPermissionResponse:
         # Nothing is permitted until the permission rules are answered here.
         return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+
+    def said(self) -> None:
+        """The message streamed since the last line, as one line."""
+        text = "".join(self._unsaid)
+        self._unsaid = []
+        if text.strip():
+            self._tell(f"says: {text}")
+
+    def notice(self, line: str) -> None:
+        """Something the operator should know about the run, not a step of it:
+        to stderr, and to the run's log when it has one."""
+        print(f"{NAME}: {line}", file=sys.stderr)
+        self._tell(line)
 
     def _tell(self, line: str) -> None:
         if self._report is None:
@@ -139,11 +159,22 @@ class AcpRuntime:
     default_models: ModelsConfig = ModelsConfig()
 
     def __init__(self) -> None:
-        # The models already reported as not on offer: once per runtime, not
-        # once per unit a tick runs through it.
+        # The models already reported as not on offer, and whether the agent's
+        # lack of extra workspace roots has been: once per runtime, not once
+        # per unit a tick runs through it.
         self._unoffered: set[str] = set()
+        self._no_roots_told = False
 
     def run(self, request: AgentRequest) -> AgentResult:
+        if request.worktree:
+            # Running it in cwd instead would put a track phase in the
+            # planning checkout.
+            return AgentResult(
+                ok=False,
+                text="",
+                error=f"runtimes.{NAME} does not create a named worktree; "
+                f"{request.worktree!r} needs a runtime that does",
+            )
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)
         if not command:
             return AgentResult(ok=False, text="", error=f"runtimes.{NAME}.command is not set")
@@ -171,15 +202,20 @@ class AcpRuntime:
         # call those methods; one that does is answered "method not found".
         conn = connect_to_agent(cast(Client, session), process.stdin, process.stdout)
         try:
-            stop_reason = await self._turn(conn, request)
+            stop_reason = await self._turn(conn, session, request)
         except RequestError as exc:
             return AgentResult(ok=False, text="", error=f"the agent answered an error: {exc}")
         except (ConnectionError, EOFError) as exc:
             said = await _ended(process, stderr)
+            if process.returncode is not None and process.returncode < 0:
+                raise AgentInterrupted(
+                    f"the agent was killed by signal {-process.returncode}"
+                ) from exc
             return AgentResult(
                 ok=False, text="", error=f"the agent went away: {exc} {said}".strip()
             )
         finally:
+            session.said()
             await conn.close()
             await _ended(process, stderr)
 
@@ -190,8 +226,8 @@ class AcpRuntime:
             return AgentResult(ok=False, text=session.answer, error=error, stop_reason=stop_reason)
         return AgentResult(ok=True, text=session.answer, stop_reason=stop_reason)
 
-    async def _turn(self, conn: Any, request: AgentRequest) -> str:
-        await conn.initialize(
+    async def _turn(self, conn: Any, session: _Session, request: AgentRequest) -> str:
+        initialized = await conn.initialize(
             protocol_version=PROTOCOL_VERSION,
             client_capabilities=ClientCapabilities(),
             client_info=Implementation(name="abk", title="agent-build-kit", version=__version__),
@@ -199,18 +235,39 @@ class AcpRuntime:
         cwd = request.cwd or Path.cwd()
         opened = await conn.new_session(
             cwd=str(cwd),
-            additional_directories=[str(directory) for directory in request.add_dirs] or None,
+            additional_directories=self._roots(initialized, session, request),
             mcp_servers=[],
         )
         if request.model:
-            await self._select_model(conn, opened.session_id, opened.config_options, request.model)
+            await self._select_model(
+                conn, session, opened.session_id, opened.config_options, request.model
+            )
         response = await conn.prompt(
             session_id=opened.session_id, prompt=[text_block(request.prompt)]
         )
         return str(response.stop_reason)
 
+    def _roots(
+        self, initialized: InitializeResponse, session: _Session, request: AgentRequest
+    ) -> list[str] | None:
+        """The extra readable directories, sent only to an agent that says it
+        takes them: one that does not may drop the field without a word."""
+        if not request.add_dirs:
+            return None
+        capabilities = initialized.agent_capabilities
+        sessions = capabilities.session_capabilities if capabilities is not None else None
+        if sessions is not None and sessions.additional_directories is not None:
+            return [str(directory) for directory in request.add_dirs]
+        if not self._no_roots_told:
+            self._no_roots_told = True
+            named = ", ".join(str(directory) for directory in request.add_dirs)
+            session.notice(
+                f"the agent does not take additional workspace roots; not declared to it: {named}"
+            )
+        return None
+
     async def _select_model(
-        self, conn: Any, session_id: str, options: list[Any] | None, model: str
+        self, conn: Any, session: _Session, session_id: str, options: list[Any] | None, model: str
     ) -> None:
         """Selected when the agent offers it; otherwise the run carries on
         with the agent's own default, which is not a failure."""
@@ -224,10 +281,9 @@ class AcpRuntime:
         if model not in self._unoffered:
             self._unoffered.add(model)
             offered = ", ".join(_offered(option)) if option is not None else "none"
-            print(
-                f"{NAME}: the agent does not offer model {model!r} (offers: {offered}); "
-                "running on its default",
-                file=sys.stderr,
+            session.notice(
+                f"the agent does not offer model {model!r} (offers: {offered}); "
+                "running on its default"
             )
 
     def get_usage_status(self) -> None:

@@ -7,7 +7,8 @@ every call site going through `AgentRuntime.run()`, choosing a runtime in
 `abk.yaml` or the environment, per-runtime model names, and the `doctor` and
 `init` runtime checks are in place. The `acp` adapter (`runtimes/acp.py`, behind
 the `acp` extra) runs a prompt, maps each end-of-turn reason, selects a model
-and streams progress; its client capabilities, permission answering and
+and streams progress; a request for a named `worktree` it refuses as a
+failed result rather than run in `cwd`. Its client capabilities, permission answering and
 `check_policy` are not yet implemented, so it stays unregistered and Claude
 Code is still the only registered runtime. This document specifies the
 whole shape, so that adding a second runtime is writing an adapter against a

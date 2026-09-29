@@ -63,7 +63,7 @@ class AgentRequest(Frozen):
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir
     model: str | None = None  # already resolved to this runtime's own name
-    allowed_tools: str = ""  # Claude Code's --allowedTools syntax
+    allowed_tools: str = ""  # Claude Code's --allowedTools syntax; inert under acp
     denied_tools: str = ""  # ditto, --disallowedTools
     permission_mode: PermissionMode = "edit"
     policy: ToolPolicy | None = None  # None: no enforcement asked for (a read-only run)

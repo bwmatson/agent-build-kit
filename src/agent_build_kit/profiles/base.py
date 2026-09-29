@@ -28,7 +28,7 @@ class ToolchainProfile(Protocol):
     # Files whose presence in a repo root suggests this profile (init's detection).
     detect_markers: tuple[str, ...]
     # Tool patterns to allow in addition to the base list, in Claude Code's
-    # `--allowedTools` syntax.
+    # `--allowedTools` syntax; no effect under the acp runtime.
     allowed_tools: str
     prompt_words: PromptWords
     # The test runner's exit status when nothing was selected.
