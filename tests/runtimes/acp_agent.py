@@ -41,7 +41,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 from acp import (
     PROTOCOL_VERSION,
@@ -114,7 +114,7 @@ class FakeAgent:
     def __init__(
         self,
         record: Path,
-        stop: str,
+        stop: StopReason,
         *,
         additional_dirs: bool = True,
         linger: bool = False,
@@ -269,7 +269,7 @@ class FakeAgent:
         )
         for chunk in ANSWER_CHUNKS:
             await send(update_agent_message_text(chunk))
-        return PromptResponse(stop_reason=cast(StopReason, self._stop))
+        return PromptResponse(stop_reason=self._stop)
 
     def _leave_child(self, *, new_session: bool) -> None:
         """Start a child that holds this agent's stderr for `HANG_SECONDS`."""
@@ -353,7 +353,7 @@ def requests(record: Path, method: str) -> list[dict[str, Any]]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("record", type=Path)
-    parser.add_argument("--stop", default="end_turn")
+    parser.add_argument("--stop", default="end_turn", choices=get_args(StopReason))
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
     parser.add_argument("--linger", action="store_true")
     parser.add_argument("--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach"])
