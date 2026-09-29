@@ -122,7 +122,7 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   from the planning repo, runs it only on a yes, and checks again afterwards;
   a no changes nothing and names what is still unenforced. With `--yes` the
   fix is only printed, never run. The answer is reused for 15 minutes
-  (`runs/policy-check.json`).
+  (`<state_dir>/policy-check.json`).
 
 Exit 2 when a repo path is not a directory, two repos share a name, or
 `--consumes` names an unknown repo; 1 when the layout fails (git or
@@ -151,9 +151,9 @@ Is this installation in a state the pipeline can run in? Each check prints
 | repo `<name>` | the path is missing, not a git checkout, or has no repo-local `user.email` | |
 | gh `<owner>` | `gh auth token --user <owner>` yields nothing for an owner in `repos` | |
 | node, openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run | |
-| runtime | the selected runtime is not implemented, or its agent command (`runtimes.<name>.command`, else the adapter's own, `claude` for `claude_code`) is not on PATH | |
+| runtime | the selected runtime is not implemented, or its agent command (`runtimes.<name>.command`, else the adapter's own, `claude` for `claude_code`; the one every run spawns) is not on PATH | |
 | runtime coverage | | the runtime's `policy_coverage` is short of `all_calls` |
-| runtime policy | the runtime does not refuse a forbidden command class (each is named; the fix printed is `runtimes.<name>.policy_fix`). Reused for 15 minutes from `runs/policy-check.json` | |
+| runtime policy | the runtime does not refuse a forbidden command class (each is named; the fix printed is `runtimes.<name>.policy_fix`, else the runtime's own advice). Reused for 15 minutes from `<state_dir>/policy-check.json` | |
 | ssh key `<name>` | `deploy.ssh_key` does not exist | |
 | verify.env `<VAR>` | the provider cannot resolve (names only; never values) | |
 | rules | | The `# abk-rules: vN` stamp in `openspec/config.yaml` against the framework's rules version: a note when it is unstamped, a warning when the framework has added rules since (they are listed) or the stamp is newer. Wording is never compared. |

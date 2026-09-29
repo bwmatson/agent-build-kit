@@ -106,6 +106,9 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
+| `requires` | attr | the `runtimes.<name>` keys it cannot run without; a selection missing one fails at load |
+| `agent_command` | attr | the argv that starts its agent when `runtimes.<name>.command` is unset; a set `command` replaces it in every run and in `abk doctor`'s PATH check alike |
+| `default_models` | attr | its own model names for a role nothing in the file or the environment names |
 | `run(request)` | method | run one prompt to completion, report the result |
 | `get_usage_status()` | method | where an account-level usage window stands, or None |
 | `check_policy(cwd)` | method | whether this agent actually refuses what abk forbids |
@@ -245,6 +248,9 @@ class AgentRuntime(Protocol):
     policy_coverage: PolicyCoverage
     supports_usage_tracking: bool
     supports_streaming: bool
+    requires: tuple[str, ...]
+    agent_command: tuple[str, ...]
+    default_models: ModelsConfig
 
     def run(self, request: AgentRequest) -> AgentResult:
         """Run one prompt to completion and report the result.
@@ -308,9 +314,12 @@ repo at once, which is a poor way to try a runtime out. **`ABK_RUNTIME`**
 overrides it for one machine or one invocation, the way `ABK_IMPLEMENT_MODEL`
 and its siblings already override `models`.
 
-`models()` resolves the flat block, then `runtimes.<active>.models` where
-present, then the `ABK_*_MODEL` overrides; a role no config names falls back to
-that adapter's own baked-in default. Role to model is deliberately
+`models()` resolves each role from the `ABK_*_MODEL` overrides, then
+`runtimes.<active>.models` where present, then the flat block — only the roles
+the file actually names there — then the active adapter's own
+`default_models`. A role no config names never falls back to another
+runtime's names: `claude_code` declares today's `opus`/`fable`, another
+adapter its own. Role to model is deliberately
 many-to-one: a runtime with no "expensive versus cheap reviewer" split may
 point `rework_review` at the same model as `review`, and a `generic` role
 (init's research and propose, the planner) may fall back to `implement`'s.
@@ -409,7 +418,7 @@ this machine. `check_policy` establishes the fact.
   missing.
 - **`abk doctor` fails rather than warns** when a class is unenforced, and
   prints the `policy_fix` command. A probe costs one small agent call, so the
-  result is cached in the state directory (`runs/policy-check.json`, per
+  result is cached in the state directory (`<state_dir>/policy-check.json`, per
   runtime) for 15 minutes, as the usage reading already is
   (`runtimes/policy_check.py`); `abk init` asks afresh after running the fix.
 

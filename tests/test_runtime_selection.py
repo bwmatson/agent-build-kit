@@ -6,9 +6,9 @@ for one machine or one invocation. A runtime that needs a fact abk cannot
 default takes it from its own `runtimes.<name>` entry, and a selection that
 cannot work fails when the file is loaded rather than when every unit is held.
 
-Models resolve against the active runtime: the flat `models:` block, then that
-runtime's own `runtimes.<name>.models`, then the per-machine `ABK_*_MODEL`
-overrides.
+Models resolve against the active runtime: the per-machine `ABK_*_MODEL`
+overrides, then that runtime's own `runtimes.<name>.models`, then the roles the
+flat `models:` block names, then the runtime's own defaults.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import config, runtimes
-from agent_build_kit.config import ConfigError
+from agent_build_kit.config import ConfigError, ModelsConfig
 from agent_build_kit.settings import Settings, reload, settings
 from tests.runtimes.selectable import SelectableRuntime, select
 
@@ -105,6 +105,53 @@ def test_another_runtime_s_models_are_not_sent_to_the_active_one(
     activate(write(tmp_path, f"runtime: claude_code\n{FLAT_MODELS}{OTHER_MODELS}"))
 
     assert config.models().review == "opus"
+
+
+# A runtime's own names for every role, none of them Claude Code's.
+OWN_DEFAULTS = ModelsConfig(
+    implement="own-builder",
+    rework="own-reworker",
+    review="own-reviewer",
+    rework_review="own-second-look",
+)
+
+
+def test_a_role_nothing_names_falls_back_to_the_active_runtime_s_own_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never to another runtime's: a workspace on a runtime with its own model
+    names, and no `models:` block, is sent none of Claude Code's."""
+    select(monkeypatch, SelectableRuntime("other", default_models=OWN_DEFAULTS))
+    activate(write(tmp_path, "runtime: other\n"))
+
+    models = config.models()
+
+    assert models == OWN_DEFAULTS
+    assert not {"opus", "fable"} & set(models.model_dump().values())
+
+
+def test_a_flat_block_naming_some_roles_leaves_the_rest_to_the_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    select(monkeypatch, SelectableRuntime("other", default_models=OWN_DEFAULTS))
+    activate(write(tmp_path, "runtime: other\nmodels:\n  implement: named\n"))
+
+    models = config.models()
+
+    assert models.implement == "named"
+    assert (models.rework, models.review, models.rework_review) == (
+        "own-reworker",
+        "own-reviewer",
+        "own-second-look",
+    )
+
+
+def test_claude_code_with_no_models_block_keeps_today_s_names(tmp_path: Path) -> None:
+    activate(write(tmp_path, "runtime: claude_code\n"))
+
+    assert config.models() == ModelsConfig(
+        implement="opus", rework="opus", review="opus", rework_review="fable"
+    )
 
 
 def test_the_machine_s_model_overrides_still_win(

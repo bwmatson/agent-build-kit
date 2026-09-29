@@ -90,7 +90,9 @@ runtimes: {}                    # one entry per runtime that needs a fact abk
 
 models:                         # bare aliases, not pinned ids. These are the
                                 # ACTIVE runtime's models; a runtimes.<name>.
-                                # models block overrides them when present.
+                                # models block overrides them when present,
+                                # and a role left out of both takes the
+                                # runtime's own default (these, on claude_code).
   implement: opus               # the tests and implementation runs
   rework: opus                  # reworks, restack conflict resolution, adapt
   review: opus                  # the first review of a fresh build
@@ -272,6 +274,8 @@ that object to every command. Leaf modules that need one scalar — a limit, a
 prefix, a model — call `config.active()`, set once by `Installation.activate()`
 and defaulting to an empty workspace so the library is usable without a file
 on disk. `config.runtime_name()` is the runtime in force (`ABK_RUNTIME`, then
-`runtime`), and `runtimes.active()` its adapter. `config.models()` resolves the
-flat `models` block, then that runtime's `runtimes.<name>.models`, then the
-`ABK_*_MODEL` overrides.
+`runtime`), and `runtimes.active()` its adapter; `config.runtime_entry()` is
+its `runtimes.<name>` entry, or an empty one. `config.models()` resolves each
+role from the `ABK_*_MODEL` overrides, then that runtime's
+`runtimes.<name>.models`, then a role the flat `models` block names, then the
+adapter's own `default_models`.

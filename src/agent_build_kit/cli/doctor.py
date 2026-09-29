@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Literal
 
 from agent_build_kit import __version__, config, forges, openspec, profiles, runtimes, skills
-from agent_build_kit.config import CommandProvider, ConfigError, RuntimeConfig, WorkspaceConfig
+from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
 from agent_build_kit.installation import Installation, _resolve
@@ -263,7 +263,7 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
     interposes on, and whether it refuses what abk forbids."""
     name = config.runtime_name(inst.config)
     runtime = runtimes.get(name)
-    entry = inst.config.runtimes.get(name, RuntimeConfig())
+    entry = config.runtime_entry(inst.config)
     if not runtime.implemented:
         return [
             _fail(
@@ -272,7 +272,7 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
                 "set `runtime:` in abk.yaml (or ABK_RUNTIME) to an implemented one",
             )
         ]
-    command = entry.command or list(getattr(runtime, "agent_command", ()))
+    command = entry.command or list(runtime.agent_command)
     if command and which(command[0]) is None:
         checks = [
             _fail(
@@ -295,18 +295,15 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
             )
         )
 
-    report = policy_check.checked(
-        runtime, inst.root, cache=inst.state_dir / policy_check.CACHE_NAME
-    )
+    report = policy_check.checked(runtime, inst.root, cache=policy_check.cache_path(inst))
     if report.ok:
         checks.append(_ok("runtime policy", "every forbidden class is refused"))
     else:
-        fix = " ".join(entry.policy_fix) if entry.policy_fix else report.fix
         checks.append(
             _fail(
                 "runtime policy",
                 f"not refused: {', '.join(report.unenforced)}",
-                fix or f"set `runtimes.{name}.policy_fix` in abk.yaml to what enforces them",
+                policy_check.fix_for(name, entry, report),
             )
         )
     return checks

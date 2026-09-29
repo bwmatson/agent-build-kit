@@ -11,8 +11,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit.config import RuntimeConfig
 from agent_build_kit.runtimes import PolicyReport
-from agent_build_kit.runtimes.policy_check import MAX_AGE, checked
+from agent_build_kit.runtimes.policy_check import MAX_AGE, checked, fix_for
 from tests.runtimes.selectable import SelectableRuntime
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
@@ -104,3 +105,22 @@ def test_the_cache_directory_is_made_when_missing(tmp_path: Path) -> None:
     checked(runtime, tmp_path, cache=cache, now=NOW)
 
     assert cache.is_file()
+
+
+# --- what fix to print ---------------------------------------------------------------
+
+ADVISED = PolicyReport(ok=False, unenforced=UNENFORCED.unenforced, fix="the runtime's own advice")
+
+
+def test_the_installation_s_fix_comes_first() -> None:
+    entry = RuntimeConfig(policy_fix=["scripts/constrain-agent.sh", "--strict"])
+
+    assert fix_for("probed", entry, ADVISED) == "scripts/constrain-agent.sh --strict"
+
+
+def test_without_one_the_runtime_s_own_advice_is_printed() -> None:
+    assert fix_for("probed", RuntimeConfig(), ADVISED) == "the runtime's own advice"
+
+
+def test_with_neither_the_key_to_set_is_named() -> None:
+    assert "runtimes.probed.policy_fix" in fix_for("probed", RuntimeConfig(), UNENFORCED)

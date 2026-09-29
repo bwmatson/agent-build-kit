@@ -8,7 +8,8 @@
 # run logs beside it are committed; the locks are not.
 runs/*.lock
 runs/locks/
-# The runtime's last policy check, reused by `abk doctor` and `abk init`.
+# The runtime's last policy check, reused by `abk doctor` and `abk init`
+# (in the state directory; move this line if planning.state_dir is changed).
 runs/policy-check.json
 
 # Local tooling.

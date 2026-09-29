@@ -15,6 +15,8 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from agent_build_kit import config
+from agent_build_kit.config import ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.pipeline.claude_stream import (
     STREAM_FLAGS,
@@ -77,11 +79,24 @@ def spawn(
     return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
 
 
+NAME = "claude_code"
+
+# What starts the agent when `runtimes.claude_code.command` is not set.
+AGENT_COMMAND: tuple[str, ...] = ("claude",)
+
+
+def command() -> list[str]:
+    """The argv prefix every `claude` call starts with: the installation's
+    `runtimes.claude_code.command` when it sets one, else `claude` on PATH —
+    the same binary `abk doctor` checks for."""
+    return list(config.runtime_entry(name=NAME).command or AGENT_COMMAND)
+
+
 def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
     """Have Claude Code refresh its OAuth token, with the smallest call it
     takes — see `usage_guard.refresh_login` for why the usage read needs it."""
     run(
-        ["claude", "-p", "Reply with OK and nothing else.", "--model", "haiku"],
+        [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"],
         capture_output=True,
         text=True,
         check=False,
@@ -90,7 +105,7 @@ def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
 
 
 def build_argv(request: AgentRequest) -> list[str]:
-    argv = ["claude", "-p", request.prompt]
+    argv = [*command(), "-p", request.prompt]
     if request.worktree:
         argv += ["--worktree", request.worktree]
     for directory in request.add_dirs:
@@ -121,7 +136,7 @@ def build_argv(request: AgentRequest) -> list[str]:
 
 
 class ClaudeCodeRuntime:
-    name: str = "claude_code"
+    name: str = NAME
     implemented: bool = True
     # The hook sees every tool call before it runs.
     policy_coverage: PolicyCoverage = "all_calls"
@@ -129,8 +144,13 @@ class ClaudeCodeRuntime:
     supports_streaming: bool = True
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
-    # What `abk doctor` looks for on PATH when abk.yaml names no command.
-    agent_command: tuple[str, ...] = ("claude",)
+    agent_command: tuple[str, ...] = AGENT_COMMAND
+    # Bare aliases, not pinned ids, so they track new releases on their own.
+    # A rework is a small targeted edit and the model that made it is the
+    # worst judge of whether it landed, so a different model reviews it.
+    default_models: ModelsConfig = ModelsConfig(
+        implement="opus", rework="opus", review="opus", rework_review="fable"
+    )
 
     def __init__(
         self,

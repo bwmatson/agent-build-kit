@@ -73,7 +73,9 @@ class GithubConfig(Frozen):
 
 class ModelsConfig(Frozen):
     """Which model runs which part of a unit. Bare aliases, not pinned ids, so
-    they track new releases on their own."""
+    they track new releases on their own. In abk.yaml's flat `models:` block
+    only the roles the file names count: one it leaves out takes the active
+    runtime's own `default_models` (`config.models()`), not these defaults."""
 
     implement: str = "opus"
     rework: str = "opus"
@@ -85,7 +87,7 @@ class ModelsConfig(Frozen):
 
 class RuntimeModelsConfig(Frozen):
     """One runtime's own names for the roles in `ModelsConfig`. A role left
-    out keeps the flat `models:` block's name."""
+    out keeps the flat `models:` block's name, or the runtime's default."""
 
     implement: str | None = None
     rework: str | None = None
@@ -369,6 +371,15 @@ def runtime_name(config: WorkspaceConfig | None = None) -> str:
     return settings.runtime or (config or _active).runtime
 
 
+def runtime_entry(
+    config: WorkspaceConfig | None = None, *, name: str | None = None
+) -> RuntimeConfig:
+    """The `runtimes.<name>` entry for the runtime in force (or for `name`),
+    or an empty one when the file has none."""
+    config = config or _active
+    return config.runtimes.get(name or runtime_name(config), RuntimeConfig())
+
+
 def _check_runtime(config: WorkspaceConfig, path: Path) -> None:
     """A selection that cannot work fails here, not when every unit is held:
     an unknown runtime, or one missing a fact it cannot run without."""
@@ -377,7 +388,7 @@ def _check_runtime(config: WorkspaceConfig, path: Path) -> None:
         runtime = runtimes.get(name)
     except KeyError as error:
         raise ConfigError(f"{path}: {error.args[0]}") from None
-    entry = config.runtimes.get(name, RuntimeConfig())
+    entry = runtime_entry(config)
     missing = [fact for fact in runtime.requires if not getattr(entry, fact, None)]
     if missing:
         raise ConfigError(
@@ -412,16 +423,23 @@ def active_root() -> Path | None:
 
 
 def models() -> ModelsConfig:
-    """The active workspace's models for the runtime in force: the flat block,
-    then that runtime's own `runtimes.<name>.models`, then this machine's
-    overrides."""
+    """The active workspace's models for the runtime in force, role by role:
+    this machine's `ABK_*_MODEL`, then that runtime's own
+    `runtimes.<name>.models`, then a role the flat `models:` block names, then
+    the runtime's own default — never another runtime's names."""
     from agent_build_kit.settings import settings
 
-    base = _active.models
-    own = _active.runtimes.get(runtime_name(), RuntimeConfig()).models
+    own = runtime_entry().models
+    named = _active.models.model_fields_set
+    flat = {role: getattr(_active.models, role) for role in named}
+    default = runtimes.active().default_models
+
+    def pick(role: str, machine: str | None) -> str:
+        return machine or getattr(own, role) or flat.get(role) or getattr(default, role)
+
     return ModelsConfig(
-        implement=settings.implement_model or own.implement or base.implement,
-        rework=settings.rework_model or own.rework or base.rework,
-        review=settings.review_model or own.review or base.review,
-        rework_review=settings.rework_review_model or own.rework_review or base.rework_review,
+        implement=pick("implement", settings.implement_model),
+        rework=pick("rework", settings.rework_model),
+        review=pick("review", settings.review_model),
+        rework_review=pick("rework_review", settings.rework_review_model),
     )

@@ -18,9 +18,11 @@ import json
 import sys
 from pathlib import Path
 
-from agent_build_kit import runtimes
+from agent_build_kit import config, runtimes
+from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy, claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.runtimes.claude_code import refresh_login as real_refresh_login
 from tests.runtimes.claude_cli import FakeClaude, finished_build, stream
 
 # What wiring.py passes as a build's tools today: its own list, then the
@@ -235,6 +237,25 @@ def test_a_run_with_no_policy_carries_no_hook_and_no_added_denies(tmp_path: Path
 
     assert "--settings" not in carried
     assert "--disallowedTools" not in carried
+
+
+def test_a_configured_command_starts_every_run_and_the_login_refresh() -> None:
+    """`runtimes.claude_code.command` is the agent the adapter spawns — the
+    same binary `abk doctor` looks for — not decoration beside a hard-coded
+    `claude`."""
+    config.activate(
+        WorkspaceConfig.model_validate(
+            {"runtimes": {"claude_code": {"command": ["/opt/agent-wrapper", "--quiet"]}}}
+        )
+    )
+    fake = FakeClaude(stdout="ok")
+    refreshes: list[list[str]] = []
+
+    argv = _run(AgentRequest(prompt="Say ok."), fake)
+    real_refresh_login(run=lambda argv, **kwargs: refreshes.append(argv))
+
+    assert argv[:3] == ["/opt/agent-wrapper", "--quiet", "-p"]
+    assert refreshes[0][:3] == ["/opt/agent-wrapper", "--quiet", "-p"]
 
 
 def test_the_planner_s_graph_call_carries_only_what_it_carries_today() -> None:

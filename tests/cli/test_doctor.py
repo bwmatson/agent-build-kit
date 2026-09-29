@@ -383,6 +383,32 @@ def test_a_configured_agent_command_that_does_not_resolve_fails(
     assert "some-agent" in checks["runtime"].detail
 
 
+def test_claude_code_s_configured_command_is_the_binary_checked(workspace: Path) -> None:
+    """The one the adapter spawns in place of `claude`, so doctor checks
+    what every run actually starts."""
+    select_runtime(workspace, "claude_code", "    command: [/opt/agent-wrapper]\n")
+
+    found = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "claude" else f"/usr/bin/{name}",
+        )
+    )
+    missing = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "/opt/agent-wrapper" else f"/usr/bin/{name}",
+        )
+    )
+
+    assert found["runtime"].status == "ok"
+    assert "/opt/agent-wrapper" in found["runtime"].detail
+    assert missing["runtime"].status == "FAIL"
+    assert "/opt/agent-wrapper" in missing["runtime"].detail
+
+
 def test_a_runtime_that_is_not_implemented_fails(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

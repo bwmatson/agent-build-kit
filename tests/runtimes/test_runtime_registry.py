@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import runtimes
+from agent_build_kit.config import ModelsConfig
 from agent_build_kit.runtimes import (
     AgentRequest,
     AgentResult,
@@ -31,6 +32,8 @@ class _Double:
     supports_usage_tracking = False
     supports_streaming = False
     requires: tuple[str, ...] = ()
+    agent_command: tuple[str, ...] = ()
+    default_models = ModelsConfig()
 
     def __init__(self, name: str) -> None:
         self.name = name

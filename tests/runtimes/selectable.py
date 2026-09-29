@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import runtimes
+from agent_build_kit.config import ModelsConfig
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
 from agent_build_kit.runtimes.base import PolicyCoverage
 
@@ -31,11 +32,15 @@ class SelectableRuntime:
         requires: tuple[str, ...] = (),
         reports: tuple[PolicyReport, ...] = (PolicyReport(ok=True),),
         log: list[str] | None = None,
+        agent_command: tuple[str, ...] = (),
+        default_models: ModelsConfig | None = None,
     ) -> None:
         self.name = name
         self.implemented = implemented
         self.policy_coverage: PolicyCoverage = policy_coverage
         self.requires = requires
+        self.agent_command = agent_command
+        self.default_models = default_models or ModelsConfig()
         self.reports = reports
         self.log = log if log is not None else []
         self.checked: list[Path] = []

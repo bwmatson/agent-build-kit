@@ -58,7 +58,9 @@ runtimes: {}                  # only for a runtime needing a fact abk cannot
   #                                       # a role left out keeps models:'s
 
 models:                       # bare aliases, not pinned ids; ABK_*_MODEL
-                              # overrides win over these and runtimes' own
+                              # overrides win over these and runtimes' own.
+                              # A role named nowhere takes the active
+                              # runtime's own default (these, on claude_code)
   implement: opus
   rework: opus
   review: opus

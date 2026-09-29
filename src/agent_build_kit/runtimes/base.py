@@ -11,9 +11,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from agent_build_kit.model import Frozen
+
+if TYPE_CHECKING:
+    # config imports this package to check a selection at load.
+    from agent_build_kit.config import ModelsConfig
 
 # abk's own vocabulary for what a run may do beyond its tool list — not a
 # runtime's own permission string. "edit": file edits in its working
@@ -134,6 +138,14 @@ class AgentRuntime(Protocol):
     # `runtimes.<name>` entry in abk.yaml (`command`, ...): a selection that
     # leaves one out fails at load. Empty for a runtime abk can default.
     requires: tuple[str, ...]
+    # The argv that starts this runtime's agent when its `runtimes.<name>`
+    # entry sets no `command`; one that does replaces it, in the runs the
+    # adapter spawns and in what `abk doctor` looks for on PATH alike. Empty
+    # for a runtime that spawns nothing.
+    agent_command: tuple[str, ...]
+    # The model names for a role nothing in abk.yaml or the environment
+    # names: this runtime's own, never another's.
+    default_models: ModelsConfig
 
     def run(self, request: AgentRequest) -> AgentResult:
         """Run one prompt to completion and report the result.
