@@ -21,11 +21,15 @@ their own. A callback that breaks never takes the run down with it.
 
 from __future__ import annotations
 
+import os
+import signal
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.runtimes import AgentInterrupted, AgentRequest, ToolPolicy, acp
+from agent_build_kit.runtimes import AgentInterrupted, AgentRequest, AgentResult, ToolPolicy, acp
 from agent_build_kit.runtimes.acp import AcpRuntime
 from tests.runtimes.acp_agent import (
     ANSWER,
@@ -34,6 +38,7 @@ from tests.runtimes.acp_agent import (
     STDERR_LINE,
     THOUGHT,
     TOOL_TITLE,
+    orphan_pid_file,
     requests,
     use_agent,
     use_command,
@@ -296,6 +301,50 @@ def test_an_agent_abk_had_to_kill_is_a_failed_result_not_an_interruption(
     assert result.ok is False
     assert "killed" in result.error
     assert STDERR_LINE in result.error
+
+
+def _gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
+    tmp_path: Path, worktree: Path, specs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wrapper (a script, `npx`, `uvx`) forks the real agent, which holds
+    the pipes too: killing only the wrapper leaves them open, and a tick
+    waiting for their end would never finish. The whole agent is killed, and
+    the wait for its stderr is bounded either way."""
+    monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, fail="orphan")
+    results: list[AgentResult] = []
+    run = threading.Thread(
+        target=lambda: results.append(AcpRuntime().run(_request(worktree, specs))), daemon=True
+    )
+
+    started = time.monotonic()
+    run.start()
+    run.join(timeout=10)
+    elapsed = time.monotonic() - started
+    orphan = int(orphan_pid_file(record).read_text())
+    deadline = time.monotonic() + 5
+    while not _gone(orphan) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    left = not _gone(orphan)
+    if left:
+        os.kill(orphan, signal.SIGKILL)
+
+    assert not run.is_alive(), "run() did not return"
+    assert elapsed < 5
+    [result] = results
+    assert result.ok is False
+    assert "killed" in result.error
+    assert STDERR_LINE in result.error
+    assert not left, "the agent's child outlived the run"
 
 
 def test_an_error_answering_the_prompt_is_a_failed_result(

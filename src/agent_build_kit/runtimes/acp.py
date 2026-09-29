@@ -15,6 +15,8 @@ killed for failing to exit, which is a failure. `AgentRequest.allowed_tools`/
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -55,8 +57,12 @@ NAME = "acp"
 # longer than asyncio's 64 KiB default.
 LINE_LIMIT = 16 * 1024 * 1024
 
-# Seconds an agent has to exit once its input is closed before it is killed.
+# Seconds an agent has to exit once its input is closed before it is killed,
+# and then for its stderr to close: a process it left behind can hold it open.
 EXIT_GRACE = 5.0
+
+# Bytes of the agent's stderr read at a time.
+STDERR_CHUNK = 64 * 1024
 
 # How long a turn that did not end normally reads in the unit's log: each
 # calls for something different of whoever reads it.
@@ -187,6 +193,10 @@ class AcpRuntime:
     async def _run(self, command: list[str], request: AgentRequest) -> AgentResult:
         session = _Session(request.on_event)
         try:
+            # In a session of its own, so a kill reaches whatever the command
+            # forks (a wrapper's real agent) and not only the command itself.
+            # A Ctrl-C at the terminal then reaches abk alone; abk closes the
+            # agent's input and, after the grace, kills its group all the same.
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.PIPE,
@@ -194,6 +204,7 @@ class AcpRuntime:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=request.cwd,
                 limit=LINE_LIMIT,
+                start_new_session=True,
             )
         except OSError as exc:
             return AgentResult(ok=False, text="", error=f"could not start {command[0]}: {exc}")
@@ -201,7 +212,7 @@ class AcpRuntime:
         assert process.stderr is not None
         # Drained as it arrives, so an agent that logs a lot never blocks on
         # a full pipe; kept for the error when the run breaks.
-        stderr = asyncio.create_task(process.stderr.read())
+        stderr = _Drained(process.stderr)
         # No file or terminal capability is advertised, so the agent must not
         # call those methods; one that does is answered "method not found".
         conn = connect_to_agent(cast(Client, session), process.stdin, process.stdout)
@@ -309,9 +320,40 @@ class AcpRuntime:
         raise NotImplementedError
 
 
-async def _ended(
-    process: asyncio.subprocess.Process, stderr: asyncio.Task[bytes]
-) -> tuple[str, bool]:
+class _Drained:
+    """A stream read to its end as it arrives, what it said so far always at
+    hand."""
+
+    def __init__(self, stream: asyncio.StreamReader) -> None:
+        self._said = bytearray()
+        self._task = asyncio.create_task(self._drain(stream))
+
+    async def _drain(self, stream: asyncio.StreamReader) -> None:
+        while chunk := await stream.read(STDERR_CHUNK):
+            self._said += chunk
+
+    async def said(self) -> tuple[str, bool]:
+        """What the stream said, waiting at most `EXIT_GRACE` for its end, and
+        whether it ended: a process can keep it open for as long as it likes."""
+        if not self._task.done():
+            try:
+                await asyncio.wait_for(self._task, timeout=EXIT_GRACE)
+            except TimeoutError:
+                pass
+        ended = self._task.done() and not self._task.cancelled()
+        return self._said.decode(errors="replace").strip(), ended
+
+
+def _kill_group(process: asyncio.subprocess.Process) -> None:
+    """SIGKILL the agent's process group: the agent and all it forked that
+    stayed in its session."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+async def _ended(process: asyncio.subprocess.Process, stderr: _Drained) -> tuple[str, bool]:
     """Wait for the agent to exit once its input is closed: what it said on
     stderr, for an error, and whether it had to be killed for not exiting —
     a signal of our own, not one it received from elsewhere."""
@@ -322,10 +364,15 @@ async def _ended(
         try:
             await asyncio.wait_for(process.wait(), timeout=EXIT_GRACE)
         except TimeoutError:
-            process.kill()
+            _kill_group(process)
             killed = True
             await process.wait()
-    return (await stderr).decode(errors="replace").strip(), killed
+    said, closed = await stderr.said()
+    if not closed:
+        # The agent is gone but something it started still holds its stderr:
+        # nothing abk should leave running.
+        _kill_group(process)
+    return said, killed
 
 
 RUNTIME = AcpRuntime()

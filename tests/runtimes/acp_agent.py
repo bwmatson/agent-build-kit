@@ -19,6 +19,9 @@ unadvertised. `--fail` breaks the prompt partway through, after the preamble:
 SIGKILL, `error` answers the prompt with an internal error, and `hang` closes
 its stdout, writes `STDERR_LINE` to stderr and lingers for `HANG_SECONDS`
 without exiting, as an agent whose stdio loop died while its process did not.
+`orphan` first starts a child that inherits its stderr and sleeps for
+`HANG_SECONDS`, writing the child's pid to `orphan_pid_file(RECORD)`, then does
+what `hang` does: a wrapper whose real agent keeps stderr open.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -220,7 +224,14 @@ class FakeAgent:
             os.kill(os.getpid(), signal.SIGKILL)
         if self._fail == "error":
             raise RequestError.internal_error({"details": "the model endpoint went away"})
-        if self._fail == "hang":
+        if self._fail == "orphan":
+            child = subprocess.Popen(
+                [sys.executable, "-c", f"import time; time.sleep({HANG_SECONDS})"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+            )
+            orphan_pid_file(self._record).write_text(str(child.pid))
+        if self._fail in ("hang", "orphan"):
             os.close(1)
             print(STDERR_LINE, file=sys.stderr, flush=True)
             time.sleep(HANG_SECONDS)
@@ -260,6 +271,11 @@ class FakeAgent:
 
     async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
         self._log(method, params)
+
+
+def orphan_pid_file(record: Path) -> Path:
+    """Where `--fail orphan` writes the pid of the child it leaves behind."""
+    return record.with_suffix(".orphan")
 
 
 def command(
@@ -305,7 +321,7 @@ def main() -> None:
     parser.add_argument("record", type=Path)
     parser.add_argument("--stop", default="end_turn")
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
-    parser.add_argument("--fail", choices=["exit", "kill", "error", "hang"])
+    parser.add_argument("--fail", choices=["exit", "kill", "error", "hang", "orphan"])
     args = parser.parse_args()
     agent = FakeAgent(args.record, args.stop, additional_dirs=args.additional_dirs, fail=args.fail)
     asyncio.run(run_agent(agent))
