@@ -153,3 +153,36 @@ def test_a_substring_match_does_not_deny_innocent_commands() -> None:
     """`gh pr merge` is denied; a branch or message mentioning it is not."""
     assert allowed('git commit -m "document how gh pr merge is denied"')
     assert allowed("gh pr view 4 --json mergeable")
+
+
+# --- every host's way of merging, not just this repo's -----------------------
+
+
+def test_the_agent_cannot_complete_an_azure_pull_request() -> None:
+    """Azure DevOps has no single merge command: a PR is completed by an
+    update, approved by a vote, and unblocked by a policy change."""
+    assert not allowed("az repos pr update --id 4 --status completed")
+    assert not allowed("az repos pr update --id 4 --auto-complete true")
+    assert not allowed("az repos pr update --id 4 --bypass-policy true")
+    assert not allowed("az repos pr set-vote --id 4 --vote approve")
+    assert not allowed("az repos policy delete --id 7")
+
+
+def test_the_raw_api_escapes_are_denied_too() -> None:
+    """Both reach every command above, so denying the commands alone would be
+    a rule with a door beside it."""
+    assert not allowed("az rest --method PATCH --uri https://dev.azure.com/o/_apis/git/pr/4")
+    assert not allowed("az devops invoke --area git --resource pullrequests")
+
+
+def test_an_azure_command_is_denied_in_a_github_checkout_too() -> None:
+    """The deny list is the union over every registered forge, not the current
+    repo's: a wrong `forge:` field must not be able to weaken it."""
+    assert not allowed("git status && az repos pr update --id 4 --status completed")
+
+
+def test_reading_an_azure_pull_request_is_not_denied() -> None:
+    """The deny is on the commands that merge, not on the host."""
+    assert allowed("az repos pr show --id 4")
+    assert allowed("az repos pr list --status active")
+    assert allowed("az repos pr create --source-branch spec/x/1 --target-branch main")

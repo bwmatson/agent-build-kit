@@ -164,7 +164,7 @@ def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
     assert cmd[cmd.index("--add-dir") + 1] == str(inst.root)
     assert cmd[cmd.index("--model") + 1] == "haiku"
     assert cmd[cmd.index("--allowedTools") + 1] == "Read"
-    assert cmd[cmd.index("--disallowedTools") + 1] == "Bash(rm *)"
+    assert cmd[cmd.index("--disallowedTools") + 1] == runner._denied("Bash(rm *)")
     assert cmd[cmd.index("--worktree") + 1] == f"abk-{runner.RUN_ID}"
 
 

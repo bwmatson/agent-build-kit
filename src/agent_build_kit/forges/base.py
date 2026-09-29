@@ -100,10 +100,22 @@ class Forge(Protocol):
     # Command prefixes no agent may run on any repo - merging, voting, and the
     # raw API escapes that reach both. Folded together by `denies`.
     denied_commands: tuple[tuple[str, ...], ...]
+    # The facts this forge cannot name a repo without, by their key in that
+    # repo's abk.yaml entry (dotted for a nested block). A repo declaring this
+    # forge and leaving one out fails at load, as a runtime selection does.
+    requires: tuple[str, ...]
 
     def parse_remote(self, url: str) -> RepoId | None: ...
 
     def identity(self, repo: RepoConfig) -> RepoId: ...
+
+    def config_entry(self, repo: RepoId) -> dict[str, object]:
+        """The abk.yaml fields that name this repo, keyed as its entry.
+
+        The other side of `requires`: what `abk init` writes, so a drafted
+        file is one that loads.
+        """
+        ...
 
     def web_url(self, repo: RepoId, *, pr: int | None = None) -> str: ...
 
@@ -111,7 +123,14 @@ class Forge(Protocol):
 
     def access_fix(self, repo: RepoId) -> str: ...
 
-    def merge_guard(self, repo: RepoId, *, branch: str) -> str: ...
+    def merge_guard(self, repo: RepoId, *, branch: str, run: Run | None = None) -> str:
+        """What stops a merge on the server, or "" when nothing does.
+
+        A host that answers "nothing" is answering honestly, and it is worth
+        saying out loud: the command hook is then the only thing between an
+        agent and its own merge.
+        """
+        ...
 
     def find_pr(self, repo: RepoId, *, head: str) -> int | None: ...
 

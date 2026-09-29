@@ -51,6 +51,7 @@ class GitHubForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
+    requires: tuple[str, ...] = ("slug",)
 
     def parse_remote(self, url: str) -> RepoId | None:
         match = _ORIGIN.match(url.strip())
@@ -62,6 +63,9 @@ class GitHubForge:
         """The repo's GitHub identity from abk.yaml: `owner/name`."""
         account, _, name = repo.slug.partition("/")
         return RepoId(forge=self.name, account=account, name=name)
+
+    def config_entry(self, repo: RepoId) -> dict[str, object]:
+        return {"slug": key(repo)}
 
     def web_url(self, repo: RepoId, *, pr: int | None = None) -> str:
         base = f"https://github.com/{repo.account}/{repo.name}"
@@ -88,18 +92,22 @@ class GitHubForge:
     def access_fix(self, repo: RepoId) -> str:
         return f"gh auth login (as {repo.account})"
 
-    def merge_guard(self, repo: RepoId, *, branch: str) -> str:
+    def merge_guard(self, repo: RepoId, *, branch: str, run: Run | None = None) -> str:
         """What stops a merge on the server, or "" when nothing does.
 
         Branch protection is absent on a free private repo, where the answer
         is honestly "nothing" - which is worth saying out loud, because the
         policy hook is then the only thing between an agent and its own merge.
         """
-        found = gh_json(
-            ["gh", "api", f"repos/{key(repo)}/branches/{branch}/protection"],
-            slug=key(repo),
-            default={},
-        )
+        argv = ["gh", "api", f"repos/{key(repo)}/branches/{branch}/protection"]
+        if run is None:
+            found = gh_json(argv, slug=key(repo), default={})
+        else:
+            result = run(argv, capture_output=True, text=True, check=False)
+            try:
+                found = json.loads(result.stdout or "{}") if not result.returncode else {}
+            except ValueError:
+                found = {}
         return "" if found else f"no branch protection on {branch}"
 
     # --- pull requests --------------------------------------------------------------

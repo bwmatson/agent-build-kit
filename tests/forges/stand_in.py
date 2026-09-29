@@ -25,6 +25,7 @@ class StandInForge:
     implemented: bool = True
     deletes_head_branch_on_merge: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
+    requires: tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -36,6 +37,7 @@ class StandInForge:
         files: Collection[str] = (),
         logs: str = "",
         access: str = "",
+        guard: str = "",
         failing_replies: Collection[str] = (),
     ) -> None:
         self.existing = existing
@@ -45,6 +47,7 @@ class StandInForge:
         self.files = list(files)
         self.logs = logs
         self.access = access
+        self.guard = guard
         self.failing_replies = failing_replies
         self.created: list[dict] = []
         self.updated: list[dict] = []
@@ -64,6 +67,9 @@ class StandInForge:
     def repo_id(self) -> RepoId:
         return RepoId(forge=self.name, account="example", name="app")
 
+    def config_entry(self, repo: RepoId) -> dict[str, object]:
+        return {"slug": f"{repo.account}/{repo.name}"}
+
     def web_url(self, repo: RepoId, *, pr: int | None = None) -> str:
         base = f"https://stand-in.example/{repo.account}/{repo.name}"
         return f"{base}/pull/{pr}" if pr else base
@@ -74,8 +80,8 @@ class StandInForge:
     def access_fix(self, repo: RepoId) -> str:
         return "sign in to the stand-in host"
 
-    def merge_guard(self, repo: RepoId, *, branch: str) -> str:
-        return ""
+    def merge_guard(self, repo: RepoId, *, branch: str, run: Run | None = None) -> str:
+        return self.guard
 
     # --- pull requests ------------------------------------------------------
 
@@ -113,9 +119,7 @@ class StandInForge:
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
     ) -> None:
-        self.statuses.append(
-            {"sha": sha, "ok": ok, "context": context, "description": description}
-        )
+        self.statuses.append({"sha": sha, "ok": ok, "context": context, "description": description})
 
     # --- cleanup ------------------------------------------------------------
 

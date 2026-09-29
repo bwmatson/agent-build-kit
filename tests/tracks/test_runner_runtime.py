@@ -45,7 +45,11 @@ def test_a_phase_runs_through_the_runtime_it_is_given(inst: Installation) -> Non
     assert request.add_dirs == (inst.root,)
     assert request.model == "haiku"
     assert request.allowed_tools == "Read Grep"
-    assert request.denied_tools == "Bash(rm *)"
+    assert request.denied_tools.endswith("Bash(rm *)")
+    assert "Bash(gh pr merge*)" in request.denied_tools, (
+        "a track phase is denied every forge's way of merging, whatever "
+        "tracks.disallowed_tools happens to name"
+    )
     assert request.permission_mode == "edit"
     assert request.worktree == f"abk-{runner.RUN_ID}"
     assert request.keep_record is True
@@ -76,7 +80,7 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
         "--add-dir": str(inst.root),
         "--permission-mode": "acceptEdits",
         "--allowedTools": "Read Grep",
-        "--disallowedTools": "Bash(rm *)",
+        "--disallowedTools": runner._denied("Bash(rm *)"),
         "--model": "haiku",
         "--output-format": "json",
     }

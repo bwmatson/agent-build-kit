@@ -76,15 +76,31 @@ def denies(tokens: list[str]) -> str:
     return ""
 
 
+def denied_prefixes() -> tuple[str, ...]:
+    """Every registered forge's denied commands, as plain command prefixes.
+
+    The same union `denies` enforces, for the second layer: a runtime renders
+    these in its own syntax and refuses them before the agent is offered them,
+    so two independent things have to fail before a PR can be merged.
+    """
+    _load_builtin()
+    return tuple(
+        sorted(
+            " ".join(command) for forge in _REGISTRY.values() for command in forge.denied_commands
+        )
+    )
+
+
 # Host-anchored patterns first; the permissive one last (see `identify`).
-_ORDER = ("github",)
+_ORDER = ("azure_devops", "github")
 
 
 def _load_builtin() -> None:
     if _REGISTRY:
         return
-    from agent_build_kit.forges import github
+    from agent_build_kit.forges import azure_devops, github
 
+    register(azure_devops.FORGE)
     register(github.FORGE)
 
 
@@ -93,6 +109,7 @@ __all__ = [
     "PullRequest",
     "RepoId",
     "ReviewNote",
+    "denied_prefixes",
     "denies",
     "for_repo",
     "get",

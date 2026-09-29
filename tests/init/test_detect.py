@@ -355,3 +355,44 @@ def test_a_directory_it_may_not_read_does_not_stop_detection(tmp_path: Path) -> 
         blocked.chmod(0o755)
 
     assert [project.path for project in detection.projects] == ["."]
+
+
+# --- which host the repo is on ----------------------------------------------------
+
+
+def test_an_azure_devops_origin_is_recognised_and_decoded(tmp_path: Path) -> None:
+    """The repo this was written for: `abk init` used to write
+    `todo-owner/<name>` for it, because the only pattern it knew was GitHub's.
+    Decoded, because `%20` handed to `az repos --project` names a project that
+    does not exist."""
+    repo = init_repo(tmp_path / "accelerators")
+    git(repo, "remote", "add", "origin", "git@ssh.dev.azure.com:v3/acme/Some%20Project/Some%20Repo")
+
+    detection = detect_repo(repo)
+
+    assert detection.identity is not None
+    assert detection.identity.forge == "azure_devops"
+    assert detection.identity.account == "acme"
+    assert detection.identity.project == "Some Project"
+    assert detection.identity.name == "Some Repo"
+
+
+def test_a_github_origin_still_yields_its_slug(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "app")
+    git(repo, "remote", "add", "origin", "git@github.com:example/app.git")
+
+    detection = detect_repo(repo)
+
+    assert detection.slug == "example/app"
+    assert detection.identity is not None
+    assert detection.identity.forge == "github"
+
+
+def test_a_remote_no_forge_recognises_leaves_the_repo_unidentified(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "app")
+    git(repo, "remote", "add", "origin", "/srv/git/app.git")
+
+    detection = detect_repo(repo)
+
+    assert detection.identity is None
+    assert detection.slug is None

@@ -10,6 +10,7 @@ import yaml
 
 from agent_build_kit import openspec
 from agent_build_kit.config import load
+from agent_build_kit.forges import RepoId
 from agent_build_kit.init.detect import ProjectDetection, RepoDetection
 from agent_build_kit.init.scaffold import (
     RULES_HEADER,
@@ -300,3 +301,31 @@ def test_a_failed_openspec_init_is_an_error(tmp_path: Path) -> None:
         write_planning_repo(
             tmp_path / "planning", draft_config({}, planning_dir=tmp_path), run_openspec=failing
         )
+
+
+def test_an_azure_repo_is_written_with_its_own_block(tmp_path: Path) -> None:
+    """Each forge names a repo its own way, and writes the keys it says it
+    requires — so the file it drafts is one that loads."""
+    found = detection(
+        "accelerators",
+        tmp_path,
+        slug=None,
+        identity=RepoId(
+            forge="azure_devops", account="acme", project="Some Project", name="Some Repo"
+        ),
+    )
+
+    config = draft_config({"accelerators": found}, planning_dir=tmp_path)
+
+    entry = config.repos["accelerators"]
+    assert entry.forge == "azure_devops"
+    assert (entry.azure_devops.org, entry.azure_devops.project) == ("acme", "Some Project")
+    assert entry.azure_devops.repo == "Some Repo"
+    assert entry.slug == "", "no placeholder owner for a host that has no owner/name"
+
+
+def test_a_github_repo_is_still_written_with_its_slug(tmp_path: Path) -> None:
+    config = draft_config({"app": detection("app", tmp_path)}, planning_dir=tmp_path)
+
+    assert config.repos["app"].forge == "github"
+    assert config.repos["app"].slug == "example/app"

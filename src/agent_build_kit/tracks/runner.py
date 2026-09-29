@@ -44,7 +44,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_build_kit import runtimes
+from agent_build_kit import forges, runtimes
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
@@ -99,6 +99,16 @@ class Project(Frozen):
     @property
     def repo_url(self) -> str:
         return f"https://github.com/{self.repo}"
+
+
+def _denied(configured: str) -> str:
+    """The workspace's deny list, plus every forge's way of merging.
+
+    Added rather than defaulted, so a workspace that overrides
+    `tracks.disallowed_tools` cannot drop them by accident.
+    """
+    merges = " ".join(f"Bash({prefix}*)" for prefix in forges.denied_prefixes())
+    return f"{merges} {configured}".strip()
 
 
 def log(message: str) -> None:
@@ -331,7 +341,7 @@ def phase_request(
         add_dirs=(inst.root,),
         model=tracks.model,
         allowed_tools=tracks.allowed_tools,
-        denied_tools=tracks.disallowed_tools,
+        denied_tools=_denied(tracks.disallowed_tools),
         permission_mode="edit",
         worktree=worktree,
         keep_record=True,

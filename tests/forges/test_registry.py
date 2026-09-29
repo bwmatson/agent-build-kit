@@ -59,3 +59,19 @@ def test_a_repo_declares_its_forge_and_identity(tmp_path: Path) -> None:
     assert forge.name == "github"
     assert (repo.account, repo.name) == ("example", "app")
     assert forges.key(repo) == "example/app"
+
+
+def test_the_denied_prefixes_cover_every_registered_forge() -> None:
+    """The deny list handed to an agent is the union, like `denies`: an agent
+    in a GitHub checkout has no business completing an Azure pull request."""
+    prefixes = forges.denied_prefixes()
+
+    assert "gh pr merge" in prefixes
+    assert "az repos pr update" in prefixes
+    assert "az devops invoke" in prefixes
+
+
+def test_a_denied_prefix_is_a_command_not_a_runtime_s_flag_syntax() -> None:
+    """The runtime renders these in its own words (Claude Code's
+    `Bash(...*)`); the forge only says which command it is."""
+    assert all("(" not in prefix and "*" not in prefix for prefix in forges.denied_prefixes())

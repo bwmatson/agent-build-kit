@@ -77,3 +77,41 @@ def test_a_repo_on_a_known_forge_loads(tmp_path: Path) -> None:
     path.write_text("repos:\n  app:\n    path: app\n    slug: example/app\n    forge: github\n")
 
     assert load(path).repos["app"].forge == "github"
+
+
+def test_a_repo_on_a_forge_without_the_facts_it_needs_fails_at_load(tmp_path: Path) -> None:
+    """The same rule a runtime selection follows: an identity abk cannot build
+    fails here, naming the keys that are missing, rather than every call
+    against that repo failing later with an empty organisation."""
+    path = tmp_path / "abk.yaml"
+    path.write_text("repos:\n  app:\n    path: app\n    forge: azure_devops\n")
+
+    with pytest.raises(ConfigError) as refused:
+        load(path)
+
+    message = str(refused.value)
+    assert "azure_devops.org" in message
+    assert "azure_devops.project" in message
+    assert "repos.app" in message
+
+
+def test_a_github_repo_without_a_slug_fails_at_load(tmp_path: Path) -> None:
+    """`slug` stopped being required when a second host arrived, so what makes
+    it required for GitHub is the forge saying it needs it."""
+    path = tmp_path / "abk.yaml"
+    path.write_text("repos:\n  app:\n    path: app\n")
+
+    with pytest.raises(ConfigError, match="repos.app.slug"):
+        load(path)
+
+
+def test_an_azure_repo_with_its_block_loads(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text(
+        "repos:\n  app:\n    path: app\n    forge: azure_devops\n"
+        "    azure_devops:\n      org: acme\n      project: Some Project\n      repo: Some Repo\n"
+    )
+
+    loaded = load(path)
+
+    assert loaded.repos["app"].azure_devops.project == "Some Project"

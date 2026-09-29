@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-from agent_build_kit import openspec, skills
+from agent_build_kit import forges, openspec, skills
 from agent_build_kit.config import (
     CONFIG_FILENAME,
     CredentialsConfig,
@@ -92,26 +92,44 @@ def draft_config(
                     file=detection.dev_stack_script, shell_array=detection.credentials_array
                 )
             )
-        repos[name] = RepoConfig(
-            path=detection.path,
-            slug=detection.slug or f"{PLACEHOLDER_OWNER}/{name}",
-            default_branch=detection.default_branch,
-            profile=detection.profile,
-            languages=list(detection.languages),
-            projects=[
-                ProjectConfig(
-                    path=project.path, languages=list(project.languages), profile=project.profile
-                )
-                for project in detection.projects
-            ],
-            consumes=list(consumes[name]),
-            dev_stack=DevStackConfig(script=detection.dev_stack_script)
-            if detection.dev_stack_script
-            else None,
-            deploy=DeployConfig(
-                rules=[DeployRule(prefix=f"{d}/") for d in detection.service_dirs],
-                credentials=credentials,
-            ),
+        # Each host names a repo its own way, and writes the keys it says it
+        # requires, so the drafted file is one that loads. A repo whose origin
+        # no forge recognised is drafted as GitHub with a placeholder owner,
+        # which is the line a human then edits.
+        identity = detection.identity
+        forge = forges.get(identity.forge) if identity else forges.get("github")
+        named = (
+            forge.config_entry(identity)
+            if identity
+            else {"slug": detection.slug or f"{PLACEHOLDER_OWNER}/{name}"}
+        )
+        # Validated rather than constructed, because which keys name the repo
+        # is the forge's answer and differs per host.
+        repos[name] = RepoConfig.model_validate(
+            {
+                "path": detection.path,
+                "forge": forge.name,
+                **named,
+                "default_branch": detection.default_branch,
+                "profile": detection.profile,
+                "languages": list(detection.languages),
+                "projects": [
+                    ProjectConfig(
+                        path=project.path,
+                        languages=list(project.languages),
+                        profile=project.profile,
+                    )
+                    for project in detection.projects
+                ],
+                "consumes": list(consumes[name]),
+                "dev_stack": DevStackConfig(script=detection.dev_stack_script)
+                if detection.dev_stack_script
+                else None,
+                "deploy": DeployConfig(
+                    rules=[DeployRule(prefix=f"{d}/") for d in detection.service_dirs],
+                    credentials=credentials,
+                ),
+            }
         )
     return WorkspaceConfig(repos=repos)
 
