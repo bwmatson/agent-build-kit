@@ -27,8 +27,8 @@ from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_cons
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
 from agent_build_kit.init.scaffold import ScaffoldError, draft_config, write_planning_repo
-from agent_build_kit.installation import Installation
-from agent_build_kit.runtimes import policy_check
+from agent_build_kit.installation import Installation, load_config
+from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -149,6 +149,22 @@ def _planned_work(
     return lines
 
 
+def _policy(
+    runtime: AgentRuntime, planning: Path, *, cache: Path, fresh: bool = False
+) -> PolicyReport | None:
+    """The runtime's policy answer, or None when it could not be had: said,
+    never kept, and init carries on without it."""
+    try:
+        return policy_check.checked(runtime, planning, cache=cache, fresh=fresh)
+    except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
+        print(
+            f"abk init: runtime {runtime.name} policy not checked: "
+            f"{type(error).__name__}: {error} (`abk doctor` checks it again)",
+            file=sys.stderr,
+        )
+        return None
+
+
 def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
     """Report what the selected runtime does not refuse, and offer the
     installation's fix: run only once the operator agrees, then checked again.
@@ -156,7 +172,7 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
     prints it."""
     path = planning / CONFIG_FILENAME
     try:
-        loaded = config_module.load(path)
+        loaded = load_config(path)
         inst = Installation(loaded, planning)
     except ConfigError as error:
         print(f"abk init: runtime not checked: {error}", file=sys.stderr)
@@ -167,8 +183,8 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
         print(f"runtime {name} is not implemented yet; `abk doctor` says more")
         return
     cache = policy_check.cache_path(inst)
-    report = policy_check.checked(runtime, planning, cache=cache)
-    if report.ok:
+    report = _policy(runtime, planning, cache=cache)
+    if report is None or report.ok:
         return
     missing = ", ".join(report.unenforced)
     print(f"runtime {name} does not refuse: {missing}")
@@ -193,7 +209,9 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
             f"abk init: `{fix}` exited {result.returncode}: {result.stderr.strip()}",
             file=sys.stderr,
         )
-    after = policy_check.checked(runtime, planning, cache=cache, fresh=True)
+    after = _policy(runtime, planning, cache=cache, fresh=True)
+    if after is None:
+        return
     if after.ok:
         print(f"runtime {name} now refuses every forbidden class")
     else:

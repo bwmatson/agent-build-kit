@@ -325,11 +325,13 @@ point `rework_review` at the same model as `review`, and a `generic` role
 (init's research and propose, the planner) may fall back to `implement`'s.
 
 **The tracks keep their own `tracks.model` and tool lists**, under `tracks:`,
-rather than moving under `runtimes.<name>`. They describe what a scheduled
-track may do, not which runtime runs it, and like `AgentRequest.allowed_tools`
-they are written in Claude Code's `--allowedTools` syntax, which a runtime
-that cannot honour it ignores. If a second runtime turns out to need its own
-track model, that is a `track` role in `runtimes.<name>.models`, not a move.
+rather than moving under `runtimes.<name>`. The model is not resolved per
+runtime: `tracks.model` defaults to `sonnet`, Claude Code's alias, and is sent
+as it stands to whichever runtime is active, so a workspace selecting another
+runtime sets `tracks.model` itself (or, once one exists, a `track` role in
+`runtimes.<name>.models`). The tool lists, like `AgentRequest.allowed_tools`,
+are written in Claude Code's `--allowedTools` syntax and are inert on a
+runtime that cannot honour them.
 
 **A selection that cannot work fails at load.** `config.load` resolves the
 runtime in force (`ABK_RUNTIME`, then `runtime:`) against the registry, and

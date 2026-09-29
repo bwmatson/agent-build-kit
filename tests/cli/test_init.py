@@ -13,7 +13,7 @@ from agent_build_kit import __version__, openspec
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
-from agent_build_kit.runtimes import PolicyReport
+from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from tests.factories import git, init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
 
@@ -379,3 +379,72 @@ def test_without_prompts_the_fix_is_not_run_and_the_gap_is_reported(
     assert "merging a pull request" in out.out + out.err
     assert "scripts/constrain-agent.sh --strict" in out.out + out.err
     assert loose.log == ["check"]
+
+
+def select_in(planning: Path, name: str) -> None:
+    """Name `name` as the laid-out planning repo's runtime, with no entry."""
+    with (planning / "abk.yaml").open("a") as config:
+        config.write(f"runtime: {name}\n")
+
+
+def test_without_a_configured_fix_the_runtime_s_advice_is_printed_and_nothing_run(
+    tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing of the installation's to run, so nothing to ask about: the
+    `stubs` fixture fails any prompt or fix."""
+    planning = tmp_path / "planning"
+    assert main([*init_args(planning, app), "--yes"]) == 0
+    select_in(planning, "advised")
+    advice = PolicyReport(
+        ok=False, unenforced=("merging a pull request",), fix="agent-config --deny merge"
+    )
+    runtime = select(monkeypatch, SelectableRuntime("advised", reports=(advice,)))
+    capsys.readouterr()
+
+    main(init_args(planning, app))
+
+    said = "".join(capsys.readouterr())
+    assert "merging a pull request" in said
+    assert "agent-config --deny merge" in said
+    assert runtime.log == ["check"]
+
+
+def test_without_a_fix_or_advice_the_key_to_set_is_printed(
+    tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    planning = tmp_path / "planning"
+    assert main([*init_args(planning, app), "--yes"]) == 0
+    select_in(planning, "bare")
+    runtime = select(monkeypatch, SelectableRuntime("bare", reports=(UNENFORCED,)))
+    capsys.readouterr()
+
+    main(init_args(planning, app))
+
+    assert "runtimes.bare.policy_fix" in "".join(capsys.readouterr())
+    assert runtime.log == ["check"]
+
+
+class _Limited(SelectableRuntime):
+    """A runtime whose policy probe is refused for want of usage."""
+
+    def check_policy(self, cwd: Path) -> PolicyReport:
+        self.checked.append(cwd)
+        raise AgentRateLimited("usage window exhausted")
+
+
+def test_a_policy_check_that_raises_is_reported_and_init_carries_on(
+    tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    planning = tmp_path / "planning"
+    assert main([*init_args(planning, app), "--yes"]) == 0
+    select_in(planning, "limited")
+    runtime = select(monkeypatch, _Limited("limited"))
+    capsys.readouterr()
+
+    code = main(init_args(planning, app))
+
+    assert code == 0
+    assert "usage window exhausted" in capsys.readouterr().err
+    # Nothing kept: the next check asks again.
+    main(init_args(planning, app))
+    assert len(runtime.checked) == 2

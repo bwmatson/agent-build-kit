@@ -19,6 +19,7 @@ import pytest
 
 from agent_build_kit import config, runtimes
 from agent_build_kit.config import ConfigError, ModelsConfig
+from agent_build_kit.installation import load_installation
 from agent_build_kit.settings import Settings, reload, settings
 from tests.runtimes.selectable import SelectableRuntime, select
 
@@ -249,3 +250,58 @@ def test_without_the_override_the_file_s_runtime_is_used(
     activate(write(tmp_path, "runtime: other\n"))
 
     assert runtimes.active() is other
+
+
+def test_an_unknown_runtime_the_machine_selects_fails_at_load(
+    tmp_path: Path, machine_runtime
+) -> None:
+    path = write(tmp_path, FLAT_MODELS)
+    machine_runtime("nonesuch")
+
+    with pytest.raises(ConfigError) as raised:
+        config.load(path)
+
+    assert "nonesuch" in str(raised.value)
+    assert "claude_code" in str(raised.value)
+
+
+@pytest.fixture
+def planning_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A planning root whose `.env` selects the runtime, loaded from a working
+    directory outside it; the settings it leaves behind are put back."""
+    planning = tmp_path / "planning"
+    planning.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    def select_in_env(name: str) -> Path:
+        (planning / ".env").write_text(f"ABK_RUNTIME={name}\n")
+        return planning
+
+    yield select_in_env
+    reload(None)
+
+
+def test_an_unknown_runtime_the_planning_env_selects_fails_at_load(planning_env) -> None:
+    planning = planning_env("nonesuch")
+    write(planning, FLAT_MODELS)
+
+    with pytest.raises(ConfigError) as raised:
+        load_installation(planning / "abk.yaml")
+
+    assert "nonesuch" in str(raised.value)
+    assert "claude_code" in str(raised.value)
+
+
+def test_a_runtime_the_planning_env_selects_is_checked_for_the_facts_it_requires(
+    planning_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    select(monkeypatch, SelectableRuntime("spawned", requires=("command",)))
+    planning = planning_env("spawned")
+    write(planning, FLAT_MODELS)
+
+    with pytest.raises(ConfigError) as raised:
+        load_installation(planning / "abk.yaml")
+
+    assert "runtimes.spawned.command" in str(raised.value)

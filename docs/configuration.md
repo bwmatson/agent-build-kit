@@ -119,9 +119,10 @@ limits:
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under
-                                # runtimes.<name>: they say what a track may
-                                # do, not which runtime runs it
-  model: sonnet
+                                # runtimes.<name>
+  model: sonnet                 # Claude Code's alias, sent to whichever
+                                # runtime is active and not resolved per
+                                # runtime: set it when selecting another
   implement_max_prs: 3          # PRs one implement pass may open per repo
   allowed_tools: >-             # Claude Code --allowedTools syntax
     Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch

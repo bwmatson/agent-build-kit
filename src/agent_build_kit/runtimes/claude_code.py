@@ -145,12 +145,9 @@ class ClaudeCodeRuntime:
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = AGENT_COMMAND
-    # Bare aliases, not pinned ids, so they track new releases on their own.
-    # A rework is a small targeted edit and the model that made it is the
-    # worst judge of whether it landed, so a different model reviews it.
-    default_models: ModelsConfig = ModelsConfig(
-        implement="opus", rework="opus", review="opus", rework_review="fable"
-    )
+    # `ModelsConfig`'s own defaults are Claude Code's names (why each is what
+    # it is sits there), so they are declared once.
+    default_models: ModelsConfig = ModelsConfig()
 
     def __init__(
         self,

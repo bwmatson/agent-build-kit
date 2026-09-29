@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import runtimes
-from agent_build_kit.config import ModelsConfig
+from agent_build_kit.config import ModelsConfig, RuntimeConfig
 from agent_build_kit.runtimes import (
     AgentRequest,
     AgentResult,
@@ -99,3 +99,10 @@ def test_the_built_in_registry_keys_each_runtime_by_its_own_name() -> None:
     the adapter reports."""
     for name in runtimes.names():
         assert runtimes.get(name).name == name
+
+
+def test_a_built_in_runtime_requires_only_keys_its_entry_can_hold() -> None:
+    """A `requires` name `runtimes.<name>` has no field for would always read
+    as missing, and tell the operator to set a key the schema rejects."""
+    for name in runtimes.names():
+        assert set(runtimes.get(name).requires) <= set(RuntimeConfig.model_fields), name

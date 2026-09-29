@@ -150,6 +150,8 @@ class LimitsConfig(Frozen):
 class TracksConfig(Frozen):
     """The scheduled health/improve/recommend/implement tracks."""
 
+    # Claude Code's alias, sent as is to whichever runtime is active: not
+    # resolved per runtime, so a workspace on another runtime sets it.
     model: str = "sonnet"
     implement_max_prs: int = 3
     allowed_tools: str = (

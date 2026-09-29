@@ -17,7 +17,11 @@
   machine. An unknown runtime or a missing required fact fails at load.
   `abk doctor` reports the runtime, its policy coverage, and any forbidden
   command class it does not refuse; `abk init` offers to run the
-  installation's fix, only once asked.
+  installation's fix, only once asked. Its answer is kept for a few minutes
+  in `runs/policy-check.json`: an existing installation adds that path to its
+  `.gitignore` (new ones get it from `abk init`).
+- `tracks.model` still defaults to Claude Code's `sonnet` and is not resolved
+  per runtime: a workspace selecting another runtime sets it.
 
 ## 0.1.0 — 2026-09-28
 

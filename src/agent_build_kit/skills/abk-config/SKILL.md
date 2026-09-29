@@ -78,8 +78,8 @@ limits:
   max_plan_attempts: 3        # times one tasks.md is sent to the planner
 
 tracks:                       # the scheduled health/improve/recommend tracks
-  model: sonnet               # model and tool lists stay here whatever the
-                              # runtime
+  model: sonnet               # Claude Code's alias, sent to any runtime as
+                              # is: set it when selecting another runtime
                               # no dollar budget — every phase is bounded by
                               # the same session/weekly usage windows, and
                               # the same ramped thresholds, as limits above

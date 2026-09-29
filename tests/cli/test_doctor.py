@@ -13,7 +13,8 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
-from agent_build_kit.runtimes import PolicyReport
+from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
+from agent_build_kit.settings import reload
 from tests.factories import git, init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
 
@@ -460,3 +461,69 @@ def test_the_policy_check_is_not_rerun_within_its_window(
 
     assert len(runtime.checked) == 1
     assert checks["runtime policy"].status == "FAIL"
+
+
+@pytest.fixture
+def settings_restored():
+    """Put back the settings a planning `.env` loaded."""
+    yield
+    reload(None)
+
+
+@pytest.mark.usefixtures("settings_restored")
+def test_an_unknown_runtime_the_planning_env_selects_is_a_failed_check(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Selected in the planning repo's `.env` and run from elsewhere, it is
+    still reported rather than raised."""
+    (workspace / ".env").write_text("ABK_RUNTIME=nonesuch\n")
+    monkeypatch.chdir(tmp_path)
+
+    checks = run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+
+    failed = [check for check in checks if check.status == "FAIL"]
+    assert [check.name for check in failed] == ["config"]
+    assert "nonesuch" in failed[0].detail
+
+
+def test_an_agent_that_cannot_start_is_not_asked_about_policy(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = select(monkeypatch, SelectableRuntime("spawned", agent_command=("some-agent",)))
+    select_runtime(workspace, "spawned")
+
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=lambda name: None if name == "some-agent" else f"/usr/bin/{name}",
+        )
+    )
+
+    assert checks["runtime"].status == "FAIL"
+    assert runtime.checked == []
+    assert checks["runtime policy"].status != "ok"
+    assert "some-agent" in checks["runtime policy"].detail
+
+
+class _Limited(SelectableRuntime):
+    """A runtime whose policy probe is refused for want of usage."""
+
+    def check_policy(self, cwd: Path) -> PolicyReport:
+        self.checked.append(cwd)
+        raise AgentRateLimited("usage window exhausted")
+
+
+def test_a_policy_check_that_raises_is_a_failed_check_and_not_kept(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = select(monkeypatch, _Limited("limited"))
+    select_runtime(workspace, "limited")
+
+    first = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+    run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+
+    assert first["runtime policy"].status == "FAIL"
+    assert "usage window exhausted" in first["runtime policy"].detail
+    # Nothing was kept, so the second run asked again.
+    assert len(runtime.checked) == 2

@@ -21,7 +21,7 @@ from agent_build_kit import __version__, config, forges, openspec, profiles, run
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
-from agent_build_kit.installation import Installation, _resolve
+from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes import policy_check
 
@@ -273,7 +273,10 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
             )
         ]
     command = entry.command or list(runtime.agent_command)
-    if command and which(command[0]) is None:
+    startable = not command or which(command[0]) is not None
+    if startable:
+        checks = [_ok("runtime", name + (f" ({' '.join(command)})" if command else ""))]
+    else:
         checks = [
             _fail(
                 "runtime",
@@ -281,8 +284,6 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
                 f"install it, or set `runtimes.{name}.command` in abk.yaml",
             )
         ]
-    else:
-        checks = [_ok("runtime", name + (f" ({' '.join(command)})" if command else ""))]
 
     if runtime.policy_coverage == "all_calls":
         checks.append(_ok("runtime coverage", "all_calls: every tool call reaches the policy"))
@@ -295,7 +296,27 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
             )
         )
 
-    report = policy_check.checked(runtime, inst.root, cache=policy_check.cache_path(inst))
+    if not startable:
+        # A probe would spawn the very command that does not resolve.
+        checks.append(
+            _warn(
+                "runtime policy",
+                f"not checked: the agent command {command[0]} does not resolve",
+                "fix the runtime check above, then run `abk doctor` again",
+            )
+        )
+        return checks
+    try:
+        report = policy_check.checked(runtime, inst.root, cache=policy_check.cache_path(inst))
+    except Exception as error:  # noqa: BLE001 - whatever the runtime raised is the finding
+        checks.append(
+            _fail(
+                "runtime policy",
+                f"could not be checked: {type(error).__name__}: {error}",
+                "run `abk doctor` again once the runtime can answer",
+            )
+        )
+        return checks
     if report.ok:
         checks.append(_ok("runtime policy", "every forbidden class is refused"))
     else:
@@ -340,7 +361,7 @@ def run_doctor(
     which = which or shutil.which
     try:
         path = config.locate(config_path, cwd=cwd)
-        loaded: WorkspaceConfig = config.load(path)
+        loaded: WorkspaceConfig = load_config(path)
     except ConfigError as error:
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]

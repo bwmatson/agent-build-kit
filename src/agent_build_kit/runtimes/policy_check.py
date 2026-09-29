@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -78,5 +79,5 @@ def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
     installation's own `policy_fix`, else the runtime's advice, else the key
     that would hold one."""
     if entry.policy_fix:
-        return " ".join(entry.policy_fix)
+        return shlex.join(entry.policy_fix)
     return report.fix or f"set `runtimes.{name}.policy_fix` in abk.yaml to what enforces them"
