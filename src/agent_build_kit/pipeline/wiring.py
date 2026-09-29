@@ -264,7 +264,16 @@ def build_run_review(
     return run_review
 
 
-def build_commit(*, unit_id: str = "", run: Run | None = None) -> Callable[..., int]:
+class CommitRejected(RuntimeError):
+    """The repo's commit gate still rejected the commit after the last attempt.
+
+    Its message is the gate's own last output, so the unit's record says why.
+    """
+
+
+def build_commit(
+    *, unit_id: str = "", run: Run | None = None, fix: Callable[..., str] | None = None
+) -> Callable[..., int]:
     """Commit whatever is staged or unstaged, reporting how many commits resulted.
 
     The count is what tells the runner whether the implementation run produced
