@@ -333,8 +333,10 @@ runtime sets `tracks.model` itself (or, once one exists, a `track` role in
 are written in Claude Code's `--allowedTools` syntax and are inert on a
 runtime that cannot honour them.
 
-**A selection that cannot work fails at load.** `config.load` resolves the
-runtime in force (`ABK_RUNTIME`, then `runtime:`) against the registry, and
+**A selection that cannot work fails at load.** `installation.load_config`
+reads the planning root's `.env` first, so an `ABK_RUNTIME` set there counts
+wherever abk is run from; `config.load` then resolves the runtime in force
+(`ABK_RUNTIME`, then `runtime:`) against the registry, and
 checks every fact its adapter lists in `requires` is set in its
 `runtimes.<name>` entry; an unknown name, or a missing fact, is a
 `ConfigError` naming it. Only the selected runtime's entry is checked, so an
@@ -423,6 +425,10 @@ this machine. `check_policy` establishes the fact.
   result is cached in the state directory (`<state_dir>/policy-check.json`, per
   runtime) for 15 minutes, as the usage reading already is
   (`runtimes/policy_check.py`); `abk init` asks afresh after running the fix.
+  A check the runtime could not answer (it raised) is a FAIL in doctor and a
+  printed note in init, and is never cached; one skipped because the agent
+  command does not resolve is a doctor warning, as the `runtime` check has
+  already failed for that cause.
 
 ## Usage tracking is optional
 

@@ -137,14 +137,14 @@ is 1 when anything failed.
 
 | Check | Failure means |
 |---|---|
-| config loads | `abk.yaml` is missing, malformed or has an unknown key. |
+| config loads | `abk.yaml` is missing, malformed or has an unknown key; or the selected runtime (`ABK_RUNTIME`, which may come from the planning repo's `.env`, else `runtime:`) is unknown, or is missing a fact it requires under `runtimes.<name>`. |
 | worktree root | `planning.worktree_root` is inside the planning repo. |
 | repo checkout | A repo's `path` does not exist, is not a git checkout, or has no repo-local `user.email` (commits made there would carry the wrong identity). |
 | gh account | `gh auth token --user <owner>` fails for an owner in `repos`; log that account in. |
 | node / openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run through `openspec.command`. |
 | runtime | The selected runtime is not implemented, or its agent command is not on PATH. |
 | runtime coverage (warn) | The runtime sees only some of the agent's tool calls (`agent_flagged` or `none`). |
-| runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is `runtimes.<name>.policy_fix`. `abk init` offers to run it. The answer is reused for 15 minutes. |
+| runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is `runtimes.<name>.policy_fix`. `abk init` offers to run it. The answer is reused for 15 minutes. It also fails when the check could not be run because the runtime raised (e.g. its usage window is spent); nothing is cached, so run doctor again once the runtime can answer. It warns, unchecked, when the agent command does not resolve; fix the `runtime` check first. |
 | ssh key | A `deploy.ssh_key` does not exist. |
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. |
