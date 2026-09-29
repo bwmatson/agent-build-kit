@@ -64,6 +64,32 @@ def final_text(stdout: str) -> str:
     return stdout
 
 
+def result_event(stdout: str) -> dict | None:
+    """The run's closing `result` event, or None when there is none."""
+    for line in reversed(stdout.splitlines()):
+        event = _parse(line)
+        if event and event.get("type") == "result":
+            return event
+    return None
+
+
+def own_words(stdout: str) -> str:
+    """What the CLI itself said about how the run ended, and nothing the run
+    did on the way: the `result` event's text, or, with no such event, the
+    lines that are not events.
+
+    A failed run is classified on this, never on the whole transcript. A
+    stream carries every event's uuid, token counts, the files the agent read
+    and its own prose, any of which can contain "429" or "rate limit" — so
+    reading all of it turns an ordinary failure into a pause.
+    """
+    event = result_event(stdout)
+    if event is not None:
+        said = event.get("result")
+        return said if isinstance(said, str) else ""
+    return "\n".join(line for line in stdout.splitlines() if _parse(line) is None)
+
+
 def describe(event: dict) -> list[str]:
     """One line per thing in `event` worth putting in the log."""
     kind = event.get("type")

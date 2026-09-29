@@ -72,10 +72,17 @@ def _assistant(content: list[dict]) -> dict:
     }
 
 
-def _result(text: str, *, is_error: bool = False, turns: int = 3, ms: int = 81234) -> dict:
+def _result(
+    text: str,
+    *,
+    is_error: bool = False,
+    turns: int = 3,
+    ms: int = 81234,
+    subtype: str = "success",
+) -> dict:
     return {
         "type": "result",
-        "subtype": "success",
+        "subtype": subtype,
         "is_error": is_error,
         "duration_ms": ms,
         "duration_api_ms": ms - 2100 if ms > 2100 else 0,
@@ -140,6 +147,59 @@ def finished_build(cwd: Path, answer: str) -> str:
         },
         _assistant([{"type": "text", "text": answer}]),
         _result(answer),
+    )
+
+
+def failed_build(cwd: Path, message: str) -> str:
+    """A build that reads code about rate limits, talks about it, and then
+    fails for an ordinary reason.
+
+    Everything but the closing result mentions a refusal somewhere, as a real
+    transcript can: the session and uuids contain "429", the file read back is
+    a usage guard, and the assistant's prose says "rate limit".
+    """
+    session = "7c2e4290-1d5a-4b8f-a429-3e6f0b1c9d72"
+    guard = cwd / "src" / "usage_guard.py"
+    source = (
+        'RATE_LIMIT_MARKERS = ("usage limit reached", "rate limit", "429")\n'
+        'RESET = re.compile(r"limit reached\\|(\\d{10,})")\n'
+    )
+    return stream(
+        _init(cwd) | {"session_id": session, "uuid": "e4291b7d-6a3c-4f05-9d82-1c7a5e3b0f46"},
+        _assistant(
+            [{"type": "text", "text": "The rate limit check reads 429 responses; let me look."}]
+        )
+        | {"session_id": session, "uuid": "a1f94290-7e2b-4c6d-8b35-0d9e2f7c1a58"},
+        _assistant(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_01Xy4290AbCdEfGhJkLmNpQr",
+                    "name": "Read",
+                    "input": {"file_path": str(guard)},
+                }
+            ]
+        )
+        | {"session_id": session},
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "tool_use_id": "toolu_01Xy4290AbCdEfGhJkLmNpQr",
+                        "type": "tool_result",
+                        "content": source,
+                    }
+                ],
+            },
+            "parent_tool_use_id": None,
+            "session_id": session,
+            "uuid": "5b0d8e42-9f1a-4c73-b6e4-2a8c0f5d7e19",
+            "tool_use_result": {"type": "text", "file": {"filePath": str(guard)}},
+        },
+        _result(message, is_error=True, turns=2, subtype="error_during_execution")
+        | {"session_id": session},
     )
 
 

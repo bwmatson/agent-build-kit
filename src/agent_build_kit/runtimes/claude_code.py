@@ -16,7 +16,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.hooks.policy import hook_settings
-from agent_build_kit.pipeline.claude_stream import STREAM_FLAGS, describe, final_text, stream_run
+from agent_build_kit.pipeline.claude_stream import (
+    STREAM_FLAGS,
+    describe,
+    final_text,
+    own_words,
+    result_event,
+    stream_run,
+)
 from agent_build_kit.pipeline.usage_guard import (
     UsageReading,
     rate_limit_reset,
@@ -29,6 +36,7 @@ from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
     AgentRuntime,
+    PermissionMode,
     PolicyCoverage,
     PolicyReport,
     UsageStatus,
@@ -49,9 +57,12 @@ DISALLOWED = (
     "Bash(rm -rf*) Bash(git branch -D*)"
 )
 
-# abk's permission modes in Claude Code's words. A read-only run is read-only
-# by its tool list, as a review always has been; the mode is the same.
-PERMISSION_MODES = {"edit": "acceptEdits", "read_only": "acceptEdits"}
+# abk's permission modes in Claude Code's words; None passes no mode, so the
+# run has what its tool list allows and nothing more.
+PERMISSION_MODES: dict[PermissionMode, str | None] = {
+    "edit": "acceptEdits",
+    "allowed_tools_only": None,
+}
 
 
 def spawn(
@@ -83,13 +94,17 @@ def build_argv(request: AgentRequest) -> list[str]:
         argv += ["--allowedTools", request.allowed_tools]
     if denied:
         argv += ["--disallowedTools", denied]
-    argv += ["--permission-mode", PERMISSION_MODES[request.permission_mode]]
+    if mode := PERMISSION_MODES[request.permission_mode]:
+        argv += ["--permission-mode", mode]
     if request.model:
         argv += ["--model", request.model]
     if request.on_event is not None:
         argv += STREAM_FLAGS
     elif request.keep_record:
         argv += ["--output-format", "json"]
+    else:
+        # The CLI's default, written out as the call sites always have.
+        argv += ["--output-format", "text"]
     return argv
 
 
@@ -119,18 +134,23 @@ class ClaudeCodeRuntime:
         if result.returncode < 0:
             raise AgentInterrupted(f"claude was killed by signal {-result.returncode}")
         text = final_text(result.stdout)
+        ended = result_event(result.stdout) or {}
+        stop_reason = str(ended.get("subtype") or "")
         if result.returncode:
-            output = f"{result.stdout}\n{result.stderr}".strip()
-            reset = rate_limit_reset(output)
+            # Only what the CLI said about the ending, never the transcript:
+            # see `claude_stream.own_words`.
+            said = f"{own_words(result.stdout)}\n{result.stderr}".strip()
+            reset = rate_limit_reset(said)
             if reset is not False:
-                raise AgentRateLimited(output or "claude reported a usage limit", resets_at=reset)
+                raise AgentRateLimited(said or "claude reported a usage limit", resets_at=reset)
             return AgentResult(
                 ok=False,
                 text=text,
                 raw=result.stdout,
-                error=f"claude exited {result.returncode}: {output}",
+                error=f"claude exited {result.returncode}: {said}",
+                stop_reason=stop_reason,
             )
-        return AgentResult(ok=True, text=text, raw=result.stdout)
+        return AgentResult(ok=True, text=text, raw=result.stdout, stop_reason=stop_reason)
 
     def get_usage_status(self) -> UsageStatus | None:
         reading = (self._read_live or read_live_usage)() or (
@@ -167,4 +187,6 @@ def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
     return on_event
 
 
-_: AgentRuntime = ClaudeCodeRuntime()
+RUNTIME = ClaudeCodeRuntime()
+
+_: AgentRuntime = RUNTIME

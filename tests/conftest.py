@@ -53,9 +53,10 @@ def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_real_agent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Running an agent is a real `claude` process. A test that means to run
-    one injects `execute=` into the runtime; anything else reaching the real
-    executor fails."""
+    """Running an agent through the runtime adapter is a real `claude`
+    process. A test that means to run one injects `execute=`; anything else
+    reaching the adapter's real executor fails. The call sites that still
+    spawn `claude` themselves are not covered by this guard."""
 
     def refuse(*args, **kwargs):
         raise AssertionError("a test tried to spawn a real agent process — inject `execute=`")

@@ -17,19 +17,22 @@ four outcomes stay apart:
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.claude_stream import final_text
 from agent_build_kit.runtimes import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRequest,
     ToolPolicy,
+    claude_code,
 )
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
-from tests.runtimes.claude_cli import FakeClaude, finished_build, refused, stream
+from tests.runtimes.claude_cli import FakeClaude, failed_build, finished_build, refused, stream
 
 
 def _request(cwd: Path, *, on_event=None) -> AgentRequest:
@@ -115,19 +118,99 @@ def test_a_process_killed_by_a_signal_is_an_interruption(tmp_path: Path) -> None
 
 def test_any_other_failed_exit_is_a_failed_result(tmp_path: Path) -> None:
     """Not an exception: the caller decides what a broken run means for its
-    step, and is told why."""
-    fake = FakeClaude(returncode=1, stderr="error: unknown option '--frobnicate'\n")
+    step, and is told why — in the CLI's own words, not the transcript."""
+    fake = FakeClaude(
+        stdout=failed_build(tmp_path, "Execution error: the Edit tool could not write the file"),
+        returncode=1,
+    )
 
     result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
 
     assert result.ok is False
-    assert "unknown option '--frobnicate'" in result.error
+    assert (
+        result.error == "claude exited 1: Execution error: the Edit tool could not write the file"
+    )
+    assert result.stop_reason == "error_during_execution"
+    assert result.raw == fake.stdout
 
 
 def test_a_failure_is_never_read_as_a_rate_limit_or_an_interruption(tmp_path: Path) -> None:
-    fake = FakeClaude(returncode=2, stderr="error: could not resolve host github.com")
+    fake = FakeClaude(
+        stdout=failed_build(tmp_path, "Execution error"),
+        returncode=2,
+        stderr="error: could not resolve host github.com",
+    )
 
     result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
 
     assert result.ok is False
     assert "could not resolve host" in result.error
+
+
+def test_a_transcript_that_mentions_rate_limits_is_not_a_refusal(tmp_path: Path) -> None:
+    """A stream carries every event's uuid, the files the agent read and its
+    own prose. A build of rate-limit code has "429" and "rate limit" all over
+    it; only the result event and stderr say whether the account refused."""
+    stdout = failed_build(tmp_path, "Execution error: the Edit tool could not write the file")
+    assert "429" in stdout
+    assert "rate limit" in stdout
+    fake = FakeClaude(stdout=stdout, returncode=1)
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert result.ok is False
+    assert "429" not in result.error
+
+
+def test_a_run_that_is_not_a_stream_is_classified_on_its_text(tmp_path: Path) -> None:
+    """Plain `-p` prints no events: what it printed is what it said."""
+    fake = FakeClaude(stdout="Claude AI usage limit reached|1919763200\n", returncode=1)
+    request = AgentRequest(prompt="Plan.", permission_mode="allowed_tools_only")
+
+    with pytest.raises(AgentRateLimited) as caught:
+        ClaudeCodeRuntime(execute=fake).run(request)
+
+    assert caught.value.resets_at == datetime.fromtimestamp(1919763200, UTC)
+
+
+def test_a_refusal_on_stderr_is_still_a_refusal(tmp_path: Path) -> None:
+    started = stream(json.loads(finished_build(tmp_path, "done").splitlines()[0]))
+    fake = FakeClaude(stdout=started, returncode=1, stderr="API Error: 429 rate_limit_error")
+
+    with pytest.raises(AgentRateLimited):
+        ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+
+def test_a_finished_run_says_how_it_ended(tmp_path: Path) -> None:
+    fake = FakeClaude(stdout=finished_build(tmp_path, "done"))
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert result.stop_reason == "success"
+
+
+# Bound at import, before `no_real_agent` swaps the module attribute out.
+_real_spawn = claude_code.spawn
+_PRINTS_TWO_EVENTS = (
+    "import json; "
+    "print(json.dumps({'type': 'system', 'subtype': 'init'})); "
+    "print(json.dumps({'type': 'result', 'result': 'ok'}))"
+)
+
+
+def test_spawn_streams_when_someone_is_listening(tmp_path: Path) -> None:
+    events: list[dict] = []
+
+    done = _real_spawn(
+        [sys.executable, "-c", _PRINTS_TWO_EVENTS], cwd=tmp_path, on_event=events.append
+    )
+
+    assert done.returncode == 0
+    assert [event["type"] for event in events] == ["system", "result"]
+
+
+def test_spawn_runs_to_completion_when_nobody_is_listening(tmp_path: Path) -> None:
+    done = _real_spawn([sys.executable, "-c", _PRINTS_TWO_EVENTS], cwd=tmp_path)
+
+    assert done.returncode == 0
+    assert final_text(done.stdout) == "ok"

@@ -36,9 +36,9 @@ def names() -> list[str]:
 def _load_builtin() -> None:
     if _REGISTRY:
         return
-    from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+    from agent_build_kit.runtimes import claude_code
 
-    register(ClaudeCodeRuntime())
+    register(claude_code.RUNTIME)
 
 
 __all__ = [

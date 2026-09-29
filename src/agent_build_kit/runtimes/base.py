@@ -15,11 +15,15 @@ from typing import Literal, Protocol
 
 from agent_build_kit.model import Frozen
 
-# abk's own vocabulary for what a run may do to its worktree — not a
-# runtime's own permission string. "edit" is Claude Code's acceptEdits;
-# "read_only" is a review run that carries no edit tools at all. A runtime
-# with only one mode ignores the field.
-PermissionMode = Literal["edit", "read_only"]
+# abk's own vocabulary for what a run may do beyond its tool list — not a
+# runtime's own permission string. "edit": file edits in its working
+# directory are accepted without asking (Claude Code's acceptEdits), as a
+# build, a review and a proposal have always run. "allowed_tools_only":
+# nothing is granted but what `allowed_tools` names (no Claude Code
+# permission mode at all), as the planner, research and the restack resolver
+# have always run — the resolver edits because its tool list says so. A
+# runtime with only one mode ignores the field.
+PermissionMode = Literal["edit", "allowed_tools_only"]
 
 # The abk-level roles every call site resolves a model for today
 # (config.ModelsConfig). A runtime with no equivalent split may point every

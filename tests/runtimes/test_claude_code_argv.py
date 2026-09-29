@@ -1,7 +1,8 @@
 """The Claude Code adapter builds the invocations the call sites build today.
 
 Selecting the default runtime must change nothing observable, so each shape
-the pipeline sends — a build, a review, a track phase — is pinned here as the
+the pipeline sends — a build, a review, a track phase, the planner's graph
+call, research, a proposal and the restack resolver — is pinned here as the
 flags and values it carries now: the readable specs directory, the policy hook
 registered per run, the allowed and denied tools, the edit permission mode,
 the model, and how the output comes back. Flag order is not asserted: the CLI
@@ -18,7 +19,7 @@ import sys
 from pathlib import Path
 
 from agent_build_kit import runtimes
-from agent_build_kit.runtimes import AgentRequest, ToolPolicy
+from agent_build_kit.runtimes import AgentRequest, ToolPolicy, claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.runtimes.claude_cli import FakeClaude, finished_build, stream
 
@@ -29,6 +30,10 @@ BUILD_TOOLS = (
     "Bash(uv run *) Bash(pre-commit *)"
 )
 REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
+# init/research.py, init/propose.py and restack.claude_resolver's lists.
+RESEARCH_TOOLS = "Read Grep Glob WebSearch WebFetch"
+PROPOSE_TOOLS = "Read Grep Glob Write Edit Bash(ls*)"
+RESOLVER_TOOLS = "Read Edit Write Grep Glob"
 DENIED = (
     "Bash(gh pr merge*) Bash(git push --force *) Bash(git reset --hard*) "
     "Bash(rm -rf*) Bash(git branch -D*)"
@@ -82,6 +87,7 @@ def test_the_default_runtime_is_registered_as_claude_code() -> None:
     """The name an abk.yaml written before this change implicitly selects."""
     runtime = runtimes.get("claude_code")
 
+    assert runtime is claude_code.RUNTIME
     assert isinstance(runtime, ClaudeCodeRuntime)
     assert runtime.name == "claude_code"
 
@@ -229,3 +235,91 @@ def test_a_run_with_no_policy_carries_no_hook_and_no_added_denies(tmp_path: Path
 
     assert "--settings" not in carried
     assert "--disallowedTools" not in carried
+
+
+def test_the_planner_s_graph_call_carries_only_what_it_carries_today() -> None:
+    """No worktree, no tools, no permission mode: the planner answers from
+    its prompt in the planning repo, and must not gain auto-accepted edits
+    there by going through the adapter."""
+    fake = FakeClaude(stdout='{"units": []}')
+    request = AgentRequest(prompt="Plan the graph.", permission_mode="allowed_tools_only")
+
+    argv = _run(request, fake)
+
+    assert flags(argv, request.prompt) == {"-p": None, "--output-format": "text"}
+    assert fake.calls[0][1] is None
+
+
+def test_research_carries_the_flags_it_carries_today() -> None:
+    """Read-only with web access, by its tool list alone."""
+    fake = FakeClaude(stdout="## Formatting\n")
+    request = AgentRequest(
+        prompt="Research python conventions.",
+        allowed_tools=RESEARCH_TOOLS,
+        permission_mode="allowed_tools_only",
+    )
+
+    argv = _run(request, fake)
+
+    assert flags(argv, request.prompt) == {
+        "-p": None,
+        "--allowedTools": RESEARCH_TOOLS,
+        "--output-format": "text",
+    }
+
+
+def test_a_proposal_carries_the_flags_it_carries_today(tmp_path: Path) -> None:
+    """Runs in the planning repo, reads the code repo, and carries the hook
+    with no `--specs`, since writing a change there is its whole job.
+
+    One intended tightening: the pipeline's deny list now comes with the
+    hook, as it does for every policed run. Today's proposal carries the hook
+    alone; its tool list allows no Bash beyond `ls`, so the denies take away
+    nothing it could do, and the rule that a policy brings both stays whole.
+    """
+    planning = tmp_path / "planning"
+    code = tmp_path / "checkouts" / "app"
+    fake = FakeClaude(stdout="Wrote the change.")
+    request = AgentRequest(
+        prompt="Propose testing-infrastructure for app.",
+        cwd=planning,
+        add_dirs=(code,),
+        allowed_tools=PROPOSE_TOOLS,
+        policy=ToolPolicy(specs_dir=None),
+    )
+
+    argv = _run(request, fake)
+    carried = flags(argv, request.prompt)
+
+    assert json.loads(carried.pop("--settings") or "") == hook(None)
+    assert carried == {
+        "-p": None,
+        "--add-dir": str(code),
+        "--allowedTools": PROPOSE_TOOLS,
+        "--disallowedTools": DENIED,
+        "--permission-mode": "acceptEdits",
+        "--output-format": "text",
+    }
+    assert fake.calls[0][1] == planning
+
+
+def test_the_restack_resolver_carries_the_flags_it_carries_today(tmp_path: Path) -> None:
+    """It edits the conflicted files because its tool list says so, with no
+    permission mode. `--output-format text` is new on this call; it is the
+    CLI's default, so nothing the call prints changes."""
+    fake = FakeClaude(stdout="Resolved.")
+    request = AgentRequest(
+        prompt="Resolve the conflicts.",
+        cwd=tmp_path,
+        allowed_tools=RESOLVER_TOOLS,
+        permission_mode="allowed_tools_only",
+    )
+
+    argv = _run(request, fake)
+
+    assert flags(argv, request.prompt) == {
+        "-p": None,
+        "--allowedTools": RESOLVER_TOOLS,
+        "--output-format": "text",
+    }
+    assert fake.calls[0][1] == tmp_path
