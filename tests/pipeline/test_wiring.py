@@ -868,11 +868,13 @@ def test_a_base_that_moved_while_the_unit_built_is_reported(tmp_path: Path) -> N
     base_moved = build_base_moved(store)
     child = store.get("add-marker/2")
 
-    assert base_moved(child, "spec/add-marker/1") == ""
+    assert base_moved(child, "spec/add-marker/1", tree=tmp_path, start="") == ""
 
     store.set_state("add-marker/1", MERGED)
 
-    assert "spec/add-marker/1 to main" in base_moved(child, "spec/add-marker/1")
+    assert "spec/add-marker/1 to main" in base_moved(
+        child, "spec/add-marker/1", tree=tmp_path, start=""
+    )
 
 
 def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(

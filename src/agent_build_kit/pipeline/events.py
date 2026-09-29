@@ -220,8 +220,9 @@ def _record_merge(
             continue
         try:
             # The probe holds the lock for an instant. A build starting this
-            # unit in that instant gets `BranchBusy` and skips it; the unit is
-            # still `planned`, so the next pass takes it up.
+            # unit in that instant gets `BranchBusy` and skips it. The pass
+            # that handed it out counts it as started and does not retry it;
+            # it is still `planned`, so the next pass takes it up.
             with claim(dependent):
                 pass
         except BranchBusy:

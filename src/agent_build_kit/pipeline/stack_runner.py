@@ -29,9 +29,8 @@ import json
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, SkipValidation
+from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active, models
 from agent_build_kit.model import Frozen
@@ -378,16 +377,6 @@ class RunOutcome(Frozen):
     pr: int | None = None
 
 
-class BaseMoved(Protocol):
-    """`UnitRunner.base_moved`'s shape, so the type checker holds stubs to it.
-
-    A field typed by a Protocol needs `SkipValidation`: pydantic would build
-    an isinstance check, and a Protocol is not a class it can check against.
-    """
-
-    def __call__(self, unit: Unit, base: str, /, *, tree: Path, start: str) -> str: ...
-
-
 class UnitRunner(BaseModel):
     """Runs one unit, given the ways to do each step.
 
@@ -412,7 +401,7 @@ class UnitRunner(BaseModel):
     # parent merged, or was restacked, while it built — or "". Given the
     # worktree and the base's tip when the run set it up (`base_tip`). See
     # `wiring.build_base_moved`.
-    base_moved: SkipValidation[BaseMoved] = lambda unit, base, **kwargs: ""
+    base_moved: Callable[..., str] = lambda unit, base, **kwargs: ""
     base_tip: Callable[[Path, str], str] = lambda tree, ref: ""
     restack_onto: Callable[..., Restacked | None]
     run_tier1: Callable[..., tuple[bool, str]]

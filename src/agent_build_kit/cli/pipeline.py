@@ -23,6 +23,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -48,6 +49,7 @@ from agent_build_kit.pipeline.gh_poller import Poller
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
 from agent_build_kit.pipeline.pr_replies import own_posts
+from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.shell import gh, git
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
@@ -746,11 +748,18 @@ def fetch_all(inst: Installation) -> None:
     user's, and are left exactly where they are.
     """
     for repo, path in inst.checkouts.items():
-        with file_lock(inst.state_dir / "locks" / f"repo-{repo}.lock"):
+        with _repo_turn(inst, repo):
             result = git(path, "fetch", "-q", "--prune", "origin", check=False)
         if result.returncode:
             why = result.stderr.strip()
             log(f"fetch of {repo} failed — building on what it last fetched: {why}")
+
+
+def _repo_turn(inst: Installation, repo: str) -> AbstractContextManager[None]:
+    """The turn a repo's `.git` is taken by, the one `build_runner` takes
+    around a build's worktree add and push: git's own locks there fail
+    rather than wait."""
+    return file_lock(inst.state_dir / "locks" / f"repo-{repo}.lock")
 
 
 def poll_all(inst: Installation, *, store: UnitStore) -> None:
@@ -760,15 +769,42 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
     doesn't replay the other's history. The first poll of a repo records
     without dispatching — a fresh state file must not look like a hundred
     simultaneous merges.
+
+    A pass polls while builds run, so every step here that writes to a repo's
+    `.git` — deleting a branch, removing a worktree, a restack's rebase and
+    push — takes the repo's turn, as the builds' own writes do. Only for the
+    git call: a restack's tier 1 run would keep every build in the repo
+    waiting on it.
     """
     checkouts = inst.checkouts
+    names = {path: repo for repo, path in checkouts.items()}
+
+    def named[T](step: Callable[..., T]) -> Callable[..., T]:
+        def in_turn(repo: str, *args, **kwargs) -> T:
+            with _repo_turn(inst, repo):
+                return step(repo, *args, **kwargs)
+
+        return in_turn
+
+    def at_path[T](step: Callable[..., T]) -> Callable[..., T]:
+        def in_turn(path: Path, *args, **kwargs) -> T:
+            with _repo_turn(inst, names[path]):
+                return step(path, *args, **kwargs)
+
+        return in_turn
+
     dispatch = build_dispatch(
         store,
         restack=build_restack(
-            repos=checkouts, store=store, root=inst.worktree_root, posts_root=inst.state_dir
+            repos=checkouts,
+            store=store,
+            root=inst.worktree_root,
+            posts_root=inst.state_dir,
+            move=at_path(resolved_move),
+            push=at_path(push_with_lease),
         ),
-        remove_worktree=build_remove_worktree(checkouts, root=inst.worktree_root),
-        delete_branch=build_delete_branch(checkouts),
+        remove_worktree=named(build_remove_worktree(checkouts, root=inst.worktree_root)),
+        delete_branch=named(build_delete_branch(checkouts)),
         fetch_review=build_fetch_review(checkouts),
         fetch_checks=build_fetch_check_logs(),
         # A pass polls between builds, so an event may name a unit still

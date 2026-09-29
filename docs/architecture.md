@@ -125,10 +125,11 @@ keeps the same base name while the commits under it change. The runner
 records its base's tip when it sets up the worktree, before any restack or
 adapt, and holds at the next boundary if that tip is no longer an ancestor of
 the base; a base rewritten during a resume's restack or adapt is caught the
-same way, and a base that only advanced does not stop it. The merged parent's local branch is kept while any same-repo
-dependent's lock is held — a build fixes its base ref before it reads
-`running` — and nothing deletes it later, since the merge event is consumed:
-such a branch is left behind and can be deleted by hand.
+same way, and a base that only advanced does not stop it. The merged parent's
+local branch is kept while any same-repo dependent's lock is held — a build
+fixes its base ref before it reads `running` — and nothing deletes it later,
+since the merge event is consumed: such a branch is left behind and can be
+deleted by hand.
 
 `UnitRunner.run` (`pipeline/stack_runner.py`) is the sequence; `wiring.py`
 binds each step to git, gh and `claude`:
@@ -196,12 +197,20 @@ the agent prefix. Each poll diffs against a snapshot (`runs/prs-<repo>.json`)
 and **acts only on a change**; the first poll of a repo records without
 dispatching. Two failed polls back off for thirty minutes.
 
+A pass polls between builds, so a change can name a unit whose build holds its
+branch lock. Its handler then changes nothing: the event is **deferred**, and
+the poller keeps the change to report again on a later poll — in practice the
+one after that build finishes. The handlers' own writes to a repo's `.git`
+(deleting a branch, removing a worktree, a restack's rebase and push) take the
+repo's turn (`runs/locks/repo-<repo>.lock`), as a build's worktree add and push
+do, since git's own locks there fail rather than wait.
+
 | Change seen | Event | Effect (`events.py`) |
 |---|---|---|
-| `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`); the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse. |
-| closed without merging | `closed` | unit `closed`; nothing cascades to what was stacked on it. |
-| label `agent:hold` added | `hold` | unit `held`; nothing automatic touches it again. |
-| label `agent:rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, or a newly failing check | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail). A held unit ignores it. |
+| `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
+| closed without merging | `closed` | unit `closed`; nothing cascades to what was stacked on it. Deferred while the unit is being built. |
+| label `agent:hold` added | `hold` | unit `held`; nothing automatic touches it again. Deferred while the unit is being built. |
+| label `agent:rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, or a newly failing check | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail). A held unit ignores it. Deferred while the unit is being built. |
 
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does
@@ -386,7 +395,9 @@ planning repo's `.env` holds machine-local settings.
   could not see a single tool it added.
 - **The poller acts only on change.** Re-dispatching what it saw last time
   would rework the same unit every five minutes — burning the window,
-  force-pushing over itself, drowning the PR in comments.
+  force-pushing over itself, drowning the PR in comments. The one exception
+  is a change deferred because its unit was being built, which is reported
+  again until a handler has acted on it.
 - **Units are tracked in a file, not GitHub issues.** One committed file beside
   the specs, easy to reset, no debris in the code repos when a change is
   re-planned or abandoned. The cost is that nothing closes a unit on merge, so

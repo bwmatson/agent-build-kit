@@ -14,9 +14,11 @@ or is held.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -301,19 +303,53 @@ def test_no_unit_is_started_twice_in_one_pass(builder: Builder, tmp_path: Path) 
 # --- 1.3 stopping, and --only ------------------------------------------------------
 
 
-def test_a_build_that_says_stop_ends_scheduling(builder: Builder, tmp_path: Path) -> None:
+def test_a_build_that_says_stop_ends_scheduling(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """One slot: the first unit opens its PR and the second starts in the same
     pass; the second finds the usage window spent, and the third is not
-    started — its report is acted on, not discarded."""
+    started — its report is acted on, not discarded.
+
+    The pause marker the build would also write is kept from being written,
+    so the report is the only thing that can stop the pass."""
     inst = workspace(tmp_path, max_concurrent=1)
     builder.store.upsert([stored("feature/1"), stored("feature/2"), stored("feature/3")])
     builder.scripts["feature/2"] = lambda: "paused"
+    monkeypatch.setattr(
+        cli, "pause_until", lambda when, **kwargs: argparse.Namespace(until=datetime.now(UTC))
+    )
 
     assert tick(inst) == 0
 
     assert builder.started == ["feature/1", "feature/2"]
     assert builder.store.get("feature/3").state == PLANNED
-    assert (tmp_path / "paused.json").exists()
+    assert not (tmp_path / "paused.json").exists()
+
+
+def test_a_pause_recorded_by_a_build_still_running_ends_scheduling(
+    builder: Builder, tmp_path: Path
+) -> None:
+    """Two slots. The slow build records a pause and keeps going; the quick
+    one then completes normally, reporting nothing wrong. The marker alone
+    stops the pass from starting the next unit, and the slow build is still
+    awaited."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("slow/1", repo="platform"), stored("quick/1"), stored("later/1")])
+    marker = tmp_path / "paused.json"
+
+    def slow() -> str | None:
+        pause.pause_until(None, reason="window spent", marker=marker)
+        return None if eventually(lambda: "quick/1" in builder.finished) else "failed"
+
+    builder.scripts["slow/1"] = slow
+    builder.scripts["quick/1"] = lambda: None if eventually(marker.exists) else "failed"
+
+    assert tick(inst) == 0
+
+    assert sorted(builder.started) == ["quick/1", "slow/1"]
+    assert builder.finished[-1] == "slow/1"
+    assert builder.store.get("slow/1").state == IN_REVIEW
+    assert builder.store.get("later/1").state == PLANNED
 
 
 def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: Path) -> None:
@@ -415,28 +451,78 @@ def test_a_dependency_merging_mid_pass_releases_its_dependent(
     assert builder.started == ["other/1", "uses/1"]
 
 
+@pytest.mark.parametrize(
+    ("step", "skipped"), [("poll_all", "poll skipped"), ("fetch_all", "fetch skipped")]
+)
 def test_a_failing_refresh_is_logged_and_the_pass_continues(
     builder: Builder,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    step: str,
+    skipped: str,
 ) -> None:
+    """The first refresh, at the top of the tick, succeeds; the one after a
+    completion raises."""
     inst = workspace(tmp_path, max_concurrent=1)
     builder.store.upsert([stored("feature/1"), stored("feature/2")])
-    polls: list[int] = []
+    calls: list[int] = []
 
-    def poll(inst, **kwargs):
-        polls.append(1)
-        if len(polls) > 1:
+    def refresh(inst, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
             raise RuntimeError("github unreachable")
 
-    monkeypatch.setattr(cli, "poll_all", poll)
+    monkeypatch.setattr(cli, step, refresh)
 
     assert tick(inst) == 0
 
     assert builder.started == ["feature/1", "feature/2"]
-    assert len(polls) >= 2
-    assert "github unreachable" in capsys.readouterr().out
+    assert len(calls) >= 2
+    out = capsys.readouterr().out
+    assert skipped in out
+    assert "github unreachable" in out
+
+
+def test_a_repo_refused_mid_pass_is_not_built_and_the_pass_fails(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only `platform` lacks a commit identity, and nothing in it is ready at
+    the top of the tick. `app/1`'s completion releases a platform unit — its
+    dependency merges meanwhile — which the pass refuses to start. The build
+    already in flight still finishes, and the tick reports the refusal."""
+    inst = workspace(tmp_path)
+    builder.store.upsert(
+        [
+            stored("base/1"),
+            stored("uses/1", repo="platform", depends_on=("base/1",)),
+            stored("app/1"),
+            stored("slow/1"),
+        ]
+    )
+    builder.store.set_state("base/1", IN_REVIEW, pr=7)
+    refused = threading.Event()
+
+    def has_identity(inst, repo: str) -> bool:
+        if repo == "platform":
+            refused.set()
+            return False
+        return True
+
+    def poll(inst, *, store):
+        if "app/1" in builder.finished:
+            store.set_state("base/1", MERGED, pr=7)
+
+    monkeypatch.setattr(cli, "_has_identity", has_identity)
+    monkeypatch.setattr(cli, "poll_all", poll)
+    builder.scripts["slow/1"] = lambda: None if refused.wait(WAIT) else "failed"
+
+    assert tick(inst) == 1
+
+    assert "uses/1" not in builder.started
+    assert builder.store.get("uses/1").state == PLANNED
+    assert "slow/1" in builder.finished
+    assert builder.store.get("slow/1").state == IN_REVIEW
 
 
 def test_planning_happens_once_per_pass(
@@ -460,6 +546,46 @@ def test_planning_happens_once_per_pass(
 # Captured before the autouse fixture stubs it: this test needs the real
 # dispatch wiring, with only GitHub and git faked beneath it.
 REAL_POLL_ALL = cli.poll_all
+
+
+@pytest.mark.parametrize("step", ["delete_branch", "remove_worktree", "move", "push"])
+def test_an_event_handler_writes_to_a_repo_only_in_its_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str
+) -> None:
+    """A poll now runs while builds do, and a build's worktree add and push
+    take the repo's turn because git's own locks fail rather than wait. So
+    each handler step that writes to the same `.git` takes that turn too."""
+    inst = workspace(tmp_path)
+    lock = tmp_path / "locks" / "repo-app.lock"
+    held: list[bool] = []
+
+    def records_the_turn(*args, **kwargs) -> None:
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        with lock.open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                held.append(True)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                held.append(False)
+
+    monkeypatch.setattr(cli, "resolved_move", records_the_turn)
+    monkeypatch.setattr(cli, "push_with_lease", records_the_turn)
+    monkeypatch.setattr(cli, "build_delete_branch", lambda repos: records_the_turn)
+    monkeypatch.setattr(cli, "build_remove_worktree", lambda repos, root: records_the_turn)
+    wired: dict = {}
+    monkeypatch.setattr(cli, "build_restack", lambda **kw: wired.update(kw))
+    monkeypatch.setattr(cli, "build_dispatch", lambda store, **kw: wired.update(kw))
+    monkeypatch.setattr(cli, "Poller", lambda **kw: argparse.Namespace(poll=lambda: None))
+
+    REAL_POLL_ALL(inst, store=UnitStore(tmp_path / "units.json"))
+
+    if step in ("move", "push"):
+        wired[step](inst.checkouts["app"], "spec/feature/2", new_base="main")
+    else:
+        wired[step]("app", "spec/feature/1")
+    assert held == [True], f"{step} ran outside the repo's turn"
 
 
 @pytest.mark.parametrize("step", ["test tasks", "remaining tasks"], ids=["tests", "implement"])

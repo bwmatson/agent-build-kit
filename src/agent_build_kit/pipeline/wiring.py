@@ -870,13 +870,13 @@ def build_base_moved(store: UnitStore) -> Callable[..., str]:
     its PR carrying the parent's old commits.
     """
 
-    def base_moved(unit: Unit, base: str, *, tree: Path | None = None, start: str = "") -> str:
+    def base_moved(unit: Unit, base: str, *, tree: Path, start: str) -> str:
         now = base_of(unit, store.all())
         if now != base:
             return f"its base moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or
         # the resume's restack takes it in. Rewritten is not.
-        if tree is not None and start and not _is_ancestor(tree, start, local_ref(base)):
+        if start and not _is_ancestor(tree, start, local_ref(base)):
             return f"its base {base} was rewritten while it built"
         return ""
 
