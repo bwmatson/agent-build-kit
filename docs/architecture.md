@@ -203,7 +203,10 @@ the poller keeps the change to report again on a later poll — in practice the
 one after that build finishes. The handlers' own writes to a repo's `.git`
 (deleting a branch, removing a worktree, a restack's rebase and push) take the
 repo's turn (`runs/locks/repo-<repo>.lock`), as a build's worktree add and push
-do, since git's own locks there fail rather than wait.
+do, since git's own locks there fail rather than wait. A restack's rebase runs
+in the repo's own checkout and holds the turn to the end, conflict resolver
+included, so a conflicted restack keeps that repo's builds waiting at worktree
+add or push until its resolver finishes. Its tier 1 run happens outside the turn.
 
 | Change seen | Event | Effect (`events.py`) |
 |---|---|---|

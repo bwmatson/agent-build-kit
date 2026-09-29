@@ -406,6 +406,11 @@ def _schedule(
     concern one of them. The event handlers leave a unit whose build holds its
     lock untouched and the poller reports the event again later — see
     `events` — which the refresh after that build's own completion does.
+
+    A repo found mid-pass with no commit identity stops submission for every
+    repo, not only that one, for the rest of the pass; the builds in flight
+    are still awaited and the pass exits 1, as it does when the check fails
+    at the start.
     """
     started: set[str] = set()
     building: dict[Future[bool], Unit] = {}
@@ -772,9 +777,15 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
 
     A pass polls while builds run, so every step here that writes to a repo's
     `.git` — deleting a branch, removing a worktree, a restack's rebase and
-    push — takes the repo's turn, as the builds' own writes do. Only for the
-    git call: a restack's tier 1 run would keep every build in the repo
-    waiting on it.
+    push — takes the repo's turn, as the builds' own writes do. A restack's
+    move holds the turn from start to finish, including the conflict
+    resolver's model run when the rebase conflicts. The rebase is in progress
+    in the repo's own checkout, and a build's worktree add or push must not
+    land in the middle of it. So a conflicted restack keeps that repo's builds
+    waiting at worktree add or push until its resolver finishes. Only the
+    restack's tier 1 run happens outside the turn: it writes nothing to
+    `.git`, and holding the turn through it would keep every build in the
+    repo waiting on a test run as well.
     """
     checkouts = inst.checkouts
     names = {path: repo for repo, path in checkouts.items()}
