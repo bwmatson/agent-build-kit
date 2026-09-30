@@ -2438,12 +2438,12 @@ def test_a_usage_paused_empty_step_is_drawn_as_paused_and_resumes_with_its_commi
     assert resumed.status == "open"
 
 
-def test_a_finished_unit_opens_its_pull_request_at_the_ceiling(tmp_path: Path) -> None:
-    """The ceiling gates starting, never finishing: reviewed work is pushed and
-    its pull request opened even when the queue is already full."""
+def test_a_finished_unit_opens_its_pull_request_at_the_limit(tmp_path: Path) -> None:
+    """The limit gates starting, never finishing: reviewed work is pushed and
+    its pull request opened even when the units in progress are at the limit."""
     from tests.factories import activate_with
 
-    activate_with(limits=dict(max_open_prs=1))
+    activate_with(limits=dict(max_units_in_progress=1))
     store = UnitStore(tmp_path / "units.json")
     others = [
         stored_unit(f"other-{n}/1", change=f"other-{n}", state=IN_REVIEW, pr=20 + n)

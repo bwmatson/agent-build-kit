@@ -79,7 +79,7 @@ def workspace(tmp_path: Path, *, max_concurrent: int = 4, depth_cap: int = 3) ->
         limits={
             "max_concurrent_stacks": max_concurrent,
             "stack_depth_build_cap": depth_cap,
-            "max_open_prs": 50,  # these tests are about the other caps
+            "max_units_in_progress": 50,  # these tests are about the other caps
         },
     )
 
@@ -794,14 +794,14 @@ def test_the_rebase_cap_reaches_the_merge_handler(
     assert wired["rebase_cap"] == expected
 
 
-# --- open pull request ceiling -----------------------------------------------------
+# --- limit on units in progress ----------------------------------------------------
 
 
-def ceiling_workspace(tmp_path: Path, ceiling: int) -> Installation:
+def limit_workspace(tmp_path: Path, limit: int) -> Installation:
     return make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_open_prs=ceiling),
+        limits=dict(max_units_in_progress=limit),
     )
 
 
@@ -813,7 +813,7 @@ def open_pr(builder: Builder, uid: str, pr: int, **kw) -> None:
 def test_a_full_queue_starts_nothing_and_says_so(
     builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    inst = ceiling_workspace(tmp_path, 2)
+    inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
     open_pr(builder, "two/1", 12, repo="platform")
     open_pr(builder, "three/1", 13)
@@ -824,15 +824,32 @@ def test_a_full_queue_starts_nothing_and_says_so(
     out = capsys.readouterr().out
     assert builder.started == []
     assert builder.store.get("new/1").state == PLANNED
-    assert "queue is full" in out.lower()
     assert "nothing ready" not in out
-    assert "queue is full: 3 open pull requests, ceiling 2" in out
+    assert "3 units in progress, limit 2" in out
+    assert "3 in review" in out
 
 
-def test_one_short_of_the_ceiling_starts_one_new_unit_not_all(
+def test_a_failed_unit_is_named_among_those_holding_the_places(
+    builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = limit_workspace(tmp_path, 2)
+    open_pr(builder, "one/1", 11)
+    builder.store.upsert([stored("broke/1")])
+    builder.store.set_state("broke/1", "failed")
+    builder.store.upsert([stored("new/1")])
+
+    assert tick(inst) == 0
+
+    out = capsys.readouterr().out
+    assert builder.started == []
+    assert "2 units in progress, limit 2" in out
+    assert "1 failed" in out
+
+
+def test_one_short_of_the_limit_starts_one_new_unit_not_all(
     builder: Builder, tmp_path: Path
 ) -> None:
-    inst = ceiling_workspace(tmp_path, 2)
+    inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
     builder.store.upsert([stored("new/1"), stored("new/2")])
 
@@ -844,18 +861,18 @@ def test_one_short_of_the_ceiling_starts_one_new_unit_not_all(
 def test_an_idle_pipeline_still_says_nothing_is_ready(
     builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    inst = ceiling_workspace(tmp_path, 2)
+    inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
 
     assert tick(inst) == 0
 
     out = capsys.readouterr().out
     assert "nothing ready to build" in out
-    assert "queue is full" not in out.lower()
+    assert "units in progress, limit" not in out
 
 
-def test_a_rework_runs_and_reaches_review_at_the_ceiling(builder: Builder, tmp_path: Path) -> None:
-    inst = ceiling_workspace(tmp_path, 2)
+def test_a_rework_runs_and_reaches_review_at_the_limit(builder: Builder, tmp_path: Path) -> None:
+    inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
     open_pr(builder, "two/1", 12)
     builder.store.set_state("two/1", PLANNED, pr=12)
@@ -869,7 +886,7 @@ def test_a_rework_runs_and_reaches_review_at_the_ceiling(builder: Builder, tmp_p
 
 
 def test_a_merge_lets_the_waiting_unit_start(builder: Builder, tmp_path: Path) -> None:
-    inst = ceiling_workspace(tmp_path, 2)
+    inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
     open_pr(builder, "two/1", 12)
     builder.store.upsert([stored("new/1")])
@@ -882,15 +899,15 @@ def test_a_merge_lets_the_waiting_unit_start(builder: Builder, tmp_path: Path) -
     assert builder.started == ["new/1"]
 
 
-def test_the_ceiling_is_handed_to_the_readiness_rules(
+def test_the_limit_is_handed_to_the_readiness_rules(
     builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    inst = ceiling_workspace(tmp_path, 3)
+    inst = limit_workspace(tmp_path, 3)
     builder.store.upsert([stored("new/1")])
     seen: list[object] = []
 
     def evaluate(graph, **kwargs):
-        seen.append(kwargs.get("max_open_prs"))
+        seen.append(kwargs.get("max_units_in_progress"))
         return ready_units(graph, **kwargs)
 
     monkeypatch.setattr(cli, "ready_units", evaluate)

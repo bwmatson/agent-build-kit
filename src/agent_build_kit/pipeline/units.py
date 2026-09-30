@@ -387,6 +387,11 @@ def new_start_room(graph: Sequence[Unit], max_open_prs: int) -> int:
     return max(0, max_open_prs - open_pr_count(graph) - builds_heading_for_pr(graph))
 
 
+def in_progress(unit: Unit) -> bool:
+    """Whether the unit has been started and not finished (docs/architecture.md)."""
+    raise NotImplementedError
+
+
 def _start_rank(unit: Unit) -> int:
     """Existing work first: an open pull request, then a paused build, then new."""
     if getattr(unit, "pr", None) is not None:
