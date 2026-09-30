@@ -98,7 +98,13 @@ looked through to what it was built on: same-repo, the dependent waits on and
 stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `limits.stack_depth_build_cap` holds
 back chains of open PRs; `limits.max_concurrent_stacks` bounds units being
-built, not PRs awaiting review. Ready units build in parallel threads, each
+built. `limits.max_open_prs` bounds every open pull request across repos
+(awaiting review, being reworked, running or held), counting the ones builds
+in flight are about to open: a unit without a pull request starts only while
+that leaves room, and no more of them than it does, while a rework, restack,
+review round or push still runs, so the count can pass it. Free slots go to
+units with an open pull request, then to those resuming a build, then to new
+ones, each in planned order. Ready units build in parallel threads, each
 under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 

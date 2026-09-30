@@ -168,3 +168,21 @@ def test_the_two_caps_are_read_independently(tmp_path: Path, build: int, rebase:
 
     assert inst.stack_depth_build_cap == build
     assert inst.stack_depth_rebase_cap == rebase
+
+
+def test_the_open_pr_ceiling_defaults_to_five() -> None:
+    assert LimitsConfig().max_open_prs == 5
+
+
+def test_the_open_pr_ceiling_must_be_at_least_one() -> None:
+    assert LimitsConfig.model_validate({"max_open_prs": 1}).max_open_prs == 1
+
+    for refused in (0, -1):
+        with pytest.raises(ValidationError) as error:
+            LimitsConfig.model_validate({"max_open_prs": refused})
+        assert "max_open_prs" in str(error.value)
+
+
+def test_the_installation_reads_the_open_pr_ceiling_from_its_limits(tmp_path: Path) -> None:
+    assert make_installation(tmp_path / "default").max_open_prs == 5
+    assert make_installation(tmp_path / "set", limits={"max_open_prs": 2}).max_open_prs == 2

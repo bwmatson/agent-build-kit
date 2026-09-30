@@ -132,6 +132,10 @@ class Installation:
         return self.config.limits.max_concurrent_stacks
 
     @property
+    def max_open_prs(self) -> int:
+        return self.config.limits.max_open_prs
+
+    @property
     def stack_depth_build_cap(self) -> int:
         return self.config.limits.stack_depth_build_cap
 

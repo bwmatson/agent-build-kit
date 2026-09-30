@@ -2425,3 +2425,26 @@ def test_a_usage_paused_empty_step_is_drawn_as_paused_and_resumes_with_its_commi
     assert "claude:tests" not in second_run.events, "the tests commit survived the pause"
     assert second_run.events[0] == "claude:impl"
     assert resumed.status == "open"
+
+
+def test_a_finished_unit_opens_its_pull_request_at_the_ceiling(tmp_path: Path) -> None:
+    """The ceiling gates starting, never finishing: reviewed work is pushed and
+    its pull request opened even when the queue is already full."""
+    from tests.factories import activate_with
+
+    activate_with(limits=dict(max_open_prs=1))
+    store = UnitStore(tmp_path / "units.json")
+    others = [
+        stored_unit(f"other-{n}/1", change=f"other-{n}", state=IN_REVIEW, pr=20 + n)
+        for n in range(3)
+    ]
+    store.upsert([unit(), *others])
+    recorder = Recorder()
+
+    outcome = make_runner(store, recorder, tmp_path).run(
+        store.get(unit().id), base="main", graph=[*others, store.get(unit().id)]
+    )
+
+    assert outcome.status == "open"
+    assert "push" in recorder.events and "pr" in recorder.events
+    assert store.get(unit().id).state == IN_REVIEW

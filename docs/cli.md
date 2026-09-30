@@ -30,7 +30,14 @@ to it now (`limits.usage_pause_pct`, rising towards `usage_ceiling_pct` as
 that window's reset nears) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; reclaim units
 left `running` by a dead process; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then build the ready
-units, up to `limits.max_concurrent_stacks` at once.
+units, up to `limits.max_concurrent_stacks` at once. No new unit starts while
+open PRs across all repos, plus those builds in flight will open, are at
+`limits.max_open_prs`, and a pass starts no more than fit under it; the tick
+log and `abk status` then say "queue is full: N open pull requests, ceiling
+M" (with "and K being built" after the count when builds are still heading
+for a PR). Free slots
+go to open-PR work first (reworks, restacks), then resuming builds, then new
+units.
 
 The pass keeps building until nothing is in flight and nothing is ready. Every
 build that finishes is followed by another fetch, another poll and a fresh

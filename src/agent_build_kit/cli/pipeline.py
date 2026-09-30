@@ -72,6 +72,9 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
+    builds_heading_for_pr,
+    new_start_room,
+    open_pr_count,
     ready_units,
 )
 from agent_build_kit.pipeline.usage_guard import (
@@ -161,6 +164,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     # What the last poll of each repo saw: an entry that cannot be merged is not
     # actionable, so it should not read like the others.
     conflicted: dict[str, set[int]] = {}
+
+    full = _queue_full_line(inst, units)
+    if full:
+        log(full)
+
     for unit in units:
         if unit.state == IN_REVIEW:
             if unit.repo not in conflicted:
@@ -355,7 +363,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
     ready = _evaluate(inst, units, started=set(), building=set(), only=only)
     if not ready:
-        log("nothing ready to build")
+        log(_nothing_started_reason(inst, units, only=only))
         return 0
 
     log(f"ready: {', '.join(unit.id for unit in ready)}")
@@ -379,6 +387,7 @@ def _evaluate(
     started: set[str],
     building: set[str],
     only: frozenset[str],
+    enforce_ceiling: bool = True,
 ) -> list[Unit]:
     """What this pass may start now.
 
@@ -399,9 +408,34 @@ def _evaluate(
             unit = unit.model_copy(update={"state": HELD})
         view.append(unit)
     ready = ready_units(
-        view, max_concurrent=inst.max_concurrent_stacks, depth_cap=inst.stack_depth_build_cap
+        view,
+        max_concurrent=inst.max_concurrent_stacks,
+        depth_cap=inst.stack_depth_build_cap,
+        max_open_prs=inst.max_open_prs if enforce_ceiling else None,
     )
     return [unit for unit in ready if unit.id not in started]
+
+
+def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
+    if new_start_room(units, inst.max_open_prs) > 0:
+        return None
+    count = open_pr_count(units)
+    coming = builds_heading_for_pr(units)
+    heading = f" and {coming} being built" if coming else ""
+    return f"queue is full: {count} open pull requests{heading}, ceiling {inst.max_open_prs}"
+
+
+def _nothing_started_reason(
+    inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
+) -> str:
+    """Why a pass starts nothing: the ceiling, when lifting it would start a
+    unit, and otherwise that nothing is ready."""
+    full = _queue_full_line(inst, units)
+    if full and _evaluate(
+        inst, units, started=set(), building=set(), only=only, enforce_ceiling=False
+    ):
+        return f"{full}; no new unit starts until one merges"
+    return "nothing ready to build"
 
 
 def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:

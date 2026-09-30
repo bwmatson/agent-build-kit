@@ -116,6 +116,10 @@ class LimitsConfig(Frozen):
     stack_depth_rebase_cap: int | None = None
     # How many units are implemented at once, across all repos.
     max_concurrent_stacks: int = 4
+    # How many pull requests may be open at once, across all repos. At it no
+    # new unit starts; what drains the queue (finishing, rework, restack, a
+    # further review round) still runs, so the count can go past it.
+    max_open_prs: Annotated[int, Field(ge=1)] = 5
     # Estimated changed lines before a unit stops absorbing the next task group.
     min_unit_lines: int = 500
     # Estimated changed lines one unit may carry. It shapes plans only: a
