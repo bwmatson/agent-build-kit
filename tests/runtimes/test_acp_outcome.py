@@ -253,12 +253,21 @@ def test_a_step_that_passes_tool_lists_runs_and_the_lists_are_ignored(
     nothing of them reaches the agent, and the run goes ahead. Checked
     against the whole record, not just the calls expected to carry a tool
     list — the fields must not leak through `_meta`, `initialize` or
-    `session/set_config_option` either."""
+    `session/set_config_option` either. An edit-mode run naming an edit tool
+    is the ordinary, advisory case (the run was going to edit anyway), so it
+    is let through with one notice, not refused."""
     record = tmp_path / "agent.jsonl"
     use_agent(record)
+    lines: list[str] = []
 
     result = AcpRuntime().run(
-        _request(worktree, specs, allowed_tools="Bash(uv run *)", denied_tools="WebFetch")
+        _request(
+            worktree,
+            specs,
+            allowed_tools="Read Edit Write Bash(uv run *)",
+            denied_tools="WebFetch",
+            on_event=lines.append,
+        )
     )
 
     assert result.ok is True
@@ -266,6 +275,32 @@ def test_a_step_that_passes_tool_lists_runs_and_the_lists_are_ignored(
     sent = record.read_text()
     assert "Bash(uv run *)" not in sent
     assert "WebFetch" not in sent
+    told = [line for line in lines if "allowed_tools" in line and "denied_tools" in line]
+    assert len(told) == 1, lines
+
+
+def test_a_read_only_shaped_request_is_refused_before_the_agent_is_spawned(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """`wiring.build_run_review` sends an `edit`-mode request whose
+    `allowed_tools` names no edit tool: on this runtime, ignoring that would
+    let the reviewer edit the worktree it is judging, breaking the guarantee
+    docs/architecture.md states as a property of the pipeline. Refused, and
+    the agent never starts."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record)
+    request = _request(
+        worktree,
+        specs,
+        allowed_tools="Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)",
+    ).model_copy(update={"role": "review"})
+
+    result = AcpRuntime().run(request)
+
+    assert result.ok is False
+    assert "allowed_tools" in result.error
+    assert "reviewer" in result.error and "edit" in result.error
+    assert not record.exists()
 
 
 def test_a_named_worktree_is_refused_without_starting_the_agent(

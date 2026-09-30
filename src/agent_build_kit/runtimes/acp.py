@@ -9,7 +9,13 @@ ceiling or a refusal is a failed result saying which, and `cancelled` is an
 interruption, as is an agent killed by a signal from elsewhere — not one abk
 killed for failing to exit, which is a failure. `AgentRequest.allowed_tools`/
 `denied_tools` are inert here — the protocol has no per-session tool list
-(docs/agent-runtimes.md) — and a named `worktree` is refused, not ignored.
+(docs/agent-runtimes.md) — so a run that carries either is let through with a
+once-per-run notice that tool scope comes from the agent's own configuration,
+*unless* the list is the only thing standing between an `edit`-mode run and
+editing (no edit tool named in `allowed_tools`) — the shape of a review run,
+whose reviewer-cannot-edit guarantee (docs/architecture.md) this runtime
+cannot keep, so that request is refused before the agent is spawned. A named
+`worktree` is refused too, not ignored.
 """
 
 from __future__ import annotations
@@ -76,6 +82,55 @@ STOPPED: dict[str, str] = {
     "max_turn_requests": "the agent reached its ceiling on model requests in one turn",
     "refusal": "the agent refused to carry on with the prompt",
 }
+
+# Claude Code tool names (in `AgentRequest.allowed_tools`'s own syntax) that
+# can edit a file. Only these two are named by anything in this codebase
+# today; a bare name is matched before any `(...)` pattern.
+EDIT_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
+
+
+def _names_edit_tool(tool_list: str) -> bool:
+    return any(token.split("(", 1)[0] in EDIT_TOOLS for token in tool_list.split())
+
+
+def _scope_warning(request: AgentRequest) -> str | None:
+    """Once per run: neither field reaches the agent, so a caller relying on
+    either to narrow what it does is not told by this runtime — only by the
+    log."""
+    named = [
+        field
+        for field, value in (
+            ("allowed_tools", request.allowed_tools),
+            ("denied_tools", request.denied_tools),
+        )
+        if value
+    ]
+    if not named:
+        return None
+    return (
+        f"{' and '.join(named)} ignored: runtimes.acp has no per-session tool "
+        "list to apply them to; tool scope comes from the agent's own configuration"
+    )
+
+
+def _review_guarantee_broken(request: AgentRequest) -> str | None:
+    """None unless `allowed_tools` is the only thing standing between an
+    `edit`-mode run and editing — the shape `wiring.build_run_review` sends,
+    and the guarantee docs/architecture.md states as a property of the
+    pipeline: "The reviewer cannot edit". This runtime has no per-session
+    tool list to enforce that with, so it refuses rather than reviewing under
+    a promise it cannot keep."""
+    if request.permission_mode != "edit" or not request.allowed_tools:
+        return None
+    if _names_edit_tool(request.allowed_tools):
+        return None
+    return (
+        f"runtimes.acp cannot enforce allowed_tools={request.allowed_tools!r}: the "
+        "protocol has no per-session tool list, and this list names no edit tool, "
+        "so this run is relying on it to keep the reviewer from editing "
+        '("The reviewer cannot edit", docs/architecture.md) — a guarantee this '
+        "runtime cannot keep. Refusing rather than reviewing under a broken promise."
+    )
 
 
 class _Session:
@@ -196,6 +251,8 @@ class AcpRuntime:
                 error=f"runtimes.{NAME} does not create a named worktree; "
                 f"{request.worktree!r} needs a runtime that does",
             )
+        if broken := _review_guarantee_broken(request):
+            return AgentResult(ok=False, text="", error=broken)
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)
         if not command:
             return AgentResult(ok=False, text="", error=f"runtimes.{NAME}.command is not set")
@@ -203,6 +260,8 @@ class AcpRuntime:
 
     async def _run(self, command: list[str], request: AgentRequest) -> AgentResult:
         session = _Session(request.on_event)
+        if warning := _scope_warning(request):
+            session.notice(warning)
         try:
             # In a session of its own, so a kill reaches whatever the command
             # forks (a wrapper's real agent) and not only the command itself.

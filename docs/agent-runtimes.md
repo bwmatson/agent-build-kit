@@ -355,12 +355,28 @@ the same syntax. ACP standardizes no equivalent: an agent's tool set comes from
 its own configuration, and the protocol has no "these tools only" parameter on
 a session. **On the `acp` path both fields are inert**: `runtimes/acp.py` reads
 neither, sends nothing for them, and a request that sets them runs exactly as
-one that does not. Translating them would mean guessing at each agent's own
-tool names and config format, which is the per-product knowledge this adapter
-exists to keep out of abk. A workspace scopes its agent's tools in that agent's
-own config instead. This is a real reduction in expressiveness, not a detail to
-gloss: it is why the policy work below does not lean on tool scoping for
-anything load-bearing.
+one that does not — with one difference from silent inertness: the run's log
+gets a once-per-run notice that tool scope comes from the agent's own
+configuration, not from the request. Translating the lists would mean guessing
+at each agent's own tool names and config format, which is the per-product
+knowledge this adapter exists to keep out of abk. A workspace scopes its
+agent's tools in that agent's own config instead. This is a real reduction in
+expressiveness, not a detail to gloss: it is why the policy work below does
+not lean on tool scoping for anything load-bearing.
+
+**The one case where the list is not advisory is refused, not ignored.** An
+ordinary run's tool list is a hint the run did not need — it names an edit
+tool because it was going to edit anyway. `wiring.build_run_review` is
+different: it sends `permission_mode="edit"` with `allowed_tools` naming no
+edit tool at all, because "The reviewer cannot edit" is a property the
+pipeline states as a guarantee (docs/architecture.md), not a preference — a
+reviewer that could edit the worktree it is judging could approve a diff it
+had itself changed. `runtimes/acp.py` has no way to keep that guarantee (the
+agent's own configuration decides its tools, not this request), so a request
+shaped that way — `permission_mode` is `"edit"` and `allowed_tools` is set but
+names no edit tool — is refused with `AgentResult(ok=False, ...)` before the
+agent is even spawned, rather than silently reviewed under a promise this
+runtime cannot keep.
 
 ## Policy enforcement without a hook contract
 
