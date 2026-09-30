@@ -26,8 +26,8 @@ later find it already done.
 `run_track` (`tracks/runner.py`):
 
 1. **Headroom.** The usage guard's `may_start_unit` decides; with none the run
-   logs why and exits 0. The next timer is the retry — a daily track does not
-   schedule its own resume the way a five-minute tick does.
+   logs why and exits 0. The next timer is the retry, as it is for the
+   five-minute tick.
 2. **Pull the planning repo** to its default branch (`git checkout`, `git
    pull --ff-only origin`), since every phase writes and pushes its run log
    there. `planning.self_pull: false` skips this. A failed pull is fatal.

@@ -182,8 +182,8 @@ def test_a_window_the_ramp_can_never_clear_waits_for_the_reset() -> None:
 
 
 def test_no_pause_is_scheduled_further_out_than_the_recheck_cap() -> None:
-    """A weekly window can reset days away, and `pause_until` never shortens
-    an existing pause — an honest wait would sleep through everything."""
+    """A weekly window can reset days away: an honest wait would put the
+    marker's deadline days out, and `abk status` would say so."""
     decision = may_start_unit(reading(weekly_pct=99, weekly_resets_in=timedelta(days=5)))
 
     assert not decision.may_start

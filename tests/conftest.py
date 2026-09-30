@@ -1,11 +1,8 @@
 """Guards and fixtures that apply to every test in the suite.
 
-The suite once scheduled a real systemd timer on the developer's machine every
-time it ran, through tests that reach `pause_until` without injecting a
-scheduler. A test that needs the scheduler injects its own; everything else
-gets one that fails loudly rather than touching the host. The same goes for
-refreshing the Claude login, for spawning a real agent, and for the adapter's
-reading of the real usage window.
+Nothing a test runs may touch the host: refreshing the Claude login, spawning a
+real agent and the adapter's reading of the real usage window each fail loudly
+here unless a test injects its own.
 
 Every test also runs against a workspace: the leaf modules read the branch
 prefix, the repo set and the limits from `config.active()`, so a default
@@ -24,22 +21,7 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import pause
 from agent_build_kit.runtimes import claude_code
-
-
-@pytest.fixture(autouse=True)
-def no_real_timers(monkeypatch: pytest.MonkeyPatch) -> None:
-    real = pause.systemd_resume
-
-    def refuse(seconds, command, *, working_directory=None, run=None):
-        # A test that injects `run` is testing the scheduler itself, and never
-        # reaches systemd.
-        if run is not None:
-            return real(seconds, command, working_directory=working_directory, run=run)
-        raise AssertionError("a test tried to schedule a real systemd timer — inject `schedule=`")
-
-    monkeypatch.setattr(pause, "systemd_resume", refuse)
 
 
 @pytest.fixture(autouse=True)

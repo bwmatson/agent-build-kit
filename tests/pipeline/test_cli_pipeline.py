@@ -22,9 +22,8 @@ from agent_build_kit.cli.pipeline import has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import pause
 from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
-from agent_build_kit.pipeline.pause import pause_until
+from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -65,9 +64,6 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     inst = make_installation(
         tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}
     )
-    # A tick that pauses schedules a resume; here it goes nowhere. Without
-    # this the suite created a real systemd timer on every run.
-    monkeypatch.setattr(pause, "systemd_resume", lambda seconds, command, **k: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     # Stubbed like poll_all: it fetches both code repos over the network.
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
@@ -101,19 +97,93 @@ def test_a_low_window_pauses_before_planning(
     assert (tmp_path / "paused.json").exists()
 
 
-def test_a_tick_while_paused_does_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Otherwise the five-minute timer would undo the pause immediately."""
-    checked: list[str] = []
+def test_a_pause_lasts_until_the_ramp_offers_room_not_until_the_reset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The guard works out when the rising threshold clears current usage; the
+    marker used to be given the reset instead, and the ramp's last stretch was
+    slept through."""
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    ramp = datetime.now(UTC) + timedelta(minutes=40)
+    monkeypatch.setattr(cli, "current_usage", lambda: reading(session_pct=76))
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session", resume_at=ramp)
+    )
+
+    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+
+    state = is_paused(tmp_path / "paused.json")
+    assert state is not None
+    assert state.until == ramp + RESUME_GRACE
+
+
+def test_a_paused_tick_asks_the_guard_again_and_stays_paused_when_it_refuses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
     pause_until(
         datetime.now(UTC) + timedelta(hours=1),
         reason="weekly at 92%",
         marker=tmp_path / "paused.json",
-        schedule=lambda s, c: None,
     )
-    monkeypatch.setattr(cli, "current_usage", lambda: checked.append("usage") or reading())
+    asked: list[str] = []
+    monkeypatch.setattr(cli, "current_usage", lambda: asked.append("usage") or reading())
+    monkeypatch.setattr(
+        cli,
+        "may_start_unit",
+        lambda r: Decision(may_start=False, reason="weekly at 92%", resume_at=r.resets_at),
+    )
+    planned: list[str] = []
+    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: planned.append("archive"))
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
-    assert checked == [], "a paused tick shouldn't even read usage"
+
+    assert asked == ["usage"]
+    assert planned == []
+    assert is_paused(tmp_path / "paused.json") is not None
+
+
+def test_a_paused_tick_resumes_as_soon_as_the_guard_allows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A threshold raised by hand used to change nothing until someone deleted
+    the marker: a paused tick exited without asking."""
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    pause_until(
+        datetime.now(UTC) + timedelta(hours=2),
+        reason="session at 76%",
+        marker=tmp_path / "paused.json",
+    )
+    monkeypatch.setattr(cli, "current_usage", lambda: reading(session_pct=76))
+    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="room"))
+    archived: list[str] = []
+    monkeypatch.setattr(
+        cli, "archive_ready_changes", lambda *a, **k: archived.append("archive") or []
+    )
+
+    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+
+    assert is_paused(tmp_path / "paused.json") is None
+    assert archived == ["archive"]
+
+
+def test_a_rate_limit_pause_is_kept_without_reading_usage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    pause_until(
+        datetime.now(UTC) + timedelta(hours=1),
+        reason="rate limited during feature/1",
+        marker=tmp_path / "paused.json",
+        kind="rate_limit",
+    )
+    asked: list[str] = []
+    monkeypatch.setattr(cli, "current_usage", lambda: asked.append("usage") or reading())
+
+    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+
+    assert asked == []
+    assert is_paused(tmp_path / "paused.json") is not None
 
 
 def test_a_healthy_tick_reports_what_it_would_build(monkeypatch: pytest.MonkeyPatch) -> None:
