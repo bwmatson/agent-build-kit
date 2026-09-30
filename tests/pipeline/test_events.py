@@ -10,6 +10,7 @@ how a child PR starts showing its parent's diff as its own — or worse, how a
 force-push lands commits nobody reviewed on a base that already has them.
 """
 
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,7 @@ class Recorder:
 
 
 def test_a_merged_pr_marks_its_unit_merged(store: UnitStore) -> None:
-    events.on_merged(1, store=store, restack=Recorder())
+    events.on_merged(1, repo="app", store=store, restack=Recorder())
 
     assert store.get("add-marker/1").state == MERGED
 
@@ -54,7 +55,7 @@ def test_merging_the_bottom_restacks_what_was_on_top(store: UnitStore) -> None:
     Left alone, its PR shows both units' work as its own diff."""
     recorder = Recorder()
 
-    events.on_merged(1, store=store, restack=recorder)
+    events.on_merged(1, repo="app", store=store, restack=recorder)
 
     assert len(recorder.restacked) == 1
     moved = recorder.restacked[0]
@@ -79,7 +80,7 @@ def test_a_child_moves_onto_its_next_open_parent_not_main(tmp_path: Path) -> Non
         store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
     recorder = Recorder()
 
-    events.on_merged(1, store=store, restack=recorder)
+    events.on_merged(1, repo="app", store=store, restack=recorder)
 
     moved = {r["branch"]: r["new_base"] for r in recorder.restacked}
     assert moved["spec/c/2"] == "main"
@@ -108,7 +109,7 @@ def test_a_grandchild_through_a_satisfied_unit_is_restacked_like_a_direct_child(
     store.set_state("c/3", IN_REVIEW, pr=3, branch="spec/c/3")
     recorder = Recorder()
 
-    events.on_merged(1, store=store, restack=recorder)
+    events.on_merged(1, repo="app", store=store, restack=recorder)
 
     assert len(recorder.restacked) == 1
     moved = recorder.restacked[0]
@@ -123,7 +124,7 @@ def test_a_merge_we_have_no_unit_for_is_ignored(store: UnitStore) -> None:
     Restacking against a unit we don't know is how the wrong branch moves."""
     recorder = Recorder()
 
-    events.on_merged(999, store=store, restack=recorder)
+    events.on_merged(999, repo="app", store=store, restack=recorder)
 
     assert recorder.restacked == []
 
@@ -142,14 +143,14 @@ def test_a_failing_restack_does_not_stop_the_others(tmp_path: Path) -> None:
             raise RuntimeError("conflict")
         moved.append(branch)
 
-    events.on_merged(1, store=store, restack=restack)
+    events.on_merged(1, repo="app", store=store, restack=restack)
 
     assert moved == ["spec/c/3"]
     assert store.get("c/1").state == MERGED, "the merge itself still stands"
 
 
 def test_a_closed_pr_marks_its_unit_closed(store: UnitStore) -> None:
-    events.on_closed(1, store=store)
+    events.on_closed(1, repo="app", store=store)
 
     assert store.get("add-marker/1").state == CLOSED
 
@@ -157,7 +158,7 @@ def test_a_closed_pr_marks_its_unit_closed(store: UnitStore) -> None:
 def test_closing_a_parent_leaves_its_children_alone(store: UnitStore) -> None:
     """Closing is a human decision about one unit. Cascading it would discard
     work on branches nobody asked to drop."""
-    events.on_closed(1, store=store)
+    events.on_closed(1, repo="app", store=store)
 
     assert store.get("add-marker/2").state == IN_REVIEW
 
@@ -166,13 +167,13 @@ def test_rework_is_recorded_against_the_unit(store: UnitStore) -> None:
     """The reason has to survive the poll: the next tick is a new process, and
     rebuilding without knowing what the reviewer said would reproduce the same
     code at full price."""
-    events.on_rework(1, reason="new comment", store=store)
+    events.on_rework(1, repo="app", reason="new comment", store=store)
 
     assert "new comment" in str(store.get("add-marker/1").history[-1])
 
 
 def test_a_held_unit_is_recorded_so_nothing_reworks_it(store: UnitStore) -> None:
-    events.on_hold(1, store=store)
+    events.on_hold(1, repo="app", store=store)
 
     assert store.get("add-marker/1").state == events.HELD
 
@@ -185,7 +186,7 @@ def test_a_satisfied_units_own_close_is_not_read_back_as_a_real_one(store: UnitS
     in `REVIEWED`) and stops `through_satisfied` looking through it."""
     store.set_state("add-marker/1", SATISFIED, pr=4)
 
-    events.on_closed(4, store=store)
+    events.on_closed(4, repo="app", store=store)
 
     assert store.get("add-marker/1").state == SATISFIED
 
@@ -193,7 +194,7 @@ def test_a_satisfied_units_own_close_is_not_read_back_as_a_real_one(store: UnitS
 def test_a_satisfied_unit_is_not_reworked_by_a_late_comment(store: UnitStore) -> None:
     store.set_state("add-marker/1", SATISFIED, pr=4)
 
-    events.on_rework(4, reason="new comment", store=store)
+    events.on_rework(4, repo="app", reason="new comment", store=store)
 
     assert store.get("add-marker/1").state == SATISFIED
 
@@ -201,7 +202,7 @@ def test_a_satisfied_unit_is_not_reworked_by_a_late_comment(store: UnitStore) ->
 def test_a_satisfied_unit_is_not_held_by_a_late_review(store: UnitStore) -> None:
     store.set_state("add-marker/1", SATISFIED, pr=4)
 
-    events.on_hold(4, store=store)
+    events.on_hold(4, repo="app", store=store)
 
     assert store.get("add-marker/1").state == SATISFIED
 
@@ -389,7 +390,7 @@ def test_the_poller_s_events_reach_the_handlers(tmp_path: Path) -> None:
     store.set_state("c/1", IN_REVIEW, pr=1, branch="spec/c/1")
     dispatch = events.build_dispatch(store, restack=Recorder(), log=lambda m: None)
 
-    dispatch("merged", 1)
+    dispatch("merged", 1, repo="app")
 
     assert store.get("c/1").state == MERGED
 
@@ -401,7 +402,7 @@ def test_an_unknown_event_is_logged_rather_than_ignored(tmp_path: Path) -> None:
     logged: list[str] = []
     dispatch = events.build_dispatch(store, restack=Recorder(), log=logged.append)
 
-    dispatch("something-new", 1)
+    dispatch("something-new", 1, repo="app")
 
     assert any("something-new" in line for line in logged)
 
@@ -425,7 +426,9 @@ def bare_pull() -> PullRequest:
 def test_rework_keeps_what_the_reviewer_actually_said(store: UnitStore) -> None:
     """ "new comment" is not actionable. Rebuilding on that alone would spend a
     full unit's budget reproducing the same code, so the text is the point."""
-    events.on_rework(1, reason="new comment", pull=rework_pull("Use a Sequence here"), store=store)
+    events.on_rework(
+        1, repo="app", reason="new comment", pull=rework_pull("Use a Sequence here"), store=store
+    )
 
     assert store.get("add-marker/1").feedback == "Use a Sequence here"
 
@@ -433,14 +436,16 @@ def test_rework_keeps_what_the_reviewer_actually_said(store: UnitStore) -> None:
 def test_a_reworked_unit_goes_back_in_the_queue(store: UnitStore) -> None:
     """Recording it and leaving the unit open would mean the feedback sat
     there until someone noticed by hand."""
-    events.on_rework(1, reason="new comment", pull=rework_pull("Use a Sequence"), store=store)
+    events.on_rework(
+        1, repo="app", reason="new comment", pull=rework_pull("Use a Sequence"), store=store
+    )
 
     assert store.get("add-marker/1").state == PLANNED
 
 
 def test_feedback_with_no_comment_still_says_why(store: UnitStore) -> None:
     """A failing check dispatches rework too, and its reason is all there is."""
-    events.on_rework(1, reason="failing checks: tier1", pull=bare_pull(), store=store)
+    events.on_rework(1, repo="app", reason="failing checks: tier1", pull=bare_pull(), store=store)
 
     assert "failing checks: tier1" in store.get("add-marker/1").feedback
 
@@ -448,9 +453,11 @@ def test_feedback_with_no_comment_still_says_why(store: UnitStore) -> None:
 def test_a_held_unit_is_not_requeued_by_a_comment(store: UnitStore) -> None:
     """Hold means a human has taken it over. Requeuing would have the agent
     push over the work they are in the middle of."""
-    events.on_hold(1, store=store)
+    events.on_hold(1, repo="app", store=store)
 
-    events.on_rework(1, reason="new comment", pull=rework_pull("thoughts?"), store=store)
+    events.on_rework(
+        1, repo="app", reason="new comment", pull=rework_pull("thoughts?"), store=store
+    )
 
     assert store.get("add-marker/1").state == events.HELD
     assert store.get("add-marker/1").feedback == ""
@@ -464,6 +471,7 @@ def test_a_merged_unit_s_worktree_is_removed(store: UnitStore) -> None:
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: removed.append(branch),
@@ -480,7 +488,7 @@ def test_a_worktree_that_will_not_go_does_not_fail_the_merge(store: UnitStore) -
     def refuse(repo, branch):
         raise RuntimeError("worktree has uncommitted changes")
 
-    events.on_merged(1, store=store, restack=Recorder(), remove_worktree=refuse)
+    events.on_merged(1, repo="app", store=store, restack=Recorder(), remove_worktree=refuse)
 
     assert store.get("add-marker/1").state == MERGED
 
@@ -496,6 +504,7 @@ def test_a_child_s_worktree_survives_the_parent_merge(tmp_path: Path) -> None:
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: removed.append(branch),
@@ -511,6 +520,7 @@ def test_a_merged_unit_s_branch_is_deleted(store: UnitStore) -> None:
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: None,
@@ -527,6 +537,7 @@ def test_the_branch_goes_only_after_its_worktree(store: UnitStore) -> None:
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: order.append("worktree"),
@@ -547,6 +558,7 @@ def test_a_kept_worktree_keeps_its_branch(store: UnitStore) -> None:
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         remove_worktree=refuse,
@@ -560,7 +572,7 @@ def test_a_kept_worktree_keeps_its_branch(store: UnitStore) -> None:
 def test_a_closed_unmerged_unit_keeps_its_branch(store: UnitStore) -> None:
     """Closed is not merged: the branch is the only place that work exists,
     and dropping a PR is not a decision to destroy what was on it."""
-    events.on_closed(1, store=store)
+    events.on_closed(1, repo="app", store=store)
 
     assert store.get("add-marker/1").state == CLOSED
 
@@ -572,6 +584,7 @@ def test_rework_carries_the_reviewer_s_inline_words(store: UnitStore) -> None:
     path exists to avoid, so the words are fetched when they are needed."""
     events.on_rework(
         1,
+        repo="app",
         reason="review: changes requested",
         pull=bare_pull(),
         store=store,
@@ -589,6 +602,7 @@ def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStor
     """A failing check dispatches rework too and has no review behind it."""
     events.on_rework(
         1,
+        repo="app",
         reason="failing checks: tier1",
         pull=bare_pull(),
         store=store,
@@ -650,7 +664,7 @@ def test_new_feedback_overrides_where_a_paused_unit_would_resume(tmp_path: Path)
     store.upsert([unit("add-marker/1")])
     store.set_state("add-marker/1", PLANNED, pr=1, resume_from="review")
 
-    events.on_rework(1, store=store, reason="new comment", log=lambda m: None)
+    events.on_rework(1, repo="app", store=store, reason="new comment", log=lambda m: None)
 
     assert store.get("add-marker/1").resume_from == ""
 
@@ -696,7 +710,9 @@ def test_a_rework_is_not_handed_the_pipeline_s_own_comment(tmp_path: Path) -> No
         update={"comment_bodies": ("please rename it", f"Renamed.\n{MARKER}")}
     )
 
-    events.on_rework(1, store=store, reason="new comment", pull=pull, log=lambda m: None)
+    events.on_rework(
+        1, repo="app", store=store, reason="new comment", pull=pull, log=lambda m: None
+    )
 
     feedback = store.get("c/1").feedback
     assert "please rename it" in feedback
@@ -833,6 +849,7 @@ def test_a_ci_failure_is_reworked_from_its_log_not_the_old_review(tmp_path: Path
 
     events.on_rework(
         20,
+        repo="app",
         reason="failing checks: config-check",
         pull=rework_pull("an old, answered review comment"),
         store=store,
@@ -882,6 +899,7 @@ def test_a_merge_does_not_restack_a_child_that_is_being_built(
     with branch_lock("spec/add-marker/2", root=locks):
         handled = events.on_merged(
             1,
+            repo="app",
             store=store,
             restack=recorder,
             claim=events.build_claim(locks),
@@ -909,6 +927,7 @@ def test_a_merge_keeps_the_parent_branch_a_child_is_building_on(
     with branch_lock("spec/add-marker/2", root=locks):
         events.on_merged(
             1,
+            repo="app",
             store=store,
             restack=Recorder(),
             remove_worktree=lambda repo, branch: removed.append((repo, branch)),
@@ -935,6 +954,7 @@ def test_a_merge_keeps_the_parent_branch_a_starting_build_has_taken_as_base(
     with branch_lock("spec/add-marker/2", root=locks):
         events.on_merged(
             1,
+            repo="app",
             store=store,
             restack=recorder,
             remove_worktree=lambda repo, branch: removed.append((repo, branch)),
@@ -955,6 +975,7 @@ def test_a_merge_restacks_a_child_nothing_is_building(store: UnitStore, locks: P
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=recorder,
         delete_branch=lambda repo, branch: deleted.append((repo, branch)),
@@ -976,7 +997,12 @@ def test_a_merge_over_a_rework_in_progress_waits_for_the_build(
 
     with branch_lock("spec/add-marker/1", root=locks):
         handled = events.on_merged(
-            1, store=store, restack=recorder, claim=events.build_claim(locks), log=lambda m: None
+            1,
+            repo="app",
+            store=store,
+            restack=recorder,
+            claim=events.build_claim(locks),
+            log=lambda m: None,
         )
 
     assert handled is False, "deferred, so the poller reports it again"
@@ -988,10 +1014,14 @@ def test_a_merge_over_a_rework_in_progress_waits_for_the_build(
     "handle",
     [
         lambda store, claim: events.on_rework(
-            1, reason="new comment", store=store, claim=claim, log=lambda m: None
+            1, repo="app", reason="new comment", store=store, claim=claim, log=lambda m: None
         ),
-        lambda store, claim: events.on_hold(1, store=store, claim=claim, log=lambda m: None),
-        lambda store, claim: events.on_closed(1, store=store, claim=claim, log=lambda m: None),
+        lambda store, claim: events.on_hold(
+            1, repo="app", store=store, claim=claim, log=lambda m: None
+        ),
+        lambda store, claim: events.on_closed(
+            1, repo="app", store=store, claim=claim, log=lambda m: None
+        ),
     ],
     ids=["rework", "hold", "closed"],
 )
@@ -1028,8 +1058,11 @@ def _poller(
         repo="example/app",
         state_path=tmp_path / "prs-app.json",
         list_prs=lambda: next(calls),
-        dispatch=events.build_dispatch(
-            store, restack=Recorder(), claim=events.build_claim(locks), log=lambda m: None
+        dispatch=partial(
+            events.build_dispatch(
+                store, restack=Recorder(), claim=events.build_claim(locks), log=lambda m: None
+            ),
+            repo="app",
         ),
     )
 
@@ -1074,3 +1107,97 @@ def test_a_review_that_arrives_mid_rework_is_not_dropped(
 
     assert store.get("add-marker/1").state == PLANNED
     assert store.get("add-marker/1").feedback == "rename the flag too"
+
+
+# A pull request number names a unit only within its repo --------------------
+
+
+@pytest.fixture
+def shared_number(tmp_path: Path) -> UnitStore:
+    """Two repos that have both reached pull request 5. The other repo's unit
+    is older, finished, and first in the store — the one a lookup by number
+    alone returns."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("feature/1", repo="platform"), unit("add-marker/1")])
+    store.set_state("feature/1", MERGED, pr=5, branch="spec/feature/1")
+    store.set_state("add-marker/1", IN_REVIEW, pr=5, branch="spec/add-marker/1")
+    return store
+
+
+def test_a_merge_reaches_the_unit_in_the_repo_it_was_reported_for(
+    shared_number: UnitStore,
+) -> None:
+    """Matched on the number alone, this merge was recorded against the other
+    repo's unit, and the one that merged stayed in review."""
+    before = shared_number.history("feature/1")
+    removed: list[tuple[str, str]] = []
+
+    events.on_merged(
+        5,
+        repo="app",
+        store=shared_number,
+        restack=Recorder(),
+        remove_worktree=lambda repo, branch: removed.append((repo, branch)),
+        log=lambda m: None,
+    )
+
+    assert shared_number.get("add-marker/1").state == MERGED
+    assert shared_number.history("feature/1") == before
+    assert removed == [("app", "spec/add-marker/1")]
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        lambda store: events.on_rework(
+            5, repo="app", reason="new comment", store=store, log=lambda m: None
+        ),
+        lambda store: events.on_hold(5, repo="app", store=store, log=lambda m: None),
+        lambda store: events.on_closed(5, repo="app", store=store, log=lambda m: None),
+    ],
+    ids=["rework", "hold", "closed"],
+)
+def test_an_event_leaves_the_other_repos_unit_alone(shared_number: UnitStore, event) -> None:
+    """A comment on one repo's pull request requeued the other repo's finished
+    unit, which was then built again for feedback that was not its own."""
+    before = shared_number.history("feature/1")
+
+    event(shared_number)
+
+    assert shared_number.get("feature/1").state == MERGED
+    assert shared_number.history("feature/1") == before
+    assert shared_number.get("add-marker/1").state != IN_REVIEW
+
+
+def test_a_number_only_another_repo_has_matches_nothing(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("feature/1", repo="platform")])
+    store.set_state("feature/1", IN_REVIEW, pr=5, branch="spec/feature/1")
+    logged: list[str] = []
+    recorder = Recorder()
+
+    for event in ("merged", "closed", "hold", "rework"):
+        events.build_dispatch(store, restack=recorder, log=logged.append)(event, 5, repo="app")
+
+    assert store.get("feature/1").state == IN_REVIEW
+    assert recorder.restacked == []
+    assert len(logged) == 4
+    assert all("#5" in line and "app" in line for line in logged)
+
+
+def test_the_review_is_fetched_from_the_repo_the_event_was_reported_for(
+    shared_number: UnitStore,
+) -> None:
+    """The fetchers are bound through the same lookup, so they asked the other
+    repo for a review of a pull request that was never its own."""
+    asked: list[tuple[str, int]] = []
+
+    def fetch(repo: str, number: int) -> list[str]:
+        asked.append((repo, number))
+        return []
+
+    events.build_dispatch(
+        shared_number, restack=Recorder(), fetch_review=fetch, log=lambda m: None
+    )("rework", 5, repo="app", reason="new comment")
+
+    assert asked == [("app", 5)]

@@ -857,7 +857,11 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         Poller(
             repo=slug,
             state_path=inst.state_dir / f"prs-{repo}.json",
-            dispatch=dispatch,
+            # Bound to this repo: the poller reports a bare number, and a
+            # number names a unit only together with the repo it was read from.
+            dispatch=lambda event, number, repo=repo, **kwargs: dispatch(
+                event, number, repo=repo, **kwargs
+            ),
             list_prs=lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
             ignore=lambda number, slug=slug: own_posts(inst.state_dir, slug, number),
         ).poll()

@@ -94,9 +94,16 @@ def _deferred(event: str, unit: StoredUnit, error: BranchBusy, log: Log) -> bool
     return False
 
 
-def _find(store: UnitStore, pr: int) -> StoredUnit | None:
+def _find(store: UnitStore, repo: str, pr: int) -> StoredUnit | None:
+    """The unit a pull request belongs to: the one in `repo` with that number.
+
+    Both, never the number alone. Numbers are per repo, so two repos in one
+    workspace reach the same one, and an event matched on the number is
+    applied to whichever unit comes first in the store — a merge recorded
+    against another repo's unit, while the one that merged waits in review.
+    """
     for unit in store.all():
-        if unit.pr == pr:
+        if unit.repo == repo and unit.pr == pr:
             return unit
     return None
 
@@ -104,6 +111,7 @@ def _find(store: UnitStore, pr: int) -> StoredUnit | None:
 def on_merged(
     pr: int,
     *,
+    repo: str,
     store: UnitStore,
     restack: Restack,
     remove_worktree: Callable[..., None] | None = None,
@@ -117,12 +125,12 @@ def on_merged(
     False when the merged unit is itself being built — a rework someone
     merged over — so the poller reports the merge again once it has finished.
     """
-    merged = _find(store, pr)
+    merged = _find(store, repo, pr)
     if merged is None:
-        # Someone else's PR on a spec/ branch, or a unit dropped from the
-        # store. Restacking against a unit we don't know moves the wrong
-        # branch, so do nothing at all.
-        log(f"merged #{pr}: no unit recorded for it, ignoring")
+        # Someone else's PR on a spec/ branch, a unit dropped from the store,
+        # or a number only another repo's unit has. Restacking against a unit
+        # we don't know moves the wrong branch, so do nothing at all.
+        log(f"merged #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
 
     try:
@@ -397,7 +405,9 @@ def build_remove_worktree(repos: dict[str, Path], *, root: Path) -> Callable[...
     return remove
 
 
-def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = print) -> bool:
+def on_closed(
+    pr: int, *, repo: str, store: UnitStore, claim: Claim = _unclaimed, log: Log = print
+) -> bool:
     """Record that a PR was closed without merging.
 
     Deliberately not propagated to whatever was stacked on it: closing is a
@@ -411,9 +421,9 @@ def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log 
     CLOSED, which blocks archiving, leaves dependents waiting forever (CLOSED
     is not in `REVIEWED`) and stops `through_satisfied` looking through it.
     """
-    unit = _find(store, pr)
+    unit = _find(store, repo, pr)
     if unit is None:
-        log(f"closed #{pr}: no unit recorded for it, ignoring")
+        log(f"closed #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
 
     try:
@@ -430,16 +440,18 @@ def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log 
     return True
 
 
-def on_hold(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = print) -> bool:
+def on_hold(
+    pr: int, *, repo: str, store: UnitStore, claim: Claim = _unclaimed, log: Log = print
+) -> bool:
     """A reviewer has taken the unit over. Nothing automatic touches it again.
 
     A satisfied unit is left as it is — see `on_closed` for why its own
     OPEN→CLOSED is not the only transition that can arrive after it is
     already done.
     """
-    unit = _find(store, pr)
+    unit = _find(store, repo, pr)
     if unit is None:
-        log(f"hold #{pr}: no unit recorded for it, ignoring")
+        log(f"hold #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
 
     try:
@@ -457,6 +469,7 @@ def on_hold(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = 
 def on_rework(
     pr: int,
     *,
+    repo: str,
     reason: str,
     pull: PullRequest | None = None,
     store: UnitStore,
@@ -472,9 +485,9 @@ def on_rework(
     rebuild that doesn't know what was asked for spends a full unit's budget
     reproducing the same code.
     """
-    unit = _find(store, pr)
+    unit = _find(store, repo, pr)
     if unit is None:
-        log(f"rework #{pr}: no unit recorded for it, ignoring")
+        log(f"rework #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
 
     try:
@@ -541,24 +554,24 @@ def _requeue(
 
 
 def _check_fetcher(
-    store: UnitStore, number: int, fetch_checks: Callable[..., str] | None
+    store: UnitStore, repo: str, number: int, fetch_checks: Callable[..., str] | None
 ) -> Callable[[PullRequest | None], str] | None:
     """Bind a PR's repo to the check-log fetcher, as `_review_fetcher` does."""
     if fetch_checks is None:
         return None
-    unit = _find(store, number)
+    unit = _find(store, repo, number)
     if unit is None:
         return None
     return lambda pull: fetch_checks(unit.repo, pull)
 
 
 def _review_fetcher(
-    store: UnitStore, pr: int, fetch: Callable[..., list[str]] | None
+    store: UnitStore, repo: str, pr: int, fetch: Callable[..., list[str]] | None
 ) -> Callable[[int], list[str]] | None:
     """Bind the fetcher to the repo the PR's unit lives in."""
     if fetch is None:
         return None
-    unit = _find(store, pr)
+    unit = _find(store, repo, pr)
     if unit is None:
         return None
     return lambda number: fetch(unit.repo, number)
@@ -787,12 +800,17 @@ def build_dispatch(
     rather than dropped, because silence here is indistinguishable from a
     working pipeline with nothing to do. False means the event was deferred
     because its unit is being built, and the poller keeps it to report again.
+
+    `repo` is the repo the event was read from, and required: a pull request
+    number means nothing without it. One dispatch serves every repo's poller,
+    so whoever builds the pollers binds each one's repo (see `cli.poll_all`).
     """
 
-    def dispatch(event: str, number: int, **kwargs) -> bool:
+    def dispatch(event: str, number: int, *, repo: str, **kwargs) -> bool:
         if event == "merged":
             return on_merged(
                 number,
+                repo=repo,
                 store=store,
                 restack=restack,
                 remove_worktree=remove_worktree,
@@ -802,21 +820,22 @@ def build_dispatch(
                 log=log,
             )
         if event == "closed":
-            return on_closed(number, store=store, claim=claim, log=log)
+            return on_closed(number, repo=repo, store=store, claim=claim, log=log)
         if event == "hold":
-            return on_hold(number, store=store, claim=claim, log=log)
+            return on_hold(number, repo=repo, store=store, claim=claim, log=log)
         if event == "rework":
             return on_rework(
                 number,
+                repo=repo,
                 reason=kwargs.get("reason", "unspecified"),
                 pull=kwargs.get("pull"),
                 store=store,
-                fetch_review=_review_fetcher(store, number, fetch_review),
-                fetch_checks=_check_fetcher(store, number, fetch_checks),
+                fetch_review=_review_fetcher(store, repo, number, fetch_review),
+                fetch_checks=_check_fetcher(store, repo, number, fetch_checks),
                 claim=claim,
                 log=log,
             )
-        log(f"unhandled poller event {event!r} for #{number}")
+        log(f"unhandled poller event {event!r} for #{number} in {repo}")
         return True
 
     return dispatch

@@ -243,6 +243,11 @@ the agent prefix. Each poll diffs against a snapshot (`runs/prs-<repo>.json`)
 and **acts only on a change**; the first poll of a repo records without
 dispatching. Two failed polls back off for thirty minutes.
 
+An event reaches its unit by **repo and number together**. Pull request numbers
+are per repo, so two repos in one workspace reach the same one; each poller's
+events carry the repo it polled, and a number that only another repo's unit has
+matches nothing.
+
 A pass polls between builds, so a change can name a unit whose build holds its
 branch lock. Its handler then changes nothing: the event is **deferred**, and
 the poller keeps the change to report again on a later poll — in practice the

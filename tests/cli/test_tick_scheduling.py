@@ -588,6 +588,40 @@ def test_an_event_handler_writes_to_a_repo_only_in_its_turn(
     assert held == [True], f"{step} ran outside the repo's turn"
 
 
+def test_a_poll_hands_each_event_to_the_unit_in_the_repo_it_polled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One dispatch serves every repo's poller, and a poller reports a bare
+    number. Both repos have a pull request 5 here; only the repo being polled
+    says whose it is, and its name is the unit's, not the forge's slug."""
+    inst = workspace(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("feature/1", repo="platform"), stored("add-marker/1")])
+    store.set_state("feature/1", IN_REVIEW, pr=5, branch="spec/feature/1")
+    store.set_state("add-marker/1", IN_REVIEW, pr=5, branch="spec/add-marker/1")
+
+    class OneMerge:
+        """Reports pull request 5 merged, in the one repo where it did."""
+
+        def __init__(self, *, repo: str, dispatch, **kwargs) -> None:
+            self.repo, self.dispatch = repo, dispatch
+
+        def poll(self) -> None:
+            if self.repo == "example/app":
+                self.dispatch("merged", 5, pull={})
+
+    monkeypatch.setattr(cli, "Poller", OneMerge)
+    monkeypatch.setattr(cli, "build_restack", lambda **kw: lambda **a: None)
+    monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
+    monkeypatch.setattr(cli, "build_remove_worktree", lambda *a, **k: lambda repo, branch: None)
+    monkeypatch.setattr(cli, "build_delete_branch", lambda *a, **k: lambda repo, branch: None)
+
+    REAL_POLL_ALL(inst, store=store)
+
+    assert store.get("add-marker/1").state == MERGED
+    assert store.get("feature/1").state == IN_REVIEW
+
+
 @pytest.mark.parametrize("step", ["test tasks", "remaining tasks"], ids=["tests", "implement"])
 def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str

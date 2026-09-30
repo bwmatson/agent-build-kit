@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A pull request event is matched to its unit by repo and number, not by number
+  alone. Once two repos in a workspace had reached the same number, a merge,
+  comment, hold or close in one was applied to the other's unit: the merge went
+  unrecorded, what was stacked on it was never moved, and a finished unit could
+  be requeued for feedback that was not its own.
+
 - A unit whose groups already landed in its predecessor and whose tier 1 passes
   on the whole repo ends `satisfied` instead of failing: its PR is closed with
   the reason, its groups are ticked and its dependents look through it. A
