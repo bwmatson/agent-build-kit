@@ -198,6 +198,25 @@ class FollowUp(Frozen):
     point: str
 
 
+class Finding(Frozen):
+    id: str = ""
+    file: str
+    line: int | None = None
+    summary: str
+    consequence: str = ""
+    done: str = ""
+    required: bool = False
+
+
+class EarlierAnswer(Frozen):
+    id: str
+    status: str  # "fixed" | "open" | "declined"
+
+
+def render_findings(findings: Sequence[Finding]) -> str:
+    raise NotImplementedError
+
+
 class Verdict(Frozen):
     """A reviewer's reply, fully parsed.
 
@@ -211,6 +230,8 @@ class Verdict(Frozen):
     follow_ups: tuple[FollowUp, ...] = ()
     escalate: str = ""  # "" | "class" | "disagreement"
     reasoning: str = ""
+    findings: tuple[Finding, ...] = ()
+    earlier: tuple[EarlierAnswer, ...] = ()
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:
