@@ -53,7 +53,7 @@ from agent_build_kit.pipeline.planning_repo import (
     is_repo,
     restore_default_branch,
 )
-from agent_build_kit.pipeline.pr_poller import Poller
+from agent_build_kit.pipeline.pr_poller import Poller, state_path, unmergeable
 from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
@@ -158,9 +158,15 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         by_state[unit.state] = by_state.get(unit.state, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
 
+    # What the last poll of each repo saw: an entry that cannot be merged is not
+    # actionable, so it should not read like the others.
+    conflicted: dict[str, set[int]] = {}
     for unit in units:
         if unit.state == IN_REVIEW:
-            log(f"  awaiting review: {unit.id} ({unit.repo}) #{unit.pr or '?'}")
+            if unit.repo not in conflicted:
+                conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
+            mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
+            log(f"  awaiting review: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}")
     return 0
 
 
@@ -887,7 +893,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         slug = forges.key(repo_id)
         Poller(
             repo=slug,
-            state_path=inst.state_dir / f"prs-{repo}.json",
+            state_path=state_path(inst.state_dir, repo),
             # Bound to this repo: the poller reports a bare number, and a
             # number names a unit only together with the repo it was read from.
             dispatch=lambda event, number, repo=repo, **kwargs: dispatch(

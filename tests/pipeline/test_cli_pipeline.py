@@ -20,10 +20,12 @@ from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
+from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
 from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
 from agent_build_kit.pipeline.pause import pause_until
+from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -129,6 +131,51 @@ def test_status_never_changes_anything(monkeypatch: pytest.MonkeyPatch, tmp_path
 
     assert cli.cmd_status(argv_namespace(), inst) == 0
     assert list(tmp_path.iterdir()) == []
+
+
+def test_status_marks_a_pull_request_that_cannot_be_merged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The review queue is what a person works from, and an entry they cannot
+    merge is not actionable. Printed like the others, a conflicted pull request
+    can sit there all day before anyone opens it."""
+    monkeypatch.setattr(cli, "current_usage", lambda: reading())
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("add-marker/1"), stored("add-marker/2")])
+    store.set_state("add-marker/1", IN_REVIEW, pr=4)
+    store.set_state("add-marker/2", IN_REVIEW, pr=5)
+    # What the repo's polls saw; the first of them only records.
+    pages = iter(
+        [
+            [],
+            [
+                listed_pr(4, "spec/add-marker/1", mergeable=False),
+                listed_pr(5, "spec/add-marker/2", mergeable=True),
+            ],
+        ]
+    )
+    poller = Poller(
+        repo="example/app",
+        state_path=state_path(tmp_path, "app"),
+        dispatch=lambda *a, **k: None,
+        list_prs=lambda: next(pages),
+    )
+    poller.poll()
+    poller.poll()
+
+    assert cli.cmd_status(argv_namespace(), inst) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    conflicted = next(line for line in lines if "add-marker/1" in line)
+    clean = next(line for line in lines if "add-marker/2" in line)
+    assert "awaiting review" in conflicted and "#4" in conflicted
+    assert "cannot be merged" in conflicted
+    # After the timestamp, exactly the line it prints today.
+    assert clean.split("] ", 1)[1] == "  awaiting review: add-marker/2 (app) #5"
+
+
+def listed_pr(number: int, head: str, *, mergeable: bool | None) -> PullRequest:
+    return PullRequest(number=number, head=head, base="main", state="open", mergeable=mergeable)
 
 
 def argv_namespace(**kwargs):

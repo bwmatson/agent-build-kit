@@ -39,6 +39,22 @@ BACKOFF = timedelta(minutes=30)
 
 HOLD_LABEL = "agent:hold"
 REWORK_LABEL = "agent:rework"
+# The `rework` reason for a branch that does not merge into its base.
+# `events.on_rework` recognises it by this value.
+CONFLICT_REASON = "merge conflict with its base"
+
+
+def state_path(state_dir: Path, repo: str) -> Path:
+    """Where a repo's poll snapshot lives."""
+    return state_dir / f"prs-{repo}.json"
+
+
+def unmergeable(path: Path) -> set[int]:
+    """The PRs whose last definite answer, as the last poll recorded it, was
+    that they do not merge into their base."""
+    return {
+        int(number) for number, seen in PrState.load(path).items() if seen.get("mergeable") is False
+    }
 
 
 class PrState:
@@ -97,6 +113,8 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         "labels": sorted(pull.labels),
         "failing_checks": sorted(pull.failing_checks),
         "head": pull.head,
+        # True, False, or None while the host has not worked it out.
+        "mergeable": pull.mergeable,
     }
 
 
@@ -177,6 +195,13 @@ class Poller(BaseModel):
 
             number = str(pull.number)
             current = snapshot(pull, self.ignore(int(number)))
+            if current["mergeable"] is None and number in known:
+                # The host resets its answer to undetermined whenever the base
+                # moves and works it out lazily. Recorded, it would make the
+                # conflict it resolves back into look new, and rework a
+                # conflicted unit once per trunk merge. So the last definite
+                # answer stands.
+                current["mergeable"] = known[number].get("mergeable")
             updated[number] = current
 
             if first_run:
@@ -204,12 +229,14 @@ class Poller(BaseModel):
 
     def _dispatch_terminal(self, number: int, current: dict, pull: PullRequest) -> bool | None:
         """Report a PR we are meeting for the first time if it is done — or if
-        its CI is already red.
+        its CI is already red, or it already conflicts with its base.
 
         The pipeline opens its PRs itself, so CI usually finishes after the
         next poll has first seen the PR. A failure then was recorded as the
         PR's starting state and never reported: nothing afterwards was *newly*
-        failing, and the PR sat red while the tick built on it.
+        failing, and the PR sat red while the tick built on it. A conflict is
+        the same: the trunk can move during a long build, and the host starts
+        working out mergeability when the PR is created.
         """
         if current["state"] == MERGED:
             return self.dispatch("merged", number, pull=pull)
@@ -222,6 +249,8 @@ class Poller(BaseModel):
                 pull=pull,
                 reason=f"failing checks: {', '.join(current['failing_checks'])}",
             )
+        if current["mergeable"] is False:
+            return self.dispatch("rework", number, pull=pull, reason=CONFLICT_REASON)
         return None
 
     def _dispatch_changes(
@@ -272,4 +301,12 @@ class Poller(BaseModel):
             return self.dispatch(
                 "rework", number, pull=pull, reason=f"failing checks: {', '.join(newly_failing)}"
             )
+
+        if after["mergeable"] is False and before.get("mergeable") is not False:
+            # Only on becoming conflicting, like the checks above. Undetermined
+            # is not a conflict: the host says it for a while after every push,
+            # the pipeline's own included, and the next poll asks again.
+            # `before` holds the last definite answer, so an undetermined one
+            # between two conflicting answers is not a transition (see `poll`).
+            return self.dispatch("rework", number, pull=pull, reason=CONFLICT_REASON)
         return None

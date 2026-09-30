@@ -1,6 +1,6 @@
 """What the pipeline does when GitHub tells it something changed.
 
-`gh_poller` watches PRs and names what happened; this decides what to do about
+`pr_poller` watches PRs and names what happened; this decides what to do about
 it. Without these handlers nothing moves past `open` — a merged PR leaves its
 unit sitting there, and the branches above it stay stacked on one that no
 longer needs to exist.
@@ -40,6 +40,7 @@ from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
+from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
     Moved,
@@ -668,6 +669,16 @@ def _requeue(
         # would have the rework redo old work instead of fixing the build.
         logs = fetch_checks(pull) if fetch_checks else ""
         feedback = f"{reason}\n\n{logs}".strip()
+    elif reason == CONFLICT_REASON:
+        # Nor a reviewer: the branch no longer merges into its base, and the
+        # restack at the start of the run does the rebase. Replaying the
+        # PR's answered review would bury that under old work.
+        feedback = (
+            f"{reason}: the branch has been moved onto its current base at the "
+            "start of this run; check that the resolution kept this unit's "
+            "behaviour and its tests pass, and do not rebase or reset the "
+            "branch yourself."
+        )
     else:
         words = list(fetch_review(pr)) if fetch_review else []
         feedback = "\n".join([*words, _latest_comment(pull)]).strip() or reason
@@ -957,7 +968,7 @@ def build_dispatch(
     rebase_cap: int | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
-    """The callable `gh_poller` hands each event to.
+    """The callable `pr_poller` hands each event to.
 
     The event names are the poller's contract; an unhandled one is logged
     rather than dropped, because silence here is indistinguishable from a
