@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.config import active
@@ -227,7 +228,7 @@ def _check_push(tokens: list[str], branch: str) -> Verdict:
     return Verdict(allowed=True)
 
 
-def check_command(command: str, *, branch: str) -> Verdict:
+def check_command(command: str, *, branch: str, planning_repo: Path | None = None) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 
     Every segment is checked, so a denied command behind `&&`, `;` or a pipe

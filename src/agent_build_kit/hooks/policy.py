@@ -140,7 +140,9 @@ def _check_file_write(payload: dict, specs: Path | None) -> dict | None:
     )
 
 
-def decide(payload: dict, *, specs: Path | None = None) -> dict | None:
+def decide(
+    payload: dict, *, specs: Path | None = None, planning_repo: Path | None = None
+) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
         if payload.get("tool_name") in FILE_TOOLS:
