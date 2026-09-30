@@ -205,8 +205,8 @@ Every round you ask for costs a rework and another review, so:
   concretely — the behaviour, the value, the test that should exist and what it
   asserts — so it can be fixed in one attempt. Where one fix is clearly best,
   prescribe it; where the fix is open, state the constraint it must meet.
-- **Separate what is required from what is optional,** under those headings.
-  Only required changes block approval.
+- **Separate what is required from what is optional** with each finding's
+  `required` field. Only required changes block approval.
 
 **Check the tests against the real system, not against the code.** A test
 passing proves only what its fakes allow. For every fake, stub or fixture
@@ -255,7 +255,12 @@ that is merely inconvenient to fix now.
   say in `reasoning` why the builder's reason does not hold.
 
 List each problem in `findings`, one entry per problem, with the `consequence`
-(what goes wrong, and for what input or state) and what `done` looks like. A
+and what `done` looks like. A required finding's consequence is the triggering
+input or state and the wrong result. For a documented convention, it is the
+rule and where it is written; for a test, the wrong behaviour it would let
+through; for a doc, the sentence it makes false. A finding whose consequence
+you cannot name is reported `required: false`. List optional findings most
+important first: only the first five are kept. A
 required finding blocks approval, so `approved` cannot be true while one is
 listed. When an earlier round's findings are shown above, answer each earlier
 required one by id in `earlier` as `fixed`, `open` or `declined` (the builder's

@@ -44,10 +44,40 @@ def _reply(*findings: dict, approved: bool = False, **fields: object) -> str:
     return json.dumps({"approved": approved, "findings": list(findings), "feedback": "", **fields})
 
 
-def _run(tmp_path: Path, verdicts: list[str]) -> tuple[Recorder, UnitStore, object]:
+_FIXED_1_1 = {"id": "1.1", "status": "fixed"}
+
+
+class Watching(Recorder):
+    """Snapshots what the unit stores while a round exists: `run` clears the
+    rounds once the unit is in review, so the store cannot be read after."""
+
+    store: UnitStore
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rounds_at_review: list[list[dict]] = []
+        self.heads_at_review: list[str] = []
+        self.rework_rounds: list[list[dict]] = []
+        self.rework_feedback: list[str] = []
+
+    def review(self, *, cwd: Path, context: str = "") -> str:
+        self.rounds_at_review.append(list(self.store.get(unit().id).review_rounds))
+        self.heads_at_review.append(self.head(cwd))
+        return super().review(cwd=cwd, context=context)
+
+    def claude(self, prompt: str, *, cwd: Path) -> str:
+        if "review of this branch" in prompt:
+            stored = self.store.get(unit().id)
+            self.rework_rounds.append(list(stored.review_rounds))
+            self.rework_feedback.append(stored.feedback)
+        return super().claude(prompt, cwd=cwd)
+
+
+def _run(tmp_path: Path, verdicts: list[str]) -> tuple[Watching, UnitStore, object]:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    recorder = Recorder()
+    recorder = Watching()
+    recorder.store = store
     recorder.verdicts = list(verdicts)
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
     return recorder, store, outcome
@@ -86,7 +116,10 @@ def test_a_prose_only_verdict_parses_as_before() -> None:
 
 
 def test_approving_while_listing_a_required_finding_is_not_an_approval(tmp_path: Path) -> None:
-    recorder, _, _ = _run(tmp_path, [_reply(_finding(), approved=True), _reply(approved=True)])
+    recorder, _, _ = _run(
+        tmp_path,
+        [_reply(_finding(), approved=True), _reply(approved=True, earlier=[_FIXED_1_1])],
+    )
 
     assert recorder.events.count("review") == 2, "the first verdict did not approve"
     assert "claude:rework" in recorder.events
@@ -124,10 +157,12 @@ def test_the_unit_stores_and_the_rework_prompt_carries_the_rendered_findings(
     tmp_path: Path,
 ) -> None:
     optional = _finding(required=False, summary="tidy the wording", consequence="")
-    recorder, store, _ = _run(tmp_path, [_reply(optional, _finding()), _reply(approved=True)])
+    recorder, _, _ = _run(tmp_path, [_reply(optional, _finding()), _reply(approved=True)])
 
     prompt = _rework_prompts(recorder)[0]
-    for text in (prompt, store.get(unit().id).review_rounds[0]["asked"]):
+    stored_round = recorder.rework_rounds[0][0]["asked"]
+    assert recorder.rework_feedback[0] == stored_round
+    for text in (prompt, stored_round, recorder.rework_feedback[0]):
         assert "src/pkg/units.py:182" in text
         assert "with c/1 planned and c/2 satisfied" in text
         assert "iterate through_satisfied()" in text
@@ -142,7 +177,9 @@ def test_a_required_finding_without_a_consequence_still_blocks_is_marked_and_cou
 ) -> None:
     bare = _finding(summary="the cache is never invalidated")
     del bare["consequence"]
-    recorder, _, _ = _run(tmp_path, [_reply(bare, approved=True), _reply(approved=True)])
+    recorder, _, _ = _run(
+        tmp_path, [_reply(bare, approved=True), _reply(approved=True, earlier=[_FIXED_1_1])]
+    )
 
     assert recorder.events.count("review") == 2, "not approved over the omission"
     prompt = _rework_prompts(recorder)[0]
@@ -190,12 +227,12 @@ def test_required_findings_are_never_cut(tmp_path: Path) -> None:
 
 def test_a_round_keeps_its_findings_with_ids_and_the_commit_judged(tmp_path: Path) -> None:
     second = _finding(summary="second problem", file="src/b.py", line=None)
-    _, store, _ = _run(tmp_path, [_reply(_finding(), second), _reply(approved=True)])
+    recorder, _, _ = _run(tmp_path, [_reply(_finding(), second), _reply(approved=True)])
 
-    recorded = store.get(unit().id).review_rounds[0]
+    recorded = recorder.rounds_at_review[1][0]
     assert [f["id"] for f in recorded["findings"]] == ["1.1", "1.2"]
     assert recorded["findings"][1]["summary"] == "second problem"
-    assert recorded["judged"] == "sha-2", "the head the reviewer was given"
+    assert recorded["judged"] == recorder.heads_at_review[0], "the head the reviewer was given"
 
 
 def test_rounds_recorded_before_findings_still_load_and_render_as_prose(tmp_path: Path) -> None:
@@ -324,7 +361,7 @@ def test_the_later_rounds_context_lists_the_earlier_finding_and_judged_commit(
     context = recorder.contexts[1]
     assert "1.1" in context
     assert "c/3 builds without c/1" in context
-    assert "sha-2" in context, "the commit round one judged"
+    assert recorder.heads_at_review[0] in context, "the commit round one judged"
 
 
 # 1.9 — the method, and the tools
@@ -339,7 +376,140 @@ def test_the_review_prompt_names_its_angles_and_the_reviewer_stays_read_only() -
     assert "callers" in review and "callees" in review
     assert "re-read" in review or "re-check" in review
     assert '"findings"' in review and "consequence" in review
+    assert "cannot name" in review and "required: false" in review
+    assert "most important first" in review and "first five" in review
+    assert "the rule and where it is written" in review
 
-    tools = REVIEW_TOOLS.split()
-    assert all(t in {"Read", "Grep", "Glob"} or t.startswith("Bash(git ") for t in tools)
-    assert not any(name in REVIEW_TOOLS for name in ("Task", "Agent"))
+    tools = set(re.findall(r"\w+(?:\([^)]*\))?", REVIEW_TOOLS))
+    assert tools == {
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash(git diff*)",
+        "Bash(git log*)",
+        "Bash(git show*)",
+    }
+
+
+# review-round fixes
+
+
+def _stored_round(**fields: object) -> dict:
+    return {
+        "asked": "rendered",
+        "response": "done",
+        "judged": "sha-1",
+        "findings": [{**_finding(), "id": "1.1", "status": "", **fields}],
+    }
+
+
+def _store_with(tmp_path: Path, *rounds: dict) -> UnitStore:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_review_rounds(unit().id, rounds)
+    return store
+
+
+def _resumed_run(store: UnitStore, verdicts: list[str]) -> Watching:
+    recorder = Watching()
+    recorder.store = store
+    recorder.verdicts = list(verdicts)
+    store.set_feedback(unit().id, "fix it")
+    make_runner(store, recorder, store.path.parent).run(unit(), base="main", graph=[])
+    return recorder
+
+
+def test_a_reply_without_an_earlier_key_does_not_approve_over_an_open_finding(
+    tmp_path: Path,
+) -> None:
+    recorder, _, _ = _run(
+        tmp_path,
+        [_reply(_finding()), '{"approved": true, "feedback": ""}', _reply(approved=True)],
+    )
+
+    assert recorder.events.count("review") == 3
+
+
+def test_prose_only_earlier_rounds_and_a_prose_only_approval_still_approve(
+    tmp_path: Path,
+) -> None:
+    recorder, _, _ = _run(
+        tmp_path,
+        [json.dumps({"approved": False, "feedback": "use a Sequence"}), _reply(approved=True)],
+    )
+
+    assert recorder.events.count("review") == 2
+    assert "claude:rework" in recorder.events
+
+
+def test_a_rework_with_a_stored_round_numbers_its_findings_after_it(tmp_path: Path) -> None:
+    store = _store_with(tmp_path, _stored_round())
+    recorder = _resumed_run(store, [_reply(_finding(summary="new"), approved=False)] * 3)
+
+    ids = [f["id"] for r in recorder.rework_rounds[0] for f in r["findings"]]
+    assert ids == ["1.1", "2.1"]
+
+
+def test_a_note_never_leaves_out_an_unresolved_finding() -> None:
+    findings = [
+        {**_finding(summary=f"S{n}", consequence="x" * 590), "id": f"1.{n}", "status": ""}
+        for n in range(1, 11)
+    ]
+    note = _earlier_rounds(
+        ({"asked": "r", "response": "", "judged": "sha-1", "findings": findings},)
+    )
+
+    for n in range(1, 11):
+        assert f"S{n} " not in note and f"[1.{n}]" in note
+    assert "left out" not in note
+
+
+def test_an_open_answer_to_a_finding_recorded_fixed_is_not_an_approval() -> None:
+    entries = ({"findings": _stored_round(status="fixed")["findings"]},)
+    answers = stack_runner._parse_answers([{"id": "1.1", "status": "open"}])
+
+    assert stack_runner._unresolved(entries, answers) == ["1.1"]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"id": "1.1", "status": "declined", "reason": "holds"},
+        {"id": 1.1, "status": "declined"},
+        {"id": "1.1", "status": "Declined "},
+    ],
+)
+def test_a_plausibly_shaped_answer_is_read(raw: dict) -> None:
+    answers = stack_runner._parse_answers([raw])
+
+    assert answers is not None
+    assert [(a.id, a.status) for a in answers] == [("1.1", "declined")]
+
+
+def test_an_unknown_status_counts_as_open() -> None:
+    answers = stack_runner._parse_answers([{"id": "1.1", "status": "maybe"}])
+
+    assert stack_runner._unresolved(({"findings": _stored_round()["findings"]},), answers) == [
+        "1.1"
+    ]
+
+
+def test_an_optional_finding_with_an_extra_key_or_a_line_range_stays_readable() -> None:
+    verdict = parse_verdict(
+        _reply(_finding(required=False, severity="low", line="12-15", consequence=""))
+    )
+
+    (finding,) = verdict.findings
+    assert (finding.required, finding.line, finding.file) == (False, None, "src/pkg/units.py")
+
+
+def test_optional_findings_on_an_approval_are_recorded_with_the_deferred_points(
+    tmp_path: Path,
+) -> None:
+    optional = _finding(required=False, summary="tidy the wording", consequence="")
+    _run(tmp_path, [_reply(optional, approved=True)])
+
+    recorded = (
+        tmp_path / "meta" / "openspec" / "changes" / "add-marker" / "follow-ups.md"
+    ).read_text()
+    assert "src/pkg/units.py:182 — tidy the wording" in recorded

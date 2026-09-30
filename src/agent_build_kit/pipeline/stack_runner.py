@@ -220,8 +220,12 @@ MAX_OPTIONAL = 5
 NO_CONSEQUENCE = "(no consequence stated)"
 
 
+def _where(finding: Finding) -> str:
+    return f"{finding.file}:{finding.line}" if finding.line is not None else finding.file
+
+
 def _render_one(finding: Finding, status: str = "") -> str:
-    where = f"{finding.file}:{finding.line}" if finding.line is not None else finding.file
+    where = _where(finding)
     tag = f"[{finding.id}] " if finding.id else ""
     suffix = f" (reported {status})" if status else ""
     lines = [f"- {tag}{where}{suffix} — {finding.summary}"]
@@ -273,8 +277,10 @@ class Verdict(Frozen):
     escalate: str = ""  # "" | "class" | "disagreement"
     reasoning: str = ""
     findings: tuple[Finding, ...] = ()
-    # None when the reply has no `earlier` key: the earlier prose shape, which
-    # answers nothing by id, so nothing is required of it.
+    # None when the reply has no `earlier` key. That answers nothing by id, so
+    # it reads as `()`: an earlier required finding not already recorded fixed
+    # or declined stays open. Earlier rounds with no ids (the prose shape) have
+    # nothing to answer, so a prose-shaped reply still approves over them.
     earlier: tuple[EarlierAnswer, ...] | None = None
 
     @property
@@ -286,6 +292,21 @@ class Verdict(Frozen):
         return tuple(f for f in self.follow_ups if f.kind == DEFERRABLE_KIND)
 
 
+def _readable_finding(item: object) -> object:
+    """A finding's own fields only, with a line that is not a number left unset.
+
+    An extra key or a range like "12-15" must not turn an otherwise readable
+    finding into an unreadable, blocking one.
+    """
+    if not isinstance(item, dict):
+        return item
+    fields = {k: v for k, v in item.items() if k in Finding.model_fields and k != "id"}
+    line = fields.get("line")
+    if line is not None and (isinstance(line, bool) or not isinstance(line, int)):
+        fields["line"] = None
+    return fields
+
+
 def _parse_findings(raw: object) -> tuple[Finding, ...]:
     if not raw:
         return ()
@@ -293,7 +314,7 @@ def _parse_findings(raw: object) -> tuple[Finding, ...]:
     out = []
     for item in items:
         try:
-            out.append(Finding.model_validate(item))
+            out.append(Finding.model_validate(_readable_finding(item)))
         except ValueError:
             # As with an unreadable follow-up: one the pipeline cannot read
             # cannot be trusted to be optional, so it blocks.
@@ -307,10 +328,14 @@ def _parse_answers(raw: object) -> tuple[EarlierAnswer, ...] | None:
     items = raw if isinstance(raw, list) else [raw]
     out = []
     for item in items:
-        try:
-            out.append(EarlierAnswer.model_validate(item))
-        except ValueError:
-            continue
+        # Only `id` and `status` are read, leniently: an extra key, a numeric id
+        # or a capitalised status is still the answer the reviewer meant.
+        if isinstance(item, dict) and item.get("id") is not None and item.get("status"):
+            out.append(
+                EarlierAnswer(
+                    id=str(item["id"]).strip(), status=str(item["status"]).strip().lower()
+                )
+            )
     return tuple(out)
 
 
@@ -606,16 +631,12 @@ def _recorded(entry: dict) -> Finding:
 
 def _unresolved(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[str]:
     """Ids of earlier required findings this verdict leaves open or unanswered."""
-    if earlier is None:
-        return []
-    answers = {a.id: a.status for a in earlier}
+    answers = {a.id: a.status for a in earlier or ()}
     return [
         str(f["id"])
         for entry in rounds
         for f in entry.get("findings") or []
-        if f.get("required")
-        and f.get("status") not in RESOLVED
-        and answers.get(str(f["id"])) not in RESOLVED
+        if f.get("required") and answers.get(str(f["id"]), f.get("status")) not in RESOLVED
     ]
 
 
@@ -638,14 +659,16 @@ def _apply_answers(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | No
 def _fit(carried: list[tuple[str, str]]) -> set[int]:
     """Which of the (status, rendered) findings to leave out to fit ROUND_CHARS.
 
-    Whole findings only, reported-fixed first, then declined, then the rest,
-    each oldest first; a finding is never truncated.
+    Whole findings only, reported-fixed first, then declined, each oldest
+    first; a finding is never truncated. One not yet fixed or declined is never
+    left out, even over the limit: the reviewer must answer it.
     """
     order = {"fixed": 0, "declined": 1}
     dropped: set[int] = set()
     total = sum(len(text) for _, text in carried)
     for index, (_, text) in sorted(
-        enumerate(carried), key=lambda item: (order.get(item[1][0], 2), item[0])
+        ((i, c) for i, c in enumerate(carried) if c[0] in order),
+        key=lambda item: (order[item[1][0]], item[0]),
     ):
         if total <= ROUND_CHARS:
             break
@@ -673,10 +696,7 @@ def _earlier_rounds(rounds: Sequence[dict]) -> str:
             parts.append(f"Round {number} asked:\n{asked}\n\nThe builder's response:\n{response}")
             continue
         judged = str(entry.get("judged") or "")
-        head = f"Round {number} judged commit {judged}"
-        if judged:
-            head += f"; what changed since is `git diff {judged}..HEAD`"
-        lines = [head + "."]
+        lines = [f"Round {number} judged commit {judged}." if judged else f"Round {number}."]
         prose = str(entry.get("prose", "")).strip()[:ROUND_CHARS]
         if prose:
             lines.append(prose)
@@ -688,6 +708,9 @@ def _earlier_rounds(rounds: Sequence[dict]) -> str:
         lines.append(f"The builder's response:\n{response}")
         parts.append("\n".join(lines))
     body = "\n\n---\n\n".join(parts)
+    last = next((str(e["judged"]) for e in reversed(rounds) if e.get("judged")), "")
+    if last:
+        body += f"\n\nWhat changed since the last judged commit is `git diff {last}..HEAD`."
     if dropped:
         body += (
             f"\n\n{len(dropped)} earlier required finding(s) left out to keep this "
@@ -1355,7 +1378,7 @@ class UnitRunner(BaseModel):
             if verdict.blocking:
                 points = "\n".join(f"- {f.point}" for f in verdict.blocking)
                 prose = f"{prose}\n\n{points}".strip() if prose else points
-            earlier_rounds = self.store.get(unit.id).review_rounds
+            earlier_rounds = stored.review_rounds
             open_ids = _unresolved(earlier_rounds, verdict.earlier)
             if open_ids:
                 listed = ", ".join(open_ids)
@@ -1369,7 +1392,7 @@ class UnitRunner(BaseModel):
             if bare:
                 self.log(f"{bare} required finding(s) returned with no consequence stated")
             kept = [
-                f.model_copy(update={"id": f"{round_number + 1}.{n}"})
+                f.model_copy(update={"id": f"{len(earlier_rounds) + 1}.{n}"})
                 for n, f in enumerate(shown, start=1)
             ]
             why = "\n\n".join(p for p in (prose, render_findings(kept)) if p)
@@ -1381,11 +1404,21 @@ class UnitRunner(BaseModel):
             )
 
             if approved:
-                sha = self.head(tree)
+                sha = judged
                 # One line each, so the change's file and the PR body read a
-                # point back as the one item it was.
+                # point back as the one item it was. Optional findings ride
+                # with the deferred follow-ups rather than vanishing.
                 points = tuple(
-                    p for p in (" ".join(f.point.split()) for f in verdict.deferrable) if p
+                    p
+                    for p in (
+                        *(" ".join(f.point.split()) for f in verdict.deferrable),
+                        *(
+                            " ".join(f"{_where(f)} — {f.summary}".split())
+                            for f in shown
+                            if not f.required
+                        ),
+                    )
+                    if p
                 )
                 self.store.record_approval(unit.id, sha, points)
                 self.log(f"review approved {sha[:9]}")
