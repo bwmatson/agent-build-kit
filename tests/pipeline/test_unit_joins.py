@@ -87,6 +87,8 @@ def start(store: UnitStore, uid: str, kind: str) -> None:
         store.set_state(uid, kind, branch=branch)
     elif kind == IN_REVIEW:
         store.set_state(uid, IN_REVIEW, branch=branch, pr=4)
+    elif kind == "planned":
+        pass  # unfinished but unstarted: the unit is left as it was planned
     elif kind == "branch":
         store.set_state(uid, "planned", branch=branch)
     elif kind == "pull-request":

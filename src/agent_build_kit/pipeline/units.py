@@ -17,6 +17,7 @@ here. Given plain `Unit`s they would see no pull request and no resume point.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Self
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
@@ -66,6 +67,18 @@ class Member(Frozen):
     groups: tuple[int, ...]
 
 
+class Join(Frozen):
+    """The planner's proposal that `onto` take in more work: an existing unit
+    (`unit`), or a new change's groups (`change`, `groups`, and their
+    estimate)."""
+
+    onto: str
+    unit: str = ""
+    change: str = ""
+    groups: tuple[int, ...] = ()
+    estimated_lines: int = 0
+
+
 class Unit(Frozen):
     id: str
     change: str
@@ -82,6 +95,25 @@ class Unit(Frozen):
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
         return (Member(change=self.change, groups=self.groups), *self.joined)
+
+    def taking(self, taken: Sequence[Member], *, estimated_lines: int) -> Self:
+        """This unit with `taken` built after its own members, and its estimate
+        grown by `estimated_lines`. Work of the change the unit already ends
+        on extends that member rather than starting another."""
+        members = list(self.members())
+        for member in taken:
+            if members[-1].change == member.change:
+                groups = (*members[-1].groups, *member.groups)
+                members[-1] = Member(change=member.change, groups=groups)
+            else:
+                members.append(member)
+        return self.model_copy(
+            update={
+                "groups": members[0].groups,
+                "joined": tuple(members[1:]),
+                "estimated_lines": self.estimated_lines + estimated_lines,
+            }
+        )
 
     def carries(self, change: str) -> bool:
         """Does this unit build any of `change`'s groups, its own or carried?"""
