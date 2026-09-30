@@ -132,9 +132,14 @@ def _check_file_write(
         )
     if path.is_relative_to(worktree):
         return None
-    # A track run's own bookkeeping: its run log and tracker, which the runner
-    # commits. The rest of the planning repo stays out of reach.
-    if planning_state_dir is not None and path.is_relative_to(planning_state_dir.resolve()):
+    # A track run's own bookkeeping: the Markdown run logs and tracker the
+    # runner commits. The rest of the planning repo, including the tick's live
+    # JSON state in the same directory, stays out of reach.
+    if (
+        planning_state_dir is not None
+        and path.suffix == ".md"
+        and path.is_relative_to(planning_state_dir.resolve())
+    ):
         return None
     if path.is_relative_to(Path(tempfile.gettempdir()).resolve()) and _checkout_of(path) is None:
         return None

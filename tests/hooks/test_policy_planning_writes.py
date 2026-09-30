@@ -36,8 +36,14 @@ def test_a_track_run_may_write_under_the_planning_state_directory(tmp_path: Path
         return decide(write_to(target, cwd=code), planning_repo=planning, planning_state_dir=state)
 
     assert answer(state / "x.md") is None
+    assert answer(state / "tracked-issues.md") is None
     assert answer(code / "src.py") is None
-    for refused in (third / "x.md", planning / "units.json", planning / "docs" / "x.md"):
+    for refused in (
+        third / "x.md",
+        state / "units.json",
+        state / "paused.json",
+        planning / "docs" / "x.md",
+    ):
         denied = answer(refused)
         assert denied is not None, refused
         assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"

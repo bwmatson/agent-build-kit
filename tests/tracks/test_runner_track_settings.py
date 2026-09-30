@@ -21,7 +21,9 @@ from tests.tracks.test_runner import make_installation, project
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    return make_installation(tmp_path / "planning")
+    installation = make_installation(tmp_path / "planning", github={"branch_prefix": "abk/"})
+    installation.activate()
+    return installation
 
 
 def test_the_settings_a_track_run_sends_let_it_write_its_run_log(
@@ -36,7 +38,7 @@ def test_the_settings_a_track_run_sends_let_it_write_its_run_log(
     settings = json.loads(fake.argv[fake.argv.index("--settings") + 1])
     command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     hook_args = shlex.split(command.split("agent_build_kit.hooks.policy", 1)[1])
-    assert hook_args[hook_args.index("--branch-prefix") + 1] == "spec/"
+    assert hook_args[hook_args.index("--branch-prefix") + 1] == "abk/"
 
     capsys.readouterr()
 
@@ -51,4 +53,6 @@ def test_the_settings_a_track_run_sends_let_it_write_its_run_log(
         return capsys.readouterr().out
 
     assert ask(runner.run_log(inst, app, "health")) == ""
-    assert "deny" in ask(inst.root / "units.json")
+    assert ask(inst.state_dir / "tracked-issues.md") == ""
+    assert "deny" in ask(inst.state_dir / "units.json")
+    assert "deny" in ask(inst.state_dir / "paused.json")
