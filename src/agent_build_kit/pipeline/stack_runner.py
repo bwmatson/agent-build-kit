@@ -522,7 +522,8 @@ def check_test_decisions(
         decision = decided.get(name)
         if decision is None:
             problems.append(
-                f"no decision for `{name}`, which differs from the previous work"
+                f"no decision for `{name}`, which differs from the previous work — mark it "
+                "adapt and say what changed, or retire it with a reason"
                 if name in changed
                 else f"no decision for `{name}`"
             )
@@ -535,7 +536,7 @@ def check_test_decisions(
         elif decision.decision == "keep" and name in changed:
             problems.append(
                 f"`{name}` is marked keep but differs from the previous work — mark it "
-                "adapt and say what changed, or restore it"
+                "adapt and say what changed"
             )
         elif (
             decision.decision == "adapt"
@@ -600,9 +601,10 @@ class UnitRunner(BaseModel):
     # under a ref, and list the tests the worktree has.
     reset_to: Callable[[Path, str, str], None] = lambda tree, onto, keep: _no_reset()
     tests_in: Callable[[Path], set[str]] = lambda tree: set()
-    # Tests present in the tree whose content differs from the given ref —
-    # the adapt step's old-work ref — so a test that survived the replay by
-    # name only is not mistaken for one the replay left alone.
+    # Tests whose content differs between the given ref — the adapt step's
+    # old-work ref — and the tree, including one gone from a file it was in,
+    # so a test that survived the replay by name only is not mistaken for one
+    # the replay left alone.
     tests_changed: Callable[[Path, str], set[str]] = lambda tree, ref: set()
     # Each step as it starts and how it ended, so the tick log says where a
     # unit has got to rather than going quiet for the length of a build.
@@ -1233,10 +1235,11 @@ class UnitRunner(BaseModel):
         """Port the unit onto a predecessor it could not be replayed onto.
 
         The branch is reset to the new base, the old work kept under a ref, and
-        the rework model ports it — deciding, for each of the unit's previous
-        tests, whether it still belongs. Those decisions are checked here (every
-        test accounted for, every kept one present, every retirement given a
-        reason), then handed to the reviewer, who judges them.
+        the rework model ports it — deciding, for each previous test the port did
+        not carry over unchanged, whether it still belongs. Those decisions are
+        checked here (each such test accounted for, every kept one present and
+        unchanged, every retirement given a reason), then handed to the
+        reviewer, who judges them.
         """
         self.log(
             f"step: adapt onto {restacked.onto_unit} — the restack could not be merged "

@@ -706,18 +706,59 @@ def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Pa
     assert _tests_changed(repo, keep) == {"test_b"}
 
 
-def _changed_after(tmp_path: Path, before: str, after: str) -> set[str]:
+def _changed_after(
+    tmp_path: Path,
+    before: str | dict[str, str],
+    after: str | dict[str, str | None],
+) -> set[str]:
+    """`_tests_changed` on a real repo: `before` is committed, `after` written
+    over it (a `None` value deletes the file)."""
     from agent_build_kit.pipeline.wiring import _tests_changed
     from tests.factories import git, init_repo
 
     repo = init_repo(tmp_path / "r")
-    (repo / "test_mod.py").write_text(before)
+    for name, text in ({"test_mod.py": before} if isinstance(before, str) else before).items():
+        (repo / name).write_text(text)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "base")
     keep = "refs/spec-driven/pre-adapt/c-3"
     git(repo, "update-ref", keep, "HEAD")
-    (repo / "test_mod.py").write_text(after)
+    for name, text in ({"test_mod.py": after} if isinstance(after, str) else after).items():
+        if text is None:
+            (repo / name).unlink()
+        else:
+            (repo / name).write_text(text)
     return _tests_changed(repo, keep)
+
+
+_DEFAULTS = "def test_defaults():\n    assert 1 == 1\n"
+
+
+def test_a_test_removed_from_one_file_reads_as_changed_though_another_has_the_name(
+    tmp_path: Path,
+) -> None:
+    both = {"test_a.py": _DEFAULTS, "test_b.py": _DEFAULTS}
+
+    assert _changed_after(tmp_path, both, {"test_a.py": "x = 1\n"}) == {"test_defaults"}
+
+
+def test_a_test_file_deleted_reads_as_its_tests_changed(tmp_path: Path) -> None:
+    both = {"test_a.py": _DEFAULTS, "test_b.py": _DEFAULTS}
+
+    assert _changed_after(tmp_path, both, {"test_a.py": None}) == {"test_defaults"}
+
+
+def test_a_removed_test_reads_as_changed_though_its_text_survives_in_a_string(
+    tmp_path: Path,
+) -> None:
+    before = {"test_a.py": _DEFAULTS, "test_b.py": "x = 1\n"}
+    after = {"test_a.py": "x = 1\n", "test_b.py": 'SRC = "def test_defaults(): pass"\n'}
+
+    assert _changed_after(tmp_path, before, after) == {"test_defaults"}
+
+
+def test_a_file_rewritten_to_a_syntax_error_reports_its_old_tests(tmp_path: Path) -> None:
+    assert _changed_after(tmp_path, _DEFAULTS, "def test_defaults(:\n") == {"test_defaults"}
 
 
 def test_a_skip_added_over_an_unchanged_body_reads_as_changed(tmp_path: Path) -> None:

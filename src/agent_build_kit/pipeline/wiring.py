@@ -924,24 +924,24 @@ def _test_bodies(source: str) -> dict[str, list[str]]:
 
 
 def _tests_changed(tree: Path, ref: str) -> set[str]:
-    """Test functions present in the tree whose body differs from `ref`.
+    """Test functions whose body differs between `ref` and the tree, per file.
 
-    A test that only survived the replay by name — kept, but silently
-    weakened — must still be asked about; comparing function bodies rather
-    than names is what catches that. Data living outside the function, such as
-    a module-level table a parametrize reads, is not seen.
+    Compared file by file in both directions, so a test that only survived the
+    replay by name — kept, but silently weakened — is caught, and so is one
+    gone from the file it was in, even when the same name lives on in another
+    file or in a string. A test moved to another file unchanged reads as
+    changed. Data living outside the function, such as a module-level table a
+    parametrize reads, is not seen.
     """
+    diff = git(tree, "diff", "--name-only", "--no-renames", ref, "--", "*.py", check=False)
+    new = git(tree, "ls-files", "--others", "--exclude-standard", "--", "*.py", check=False)
     changed: set[str] = set()
-    for path in git(tree, "ls-files", "*.py", check=False).stdout.splitlines():
+    for path in set(diff.stdout.splitlines()) | set(new.stdout.splitlines()):
         file = tree / path
-        if not file.exists():
-            continue
-        current = _test_bodies(file.read_text(errors="replace"))
-        if not current:
-            continue
+        current = _test_bodies(file.read_text(errors="replace")) if file.is_file() else {}
         old_source = git(tree, "show", f"{ref}:{path}", check=False)
         old = _test_bodies(old_source.stdout) if old_source.returncode == 0 else {}
-        changed |= {name for name, body in current.items() if old.get(name) != body}
+        changed |= {n for n in old.keys() | current.keys() if old.get(n) != current.get(n)}
     return changed
 
 
