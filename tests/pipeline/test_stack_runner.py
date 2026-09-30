@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name
@@ -1543,3 +1544,102 @@ def test_needs_human_only_counts_alongside_a_rejection() -> None:
     assert needs_human('{"approved": false, "feedback": "x", "needs_human": true}')
     assert not needs_human('{"approved": false, "feedback": "x"}')
     assert not needs_human("not json")
+
+
+class CountingGate(Gate):
+    """`Gate`, but remembering how many times it was asked — so a test can
+    tell "the same check, reused" from "one more read than the boundary
+    pattern already makes"."""
+
+    def __init__(self, yes: int) -> None:
+        super().__init__(yes)
+        self.calls = 0
+
+    def __call__(self) -> tuple[bool, str]:
+        self.calls += 1
+        return super().__call__()
+
+
+def test_an_empty_step_pauses_when_usage_is_exhausted(tmp_path: Path) -> None:
+    """An agent told it is out of usage can finish a step cleanly having
+    written nothing. Failed outright, that unit lands in the list a person
+    has to read with no record of why. Told apart by the usage reading, it is
+    paused instead — in the same shape a stop between steps already uses, so
+    the graph, the note and the resume all need nothing new."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0)
+    # Yes for the unit to start, yes before implement, no once implement ends
+    # having written nothing — the window filled while it ran.
+    runner = make_runner(store, recorder, tmp_path).model_copy(update={"may_start": Gate(2)})
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "paused"
+    stored = store.get(unit().id)
+    assert stored.state == PLANNED
+    assert stored.resume_from == "implement"
+    note = stored.history[-1].get("note", "")
+    assert note.startswith("paused before implement")
+    assert "75%" in note
+
+
+def test_the_pause_check_costs_no_more_than_the_one_read_it_takes(tmp_path: Path) -> None:
+    """The reading is the one already held: classifying an empty step must
+    not turn into a poll. It costs exactly one read beyond the boundary
+    checks a run to this point already makes — one to start the unit, one
+    before implement, one to judge the empty result — never more, and never
+    one taken while implement itself is running."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0)
+    gate = CountingGate(2)
+    runner = make_runner(store, recorder, tmp_path).model_copy(update={"may_start": gate})
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "paused"
+    assert gate.calls == 3
+
+
+def test_an_empty_step_still_fails_when_usage_is_healthy(tmp_path: Path) -> None:
+    """Not every empty step is a quiet refusal. With usage to spare this is
+    just a run that produced nothing, and it stays a failure — judged
+    elsewhere, by the companion change about a unit with nothing left to do."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0)
+
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert store.get(unit().id).state == "failed"
+
+
+def test_a_usage_paused_empty_step_is_drawn_as_paused_and_resumes_with_its_commits_intact(
+    tmp_path: Path,
+) -> None:
+    """Reusing the boundary-pause shape means the graph and the resume the
+    pause schedules need nothing new: a `planned` unit carrying this note is
+    already what both already handle. The resume picks up at implement, the
+    step that did not finish, with the tests commit from before the pause
+    still on the branch."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    first_run = Recorder(commits_from_impl=0)
+    runner = make_runner(store, first_run, tmp_path).model_copy(update={"may_start": Gate(2)})
+
+    outcome = runner.run(unit(), base="main", graph=[])
+    assert outcome.status == "paused"
+
+    diagram = render_mermaid([store.get(unit().id)])
+    assert "paused_usage" in diagram
+    assert "paused: usage" in diagram
+
+    second_run = Recorder(commits_from_impl=1)
+    second_run.made = 1  # the tests commit from before the pause is still there
+    resumed = make_runner(store, second_run, tmp_path).run(unit(), base="main", graph=[])
+
+    assert "claude:tests" not in second_run.events, "the tests commit survived the pause"
+    assert second_run.events[0] == "claude:impl"
+    assert resumed.status == "open"
