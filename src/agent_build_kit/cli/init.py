@@ -1,4 +1,5 @@
-"""`abk init`: a planning repo for a set of checkouts, and `abk install-skills`.
+"""`abk init`: a planning repo for a set of checkouts, plus `abk install-skills`
+and `abk install-timers`.
 
 Init is the one command that creates an installation rather than reading
 one. It detects each repo, drafts abk.yaml, lays the planning repo out,
@@ -20,7 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import config as config_module
-from agent_build_kit import openspec, runtimes, skills
+from agent_build_kit import openspec, runtimes, skills, timers
 from agent_build_kit.config import CONFIG_FILENAME, ConfigError, dump
 from agent_build_kit.init.claude_call import RunClaude
 from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
@@ -361,6 +362,40 @@ def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> i
     return 1 if refused_any else 0
 
 
+# --- install-timers ----------------------------------------------------------------
+
+
+def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> int:
+    """Render this installation's systemd units onto this machine.
+
+    Not written at init time: a unit carries an absolute `WorkingDirectory`, so
+    one rendered into the planning repo names whoever ran init, and everyone who
+    cloned that repo afterwards got units aimed at someone else's home
+    directory. `systemctl --user enable` takes such a unit without complaint,
+    because a unit naming a directory that is not there is still a valid unit.
+    """
+    if inst is None:
+        print(
+            "abk install-timers: no abk.yaml found; run this from a planning repo",
+            file=sys.stderr,
+        )
+        return 2
+
+    written, refused = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run)
+    for path in written:
+        print(f"{'would write' if args.dry_run else 'wrote'} {path}")
+    for path in refused:
+        print(f"refused {path}: not written by agent-build-kit (no marker)")
+
+    if written and not args.dry_run:
+        print(f"\nunits point at {inst.root}")
+        if args.enable:
+            print("timers enabled; `systemctl --user list-timers` shows when each next runs")
+        else:
+            print("nothing is scheduled yet: re-run with --enable, or enable them by hand")
+    return 1 if refused else 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     init = sub.add_parser("init", help="create a planning repo for a set of checkouts")
     init.add_argument("planning_dir", nargs="?", default=".", help="the planning repo (default .)")
@@ -385,3 +420,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     install.add_argument("--repo", action="append", metavar="PATH", help="a checkout (repeatable)")
     install.add_argument("--user", action="store_true", help="the user-level skills directory")
     install.set_defaults(func=cmd_install_skills, needs_installation="optional")
+
+    units = sub.add_parser(
+        "install-timers", help="render this installation's systemd units for the user manager"
+    )
+    units.add_argument(
+        "--enable", action="store_true", help="enable and start the timers once written"
+    )
+    units.add_argument("--dry-run", action="store_true", help="print what would be written")
+    units.set_defaults(func=cmd_install_timers, needs_installation="optional")
