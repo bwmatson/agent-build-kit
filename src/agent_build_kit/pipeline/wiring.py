@@ -21,21 +21,26 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import Protocol
 
 from agent_build_kit import forges, profiles, runtimes
 from agent_build_kit.config import ProjectConfig, RepoConfig, active, active_root, models
-from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies
 from agent_build_kit.pipeline.restack import (
+    HostMoved,
     Moved,
     RestackConflict,
+    adopt_host_head,
     diff_id,
     push_with_lease,
+    remote_head,
     resolved_move,
 )
 from agent_build_kit.pipeline.shell import git, git_out
@@ -537,14 +542,28 @@ def _default_push(repo: Path, branch: str, last_pushed: str | None) -> str:
     return push_with_lease(repo, branch, last_pushed=last_pushed)
 
 
-def build_push(store: UnitStore, *, push: Callable[..., str] | None = None) -> Callable[..., str]:
+def build_push(
+    store: UnitStore,
+    *,
+    push: Callable[..., str] | None = None,
+    remote_head_of: Callable[[Path, str], str] | None = None,
+    adopt: Callable[..., str] | None = None,
+) -> Callable[..., str]:
     """Push a unit's branch with the lease its own history justifies.
 
     The lease names the SHA *this* runner last published, which the store has
     to remember because every tick is a separate process. Recording the new
     one afterwards is what makes the next restack's push safe.
+
+    Every push passes here, so this is where a branch the host moved is
+    caught — whichever unit it is, and whether or not a run of it moved it.
+    After a stack merge the host rebases every PR above the merged one, not
+    only the one sitting on it. Its head is adopted rather than overwritten,
+    the old approval dropped, and `HostMoved` raised so review sees it first.
     """
     push = push or _default_push
+    remote_head_of = remote_head_of or remote_head
+    adopt = adopt or adopt_host_head
 
     def do_push(branch: str, *, cwd: Path) -> str:
         unit_id = branch.removeprefix(active().github.branch_prefix)
@@ -552,6 +571,21 @@ def build_push(store: UnitStore, *, push: Callable[..., str] | None = None) -> C
             last_pushed = store.get(unit_id).pushed
         except KeyError:
             last_pushed = None
+
+        remote = remote_head_of(cwd, branch) if last_pushed else ""
+        here = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
+        if remote and remote != last_pushed and here == remote:
+            # Not moved by anyone: a push of ours whose recording was lost.
+            store.record_push(unit_id, remote)
+            last_pushed = remote
+        elif remote and last_pushed and remote != last_pushed:
+            adopt(cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd)
+            store.record_push(unit_id, remote)
+            store.record_approval(unit_id, "")
+            raise HostMoved(
+                f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
+                "adopted its head, which review has not seen"
+            )
 
         sha = push(cwd, branch, last_pushed)
         try:
@@ -576,8 +610,28 @@ def build_post_status(
     return post
 
 
+class _StackingHost(RegistersStacks, Protocol):
+    """What the PR step needs of a host: opening a PR, and stacking it."""
+
+    def find_pr(self, repo: RepoId, *, head: str) -> int | None: ...
+
+    def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int: ...
+
+    def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None: ...
+
+
+# How long to wait before asking a stack busy with another request again, once
+# per retry; after the last the refusal is recorded. Overlapping ticks make a
+# busy stack ordinary, not persistent, but not gone the instant it is asked.
+STACK_BACKOFF: tuple[float, ...] = (1.0, 2.0)
+
+
 def build_open_pr(
-    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+    *,
+    for_repo: Callable[[str], tuple[_StackingHost, RepoId]] | None = None,
+    store: UnitStore | None = None,
+    log: Callable[[str], None] = print,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> Callable[..., int]:
     """Create the unit's PR, or update the one it already has.
 
@@ -585,21 +639,118 @@ def build_open_pr(
     unit. A second create would fail outright, and the body would then never
     reflect the restack. Which host the PR is opened on is the forge's
     business; this only knows that a unit has one.
+
+    Once the PR exists, and where the host has stacks, it is registered in the
+    stack of the PR beneath it. Advisory: a refusal is recorded on the unit and
+    logged once, and changes nothing else.
+
+    Two bodies, because only this step knows which one is true: `body` for a
+    PR the host shows in no stack, which has to state the order itself, and
+    `stacked_body` for one it does. The PR goes up with the one its record
+    predicts, and is corrected at once if registering says otherwise.
     """
     for_repo = for_repo or forges.for_repo
 
-    def open_pr(unit: Unit, *, body: str, base: str, cwd: Path) -> int:
+    def open_pr(
+        unit: Unit, *, body: str, base: str, cwd: Path, stacked_body: str | None = None
+    ) -> int:
         forge, repo = for_repo(unit.repo)
         branch = branch_name(unit)
         number = forge.find_pr(repo, head=branch)
 
-        if number is None:
-            return forge.create_pr(
-                repo, head=branch, base=base, title=f"{unit.id}: {unit.title}", body=body
-            )
+        stacking = store is not None and forge.supports_stacks
+        below = _below(unit, base) if stacking else None
+        expected = stacked_body is not None and below is not None and not _recorded_refusal(unit)
+        chosen = stacked_body if expected and stacked_body is not None else body
 
-        forge.update_pr(repo, number, base=base, body=body)
+        if number is None:
+            number = forge.create_pr(
+                repo, head=branch, base=base, title=f"{unit.id}: {unit.title}", body=chosen
+            )
+            fresh = True
+        else:
+            forge.update_pr(repo, number, base=base, body=chosen)
+            fresh = False
+
+        if stacking:
+            stacked = _register_stack(forge, repo, unit, number, below=below, fresh=fresh)
+            if stacked_body is not None and stacked != expected:
+                # A PR the host would not stack must still say what order it
+                # merges in, and one it did stack no longer should.
+                forge.update_pr(repo, number, base=base, body=stacked_body if stacked else body)
         return number
+
+    def _below(unit: Unit, base: str) -> int | None:
+        """The PR the base branch belongs to: found by what the PR targets, not
+        by a direct dependency, since the base may be reached through a
+        satisfied one."""
+        assert store is not None
+        return next(
+            (
+                dep.pr
+                for dep in store.all()
+                if dep.id != unit.id and dep.repo == unit.repo and dep.branch == base and dep.pr
+            ),
+            None,
+        )
+
+    def _recorded_refusal(unit: Unit) -> str:
+        assert store is not None
+        try:
+            return store.get(unit.id).stack_refusal
+        except KeyError:
+            return ""
+
+    def _register_stack(
+        forge: _StackingHost,
+        repo: RepoId,
+        unit: Unit,
+        number: int,
+        *,
+        below: int | None,
+        fresh: bool,
+    ) -> bool:
+        """Whether the PR is now in a host stack."""
+        assert store is not None
+        stacked = False
+        refusal = ""
+        # On the trunk, nothing is beneath it: a stack of one is not a stack.
+        # A refusal from when it had a base is no longer anyone's concern.
+        delays = iter(STACK_BACKOFF)
+        while below is not None:
+            try:
+                # Asked of the host, not remembered: a person may have merged
+                # or restructured the stack since. A PR just created is in none.
+                if not fresh and forge.stack_of(repo, number) is not None:
+                    stacked, refusal = True, ""
+                    break
+                stack = forge.stack_of(repo, below)
+                if stack is not None and stack.open:
+                    forge.add_to_stack(repo, stack.number, [number])
+                else:
+                    # In no stack, or in one whose PRs have all merged, which
+                    # cannot be extended: start a new one, bottom first.
+                    forge.create_stack(repo, [below, number])
+                stacked, refusal = True, ""
+                break
+            except StackRefused as refused:
+                refusal = refused.reason
+                delay = next(delays, None) if refused.concurrent else None
+                if delay is None:
+                    break
+                sleep(delay)
+            except Exception as error:  # noqa: BLE001
+                # Anything else the host or the network throws is a refusal
+                # too: the PR is open, and registering is advisory.
+                refusal = f"{type(error).__name__}: {error}"
+                break
+
+        recorded = _recorded_refusal(unit)
+        if refusal and refusal != recorded:
+            log(f"{unit.id}: #{number} not registered in a stack: {refusal}")
+        if refusal != recorded:
+            store.set_stack_refusal(unit.id, refusal)
+        return stacked
 
     return open_pr
 
@@ -828,6 +979,15 @@ class Tier2Session:
 
 def _head_sha(cwd: Path) -> str:
     return git(cwd, "rev-parse", "HEAD", check=False).stdout.strip()
+
+
+def is_linear(cwd: Path, base: str) -> bool:
+    """Whether the tree's HEAD still sits on `base`: its tip is an ancestor.
+
+    Only a definite "no" (exit 1) is not linear. Any other failure — a base
+    that cannot be resolved here — is unknown, and not worth a false alarm.
+    """
+    return git(cwd, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode != 1
 
 
 def _stack_versions(command: list[str] | None, *, run: Run | None = None) -> dict[str, str]:
@@ -1262,7 +1422,8 @@ def build_runner(
         ),
         run_tier2=tier2.run,
         push=push_in_turn,
-        open_pr=build_open_pr(),
+        open_pr=build_open_pr(store=store, log=log),
+        linear=is_linear,
         post_status=tier2.post,
         close_pr=build_close_pr(),
         reply=build_post_replies(root=root, log=log),

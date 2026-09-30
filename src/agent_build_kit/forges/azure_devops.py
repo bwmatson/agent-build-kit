@@ -23,10 +23,19 @@ registry's union means they are refused in a GitHub checkout too.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
-from agent_build_kit.forges.base import PermittedCommand, PullRequest, RepoId, ReviewNote, Run
+from agent_build_kit.forges.base import (
+    PermittedCommand,
+    PullRequest,
+    RepoId,
+    ReviewNote,
+    Run,
+    Stack,
+    StackRefused,
+)
 from agent_build_kit.pipeline import az, units
 
 if TYPE_CHECKING:
@@ -64,6 +73,8 @@ class AzureDevOpsForge:
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
     # so the remote branch is ours to delete.
     deletes_head_branch_on_merge: bool = False
+    # Azure DevOps has no first-class stacks, so the stack calls are never made.
+    supports_stacks: bool = False
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (
@@ -369,6 +380,17 @@ class AzureDevOpsForge:
                 org=az.org_url(repo.account),
                 run=run,
             )
+
+    # --- stacks ---------------------------------------------------------------------
+
+    def stack_of(self, repo: RepoId, pr: int) -> Stack | None:
+        return None
+
+    def create_stack(self, repo: RepoId, pulls: Sequence[int]) -> Stack:
+        raise StackRefused("Azure DevOps has no stacks")
+
+    def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
+        raise StackRefused("Azure DevOps has no stacks")
 
     def _threads(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
         return _values(self._rest(repo, "pullRequestThreads", pullRequestId=pr, run=run))

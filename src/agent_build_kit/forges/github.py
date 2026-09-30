@@ -11,9 +11,20 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from agent_build_kit.forges.base import PermittedCommand, PullRequest, RepoId, ReviewNote, Run, key
+from agent_build_kit.forges.base import (
+    PermittedCommand,
+    PullRequest,
+    RepoId,
+    ReviewNote,
+    Run,
+    Stack,
+    StackRefused,
+    key,
+)
 from agent_build_kit.pipeline import units
 from agent_build_kit.pipeline.shell import gh, gh_json, gh_out
 
@@ -48,6 +59,7 @@ class GitHubForge:
     implemented: bool = True
     # GitHub deletes the head branch on merge, so only the local one is ours.
     deletes_head_branch_on_merge: bool = True
+    supports_stacks: bool = True
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
@@ -176,6 +188,19 @@ class GitHubForge:
         if not changes:
             return
         gh(["gh", "pr", "edit", str(pr), "--repo", key(repo), *changes])
+
+    # --- stacks ---------------------------------------------------------------------
+
+    def stack_of(self, repo: RepoId, pr: int) -> Stack | None:
+        found = _stacks_api(repo, "GET", "", ["-F", f"pull_request={pr}"])
+        stacks = [_stack(item) for item in found] if isinstance(found, list) else []
+        return next((stack for stack in stacks if pr in stack.pulls), None)
+
+    def create_stack(self, repo: RepoId, pulls: Sequence[int]) -> Stack:
+        return _stack(_stacks_api(repo, "POST", "", _pull_fields(pulls)))
+
+    def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
+        return _stack(_stacks_api(repo, "POST", f"/{stack}/add", _pull_fields(pulls)))
 
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
@@ -390,6 +415,58 @@ class GitHubForge:
 
 
 FORGE = GitHubForge()
+
+_HTTP_STATUS = re.compile(r"\(HTTP (?P<status>\d{3})\)")
+
+
+def _pull_fields(pulls: Sequence[int]) -> list[str]:
+    # Bottom first: GitHub checks each pull request's base against the head of
+    # the one before it.
+    return [arg for pull in pulls for arg in ("-F", f"pull_requests[]={pull}")]
+
+
+def _stacks_api(repo: RepoId, method: str, path: str, fields: list[str]) -> object:
+    """One call to the pull request stacks API, or StackRefused saying why not."""
+    slug = key(repo)
+    try:
+        result = gh(["gh", "api", "-X", method, f"repos/{slug}/stacks{path}", *fields], slug=slug)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise StackRefused(f"could not reach the stacks API: {error}") from error
+    if not result.returncode:
+        try:
+            return json.loads(result.stdout or "null")
+        except ValueError as error:
+            raise StackRefused(
+                f"unreadable answer from the stacks API: {result.stdout!r:.200}"
+            ) from error
+    match = _HTTP_STATUS.search(result.stderr)
+    status = match["status"] if match else ""
+    try:
+        body = json.loads(result.stdout or "{}")
+    except ValueError:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    details = [str(e.get("message", "")) for e in body.get("errors") or [] if isinstance(e, dict)]
+    message = "; ".join(part for part in [str(body.get("message") or ""), *details] if part)
+    reason = f"HTTP {status}: {message}" if status else message or result.stderr.strip()
+    # 409: another request is changing the same stack right now.
+    raise StackRefused(reason, concurrent=status == "409")
+
+
+def _stack(found: object) -> Stack:
+    # Any answer not shaped like a stack is a refusal, not a crash: the step
+    # that asks has already opened the pull request, and must not fail it.
+    unexpected = StackRefused(f"unexpected answer from the stacks API: {found!r:.200}")
+    if not isinstance(found, dict):
+        raise unexpected
+    try:
+        return Stack(
+            number=int(found["number"]),
+            open=bool(found.get("open")),
+            pulls=tuple(int(pull["number"]) for pull in found.get("pull_requests") or []),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise unexpected from error
 
 
 def _conversation(pull: dict) -> list[str]:

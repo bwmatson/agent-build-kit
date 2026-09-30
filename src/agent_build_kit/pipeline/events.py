@@ -44,8 +44,10 @@ from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
     Moved,
     RestackConflict,
+    adopt_host_head,
     blast_radius_note,
     push_with_lease,
+    remote_head,
     resolved_move,
 )
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
@@ -606,6 +608,8 @@ def build_restack(
     comment: Callable[..., None] | None = None,
     diff_id: Callable[[Path, str, str], str] | None = None,
     head_of: Callable[[Path, str], str] | None = None,
+    remote_head_of: Callable[[Path, str], str] | None = None,
+    adopt: Callable[..., str] | None = None,
     posts_root: Path | None = None,
 ) -> Restack:
     """Move one child branch onto its new base, for real.
@@ -629,6 +633,8 @@ def build_restack(
     comment = comment or partial(_default_comment, posts_root=posts_root)
     diff_id = diff_id or restack_diff_id
     head_of = head_of or (lambda repo, branch: git(repo, "rev-parse", branch).stdout.strip())
+    remote_head_of = remote_head_of or remote_head
+    adopt = adopt or adopt_host_head
 
     def restack(
         *, branch: str, old_base: str, new_base: str, child: StoredUnit, parent: StoredUnit
@@ -641,14 +647,45 @@ def build_restack(
         worktree = worktree_path(repo, branch, root)
         cwd = worktree if worktree.exists() else repo
 
-        was_approved = bool(child.approved) and head_of(repo, branch) == child.approved
-        diff_before = diff_id(repo, old_base, branch)
-
-        # Retargeted before anything else, and whatever the move does: with
-        # its base branch merged away, a PR left pointing at it would be
-        # closed by GitHub.
+        # Retargeted before anything else, and whatever the adopt or the move
+        # does: with its base branch merged away, a PR left pointing at it
+        # would be closed by GitHub.
         if child.pr:
             retarget(child.pr, new_base, repo=child.repo)
+
+        # The pipeline is not the only writer: after a stack merge the host
+        # rebases the PRs above and force-pushes their branches itself. So the
+        # branch on the host is inspected too - if it no longer holds what was
+        # last pushed, review never saw its head. Unknown ("") is not moved.
+        remote = remote_head_of(repo, branch)
+        last_pushed = child.pushed
+        if remote and last_pushed and remote != last_pushed and head_of(repo, branch) == remote:
+            # Not moved by anyone: a push of ours whose recording was lost.
+            store.record_push(child.id, remote)
+            last_pushed = remote
+        elif remote and last_pushed and remote != last_pushed:
+            # Adopted, not overwritten: the local branch is brought to the
+            # host's head, so review sees what the host has and the next
+            # lease names it. The old approval was for a different commit.
+            adopt(repo, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd)
+            store.record_push(child.id, remote)
+            store.record_approval(child.id, "")
+            # Not moved here: the host already rebased it onto the trunk, so
+            # `old_base..branch` now spans trunk commits that are not the
+            # unit's, and replaying them only invites conflicts. If it was a
+            # person rather than a stack merge that moved it, the runner's own
+            # restack moves a branch that no longer holds its base.
+            store.set_state(
+                child.id,
+                PLANNED,
+                note=f"not restacked onto {new_base}: "
+                "the host moved its branch off the approved commit",
+                resume_from="rework_review",
+            )
+            return
+
+        was_approved = bool(child.approved) and head_of(repo, branch) == child.approved
+        diff_before = diff_id(repo, old_base, branch)
 
         # Both sides are planned work, so the resolver is told what each was
         # for rather than left to infer it from the diff — see `resolved_move`,
@@ -727,7 +764,7 @@ def build_restack(
             )
 
         store.record_approval(child.id, head_of(repo, branch))
-        sha = push(repo, branch, last_pushed=child.pushed)
+        sha = push(repo, branch, last_pushed=last_pushed)
         store.record_push(child.id, sha)
 
         if child.pr:

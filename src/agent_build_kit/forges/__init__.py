@@ -6,8 +6,11 @@ from agent_build_kit.forges.base import (
     Forge,
     PermittedCommand,
     PullRequest,
+    RegistersStacks,
     RepoId,
     ReviewNote,
+    Stack,
+    StackRefused,
     key,
 )
 
@@ -114,8 +117,11 @@ __all__ = [
     "Forge",
     "PermittedCommand",
     "PullRequest",
+    "RegistersStacks",
     "RepoId",
     "ReviewNote",
+    "Stack",
+    "StackRefused",
     "denied_prefixes",
     "denies",
     "for_repo",

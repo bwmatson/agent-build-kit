@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 from agent_build_kit.model import Frozen
@@ -89,6 +89,45 @@ class ReviewNote(Frozen):
     live: bool = True
 
 
+class Stack(Frozen):
+    """A series of pull requests the host knows about, bottom first.
+
+    `open` is false once every pull request in it has merged: such a stack
+    cannot be extended, and a later unit of the chain starts a new one.
+    """
+
+    number: int
+    open: bool
+    pulls: tuple[int, ...]
+
+
+class StackRefused(RuntimeError):
+    """The host would not register a stack, and why.
+
+    `concurrent` when another request was changing the same stack at the
+    time - ordinary while ticks overlap, and worth asking again.
+    """
+
+    def __init__(self, reason: str, *, concurrent: bool = False) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.concurrent = concurrent
+
+
+class RegistersStacks(Protocol):
+    """The slice of a host that registers the chain the pipeline builds."""
+
+    # Whether the host has first-class stacks at all; where it does not,
+    # nothing in this role is called.
+    supports_stacks: bool
+
+    def stack_of(self, repo: RepoId, pr: int) -> Stack | None: ...
+
+    def create_stack(self, repo: RepoId, pulls: Sequence[int]) -> Stack: ...
+
+    def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack: ...
+
+
 class PermittedCommand(Frozen):
     """One exact command shape allowed under a denied prefix.
 
@@ -122,7 +161,7 @@ class PermittedCommand(Frozen):
         return True
 
 
-class Forge(Protocol):
+class Forge(RegistersStacks, Protocol):
     """The host a repo lives on."""
 
     name: str

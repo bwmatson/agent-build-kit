@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.diagram import render_mermaid
+from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import IMPLEMENT, REWORK, Restacked, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name, waiting_on
@@ -100,7 +101,7 @@ class Recorder:
         self.pushed_shas.append("abc123")
         return "abc123"
 
-    def open_pr(self, unit, *, body: str, base: str, cwd: Path) -> int:
+    def open_pr(self, unit, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
         self.events.append("pr")
         return 7
 
@@ -879,6 +880,59 @@ def test_the_loop_is_bounded(tmp_path: Path) -> None:
     assert "tier1" not in recorder.events, "an unapproved branch is not verified"
 
 
+class MovedOnceRecorder(Recorder):
+    """A push that finds the host moved the branch, then holds on the second."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pushes = 0
+        self.bodies: list[dict[str, str]] = []
+
+    def push(self, branch: str, *, cwd: Path) -> str:
+        self.pushes += 1
+        if self.pushes == 1:
+            raise HostMoved("the host moved the branch; adopted its head")
+        return "abc123"
+
+    def open_pr(self, unit, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
+        self.bodies.append({"body": body, **bodies})
+        return super().open_pr(unit, body=body, base=base, cwd=cwd)
+
+
+def test_a_unit_whose_rounds_ran_out_on_a_branch_the_host_moved_is_still_held(
+    tmp_path: Path,
+) -> None:
+    """The adoption is recorded, so a second push holds: the open points reach
+    the PR rather than the unit failing with an empty note."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = MovedOnceRecorder()
+    recorder.verdicts = [rejecting("the lock is still not released")] * 20
+
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert outcome.status == "held"
+    assert store.get(unit().id).state == "held"
+    assert store.get(unit().id).pr == 7
+    assert recorder.pushes == 2
+    assert "the lock is still not released" in recorder.bodies[-1]["body"]
+
+
+def test_a_held_pull_request_is_given_both_bodies(tmp_path: Path) -> None:
+    """The host, not this step, knows whether it shows the order: a held PR
+    offers the unstacked body and the stacked one, open points in each."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = MovedOnceRecorder()
+    recorder.verdicts = [rejecting("the lock is still not released")] * 20
+
+    make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    stacked = recorder.bodies[-1]["stacked_body"]
+    assert "the lock is still not released" in stacked
+    assert "Stacked on" not in stacked
+
+
 def test_what_the_reviewer_last_said_survives_the_failure(tmp_path: Path) -> None:
     """A unit that ran out of rounds is retried by a human, and the retry needs
     to know what the reviewer kept objecting to."""
@@ -1538,7 +1592,7 @@ def test_work_is_built_on_the_remote_trunk_but_the_pr_targets_main(tmp_path: Pat
     pr_bases: list[str] = []
     original_open_pr = recorder.open_pr
 
-    def open_pr(u, *, body: str, base: str, cwd: Path) -> int:
+    def open_pr(u, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
         pr_bases.append(base)
         return original_open_pr(u, body=body, base=base, cwd=cwd)
 
@@ -1552,6 +1606,62 @@ def test_work_is_built_on_the_remote_trunk_but_the_pr_targets_main(tmp_path: Pat
 
     assert worktree_bases == ["origin/main"]
     assert pr_bases == ["main"]
+
+
+def _bodies_sent(tmp_path: Path, *, linear: bool) -> dict[str, str]:
+    """What the runner hands `open_pr` for a unit stacked on an open parent."""
+    parent = stored_unit("add-marker/1", state=IN_REVIEW, pr=4, branch="spec/add-marker/1")
+    child = unit("add-marker/2", depends_on=("add-marker/1",))
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([parent, child])
+    sent: dict[str, str] = {}
+
+    def open_pr(u, *, body: str, base: str, cwd: Path, stacked_body: str) -> int:
+        sent.update(body=body, stacked_body=stacked_body)
+        return 7
+
+    runner = make_runner(store, Recorder(), tmp_path).model_copy(
+        update={"open_pr": open_pr, "linear": lambda tree, base: linear}
+    )
+    runner.run(child, base="spec/add-marker/1", graph=[parent, store.get(child.id)])
+    return sent
+
+
+def test_the_body_leaves_the_order_to_a_host_that_renders_stacks(tmp_path: Path) -> None:
+    """Both bodies go to `open_pr`, which alone learns whether the host put
+    the PR in a stack: the one for no stack states the order, the other
+    leaves it to the host."""
+    sent = _bodies_sent(tmp_path, linear=True)
+
+    assert "Stacked on" in sent["body"]
+    assert "Stacked on" not in sent["stacked_body"]
+
+
+@pytest.mark.parametrize("which", ["body", "stacked_body"])
+def test_a_branch_left_off_its_base_is_reported_as_not_linear(tmp_path: Path, which: str) -> None:
+    """Checked in the tree by the runner, not assumed: whichever body the
+    PR ends up with says the chain cannot merge until it is rebased."""
+    assert "not linear" in _bodies_sent(tmp_path, linear=False)[which].lower()
+    assert "not linear" not in _bodies_sent(tmp_path / "linear", linear=True)[which].lower()
+
+
+def test_a_branch_the_host_moved_is_re_reviewed_rather_than_pushed(tmp_path: Path) -> None:
+    """The push step found the host's head is not what was last pushed, and
+    adopted it: the unit goes back through review, and no PR is touched."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+
+    def push(branch: str, *, cwd: Path) -> str:
+        raise HostMoved("the host moved it")
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(update={"push": push})
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "held"
+    assert "pr" not in recorder.events
+    assert store.get(unit().id).state == PLANNED
+    assert store.get(unit().id).resume_from == "rework_review"
 
 
 def test_a_failed_restack_keeps_the_review_feedback_already_waiting(tmp_path: Path) -> None:

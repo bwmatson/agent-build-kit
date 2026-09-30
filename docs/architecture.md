@@ -239,7 +239,16 @@ binds each step to git, gh and `claude`:
    `--force-with-lease=<branch>:<sha last pushed>` (the store remembers the
    SHA across processes) or no force at all for a first push. Then the PR is
    created — or edited, on a re-push — with a body saying where it sits in the
-   stack, what it assumes, and how it was verified; the `local/tier2` commit
+   stack, what it assumes, and how it was verified. Where the host has stacks
+   (the forge's `supports_stacks`), the PR is then registered with the host as
+   part of the stack of the PR beneath it — created with both, bottom first,
+   or appended — and the body leaves the order to the host, saying only
+   whether the chain is linear and that it merges after what is beneath it.
+   Registration is advisory: a refusal (or any error from the host) is
+   recorded on the unit (`stack_refusal`), logged once, and changes nothing
+   else — except that a PR the host did not stack keeps the order in its
+   body, as on a host without stacks, which is never asked. Either way the
+   body says when the branch no longer sits on its base. The `local/tier2` commit
    status is posted for the tested SHA; the rework's replies to review threads
    are posted in those threads, signed with the commit. The unit is
    `in_review`, and its groups are ticked in `tasks.md` — now, not when a
@@ -315,6 +324,17 @@ whose diff (`git patch-id`) is unchanged and whose head review had approved,
 tier 1 runs again and the branch is pushed with a lease and a "Restacked"
 comment. Anything else — a resolved conflict, a changed diff, a head review
 never approved — goes back to `planned` to be reviewed before it is pushed.
+
+Registering a chain as a stack on the host does not hand it the rebasing: the
+host has no API to trigger its own cascading rebase, so the pipeline still owns
+`restack`. The host may rebase and force-push the branches above a stack merge
+itself, though — every branch above, not only the merged PR's direct child.
+So every push first reads the branch's head where it is pushed (the restack
+does too): one that no longer holds what the pipeline last pushed was moved by
+someone else. Its head is adopted — the local branch brought to it, with any
+unpushed local commits replayed on top, and recorded as the last push so the
+next lease holds — the old approval is dropped, and the unit goes back through
+review before anything is pushed.
 
 ### 5. Post-merge verify
 
