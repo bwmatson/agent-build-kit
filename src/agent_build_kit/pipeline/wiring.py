@@ -964,6 +964,11 @@ def _lines_in(spans: list[tuple[str, int, int]], first: int, count: int) -> set[
     return {name for name, lo, hi in spans if count and first <= hi and first + count - 1 >= lo}
 
 
+def defined_tests_in_range(tree: Path, old_base: str, old_head: str) -> list[str]:
+    """Which tests the commit range `old_base..old_head` defined, deleted or edited inside."""
+    raise NotImplementedError
+
+
 def _tests_added(tree: Path, old_base: str, old_head: str) -> list[str]:
     """Test functions the unit's previous work defined, deleted or edited inside.
 
