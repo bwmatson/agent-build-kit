@@ -51,10 +51,20 @@ CONFLICT_MARKERS = ("<<<<<<<", ">>>>>>>", "=======")
 # look at what it's confirming rather than trust a cache blindly.
 RERERE = ("-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=false")
 
-# rerere's replay notice ("Resolved '<path>' using previous resolution.") goes
-# through gettext, so a translated locale would silently break the match in
-# `_replayed_files` below. This forces it back to the one string we match.
-_UNTRANSLATED_ENV = {**os.environ, "LC_ALL": "C", "LANGUAGE": "C"}
+
+def _untranslated_env() -> dict[str, str]:
+    """The environment for the one git call whose *output* we parse.
+
+    rerere's replay notice ("Resolved '<path>' using previous resolution.")
+    goes through gettext, so a translated locale would silently break the
+    match in `_replayed_files` below. This forces it back to the one string we
+    match. Built fresh at call time, not once at import: a copy taken at
+    import would freeze out any environment change made afterwards (HOME,
+    GIT_*, PATH — including what a test fixture sets up after this module is
+    imported), and this is the only call in the module that would otherwise
+    disagree with the live environment every other call sees.
+    """
+    return {**os.environ, "LC_ALL": "C", "LANGUAGE": "C"}
 
 
 def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
@@ -262,7 +272,7 @@ def move_branch_onto(
         old_base,
         branch,
         check=False,
-        env=_UNTRANSLATED_ENV,
+        env=_untranslated_env(),
     )
     if result.returncode == 0:
         return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())

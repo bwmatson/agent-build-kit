@@ -544,6 +544,63 @@ def test_the_rerere_setting_never_touches_the_repositorys_own_configuration(
     assert seen["content"] == "value = 2  # sibling\n"
 
 
+def test_the_rebase_runs_with_the_live_environment_not_an_import_time_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The environment the rebase call runs under must be built at call time.
+    A constant captured once at import would freeze out any environment
+    change made afterwards — such as this module's own `isolated_git_config`
+    fixture, which sets `GIT_CONFIG_GLOBAL` well after `restack` is imported."""
+    repo = init_repo(tmp_path / "repo")
+    commit(repo, "base.py", "base = 1\n")
+    pre = git(repo, "rev-parse", "HEAD")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/2", pre)
+    commit(repo, "feature.py", "feature = 1\n")
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "other.py", "other = 1\n")
+
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "restack-env-probe")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "probe@example.com")
+
+    move_branch_onto(repo, "spec/c/2", new_base="main", old_base=pre)
+
+    assert git(repo, "log", "-1", "--format=%cn", "spec/c/2") == "restack-env-probe"
+
+
+def test_the_rebase_call_forces_lc_all_to_c(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_replayed_files` only matches an untranslated rerere notice, so
+    whatever builds the rebase call's environment must still force LC_ALL=C —
+    a guard independent of the locale actually installed on the machine
+    running the test."""
+    repo = init_repo(tmp_path / "repo")
+    commit(repo, "base.py", "base = 1\n")
+    pre = git(repo, "rev-parse", "HEAD")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/2", pre)
+    commit(repo, "feature.py", "feature = 1\n")
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "other.py", "other = 1\n")
+
+    seen: dict = {}
+    original = restack._shell_git
+
+    def spy(repo_arg, *args, **kwargs):
+        if "--onto" in args:
+            seen["env"] = kwargs.get("env")
+        return original(repo_arg, *args, **kwargs)
+
+    monkeypatch.setattr(restack, "_shell_git", spy)
+
+    move_branch_onto(repo, "spec/c/2", new_base="main", old_base=pre)
+
+    assert seen["env"] is not None
+    assert seen["env"]["LC_ALL"] == "C"
+    assert seen["env"]["LANGUAGE"] == "C"
+
+
 def test_without_a_resolver_a_cached_resolution_still_aborts_cleanly(
     landed: tuple[Path, str], tmp_path: Path
 ) -> None:
