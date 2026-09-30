@@ -33,6 +33,11 @@ CLOSED = "closed"
 # and this describes who is driving it.
 HELD = "held"
 
+# A unit whose groups needed nothing: it added no commits of its own, and what
+# was already at the tip passed tier 1. There is no diff, so no PR and nothing
+# to review — the work arrived by another unit building ahead of its plan.
+SATISFIED = "satisfied"
+
 IN_FLIGHT = (RUNNING, IN_REVIEW)
 
 # What a dependent may build on. A unit is not finished when it starts — it is
@@ -40,8 +45,9 @@ IN_FLIGHT = (RUNNING, IN_REVIEW)
 # which is what `in_review` means. `IN_FLIGHT` includes `running`, so using it here
 # unblocked a dependent the moment its parent *began*, against a branch nothing
 # had reviewed and which might not exist yet. The review loop, which can send a
-# unit back three times, makes that window much wider.
-REVIEWED = (IN_REVIEW, MERGED)
+# unit back three times, makes that window much wider. A satisfied unit belongs
+# here too: it has nothing left to do and nothing that will change under it.
+REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
 
 
 class Unit(Frozen):
@@ -207,6 +213,24 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         if parent.state not in done:
             waiting.append(parent)
     return waiting
+
+
+def later_groups(unit: Unit, graph: Sequence[Unit]) -> tuple[int, ...]:
+    """Task groups of this change that belong to units after this one.
+
+    Group numbers only increase through `tasks.md`, so anything above this
+    unit's own highest group is later work — whichever unit the plan gave it
+    to, and whether or not that unit has run yet.
+    """
+    ceiling = max(unit.groups, default=0)
+    others = {
+        group
+        for other in graph
+        if other.id != unit.id and other.change == unit.change
+        for group in other.groups
+        if group > ceiling
+    }
+    return tuple(sorted(others))
 
 
 def ready_units(graph: Sequence[Unit], *, max_concurrent: int, depth_cap: int) -> list[Unit]:

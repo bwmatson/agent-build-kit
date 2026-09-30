@@ -148,15 +148,25 @@ binds each step to git, gh and `claude`:
    judges.
 3. **Tests, commit.** One scoped `claude -p` writes the group's tests (stubs
    allowed: signatures raising `NotImplementedError`, model fields), runs lint
-   and format, and stops. The pipeline commits `test: <title>`.
+   and format, and stops. The pipeline commits `test: <title>`. Both this
+   prompt and the next name the change's later groups — `tasks.md` is read in
+   full, and an agent that has just built what a later group depends on has
+   every reason to finish it too — and say why: each group is a later unit's
+   own pull request, and pulling its work forward makes this one bigger than
+   the plan intended.
 4. **Implementation, commit.** A second run makes those tests pass and may
-   not weaken them; commit `feat: <title>`. No commits means the unit fails —
-   unless the usage window is exhausted, which reads as a quiet refusal
-   rather than nothing to do, and pauses instead (see the usage guard,
-   below).
+   not weaken them; commit `feat: <title>`. A step that ends having added
+   nothing against an exhausted usage window reads as a quiet refusal rather
+   than nothing to do, and pauses (see the usage guard, below). A branch left
+   with no commits of its own — neither step added one — is not failed
+   outright; see the satisfied outcome after tier 1, below.
 5. **Review rounds.** A read-only reviewer (`Read Grep Glob`, `git diff/log/
    show`) judges the branch against the repo's `CLAUDE.md` and the change and
-   answers JSON: `approved`, `feedback`, `needs_human`. An unreadable reply is
+   answers JSON: `approved`, `feedback`, `needs_human`. It is told the same
+   boundary as the build: a finding whose fix belongs to a later group is
+   reported as belonging there, not required of this unit, while it keeps its
+   full reach — find everything in one pass, sweep the domain — over this
+   unit's own groups. An unreadable reply is
    a rejection. Rejected feedback goes to a rework run, which commits and
    accounts for each point; the next round is judged by `models.rework_review`
    and shown the earlier rounds. Up to `limits.max_review_rounds`; the last
@@ -167,7 +177,12 @@ binds each step to git, gh and `claude`:
 6. **Tier 1.** Lint scoped to the unit's diff, then the tests of the members
    it touched (see [toolchain-profiles.md](toolchain-profiles.md)). A failure
    is kept as feedback, so the retry is one scoped rework rather than a
-   rebuild.
+   rebuild. A unit that reaches here with no commits of its own — its groups
+   were already implemented, by a predecessor that worked ahead — is judged on
+   this check alone: tier 1 passing makes it `satisfied` rather than `failed`,
+   its groups ticked and its dependents released, with no PR opened; tier 1
+   failing still fails it. Judged on the branch and the check, never on what
+   the build step reported about itself.
 7. **Tier 2**, for `tier2` units. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev
