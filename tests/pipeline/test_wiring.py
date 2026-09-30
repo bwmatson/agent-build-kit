@@ -706,6 +706,47 @@ def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Pa
     assert _tests_changed(repo, keep) == {"test_b"}
 
 
+def _changed_after(tmp_path: Path, before: str, after: str) -> set[str]:
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    (repo / "test_mod.py").write_text(before)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    keep = "refs/spec-driven/pre-adapt/c-3"
+    git(repo, "update-ref", keep, "HEAD")
+    (repo / "test_mod.py").write_text(after)
+    return _tests_changed(repo, keep)
+
+
+def test_a_skip_added_over_an_unchanged_body_reads_as_changed(tmp_path: Path) -> None:
+    before = "def test_a():\n    assert 1 == 1\n"
+    after = "import pytest\n\n\n@pytest.mark.skip\ndef test_a():\n    assert 1 == 1\n"
+
+    assert _changed_after(tmp_path, before, after) == {"test_a"}
+
+
+def test_a_parametrize_list_shortened_over_an_unchanged_body_reads_as_changed(
+    tmp_path: Path,
+) -> None:
+    body = "def test_a(x):\n    assert x\n"
+    before = "import pytest\n\n\n@pytest.mark.parametrize('x', [1, 2, 3])\n" + body
+    after = "import pytest\n\n\n@pytest.mark.parametrize('x', [1])\n" + body
+
+    assert _changed_after(tmp_path, before, after) == {"test_a"}
+
+
+def test_one_of_two_same_named_tests_weakened_reads_as_changed(tmp_path: Path) -> None:
+    def source(first: str) -> str:
+        return (
+            f"class TestA:\n    def test_x(self):\n        {first}\n\n\n"
+            "class TestB:\n    def test_x(self):\n        assert 1 == 1\n"
+        )
+
+    assert _changed_after(tmp_path, source("assert 1 == 1"), source("pass")) == {"test_x"}
+
+
 def test_a_review_can_be_told_what_happened_to_the_branch(tmp_path: Path) -> None:
     """The runner passes the reviewer a note when the branch was moved onto a
     changed predecessor. The real review function has to take it: fakes that

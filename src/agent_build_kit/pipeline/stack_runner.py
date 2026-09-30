@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -357,10 +357,11 @@ Port this unit's work onto the new base. The predecessor as it is now is
 authoritative: adapt to its current shape rather than restoring what it
 replaced, and do not re-implement anything it already provides.
 
-These are the tests the previous work added or changed. Carry over every one
-of them:
+These are the tests the previous work added or changed:
 
 {tests}
+
+Decide each one as you port it:
 
 - **keep** — still meaningful against the new base; carried over unchanged.
 - **adapt** — still meaningful, but changed to fit the predecessor's new shape.
@@ -505,7 +506,10 @@ def tests_needing_decision(
 
 
 def check_test_decisions(
-    old_tests: Sequence[str], decisions: Sequence[PortedTest], present: set[str]
+    old_tests: Sequence[str],
+    decisions: Sequence[PortedTest],
+    present: set[str],
+    changed: Collection[str] = frozenset(),
 ) -> list[str]:
     """What is wrong with how the adapt step accounted for the unit's tests.
 
@@ -517,13 +521,22 @@ def check_test_decisions(
     for name in old_tests:
         decision = decided.get(name)
         if decision is None:
-            problems.append(f"no decision for `{name}`")
+            problems.append(
+                f"no decision for `{name}`, which differs from the previous work"
+                if name in changed
+                else f"no decision for `{name}`"
+            )
         elif decision.decision not in ("keep", "adapt", "retire"):
             problems.append(f"`{name}`: unknown decision {decision.decision!r}")
         elif decision.decision == "retire" and len(decision.reason.strip()) < 20:
             problems.append(f"`{name}` retired without a reason naming the predecessor's change")
         elif decision.decision == "keep" and name not in present:
             problems.append(f"`{name}` is marked keep but is not in the tree")
+        elif decision.decision == "keep" and name in changed:
+            problems.append(
+                f"`{name}` is marked keep but differs from the previous work — mark it "
+                "adapt and say what changed, or restore it"
+            )
         elif (
             decision.decision == "adapt"
             and name not in present
@@ -1250,11 +1263,10 @@ class UnitRunner(BaseModel):
         # carried over — reading it before the commit would see none of the
         # unit's own tests and narrow `required` to everything, every time.
         present = self.tests_in(tree)
-        required = tests_needing_decision(
-            restacked.old_tests, present, self.tests_changed(tree, keep)
-        )
+        changed = self.tests_changed(tree, keep)
+        required = tests_needing_decision(restacked.old_tests, present, changed)
         decisions = parse_test_decisions(answer)
-        problems = check_test_decisions(required, decisions, present)
+        problems = check_test_decisions(required, decisions, present, changed)
         # A checker that is unhappy is put back to the agent, bounded: the
         # code already landed with the commit above, so a second miss costs
         # one short prompt rather than a re-port.
@@ -1271,7 +1283,7 @@ class UnitRunner(BaseModel):
             by_name = {d.name: d for d in decisions}
             by_name.update({d.name: d for d in parse_test_decisions(answer)})
             decisions = list(by_name.values())
-            problems = check_test_decisions(required, decisions, present)
+            problems = check_test_decisions(required, decisions, present, changed)
         if problems:
             why = "the adapt step did not account for its tests: " + "; ".join(problems)
             waiting = self.store.get(unit.id).feedback

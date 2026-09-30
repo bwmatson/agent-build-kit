@@ -897,26 +897,30 @@ def _tests_in(tree: Path) -> set[str]:
     return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
 
 
-def _test_bodies(source: str) -> dict[str, str]:
-    """Each `test_*` function's own source text, by name.
+def _test_bodies(source: str) -> dict[str, list[str]]:
+    """Each `test_*` function's own source text, by name, decorators included.
 
-    Body against body, not the file's diff: a test moved, reindented or
-    resurrounded by unrelated edits should not read as changed, but one whose
-    assertions actually shifted must — even kept under its old name.
+    Body against body, not the file's diff: a test moved or resurrounded by
+    unrelated edits should not read as changed, but one whose assertions,
+    markers or parametrized cases actually shifted must — even kept under its
+    old name. Every same-named test is kept (in different classes, say), so a
+    change to any of them shows. A test moved into a class reads as changed,
+    the safe direction.
     """
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return {}
-    bodies: dict[str, str] = {}
+    lines = source.splitlines()
+    bodies: dict[str, list[str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
             "test_"
         ):
-            segment = ast.get_source_segment(source, node)
-            if segment is not None:
-                bodies[node.name] = segment
-    return bodies
+            first = min([d.lineno for d in node.decorator_list] + [node.lineno])
+            end = node.end_lineno or node.lineno
+            bodies.setdefault(node.name, []).append("\n".join(lines[first - 1 : end]))
+    return {name: sorted(texts) for name, texts in bodies.items()}
 
 
 def _tests_changed(tree: Path, ref: str) -> set[str]:
@@ -924,14 +928,15 @@ def _tests_changed(tree: Path, ref: str) -> set[str]:
 
     A test that only survived the replay by name — kept, but silently
     weakened — must still be asked about; comparing function bodies rather
-    than names is what catches that.
+    than names is what catches that. Data living outside the function, such as
+    a module-level table a parametrize reads, is not seen.
     """
     changed: set[str] = set()
     for path in git(tree, "ls-files", "*.py", check=False).stdout.splitlines():
         file = tree / path
         if not file.exists():
             continue
-        current = _test_bodies(file.read_text())
+        current = _test_bodies(file.read_text(errors="replace"))
         if not current:
             continue
         old_source = git(tree, "show", f"{ref}:{path}", check=False)
