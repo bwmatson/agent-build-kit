@@ -197,7 +197,14 @@ def validation_errors(
     *,
     repos: tuple[str, ...],
     run_openspec: openspec.Run | None = None,
+    specs_dir: str = "openspec",
 ) -> list[str]:
+    """Why `change` is not ready to be built, or an empty list.
+
+    `specs_dir` is where the workspace keeps its OpenSpec store; `abk.yaml` can
+    move it, and a check that assumes `openspec/` would call every change in
+    such a workspace missing its tasks.
+    """
     errors: list[str] = []
     result = openspec.validate(planning, run=run_openspec)
     try:
@@ -224,7 +231,7 @@ def validation_errors(
                     issue = issue.get("message", json.dumps(issue))
                 errors.append(f"openspec: {issue}")
 
-    tasks = planning / "openspec" / "changes" / change / "tasks.md"
+    tasks = planning / specs_dir / "changes" / change / "tasks.md"
     if not tasks.is_file():
         errors.append(f"{tasks.relative_to(planning)} is missing")
     else:
@@ -249,7 +256,6 @@ def propose(
     runtime: AgentRuntime | None = None,
 ) -> str:
     """Write the change and return its name, or raise `ProposeError`."""
-    agent = runtime_for(run_claude, runtime)
     workspace_repos = repos or (repo_name,)
     change = change_name(repo_name, kind)
     text = recommendations.read_text() if recommendations.is_file() else ""
@@ -261,6 +267,41 @@ def propose(
         recommendations=text,
         repos=workspace_repos,
     )
+    return write_change(
+        prompt,
+        planning=planning,
+        change=change,
+        reads=(detection.path,),
+        repos=workspace_repos,
+        run_claude=run_claude,
+        run_openspec=run_openspec,
+        runtime=runtime,
+    )
+
+
+def write_change(
+    prompt: str,
+    *,
+    planning: Path,
+    change: str,
+    reads: tuple[Path, ...] = (),
+    repos: tuple[str, ...],
+    run_claude: RunClaude | None = None,
+    run_openspec: openspec.Run | None = None,
+    runtime: AgentRuntime | None = None,
+) -> str:
+    """Drive a model to write one change, validate it, repair once, or raise.
+
+    Shared by `abk init` and the `propose` track, because the interesting part
+    is not the prompt: it is that a change nobody validated is worse than no
+    change at all. The pipeline reads `tasks.md` and nothing else about a
+    change, so a mistagged group or an invalid spec becomes a unit that cannot
+    be planned, discovered a tick later with no author present.
+
+    `reads` are directories the model may read beyond the planning repo — the
+    checkouts it is proposing work in. It writes only under `planning`.
+    """
+    agent = runtime_for(run_claude, runtime)
 
     def attempt(full_prompt: str) -> list[str]:
         succeeded(
@@ -268,14 +309,14 @@ def propose(
                 AgentRequest(
                     prompt=full_prompt,
                     cwd=planning,
-                    add_dirs=(detection.path,),
+                    add_dirs=reads,
                     allowed_tools=ALLOWED_TOOLS,
                     permission_mode="edit",
                     policy=_policy(),
                 )
             )
         )
-        return validation_errors(planning, change, repos=workspace_repos, run_openspec=run_openspec)
+        return validation_errors(planning, change, repos=repos, run_openspec=run_openspec)
 
     errors = attempt(prompt)
     if errors:

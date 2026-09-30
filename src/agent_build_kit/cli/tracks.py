@@ -16,15 +16,16 @@ def cmd_track(args: argparse.Namespace, inst: Installation) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     track = sub.add_parser(
         "track",
-        help="run a scheduled track (health, improve, recommend) or the implement pass now",
+        help="run a scheduled track (health, improve, recommend) or the propose pass now",
     )
     track.add_argument(
         "phase",
         choices=PHASES,
         help="'health': daily read-only pulse check. 'improve': weekly discovery + one "
-        "implement pass that may open PRs. 'recommend': weekly bigger-picture discovery + "
-        "one implement pass for the rare bounded finding. 'implement': standalone — work "
-        "down the existing backlog (see --focus). Each runs once per eligible repo.",
+        "propose pass that may write a change. 'recommend': weekly bigger-picture discovery "
+        "+ one propose pass for the rare bounded finding. 'propose': standalone — turn the "
+        "existing backlog into a change (see --focus). Each runs once per eligible repo. "
+        "A track never edits a repo: it writes a change, and the pipeline builds it.",
     )
     track.add_argument(
         "--project",

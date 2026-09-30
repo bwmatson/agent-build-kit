@@ -34,17 +34,19 @@ def inst(tmp_path: Path) -> Installation:
 
 def test_a_phase_runs_through_the_runtime_it_is_given(inst: Installation) -> None:
     """The phase's model and tools come from the tracks configuration, its
-    prompt is the rendered playbook, and it names its own worktree off the
+    prompt is the rendered playbook, and it runs where that phase belongs — the
     project's checkout, with the planning repo readable for its run log."""
     runtime = StandInRuntime(raw='{"type": "result"}')
     app = project(inst)
 
-    assert runner.implement(inst, app, runtime=runtime) == 0
+    assert runner.propose(inst, app, runtime=runtime) == 0
 
     request = runtime.request
-    assert request.prompt == runner.render_prompt(inst, app, "implement")
-    assert request.cwd == app.path
-    assert request.add_dirs == (inst.root,)
+    assert request.prompt == runner.render_prompt(inst, app, "propose")
+    # The propose phase writes a change, so it runs in the planning repo with
+    # the project readable; a discovery phase is the other way round.
+    assert request.cwd == inst.root
+    assert request.add_dirs == (app.path,)
     assert request.model == "haiku"
     assert request.allowed_tools == "Read Grep"
     assert request.denied_tools.endswith("Bash(rm *)")
@@ -53,49 +55,55 @@ def test_a_phase_runs_through_the_runtime_it_is_given(inst: Installation) -> Non
         "tracks.disallowed_tools happens to name"
     )
     assert request.permission_mode == "edit"
-    assert request.worktree == f"abk-{runner.RUN_ID}"
+    assert request.worktree is None, "no track runs in a worktree of the project"
     assert request.keep_record is True
 
 
 def test_a_phase_keeps_the_runtime_s_whole_record(inst: Installation) -> None:
     runtime = StandInRuntime(answer="done", raw='{"type": "result", "result": "done"}')
 
-    runner.implement(inst, project(inst), runtime=runtime)
+    runner.propose(inst, project(inst), runtime=runtime)
 
-    output = runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-implement.json"
+    output = runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-propose.json"
     assert output.read_text() == '{"type": "result", "result": "done"}'
 
 
 def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Installation) -> None:
     """The same flags `build_command` assembled from the tracks
-    configuration, run in the project's checkout, and the JSON record it
-    printed kept as the raw output."""
+    configuration, run in the planning repo with the project readable beside
+    it, and the JSON record it printed kept as the raw output."""
     app = project(inst)
-    fake = FakeClaude(stdout=record("Opened one PR."))
+    fake = FakeClaude(stdout=record("Wrote one change."))
 
-    assert runner.implement(inst, app, runtime=ClaudeCodeRuntime(execute=fake)) == 0
+    assert runner.propose(inst, app, runtime=ClaudeCodeRuntime(execute=fake)) == 0
 
-    prompt = runner.render_prompt(inst, app, "implement")
+    prompt = runner.render_prompt(inst, app, "propose")
     assert flags(fake.argv, prompt) == {
         "-p": None,
-        "--worktree": f"abk-{runner.RUN_ID}",
-        "--add-dir": str(inst.root),
+        "--add-dir": str(app.path),
         "--permission-mode": "acceptEdits",
         "--allowedTools": "Read Grep",
         "--disallowedTools": runner.denied_tools_value("Bash(rm *)"),
         "--model": "haiku",
         "--output-format": "json",
         "--settings": json.dumps(
-            hook_settings(None, planning_repo=inst.root, planning_state_dir=inst.state_dir)
+            hook_settings(
+                None,
+                planning_repo=inst.root,
+                planning_state_dir=inst.state_dir,
+                # A propose run is granted the one change it writes, and only that.
+                planning_change_dir=inst.changes_dir / runner.proposed_change(app),
+            )
         ),
     }
-    assert fake.calls[0][1] == app.path
-    output = runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-implement.json"
+    assert fake.calls[0][1] == inst.root, "a propose run writes where the change lives"
+    output = runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-propose.json"
     assert output.read_text() == fake.stdout
 
 
 def test_a_discovery_phase_names_no_worktree(inst: Installation) -> None:
-    """Health, improve and recommend read; only implement makes a checkout."""
+    """Health, improve and recommend read, and propose writes a change in the
+    planning repo: none of them makes a checkout of the project."""
     runtime = StandInRuntime()
 
     runner.health(inst, project(inst), runtime=runtime)
@@ -104,8 +112,8 @@ def test_a_discovery_phase_names_no_worktree(inst: Installation) -> None:
     assert runtime.request.model == "haiku"
 
 
-def test_health_s_early_implement_uses_the_same_runtime(inst: Installation) -> None:
-    """A new finding runs implement straight away — through the runtime the
+def test_health_s_early_propose_uses_the_same_runtime(inst: Installation) -> None:
+    """A new finding runs propose straight away — through the runtime the
     track was given, not a default one."""
     app = project(inst)
 
@@ -118,16 +126,16 @@ def test_health_s_early_implement_uses_the_same_runtime(inst: Installation) -> N
     runtime = StandInRuntime(act=report_attention)
 
     assert runner.health(inst, app, runtime=runtime) == 0
-    assert [r.worktree for r in runtime.requests] == [None, f"abk-{runner.RUN_ID}"]
+    assert [r.worktree for r in runtime.requests] == [None, None]
 
 
-def test_a_failed_discovery_still_runs_implement_through_the_runtime(inst: Installation) -> None:
-    """A phase that fails is reported, never raised, and the implement pass
+def test_a_failed_discovery_still_runs_propose_through_the_runtime(inst: Installation) -> None:
+    """A phase that fails is reported, never raised, and the propose pass
     after it still runs."""
     runtime = StandInRuntime(ok=False, error="claude exited 3: budget exhausted")
 
     assert runner.DISPATCH["improve"](inst, project(inst), None, runtime=runtime) == 1
-    assert [r.worktree for r in runtime.requests] == [None, f"abk-{runner.RUN_ID}"]
+    assert [r.worktree for r in runtime.requests] == [None, None]
 
 
 # What the CLI hands back for each refusal, and what the log must say of it.
@@ -150,19 +158,19 @@ def test_a_refused_phase_is_reported_never_raised(
     the CLI said is all it has, which the log line carries whole."""
     fake = FakeClaude(**answer)
 
-    assert runner.implement(inst, project(inst), runtime=ClaudeCodeRuntime(execute=fake)) == 1
+    assert runner.propose(inst, project(inst), runtime=ClaudeCodeRuntime(execute=fake)) == 1
 
     out = capsys.readouterr().out
-    assert "[app] implement phase stopped" in out
+    assert "[app] propose phase stopped" in out
     assert said in out
-    assert not (runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-implement.json").exists()
+    assert not (runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-propose.json").exists()
 
 
 @pytest.mark.parametrize("answer, said", REFUSALS.values(), ids=REFUSALS.keys())
-def test_a_refused_discovery_still_runs_implement(
+def test_a_refused_discovery_still_runs_propose(
     inst: Installation, answer: dict, said: str, capsys
 ) -> None:
-    """The documented contract: a track never raises, and the implement pass
+    """The documented contract: a track never raises, and the propose pass
     after a refused discovery phase still runs."""
     fake = FakeClaude(**answer)
     assert (
@@ -172,11 +180,11 @@ def test_a_refused_discovery_still_runs_implement(
         == 1
     )
 
-    assert ["--worktree" in argv for argv, _ in fake.calls] == [False, True]
+    assert ["--worktree" in argv for argv, _ in fake.calls] == [False, False]
     stopped = [line for line in capsys.readouterr().out.splitlines() if "phase stopped" in line]
     assert len(stopped) == 2
     assert "[app] improve phase stopped" in stopped[0]
-    assert "[app] implement phase stopped" in stopped[1]
+    assert "[app] propose phase stopped" in stopped[1]
     assert all(said in line for line in stopped)
 
 
@@ -186,13 +194,14 @@ def test_a_dry_run_on_another_runtime_prints_the_request_and_runs_nothing(
     """Not a `claude` command: what the runtime would be asked, prompt elided."""
     runtime = StandInRuntime()
 
-    assert runner.implement(inst, project(inst), dry_run=True, runtime=runtime) == 0
+    assert runner.propose(inst, project(inst), dry_run=True, runtime=runtime) == 0
 
     out = capsys.readouterr().out
-    assert "# Mission: implement phase — project `app`" in out
-    assert "implement: stand_in request (prompt elided)" in out
+    assert "# Mission: propose phase — project `app`" in out
+    assert "propose: stand_in request (prompt elided)" in out
     assert "'model': 'haiku'" in out
-    assert f"'worktree': 'abk-{runner.RUN_ID}'" in out
+    assert "'worktree': None" in out, "a change needs no checkout of the project"
+    assert f"'cwd': PosixPath('{inst.root}')" in out, "it runs where the change is written"
     assert "claude -p" not in out
     assert runtime.requests == []
     assert not runner.raw_output_dir(inst).exists()
@@ -202,4 +211,4 @@ def test_with_no_runtime_given_a_phase_uses_the_active_one(inst: Installation) -
     """Not a `claude` process of its own: the default is the workspace's
     runtime, whose real executor the suite refuses."""
     with pytest.raises(AssertionError, match="inject `execute=`"):
-        runner.implement(inst, project(inst))
+        runner.propose(inst, project(inst))

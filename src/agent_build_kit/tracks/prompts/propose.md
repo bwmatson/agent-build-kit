@@ -1,17 +1,22 @@
-# Mission: implement phase — project `__PROJECT__`
+# Mission: propose phase — project `__PROJECT__`
 
-You are running unattended, inside a fresh git worktree of `__PROJECT__`
-(`__PROJECT_DIR__`, GitHub `__PROJECT_REPO__`): __PROJECT_DESCRIPTION__
-This phase runs weekly, right after `improve.md` and (a different day)
-after `recommend.md`, and also on-demand right after a non-OK
-`health.md` result or when triggered standalone: turn already-identified
-findings into reviewable PRs against `__PROJECT_REPO__`. Never merge
-anything yourself.
+You are running unattended in the planning repo (`__PLANNING_DIR__`), with
+`__PROJECT__`'s checkout (`__PROJECT_DIR__`, `__PROJECT_REPO__`) readable
+beside you: __PROJECT_DESCRIPTION__ This phase runs weekly, right after
+`improve.md` and (a different day) after `recommend.md`, and also on-demand
+right after a non-OK `health.md` result or when triggered standalone.
+
+**Turn already-identified findings into one OpenSpec change that the pipeline
+will build.** You do not edit `__PROJECT__`'s code, open a pull request, or
+touch its branches. The pipeline turns a change's task groups into branches and
+pull requests itself, with a build and review loop around each one; work written
+here by hand goes around all of that, and the pipeline would later find it
+already done.
 
 ## Scope: this project's repo only
 
 The tracks run once per repo in this workspace, and every other repo
-gets its own implement run. The workspace:
+gets its own propose run. The workspace:
 
 __WORKSPACE_REPOS__
 
@@ -32,13 +37,21 @@ with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet) — same refresh `health.md`/`improve.md`/`recommend.md`
 already do, but don't skip it here even though one of them may have just
 run: this phase can also be triggered standalone, on-demand, when the
-tracker could be stale (e.g. you merged a PR by hand since the last
-scheduled run). For each "Pending resolution" entry (every project's),
-check its PR's real state: `gh pr view <url> --json state -q .state`.
+tracker could be stale (e.g. a change was built and merged since the last
+scheduled run). For each "Pending resolution" entry (every project's), check
+where its change has got to:
 
-- `MERGED` → remove that entry.
-- `CLOSED` (without merging) → move it to the "Rejected" section instead.
-- `OPEN` → leave it as-is.
+- A directory ending `-<change>` under `__PLANNING_DIR__/openspec/changes/archive/`
+  → the pipeline built it and it merged. Remove that entry. The fix landed; if
+  the same problem shows up again in this run's findings (step 4), it's a
+  fresh finding, not a duplicate.
+- Still at `__PLANNING_DIR__/openspec/changes/<change>/` → it's in flight.
+  Leave it as-is.
+- Neither → it was rejected or dropped. Move it to the "Rejected" section.
+
+An older entry names a pull request URL instead, from before tracks wrote
+changes. Check those with `gh pr view <url> --json state -q .state`: `MERGED`
+→ remove, `CLOSED` (without merging) → "Rejected", `OPEN` → leave.
 
 The pipeline commits these edits with everything else you write in the planning repo.
 
@@ -52,7 +65,7 @@ Read the recent entries for this project under `__STATE_DIR__/` —
 in the same shape — most recent first (weighted toward the focus above,
 if one was given). Note: most recommend entries will have none — that
 phase mostly produces human-facing recommendations, not bounded fixes,
-by design. Skip anything already marked `[actioned — PR #N]` on its own
+by design. Skip anything already marked `[proposed — <change>]` or `[actioned — …]` on its own
 line (see step 3 — this is the direct, reliable signal). Also skip
 anything in `tracked-issues.md`'s "Pending resolution" (just refreshed
 in step 0) or "Rejected."
@@ -84,12 +97,12 @@ different issues, not thoroughness within one. "Highest-value": a
 security gap or an active bug generally outweighs a style/convention
 fix, all else equal, but use judgment — this isn't a strict ranking.
 
-Then choose up to __IMPLEMENT_MAX_PRS__ **distinct issues** (not
-__IMPLEMENT_MAX_PRS__ candidates that happen to fall into however many
-issues they land in) — one PR per issue, each meeting these bars:
+Then choose up to __MAX_ISSUES__ **distinct issues** (not __MAX_ISSUES__
+candidates that happen to fall into however many issues they land in) — one
+task group per issue, each meeting these bars:
 
 - **Well-evidenced and independently mergeable** — the finding cites
-  something concrete (not a vague "could be better"), and one PR doesn't
+  something concrete (not a vague "could be better"), and one group doesn't
   depend on another (in this repo or any other).
 - **Bounded blast radius, not bounded diff size.** Diff size isn't the
   bar — a mechanical multi-file rename can be safer than a one-line
@@ -114,70 +127,83 @@ actioned, belonging elsewhere, or the log has none — that's a valid
 outcome. Write the log entry (step 5) saying so and stop. Don't
 manufacture work to justify the run.
 
-## 2. Implement each chosen candidate
+## 2. Write one change for what you chose
 
-For each, on its own branch:
-- Make the smallest correct fix for what the finding actually is —
-  "smallest correct" is about not overreaching past the finding, not
-  about capping how big the finding itself is allowed to be (see the
-  blast-radius framing above). Follow existing patterns in the file/
-  service you're touching — don't introduce new abstractions the codebase
-  doesn't already use.
-- **Ship a unit test with the change.** If it touches a workflow that
-  spans multiple components, add an integration test too, following
-  whatever integration-test convention this project already has (its
-  `CLAUDE.md`/READMEs/test config say — e.g. a marker for tests that
-  need a live stack).
-- Run the project's pre-commit hooks and the relevant package's test
-  command (its `CLAUDE.md` says what they are — e.g. `pre-commit run
-  --all-files` and `uv run pytest`, or its integration variant) before
-  considering the change done. Zero lint/type violations, tests passing
-  — non-negotiable.
-- If the change touches a service's exposed API, outbound calls, or core
-  logic flow, update that service's `README.md` in the same change (when
-  the project's `CLAUDE.md` documents that convention — most do).
+Write it under `__PLANNING_DIR__/openspec/changes/__PROPOSED_CHANGE__/`, as
+the OpenSpec schema and this workspace's rules
+(`__PLANNING_DIR__/openspec/config.yaml`) define it: `proposal.md`,
+`specs/<capability>/spec.md`, `design.md` where the work warrants one, and
+`tasks.md`.
 
-## 3. Open the PR and track it
+`tasks.md` is the only file the pipeline reads about a change, so it carries
+the contract:
 
-`gh pr create` against `__PROJECT_REPO__` for each finished candidate,
-with a description that states the *finding* (why this change exists,
-and which run — health, improve, or recommend — it came from) before the
-diff summary. Never `gh pr merge` — that tool is not available to you for
-a reason.
+```
+## <n>. [__PROJECT__] [tier1] <title>
 
-For each PR you open, add an entry under
-`__STATE_DIR__/tracked-issues.md`'s "Pending resolution" section (short
-id, project: `__PROJECT__`, one-line summary, which run first found it,
-the PR URL, and this run's id as "opened by"). This is what lets
-`health.md`/`improve.md`/`recommend.md` recognize the same problem next
-time and not propose it again while your PR is still open — skipping it
+- [ ] <n>.1 Test: <the failing test that states the finding>
+- [ ] <n>.2 <the change that makes it pass>
+```
+
+- Every group heading names the repo exactly as `abk.yaml` spells it and the
+  tier it needs; `tier1` is the ordinary suite, `tier2` needs the real local
+  stack.
+- Test tasks come before implementation tasks — a unit's first commit is its
+  failing tests.
+- A group never spans repos. A finding whose fix needs another repo is not
+  yours: leave it, and say so in the log.
+- Every change has an `[acceptance]` group or a line saying why it has none.
+- One group per issue you chose, in the order they should be built.
+
+Ground every group in the finding that produced it: the proposal says *why*
+this change exists and which run found it, and a task names the file or the
+behaviour it is about rather than describing work in general.
+
+Then check your own work before you finish:
+
+```
+abk check          # the OpenSpec artifacts
+abk tags __PROPOSED_CHANGE__   # the heading contract above
+```
+
+Both must pass. A change that does not validate is worse than no change: the
+pipeline will read it, fail to plan it, and report that a tick later with
+nobody present.
+
+## 3. Track it
+
+Add an entry under `__STATE_DIR__/tracked-issues.md`'s "Pending resolution"
+section for each issue the change covers (short id, project: `__PROJECT__`,
+one-line summary, which run first found it, the change name
+`__PROPOSED_CHANGE__`, and this run's id as "opened by"). This is what lets
+`health.md`/`improve.md`/`recommend.md` recognise the same problem next time
+and not propose it again while the change is still in flight — skipping it
 breaks that.
 
-Also go back and edit the source run-log entry's own list item — the
-one exception to `__STATE_DIR__` being append-only for anything other
-than `tracked-issues.md`, and deliberately narrow: change only that one
-candidate's `[not-yet-actioned]` marker to
-`[actioned — PR #N](<PR URL>)`, leaving the rest of the line (the
-finding text) untouched. This is what makes the original `health`/
-`improve`/`recommend` entry self-documenting — a human (or a future run)
-can see what happened to a candidate right there, without cross-
-referencing every later `implement.md` entry to piece it together.
+Also go back and edit the source run-log entry's own list item — the one
+exception to `__STATE_DIR__` being append-only for anything other than
+`tracked-issues.md`, and deliberately narrow: change only that one candidate's
+`[not-yet-actioned]` marker to `[proposed — __PROPOSED_CHANGE__]`, leaving the
+rest of the line untouched. This is what makes the original entry
+self-documenting.
 
 ## 4. If you get stuck
 
-If a fix turns out riskier than the finding suggested — not "bigger than
-expected" on its own (that's fine per step 1's framing), but genuinely
-unclear intended behavior, or a design decision hiding inside what
-looked like a fix — stop rather than pushing something half-right. Write
-that in the log instead of a PR — a human deciding "not worth it yet" is
-a fine outcome; a rushed PR is not. Move on to the next candidate (if
-any) rather than letting one stuck candidate block the rest.
+If a finding turns out riskier than it looked — not "bigger than expected" on
+its own (that's fine per step 1's framing), but genuinely unclear intended
+behaviour, or a design decision hiding inside what looked like a fix — leave it
+out of the change rather than writing task groups that guess. Say so in the
+log: a human deciding "not worth it yet" is a fine outcome, and a change built
+on a guess spends a whole unit discovering that.
+
+If nothing survives, write no change at all and say so. An empty change
+directory left behind is a change the pipeline will try to plan.
 
 ## 5. Write the run log entry
 
 Write `__RUN_LOG__` in the planning repo (`__PLANNING_DIR__`) — that
 exact path, not a timestamp you generate yourself — covering: the issues
 you identified and which candidate you picked for each (and why it beat
-other candidates on the same issue, if any), what you did, the PR
-link(s) (or why you stopped without one), and any candidate you skipped
-because it belongs to another repo or needs a multi-repo change. The pipeline commits and pushes what you write in the planning repo (this file, your `tracked-issues.md` edits and any source run-log marker edits) — don't run git there, and leave its branch as it is.
+other candidates on the same issue, if any), the change you wrote and the task
+groups in it (or why you wrote none), and any candidate you skipped because it
+belongs to another repo or needs a multi-repo change. The pipeline commits and pushes what you write in the planning repo (this file, your `tracked-issues.md` edits and any source run-log marker edits) — don't run git there, and leave its branch as it is.

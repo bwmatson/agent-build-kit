@@ -26,7 +26,7 @@ complexity; a shallow one has an interface about as complex as what it does.)
 
 Be conservative, same bar as `technical-debt.md`: only report something
 concrete enough that a specific person would immediately see what to change
-and roughly how big it is. Calibrate bounded vs. not the way `implement.md`
+and roughly how big it is. Calibrate bounded vs. not the way `propose.md`
 expects: a fix is bounded when it changes a module's own internals without
 changing its callers' signatures (collapsing duplicated logic behind one new
 private method, replacing a hardcoded literal with an existing constant,

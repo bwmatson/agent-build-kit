@@ -8,8 +8,9 @@ pre-commit dependencies repo-wide, respects a root
 `.dependency-update-check-ignore` if the project has one, and only
 proposes updates that have been public 14+ days. It never auto-commits —
 treat its scan output as this category's findings, and any updates it
-recommends applying as candidates for the implement phase (implement +
-test + PR), not something to apply directly here. Without the skill, do
+recommends applying as candidates for the propose phase (a change whose
+tasks write the test and then make the update), not something to apply
+directly here. Without the skill, do
 the same by hand: list each lockfile's pinned versions against what's
 published, and apply the same 14-day rule.
 
