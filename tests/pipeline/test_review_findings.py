@@ -15,6 +15,7 @@ import pytest
 from agent_build_kit.pipeline import stack_runner
 from agent_build_kit.pipeline.stack_runner import (
     Finding,
+    RunOutcome,
     _earlier_rounds,
     parse_verdict,
     render_findings,
@@ -73,7 +74,7 @@ class Watching(Recorder):
         return super().claude(prompt, cwd=cwd)
 
 
-def _run(tmp_path: Path, verdicts: list[str]) -> tuple[Watching, UnitStore, object]:
+def _run(tmp_path: Path, verdicts: list[str]) -> tuple[Watching, UnitStore, RunOutcome]:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Watching()
