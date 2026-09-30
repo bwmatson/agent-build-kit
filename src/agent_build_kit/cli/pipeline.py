@@ -77,7 +77,9 @@ from agent_build_kit.pipeline.units import (
     open_pr_count,
     ready_units,
 )
+    local_ref,
 from agent_build_kit.pipeline.usage_guard import (
+    trunk_of,
     Interrupted,
     Limits,
     RateLimited,
@@ -1135,15 +1137,19 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     from agent_build_kit.pipeline.gate import check_branch
 
     profile_name = args.profile
-    if inst is not None and profile_name is None:
+    base = args.base
+    if inst is not None:
         repo = Path(args.repo).resolve()
         for name, path in inst.checkouts.items():
             if repo == path.resolve() or repo.is_relative_to(path.resolve()):
-                profile_name = inst.repo(name).profile
+                profile_name = profile_name or inst.repo(name).profile
+                # The remote's copy, as the runner builds on: the local branch of
+                # that name is the user's, and nothing updates it.
+                base = base or local_ref(trunk_of(name))
                 break
     profile = profiles.get(profile_name or "python-uv")
     cache = CheckCache(args.cache) if args.cache else None
-    problems = check_branch(Path(args.repo), args.base, cache=cache, profile=profile)
+    problems = check_branch(Path(args.repo), base or "main", cache=cache, profile=profile)
     for problem in problems:
         print(f"✗ {problem}")
     if problems:
@@ -1194,7 +1200,11 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     gate = sub.add_parser("gate", help="the push gate for a unit's branch")
     gate.add_argument("--repo", type=Path, default=Path.cwd())
-    gate.add_argument("--base", default="main", help="branch this unit stacks on")
+    gate.add_argument(
+        "--base",
+        default=None,
+        help="branch this unit stacks on (default: the remote's copy of the repo's default branch)",
+    )
     gate.add_argument("--cache", type=Path, default=None)
     gate.add_argument("--profile", default=None, help="toolchain profile (default: from abk.yaml)")
     gate.set_defaults(func=cmd_gate, needs_installation="optional")

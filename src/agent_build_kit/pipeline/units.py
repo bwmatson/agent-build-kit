@@ -196,13 +196,29 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     return tuple(out)
 
 
+def trunk_of(repo: str) -> str:
+    """The branch a repo's work lands on: what abk.yaml says, else `main`.
+
+    This was a literal `main` in `base_of`, while `default_branch` was written
+    into abk.yaml, documented as the branch units are built on, and read by the
+    doctor. A repo that integrates on `dev` — one that `origin/HEAD` still says
+    is `main` — therefore had every unit built on a branch that lacks the code
+    it changes, and its pull requests proposed into the wrong place.
+
+    A repo the workspace does not name gets `main`: it cannot be built anyway,
+    and asking where it would start must not raise.
+    """
+    entry = active().repos.get(repo)
+    return entry.default_branch if entry is not None else "main"
+
+
 def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     """The branch this unit builds on.
 
-    Its newest still-open dependency in the same repo, or `main` when they
-    have all merged. Nothing starts from `main` by default: if the work it
-    needs is in flight, stacking on it is what keeps the two from duplicating
-    or conflicting.
+    Its newest still-open dependency in the same repo, or the repo's default
+    branch when they have all merged. Nothing starts from the trunk by default:
+    if the work it needs is in flight, stacking on it is what keeps the two from
+    duplicating or conflicting.
 
     A same-repo dependency that is satisfied is transparent (see
     `through_satisfied`): it has no branch of its own, so its dependent stacks
@@ -220,7 +236,7 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
         if dep in index and index[dep].repo == unit.repo and index[dep].state == IN_REVIEW
     ]
     if not candidates:
-        return "main"
+        return trunk_of(unit.repo)
     return branch_name(candidates[-1])
 
 

@@ -11,6 +11,7 @@ touch git and GitHub are separate again.
 
 import pytest
 
+from agent_build_kit import config as config_module
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     RUNNING,
@@ -157,6 +158,54 @@ def test_a_unit_with_no_open_dependency_starts_from_main() -> None:
     graph = [unit("a", state="merged"), unit("b", depends_on=("a",))]
 
     assert base_of(graph[1], graph) == "main"
+
+
+def on_branch(repo: str, branch: str) -> None:
+    """Activate the workspace with `repo`'s default branch set, as abk.yaml would."""
+    current = config_module.active()
+    repos = {
+        name: entry.model_copy(update={"default_branch": branch}) if name == repo else entry
+        for name, entry in current.repos.items()
+    }
+    config_module.activate(current.model_copy(update={"repos": repos}), config_module.active_root())
+
+
+def test_a_unit_starts_from_its_repo_s_own_default_branch() -> None:
+    """`default_branch` is what units are built on and what their PRs target.
+    It was written into abk.yaml and read by the doctor, and the pipeline
+    started every unit from a literal `main` regardless — so a repo that
+    integrates on `dev` had its units built on a branch that lacks the code
+    they change, and proposed into the wrong place."""
+    on_branch("app", "dev")
+    graph = [unit("a", state="merged"), unit("b", depends_on=("a",))]
+
+    assert base_of(graph[1], graph) == "dev"
+
+
+def test_each_repo_starts_from_its_own_default_branch() -> None:
+    on_branch("app", "dev")
+    graph = [unit("a", repo="platform"), unit("b", repo="app")]
+
+    assert base_of(graph[0], graph) == "main"
+    assert base_of(graph[1], graph) == "dev"
+
+
+def test_stacking_still_beats_the_default_branch() -> None:
+    """An open dependency in the same repo is the base whatever the trunk is —
+    that is what keeps two units from duplicating or conflicting."""
+    on_branch("app", "dev")
+    graph = [
+        unit("add-marker/1", state="in_review"),
+        unit("add-marker/2", depends_on=("add-marker/1",)),
+    ]
+
+    assert base_of(graph[1], graph) == "spec/add-marker/1"
+
+
+def test_a_repo_the_workspace_does_not_name_falls_back_to_main() -> None:
+    """A unit whose repo is not in abk.yaml cannot be built anyway, but asking
+    where it would start must not raise."""
+    assert base_of(unit("z", repo="nowhere"), [unit("z", repo="nowhere")]) == "main"
 
 
 def test_a_unit_stacks_on_its_newest_open_dependency() -> None:
