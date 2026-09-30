@@ -221,6 +221,32 @@ def test_tier_one_failing_after_a_clean_move_holds_the_unit_for_rework(tmp_path:
     assert "trunk renamed the helper" in stored.feedback
 
 
+def test_tier_one_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_the_same_run(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(tmp_path)
+    harness.move_result = CLEAN
+    answers = iter([(True, ""), (False, "FAILED test_a - trunk renamed the helper"), (True, "")])
+
+    def tier1(*, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
+        harness.events.append("tier1")
+        return next(answers)
+
+    harness.runner.run_tier1 = tier1
+
+    outcome = harness.run()
+
+    stored = harness.store.get(unit().id)
+    assert outcome.status == "open"
+    assert stored.state == IN_REVIEW
+    rework = [p for p in harness.recorder.prompts if "trunk renamed the helper" in p]
+    assert len(rework) == 1, "the rework was given the tier 1 output"
+    after = harness.events[harness.events.index("claude:rework") :]
+    assert after.index("review") < after.index("tier1") < after.index("push") < after.index("pr")
+    assert harness.events.count("push") == 1, "nothing was pushed before the rework"
+    assert stored.feedback == ""
+
+
 def test_an_approved_branch_moved_cleanly_is_pushed_at_the_moved_commit(tmp_path: Path) -> None:
     harness = Harness(tmp_path)
     harness.move_result = CLEAN
@@ -287,6 +313,7 @@ def test_a_base_gone_at_open_that_the_forge_still_names_holds_the_unit_and_other
     assert outcome.status == "held"
     assert stored.state == PLANNED
     assert stored.resume_from == RESTACK
+    assert "before its pull request" in stored.note, "it was pushed, so not 'before its push'"
 
     other = Harness(tmp_path / "other")
 

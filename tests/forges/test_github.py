@@ -369,3 +369,31 @@ def test_a_pr_refused_for_a_missing_base_is_its_own_error(
     with pytest.raises(RuntimeError) as refused:
         FORGE.create_pr(repo, head="spec/x/1", base="main", title="t", body="b")
     assert not isinstance(refused.value, BaseMissing)
+
+
+def test_a_body_quoting_the_missing_base_text_does_not_make_another_refusal_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The error message holds the command line, title and body included; only
+    what the host said decides whether the base is missing."""
+    import subprocess
+
+    from agent_build_kit.forges.base import BaseMissing
+
+    def gh(args: list[str], *, slug: str = "") -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(
+            args, 1, "", "a pull request for branch spec/x/1 into branch main already exists\n"
+        )
+
+    monkeypatch.setattr("agent_build_kit.pipeline.shell.gh", gh)
+    repo = RepoId(forge="github", account="o", name="r")
+
+    with pytest.raises(RuntimeError) as refused:
+        FORGE.create_pr(
+            repo,
+            head="spec/x/1",
+            base="main",
+            title="Base ref must be a branch",
+            body="GraphQL: Base sha can't be blank, Base ref must be a branch",
+        )
+    assert not isinstance(refused.value, BaseMissing)

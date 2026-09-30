@@ -1396,7 +1396,14 @@ class UnitRunner(BaseModel):
                 base = self.fresh_base(unit, base)
             except Exception as asked:  # noqa: BLE001
                 self.log(f"could not ask the forge for the base: {asked}")
-            return self._resume_for_base(unit, f"its base is gone: {error}", base, graph, rebased)
+            return self._resume_for_base(
+                unit,
+                str(error),
+                base,
+                graph,
+                rebased,
+                lead="base gone before its pull request",
+            )
 
         # After the push, never before: a status for a commit GitHub has not
         # seen is rejected.
@@ -1834,15 +1841,24 @@ class UnitRunner(BaseModel):
             self.log(f"fetch failed, going on with the refs it has: {error}")
 
     def _resume_for_base(
-        self, unit: Unit, why: str, base: str, graph: list[StoredUnit], rebased: bool
+        self,
+        unit: Unit,
+        why: str,
+        base: str,
+        graph: list[StoredUnit],
+        rebased: bool,
+        *,
+        lead: str = "base moved before its push",
     ) -> RunOutcome:
-        """Nothing pushed: resume at the restack now, once, rather than queue.
+        """Resume at the restack now, once, rather than queue.
 
-        The resumed run resolves under the usage gate and tells review of it.
-        A second hold in the same run is left planned for the next tick, so a
-        base that keeps moving cannot loop.
+        Usually nothing is pushed yet; when the pull request was refused for a
+        missing base the branch is, and `lead` says so in the note. The resumed
+        run resolves under the usage gate and tells review of it. A second hold
+        in the same run is left planned for the next tick, so a base that keeps
+        moving cannot loop.
         """
-        note = f"base moved before its push: {why}"
+        note = f"{lead}: {why}"
         self.log(f"held: {note}")
         self.store.set_state(unit.id, PLANNED, note=note, resume_from=RESTACK)
         if rebased:

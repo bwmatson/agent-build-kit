@@ -784,6 +784,13 @@ def build_fresh_base(
 
     `record_merge` is given the repo and the pull request number: a number
     names a unit only together with its repo.
+
+    The parent's state comes from the forge's listing, not a lookup of the one
+    pull request: no forge method answers a single pull request's state, and
+    adding one for this is not worth it. A parent that has dropped off the
+    listing's newest 100 goes unseen, which leaves the unit on the base it has
+    - the behaviour before this check - and a base the host has deleted is
+    caught again when the pull request opens.
     """
 
     for_repo = for_repo or forges.for_repo

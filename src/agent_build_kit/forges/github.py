@@ -27,7 +27,7 @@ from agent_build_kit.forges.base import (
     key,
 )
 from agent_build_kit.pipeline import units
-from agent_build_kit.pipeline.shell import gh, gh_json, gh_out
+from agent_build_kit.pipeline.shell import GhError, gh, gh_json, gh_out
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
@@ -177,8 +177,9 @@ class GitHubForge:
                     body,
                 ]
             )
-        except RuntimeError as error:
-            if any(text in str(error) for text in _BASE_MISSING):
+        except GhError as error:
+            # The host's words only: the message also holds the title and body.
+            if any(text in error.stderr for text in _BASE_MISSING):
                 raise BaseMissing(str(error)) from error
             raise
         # gh prints the PR's URL; its last segment is the number.
