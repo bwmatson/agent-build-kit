@@ -58,7 +58,12 @@ refuses a change with tag errors before spending a model call on it:
 
 ### 2. Planning into units
 
-A **unit** is one PR's worth of task groups, in exactly one repo. Once per
+A **unit** is one PR's worth of task groups, in exactly one repo. It has one
+identity, its first change's id and branch, and may also carry groups of other
+changes (`Unit.joined`); `Unit.members()` is the single way to ask which
+change's groups it builds, its own first. Building, review, ticking, archive
+readiness, `Needs:` resolution, the pull request body and the graph all read
+members. Once per
 change — and again only when the change's specification changes (its
 `tasks.md` with checkboxes and `Needs:` lines stripped, hashed into
 `runs/planned.json`) — the planner (`pipeline/planner.py`) sends the change,
@@ -395,7 +400,9 @@ retries — and `abk verify <change>` reruns it once the cause is fixed.
 
 `openspec archive <change> --yes` folds the change's delta specs into
 `openspec/specs/`, so those specs describe current behaviour rather than
-intentions. It runs only when every unit merged **and** verification passed,
+intentions. It runs only when every unit carrying a group of the change merged
+(a change whose groups another change's unit carries waits for that unit too)
+**and** verification passed,
 in merge order (two changes touching one requirement conflict when the second
 archives), and never twice. A conflict raises rather than being auto-resolved.
 

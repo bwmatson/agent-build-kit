@@ -49,7 +49,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     Unit,
     branch_name,
-    later_groups,
+    later_groups_by_change,
     local_ref,
 )
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
@@ -466,6 +466,16 @@ REVIEW_BOUNDARY_NOTE = """**Task group(s) {later} belong to later units of this 
 whose fix is only there does not block this review — report it as belonging
 to a later unit, not required of this one.
 """
+
+
+def _later_text(unit: Unit, later: dict[str, tuple[int, ...]]) -> str:
+    """The later groups as the boundary notes name them; a joined unit names each change."""
+    if not unit.joined:
+        return ", ".join(str(group) for group in later.get(unit.change, ()))
+    return "; ".join(
+        f"{', '.join(str(group) for group in groups)} of {change}"
+        for change, groups in later.items()
+    )
 
 
 class Restacked(Frozen):
@@ -907,14 +917,13 @@ class UnitRunner(BaseModel):
             return RunOutcome(status="paused", detail=why)
 
         branch = branch_name(unit)
-        groups = ", ".join(str(group) for group in unit.groups)
-        later = ", ".join(str(group) for group in later_groups(unit, graph))
+        later = _later_text(unit, later_groups_by_change(unit, graph))
         build_boundary = BUILD_BOUNDARY_NOTE.format(later=later) if later else ""
         review_boundary = REVIEW_BOUNDARY_NOTE.format(later=later) if later else ""
         # From the store, not the passed-in unit: `run` takes a `Unit`, and
         # the store is what the poller wrote the review's words to.
         feedback = self.store.get(unit.id).feedback
-        change_dir = CHANGE_DIR.format(planning_repo=self.planning_repo, change=unit.change)
+        change_dir, groups = self._scope(unit)
         self.store.set_state(unit.id, "running", branch=branch)
         ref = local_ref(base)
         tree = self.worktree(unit, ref)
@@ -1269,7 +1278,7 @@ class UnitRunner(BaseModel):
                         note=f"already implemented; tier 1 passed; PR #{stored.pr} not closed "
                         f"— {error}",
                     )
-            mark_groups(self._tasks(unit), unit.groups, done=True)
+            self._mark(unit, done=True)
             return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
 
         snapshot = None
@@ -1431,7 +1440,7 @@ class UnitRunner(BaseModel):
             self.store.set_review_rounds(unit.id, ())
         # Done means through the loop, verified and pushed — so here, and not
         # when a build merely finished. See `task_progress`.
-        mark_groups(self._tasks(unit), unit.groups, done=True)
+        self._mark(unit, done=True)
         self.log(f"in review: PR #{pr}")
         return RunOutcome(status="open", detail=f"opened #{pr}", pr=pr)
 
@@ -1480,6 +1489,9 @@ class UnitRunner(BaseModel):
             # with the instruction to check its tests still fit.
             stored = self.store.get(unit.id)
             notes = [
+                f"This unit carries task group(s) {groups}, all of them its own work."
+                if unit.joined
+                else "",
                 review_boundary,
                 stored.predecessor_note,
                 _round_budget_note(round_number + 1, total),
@@ -1732,13 +1744,34 @@ class UnitRunner(BaseModel):
         )
         return None
 
-    def _tasks(self, unit: Unit) -> Path:
-        change = CHANGE_DIR.format(planning_repo=self.planning_repo, change=unit.change)
-        return Path(change) / "tasks.md"
+    def _change_dir(self, change: str) -> str:
+        return CHANGE_DIR.format(planning_repo=self.planning_repo, change=change)
+
+    def _scope(self, unit: Unit) -> tuple[str, str]:
+        """What a prompt names as the unit's change directory and task groups.
+
+        A unit carrying nothing names its own, as it always has. One that
+        carries groups of other changes names every change directory and each
+        one's groups, all as this unit's own work.
+        """
+        members = unit.members()
+        dirs = [self._change_dir(member.change) for member in members]
+        numbers = [", ".join(str(group) for group in member.groups) for member in members]
+        if len(members) == 1:
+            return dirs[0], numbers[0]
+        return (
+            " and ".join(dirs),
+            " and ".join(f"{n} of {d}" for n, d in zip(numbers, dirs, strict=True)),
+        )
+
+    def _mark(self, unit: Unit, *, done: bool) -> None:
+        """Tick or untick each change's groups in that change's own tasks file."""
+        for member in unit.members():
+            tasks = Path(self._change_dir(member.change)) / "tasks.md"
+            mark_groups(tasks, member.groups, done=done)
 
     def _follow_ups_path(self, unit: Unit) -> Path:
-        change = CHANGE_DIR.format(planning_repo=self.planning_repo, change=unit.change)
-        return Path(change) / FOLLOW_UPS_FILE
+        return Path(self._change_dir(unit.change)) / FOLLOW_UPS_FILE
 
     def _follow_ups_note(self, unit: Unit) -> str:
         """What earlier units of this change deferred, for a fresh build to see.
@@ -1746,8 +1779,11 @@ class UnitRunner(BaseModel):
         Read directly, like `tasks.md`: the planning repo is a real checkout
         the pipeline already reads and writes without an injected callable.
         """
-        path = self._follow_ups_path(unit)
-        content = path.read_text().strip() if path.exists() else ""
+        paths = [
+            Path(self._change_dir(member.change)) / FOLLOW_UPS_FILE for member in unit.members()
+        ]
+        texts = [path.read_text().strip() for path in paths if path.exists()]
+        content = "\n\n".join(text for text in texts if text)
         return FOLLOW_UPS_NOTE.format(items=content) if content else ""
 
     def _follow_ups_for(self, unit: Unit) -> list[str]:
@@ -1871,5 +1907,5 @@ class UnitRunner(BaseModel):
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
         self.store.set_state(unit.id, "failed")
-        mark_groups(self._tasks(unit), unit.groups, done=False)
+        self._mark(unit, done=False)
         return RunOutcome(status="failed", detail=detail)

@@ -221,7 +221,7 @@ def verify_one(inst: Installation, change: str, units: list) -> Verification:
 
 def _merged_ids(change: str, units: list) -> list[str]:
     # The same rule `verify_change` records its units by: a merged unit with a PR.
-    return sorted(u.id for u in units if u.change == change and u.state == MERGED and u.pr)
+    return sorted(u.id for u in units if u.carries(change) and u.state == MERGED and u.pr)
 
 
 def _unverified(inst: Installation, units: list, record: VerifyRecord) -> list[str]:
@@ -229,10 +229,11 @@ def _unverified(inst: Installation, units: list, record: VerifyRecord) -> list[s
     record over their current merged units."""
     specs_dir = inst.config.planning.specs_dir
     changes = {
-        u.change
+        m.change
         for u in units
-        if is_ready_to_archive(u.change, units)
-        and not _already_archived(u.change, inst.root, specs_dir)
+        for m in u.members()
+        if is_ready_to_archive(m.change, units)
+        and not _already_archived(m.change, inst.root, specs_dir)
     }
     return sorted(
         change
@@ -636,10 +637,11 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
     """
     units = store.all()
     covering = {
-        (unit.change, group): unit.id
+        (member.change, group): unit.id
         for unit in units
         if unit.state != UNPLANNED
-        for group in unit.groups
+        for member in unit.members()
+        for group in member.groups
     }
     for tasks in inst.tasks_files():
         change = tasks.parent.name
@@ -650,7 +652,9 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
                     f"{change} group {group} needs {missing[0]} group {missing[1]}, not planned yet"
                 )
             for unit in units:
-                if unit.change != change or group not in unit.groups or unit.state == UNPLANNED:
+                if unit.state == UNPLANNED or not any(
+                    member.change == change and group in member.groups for member in unit.members()
+                ):
                     continue
                 linked = tuple(dict.fromkeys((*unit.depends_on, *wanted)))
                 if linked != unit.depends_on:
@@ -792,7 +796,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     if satisfied:
         record = VerifyRecord(inst.state_dir / "verified.json")
         waiting = set(_unverified(inst, units, record))
-        if any(u.change in waiting for u in satisfied):
+        if any(m.change in waiting for u in satisfied for m in u.members()):
             return True
     planned = _planned_hashes(inst)
     for tasks in inst.tasks_files():

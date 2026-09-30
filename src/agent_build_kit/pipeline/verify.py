@@ -121,7 +121,7 @@ def verify_change(
     """`env` is what the live tests get on top of the process environment and
     each repo's own credentials — the consumer's key, resolved by the caller
     (`Installation.verify_env`)."""
-    mine = [u for u in units if u.change == change and u.state == "merged" and u.pr]
+    mine = [u for u in units if u.carries(change) and u.state == "merged" and u.pr]
     ids = sorted(u.id for u in mine)
     files: dict[str, list[str]] = {}
     for unit in mine:

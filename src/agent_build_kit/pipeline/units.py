@@ -60,6 +60,13 @@ IN_FLIGHT = (RUNNING, IN_REVIEW)
 REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
 
 
+class Member(Frozen):
+    """Task groups of one change that a unit builds."""
+
+    change: str
+    groups: tuple[int, ...]
+
+
 class Unit(Frozen):
     id: str
     change: str
@@ -71,6 +78,15 @@ class Unit(Frozen):
     state: str = PLANNED
     issue: int | None = None
     groups: tuple[int, ...] = ()
+    joined: tuple[Member, ...] = ()
+
+    def members(self) -> tuple[Member, ...]:
+        """Every change's groups this unit builds: its own first, then carried ones."""
+        return (Member(change=self.change, groups=self.groups), *self.joined)
+
+    def carries(self, change: str) -> bool:
+        """Does this unit build any of `change`'s groups, its own or carried?"""
+        return any(member.change == change for member in self.members())
 
 
 def branch_name(unit: Unit) -> str:
@@ -343,15 +359,31 @@ def later_groups(unit: Unit, graph: Sequence[Unit]) -> tuple[int, ...]:
     them as belonging to a later unit would leave them looking spoken for when
     nothing is going to touch them.
     """
-    ceiling = max(unit.groups, default=0)
-    others = {
-        group
-        for other in graph
-        if other.id != unit.id and other.change == unit.change and other.state != "unplanned"
-        for group in other.groups
-        if group > ceiling
-    }
-    return tuple(sorted(others))
+    return later_groups_by_change(unit, graph).get(unit.change, ())
+
+
+def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple[int, ...]]:
+    """`later_groups` for every change the unit builds groups of.
+
+    A group the unit carries is its own work, not later work, so only groups
+    above each change's highest one this unit builds, in other units, count.
+    """
+    later: dict[str, tuple[int, ...]] = {}
+    for member in unit.members():
+        ceiling = max(member.groups, default=0)
+        mine = {g for m in unit.members() if m.change == member.change for g in m.groups}
+        others = {
+            group
+            for other in graph
+            if other.id != unit.id and other.state != "unplanned"
+            for carried in other.members()
+            if carried.change == member.change
+            for group in carried.groups
+            if group > ceiling and group not in mine
+        }
+        if others:
+            later[member.change] = tuple(sorted(others | set(later.get(member.change, ()))))
+    return later
 
 
 def open_pr_count(graph: Sequence[Unit]) -> int:
