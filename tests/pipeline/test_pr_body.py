@@ -6,7 +6,12 @@ blocked merge. So the body has to carry what a human needs in order to decide
 — and to notice when they shouldn't merge yet (docs/architecture.md).
 """
 
-from agent_build_kit.pipeline.pr_body import _assumptions, build_pr_body, stack_line
+from agent_build_kit.pipeline.pr_body import (
+    _assumptions,
+    build_pr_body,
+    satisfied_reason,
+    stack_line,
+)
 from tests.factories import stored_unit as unit
 
 
@@ -142,3 +147,49 @@ def test_stack_line_and_assumptions_clear_once_the_satisfied_chain_merges() -> N
 
     assert "ready to merge" in line.lower()
     assert "nothing unmerged" in assumptions.lower()
+
+
+def test_the_satisfied_reason_names_its_groups_and_says_elsewhere() -> None:
+    """A reviewer reading a closed PR needs to know why, without digging: what
+    this unit was for, and that it was not this PR that made it unnecessary."""
+    satisfied = unit("scope/2", groups=(2, 3), state="satisfied")
+
+    reason = satisfied_reason(satisfied, graph=[satisfied])
+
+    assert "2" in reason and "3" in reason
+    assert "implemented elsewhere" in reason.lower()
+
+
+def test_the_satisfied_reason_names_where_the_graph_can_say() -> None:
+    """The predecessor this unit stacked on is where the work landed — found
+    through the same same-repo dependency the base and the stack line use."""
+    predecessor = unit("scope/1", depends_on=(), state="in_review", pr=4)
+    satisfied = unit("scope/2", depends_on=("scope/1",), groups=(2,), state="satisfied")
+
+    reason = satisfied_reason(satisfied, graph=[predecessor, satisfied])
+
+    assert "scope/1" in reason
+    assert "#4" in reason
+
+
+def test_the_satisfied_reason_says_nothing_it_cannot_tell() -> None:
+    """No same-repo dependency in the graph — nowhere to point a reviewer, so
+    the reason says only what it knows rather than guessing."""
+    satisfied = unit("scope/1", depends_on=(), groups=(1,), state="satisfied")
+
+    reason = satisfied_reason(satisfied, graph=[satisfied])
+
+    assert "landed in" not in reason
+
+
+def test_the_satisfied_reason_looks_through_a_satisfied_predecessor() -> None:
+    """A satisfied unit never carries its own PR — the same `through_satisfied`
+    lookup `base_of` and `stack_line` use finds the real, still-open ancestor."""
+    grandparent = unit("scope/1", depends_on=(), state="in_review", pr=9)
+    parent = unit("scope/2", depends_on=("scope/1",), state="satisfied")
+    satisfied = unit("scope/3", depends_on=("scope/2",), groups=(3,), state="satisfied")
+
+    reason = satisfied_reason(satisfied, graph=[grandparent, parent, satisfied])
+
+    assert "scope/1" in reason
+    assert "#9" in reason

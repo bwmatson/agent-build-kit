@@ -181,6 +181,32 @@ def test_an_update_with_nothing_to_change_makes_no_call(monkeypatch: pytest.Monk
     assert fake.commands == []
 
 
+def test_closing_names_its_repo_and_the_pull_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeGh(stdout="")
+    monkeypatch.setattr("agent_build_kit.forges.github.gh_out", fake.out)
+    repo = RepoId(forge="github", account="o", name="r")
+
+    FORGE.close_pr(repo, 7)
+
+    command = fake.commands[0]
+    assert command[:3] == ["gh", "pr", "close"]
+    assert "7" in command
+    assert "--repo" in command and "o/r" in command
+
+
+def test_a_close_that_fails_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller records the failure and leaves the unit satisfied either
+    way, but it has to be told the close did not happen."""
+
+    def failing(args: list[str], *, slug: str = "") -> str:
+        raise RuntimeError("gh pr close 7: not found")
+
+    monkeypatch.setattr("agent_build_kit.forges.github.gh_out", failing)
+
+    with pytest.raises(RuntimeError):
+        FORGE.close_pr(RepoId(forge="github", account="o", name="r"), 7)
+
+
 # --- what counts as a comment, and what a merge looks like -------------------
 
 PULL = {

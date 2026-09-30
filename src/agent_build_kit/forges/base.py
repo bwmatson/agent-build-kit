@@ -166,6 +166,16 @@ class Forge(Protocol):
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None: ...
 
+    def close_pr(self, repo: RepoId, pr: int) -> None:
+        """Close without merging - a satisfied unit's stale pull request,
+        once the reason has been posted on it.
+
+        Raises where the host refuses, rather than swallowing the way
+        `update_pr` does: a satisfied unit stays satisfied either way, but the
+        caller needs to know a close failed so it can record it.
+        """
+        ...
+
 
 def key(repo: RepoId) -> str:
     """The identity as one string, for the keys already written to disk.

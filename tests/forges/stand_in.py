@@ -39,6 +39,7 @@ class StandInForge:
         access: str = "",
         guard: str = "",
         failing_replies: Collection[str] = (),
+        close_error: str = "",
     ) -> None:
         self.existing = existing
         self.number = number
@@ -49,12 +50,14 @@ class StandInForge:
         self.access = access
         self.guard = guard
         self.failing_replies = failing_replies
+        self.close_error = close_error
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.replies: list[tuple[str, str]] = []
         self.comments: list[str] = []
         self.statuses: list[dict] = []
         self.deleted: list[str] = []
+        self.closed: list[int] = []
 
     # --- identity -----------------------------------------------------------
 
@@ -128,6 +131,11 @@ class StandInForge:
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         self.deleted.append(branch)
+
+    def close_pr(self, repo: RepoId, pr: int) -> None:
+        if self.close_error:
+            raise RuntimeError(self.close_error)
+        self.closed.append(pr)
 
 
 def lookup(forge: StandInForge):

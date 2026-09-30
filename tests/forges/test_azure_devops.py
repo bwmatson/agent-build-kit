@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from agent_build_kit import forges
 from agent_build_kit.config import AzureDevOpsConfig, RepoConfig
 from agent_build_kit.forges.azure_devops import FORGE
 from agent_build_kit.forges.base import PullRequest, RepoId
+from agent_build_kit.pipeline.az import AzError
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 from tests.forges import azure_answers
 
@@ -304,6 +306,41 @@ def test_retargeting_goes_through_the_rest_api() -> None:
     assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
     assert "/Some%20Project/_apis/git/repositories/Some%20Repo" in request.full_url
     assert request.get_header("Authorization") == "Bearer a-token"
+
+
+def test_closing_abandons_through_the_rest_api() -> None:
+    """No CLI command reaches this either: `az repos pr update --status` is
+    in `denied_commands`, so this codebase has no business running it, and the
+    REST PATCH is the only way left."""
+    seen: list = []
+
+    def open_url(request, timeout=None):
+        seen.append(request)
+        return _Answer("{}")
+
+    def token(args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
+
+    FORGE.close_pr(REPO, 41, run=token, open_url=open_url)
+
+    [request] = seen
+    assert request.get_method() == "PATCH"
+    assert json.loads(request.data.decode()) == {"status": "abandoned"}
+    assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
+
+
+def test_a_close_that_fails_raises() -> None:
+    """The caller records the failure and leaves the unit satisfied either
+    way, but it has to be told the close did not happen."""
+
+    def open_url(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
+
+    def token(args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
+
+    with pytest.raises(AzError):
+        FORGE.close_pr(REPO, 41, run=token, open_url=open_url)
 
 
 class _Answer:

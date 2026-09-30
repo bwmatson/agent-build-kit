@@ -370,6 +370,14 @@ class GitHubForge:
             )
         return "\n\n".join(parts)
 
+    def close_pr(self, repo: RepoId, pr: int) -> None:
+        """Close without merging - a satisfied unit's stale pull request.
+
+        Through `gh_out`, which raises on failure, unlike `update_pr`'s silent
+        `gh()`: a close that did not happen must not read as one that did.
+        """
+        gh_out(["gh", "pr", "close", str(pr), "--repo", key(repo)], slug=key(repo))
+
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         """Not reached in practice: GitHub deletes the head branch on merge,
         so `deletes_head_branch_on_merge` keeps callers away from this."""

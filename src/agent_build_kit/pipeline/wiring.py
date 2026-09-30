@@ -497,6 +497,21 @@ def build_open_pr(
     return open_pr
 
 
+def build_close_pr(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[Unit, int, str], None]:
+    """Post the reason a satisfied unit's stale pull request is closing, then
+    close it — in that order, so the explanation is never missing."""
+    for_repo = for_repo or forges.for_repo
+
+    def close_pr(unit: Unit, pr: int, reason: str) -> None:
+        forge, repo = for_repo(unit.repo)
+        forge.post_comment(repo, pr, body=reason)
+        forge.close_pr(repo, pr)
+
+    return close_pr
+
+
 def build_worktree(
     repos: dict[str, Path],
     *,
@@ -1010,6 +1025,7 @@ def build_runner(
         push=push_in_turn,
         open_pr=build_open_pr(),
         post_status=tier2.post,
+        close_pr=build_close_pr(),
         reply=build_post_replies(root=root, log=log),
         head=_head_sha,
         log=log,

@@ -491,6 +491,24 @@ class AzureDevOpsForge:
         ]
         return "\n\n".join(parts)
 
+    def close_pr(
+        self, repo: RepoId, pr: int, *, run: Run | None = None, open_url: az.OpenUrl | None = None
+    ) -> None:
+        """Abandon without merging - a satisfied unit's stale pull request.
+
+        Through the REST API, as the base retarget in `update_pr` is: there is
+        no `az repos pr update --status` this codebase is allowed to run
+        (`denied_commands` refuses it for an agent), and `az.rest` raises
+        `AzError` on failure rather than swallowing it.
+        """
+        az.rest(
+            "PATCH",
+            f"{self._api(repo)}/pullRequests/{pr}?api-version={_API}",
+            payload={"status": "abandoned"},
+            run=run,
+            open_url=open_url,
+        )
+
     def delete_remote_branch(self, repo: RepoId, branch: str, run: Run | None = None) -> None:
         """Remove the source branch, which a merge here leaves behind.
 

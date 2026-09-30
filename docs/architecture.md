@@ -181,8 +181,15 @@ binds each step to git, gh and `claude`:
    were already implemented, by a predecessor that worked ahead — is judged on
    this check alone: tier 1 passing makes it `satisfied` rather than `failed`,
    its groups ticked and its dependents released, with no PR opened; tier 1
-   failing still fails it. Judged on the branch and the check, never on what
-   the build step reported about itself.
+   failing still fails it. If a rework finds this — a unit already holding an
+   open PR discovers its work has landed elsewhere in the meantime — the
+   reason is posted on that PR before it is closed: the groups it covered, that
+   they were implemented elsewhere, and the predecessor they landed in when the
+   graph can say. Composed mechanically, the same as the PR body, and never
+   asked of a model; a post or close that fails is recorded and leaves the unit
+   satisfied regardless — a stale PR is a nuisance, not grounds to revisit a
+   judgement the branch and the checks already settled. Judged on the branch
+   and the check, never on what the build step reported about itself.
 7. **Tier 2**, for `tier2` units. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev
@@ -212,7 +219,9 @@ resume starts exactly there.
 
 Which host answers is a forge's business (see
 [code-forges.md](code-forges.md)); everything below is written in the typed
-values a forge returns, not in any host's JSON.
+values a forge returns, not in any host's JSON. A forge opens a pull request,
+posts a status and answers a review comment; it also closes one — the one
+call the satisfied outcome above needs, and nothing else does.
 
 Nothing here is reachable from the internet, so `gh_poller.py` polls
 one listing per repo instead of taking webhooks, and only for branches with

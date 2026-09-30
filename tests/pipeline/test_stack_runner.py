@@ -34,13 +34,23 @@ class Recorder:
 
     tier1_output: str = ""
 
-    def __init__(self, *, commits_from_impl: int = 1, tier2_ok: bool = True, tier1_ok: bool = True):
+    def __init__(
+        self,
+        *,
+        commits_from_impl: int = 1,
+        tier2_ok: bool = True,
+        tier1_ok: bool = True,
+        close_error: str = "",
+    ):
         self.events: list[str] = []
         self.prompts: list[str] = []
         self.commits_from_impl = commits_from_impl
         self.tier2_ok = tier2_ok
         self.tier1_ok = tier1_ok
         self.pushed_shas: list[str] = []
+        self.close_error = close_error
+        self.closed: list[tuple[str, int, str]] = []
+        self.logged: list[str] = []
 
     def claude(self, prompt: str, *, cwd: Path) -> str:
         self.prompts.append(prompt)
@@ -97,6 +107,15 @@ class Recorder:
     def post_status(self, sha: str, ok: bool) -> None:
         self.events.append("status")
 
+    def close_pr(self, unit, pr: int, reason: str) -> None:
+        self.events.append("close")
+        if self.close_error:
+            raise RuntimeError(self.close_error)
+        self.closed.append((unit.id, pr, reason))
+
+    def log(self, message: str) -> None:
+        self.logged.append(message)
+
 
 @pytest.fixture
 def runner(tmp_path: Path):
@@ -122,6 +141,8 @@ def runner(tmp_path: Path):
             push=recorder.push,
             open_pr=recorder.open_pr,
             post_status=recorder.post_status,
+            close_pr=recorder.close_pr,
+            log=recorder.log,
         )
 
     return build
@@ -353,6 +374,8 @@ def make_runner(store: UnitStore, recorder: Recorder, tmp_path: Path) -> UnitRun
         push=recorder.push,
         open_pr=recorder.open_pr,
         post_status=recorder.post_status,
+        close_pr=recorder.close_pr,
+        log=recorder.log,
     )
 
 
@@ -466,11 +489,90 @@ def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path
     )
     assert "pr" not in recorder.events, "nothing to open a pull request for"
     assert "push" not in recorder.events, "nothing to push either"
+    assert "close" not in recorder.events, "there was never a pull request to close either"
     assert store.get(unit().id).state == "satisfied"
     assert tasks.read_text().count("- [x]") == 2, "its groups are ticked all the same"
 
     dependent = unit(uid="add-marker/2", depends_on=(unit().id,))
     assert waiting_on(dependent, [store.get(unit().id)]) == [], "dependents stop waiting for it"
+
+
+def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
+    tmp_path: Path,
+) -> None:
+    """A rework that finds the work has landed elsewhere in the meantime
+    leaves an open pull request with no diff and no future. The explanation
+    must never be missing, so it is posted before the close is even
+    attempted — one call does both, in that order."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert outcome.status == "satisfied"
+    assert recorder.events.count("close") == 1
+    (unit_id, pr, reason) = recorder.closed[0]
+    assert unit_id == unit().id
+    assert pr == 4
+    assert "1" in reason and "implemented elsewhere" in reason.lower()
+
+
+def test_a_satisfied_unit_with_no_pull_request_posts_and_closes_nothing(tmp_path: Path) -> None:
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    runner.run(unit(), base="main", graph=[])
+
+    assert "close" not in recorder.events
+
+
+def test_a_failure_to_close_a_satisfied_units_pull_request_is_recorded_and_leaves_it_satisfied(
+    tmp_path: Path,
+) -> None:
+    """The judgement rests on the branch and the checks; a stale pull request
+    that refuses to close is a nuisance, not a reason to revisit it."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True, close_error="404 gone")
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert outcome.status == "satisfied"
+    assert store.get(unit().id).state == "satisfied"
+    assert any("404 gone" in message for message in recorder.logged)
+
+
+def test_no_model_call_decides_or_writes_the_satisfied_close(tmp_path: Path) -> None:
+    """The judgement that gets a unit here (no commits of its own, tier 1
+    green) is already mechanical, and so is the text posted on its pull
+    request — nothing on this path may ask an agent anything."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert "review" not in recorder.events, "no review round runs for an empty branch"
+    assert recorder.events.count("claude:tests") + recorder.events.count("claude:impl") == 2, (
+        "only the two build-step prompts ran — nothing extra for the close"
+    )
 
 
 def test_a_resumed_unit_is_not_reviewed_again_at_the_commit_it_approved(tmp_path: Path) -> None:

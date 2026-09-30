@@ -54,6 +54,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `post_status(repo, sha, ok, ...)` | the tier 2 gate | publish a result against the tested commit |
 | `failed_check_logs(repo, pull)` | rework | what the failing checks said |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
+| `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |
 
 Two free functions sit beside the Protocol rather than on it: `forges.key(repo)`
 is the canonical identity string (`owner/name`, or `org/project/repo`) that

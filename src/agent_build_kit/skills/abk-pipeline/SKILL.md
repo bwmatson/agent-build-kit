@@ -60,7 +60,7 @@ more task groups of a change.
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
 | `held` | A reviewer took the unit over, or the toolchain cannot build it. The pipeline will not touch it. | See below. |
 | `failed` | The build raised. | See below. |
-| `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge. No PR was opened. |
+| `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`
 

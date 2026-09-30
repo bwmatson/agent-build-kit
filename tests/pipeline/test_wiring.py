@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.wiring import (
     Tier2Session,
     _tip,
     build_base_moved,
+    build_close_pr,
     build_commit,
     build_open_pr,
     build_push,
@@ -186,6 +187,17 @@ def test_the_pr_targets_the_units_base_branch(tmp_path: Path) -> None:
     build_open_pr(for_repo=lookup(forge))(unit(), body="b", base="spec/add-marker/0", cwd=tmp_path)
 
     assert forge.created[0]["base"] == "spec/add-marker/0"
+
+
+def test_closing_posts_the_reason_before_closing(tmp_path: Path) -> None:
+    """The explanation must never be missing, so it is posted before the
+    close is even attempted."""
+    forge = StandInForge(existing=7)
+
+    build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
+
+    assert forge.comments == ["implemented elsewhere"]
+    assert forge.closed == [7]
 
 
 def test_a_rejected_commit_is_not_reported_as_nothing_to_commit(tmp_path: Path) -> None:

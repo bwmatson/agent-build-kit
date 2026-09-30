@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active, models
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.pr_body import build_pr_body
+from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import last_json
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -439,6 +439,10 @@ class UnitRunner(BaseModel):
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]
+    # Posts the reason on a satisfied unit's already-open pull request, then
+    # closes it. A no-op default: most units never reach `satisfied` holding
+    # one. See `wiring.build_close_pr`.
+    close_pr: Callable[[Unit, int, str], None] = lambda unit, pr, reason: None
     # Posts a rework's replies to the review threads it answered, after the
     # push. See `pr_replies`.
     reply: Callable[..., None] = lambda **kwargs: None
@@ -764,6 +768,23 @@ class UnitRunner(BaseModel):
                 self.store.set_predecessor_note(unit.id, "")
             if self.store.get(unit.id).review_rounds:
                 self.store.set_review_rounds(unit.id, ())
+            stored = self.store.get(unit.id)
+            if stored.pr:
+                # A rework that finds the work has landed elsewhere in the
+                # meantime leaves an open pull request with no diff and no
+                # future. Posting and closing are one call, so the reason is
+                # never missing before the close. Neither this text nor the
+                # decision to close asks a model anything: both are mechanical,
+                # the same as everything else on this path.
+                try:
+                    self.close_pr(
+                        unit, stored.pr, satisfied_reason(stored, graph=graph or [stored])
+                    )
+                except Exception as error:  # noqa: BLE001
+                    # The unit stays satisfied regardless: a stale pull
+                    # request is a nuisance, not a reason to revisit a
+                    # judgement the branch and the checks already settled.
+                    self.log(f"{unit.id}: pull request #{stored.pr} not closed — {error}")
             mark_groups(self._tasks(unit), unit.groups, done=True)
             return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
 
