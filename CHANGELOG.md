@@ -6,10 +6,12 @@
   the forge whether its parent merged (recording a merge the store missed) and
   moves onto the base as it now is. The move before a push never runs the
   conflict resolver: a conflict, or a tier 1 or tier 2 failure on the moved
-  commit, holds the unit to resume at its restack, where resolution runs under
-  the usage gate and review is told of it. A pull request refused for a missing
-  base holds the unit instead of failing it; each forge recognises its own
-  error for that.
+  commit, resumes the unit at its restack in the same run, once, where
+  resolution runs under the usage gate and review is told of it (a second such
+  hold is left planned for the next tick). A pull request refused for a missing
+  base asks the forge for the base again, so a parent that merged meanwhile
+  gives its merged-to branch, and resumes from that; each forge recognises its
+  own error for that.
 
 - A pull request event is matched to its unit by repo and number, not by number
   alone. Once two repos in a workspace had reached the same number, a merge,

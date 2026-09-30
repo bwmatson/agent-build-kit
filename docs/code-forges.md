@@ -139,8 +139,11 @@ will have its own, and finding them is most of the work.
 **A missing base.** A parent merging deletes its branch, so a pull request
 opened against it is refused. Each forge recognises its own message (GitHub's
 "Base ref must be a branch", Azure DevOps's TF401028 and TF401398) and raises
-`BaseMissing`, which the runner turns into a hold to resume at its restack; any
-other refusal is a failure.
+`BaseMissing`. The runner then asks for the base afresh: a parent whose pull
+request the forge reports merged is recorded, and the unit resumes at its
+restack on the branch it merged into. A base that is still the parent's, with
+nothing merged, leaves the unit planned to resume there; any other refusal is a
+failure.
 
 **GitHub.** `state: MERGED` is not the same question as `mergedAt`; a PENDING
 review is a draft the reviewer has not submitted, and counting it sends the

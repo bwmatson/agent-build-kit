@@ -47,6 +47,8 @@ class Harness:
         self.fetch_error: Exception | None = None
         self.base_now = "main"
         self.move_result: Restacked | Exception | None = None
+        # What each move gives after the first, in order; None once spent.
+        self.later: list[Restacked | Exception | None] = []
         self.runner: UnitRunner = make_runner(self.store, self.recorder, tmp_path)
         self.runner.fetch = self.fetch
         self.runner.fresh_base = self.fresh_base
@@ -81,7 +83,7 @@ class Harness:
         # The start of a run that resumes: the branch is already on its base.
         if "review" not in self.events:
             return None
-        result = self.move_result
+        result, self.move_result = self.move_result, (self.later.pop(0) if self.later else None)
         if isinstance(result, Exception):
             raise result
         if result is not None and not result.resolved and not result.conflict:
@@ -89,6 +91,15 @@ class Harness:
             self.moved = True
             self.store.record_approval(unit.id, MOVED)
         return result
+
+    def close_window_after_one_run(self) -> None:
+        """The usage gate is open until the unit is held for its base, then shut."""
+
+        def may_start() -> tuple[bool, str]:
+            held = "base moved before its push" in self.store.get(self.unit.id).note
+            return (not held, "session at 88%" if held else "usage fine")
+
+        self.runner.may_start = may_start
 
     def run(self, *, base: str = "main"):
         return self.runner.run(self.unit, base=base, graph=[])
@@ -142,22 +153,37 @@ def test_a_branch_already_on_its_base_is_pushed_without_a_second_tier_one(tmp_pa
     [RESOLVED, CONFLICTED, RuntimeError("both sides changed a.py")],
     ids=["resolved", "conflicted", "unresolvable"],
 )
-def test_a_move_that_needs_resolution_before_the_push_holds_the_unit(
+def test_a_move_that_needs_resolution_before_the_push_resumes_at_its_restack_at_once(
     tmp_path: Path, result: Restacked | Exception
 ) -> None:
-    harness = Harness(tmp_path)
+    harness = Harness(tmp_path, existing=2)
     harness.move_result = result
+
+    outcome = harness.run()
+
+    assert outcome.status == "open", "the same run goes on, rather than queueing"
+    assert harness.resolving == [True, False, True, False], "the resumed restack may resolve"
+    assert harness.events.count("push") == 1, "nothing is pushed from the half-resolved branch"
+    assert any("base moved before its push" in line for line in harness.recorder.logged)
+
+
+def test_a_base_that_keeps_needing_resolution_is_resumed_once_then_left_planned(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(tmp_path, existing=2)
+    # The push-time move, the resumed run's own restack, its push-time move.
+    harness.move_result = RESOLVED
+    harness.later = [None, RESOLVED]
 
     outcome = harness.run()
 
     stored = harness.store.get(unit().id)
     assert outcome.status == "held"
     assert "push" not in harness.events and "pr" not in harness.events
-    assert harness.events.count("tier1") == 1, "tier 1 is not run on a half-resolved branch"
     assert stored.state == PLANNED
     assert stored.resume_from == RESTACK
     assert "base moved before its push" in stored.note
-    assert harness.resolving[-1] is False, "the move before a push calls no resolver"
+    assert harness.resolving.count(False) == 2, "one resume, not a loop"
 
 
 def test_a_parent_merged_unknown_to_the_store_moves_the_unit_onto_the_trunk(
@@ -184,11 +210,12 @@ def test_tier_one_failing_after_a_clean_move_holds_the_unit_for_rework(tmp_path:
         return next(answers)
 
     harness.runner.run_tier1 = tier1
+    harness.close_window_after_one_run()
 
     outcome = harness.run()
 
     stored = harness.store.get(unit().id)
-    assert outcome.status == "held"
+    assert outcome.status == "paused", "the resumed run is gated on usage like any other"
     assert "push" not in harness.events
     assert stored.state == PLANNED
     assert "trunk renamed the helper" in stored.feedback
@@ -210,6 +237,7 @@ def test_a_branch_moved_with_resolution_is_not_passed_on_the_old_approval(
 ) -> None:
     harness = Harness(tmp_path)
     harness.move_result = RESOLVED
+    harness.close_window_after_one_run()
 
     harness.run()
 
@@ -218,17 +246,42 @@ def test_a_branch_moved_with_resolution_is_not_passed_on_the_old_approval(
     assert "push" not in harness.events
 
 
-def test_a_missing_base_at_open_holds_the_unit_and_any_other_refusal_does_not(
+def test_a_base_gone_at_open_is_asked_for_again_and_the_unit_goes_on_from_the_new_one(
     tmp_path: Path,
 ) -> None:
-    harness = Harness(tmp_path)
+    harness = Harness(tmp_path, existing=2)
+    harness.base_now = "spec/add-marker/0"
+    opened: list[str] = []
+
+    def gone(unit, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
+        opened.append(base)
+        if base == "spec/add-marker/0":
+            # Merged, and its branch deleted, after the check above said otherwise.
+            harness.base_now = "main"
+            raise BaseMissing("base branch spec/add-marker/0 does not exist")
+        return harness.recorder.open_pr(unit, body=body, base=base, cwd=cwd, **bodies)
+
+    harness.runner.open_pr = gone
+
+    outcome = harness.run(base="spec/add-marker/0")
+
+    assert outcome.status == "open"
+    assert opened == ["spec/add-marker/0", "main"], "the retry is on the merged-to base"
+    assert harness.store.get(unit().id).state == IN_REVIEW
+
+
+def test_a_base_gone_at_open_that_the_forge_still_names_holds_the_unit_and_other_refusals_fail(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(tmp_path, existing=2)
+    harness.base_now = "spec/add-marker/0"
 
     def gone(unit, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
         raise BaseMissing("base branch spec/add-marker/0 does not exist")
 
     harness.runner.open_pr = gone
 
-    outcome = harness.run()
+    outcome = harness.run(base="spec/add-marker/0")
 
     stored = harness.store.get(unit().id)
     assert outcome.status == "held"
@@ -293,11 +346,12 @@ def test_tier_two_failing_after_a_clean_move_holds_the_unit_with_its_output(
         return next(answers)
 
     harness.runner.run_tier2 = tier2
+    harness.close_window_after_one_run()
 
     outcome = harness.run()
 
     stored = harness.store.get(harness.unit.id)
-    assert outcome.status == "held"
+    assert outcome.status == "paused"
     assert "push" not in harness.events and "pr" not in harness.events
     assert stored.state == PLANNED
     assert "trunk renamed the route" in stored.feedback

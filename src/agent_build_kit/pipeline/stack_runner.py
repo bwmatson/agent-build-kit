@@ -897,7 +897,9 @@ class UnitRunner(BaseModel):
     # unit has got to rather than going quiet for the length of a build.
     log: Callable[[str], None] = lambda message: None
 
-    def run(self, unit: Unit, *, base: str, graph: list[StoredUnit]) -> RunOutcome:
+    def run(
+        self, unit: Unit, *, base: str, graph: list[StoredUnit], rebased: bool = False
+    ) -> RunOutcome:
         allowed, why = self.may_start()
         if not allowed:
             # Before anything else: pausing here costs nothing, while pausing
@@ -1310,15 +1312,19 @@ class UnitRunner(BaseModel):
         except (AgentRateLimited, AgentInterrupted):
             raise
         except Exception as error:  # noqa: BLE001
-            return self._hold_for_base(unit, f"moving onto {base} needed resolution: {error}")
+            return self._resume_for_base(
+                unit, f"moving onto {base} needed resolution: {error}", base, graph, rebased
+            )
         if moved is not None:
             if moved.conflict or moved.resolved:
-                return self._hold_for_base(unit, f"moving onto {base} needed resolution")
+                return self._resume_for_base(
+                    unit, f"moving onto {base} needed resolution", base, graph, rebased
+                )
             self.log(f"moved onto {base} cleanly before the push; tier 1 again")
             tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
             if not tier1_ok:
                 self.store.set_feedback(unit.id, f"tier 1 failed:\n{tier1_output}".strip())
-                return self._hold_for_base(unit, f"tier 1 failed on {base}")
+                return self._resume_for_base(unit, f"tier 1 failed on {base}", base, graph, rebased)
             if unit.tier == "tier2":
                 # The moved commit is what gets pushed and what the status is
                 # posted for, and it has not been through tier 2.
@@ -1326,7 +1332,9 @@ class UnitRunner(BaseModel):
                 tier2_ok, snapshot = self.run_tier2(cwd=tree)
                 if not tier2_ok:
                     self.store.set_feedback(unit.id, f"tier 2 failed:\n{snapshot}".strip())
-                    return self._hold_for_base(unit, f"tier 2 failed on {base}")
+                    return self._resume_for_base(
+                        unit, f"tier 2 failed on {base}", base, graph, rebased
+                    )
 
         # The rule, checked where it matters rather than inferred from the path
         # taken: the PR only ever receives the commit the review loop approved.
@@ -1382,8 +1390,13 @@ class UnitRunner(BaseModel):
                 cwd=tree,
             )
         except BaseMissing as error:
-            # The base was deleted between the check and the call.
-            return self._hold_for_base(unit, f"its base is gone: {error}")
+            # The base was deleted between the check and the call, most often
+            # by its merge: ask again, and go on from whatever it is now.
+            try:
+                base = self.fresh_base(unit, base)
+            except Exception as asked:  # noqa: BLE001
+                self.log(f"could not ask the forge for the base: {asked}")
+            return self._resume_for_base(unit, f"its base is gone: {error}", base, graph, rebased)
 
         # After the push, never before: a status for a commit GitHub has not
         # seen is rejected.
@@ -1820,12 +1833,22 @@ class UnitRunner(BaseModel):
         except Exception as error:  # noqa: BLE001
             self.log(f"fetch failed, going on with the refs it has: {error}")
 
-    def _hold_for_base(self, unit: Unit, why: str) -> RunOutcome:
-        """Nothing pushed: planned again, to resume at its restack."""
+    def _resume_for_base(
+        self, unit: Unit, why: str, base: str, graph: list[StoredUnit], rebased: bool
+    ) -> RunOutcome:
+        """Nothing pushed: resume at the restack now, once, rather than queue.
+
+        The resumed run resolves under the usage gate and tells review of it.
+        A second hold in the same run is left planned for the next tick, so a
+        base that keeps moving cannot loop.
+        """
         note = f"base moved before its push: {why}"
         self.log(f"held: {note}")
         self.store.set_state(unit.id, PLANNED, note=note, resume_from=RESTACK)
-        return RunOutcome(status="held", detail=note)
+        if rebased:
+            return RunOutcome(status="held", detail=note)
+        self.log(f"resuming at its restack on {base}")
+        return self.run(unit, base=base, graph=graph, rebased=True)
 
     def _fail(self, unit: Unit, detail: str) -> RunOutcome:
         # Recorded rather than left at "planned": the next round would

@@ -251,10 +251,13 @@ binds each step to git, gh and `claude`:
    resolver: a conflict is aborted and the branch left as it was. A clean move
    re-runs tier 1 (and tier 2, for a tier 2 unit) and carries the approval to
    the moved commit; a conflict, or a tier 1 or tier 2 failure on the new base,
-   pushes nothing and puts the unit back to `planned` to resume at its restack
-   (a check's failure leaves its output as feedback). The resumed run's restack
-   is what resolves, under the usage gate, and review is told of it. A pull request refused because its base is gone is held the same
-   way.
+   pushes nothing and resumes the unit at its restack in the same run (a
+   check's failure leaves its output as feedback). That restack is what
+   resolves, under the usage gate, and review is told of it. It happens once:
+   a second hold in the run leaves the unit `planned` to resume at its restack
+   on a later tick, so a base that keeps moving cannot loop. A pull request
+   refused because its base is gone asks the forge for the base again (a parent
+   merged meanwhile gives its merged-to branch) and resumes the same way.
 9. **Push, with a lease.** The head must be the exact commit review
    approved, or the push is refused. The push carries
    `--force-with-lease=<branch>:<sha last pushed>` (the store remembers the
