@@ -84,8 +84,12 @@ from agent_build_kit.pipeline.work_graph import NEEDS_LINE, cross_change_needs, 
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 
 
-def log(message: str) -> None:
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
+def stamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def log(message: str, *, at: str | None = None) -> None:
+    print(f"[{at or stamp()}] {message}", flush=True)
 
 
 def store_for(inst: Installation) -> UnitStore:
@@ -883,9 +887,11 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
     ended = "interrupted"
 
     def say(message: str) -> None:
-        log(f"{unit.id}: {message}")
+        # One stamp for both, so the file lines up with the journal.
+        at = stamp()
+        log(f"{unit.id}: {message}", at=at)
         if run_log is not None:
-            run_log.emit(message)
+            run_log.emit(f"[{at}] {message}")
 
     def end(message: str) -> None:
         nonlocal ended
@@ -919,7 +925,8 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                     started=datetime.now(UTC),
                     report=lambda message: log(f"{unit.id}: {message}"),
                 )
-                store.set_run_log(unit.id, run_log.name)
+                if run_log.writing:
+                    store.set_run_log(unit.id, run_log.name)
                 runner = build_runner(unit, store=store, installation=inst, log=say)
                 outcome = runner.run(unit, base=base, graph=graph)
         except NotImplementedError as error:

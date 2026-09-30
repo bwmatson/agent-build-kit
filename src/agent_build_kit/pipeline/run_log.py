@@ -69,6 +69,11 @@ class RunLog:
     def name(self) -> str:
         return self._name
 
+    @property
+    def writing(self) -> bool:
+        """False once the file could not be created or written to."""
+        return self._working
+
     def _failed(self, error: Exception) -> None:
         if self._working:
             self._working = False
@@ -110,5 +115,5 @@ def remove_change_logs(directory: Path, change: str) -> None:
         for path in directory.iterdir():
             if pattern.match(path.name):
                 path.unlink(missing_ok=True)
-    except (FileNotFoundError, NotADirectoryError):
+    except OSError:
         return

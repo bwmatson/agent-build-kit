@@ -71,7 +71,9 @@ def starting_step(unit: StoredUnit) -> tuple[str, str]:
 
     Mirrors the branch order in `StackRunner.run`: a recorded review or verify
     resume first, then waiting feedback (a rework), else the build. Verify
-    calls no model, and says so.
+    calls no model, and says so. A fresh build is named `implement`, the step
+    that opens `StackRunner.run`'s build (its tests come first within it); a
+    resume recorded at `tests` keeps that name, as it is where the run picks up.
     """
     resume = unit.resume_from
     if resume in (REVIEW, REWORK_REVIEW, VERIFY):

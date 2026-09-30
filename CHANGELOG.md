@@ -13,6 +13,7 @@
   latest (`run_log`). The last three runs of a unit are kept and archiving a
   change removes them. Gitignored; an existing installation adds
   `runs/unit-logs/` to its `.gitignore`.
+
 - A unit whose groups already landed in its predecessor and whose tier 1 passes
   on the whole repo ends `satisfied` instead of failing: its PR is closed with
   the reason, its groups are ticked and its dependents look through it. A

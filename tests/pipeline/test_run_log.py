@@ -91,11 +91,14 @@ def test_the_file_opens_with_what_the_run_was(tmp_path: Path) -> None:
     log.emit("step: rework from feedback")
     log.close("open")
 
-    text = (directory / log.name).read_text()
-    header = text.split("step: rework from feedback")[0]
-
-    for fact in ("add-marker/3", "add-marker", "rework", "model-x", "main", "2026-09-23"):
-        assert fact in header, f"{fact!r} is stated before the transcript"
+    assert (
+        (directory / log.name)
+        .read_text()
+        .startswith(
+            "unit: add-marker/3\nchange: add-marker\nstep: rework\nmodel: model-x\n"
+            "base: main\nstarted: 2026-09-23T22:44:05+00:00\n\n"
+        )
+    )
 
 
 def test_the_file_carries_the_lines_emitted_in_order(tmp_path: Path) -> None:
@@ -280,3 +283,16 @@ def test_a_log_that_fails_midway_stops_writing_and_reports_once(tmp_path: Path) 
     log.close("open")
 
     assert len(reported) == 1
+
+
+def test_a_directory_that_cannot_be_read_does_not_raise_whatever_the_error(
+    tmp_path: Path,
+) -> None:
+    """A file where the directory should be, and a directory where a log should be."""
+    remove_change_logs(tmp_path / "a-file", "add-marker")
+    (tmp_path / "a-file").write_text("x")
+    remove_change_logs(tmp_path / "a-file", "add-marker")
+
+    directory = run_log_dir(tmp_path)
+    (directory / "add-marker-01-20260923-224405-implement.log").mkdir(parents=True)
+    remove_change_logs(directory, "add-marker")
