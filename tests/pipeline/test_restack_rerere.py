@@ -26,11 +26,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline import restack
+from agent_build_kit.pipeline import restack, shell
 from agent_build_kit.pipeline.restack import (
     ConflictContext,
     RestackConflict,
-    _conflicted_files,
+    conflicted_files,
     move_branch_onto,
 )
 from tests.factories import git, init_repo
@@ -196,7 +196,7 @@ def test_the_resolver_is_told_only_the_paths_with_a_replayed_resolution(
         seen["prompt"] = prompt
         # Still unmerged and unstaged when the resolver is handed it — a
         # replayed resolution is a proposal, not something already accepted.
-        seen["conflicted_at_arrival"] = _conflicted_files(cwd)
+        seen["conflicted_at_arrival"] = conflicted_files(cwd)
         (cwd / "other.py").write_text("value = 2  # sibling-three\n")
 
     move_branch_onto(
@@ -447,7 +447,7 @@ def test_a_modify_delete_conflict_is_never_reported_as_a_replay(tmp_path: Path) 
 
     def resolves(prompt: str, *, cwd: Path) -> None:
         seen["prompt"] = prompt
-        seen["conflicted_at_arrival"] = _conflicted_files(cwd)
+        seen["conflicted_at_arrival"] = conflicted_files(cwd)
         # git already left the modified version in the tree; keep it.
 
     move_branch_onto(
@@ -585,14 +585,14 @@ def test_the_rebase_call_forces_lc_all_to_c(
     commit(repo, "other.py", "other = 1\n")
 
     seen: dict = {}
-    original = restack._shell_git
+    original = shell.git
 
     def spy(repo_arg, *args, **kwargs):
         if "--onto" in args:
             seen["env"] = kwargs.get("env")
         return original(repo_arg, *args, **kwargs)
 
-    monkeypatch.setattr(restack, "_shell_git", spy)
+    monkeypatch.setattr(shell, "git", spy)
 
     move_branch_onto(repo, "spec/c/2", new_base="main", old_base=pre)
 

@@ -25,7 +25,6 @@ from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.wiring import (
     COMMIT_FIX_ROUNDS,
     CommitRejected,
-    _run,
     build_commit,
 )
 from tests.conftest import make_installation
@@ -115,7 +114,7 @@ class Recorded:
     def __call__(self, args: list[str], **kwargs) -> subprocess.CompletedProcess:
         self.commands.append(list(args))
         self.envs.append(kwargs.get("env"))
-        return _run(args, **kwargs)
+        return subprocess.run(args, capture_output=True, text=True, check=False, **kwargs)
 
 
 def test_a_gate_that_rewrote_the_files_is_retried_without_an_agent(tmp_path: Path) -> None:
@@ -238,7 +237,7 @@ def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record
 
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Rejected())
 
-    cli._build(inst, store.get("add-marker/1"), store=store)
+    cli.build_unit(inst, store.get("add-marker/1"), store=store)
 
     unit = store.get("add-marker/1")
     assert unit.state == "failed"

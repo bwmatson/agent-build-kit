@@ -389,7 +389,7 @@ def _evaluate(
 
 
 def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
-    unconfigured = [repo for repo in {unit.repo for unit in ready} if not _has_identity(inst, repo)]
+    unconfigured = [repo for repo in {unit.repo for unit in ready} if not has_identity(inst, repo)]
     if unconfigured:
         log(
             f"refusing to build: git has no identity for {', '.join(sorted(unconfigured))}, "
@@ -440,7 +440,7 @@ def _schedule(
         def submit(units: list[Unit]) -> None:
             for unit in units:
                 started.add(unit.id)
-                building[pool.submit(_build, inst, unit, store=store)] = unit
+                building[pool.submit(build_unit, inst, unit, store=store)] = unit
 
         submit(ready)
         # Driven by completions, not a timer: each round blocks until a build
@@ -494,7 +494,7 @@ def _refresh(inst: Installation, *, store: UnitStore) -> None:
         log(f"poll skipped — {type(error).__name__}: {error}")
 
 
-def _branch_is_held(inst: Installation, branch: str) -> bool:
+def branch_is_held(inst: Installation, branch: str) -> bool:
     """Whether a live process holds this branch's lock.
 
     `branch_lock` already distinguishes a crashed holder from a live one by
@@ -507,7 +507,7 @@ def _branch_is_held(inst: Installation, branch: str) -> bool:
         return True
 
 
-def _commit_leftovers(inst: Installation, unit: Unit) -> int:
+def commit_leftovers(inst: Installation, unit: Unit) -> int:
     """Commit whatever the killed run had written but not committed.
 
     Without this the reclaim is hollow: `prepare_worktree` refuses a dirty
@@ -547,10 +547,10 @@ def reclaim_stale(inst: Installation, *, store: UnitStore) -> None:
         if unit.state != RUNNING:
             continue
         branch = unit.branch or branch_name(unit)
-        if _branch_is_held(inst, branch):
+        if branch_is_held(inst, branch):
             continue
         log(f"{unit.id}: reclaimed — left running with no process on it")
-        if _commit_leftovers(inst, unit) and not (unit.resume_from or unit.feedback):
+        if commit_leftovers(inst, unit) and not (unit.resume_from or unit.feedback):
             # Those leftovers are commits now, and the resume path reads
             # commits on the branch as "the work is there" and skips building
             # — which would send an interrupted unit straight to tier 1 on
@@ -614,7 +614,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
 
     for tasks in inst.tasks_files():
         change = tasks.parent.name
-        digest = hashlib.sha256(_specification(tasks).encode()).hexdigest()
+        digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
         record = planned.get(change) or {}
 
         # Attempts are counted against the content, not the change, so editing
@@ -696,7 +696,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
 CHECKBOX = re.compile(r"^(\s*-\s*\[)[ xX](\])", re.MULTILINE)
 
 
-def _specification(tasks: Path) -> str:
+def specification(tasks: Path) -> str:
     """A change's tasks with progress stripped out.
 
     What a re-plan should key on is what the change *asks for*, not how much
@@ -739,7 +739,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     planned = _planned_hashes(inst)
     for tasks in inst.tasks_files():
         record = planned.get(tasks.parent.name) or {}
-        digest = hashlib.sha256(_specification(tasks).encode()).hexdigest()
+        digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
         if record.get("hash") != digest or not record.get("ok"):
             return True
     return False
@@ -763,7 +763,7 @@ def _write_planned(inst: Installation, records: dict[str, dict]) -> None:
     (inst.state_dir / "planned.json").write_text(json.dumps(records, indent=2) + "\n")
 
 
-def _has_identity(inst: Installation, repo: str) -> bool:
+def has_identity(inst: Installation, repo: str) -> bool:
     """Whether git in `repo` knows who its commits belong to.
 
     The effective identity, not a repo-local one: one global identity is an
@@ -887,7 +887,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         ).poll()
 
 
-def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
+def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
     """Build one unit. Returns False only when the tick should stop entirely.
 
     Nothing in here may raise. A tick runs unattended on a timer, so a

@@ -7,7 +7,7 @@ blocked merge. So the body has to carry what a human needs in order to decide
 """
 
 from agent_build_kit.pipeline.pr_body import (
-    _assumptions,
+    assumptions,
     build_pr_body,
     satisfied_reason,
     stack_line,
@@ -167,10 +167,10 @@ def test_stack_line_and_assumptions_clear_once_the_satisfied_chain_merges() -> N
     graph = [unit1, unit2, unit3]
 
     line = stack_line(unit3, graph, base="main")
-    assumptions = _assumptions(unit3, graph)
+    stated = assumptions(unit3, graph)
 
     assert "ready to merge" in line.lower()
-    assert "nothing unmerged" in assumptions.lower()
+    assert "nothing unmerged" in stated.lower()
 
 
 def test_the_satisfied_reason_names_its_groups_and_says_elsewhere() -> None:

@@ -54,7 +54,8 @@ def git_out(repo: Path, *args: str) -> str:
 
 
 @cache
-def _token_for(owner: str) -> str | None:
+def token_for(owner: str) -> str | None:
+    """The `gh` token for the account `owner`, or None when `gh` holds none."""
     result = subprocess.run(
         ["gh", "auth", "token", "--user", owner], capture_output=True, text=True, check=False
     )
@@ -69,7 +70,7 @@ def gh_env(slug: str) -> dict[str, str]:
     """
     # An explicitly configured token wins: one account may well have access to
     # both repos, and saying so is simpler than inferring it.
-    token = settings.gh_token or _token_for(slug.split("/")[0])
+    token = settings.gh_token or token_for(slug.split("/")[0])
     # The whole environment, not just the token: `gh` needs PATH and HOME, and
     # a partial env is the kind of thing that works until it runs under systemd.
     return {**os.environ, "GH_TOKEN": token} if token else dict(os.environ)

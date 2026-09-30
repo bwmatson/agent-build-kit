@@ -8,8 +8,6 @@ back as a problem naming the test, not as a block quietly accepted.
 
 from __future__ import annotations
 
-import json
-
 from agent_build_kit.pipeline.stack_runner import check_test_decisions, parse_test_decisions
 
 REQUIRED = ["test_ported", "test_dropped"]
@@ -34,30 +32,22 @@ def _problems(answer: str) -> list[str]:
     return check_test_decisions(REQUIRED, parse_test_decisions(answer), PRESENT)
 
 
-PORTED = {
-    "name": "test_ported",
-    "decision": "adapt",
-    "reason": "the predecessor renamed the marker, so the assertion reads the new one",
-}
-DROPPED = {
-    "name": "test_dropped",
-    "decision": "retire",
-    "reason": "the predecessor removed the registry this test asserted against",
-}
-
-
-def _answer(*entries: dict) -> str:
-    return "Ported.\n\n```json\n" + json.dumps({"tests": list(entries), "summary": "s"}) + "\n```\n"
-
-
 def test_a_complete_block_is_accepted() -> None:
-    answer = _answer(PORTED, DROPPED)
-
-    assert check_test_decisions(REQUIRED, parse_test_decisions(answer), PRESENT) == []
+    """The realistic shape: prose quoting other JSON, then the fenced block. The
+    block, not the JSON quoted earlier, is what is read."""
+    assert _problems(COMPLETE) == []
 
 
 def test_a_block_that_omits_a_test_reports_it_by_name() -> None:
-    problems = check_test_decisions(REQUIRED, parse_test_decisions(_answer(PORTED)), PRESENT)
+    omitted = COMPLETE.replace(
+        """,
+  {"name": "test_dropped", "decision": "retire",
+   "reason": "the predecessor removed the registry this test asserted against"}""",
+        "",
+    )
+    assert "test_dropped" not in omitted.split("```json")[1]
+
+    problems = _problems(omitted)
 
     assert any("`test_dropped`" in problem for problem in problems)
     assert not any("`test_ported`" in problem for problem in problems)

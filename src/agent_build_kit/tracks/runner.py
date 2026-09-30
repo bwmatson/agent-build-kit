@@ -100,7 +100,7 @@ class Project(Frozen):
         return f"https://github.com/{self.repo}"
 
 
-def _denied(configured: str) -> str:
+def denied_tools_value(configured: str) -> str:
     """The workspace's deny list, plus every forge's way of merging.
 
     Added rather than defaulted, so a workspace that overrides
@@ -348,7 +348,7 @@ def phase_request(
         add_dirs=(inst.root,),
         model=tracks.model,
         allowed_tools=tracks.allowed_tools,
-        denied_tools=_denied(tracks.disallowed_tools),
+        denied_tools=denied_tools_value(tracks.disallowed_tools),
         permission_mode="edit",
         worktree=worktree,
         keep_record=True,

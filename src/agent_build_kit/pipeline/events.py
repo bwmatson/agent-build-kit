@@ -81,7 +81,7 @@ def _unclaimed(unit: StoredUnit) -> AbstractContextManager[object]:
 
 
 def build_claim(locks: Path) -> Claim:
-    """The same branch lock `_build` holds while a unit builds, by the same name."""
+    """The same branch lock `build_unit` holds while a unit builds, by the same name."""
 
     def claim(unit: StoredUnit) -> AbstractContextManager[object]:
         return branch_lock(branch_name(unit), root=locks)

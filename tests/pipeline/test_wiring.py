@@ -26,8 +26,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
-    _branch_commits,
-    _tip,
+    branch_commits,
     build_base_moved,
     build_close_pr,
     build_commit,
@@ -37,6 +36,7 @@ from agent_build_kit.pipeline.wiring import (
     build_run_review,
     build_tier1,
     build_upstream_incomplete,
+    tip,
 )
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
@@ -552,7 +552,7 @@ def test_after_a_squash_merge_only_the_unit_s_own_commits_are_replayed(tmp_path:
     original commits over its squashed form; the replay must start where c/3
     left its parent's branch."""
     from agent_build_kit.pipeline.unit_store import UnitStore
-    from agent_build_kit.pipeline.wiring import _own_work_starts_after
+    from agent_build_kit.pipeline.wiring import own_work_starts_after
     from tests.factories import git, init_repo, stored_unit
 
     repo = init_repo(tmp_path / "r")
@@ -579,7 +579,7 @@ def test_after_a_squash_merge_only_the_unit_s_own_commits_are_replayed(tmp_path:
     store.upsert([stored_unit("c/2", branch="spec/c/2"), stored_unit("c/3", depends_on=("c/2",))])
     store.set_state("c/2", "merged", branch="spec/c/2")
 
-    start = _own_work_starts_after(repo, "main", store.get("c/3"), store)
+    start = own_work_starts_after(repo, "main", store.get("c/3"), store)
 
     assert start == fork
     git(repo, "rebase", "-q", "--onto", "main", start, "spec/c/3")  # applies cleanly
@@ -595,7 +595,7 @@ def test_own_work_starts_after_looks_through_a_satisfied_unit_with_no_refs(
     refs finds nothing there and falls back to the plain merge-base, which
     misses the fork and would let c/1's later rework be replayed onto c/3 a
     second time after a squash-merge."""
-    from agent_build_kit.pipeline.wiring import _own_work_starts_after
+    from agent_build_kit.pipeline.wiring import own_work_starts_after
     from tests.factories import git, init_repo, stored_unit
 
     repo = init_repo(tmp_path / "r")
@@ -628,7 +628,7 @@ def test_own_work_starts_after_looks_through_a_satisfied_unit_with_no_refs(
     store.record_push("add-marker/1", git(repo, "rev-parse", "spec/add-marker/1"))
     store.set_state("add-marker/2", SATISFIED)
 
-    start = _own_work_starts_after(repo, "main", store.get("add-marker/3"), store)
+    start = own_work_starts_after(repo, "main", store.get("add-marker/3"), store)
 
     assert start == fork
     assert start != plain_merge_base
@@ -640,7 +640,7 @@ def test_predecessor_looks_through_a_satisfied_unit_once_its_parent_merges(
     """add-marker/2 is satisfied on add-marker/1's branch. Once add-marker/1
     merges and the base becomes `main`, the predecessor is add-marker/1 —
     which has commits and a PR — not add-marker/2, which never had either."""
-    from agent_build_kit.pipeline.wiring import _predecessor
+    from agent_build_kit.pipeline.wiring import predecessor
     from tests.factories import stored_unit
 
     store = UnitStore(tmp_path / "units.json")
@@ -654,14 +654,14 @@ def test_predecessor_looks_through_a_satisfied_unit_once_its_parent_merges(
     store.set_state("add-marker/2", SATISFIED)
     store.set_state("add-marker/1", MERGED)
 
-    predecessor = _predecessor(store.get("add-marker/3"), "main", store)
+    found = predecessor(store.get("add-marker/3"), "main", store)
 
-    assert predecessor is not None
-    assert predecessor.id == "add-marker/1"
+    assert found is not None
+    assert found.id == "add-marker/1"
 
 
 def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.wiring import _reset_to, _tests_in, defined_tests_in_range
+    from agent_build_kit.pipeline.wiring import defined_tests_in_range, reset_to, tests_in
     from tests.factories import git, init_repo
 
     repo = init_repo(tmp_path / "r")
@@ -676,74 +676,19 @@ def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path
     head = git(repo, "rev-parse", "HEAD")
 
     assert defined_tests_in_range(repo, base, head) == ["test_new_one"]
-    assert _tests_in(repo) == {"test_existing", "test_new_one"}
+    assert tests_in(repo) == {"test_existing", "test_new_one"}
 
-    _reset_to(repo, base, "refs/spec-driven/pre-adapt/c-3")
+    reset_to(repo, base, "refs/spec-driven/pre-adapt/c-3")
 
     assert git(repo, "rev-parse", "HEAD") == base
     assert git(repo, "rev-parse", "refs/spec-driven/pre-adapt/c-3") == head, "old work kept"
-
-
-def _spaced_tests() -> str:
-    """A test module with tests spaced so that a one-line edit's diff context
-    (three lines either side) reaches a neighbouring definition."""
-    return (
-        "def test_above():\n    assert True\n\n\n"
-        "def test_edited():\n    x = 1\n    y = 2\n    assert x == y - 1\n\n\n"
-        "def test_below():\n    assert True\n\n\n"
-        "def test_far():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    assert a\n\n\n"
-        "def test_removed():\n    assert True\n"
-    )
-
-
-def _commit_over(tmp_path: Path, before: str, after: str) -> tuple[Path, str, str]:
-    from tests.factories import git, init_repo
-
-    repo = init_repo(tmp_path / "r")
-    (repo / "test_mod.py").write_text(before)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "base")
-    base = git(repo, "rev-parse", "HEAD")
-    (repo / "test_mod.py").write_text(after)
-    git(repo, "commit", "-qam", "unit")
-    return repo, base, git(repo, "rev-parse", "HEAD")
-
-
-def test_a_test_only_on_a_context_line_is_not_the_units(tmp_path: Path) -> None:
-    """The unit added one test and deleted another. Its edit sits within three
-    lines of `test_above` and `test_below`, so both appear in the diff as
-    context — and neither is the unit's."""
-    from agent_build_kit.pipeline.wiring import defined_tests_in_range
-
-    before = _spaced_tests()
-    after = before.replace("    assert x == y - 1\n", "    assert x == y - 1\n    assert x\n")
-    after = after.replace("def test_removed():\n    assert True\n", "")
-    after += "\n\ndef test_added():\n    assert True\n"
-    repo, base, head = _commit_over(tmp_path, before, after)
-
-    counted = defined_tests_in_range(repo, base, head)
-
-    assert "test_added" in counted, "a definition the range adds"
-    assert "test_removed" in counted, "a definition the range removes"
-    assert "test_above" not in counted
-    assert "test_below" not in counted
-
-
-def test_a_test_edited_inside_counts_and_one_left_alone_does_not(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.wiring import defined_tests_in_range
-
-    before = _spaced_tests()
-    after = before.replace("    assert x == y - 1\n", "    assert x\n")
-    repo, base, head = _commit_over(tmp_path, before, after)
-
-    assert defined_tests_in_range(repo, base, head) == ["test_edited"]
 
 
 def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Path) -> None:
     """A test kept under its old name but quietly weakened — an assertion
     relaxed, a case deleted — must not read as untouched just because its
     name still matches. Comparing bodies, not names, is what catches it."""
-    from agent_build_kit.pipeline.wiring import _tests_changed
+    from agent_build_kit.pipeline.wiring import tests_changed
     from tests.factories import git, init_repo
 
     repo = init_repo(tmp_path / "r")
@@ -759,7 +704,7 @@ def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Pa
         "def test_a():\n    assert 1 == 1\n\n\ndef test_b():\n    assert 1 == 2\n"
     )
 
-    assert _tests_changed(repo, keep) == {"test_b"}
+    assert tests_changed(repo, keep) == {"test_b"}
 
 
 def _changed_after(
@@ -767,9 +712,9 @@ def _changed_after(
     before: str | Mapping[str, str],
     after: str | Mapping[str, str | None],
 ) -> set[str]:
-    """`_tests_changed` on a real repo: `before` is committed, `after` written
+    """`tests_changed` on a real repo: `before` is committed, `after` written
     over it (a `None` value deletes the file)."""
-    from agent_build_kit.pipeline.wiring import _tests_changed
+    from agent_build_kit.pipeline.wiring import tests_changed
     from tests.factories import git, init_repo
 
     repo = init_repo(tmp_path / "r")
@@ -784,7 +729,7 @@ def _changed_after(
             (repo / name).unlink()
         else:
             (repo / name).write_text(text)
-    return _tests_changed(repo, keep)
+    return tests_changed(repo, keep)
 
 
 _DEFAULTS = "def test_defaults():\n    assert 1 == 1\n"
@@ -800,7 +745,7 @@ def test_a_test_weakened_in_a_file_whose_path_git_quotes_reads_as_changed(
 
 
 def test_a_file_that_is_not_utf8_is_compared_without_raising(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.wiring import _tests_changed
+    from agent_build_kit.pipeline.wiring import tests_changed
     from tests.factories import git, init_repo
 
     repo = init_repo(tmp_path / "r")
@@ -811,19 +756,19 @@ def test_a_file_that_is_not_utf8_is_compared_without_raising(tmp_path: Path) -> 
     git(repo, "update-ref", "refs/keep", "HEAD")
     (repo / "test_mod.py").write_bytes(head + b"def test_a():\n    pass\n")
 
-    assert _tests_changed(repo, "refs/keep") == {"test_a"}
+    assert tests_changed(repo, "refs/keep") == {"test_a"}
 
 
 def test_a_ref_that_does_not_exist_raises_rather_than_reading_as_unchanged(
     tmp_path: Path,
 ) -> None:
-    from agent_build_kit.pipeline.wiring import _tests_changed
+    from agent_build_kit.pipeline.wiring import tests_changed
     from tests.factories import init_repo
 
     repo = init_repo(tmp_path / "r")
 
     with pytest.raises(subprocess.CalledProcessError):
-        _tests_changed(repo, "refs/does-not-exist")
+        tests_changed(repo, "refs/does-not-exist")
 
 
 def test_a_test_removed_from_one_file_reads_as_changed_though_another_has_the_name(
@@ -1212,7 +1157,7 @@ def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(
     store.set_state("add-marker/1", IN_REVIEW, pr=1, branch="spec/add-marker/1")
     base_moved = build_base_moved(store)
     child = store.get("add-marker/2")
-    start = _tip(repo, "spec/add-marker/1")
+    start = tip(repo, "spec/add-marker/1")
 
     # advanced: a parent's later round on top of what the child has
     git(repo, "checkout", "-q", "spec/add-marker/1")
@@ -1252,18 +1197,18 @@ def test_branch_commits_raises_on_an_unresolvable_base(tmp_path: Path) -> None:
     git(repo, "commit", "-q", "--allow-empty", "-m", "root")
 
     with pytest.raises(subprocess.CalledProcessError):
-        _branch_commits(repo, "no-such-ref")
+        branch_commits(repo, "no-such-ref")
 
 
 def test_branch_commits_counts_what_the_branch_adds(tmp_path: Path) -> None:
     repo = init_repo(tmp_path / "repo")
     git(repo, "commit", "-q", "--allow-empty", "-m", "root")
-    assert _branch_commits(repo, "main") == 0
+    assert branch_commits(repo, "main") == 0
 
     git(repo, "checkout", "-q", "-b", "work")
     git(repo, "commit", "-q", "--allow-empty", "-m", "one")
 
-    assert _branch_commits(repo, "main") == 1
+    assert branch_commits(repo, "main") == 1
 
 
 # --- tier 1 in a repo whose projects are not at its root ----------------------------
@@ -1319,7 +1264,7 @@ def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
 
 def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Path) -> None:
     """`node-npm` is declared and not implemented. Tier 1 cannot judge such a
-    project, so the profile raises and `cli/pipeline._build` turns that into a
+    project, so the profile raises and `cli/pipeline.build_unit` turns that into a
     held unit — which is the honest answer, where passing it unchecked is not."""
     run, _ = recorder()
     tier1 = build_tier1(

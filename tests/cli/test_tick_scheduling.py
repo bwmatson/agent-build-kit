@@ -66,7 +66,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
-    monkeypatch.setattr(cli, "_has_identity", lambda inst, repo: True)
+    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
@@ -513,7 +513,7 @@ def test_a_repo_refused_mid_pass_is_not_built_and_the_pass_fails(
         if "app/1" in builder.finished:
             store.set_state("base/1", MERGED, pr=7)
 
-    monkeypatch.setattr(cli, "_has_identity", has_identity)
+    monkeypatch.setattr(cli, "has_identity", has_identity)
     monkeypatch.setattr(cli, "poll_all", poll)
     builder.scripts["slow/1"] = lambda: None if refused.wait(WAIT) else "failed"
 

@@ -24,7 +24,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         return subprocess.CompletedProcess(args, 0, "[]", "")
 
     monkeypatch.setattr(shell.subprocess, "run", fake_run)
-    monkeypatch.setattr(shell, "_token_for", lambda owner: f"token-for-{owner}")
+    monkeypatch.setattr(shell, "token_for", lambda owner: f"token-for-{owner}")
     monkeypatch.setattr(shell.settings, "gh_token", "")
     return calls
 
@@ -40,7 +40,7 @@ def test_a_configured_token_is_used_for_every_repo(monkeypatch: pytest.MonkeyPat
 
 def test_without_one_the_token_follows_the_repo_s_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shell.settings, "gh_token", "")
-    monkeypatch.setattr(shell, "_token_for", lambda owner: f"token-for-{owner}")
+    monkeypatch.setattr(shell, "token_for", lambda owner: f"token-for-{owner}")
 
     assert shell.gh_env("example/platform")["GH_TOKEN"] == "token-for-example"
     assert shell.gh_env("example/app")["GH_TOKEN"] == "token-for-example"
@@ -76,7 +76,7 @@ def test_gh_json_falls_back_rather_than_raising(monkeypatch: pytest.MonkeyPatch)
             "run",
             lambda args, _rc=rc, _out=out, **k: subprocess.CompletedProcess(args, _rc, _out, ""),
         )
-        monkeypatch.setattr(shell, "_token_for", lambda owner: None)
+        monkeypatch.setattr(shell, "token_for", lambda owner: None)
         assert shell.gh_json(["gh", "api", "x"]) == []
 
 
@@ -88,7 +88,7 @@ def test_gh_out_names_the_failure(monkeypatch: pytest.MonkeyPatch) -> None:
         "run",
         lambda args, **k: subprocess.CompletedProcess(args, 1, "", "HTTP 404"),
     )
-    monkeypatch.setattr(shell, "_token_for", lambda owner: None)
+    monkeypatch.setattr(shell, "token_for", lambda owner: None)
 
     with pytest.raises(RuntimeError, match="HTTP 404"):
         shell.gh_out(["gh", "pr", "list", "--repo", "a/b"])

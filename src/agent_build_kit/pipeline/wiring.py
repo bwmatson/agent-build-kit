@@ -382,7 +382,7 @@ def build_commit(
     return commit
 
 
-def _branch_commits(repo: Path, base: str) -> int:
+def branch_commits(repo: Path, base: str) -> int:
     """How many commits the branch carries beyond its base.
 
     The question a resumed unit asks: not "did this run write anything" but
@@ -819,7 +819,7 @@ def _stack_versions(command: list[str] | None, *, run: Run | None = None) -> dic
     return versions
 
 
-def _own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -> str:
+def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -> str:
     """The commit this unit's own work begins after: what a replay starts from.
 
     Usually where it and its base last shared history. But a parent that was
@@ -869,12 +869,12 @@ def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = 
         if _is_ancestor(tree, base):
             return None
 
-        old_base = _own_work_starts_after(tree, base, unit, store)
+        old_base = own_work_starts_after(tree, base, unit, store)
         if not old_base:
             return None
 
         # Named for the resolver and the reviewer: the predecessor that moved.
-        onto = _predecessor(unit, base, store)
+        onto = predecessor(unit, base, store)
         onto_unit = onto.id if onto else base
         onto_intent = onto.title if onto else "the updated base"
         old_head = git(tree, "rev-parse", "HEAD").stdout.strip()
@@ -922,7 +922,7 @@ def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = 
     return restack_onto
 
 
-def _predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
+def predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
     """The unit this one is built on: the base's own unit, or — when the base
     is the trunk because the parent merged — the same-repo parent it depends on."""
     units = store.all()
@@ -992,7 +992,7 @@ def defined_tests_in_range(tree: Path, old_base: str, old_head: str) -> list[str
     return sorted(found)
 
 
-def _tests_in(tree: Path) -> set[str]:
+def tests_in(tree: Path) -> set[str]:
     """Every test function in the worktree as it stands."""
     out = git(tree, "grep", "-hoE", "def test_[A-Za-z0-9_]+", "--", "*.py", check=False).stdout
     return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
@@ -1024,7 +1024,7 @@ def _test_bodies(source: str) -> dict[str, list[str]]:
     return {name: sorted(texts) for name, texts in bodies.items()}
 
 
-def _tests_changed(tree: Path, ref: str) -> set[str]:
+def tests_changed(tree: Path, ref: str) -> set[str]:
     """Test functions whose body differs between `ref` and the tree, per file.
 
     Compared file by file in both directions, so a test that only survived the
@@ -1068,7 +1068,7 @@ def _tests_changed(tree: Path, ref: str) -> set[str]:
     return changed
 
 
-def _reset_to(tree: Path, onto: str, keep: str) -> None:
+def reset_to(tree: Path, onto: str, keep: str) -> None:
     """Keep the current work under `keep`, then put the branch on `onto`.
 
     A ref rather than a branch: it is there for the adapt step to read from,
@@ -1106,7 +1106,8 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., str]:
     return upstream_incomplete
 
 
-def _tip(tree: Path, ref: str) -> str:
+def tip(tree: Path, ref: str) -> str:
+    """The commit `ref` names in the worktree, or an empty string when it names none."""
     return git(tree, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False).stdout.strip()
 
 
@@ -1204,9 +1205,9 @@ def build_runner(
         store=store,
         planning_repo=planning_repo,
         worktree=worktree_in_turn,
-        reset_to=_reset_to,
-        tests_in=_tests_in,
-        tests_changed=_tests_changed,
+        reset_to=reset_to,
+        tests_in=tests_in,
+        tests_changed=tests_changed,
         may_start=build_may_start(),
         run_claude=run_claude,
         run_rework=build_run_claude(
@@ -1225,10 +1226,10 @@ def build_runner(
         ),
         # A rejected commit goes back to the build run's agent, same policy.
         commit=build_commit(unit_id=unit.id, fix=run_claude),
-        branch_commits=_branch_commits,
+        branch_commits=branch_commits,
         upstream_incomplete=build_upstream_incomplete(store),
         base_moved=build_base_moved(store),
-        base_tip=_tip,
+        base_tip=tip,
         restack_onto=build_restack_onto(store),
         run_tier1=build_tier1(
             profile=profile, root_extras=repo.tests.root_extras, projects=repo.projects

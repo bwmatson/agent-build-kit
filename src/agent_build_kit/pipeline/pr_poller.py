@@ -72,7 +72,12 @@ def _comment_ids(pull: PullRequest, ignore: Collection[str] = ()) -> list[str]:
     return [i for i in pull.conversation if i not in ignore]
 
 
-def _snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
+def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
+    """What a poll records about `pull`, and what the next poll diffs against.
+
+    Comment ids in `ignore` (the pipeline's own) are left out, so they never
+    read as something new to act on.
+    """
     ids = _comment_ids(pull, ignore)
     return {
         # `units` vocabulary, as `PullRequest.state` already is: merged,
@@ -171,7 +176,7 @@ class Poller(BaseModel):
                 continue
 
             number = str(pull.number)
-            current = _snapshot(pull, self.ignore(int(number)))
+            current = snapshot(pull, self.ignore(int(number)))
             updated[number] = current
 
             if first_run:

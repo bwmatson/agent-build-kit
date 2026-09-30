@@ -93,6 +93,17 @@ def test_a_definition_added_and_one_deleted_are_both_counted(tmp_path: Path) -> 
     assert defined_tests_in_range(repo, base, head) == ["test_added", "test_removed"]
 
 
+def test_an_edit_with_an_add_and_a_delete_in_one_range_leaves_the_context_tests_out(
+    tmp_path: Path,
+) -> None:
+    after = BEFORE.replace("    assert x == y - 1\n", "    assert x == y - 1\n    assert x\n")
+    after = after.replace("def test_removed():\n    assert True\n", "")
+    after += "\n\ndef test_added():\n    assert True\n"
+    repo, base, head = _range(tmp_path, {"test_mod.py": (BEFORE, after)})
+
+    assert defined_tests_in_range(repo, base, head) == ["test_added", "test_edited", "test_removed"]
+
+
 def test_an_edit_to_a_decorator_or_a_method_counts_for_that_test(tmp_path: Path) -> None:
     after = BEFORE.replace("[1, 2]", "[1, 2, 3]").replace(
         "        a = 1\n        assert a", "        assert 1"
