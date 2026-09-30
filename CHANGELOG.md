@@ -37,6 +37,18 @@
   for a later poll instead of being acted on mid-build, and a unit whose
   parent merged while it built stops before pushing and is restacked when it
   resumes.
+- The review loop can converge instead of only approving or asking again.
+  Every round is told which round it is, how many remain, and what running
+  out costs. A verdict may approve while deferring an optional follow-up,
+  recorded against the change for its next unit and the PR to see —
+  correctness, a test that would pass regardless, a missing test a task
+  asked for, and anything the command policy forbids stay non-deferrable. A
+  reviewer that meets another instance of a kind it cannot enumerate, or that
+  still disagrees after the builder declined a point once, escalates instead
+  of spending another round, holding the unit for a person with its reasoning
+  recorded. When the round budget is spent with blocking work still
+  outstanding, the branch is pushed and its PR carries the open points
+  instead of the work being discarded.
 
 ## 0.1.0 — 2026-09-28
 

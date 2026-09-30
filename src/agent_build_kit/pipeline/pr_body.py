@@ -76,6 +76,8 @@ def build_pr_body(
     base: str,
     tier2_snapshot: str | None = None,
     restack_note: str | None = None,
+    open_points: str | None = None,
+    follow_ups: list[str] | None = None,
 ) -> str:
     """The full description for a unit's PR."""
     groups = ", ".join(str(group) for group in unit.groups) or "—"
@@ -94,6 +96,19 @@ def build_pr_body(
         )
 
     restack = f"\n## What moved underneath this\n\n{restack_note}\n" if restack_note else ""
+    open_points_block = (
+        f"\n## Held for a person\n\nReview's rounds ran out with this still outstanding:\n\n"
+        f"{open_points}\n"
+        if open_points
+        else ""
+    )
+    follow_ups_block = (
+        "\n## Left for later\n\nApproved, with these recorded rather than blocking:\n\n"
+        + "\n".join(f"- {item}" for item in follow_ups)
+        + "\n"
+        if follow_ups
+        else ""
+    )
 
     return f"""\
 {stack_line(unit, graph, base=base)}
@@ -106,7 +121,7 @@ Spec: `openspec/changes/{unit.change}/` in the planning repo.
 {_assumptions(unit, graph)}
 
 {verification}
-{restack}
+{restack}{open_points_block}{follow_ups_block}
 ## How this was built
 
 Tests were committed first and seen to fail before any implementation

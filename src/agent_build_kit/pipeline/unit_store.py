@@ -57,6 +57,10 @@ class StoredUnit(Unit):
     # The commit the review loop last approved. Nothing else may be pushed:
     # see the gate before `push` in `StackRunner.run`.
     approved: str = ""
+    # The approved verdict's deferrable points, waiting for the push that makes
+    # them true. Kept here, not in the run: a unit that stops between approval
+    # and push resumes at VERIFY with no review to repeat them.
+    deferred: tuple[str, ...] = ()
     # A PR rework's replies, waiting for the push that makes them true. Kept
     # here, not in the run: a rework that writes its replies, then pauses for
     # usage before its push, would otherwise lose them with the process.
@@ -175,6 +179,7 @@ class UnitStore:
                 feedback=existing.feedback if existing else "",
                 resume_from=existing.resume_from if existing else "",
                 approved=existing.approved if existing else "",
+                deferred=existing.deferred if existing else (),
                 pending_replies=existing.pending_replies if existing else (),
                 predecessor_note=existing.predecessor_note if existing else "",
                 review_rounds=existing.review_rounds if existing else (),
@@ -272,9 +277,22 @@ class UnitStore:
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
         self._update(unit_id, predecessor_note=note)
 
-    def record_approval(self, unit_id: str, sha: str) -> None:
-        """The commit review approved — the only one the runner may push."""
-        self._update(unit_id, approved=sha)
+    def record_approval(
+        self, unit_id: str, sha: str, deferred: Sequence[str] | None = None
+    ) -> None:
+        """The commit review approved — the only one the runner may push.
+
+        `deferred` replaces the recorded follow-ups, so a later approval with
+        none clears an earlier one's; left as `None` (a restack re-approving
+        a moved commit) it keeps them.
+        """
+        if deferred is None:
+            self._update(unit_id, approved=sha)
+        else:
+            self._update(unit_id, approved=sha, deferred=tuple(deferred))
+
+    def set_deferred(self, unit_id: str, deferred: Sequence[str]) -> None:
+        self._update(unit_id, deferred=tuple(deferred))
 
     def record_push(self, unit_id: str, sha: str) -> None:
         """Remember what we published, so the next push can lease against it.

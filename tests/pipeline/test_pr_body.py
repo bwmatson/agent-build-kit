@@ -113,6 +113,30 @@ def test_blast_radius_notes_appear_after_a_restack() -> None:
     assert "no conflicts" in body
 
 
+def test_open_points_appear_when_the_rounds_ran_out() -> None:
+    """A person inheriting a held unit needs the outstanding points in the PR,
+    not just a state on disk."""
+    body = build_pr_body(
+        unit(),
+        graph=[unit()],
+        base="main",
+        open_points="the lock is not released on error",
+    )
+
+    assert "the lock is not released on error" in body
+
+
+def test_deferred_follow_ups_appear_when_approval_recorded_them() -> None:
+    body = build_pr_body(
+        unit(),
+        graph=[unit()],
+        base="main",
+        follow_ups=["Name the lock after what it guards"],
+    )
+
+    assert "Name the lock after what it guards" in body
+
+
 def test_the_body_records_which_task_groups_it_covers() -> None:
     body = build_pr_body(unit(groups=(2, 3)), graph=[unit()], base="main")
 

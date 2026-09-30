@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active, models
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import last_json
 from agent_build_kit.pipeline.task_progress import mark_groups
@@ -69,6 +70,29 @@ VERIFY = "verify"
 # `/opsx:apply`: that command exists only where OpenSpec is installed, which
 # is the planning repo, while the unit is built in the target repo's worktree.
 CHANGE_DIR = "{planning_repo}/openspec/changes/{change}"
+
+# Where a change's deferred follow-ups accumulate: approved alongside, not
+# worth a round, recorded here for the change's next unit and this PR's
+# reviewer to see (design.md, "Deferral").
+FOLLOW_UPS_FILE = "follow-ups.md"
+
+FOLLOW_UPS_NOTE = """\
+**Left by an earlier unit of this change, approved but not required of it:**
+
+{items}
+"""
+
+
+def _follow_ups_marker(unit_id: str) -> str:
+    return f"## From `{unit_id}`\n\n"
+
+
+def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
+    """Where this unit's block ends in `content`: the next unit's marker, or the end."""
+    # Line-anchored: a marker inside a point's text is not a block boundary.
+    next_marker = content.find("\n## From `", start + len(marker) - 1)
+    return next_marker + 1 if next_marker != -1 else len(content)
+
 
 TESTS_PROMPT = """\
 The change you are implementing is specified in {change_dir} — read its
@@ -126,23 +150,48 @@ the unit has passed review, tier 1 and been pushed.
 """
 
 
-def needs_human(output: str) -> bool:
-    """Whether a rejecting reviewer says only a person can make what is left.
+# The only follow-up kind that does not block approval. Anything else — a
+# correctness problem, a test that would pass regardless, a missing test the
+# task asked for, or something the command policy forbids — is inconvenient,
+# not deferrable, and comes back to the builder whatever `approved` says.
+DEFERRABLE_KIND = "optional"
 
-    Read apart from `parse_verdict`, and only ever acted on alongside a
-    rejection: an unreadable reply is still just an unreadable reply.
+# The two things a round can escalate instead of spending another one on:
+# a class of problem no list can finish, or a disagreement already raised
+# once. See design.md.
+ESCALATIONS = ("class", "disagreement")
+
+
+class FollowUp(Frozen):
+    kind: str
+    point: str
+
+
+class Verdict(Frozen):
+    """A reviewer's reply, fully parsed.
+
+    `parse_verdict` never raises: a reviewer that stops answering properly
+    must not become invisible by being read as one that approved.
     """
-    match = re.search(r"\{.*\}", output, re.DOTALL)
-    if not match:
-        return False
-    try:
-        return bool(json.loads(match.group(0)).get("needs_human"))
-    except (ValueError, AttributeError):
-        return False
+
+    approved: bool = False
+    feedback: str = ""
+    needs_human: bool = False
+    follow_ups: tuple[FollowUp, ...] = ()
+    escalate: str = ""  # "" | "class" | "disagreement"
+    reasoning: str = ""
+
+    @property
+    def blocking(self) -> tuple[FollowUp, ...]:
+        return tuple(f for f in self.follow_ups if f.kind != DEFERRABLE_KIND)
+
+    @property
+    def deferrable(self) -> tuple[FollowUp, ...]:
+        return tuple(f for f in self.follow_ups if f.kind == DEFERRABLE_KIND)
 
 
-def parse_verdict(output: str) -> tuple[bool, str]:
-    """(approved, what to fix) from a reviewer's reply.
+def parse_verdict(output: str) -> Verdict:
+    """A reviewer's reply, read as a verdict.
 
     An unreadable reply is not an approval. Reading it as one would make a
     reviewer that had stopped answering properly invisible — the branch would
@@ -151,12 +200,34 @@ def parse_verdict(output: str) -> tuple[bool, str]:
     """
     match = re.search(r"\{.*\}", output, re.DOTALL)
     if not match:
-        return False, "the reviewer's reply was not readable as a verdict"
+        return Verdict(feedback="the reviewer's reply was not readable as a verdict")
     try:
         payload = json.loads(match.group(0))
     except ValueError:
-        return False, "the reviewer's reply was not readable as a verdict"
-    return bool(payload.get("approved")), str(payload.get("feedback") or "").strip()
+        return Verdict(feedback="the reviewer's reply was not readable as a verdict")
+    follow_ups = []
+    raw = payload.get("follow_ups") or []
+    if not isinstance(raw, list):
+        raw = [raw]
+    for item in raw:
+        try:
+            follow_ups.append(FollowUp.model_validate(item))
+        except ValueError:
+            # Not skipped: a follow-up the pipeline cannot read is not one it
+            # can trust to be optional, so it blocks the approval same as a
+            # correctness point would.
+            point = item.get("point") if isinstance(item, dict) else item
+            text = point if isinstance(point, str) and point else json.dumps(item)
+            follow_ups.append(FollowUp(kind="unreadable", point=text))
+    escalate = str(payload.get("escalate") or "").strip()
+    return Verdict(
+        approved=bool(payload.get("approved")),
+        feedback=str(payload.get("feedback") or "").strip(),
+        needs_human=bool(payload.get("needs_human")),
+        follow_ups=tuple(follow_ups),
+        escalate=escalate if escalate in ESCALATIONS else "",
+        reasoning=str(payload.get("reasoning") or "").strip(),
+    )
 
 
 REWORK_PROMPT = """\
@@ -337,6 +408,37 @@ test the tasks require missing? {decisions}Report any test that no longer
 belongs, or any change to the tests that was not justified, as a required
 change — a test that passes against the wrong behaviour is worse than none.
 """
+
+
+# Given before every round, first included, so the reviewer can weigh a
+# residual observation against losing correct work rather than judging in a
+# vacuum. See design.md, "Telling the reviewer what it is spending".
+ROUND_BUDGET_NOTE = """\
+**Round budget.** This is round {round} of {total}, with {remaining} remaining \
+after this one. {stake} Weigh a residual observation against losing correct \
+work — hold this to the bar you would approve, not to perfection.
+"""
+
+_SPENT_MORE = (
+    "If the budget runs out without an approval, the work is not merged and "
+    "nothing is approved: the branch is pushed and held for a person, with "
+    "the open points on its PR."
+)
+_SPENT_LAST = (
+    "This is the final round: if it does not end in approval, the work is not "
+    "merged and nothing is approved — the branch is pushed and held for a "
+    "person, with the open points on its PR."
+)
+
+
+def _round_budget_note(round_number: int, total: int) -> str:
+    remaining = total - round_number
+    return ROUND_BUDGET_NOTE.format(
+        round=round_number,
+        total=total,
+        remaining=remaining,
+        stake=_SPENT_LAST if remaining == 0 else _SPENT_MORE,
+    )
 
 
 # Enough of each round for the reviewer to check it against, without one long
@@ -651,27 +753,31 @@ class UnitRunner(BaseModel):
             # approved exactly this commit.
             needs_review = False
         else:
+            # Given to both build prompts: a unit resumed at IMPLEMENT skips
+            # the tests prompt entirely, and would otherwise never see what an
+            # earlier unit left for this one to act on.
+            follow_ups_note = self._follow_ups_note(unit)
             if resume != IMPLEMENT:
                 self.store.record_step(unit.id, TESTS)
                 self.log(f"step: write the tests ({models().implement})")
-                self.run_claude(
-                    TESTS_PROMPT.format(
-                        groups=groups, change_dir=change_dir, boundary=build_boundary
-                    ),
-                    cwd=tree,
+                tests_prompt = TESTS_PROMPT.format(
+                    groups=groups, change_dir=change_dir, boundary=build_boundary
                 )
+                if follow_ups_note:
+                    tests_prompt = f"{follow_ups_note}\n\n{tests_prompt}"
+                self.run_claude(tests_prompt, cwd=tree)
                 self.commit(f"test: {unit.title}", cwd=tree)
                 if outcome := checkpoint(IMPLEMENT):
                     return outcome
 
             self.log(f"step: implement ({models().implement})")
             before = self.branch_commits(tree, ref)
-            self.run_claude(
-                IMPLEMENTATION_PROMPT.format(
-                    groups=groups, change_dir=change_dir, boundary=build_boundary
-                ),
-                cwd=tree,
+            implementation_prompt = IMPLEMENTATION_PROMPT.format(
+                groups=groups, change_dir=change_dir, boundary=build_boundary
             )
+            if follow_ups_note:
+                implementation_prompt = f"{follow_ups_note}\n\n{implementation_prompt}"
+            self.run_claude(implementation_prompt, cwd=tree)
             self.commit(f"feat: {unit.title}", cwd=tree)
             # Counted on the branch, not taken from the commit step: an agent
             # that commits its own work leaves the pipeline nothing to commit,
@@ -741,8 +847,17 @@ class UnitRunner(BaseModel):
             if isinstance(approved, RunOutcome):
                 return approved
             if not approved:
+                # The budget ran out with blocking work still outstanding —
+                # not a bad run, so not a discard. `why` already carries every
+                # outstanding point. Set before the checkpoint, so the points
+                # survive the hold even if the checkpoint stops the push.
                 self.store.set_feedback(unit.id, why)
-                return self._fail(unit, f"review did not approve the branch: {why}")
+                # The same gate the normal path clears before pushing: a base
+                # that moved while the rounds ran would otherwise put the
+                # parent's old commits in this unit's diff.
+                if outcome := checkpoint(VERIFY, usage=False):
+                    return outcome
+                return self._spend_rounds(unit, tree, branch, graph, base, why)
 
         # Tier 1 is not a Claude run, so only upstream can stop it here.
         if outcome := checkpoint(VERIFY, usage=False):
@@ -845,10 +960,28 @@ class UnitRunner(BaseModel):
         sha = self.push(branch, cwd=tree)
         self.log(f"pushed {branch} at {sha[:9]}")
 
+        # Only now, with the push confirmed: a follow-up recorded ahead of a
+        # tier 1 or tier 2 failure would describe work that never left the
+        # machine.
+        # From the store, not this run: a unit resumed at VERIFY skips review.
+        if self.store.get(unit.id).deferred:
+            self._record_follow_ups(unit, self.store.get(unit.id).deferred)
+            self.store.set_deferred(unit.id, ())
+
         stored = self.store.get(unit.id)
         pr = self.open_pr(
             unit,
-            body=build_pr_body(stored, graph=graph or [stored], base=base, tier2_snapshot=snapshot),
+            body=build_pr_body(
+                stored,
+                graph=graph or [stored],
+                base=base,
+                tier2_snapshot=snapshot,
+                # From the change's own record of this unit's follow-ups, not
+                # this run's local `deferred`: a unit resumed at VERIFY skips
+                # review and has none, a rework re-pushes without repeating
+                # them, and a later approval must not lose an earlier one's.
+                follow_ups=self._follow_ups_for(unit) or None,
+            ),
             base=base,
             cwd=tree,
         )
@@ -898,13 +1031,21 @@ class UnitRunner(BaseModel):
 
         The first round reviews a freshly built branch; every round after
         reviews a rework, which is why the model differs between them.
+
+        Returns what to fix (unused once approved or held). On approval the
+        follow-ups the reviewer deferred rather than blocked on are recorded on
+        the unit with the approval. A `False`
+        with no `RunOutcome` means the round budget was spent with blocking
+        work still outstanding — the one case `run` has to push and hold for
+        rather than fail.
         """
         why = ""
         if not reworking:
             # A fresh build starts a fresh loop; a resumed or reworking one
             # carries the rounds it had.
             self.store.set_review_rounds(unit.id, ())
-        for round_number in range(active().limits.max_review_rounds):
+        total = active().limits.max_review_rounds
+        for round_number in range(total):
             first = round_number == 0 and not reworking
             if outcome := checkpoint(REVIEW if first else REWORK_REVIEW):
                 return outcome, why
@@ -921,22 +1062,41 @@ class UnitRunner(BaseModel):
             notes = [
                 review_boundary,
                 stored.predecessor_note,
+                _round_budget_note(round_number + 1, total),
                 _earlier_rounds(stored.review_rounds),
             ]
             text = "\n\n".join(n for n in notes if n)
             context = {"context": text} if text else {}
-            verdict = (self.run_review if first else self.run_rework_review)(cwd=tree, **context)
-            approved, why = parse_verdict(verdict)
+            raw = (self.run_review if first else self.run_rework_review)(cwd=tree, **context)
+            verdict = parse_verdict(raw)
+
+            # A blocking follow-up — correctness, a test that would pass
+            # regardless, a missing test the task asked for, anything the
+            # command policy forbids — overrides `approved`: deferral is for
+            # work that can wait, not for work that is inconvenient.
+            why = verdict.feedback
+            if verdict.blocking:
+                points = "\n".join(f"- {f.point}" for f in verdict.blocking)
+                why = f"{why}\n\n{points}".strip() if why else points
+            approved = verdict.approved and not verdict.blocking
+
             if approved:
                 sha = self.head(tree)
-                self.store.record_approval(unit.id, sha)
+                # One line each, so the change's file and the PR body read a
+                # point back as the one item it was.
+                points = tuple(
+                    p for p in (" ".join(f.point.split()) for f in verdict.deferrable) if p
+                )
+                self.store.record_approval(unit.id, sha, points)
                 self.log(f"review approved {sha[:9]}")
+                if points:
+                    self.log(f"deferred {len(points)} follow-up(s) to the change")
                 return True, ""
 
             self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
             rounds = self.store.get(unit.id).review_rounds
             self.store.set_review_rounds(unit.id, (*rounds, {"asked": why, "response": ""}))
-            if needs_human(verdict):
+            if verdict.needs_human:
                 # What is left is something the builder's environment refuses
                 # (an edit to a file Claude Code protects). Asking again spends
                 # rounds on a change it can never make, so stop and wait.
@@ -944,7 +1104,47 @@ class UnitRunner(BaseModel):
                 self.store.set_state(unit.id, HELD, note=f"needs a human: {why[:300]}")
                 self.log(f"needs a human — held: {' '.join(why.split())[:300]}")
                 return RunOutcome(status="held", detail=f"needs a human: {why[:200]}"), why
-            if round_number == active().limits.max_review_rounds - 1:
+            # A class escalation needs an earlier round to be another instance
+            # of; a disagreement needs the builder to have declined a point on
+            # an earlier round, so both positions can go on the record. With
+            # no earlier round — `rounds` here is what preceded this one —
+            # neither holds, so an escalation on round one is an ordinary
+            # rejection instead.
+            declined = rounds and str(rounds[-1].get("response", "")).strip()
+            escalate_now = bool(rounds) and (
+                verdict.escalate == "class" or (verdict.escalate == "disagreement" and declined)
+            )
+            if escalate_now:
+                # Another instance of a kind that cannot be enumerated, or a
+                # point raised again after the builder already declined it: a
+                # third exchange of prose is the least likely thing to settle
+                # either, so this is a person's call, not another round.
+                parts = [why]
+                if verdict.escalate == "disagreement":
+                    parts.append(str(rounds[-1].get("response", "")).strip())
+                parts.append(verdict.reasoning)
+                combined = "\n\n".join(p for p in parts if p).strip()
+                self.store.set_feedback(unit.id, combined)
+                label = (
+                    "an open-ended class"
+                    if verdict.escalate == "class"
+                    else "a repeated disagreement"
+                )
+                reasoning_flat = " ".join(verdict.reasoning.split())[:280]
+                self.store.set_state(
+                    unit.id,
+                    HELD,
+                    note=f"escalated — {label} ({verdict.escalate}): {reasoning_flat}",
+                )
+                self.log(f"escalated ({verdict.escalate}) — held: {reasoning_flat}")
+                return (
+                    RunOutcome(
+                        status="held",
+                        detail=f"escalated ({verdict.escalate}): {reasoning_flat[:200]}",
+                    ),
+                    why,
+                )
+            if round_number == total - 1:
                 # The last round's review is the verdict. A rework after it
                 # would never be reviewed: minutes spent on one end with it
                 # unpushed and unseen.
@@ -1045,6 +1245,96 @@ class UnitRunner(BaseModel):
     def _tasks(self, unit: Unit) -> Path:
         change = CHANGE_DIR.format(planning_repo=self.planning_repo, change=unit.change)
         return Path(change) / "tasks.md"
+
+    def _follow_ups_path(self, unit: Unit) -> Path:
+        change = CHANGE_DIR.format(planning_repo=self.planning_repo, change=unit.change)
+        return Path(change) / FOLLOW_UPS_FILE
+
+    def _follow_ups_note(self, unit: Unit) -> str:
+        """What earlier units of this change deferred, for a fresh build to see.
+
+        Read directly, like `tasks.md`: the planning repo is a real checkout
+        the pipeline already reads and writes without an injected callable.
+        """
+        path = self._follow_ups_path(unit)
+        content = path.read_text().strip() if path.exists() else ""
+        return FOLLOW_UPS_NOTE.format(items=content) if content else ""
+
+    def _follow_ups_for(self, unit: Unit) -> list[str]:
+        """This unit's own follow-ups, as last recorded — for its PR body.
+
+        Read from the file rather than a run's local `deferred`: a unit
+        resumed at VERIFY skips review and has none locally, a rework
+        re-pushes without repeating them, and a later plain approval must not
+        make an earlier one's follow-ups disappear from the PR.
+        """
+        path = self._follow_ups_path(unit)
+        if not path.exists():
+            return []
+        content = path.read_text()
+        marker = _follow_ups_marker(unit.id)
+        start = content.find(marker)
+        if start == -1:
+            return []
+        block = content[start + len(marker) : _follow_ups_block_end(content, start, marker)]
+        return [line[2:].strip() for line in block.splitlines() if line.startswith("- ")]
+
+    def _record_follow_ups(self, unit: Unit, items: Sequence[str]) -> None:
+        if not items:
+            return
+        path = self._follow_ups_path(unit)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with file_lock(path.with_name(f"{path.name}.lock")):
+            existing = path.read_text() if path.exists() else ""
+            marker = _follow_ups_marker(unit.id)
+            block = marker + "\n".join(f"- {i}" for i in items) + "\n\n"
+            start = existing.find(marker)
+            if start == -1:
+                # First time this unit has deferred anything.
+                path.write_text(existing + block)
+                return
+            # Replace its existing block in place rather than appending
+            # another one: a retry, a PR-comment rework, or a restack
+            # re-review must not leave a duplicate for the same unit.
+            end = _follow_ups_block_end(existing, start, marker)
+            path.write_text(existing[:start] + block + existing[end:])
+
+    def _spend_rounds(
+        self, unit: Unit, tree: Path, branch: str, graph: list[StoredUnit], base: str, why: str
+    ) -> RunOutcome:
+        """The round budget ran out with blocking work still outstanding.
+
+        `held` is the honest state for work that exists and whose open points
+        are written down (design.md, "The last round should not be a
+        discard"): the branch is pushed and its PR carries the points, so a
+        person inherits a branch and a list rather than an abandoned
+        worktree. Nothing here is approved or merged — tier 1, tier 2 and the
+        approved-commit push gate are all skipped, and no task is ticked.
+        """
+        sha = self.push(branch, cwd=tree)
+        self.log(f"pushed {branch} at {sha[:9]} — rounds spent, holding for a person")
+        stored = self.store.get(unit.id)
+        pr = self.open_pr(
+            unit,
+            body=build_pr_body(
+                stored,
+                graph=graph or [stored],
+                base=base,
+                open_points=why,
+                follow_ups=self._follow_ups_for(unit) or None,
+            ),
+            base=base,
+            cwd=tree,
+        )
+        self.store.set_state(
+            unit.id,
+            HELD,
+            pr=pr,
+            resume_from="",
+            note=f"rounds spent with work outstanding: {' '.join(why.split())[:300]}",
+        )
+        self.log(f"held: rounds spent — #{pr}")
+        return RunOutcome(status="held", detail=f"rounds spent, held as #{pr}")
 
     def _fail(self, unit: Unit, detail: str) -> RunOutcome:
         # Recorded rather than left at "planned": the next round would

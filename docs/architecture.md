@@ -164,19 +164,30 @@ binds each step to git, gh and `claude`:
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after tier 1, below.
 5. **Review rounds.** A read-only reviewer (`Read Grep Glob`, `git diff/log/
-   show`) judges the branch against the repo's `CLAUDE.md` and the change and
-   answers JSON: `approved`, `feedback`, `needs_human`. It is told the same
-   boundary as the build: a finding whose fix belongs to a later group is
-   reported as belonging there, not required of this unit, while it keeps its
-   full reach — find everything in one pass, sweep the domain — over this
-   unit's own groups. An unreadable reply is
-   a rejection. Rejected feedback goes to a rework run, which commits and
-   accounts for each point; the next round is judged by `models.rework_review`
-   and shown the earlier rounds. Up to `limits.max_review_rounds`; the last
-   round's verdict stands. A rework may mark a point `BLOCKED:` when its
-   environment refuses the edit (a protected file, a permission); if every
-   remaining required change is blocked, the reviewer sets `needs_human` and
-   the unit is `held` for a person. Approval records the commit SHA.
+   show`) judges the branch against the repo's `CLAUDE.md` and the change,
+   told which round this is, how many remain and what running out costs, and
+   answers JSON: `approved`, `feedback`, `needs_human`, `follow_ups`,
+   `escalate`, `reasoning`. It is told the same boundary as the build: a
+   finding whose fix belongs to a later group is reported as belonging there,
+   not required of this unit, while it keeps its full reach — find everything
+   in one pass, sweep the domain — over this unit's own groups. An unreadable
+   reply is a rejection. A `follow_ups` entry kinded `optional` approves
+   alongside it and is recorded against the change, for the change's next unit
+   and the PR to see; a correctness problem, a test that would pass regardless,
+   a missing test a task asked for, or anything the command policy forbids is
+   never deferrable and blocks approval whatever `approved` says. Rejected
+   feedback goes to a rework run, which commits and accounts for each point;
+   the next round is judged by `models.rework_review` and shown the earlier
+   rounds. A reviewer that finds another instance of a kind it cannot
+   enumerate, or that still disagrees after the builder declined a point once,
+   sets `escalate` (`class` or `disagreement`) with its `reasoning`, and the
+   unit is `held` for a person instead of spending another round. Up to
+   `limits.max_review_rounds`; when the budget is spent with blocking work
+   still outstanding, the branch is pushed, its PR carries the open points, and
+   the unit is `held` rather than failed. A rework may mark a point `BLOCKED:`
+   when its environment refuses the edit (a protected file, a permission); if
+   every remaining required change is blocked, the reviewer sets `needs_human`
+   and the unit is `held` for a person. Approval records the commit SHA.
 6. **Tier 1.** Lint scoped to the unit's diff, then the tests of the members
    it touched (see [toolchain-profiles.md](toolchain-profiles.md)). A failure
    is kept as feedback, so the retry is one scoped rework rather than a
@@ -414,7 +425,10 @@ unchanged carries the approval over, and any other rewrite — a resolved
 conflict, work from a run that stopped before its verdict, a rework's own
 commit — is reviewed again first. Uncommitted work is committed *before* the
 reviewer looks, never after approval. The reviewer cannot edit: judging and
-authoring are separate processes with separate tools.
+authoring are separate processes with separate tools. A unit whose rounds ran
+out is pushed too, but never past this gate: it is the commit the last round
+reviewed, not one exempted from review — it is just not the commit that round
+approved.
 
 ## State on disk
 

@@ -208,7 +208,9 @@ edit by hand.
 - **satisfied** — its groups needed nothing beyond what was already on the
   branch it built on; no PR of its own, and no longer counted against its
   stack's depth.
-- **held** — a reviewer took it over; nothing automatic touches it.
+- **held** — a reviewer took it over, or the review loop held it itself: needs
+  a human, an escalated class or disagreement, or rounds spent with a pushed
+  branch and PR. Nothing automatic touches it.
 - **failed** — stopped on something it could not get past; its feedback says
   what. Nothing retries it until someone requeues it.
 - **closed** / **unplanned** — stopped, or dropped from the latest plan while
