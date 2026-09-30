@@ -48,6 +48,11 @@ from agent_build_kit.pipeline.events import (
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
+from agent_build_kit.pipeline.planning_repo import (
+    default_branch_of,
+    is_repo,
+    restore_default_branch,
+)
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
@@ -275,27 +280,16 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
 # --- the tick ---------------------------------------------------------------------------
 
 
-def _restore_planning_branch(inst: Installation) -> None:
-    """State is read and written on the planning repo's default branch; a tick
-    that finds it elsewhere says where and puts it back, before reading."""
-    from agent_build_kit.tracks.runner import default_branch_of
-
-    found = git(inst.root, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
-    branch = default_branch_of(inst.root)
-    if not found or found == branch:
-        return
-    log(f"the planning repo was on {found}, not {branch} — checking out {branch}")
-    if git(inst.root, "checkout", branch, check=False).returncode != 0:
-        log(f"could not check out {branch} in {inst.root}")
-
-
 def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     """One pass of the loop. Safe to call at any time.
 
     Ordering matters in one place: the usage check comes first, so a low
     window stops the tick before it spends anything on planning.
     """
-    _restore_planning_branch(inst)
+    if is_repo(inst.root) and not restore_default_branch(
+        inst.root, default_branch_of(inst.root), log
+    ):
+        return 1
 
     # First, and silently: the timer fires every few minutes whether or not
     # there is anything to do, and an idle tick should cost nothing — not a

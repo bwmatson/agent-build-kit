@@ -74,6 +74,9 @@ class AgentRequest(Frozen):
     # A track run's: the planning repo's branches are the pipeline's to keep,
     # so the runtime refuses branch-changing git aimed at it.
     planning_repo: Path | None = None
+    # Where in that repo the run may write (its run log and tracker); the hook
+    # refuses file writes outside the run's checkout otherwise.
+    planning_state_dir: Path | None = None
     # The caller keeps the run's whole machine-readable record (`AgentResult.raw`),
     # not only its answer — a track phase writes it to its raw output file.
     # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.

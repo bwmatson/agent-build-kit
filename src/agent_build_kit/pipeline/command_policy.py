@@ -257,7 +257,10 @@ def _moves_branches(args: list[str]) -> bool:
     if sub in ("switch", "reset", "cherry-pick"):
         return True
     if sub == "checkout":
-        return any(arg in ("-b", "-B", "--orphan") for arg in rest)
+        # Only a path restore (`checkout -- <paths>`) leaves the branch alone.
+        return "--" not in rest or any(arg in ("-b", "-B", "--orphan") for arg in rest)
+    if sub == "worktree":
+        return rest[:1] == ["add"] and any(arg in ("-b", "-B") for arg in rest)
     if sub == "branch":
         return any(arg not in BRANCH_LISTING for arg in rest)
     return False

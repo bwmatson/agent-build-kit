@@ -47,6 +47,9 @@ from pathlib import Path
 from agent_build_kit import forges, runtimes
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import shell
+from agent_build_kit.pipeline.planning_repo import default_branch_of, is_repo
+from agent_build_kit.pipeline.planning_repo import restore_default_branch as _restore
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -119,7 +122,7 @@ def log(message: str) -> None:
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    return shell.git(cwd, *args, check=False)
 
 
 # --- which repos ---------------------------------------------------------------
@@ -196,15 +199,6 @@ def pull(repo_dir: Path, branch: str) -> bool:
             log(f"git {' '.join(cmd)} in {repo_dir} failed:\n{result.stderr}")
             return False
     return True
-
-
-def default_branch_of(repo_dir: Path) -> str:
-    """The branch `origin/HEAD` points at, or `main` when the checkout does
-    not record one."""
-    result = _git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo_dir)
-    if result.returncode != 0:
-        return "main"
-    return result.stdout.strip().removeprefix("origin/") or "main"
 
 
 def pull_planning(inst: Installation) -> bool:
@@ -355,6 +349,7 @@ def phase_request(
         denied_tools=denied_tools_value(tracks.disallowed_tools),
         permission_mode="edit",
         planning_repo=inst.root,
+        planning_state_dir=inst.state_dir,
         worktree=worktree,
         keep_record=True,
     )
@@ -368,10 +363,6 @@ class PlanningHead(Frozen):
 
     branch: str
     head: str
-
-
-def _is_repo(path: Path) -> bool:
-    return _git(["rev-parse", "--git-dir"], path).returncode == 0
 
 
 def _keep_raw_output_untracked(inst: Installation) -> None:
@@ -393,7 +384,7 @@ def _keep_raw_output_untracked(inst: Installation) -> None:
 def record_planning(inst: Installation) -> PlanningHead | None:
     """The default branch and its head, taken before a phase; None when the
     planning root is not a git repo (nothing to keep or commit)."""
-    if not _is_repo(inst.root):
+    if not is_repo(inst.root):
         return None
     _keep_raw_output_untracked(inst)
     branch = default_branch_of(inst.root)
@@ -404,17 +395,7 @@ def record_planning(inst: Installation) -> PlanningHead | None:
 def restore_default_branch(inst: Installation, branch: str) -> bool:
     """Puts the planning repo back on `branch`, keeping any stray branch the
     phase left it on. False when it cannot be put back."""
-    found = _git(["symbolic-ref", "--short", "-q", "HEAD"], inst.root).stdout.strip()
-    if found == branch:
-        return True
-    left = found or "a detached HEAD"
-    log(f"the planning repo was left on {left}, not {branch} — putting it back")
-    if found:
-        log(f"the branch {found} is kept")
-    result = _git(["checkout", branch], inst.root)
-    if result.returncode != 0:
-        log(f"FATAL: cannot check out {branch} in {inst.root}:\n{result.stderr}")
-    return result.returncode == 0
+    return _restore(inst.root, branch, log)
 
 
 def settle_planning(inst: Installation, before: PlanningHead, project: Project, name: str) -> bool:
@@ -435,15 +416,17 @@ def settle_planning(inst: Installation, before: PlanningHead, project: Project, 
 
 
 def commit_bookkeeping(inst: Installation, branch: str, project: Project, name: str) -> None:
-    """Commits and pushes what the phase wrote under the state directory. A
-    rejected push is retried once after a fast-forward; a second rejection
+    """Commits and pushes the phase's Markdown under the state directory: run
+    logs and `tracked-issues.md`. The rest of that directory is the tick's live
+    state, which the operator commits and a tick may be rewriting right now.
+    A rejected push is retried once after a fast-forward; a second rejection
     is reported and the commit stays."""
-    state = str(inst.state_dir)
-    _git(["add", "-A", "--", state], inst.root)
-    if _git(["diff", "--cached", "--quiet", "--", state], inst.root).returncode == 0:
+    notes = f":(glob){inst.state_dir.relative_to(inst.root).as_posix()}/**/*.md"
+    _git(["add", "-A", "--", notes], inst.root)
+    if _git(["diff", "--cached", "--quiet", "--", notes], inst.root).returncode == 0:
         return
     message = f"track: {RUN_ID} {project.name} {name}"
-    committed = _git(["commit", "-q", "-m", message, "--", state], inst.root)
+    committed = _git(["commit", "-q", "-m", message, "--", notes], inst.root)
     if committed.returncode != 0:
         log(f"[{project.name}] committing the {name} bookkeeping failed:\n{committed.stderr}")
         return
@@ -451,7 +434,11 @@ def commit_bookkeeping(inst: Installation, branch: str, project: Project, name: 
         return
     push = _git(["push", "origin", branch], inst.root)
     if push.returncode != 0:
-        _git(["pull", "--rebase", "origin", branch], inst.root)
+        # --autostash: the graph page and units.json are routinely dirty, and
+        # a rebase refuses to start over unstaged changes.
+        pulled = _git(["pull", "--rebase", "--autostash", "origin", branch], inst.root)
+        if pulled.returncode != 0:
+            log(f"[{project.name}] pulling before the retry failed:\n{pulled.stderr}")
         push = _git(["push", "origin", branch], inst.root)
     if push.returncode != 0:
         log(
@@ -516,6 +503,8 @@ def claude_phase(
         result = agent.run(request)
     except (AgentRateLimited, AgentInterrupted) as error:
         log(f"[{project.name}] {name} phase stopped — {error}. Continuing regardless.")
+        if before is not None and not settle_planning(inst, before, project, name):
+            return STOPPED
         return 1
     output_file.write_text(result.raw)
     if before is not None and not settle_planning(inst, before, project, name):

@@ -118,8 +118,12 @@ def test_a_push_the_remote_rejected_is_retried_after_a_fast_forward(
         git(other, "commit", "-q", "-m", "theirs")
         git(other, "push", "-q", "origin", "main")
 
+    (inst.root / "one.md").write_text("edited, not committed")
+
     phase(inst, doing(inst, someone_else_pushes))
 
+    assert git(inst.root, "diff", "--name-only") == "one.md", "still dirty, not stashed away"
+    assert (inst.root / "one.md").read_text() == "edited, not committed"
     assert git(remote, "show", f"main:{log_name(inst)}")
     assert git(remote, "show", "main:theirs.md") == "theirs"
     assert git(remote, "rev-parse", "main") == git(inst.root, "rev-parse", "main")

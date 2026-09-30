@@ -85,7 +85,9 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
         "--disallowedTools": runner.denied_tools_value("Bash(rm *)"),
         "--model": "haiku",
         "--output-format": "json",
-        "--settings": json.dumps(hook_settings(None, planning_repo=inst.root)),
+        "--settings": json.dumps(
+            hook_settings(None, planning_repo=inst.root, planning_state_dir=inst.state_dir)
+        ),
     }
     assert fake.calls[0][1] == app.path
     output = runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-implement.json"

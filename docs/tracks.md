@@ -86,8 +86,9 @@ candidates for the next implement run" section. `implement` reads those
 sections most recent first, groups candidates by underlying issue, picks up
 to `implement_max_prs` distinct, well-evidenced, bounded ones, opens a PR
 each with a unit test, adds a "Pending resolution" entry per PR, and marks
-the source candidate `[actioned — PR #N]`. After every phase the runner — not the agent — commits what was written
-under the state directory (the run log and tracker edits) to the planning
+the source candidate `[actioned — PR #N]`. After every phase the runner — not the agent — commits the Markdown
+under the state directory (the run log and tracker edits; never the tick's
+live state there) to the planning
 repo's default branch and pushes. A push the remote rejected is retried once
 after a fast-forward; a second rejection is logged and the commit is kept. If
 the agent left the planning repo on another branch, the runner checks the

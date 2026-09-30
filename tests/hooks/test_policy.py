@@ -269,6 +269,9 @@ BRANCH_CHANGES = (
     "branch -f main HEAD~1",
     "reset HEAD~1",
     "cherry-pick abc123",
+    "checkout feature",
+    "checkout main",
+    "worktree add -b feature ../wt",
 )
 
 
