@@ -458,8 +458,9 @@ def build_tier1(
     all: `uv run pre-commit` there cannot even resolve pre-commit, so a unit
     dies on tooling rather than on its own work. Each project's checks run
     inside it, under its own profile, and a file belongs to the deepest project
-    that holds it. A repo declaring no projects is checked at its root under
-    the repo's profile, exactly as before.
+    that holds it. A file under no project is judged by the declared projects'
+    own lint, which sees the whole diff. A repo declaring no projects is
+    checked at its root under the repo's profile, exactly as before.
 
     **`whole_repo` switches to judging the tip instead of the diff.** A unit
     that produced no commits of its own has no diff to scope to: the diff-
@@ -521,7 +522,6 @@ def _work(
     # service it sits inside.
     ordered = sorted(projects, key=lambda p: len(Path(p.path).parts), reverse=True)
     owned: dict[str, tuple[ProjectConfig, list[str]]] = {}
-    orphans: list[str] = []
     for name in changed(cwd, base):
         for project in ordered:
             prefix = "" if project.path in (".", "") else f"{project.path}/"
@@ -529,17 +529,23 @@ def _work(
                 entry = owned.setdefault(project.path, (project, []))
                 entry[1].append(name[len(prefix) :])
                 break
-        else:
-            orphans.append(name)
 
     work = [
         (cwd / project.path, profiles.get(project.profile), files)
         for project, files in owned.values()
     ]
-    # A file under no project - a README at the root - is still the unit's, and
-    # a unit that touched only such files must not pass with nothing run.
-    if orphans or not work:
-        work.append((cwd, profile, orphans))
+    # Never the repo root. A repo that declares its projects is saying its root
+    # is not one of them, and a linter run there finds no config and fails
+    # outright: a unit whose only mistake was updating docs that live above the
+    # project stopped on exactly that. A lint command takes a ref range, not a
+    # list of paths, so each project's own run already sees every file in the
+    # diff, outside files included — there is nothing for a root run to add.
+    #
+    # A diff that no project owns (nothing but a README, or nothing at all) must
+    # still not pass with nothing run, so the declared toolchains run over it:
+    # that is where the hooks that would judge those files actually live.
+    if not work:
+        work = [(cwd / p.path, profiles.get(p.profile), []) for p in projects]
     return work
 
 

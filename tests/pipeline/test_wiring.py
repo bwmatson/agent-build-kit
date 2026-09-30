@@ -1412,9 +1412,33 @@ def test_a_repo_that_declares_no_projects_behaves_as_before(tmp_path: Path) -> N
     assert {at for _, at in calls} == {tmp_path}
 
 
-def test_a_file_outside_every_project_is_still_linted(tmp_path: Path) -> None:
-    """A README at the repo root belongs to no project, and a unit that only
-    touched it must not pass without anything having run."""
+def test_a_file_outside_every_project_never_gets_a_run_at_the_repo_root(tmp_path: Path) -> None:
+    """The root of a repo that declares its projects is not one of them. A
+    linter run there finds no config and fails outright — which is what stopped
+    a unit whose only mistake was updating docs that live above the project.
+
+    A lint command takes a ref range, not a list of paths, so the project's own
+    run already sees every file in the diff, docs included. There is nothing for
+    a root run to add."""
+    run, calls = recorder()
+    tier1 = build_tier1(
+        run=run,
+        changed=lambda cwd, base: ["poc/tests/test_a.py", "docs/guide.md"],
+        projects=[ProjectConfig(path="poc", languages=["python"], profile="python-uv")],
+    )
+
+    passed, _ = tier1(cwd=tmp_path, base="origin/dev")
+
+    assert passed
+    assert {at for _, at in calls} == {tmp_path / "poc"}, "only where the toolchain lives"
+
+
+def test_a_diff_of_nothing_but_outside_files_still_runs_the_declared_toolchain(
+    tmp_path: Path,
+) -> None:
+    """A unit that only touched a README must not pass with nothing having run.
+    The declared project's lint runs over the diff, which is where that README's
+    hooks (whitespace, line endings, whatever the config says) actually live."""
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1425,7 +1449,21 @@ def test_a_file_outside_every_project_is_still_linted(tmp_path: Path) -> None:
     passed, _ = tier1(cwd=tmp_path, base="origin/dev")
 
     assert passed
-    assert {at for _, at in calls} == {tmp_path}, "checked where the file actually is"
+    assert calls, "something ran"
+    assert {at for _, at in calls} == {tmp_path / "poc"}
+
+
+def test_an_empty_diff_in_a_repo_with_projects_runs_them_not_the_root(tmp_path: Path) -> None:
+    run, calls = recorder()
+    tier1 = build_tier1(
+        run=run,
+        changed=lambda cwd, base: [],
+        projects=[ProjectConfig(path="poc", languages=["python"], profile="python-uv")],
+    )
+
+    tier1(cwd=tmp_path, base="origin/dev")
+
+    assert {at for _, at in calls} == {tmp_path / "poc"}
 
 
 def test_a_failing_project_stops_the_unit(tmp_path: Path) -> None:
