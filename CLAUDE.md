@@ -81,6 +81,14 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   from `__file__`, `Path.home()` product paths, or module constants. A new
   fact that differs per installation is a new field in `config.py` with a
   default, documented in the `abk-config` skill and `docs/configuration.md`.
+- **A renamed setting keeps its old name working for one release.** An
+  installation's `abk.yaml` is not in this repo, and the schema forbids
+  unknown keys, so a rename that drops the old key stops every tick there the
+  moment the installation updates — until someone edits the file by hand.
+  Read the old key as the new one and log a warning naming both; refuse only
+  a file that sets both. Say in the changelog which release drops it. A key
+  removed outright is fine when no installation can be setting it yet, such
+  as one added in the same unreleased version.
 - **Toolchain facts come from the profile** (`profiles/`): commands, exit
   codes, what a test path is, what a stub may contain, prompt wording.
 - **Types are pydantic models** (`model.Frozen`: frozen, `extra="forbid"`),
