@@ -35,6 +35,35 @@ what `hang` does: a wrapper whose real agent keeps stderr open. `detach` is
 agent's process group. `set_model` leaves the model on offer but answers every
 `session/set_config_option` for it with a JSON-RPC error, as an agent that
 offers a model and then refuses to switch to it.
+
+Three more options make it do work, in place of the edit it otherwise only
+reports. What it did, and what the client answered, is appended to RECORD as
+`did/<what>` lines beside the requests:
+
+    [--act ACTIONS] [--probe terminal|ask] [--unasked PREFIX]
+
+`--act` names a JSON file holding a list of actions, taken in order:
+
+- `{"terminal": COMMAND, "args": [...]}` has the client run a command through
+  its terminal capability — create, wait for exit, read the output, release —
+  and records the output and exit status, or the error the client answered.
+- `{"write": PATH, "content": TEXT}` and `{"read": PATH}` go through the
+  client's file capability, recording the error for one that is refused.
+- `{"ask": KIND, "command": ..., "paths": [...], "options": [KIND, ...]}` runs a
+  tool of the agent's own the way an agent that executes its own tools does:
+  it asks permission, naming the command in its raw input and the paths as
+  locations, offering the option kinds given (all four unless said), and
+  records which it was answered. It "runs" the tool only if allowed — a
+  `did/run` line, never a real process — and on a cancelled answer waits for
+  the client's `session/cancel` and ends the turn `cancelled`.
+
+`--probe` has it attempt what the prompt names, one attempt per inline code
+span: an absolute path is a write to it, anything else a command — through
+the client's capabilities (`terminal`) or by asking permission (`ask`).
+`--unasked` makes it run, without asking, any command starting with PREFIX:
+an agent whose own configuration does not flag that class, so the client
+only hears of it from the tool call's updates. That run too is only
+reported, never performed.
 """
 
 from __future__ import annotations
@@ -43,6 +72,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -72,6 +102,7 @@ from acp.schema import (
     AgentCapabilities,
     AvailableCommand,
     Implementation,
+    PermissionOption,
     PromptCapabilities,
     SessionAdditionalDirectoriesCapabilities,
     SessionCapabilities,
@@ -81,7 +112,9 @@ from acp.schema import (
     SessionModeState,
     StopReason,
     ToolCallLocation,
+    ToolCallUpdate,
 )
+from pydantic import ValidationError
 
 SESSION = "sess_7Hq2Zk4PxYwVb9nR"
 
@@ -108,6 +141,19 @@ STDERR_LINE = "fake-agent: the model endpoint refused the connection"
 # Far longer than any exit grace a test gives the adapter.
 HANG_SECONDS = 60
 
+# The permission options it offers, as a real agent words them: the ids are
+# its own, so only the kinds say which option refuses.
+OPTIONS = {
+    "allow_once": ("proceed_once", "Allow once"),
+    "allow_always": ("proceed_always", "Always allow"),
+    "reject_once": ("cancel", "Reject"),
+    "reject_always": ("never", "Always reject"),
+}
+# The most output it asks the client to keep of a command.
+OUTPUT_LIMIT = 64 * 1024
+# Seconds it waits for the client's `session/cancel` after a cancelled answer.
+CANCEL_WAIT = 2.0
+
 
 def _model_option(current: str) -> SessionConfigOptionSelect:
     return SessionConfigOptionSelect(
@@ -133,14 +179,23 @@ class FakeAgent:
         additional_dirs: bool = True,
         linger: bool = False,
         fail: str | None = None,
+        acts: list[dict[str, Any]] | None = None,
+        probe: str | None = None,
+        unasked: str | None = None,
     ) -> None:
         self._record = record
         self._stop = stop
         self._additional_dirs = additional_dirs
         self._linger = linger
         self._fail = fail
+        self._acts = acts
+        self._probe = probe
+        self._unasked = unasked
         self._model = DEFAULT_MODEL
         self._client: Client | None = None
+        self._cwd = str(Path.cwd())
+        self._calls = 0
+        self._cancelled = asyncio.Event()
 
     def on_connect(self, conn: Client) -> None:
         self._client = conn
@@ -184,6 +239,7 @@ class FakeAgent:
     async def new_session(
         self, cwd: str, additional_directories=None, mcp_servers=None, **kwargs: Any
     ) -> NewSessionResponse:
+        self._cwd = cwd
         return NewSessionResponse(
             session_id=SESSION,
             modes=SessionModeState(
@@ -241,6 +297,12 @@ class FakeAgent:
             os.close(1)
             print(STDERR_LINE, file=sys.stderr, flush=True)
             time.sleep(HANG_SECONDS)
+        if self._acts is not None or self._probe is not None:
+            if not await self._work(session_id, prompt):
+                return PromptResponse(stop_reason="cancelled")
+            for chunk in ANSWER_CHUNKS:
+                await send(update_agent_message_text(chunk))
+            return PromptResponse(stop_reason=self._stop)
         await send(
             start_tool_call(
                 "call_01",
@@ -278,8 +340,204 @@ class FakeAgent:
         )
         orphan_pid_file(self._record).write_text(str(child.pid))
 
+    async def _work(self, session_id: str, prompt: list) -> bool:
+        """Take `--act`'s actions, or `--probe`'s attempts; False once the
+        client has cancelled the turn."""
+        acts = list(self._acts or [])
+        if self._probe is not None:
+            text = " ".join(getattr(block, "text", "") for block in prompt)
+            acts += [self._attempt(span) for span in re.findall(r"`([^`\n]+)`", text)]
+        for act in acts:
+            if "terminal" in act:
+                await self._terminal(session_id, act["terminal"], act.get("args", []))
+            elif "write" in act:
+                await self._write_file(session_id, act["write"], act.get("content", ""))
+            elif "read" in act:
+                await self._read(session_id, act["read"])
+            elif "unasked" in act:
+                await self._run_unasked(session_id, act["unasked"])
+            elif not await self._ask(session_id, act):
+                return False
+        return True
+
+    def _attempt(self, span: str) -> dict[str, Any]:
+        """One attempt at what an inline code span of the prompt names."""
+        if span.startswith("/") and " " not in span:
+            if self._probe == "terminal":
+                return {"write": span, "content": "probe\n"}
+            return {"ask": "edit", "paths": [span]}
+        if self._unasked and span.startswith(self._unasked):
+            return {"unasked": span}
+        if self._probe == "terminal":
+            return {"terminal": span, "args": []}
+        return {"ask": "execute", "command": span}
+
+    def _call_id(self) -> str:
+        self._calls += 1
+        return f"call_{self._calls:02d}"
+
+    async def _send(self, session_id: str, update: Any) -> None:
+        client = self._client
+        assert client is not None
+        await client.session_update(session_id=session_id, update=update)
+
+    async def _terminal(self, session_id: str, command: str, args: list[str]) -> None:
+        client = self._client
+        assert client is not None
+        entry: dict[str, Any] = {"command": command, "args": args}
+        call = self._call_id()
+        await self._send(
+            session_id,
+            start_tool_call(
+                call,
+                " ".join([command, *args]),
+                kind="execute",
+                status="in_progress",
+                raw_input={"command": command, "args": args},
+            ),
+        )
+        try:
+            created = await client.create_terminal(
+                session_id=session_id,
+                command=command,
+                args=args,
+                env=[],
+                cwd=self._cwd,
+                output_byte_limit=OUTPUT_LIMIT,
+            )
+            exited = await client.wait_for_terminal_exit(
+                session_id=session_id, terminal_id=created.terminal_id
+            )
+            output = await client.terminal_output(
+                session_id=session_id, terminal_id=created.terminal_id
+            )
+            await client.release_terminal(session_id=session_id, terminal_id=created.terminal_id)
+            entry.update(
+                output=output.output,
+                truncated=output.truncated,
+                exitCode=exited.exit_code,
+                signal=exited.signal,
+            )
+            status = "completed" if exited.exit_code == 0 else "failed"
+        except RequestError as exc:
+            entry["error"] = exc.to_error_obj()
+            status = "failed"
+        except ValidationError as exc:
+            # A client without the method answers null, which is no terminal.
+            entry["error"] = {"message": "the client's answer was not a terminal", "data": str(exc)}
+            status = "failed"
+        self._write("did/terminal", entry)
+        await self._send(session_id, update_tool_call(call, status=status))
+
+    async def _write_file(self, session_id: str, path: str, content: str) -> None:
+        client = self._client
+        assert client is not None
+        entry: dict[str, Any] = {"path": path}
+        try:
+            await client.write_text_file(session_id=session_id, path=path, content=content)
+            entry["ok"] = True
+        except RequestError as exc:
+            entry["error"] = exc.to_error_obj()
+        self._write("did/write", entry)
+
+    async def _read(self, session_id: str, path: str) -> None:
+        client = self._client
+        assert client is not None
+        entry: dict[str, Any] = {"path": path}
+        try:
+            read = await client.read_text_file(session_id=session_id, path=path)
+            entry["content"] = read.content
+        except RequestError as exc:
+            entry["error"] = exc.to_error_obj()
+        self._write("did/read", entry)
+
+    async def _ask(self, session_id: str, act: dict[str, Any]) -> bool:
+        """Ask before running one of its own tools; False once cancelled."""
+        client = self._client
+        assert client is not None
+        kind = act["ask"]
+        command = act.get("command")
+        paths = act.get("paths", [])
+        offered = act.get("options", list(OPTIONS))
+        call = self._call_id()
+        title = command if command is not None else f"Edit {' '.join(paths)}"
+        raw_input: dict[str, Any] = (
+            {"command": command} if command is not None else {"paths": paths, "new": "probe\n"}
+        )
+        locations = [ToolCallLocation(path=path, line=None) for path in paths]
+        await self._send(
+            session_id,
+            start_tool_call(
+                call, title, kind=kind, status="pending", locations=locations, raw_input=raw_input
+            ),
+        )
+        answer = await client.request_permission(
+            session_id=session_id,
+            tool_call=ToolCallUpdate(
+                tool_call_id=call,
+                title=title,
+                kind=kind,
+                status="pending",
+                locations=locations or None,
+                raw_input=raw_input,
+            ),
+            options=[
+                PermissionOption(option_id=OPTIONS[k][0], name=OPTIONS[k][1], kind=k)
+                for k in offered
+            ],
+        )
+        outcome = answer.outcome
+        chosen = getattr(outcome, "option_id", None)
+        chosen_kind = next((k for k in offered if OPTIONS[k][0] == chosen), None)
+        self._write(
+            "did/ask",
+            {
+                "kind": kind,
+                "command": command,
+                "paths": paths,
+                "offered": offered,
+                "outcome": outcome.outcome,
+                "optionId": chosen,
+                "optionKind": chosen_kind,
+            },
+        )
+        if outcome.outcome == "cancelled":
+            await self._send(session_id, update_tool_call(call, status="failed"))
+            try:
+                await asyncio.wait_for(self._cancelled.wait(), timeout=CANCEL_WAIT)
+            except TimeoutError:
+                pass
+            return False
+        if chosen_kind is not None and chosen_kind.startswith("allow"):
+            self._write("did/run", {"kind": kind, "command": command, "paths": paths})
+            await self._send(session_id, update_tool_call(call, status="completed"))
+        else:
+            await self._send(session_id, update_tool_call(call, status="failed"))
+        return True
+
+    async def _run_unasked(self, session_id: str, command: str) -> None:
+        """Run a command of its own without asking: the client sees only the
+        tool call's updates."""
+        call = self._call_id()
+        await self._send(
+            session_id,
+            start_tool_call(
+                call, command, kind="execute", status="in_progress", raw_input={"command": command}
+            ),
+        )
+        self._write("did/run", {"kind": "execute", "command": command, "paths": []})
+        await self._send(
+            session_id,
+            update_tool_call(
+                call,
+                status="completed",
+                content=[tool_content(text_block("done"))],
+                raw_output={"exit_code": 0, "stdout": "done\n", "stderr": ""},
+            ),
+        )
+
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
-        return None
+        self._cancelled.set()
 
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         return {}
@@ -301,8 +559,12 @@ def command(
     additional_dirs: bool = True,
     linger: bool = False,
     fail: str | None = None,
+    act: list[dict[str, Any]] | None = None,
+    probe: str | None = None,
+    unasked: str | None = None,
 ) -> list[str]:
-    """The argv that starts this agent, as `runtimes.acp.command` names one."""
+    """The argv that starts this agent, as `runtimes.acp.command` names one.
+    `act`'s actions are written beside `record`, where `--act` reads them."""
     argv = [sys.executable, str(Path(__file__).resolve()), str(record), "--stop", stop]
     if not additional_dirs:
         argv.append("--no-additional-dirs")
@@ -310,6 +572,14 @@ def command(
         argv.append("--linger")
     if fail:
         argv += ["--fail", fail]
+    if act is not None:
+        actions = record.with_suffix(".act.json")
+        actions.write_text(json.dumps(act))
+        argv += ["--act", str(actions)]
+    if probe:
+        argv += ["--probe", probe]
+    if unasked:
+        argv += ["--unasked", unasked]
     return argv
 
 
@@ -320,11 +590,23 @@ def use_agent(
     additional_dirs: bool = True,
     linger: bool = False,
     fail: str | None = None,
+    act: list[dict[str, Any]] | None = None,
+    probe: str | None = None,
+    unasked: str | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
     use_command(
-        command(record, stop=stop, additional_dirs=additional_dirs, linger=linger, fail=fail)
+        command(
+            record,
+            stop=stop,
+            additional_dirs=additional_dirs,
+            linger=linger,
+            fail=fail,
+            act=act,
+            probe=probe,
+            unasked=unasked,
+        )
     )
 
 
@@ -355,6 +637,9 @@ def main() -> None:
     parser.add_argument(
         "--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach", "set_model"]
     )
+    parser.add_argument("--act", type=Path)
+    parser.add_argument("--probe", choices=["terminal", "ask"])
+    parser.add_argument("--unasked")
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -362,6 +647,9 @@ def main() -> None:
         additional_dirs=args.additional_dirs,
         linger=args.linger,
         fail=args.fail,
+        acts=json.loads(args.act.read_text()) if args.act else None,
+        probe=args.probe,
+        unasked=args.unasked,
     )
     # Only the methods these tests drive: the rest answer "method not found".
     asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))

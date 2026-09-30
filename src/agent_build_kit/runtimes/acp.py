@@ -6,9 +6,12 @@ over stdio, on its own event loop so callers stay synchronous.
 The prompt's response carries an end-of-turn reason, so the outcome is read
 from that and never from the answer's text: `end_turn` is an answer, a
 ceiling or a refusal is a failed result saying which, and `cancelled` is an
-interruption, as is an agent killed by a signal from elsewhere — not one abk
-killed for failing to exit, which is a failure. `AgentRequest.allowed_tools`/
-`denied_tools` are inert here — the protocol has no per-session tool list
+interruption — unless abk cancelled the turn itself because no option the
+agent offered refused a forbidden call, which is a failed result instead: it
+would recur exactly the same way on a retry. An agent killed by a signal from
+elsewhere is likewise an interruption, not one abk killed for failing to
+exit, which is a failure. `AgentRequest.allowed_tools`/`denied_tools` are
+inert here — the protocol has no per-session tool list
 (docs/agent-runtimes.md) — so a run that carries either is let through with a
 once-per-run notice that tool scope comes from the agent's own configuration,
 *unless* `allowed_tools` is set and names no edit tool — the shape of a
@@ -21,6 +24,14 @@ whose `allowed_tools` is empty (the planner's graph call) is let through
 regardless of mode: nothing here was ever relying on a list to stop it from
 editing, so there is no promise to break. A named `worktree` is refused too,
 not ignored.
+
+For a policed run (`AgentRequest.policy` set), the client advertises the file
+and terminal capabilities and does the work itself — applying
+`pipeline.command_policy` and `forges.denies` before running a command,
+confining every write to the worktree and out of the read-only specs
+directory — and answers an agent's own permission requests with the same
+rules. `check_policy` proves which of those an agent on this machine actually
+routes through the client, with a throwaway probe worktree of its own.
 """
 
 from __future__ import annotations
@@ -28,33 +39,45 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import signal
+import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from acp import PROTOCOL_VERSION, RequestError, connect_to_agent, text_block
 from acp.connection import StreamEvent
 from acp.interfaces import Agent, Client
 from acp.schema import (
     AgentMessageChunk,
+    AllowedOutcome,
     ClientCapabilities,
+    CreateTerminalResponse,
     DeniedOutcome,
+    FileSystemCapabilities,
     Implementation,
     InitializeResponse,
     PermissionOption,
+    ReadTextFileResponse,
+    ReleaseTerminalResponse,
     RequestPermissionResponse,
     SessionConfigOptionSelect,
     SessionConfigSelectGroup,
+    TerminalOutputResponse,
     TextContentBlock,
     ToolCallProgress,
     ToolCallStart,
     ToolCallUpdate,
+    WaitForTerminalExitResponse,
+    WriteTextFileResponse,
 )
 
-from agent_build_kit import __version__, config
+from agent_build_kit import __version__, config, forges
 from agent_build_kit.config import ModelsConfig
+from agent_build_kit.pipeline.command_policy import Verdict, check_command
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRequest,
@@ -62,6 +85,7 @@ from agent_build_kit.runtimes.base import (
     AgentRuntime,
     PolicyCoverage,
     PolicyReport,
+    ToolPolicy,
 )
 
 NAME = "acp"
@@ -87,6 +111,126 @@ STOPPED: dict[str, str] = {
     "max_turn_requests": "the agent reached its ceiling on model requests in one turn",
     "refusal": "the agent refused to carry on with the prompt",
 }
+
+# One representative command per forbidden class `check_policy`'s probe
+# attempts, in abk's own words for the report: the same shapes
+# `pipeline.command_policy` and `forges.denies` already forbid regardless of
+# which branch or worktree they run in, so an attempt is unambiguous and
+# harmless even in a throwaway one.
+PROBE_CLASSES: tuple[tuple[str, str], ...] = (
+    ("git commit --amend -m probe", "amending a commit"),
+    ("git reset --hard HEAD", "a hard reset"),
+    ("git clean -fd", "discarding untracked work"),
+    ("git branch -D probe-throwaway", "force-deleting a branch"),
+    ("rm -rf probe-victim", "a recursive delete"),
+    ("git push origin main", "pushing to the default branch"),
+    ("gh pr merge 1", "merging a pull request"),
+)
+
+
+def _command_tokens(line: str) -> list[str]:
+    try:
+        return shlex.split(line)
+    except ValueError:
+        return line.split()
+
+
+def _forbidden(line: str, branch: str) -> Verdict:
+    """Why `line` may not run, in abk's own rules — the union of
+    `command_policy`'s and every registered forge's, so a host-specific
+    denial (merging a pull request, today) is never a second copy of the
+    rule kept here."""
+    verdict = check_command(line, branch=branch)
+    if not verdict.allowed:
+        return verdict
+    reason = forges.denies(_command_tokens(line))
+    if reason:
+        return Verdict(allowed=False, reason=reason)
+    return verdict
+
+
+def _command_of(raw_input: Any) -> str | None:
+    """The command a tool call's raw input names, when it names one: the
+    field both `--act`'s terminal and ask actions carry it under."""
+    if isinstance(raw_input, dict):
+        value = raw_input.get("command")
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _capabilities(policy: ToolPolicy | None) -> ClientCapabilities:
+    """What the client offers the agent. Full file and terminal capabilities
+    only for a policed run: one with nothing to enforce (`policy` is None —
+    a read-only call, docs/agent-runtimes.md) offers neither, so an agent
+    that would otherwise defer its work to them is never invited to."""
+    if policy is None:
+        return ClientCapabilities()
+    return ClientCapabilities(
+        fs=FileSystemCapabilities(read_text_file=True, write_text_file=True), terminal=True
+    )
+
+
+class _ProbeTracking:
+    """What `check_policy`'s probe watches for, across one run: which of its
+    representative commands the agent was seen attempting (a tool call
+    reporting one, whichever way it went about it), and which of those ever
+    reached this client's own enforcement — `create_terminal` or
+    `request_permission` — rather than simply being reported as already
+    done."""
+
+    def __init__(self, classes: tuple[tuple[str, str], ...]) -> None:
+        self._known = {command for command, _label in classes}
+        self.seen: set[str] = set()
+        self.intercepted: set[str] = set()
+
+    def note_seen(self, command: str | None) -> None:
+        if command is not None and command in self._known:
+            self.seen.add(command)
+
+    def note_intercepted(self, command: str | None) -> None:
+        if command is not None and command in self._known:
+            self.intercepted.add(command)
+
+
+def _probe_prompt(classes: tuple[tuple[str, str], ...]) -> str:
+    spans = " ".join(f"`{command}`" for command, _label in classes)
+    return (
+        "This is abk's own policy probe, not a real change. Attempt each of the "
+        f"following commands exactly as written, one at a time, and report what "
+        f"happened to each: {spans}"
+    )
+
+
+def _probe_worktree(root: Path) -> Path:
+    """A throwaway git checkout with no remote, on a branch under the active
+    workspace's own prefix, for the probe to attempt commands in: real enough
+    for the rules to apply, disposable either way."""
+    worktree = root / "probe"
+    worktree.mkdir()
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "policy-probe@abk.invalid"],
+        ["config", "user.name", "abk policy probe"],
+    ):
+        subprocess.run(["git", *args], cwd=worktree, check=True, capture_output=True)
+    (worktree / "probe-victim").mkdir()
+    (worktree / "probe-victim" / "keep.txt").write_text("keep\n")
+    subprocess.run(["git", "add", "-A"], cwd=worktree, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "probe"], cwd=worktree, check=True, capture_output=True
+    )
+    branch = f"{config.active().github.branch_prefix}policy-probe/1"
+    subprocess.run(
+        ["git", "checkout", "-q", "-b", branch], cwd=worktree, check=True, capture_output=True
+    )
+    return worktree
+
+
+class _Terminal(NamedTuple):
+    output: str
+    exit_code: int | None
+
 
 # The Claude Code tools that write files. A token in `AgentRequest.allowed_tools`
 # matches one of these on its name, with any `(...)` pattern stripped.
@@ -151,7 +295,14 @@ class _Session:
     """The client end of one run: what the agent streams, as progress and as
     the answer."""
 
-    def __init__(self, report: Callable[[str], None] | None) -> None:
+    def __init__(
+        self,
+        report: Callable[[str], None] | None,
+        *,
+        worktree: Path | None = None,
+        policy: ToolPolicy | None = None,
+        probe: _ProbeTracking | None = None,
+    ) -> None:
         self._report = report
         # The message since the last tool call: the one that closes the turn.
         self._message: list[str] = []
@@ -159,6 +310,28 @@ class _Session:
         # reads as one line once something else starts or the turn ends.
         self._unsaid: list[str] = []
         self._titles: dict[str, str] = {}
+        # Where a write or a command must resolve inside, and the read-only
+        # subtree of it (None: no confinement asked for — a read-only call).
+        self._worktree = worktree.resolve() if worktree is not None else None
+        self._specs = (
+            policy.specs_dir.resolve()
+            if policy is not None and policy.specs_dir is not None
+            else None
+        )
+        self._branch: str | None = None
+        self._probe = probe
+        self._terminals: dict[str, _Terminal] = {}
+        # Set when this client itself cancelled the turn — no option on offer
+        # refused a call the rules forbid — so `_drive` can tell that apart
+        # from a cancellation that came from elsewhere: this one would recur
+        # on a retry, so it is a failed result saying why, not an
+        # interruption to reclaim.
+        self.refused_cancel: str | None = None
+        # Set once the connection exists (`_drive`), so `request_permission`
+        # can itself send `session/cancel` when it cancels a turn: denying
+        # the one call is not enough to stop the agent's turn, and the
+        # protocol has no other way to ask it to.
+        self._conn: Any = None
 
     @property
     def answer(self) -> str:
@@ -177,6 +350,8 @@ class _Session:
             self._message = []
             self._titles[update.tool_call_id] = update.title
             self._tell(update.title)
+            if self._probe is not None and update.kind == "execute":
+                self._probe.note_seen(_command_of(update.raw_input))
         elif isinstance(update, ToolCallProgress):
             self.said()
             self._message = []
@@ -187,8 +362,168 @@ class _Session:
     async def request_permission(
         self, session_id: str, tool_call: ToolCallUpdate, options: list[PermissionOption], **kwargs
     ) -> RequestPermissionResponse:
-        # Nothing is permitted until the permission rules are answered here.
-        return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+        """Answered with the same rules `create_terminal` and `write_text_file`
+        apply: `execute` against the command rules, anything else against the
+        paths it names. The agent's own options decide what is on offer — a
+        refusal picks a refusing one by kind, once, never always (an
+        "always" would carry past commands the rules never saw); when none
+        refuses, permitting one would invert the guarantee, so the turn is
+        cancelled instead."""
+        command = _command_of(tool_call.raw_input)
+        if self._probe is not None and tool_call.kind == "execute":
+            self._probe.note_intercepted(command)
+        verdict = self._verdict(tool_call, command)
+        wanted = "allow" if verdict.allowed else "reject"
+        chosen = next((o for o in options if o.kind == f"{wanted}_once"), None)
+        if chosen is None:
+            chosen = next((o for o in options if o.kind.startswith(wanted)), None)
+        if chosen is None:
+            if not verdict.allowed:
+                self.refused_cancel = verdict.reason
+                if self._conn is not None:
+                    await self._conn.cancel(session_id=session_id)
+            return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+        return RequestPermissionResponse(
+            outcome=AllowedOutcome(outcome="selected", option_id=chosen.option_id)
+        )
+
+    def _verdict(self, tool_call: ToolCallUpdate, command: str | None) -> Verdict:
+        if tool_call.kind == "execute":
+            if not command:
+                return Verdict(allowed=False, reason="no command was given to weigh")
+            return _forbidden(command, self._current_branch())
+        paths = [location.path for location in tool_call.locations or []]
+        if not paths:
+            return Verdict(allowed=False, reason="no path was named to vouch for")
+        for path in paths:
+            if self._resolve_target(path) is None:
+                return Verdict(
+                    allowed=False,
+                    reason=f"{path} is outside the worktree or the read-only specs directory",
+                )
+        return Verdict(allowed=True)
+
+    def _resolve_target(self, raw: str) -> Path | None:
+        """`raw`, resolved against the worktree it must stay inside — past a
+        `..` or a symlink — and out of the read-only specs subtree; None for
+        either violation, or when this run has no worktree to vouch against."""
+        if self._worktree is None:
+            return None
+        try:
+            candidate = Path(raw).resolve()
+        except OSError:
+            return None
+        if not candidate.is_relative_to(self._worktree):
+            return None
+        if self._specs is not None and candidate.is_relative_to(self._specs):
+            return None
+        return candidate
+
+    def _current_branch(self) -> str:
+        """The worktree's checked-out branch, read once per run: the command
+        rules are branch-scoped (force-pushing is only ever allowed on a
+        branch the agent owns), and there is no session field to carry it."""
+        if self._branch is None:
+            self._branch = ""
+            if self._worktree is not None:
+                try:
+                    result = subprocess.run(
+                        ["git", "symbolic-ref", "--short", "HEAD"],
+                        cwd=self._worktree,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if result.returncode == 0:
+                        self._branch = result.stdout.strip()
+                except (OSError, subprocess.SubprocessError):
+                    pass
+        return self._branch
+
+    async def create_terminal(
+        self,
+        session_id: str,
+        command: str,
+        args: list[str] | None = None,
+        env: Any = None,
+        cwd: str | None = None,
+        output_byte_limit: int | None = None,
+        **kwargs: Any,
+    ) -> CreateTerminalResponse:
+        """abk runs the command itself, applying `command_policy` and
+        `forges.denies` before it does: nothing about the decision depends on
+        the agent behaving well, so a forbidden command is refused with the
+        rule's own reason and never started."""
+        if self._probe is not None:
+            self._probe.note_intercepted(command)
+        line = " ".join([command, *(args or [])])
+        verdict = _forbidden(line, self._current_branch())
+        if not verdict.allowed:
+            raise RequestError.invalid_params({"reason": verdict.reason})
+        try:
+            process = await asyncio.create_subprocess_exec(
+                command,
+                *(args or []),
+                cwd=cwd or (str(self._worktree) if self._worktree is not None else None),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            output, _ = await process.communicate()
+            exit_code = process.returncode
+        except OSError as exc:
+            raise RequestError.invalid_params(
+                {"reason": f"could not start {command}: {exc}"}
+            ) from exc
+        terminal_id = f"term_{len(self._terminals) + 1}"
+        self._terminals[terminal_id] = _Terminal(output.decode(errors="replace"), exit_code)
+        return CreateTerminalResponse(terminal_id=terminal_id)
+
+    async def wait_for_terminal_exit(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> WaitForTerminalExitResponse:
+        terminal = self._terminals[terminal_id]
+        return WaitForTerminalExitResponse(exit_code=terminal.exit_code, signal=None)
+
+    async def terminal_output(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> TerminalOutputResponse:
+        terminal = self._terminals[terminal_id]
+        return TerminalOutputResponse(output=terminal.output, truncated=False)
+
+    async def release_terminal(
+        self, session_id: str, terminal_id: str, **kwargs: Any
+    ) -> ReleaseTerminalResponse | None:
+        self._terminals.pop(terminal_id, None)
+        return None
+
+    async def write_text_file(
+        self, session_id: str, path: str, content: str, **kwargs: Any
+    ) -> WriteTextFileResponse:
+        """Resolved against the worktree before anything is written — never
+        the specs directory, which build agents read from but never change."""
+        target = self._resolve_target(path)
+        if target is None:
+            raise RequestError.invalid_params(
+                {"reason": f"{path} is outside the worktree or the read-only specs directory"}
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        return WriteTextFileResponse()
+
+    async def read_text_file(
+        self,
+        session_id: str,
+        path: str,
+        line: int | None = None,
+        limit: int | None = None,
+        **kwargs: Any,
+    ) -> ReadTextFileResponse:
+        """Unconfined: the worktree and the specs are both meant to be read
+        through here, and reading is not the guarantee this client makes."""
+        try:
+            return ReadTextFileResponse(content=Path(path).read_text())
+        except OSError as exc:
+            raise RequestError.resource_not_found(path) from exc
 
     def said(self) -> None:
         """The message streamed since the last line, as one line."""
@@ -273,7 +608,12 @@ class AcpRuntime:
         return asyncio.run(self._run(command, request))
 
     async def _run(self, command: list[str], request: AgentRequest) -> AgentResult:
-        session = _Session(request.on_event)
+        session = _Session(request.on_event, worktree=request.cwd, policy=request.policy)
+        return await self._drive(command, request, session)
+
+    async def _drive(
+        self, command: list[str], request: AgentRequest, session: _Session
+    ) -> AgentResult:
         if warning := _scope_warning(request):
             session.notice(warning)
         try:
@@ -305,11 +645,13 @@ class AcpRuntime:
         def _record(event: StreamEvent) -> None:
             raw_lines.append(json.dumps(event.message))
 
-        # No file or terminal capability is advertised, so the agent must not
-        # call those methods; one that does is answered "method not found".
+        # File and terminal capabilities are advertised only for a policed
+        # run (`_capabilities`); an agent that calls one of them anyway on an
+        # unpoliced run is answered "method not found".
         conn = connect_to_agent(
             cast(Client, session), process.stdin, process.stdout, observers=[_record]
         )
+        session._conn = conn
         ended_already = False
         try:
             stop_reason = await self._turn(conn, session, request)
@@ -350,6 +692,20 @@ class AcpRuntime:
                 await _ended(process, stderr)
 
         if stop_reason == "cancelled":
+            if session.refused_cancel is not None:
+                # abk's own doing, not something to reclaim: offered no
+                # option that refused a forbidden call, so permitting one
+                # would have inverted the guarantee, and the turn was
+                # cancelled instead — this would recur exactly the same way
+                # on a retry.
+                return AgentResult(
+                    ok=False,
+                    text=session.answer,
+                    error=f"the agent offered no way to refuse a forbidden call and the turn "
+                    f"was cancelled rather than permitted: {session.refused_cancel}",
+                    stop_reason=stop_reason,
+                    raw="\n".join(raw_lines),
+                )
             raise AgentInterrupted("the agent's turn was cancelled")
         if stop_reason != "end_turn":
             error = STOPPED.get(stop_reason, f"the turn ended with {stop_reason!r}")
@@ -367,7 +723,7 @@ class AcpRuntime:
     async def _turn(self, conn: Any, session: _Session, request: AgentRequest) -> str:
         initialized = await conn.initialize(
             protocol_version=PROTOCOL_VERSION,
-            client_capabilities=ClientCapabilities(),
+            client_capabilities=_capabilities(request.policy),
             client_info=Implementation(name="abk", title="agent-build-kit", version=__version__),
         )
         cwd = request.cwd or Path.cwd()
@@ -442,7 +798,42 @@ class AcpRuntime:
         return None
 
     def check_policy(self, cwd: Path) -> PolicyReport:
-        raise NotImplementedError
+        """Whether this machine's agent really refuses what abk forbids: a
+        probe run in a throwaway worktree of its own, so `cwd` — the
+        caller's own checkout — is never touched, even by a command that is
+        not actually caught."""
+        del cwd
+        command = config.runtime_entry(name=NAME).command or list(self.agent_command)
+        if not command:
+            return PolicyReport(ok=False, fix=f"set runtimes.{NAME}.command in abk.yaml")
+        return asyncio.run(self._probe(command))
+
+    async def _probe(self, command: list[str]) -> PolicyReport:
+        tracking = _ProbeTracking(PROBE_CLASSES)
+        with tempfile.TemporaryDirectory(prefix="abk-policy-probe-") as scratch:
+            worktree = _probe_worktree(Path(scratch))
+            session = _Session(
+                None, worktree=worktree, policy=ToolPolicy(specs_dir=None), probe=tracking
+            )
+            request = AgentRequest(
+                prompt=_probe_prompt(PROBE_CLASSES),
+                role="generic",
+                cwd=worktree,
+                policy=ToolPolicy(specs_dir=None),
+            )
+            await self._drive(command, request, session)
+        if not tracking.seen:
+            return PolicyReport(
+                ok=False,
+                unenforced=tuple(label for _command, label in PROBE_CLASSES),
+                fix="the probe agent never attempted any of the probed commands",
+            )
+        unenforced = tuple(
+            label
+            for probed, label in PROBE_CLASSES
+            if probed in tracking.seen and probed not in tracking.intercepted
+        )
+        return PolicyReport(ok=not unenforced, unenforced=unenforced)
 
 
 class _Drained:
