@@ -9,10 +9,9 @@ Everything here is pure. The planner that produces the estimates, and the
 parts that talk to git and GitHub, live elsewhere — so these rules can be
 argued with directly, in tests, rather than through a subprocess.
 
-`ready_units`, `open_pr_count`, `builds_heading_for_pr` and `new_start_room`
-expect stored units: `pr` and `resume_from` exist only on those, and
-`unit_store` imports this module, so it cannot be named here. Given plain
-`Unit`s they would see no pull request and no resume point.
+`ready_units`, `in_progress`, `in_progress_label` and `start_room` expect stored units: `pr` and
+`resume_from` exist only on those, and `unit_store` imports this module, so it cannot be named
+here. Given plain `Unit`s they would see no pull request and no resume point.
 """
 
 from __future__ import annotations
@@ -354,37 +353,37 @@ def later_groups(unit: Unit, graph: Sequence[Unit]) -> tuple[int, ...]:
     return tuple(sorted(others))
 
 
-def open_pr_count(graph: Sequence[Unit]) -> int:
-    """Pull requests open right now, across every repo.
+def in_progress(unit: Unit) -> bool:
+    """Whether the unit has been started and not finished (docs/architecture.md).
 
-    A unit has one from the moment it opens it until it merges or is closed,
-    whatever state it is in meanwhile: awaiting review, being reworked (planned
-    again), running, held, failed, or unplanned. So every unit with a pull
-    request counts except those that merged, were closed, or were satisfied
-    (whose pull request the pipeline closes).
-
-    Expects stored units: `pr` is read from the store's record.
+    Running, in review, held and failed units are; so is a planned or unplanned
+    one that has a pull request or a step to resume from, since something was
+    already done to it. Merged, closed and satisfied units are finished, and a
+    unit with neither a pull request nor a resume point has never started,
+    blocked on a dependency or not.
     """
-    return sum(
-        1
-        for unit in graph
-        if getattr(unit, "pr", None) is not None and unit.state not in (MERGED, CLOSED, SATISFIED)
-    )
+    if unit.state in (MERGED, CLOSED, SATISFIED):
+        return False
+    if unit.state in (RUNNING, IN_REVIEW, HELD, FAILED):
+        return True
+    return getattr(unit, "pr", None) is not None or bool(getattr(unit, "resume_from", ""))
 
 
-def builds_heading_for_pr(graph: Sequence[Unit]) -> int:
-    """Units being built that have no pull request yet: each will open one."""
-    return sum(1 for unit in graph if unit.state == RUNNING and getattr(unit, "pr", None) is None)
+def in_progress_label(unit: Unit) -> str:
+    """Why an in-progress unit counts, for the report of a full queue.
 
-
-def new_start_room(graph: Sequence[Unit], max_open_prs: int) -> int:
-    """How many units with no pull request may start before the ceiling is met.
-
-    Counts the pull requests open now and the ones builds in flight are about
-    to open, so a queue one short of the ceiling admits one new unit, not
-    every ready one.
+    A planned or unplanned unit is in progress only because something was
+    already done to it, so it is named for that, not `planned`: "reworking"
+    with a pull request, "paused" with only a step to resume from.
     """
-    return max(0, max_open_prs - open_pr_count(graph) - builds_heading_for_pr(graph))
+    if unit.state in (PLANNED, "unplanned"):
+        return "reworking" if getattr(unit, "pr", None) is not None else "paused"
+    return unit.state.replace("_", " ")
+
+
+def start_room(graph: Sequence[Unit], limit: int) -> int:
+    """How many never-started units may begin before `limit` is reached."""
+    return max(0, limit - sum(1 for unit in graph if in_progress(unit)))
 
 
 def _start_rank(unit: Unit) -> int:
@@ -399,7 +398,7 @@ def ready_units(
     *,
     max_concurrent: int,
     depth_cap: int,
-    max_open_prs: int | None = None,
+    max_units_in_progress: int | None = None,
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -411,11 +410,11 @@ def ready_units(
     without touching their siblings, and the concurrency cap limits how many
     units are being built at once.
 
-    `max_open_prs` bounds the pull requests open across all repos, counting
-    those a running build is about to open. Units with no pull request of their
-    own start only while that leaves room, and no more of them than it does;
-    one that already has a pull request (a rework) always may, since running it
-    is how the queue drains.
+    `max_units_in_progress` bounds the units started and not finished, across
+    all repos (`in_progress`). A unit that has never started begins only while
+    that leaves room, and no more of them than it does; one already in
+    progress (a rework, a resume, a unit finishing its review loop) always may,
+    since running it is how the queue drains.
 
     Free slots go to units with an open pull request, then to those resuming
     a build, then to new ones, each in the order they were planned.
@@ -425,7 +424,7 @@ def ready_units(
     if not slots:
         return []
 
-    room = None if max_open_prs is None else new_start_room(graph, max_open_prs)
+    room = None if max_units_in_progress is None else start_room(graph, max_units_in_progress)
 
     ready: list[Unit] = []
     for unit in graph:
@@ -444,7 +443,7 @@ def ready_units(
     for unit in sorted(ready, key=_start_rank):
         if len(started) == slots:
             break
-        if room is not None and _start_rank(unit) != 0:
+        if room is not None and not in_progress(unit):
             if not room:
                 continue
             room -= 1

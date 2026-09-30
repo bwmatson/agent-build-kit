@@ -32,14 +32,17 @@
   change removes them. Gitignored; an existing installation adds
   `runs/unit-logs/` to its `.gitignore`.
 
-- New `limits.max_open_prs` (default 5, at least 1) caps open pull requests
-  across all repos. At the ceiling no new unit starts: it stays `planned`, and
-  the tick log and `abk status` say "queue is full: N open pull requests,
-  ceiling M". Reworks, restacks, further review rounds and PR opening
-  continue, so the count can go past the ceiling. Free slots now go to units
-  with an open PR first, then resuming builds, then new units. **Behaviour
-  change:** installations that were unbounded now stop starting new units at 5
-  open PRs; a workspace wanting the old behaviour sets the key high.
+- New `limits.max_units_in_progress` (default 5, at least 1) caps the units
+  started and not finished across all repos, whether or not they have a pull
+  request: running, in review, held, failed, or planned with a pull request or
+  a step to resume from. At the limit no unit that has never started does: it
+  stays `planned`, and the tick log and `abk status` say "queue is full: N
+  units in progress, limit M" with the count in each state. Reworks, resumes,
+  restacks, further review rounds and PR opening continue, so the count can go
+  past the limit. Free slots go to units with an open PR first, then resuming
+  builds, then new units. **Behaviour change:** installations that were
+  unbounded now stop starting new units at 5 in progress; a workspace wanting
+  the old behaviour sets the key high.
 
 - A unit whose groups already landed in its predecessor and whose tier 1 passes
   on the whole repo ends `satisfied` instead of failing: its PR is closed with

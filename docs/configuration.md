@@ -105,9 +105,10 @@ limits:
   stack_depth_rebase_cap:       # deepest a dependent may sit when a merge
                                 # restacks it; unset = the build cap's value
   max_concurrent_stacks: 4      # units being built at once, across all repos
-  max_open_prs: 5               # open PRs across all repos, at least 1; at it no
-                                # new unit starts, while reworks, restacks and
-                                # finishing reviewed work still run
+  max_units_in_progress: 5      # units started and not finished, across all
+                                # repos, at least 1; at it no unit that has
+                                # never started does, while reworks, resumes
+                                # and finishing reviewed work still run
   min_unit_lines: 500           # estimated changed lines before the planner
                                 # stops absorbing the next task group
   max_unit_lines: 1000          # estimated changed lines one unit may carry;

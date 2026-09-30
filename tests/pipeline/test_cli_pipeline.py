@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from tests.conftest import make_installation
@@ -1707,7 +1707,7 @@ def test_status_says_when_the_queue_is_full(
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_open_prs=2),
+        limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored(f"c{n}/1", change=f"c{n}") for n in (1, 2, 3)])
@@ -1718,36 +1718,59 @@ def test_status_says_when_the_queue_is_full(
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
     out = capsys.readouterr().out
-    assert "queue is full: 3 open pull requests, ceiling 2" in out
+    assert "3 units in progress, limit 2" in out
+    assert "3 in review" in out
 
 
-def test_status_says_how_many_builds_are_still_to_open_a_pull_request(
+def test_status_names_a_failed_unit_holding_a_place(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_open_prs=2),
+        limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
     store.set_state("one/1", IN_REVIEW, pr=11)
-    store.set_state("two/1", RUNNING)
+    store.set_state("two/1", "failed")
     monkeypatch.setattr(cli, "current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
     out = capsys.readouterr().out
-    assert "queue is full: 1 open pull requests and 1 being built, ceiling 2" in out
+    assert "2 units in progress, limit 2" in out
+    assert "1 failed" in out
 
 
-def test_status_is_silent_about_the_queue_below_the_ceiling(
+def test_status_names_reworks_and_resumes_by_why_they_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     workspace_inst = make_installation(
         tmp_path,
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_open_prs=2),
+        limits=dict(max_units_in_progress=2),
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
+    store.set_state("one/1", PLANNED, pr=11)
+    store.set_state("two/1", PLANNED, resume_from="verify")
+    monkeypatch.setattr(cli, "current_usage", lambda: reading())
+
+    assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
+
+    out = capsys.readouterr().out
+    assert "1 paused, 1 reworking" in out
+    assert "planned)" not in out
+
+
+def test_status_is_silent_about_the_queue_below_the_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace_inst = make_installation(
+        tmp_path,
+        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
+        limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one")])
@@ -1756,4 +1779,4 @@ def test_status_is_silent_about_the_queue_below_the_ceiling(
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
-    assert "queue is full" not in capsys.readouterr().out.lower()
+    assert "units in progress, limit" not in capsys.readouterr().out.lower()
