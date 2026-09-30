@@ -629,15 +629,30 @@ def _recorded(entry: dict) -> Finding:
     return Finding.model_validate({k: v for k, v in entry.items() if k in Finding.model_fields})
 
 
-def _unresolved(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[str]:
-    """Ids of earlier required findings this verdict leaves open or unanswered."""
+def _open_entries(
+    rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None
+) -> list[tuple[dict, str]]:
+    """Earlier required findings this verdict leaves open or unanswered, with
+    the status the reviewer gave each ("" when it did not answer)."""
     answers = {a.id: a.status for a in earlier or ()}
     return [
-        str(f["id"])
+        (f, answers.get(str(f["id"]), ""))
         for entry in rounds
         for f in entry.get("findings") or []
         if f.get("required") and answers.get(str(f["id"]), f.get("status")) not in RESOLVED
     ]
+
+
+def _unresolved(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[str]:
+    """Ids of earlier required findings this verdict leaves open or unanswered."""
+    return [str(f["id"]) for f, _ in _open_entries(rounds, earlier)]
+
+
+def _render_open(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> str:
+    """The earlier findings still open, each whole: the builder reads this text
+    and never the stored rounds, so an id alone would give it nothing to act on."""
+    items = [_render_one(_recorded(f), status) for f, status in _open_entries(rounds, earlier)]
+    return "Still open from earlier rounds:\n" + "\n".join(items) if items else ""
 
 
 def _apply_answers(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[dict]:
@@ -1380,11 +1395,7 @@ class UnitRunner(BaseModel):
                 prose = f"{prose}\n\n{points}".strip() if prose else points
             earlier_rounds = stored.review_rounds
             open_ids = _unresolved(earlier_rounds, verdict.earlier)
-            if open_ids:
-                listed = ", ".join(open_ids)
-                prose = "\n\n".join(
-                    p for p in (prose, f"Earlier required findings still open: {listed}.") if p
-                )
+            still_open = _render_open(earlier_rounds, verdict.earlier)
             shown, cut = cap_optional(verdict.findings)
             if cut:
                 self.log(f"{cut} optional finding(s) left out, over the {MAX_OPTIONAL} shown")
@@ -1395,7 +1406,7 @@ class UnitRunner(BaseModel):
                 f.model_copy(update={"id": f"{len(earlier_rounds) + 1}.{n}"})
                 for n, f in enumerate(shown, start=1)
             ]
-            why = "\n\n".join(p for p in (prose, render_findings(kept)) if p)
+            why = "\n\n".join(p for p in (prose, still_open, render_findings(kept)) if p)
             approved = (
                 verdict.approved
                 and not verdict.blocking

@@ -127,6 +127,27 @@ def test_approving_while_listing_a_required_finding_is_not_an_approval(tmp_path:
     assert "waiting_on does not look" in _rework_prompts(recorder)[0]
 
 
+@pytest.mark.parametrize(
+    "answer", [{"earlier": [{"id": "1.1", "status": "open"}]}, {}], ids=["open", "unanswered"]
+)
+def test_an_earlier_finding_left_open_reaches_the_builder_whole(
+    tmp_path: Path, answer: dict
+) -> None:
+    recorder, _, _ = _run(
+        tmp_path,
+        [
+            _reply(_finding()),
+            _reply(approved=True, **answer),
+            _reply(approved=True, earlier=[_FIXED_1_1]),
+        ],
+    )
+
+    prompt = _rework_prompts(recorder)[1]
+    assert "waiting_on does not look" in prompt
+    assert "with c/1 planned and c/2 satisfied" in prompt
+    assert "iterate through_satisfied()" in prompt
+
+
 def test_approving_with_only_optional_findings_is_an_approval(tmp_path: Path) -> None:
     recorder, store, outcome = _run(
         tmp_path, [_reply(_finding(required=False, consequence=""), approved=True)]
@@ -461,7 +482,8 @@ def test_a_note_never_leaves_out_an_unresolved_finding() -> None:
     )
 
     for n in range(1, 11):
-        assert f"S{n} " not in note and f"[1.{n}]" in note
+        assert f"[1.{n}]" in note
+    assert note.count("x" * 590) == 10
     assert "left out" not in note
 
 
@@ -493,6 +515,14 @@ def test_an_unknown_status_counts_as_open() -> None:
     assert stack_runner._unresolved(({"findings": _stored_round()["findings"]},), answers) == [
         "1.1"
     ]
+
+
+@pytest.mark.parametrize("item", ["not a dict", {"summary": "no file"}])
+def test_an_unreadable_finding_blocks_approval(item: object) -> None:
+    verdict = parse_verdict(json.dumps({"approved": True, "findings": [item]}))
+
+    (finding,) = verdict.findings
+    assert (finding.file, finding.required) == ("(unreadable)", True)
 
 
 def test_an_optional_finding_with_an_extra_key_or_a_line_range_stays_readable() -> None:
