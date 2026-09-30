@@ -21,6 +21,7 @@ their own. A callback that breaks never takes the run down with it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -413,7 +414,10 @@ def _gone(pid: int) -> bool:
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
     except OSError:
-        return False
+        # It existed a moment ago and its entry is gone now: it exited and was
+        # reaped in between. Read as "still running", this made a process that
+        # died on time look like one that outlived the run.
+        return True
     # The state follows the command name, which is in parentheses.
     return stat.rpartition(")")[2].split()[0] == "Z"
 
@@ -423,6 +427,16 @@ def _gone_soon(pid: int) -> bool:
     while not _gone(pid) and time.monotonic() < deadline:
         time.sleep(0.05)
     return _gone(pid)
+
+
+def _kill_if_left(pid: int) -> None:
+    """Clean up a process the run should have killed, if it is still there.
+
+    It may exit on its own between the check and the kill, and a cleanup that
+    raised then would hide the assertion that says what actually went wrong.
+    """
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
 
 
 def _run_bounded(request: AgentRequest) -> tuple[AgentResult | None, float]:
@@ -452,7 +466,7 @@ def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
     orphan = int(orphan_pid_file(record).read_text())
     left = not _gone_soon(orphan)
     if left:
-        os.kill(orphan, signal.SIGKILL)
+        _kill_if_left(orphan)
 
     assert result is not None, "run() did not return"
     assert elapsed < 5
@@ -502,7 +516,7 @@ def test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_kill
     child = int(orphan_pid_file(record).read_text())
     left = not _gone_soon(child)
     if left:
-        os.kill(child, signal.SIGKILL)
+        _kill_if_left(child)
 
     assert result is not None, "run() did not return"
     assert elapsed < 5
