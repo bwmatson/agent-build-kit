@@ -899,7 +899,7 @@ def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = 
                 old_base=old_base,
                 old_head=old_head,
                 conflict=str(error),
-                old_tests=tuple(_tests_added(tree, old_base, old_head)),
+                old_tests=tuple(defined_tests_in_range(tree, old_base, old_head)),
             )
 
         # Applied cleanly with the unit's own diff byte-for-byte unchanged: the
@@ -965,12 +965,7 @@ def _lines_in(spans: list[tuple[str, int, int]], first: int, count: int) -> set[
 
 
 def defined_tests_in_range(tree: Path, old_base: str, old_head: str) -> list[str]:
-    """Which tests the commit range `old_base..old_head` defined, deleted or edited inside."""
-    raise NotImplementedError
-
-
-def _tests_added(tree: Path, old_base: str, old_head: str) -> list[str]:
-    """Test functions the unit's previous work defined, deleted or edited inside.
+    """Which tests the commit range `old_base..old_head` defined, deleted or edited inside.
 
     From which lines the range added or removed and which test each falls
     within, not from the diff's text: a test that only sits in the diff's

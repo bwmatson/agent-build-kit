@@ -517,8 +517,10 @@ RATE_LIMIT_MARKERS = (
     "rate limit",
     "rate_limit_error",
     "limit reached",
-    "429",
 )
+
+# A status code is a whole number: not the middle of a hash or a millisecond count.
+HTTP_429 = re.compile(r"(?<![0-9A-Za-z])429(?![0-9A-Za-z])")
 
 # "Claude AI usage limit reached|1919763200" — an epoch seconds reset.
 RESET_EPOCH = re.compile(r"limit reached\|(\d{10,})")
@@ -543,7 +545,7 @@ def rate_limit_reset(text: str) -> datetime | None | Literal[False]:
     limited", which is the one mistake that matters here.
     """
     lowered = text.lower()
-    if not any(marker in lowered for marker in RATE_LIMIT_MARKERS):
+    if not (any(marker in lowered for marker in RATE_LIMIT_MARKERS) or HTTP_429.search(lowered)):
         return False
 
     match = RESET_EPOCH.search(lowered)

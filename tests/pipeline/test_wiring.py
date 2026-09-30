@@ -661,7 +661,7 @@ def test_predecessor_looks_through_a_satisfied_unit_once_its_parent_merges(
 
 
 def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.wiring import _reset_to, _tests_added, _tests_in
+    from agent_build_kit.pipeline.wiring import _reset_to, _tests_in, defined_tests_in_range
     from tests.factories import git, init_repo
 
     repo = init_repo(tmp_path / "r")
@@ -675,7 +675,7 @@ def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path
     git(repo, "commit", "-qam", "unit")
     head = git(repo, "rev-parse", "HEAD")
 
-    assert _tests_added(repo, base, head) == ["test_new_one"]
+    assert defined_tests_in_range(repo, base, head) == ["test_new_one"]
     assert _tests_in(repo) == {"test_existing", "test_new_one"}
 
     _reset_to(repo, base, "refs/spec-driven/pre-adapt/c-3")
@@ -713,7 +713,7 @@ def test_a_test_only_on_a_context_line_is_not_the_units(tmp_path: Path) -> None:
     """The unit added one test and deleted another. Its edit sits within three
     lines of `test_above` and `test_below`, so both appear in the diff as
     context — and neither is the unit's."""
-    from agent_build_kit.pipeline.wiring import _tests_added
+    from agent_build_kit.pipeline.wiring import defined_tests_in_range
 
     before = _spaced_tests()
     after = before.replace("    assert x == y - 1\n", "    assert x == y - 1\n    assert x\n")
@@ -721,7 +721,7 @@ def test_a_test_only_on_a_context_line_is_not_the_units(tmp_path: Path) -> None:
     after += "\n\ndef test_added():\n    assert True\n"
     repo, base, head = _commit_over(tmp_path, before, after)
 
-    counted = _tests_added(repo, base, head)
+    counted = defined_tests_in_range(repo, base, head)
 
     assert "test_added" in counted, "a definition the range adds"
     assert "test_removed" in counted, "a definition the range removes"
@@ -730,13 +730,13 @@ def test_a_test_only_on_a_context_line_is_not_the_units(tmp_path: Path) -> None:
 
 
 def test_a_test_edited_inside_counts_and_one_left_alone_does_not(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.wiring import _tests_added
+    from agent_build_kit.pipeline.wiring import defined_tests_in_range
 
     before = _spaced_tests()
     after = before.replace("    assert x == y - 1\n", "    assert x\n")
     repo, base, head = _commit_over(tmp_path, before, after)
 
-    assert _tests_added(repo, base, head) == ["test_edited"]
+    assert defined_tests_in_range(repo, base, head) == ["test_edited"]
 
 
 def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Path) -> None:

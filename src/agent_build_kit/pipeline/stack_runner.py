@@ -30,7 +30,7 @@ import re
 from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.config import active, models
 from agent_build_kit.model import Frozen
@@ -371,6 +371,12 @@ class PortedTest(Frozen):
     name: str
     decision: str  # keep | adapt | retire
     reason: str = ""
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _null_reason_is_empty(cls, value: object) -> object:
+        """A null is what a model writes for "nothing to say"."""
+        return "" if value is None else value
 
 
 ADAPT_PROMPT = """This unit — change {change_dir}, task group(s) {groups} — was built on an
