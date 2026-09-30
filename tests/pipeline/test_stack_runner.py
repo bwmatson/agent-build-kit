@@ -2427,7 +2427,7 @@ def test_a_usage_paused_empty_step_is_drawn_as_paused_and_resumes_with_its_commi
 
     diagram = render_mermaid([store.get(unit().id)])
     assert "paused_usage" in diagram
-    assert "paused: usage" in diagram
+    assert "paused-usage" in diagram
 
     second_run = Recorder(commits_from_impl=1)
     second_run.made = 1  # the tests commit from before the pause is still there

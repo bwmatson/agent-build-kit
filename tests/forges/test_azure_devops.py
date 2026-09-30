@@ -192,7 +192,7 @@ def test_branch_names_lose_their_ref_prefix() -> None:
 def test_a_pull_request_with_no_labels_is_not_an_error() -> None:
     """Azure sends `null`, not `[]`."""
     assert view(azure_answers.OPEN).labels == ()
-    assert view(azure_answers.pull(labels=[{"name": "agent:hold"}])).labels == ("agent:hold",)
+    assert view(azure_answers.pull(labels=[{"name": "agent-hold"}])).labels == ("agent-hold",)
 
 
 def test_a_rejecting_reviewer_asks_for_rework() -> None:
