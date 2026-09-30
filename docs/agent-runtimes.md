@@ -7,12 +7,13 @@ every call site going through `AgentRuntime.run()`, choosing a runtime in
 `abk.yaml` or the environment, per-runtime model names, and the `doctor` and
 `init` runtime checks are in place. The `acp` adapter (`runtimes/acp.py`, behind
 the `acp` extra) runs a prompt, maps each end-of-turn reason, selects a model
-and streams progress; a request for a named `worktree` it refuses as a
-failed result rather than run in `cwd`. Its client capabilities, permission answering and
-`check_policy` are not yet implemented, so it stays unregistered and Claude
-Code is still the only registered runtime. This document specifies the
-whole shape, so that adding a second runtime is writing an adapter against a
-fixed Protocol, not another round of the same subprocess plumbing.
+and streams progress; a request for a named `worktree` it refuses as a failed
+result rather than run in `cwd`. Its client capabilities, permission
+answering and `check_policy` are not yet implemented, so it stays
+unregistered and Claude Code is still the only registered runtime. This
+document specifies the whole shape, so that adding a second runtime is
+writing an adapter against a fixed Protocol, not another round of the same
+subprocess plumbing.
 
 The second adapter is not another product's SDK. It is **ACP, the Agent Client
 Protocol** ([agentclientprotocol.com](https://agentclientprotocol.com)) — a
@@ -366,17 +367,26 @@ not lean on tool scoping for anything load-bearing.
 
 **The one case where the list is not advisory is refused, not ignored.** An
 ordinary run's tool list is a hint the run did not need — it names an edit
-tool because it was going to edit anyway. `wiring.build_run_review` is
-different: it sends `permission_mode="edit"` with `allowed_tools` naming no
-edit tool at all, because "The reviewer cannot edit" is a property the
+tool because it was going to edit anyway. Two call sites send a list that
+names no edit tool at all, because the list is meant to keep the run from
+editing rather than merely describe what it planned to do anyway.
+`wiring.build_run_review` sends `permission_mode="edit"` with `allowed_tools`
+naming no edit tool, because "The reviewer cannot edit" is a property the
 pipeline states as a guarantee (docs/architecture.md), not a preference — a
 reviewer that could edit the worktree it is judging could approve a diff it
-had itself changed. `runtimes/acp.py` has no way to keep that guarantee (the
-agent's own configuration decides its tools, not this request), so a request
-shaped that way — `permission_mode` is `"edit"` and `allowed_tools` is set but
-names no edit tool — is refused with `AgentResult(ok=False, ...)` before the
-agent is even spawned, rather than silently reviewed under a promise this
-runtime cannot keep.
+had itself changed. `init.research.research` sends
+`permission_mode="allowed_tools_only"` with the same shape of list, for a
+run that has no business editing the repo it is researching. `runtimes/acp.py`
+has no way to keep either guarantee (the agent's own configuration decides
+its tools, not this request), so a request shaped that way — `allowed_tools`
+is set but names no edit tool, whatever `permission_mode` it carries — is
+refused with `AgentResult(ok=False, ...)` before the agent is even spawned,
+rather than silently run under a promise this runtime cannot keep. The
+planner's graph call also sends `permission_mode="allowed_tools_only"`, but
+with `allowed_tools` empty, so it is not this shape and is let through:
+under `claude_code` that run is kept from editing by headless permission
+denial, not by a list, so there is no list here for this runtime to fail to
+enforce.
 
 ## Policy enforcement without a hook contract
 

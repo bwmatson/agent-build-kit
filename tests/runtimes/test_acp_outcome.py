@@ -303,6 +303,30 @@ def test_a_read_only_shaped_request_is_refused_before_the_agent_is_spawned(
     assert not record.exists()
 
 
+def test_a_research_shaped_request_is_refused_before_the_agent_is_spawned(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """`init.research.research` sends an `allowed_tools_only`-mode request
+    whose `allowed_tools` names no edit tool — the same shape as a review
+    run, just under a different `permission_mode`. On this runtime, ignoring
+    that would let a run meant to be read-only edit the repo it is
+    researching. Refused, and the agent never starts, same as review."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record)
+    request = _request(
+        worktree,
+        specs,
+        allowed_tools="Read Grep Glob WebSearch WebFetch",
+        permission_mode="allowed_tools_only",
+    )
+
+    result = AcpRuntime().run(request)
+
+    assert result.ok is False
+    assert "allowed_tools" in result.error
+    assert not record.exists()
+
+
 def test_a_named_worktree_is_refused_without_starting_the_agent(
     tmp_path: Path, worktree: Path, specs: Path
 ) -> None:

@@ -11,11 +11,16 @@ killed for failing to exit, which is a failure. `AgentRequest.allowed_tools`/
 `denied_tools` are inert here — the protocol has no per-session tool list
 (docs/agent-runtimes.md) — so a run that carries either is let through with a
 once-per-run notice that tool scope comes from the agent's own configuration,
-*unless* the list is the only thing standing between an `edit`-mode run and
-editing (no edit tool named in `allowed_tools`) — the shape of a review run,
-whose reviewer-cannot-edit guarantee (docs/architecture.md) this runtime
-cannot keep, so that request is refused before the agent is spawned. A named
-`worktree` is refused too, not ignored.
+*unless* `allowed_tools` is set and names no edit tool — the shape of a
+review run (`permission_mode="edit"`) or a read-only research run
+(`permission_mode="allowed_tools_only"`), each relying on that list, not on
+its own configuration, to keep from editing something it only means to read,
+a guarantee (docs/architecture.md, docs/agent-runtimes.md) this runtime
+cannot keep, so that request is refused before the agent is spawned. A run
+whose `allowed_tools` is empty (the planner's graph call) is let through
+regardless of mode: nothing here was ever relying on a list to stop it from
+editing, so there is no promise to break. A named `worktree` is refused too,
+not ignored.
 """
 
 from __future__ import annotations
@@ -83,9 +88,8 @@ STOPPED: dict[str, str] = {
     "refusal": "the agent refused to carry on with the prompt",
 }
 
-# Claude Code tool names (in `AgentRequest.allowed_tools`'s own syntax) that
-# can edit a file. Only these two are named by anything in this codebase
-# today; a bare name is matched before any `(...)` pattern.
+# The Claude Code tools that write files. A token in `AgentRequest.allowed_tools`
+# matches one of these on its name, with any `(...)` pattern stripped.
 EDIT_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
 
 
@@ -113,23 +117,33 @@ def _scope_warning(request: AgentRequest) -> str | None:
     )
 
 
-def _review_guarantee_broken(request: AgentRequest) -> str | None:
-    """None unless `allowed_tools` is the only thing standing between an
-    `edit`-mode run and editing — the shape `wiring.build_run_review` sends,
-    and the guarantee docs/architecture.md states as a property of the
-    pipeline: "The reviewer cannot edit". This runtime has no per-session
-    tool list to enforce that with, so it refuses rather than reviewing under
-    a promise it cannot keep."""
-    if request.permission_mode != "edit" or not request.allowed_tools:
+def _read_only_guarantee_broken(request: AgentRequest) -> str | None:
+    """None unless `allowed_tools` is set and names no edit tool — the shape
+    of a run that is relying on that list, not on the agent's own
+    configuration, to keep from editing something it only means to read.
+    `wiring.build_run_review` sends this shape under `permission_mode="edit"`,
+    for the guarantee docs/architecture.md states as a property of the
+    pipeline: "The reviewer cannot edit". `init.research.research` sends the
+    same shape under `permission_mode="allowed_tools_only"`, for a run that
+    has no business editing the repo it is researching. Either way this
+    runtime has no per-session tool list to enforce it with, so it refuses
+    rather than running under a promise it cannot keep.
+
+    A run whose `allowed_tools` is empty — the planner's graph call, also
+    sent with `permission_mode="allowed_tools_only"` — is not this shape:
+    under `claude_code` that run is kept from editing by headless permission
+    denial, not by a list, so there is no list here to fail to enforce."""
+    if not request.allowed_tools:
         return None
     if _names_edit_tool(request.allowed_tools):
         return None
     return (
         f"runtimes.acp cannot enforce allowed_tools={request.allowed_tools!r}: the "
         "protocol has no per-session tool list, and this list names no edit tool, "
-        "so this run is relying on it to keep the reviewer from editing "
-        '("The reviewer cannot edit", docs/architecture.md) — a guarantee this '
-        "runtime cannot keep. Refusing rather than reviewing under a broken promise."
+        "so this run is relying on it to keep from editing — the reviewer's version "
+        'of that promise is "The reviewer cannot edit" (docs/architecture.md), but '
+        "any read-only-shaped run makes the same one. This runtime cannot keep it. "
+        "Refusing rather than running under a broken promise."
     )
 
 
@@ -251,7 +265,7 @@ class AcpRuntime:
                 error=f"runtimes.{NAME} does not create a named worktree; "
                 f"{request.worktree!r} needs a runtime that does",
             )
-        if broken := _review_guarantee_broken(request):
+        if broken := _read_only_guarantee_broken(request):
             return AgentResult(ok=False, text="", error=broken)
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)
         if not command:
