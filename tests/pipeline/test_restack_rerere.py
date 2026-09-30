@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.restack import (
     ConflictContext,
     RestackConflict,
@@ -33,6 +34,21 @@ from agent_build_kit.pipeline.restack import (
     move_branch_onto,
 )
 from tests.factories import git, init_repo
+
+
+@pytest.fixture(autouse=True)
+def isolated_git_config(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """None of this module's assertions about global git config mean anything
+    against the developer's real one: without this, a machine with
+    `rerere.enabled=true` set globally would pass every replay test here even
+    with the `-c` flags deleted from `restack.git`, since rerere would already
+    be on regardless."""
+    config_path = tmp_path_factory.mktemp("gitconfig") / "gitconfig"
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config_path))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    return config_path
 
 
 def commit(repo: Path, name: str, content: str) -> None:
@@ -115,22 +131,60 @@ def test_a_resolution_recorded_in_one_worktree_is_replayed_in_a_sibling(
     )
 
     assert seen["content_on_arrival"] == "value = 2  # sibling\n"
-    git(tree3, "checkout", "-q", "spec/c/3")
-    assert (tree3 / "conflicted.py").read_text() == "value = 2  # sibling\n"
+    assert git(tree3, "show", "spec/c/3:conflicted.py") == "value = 2  # sibling"
     assert not rebase_in_progress(tree3)
 
 
-def test_the_resolver_is_told_which_paths_carry_a_replayed_resolution(
-    landed: tuple[Path, str], tmp_path: Path
+def note_files(prompt: str) -> str:
+    """The list of paths under the replayed-resolution note, or "" if the
+    prompt carries no such note."""
+    marker = "still unstaged for you to judge:\n"
+    if marker not in prompt:
+        return ""
+    after = prompt.split(marker, 1)[1]
+    return after.split("\nLeave one unchanged", 1)[0]
+
+
+def test_the_resolver_is_told_only_the_paths_with_a_replayed_resolution(
+    tmp_path: Path,
 ) -> None:
-    repo, pre = landed
-    sibling(repo, "spec/c/2", pre)
-    sibling(repo, "spec/c/3", pre)
+    """Two conflicted files, and only one of them has a recorded resolution —
+    the note must name that one and not the other."""
+
+    def commit_both(conflicted_value: str, other_value: str) -> None:
+        # One commit for both files: a rebase that has to replay two
+        # separate commits would hit a second conflict of its own once
+        # `move_branch_onto` continues past the first, which is a different
+        # scenario than what this test means to set up.
+        (repo / "conflicted.py").write_text(conflicted_value)
+        (repo / "other.py").write_text(other_value)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "write both files")
+
+    repo = init_repo(tmp_path / "repo")
+    commit_both("value = 1\n", "value = 1\n")
+    pre = git(repo, "rev-parse", "HEAD")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/1")
+    commit_both("value = 2  # predecessor\n", "value = 2  # predecessor\n")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge predecessor", "spec/c/1")
+
+    def make_sibling(name: str, other_value: str) -> None:
+        git(repo, "checkout", "-q", "-b", name, pre)
+        commit_both("value = 1  # sibling\n", other_value)
+        git(repo, "checkout", "-q", "main")
+
+    # other.py's own committed content differs per sibling, so its conflict
+    # never matches a cached entry — only conflicted.py's does.
+    make_sibling("spec/c/2", "value = 1  # sibling-two\n")
+    make_sibling("spec/c/3", "value = 1  # sibling-three\n")
     tree2 = sibling_worktree(repo, "spec/c/2", tmp_path)
     tree3 = sibling_worktree(repo, "spec/c/3", tmp_path)
 
     def derives(prompt: str, *, cwd: Path) -> None:
         (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+        (cwd / "other.py").write_text("value = 2  # sibling-two\n")
 
     move_branch_onto(
         tree2, "spec/c/2", new_base="main", old_base=pre, resolve=derives, context=context()
@@ -143,14 +197,55 @@ def test_the_resolver_is_told_which_paths_carry_a_replayed_resolution(
         # Still unmerged and unstaged when the resolver is handed it — a
         # replayed resolution is a proposal, not something already accepted.
         seen["conflicted_at_arrival"] = _conflicted_files(cwd)
+        (cwd / "other.py").write_text("value = 2  # sibling-three\n")
 
     move_branch_onto(
         tree3, "spec/c/3", new_base="main", old_base=pre, resolve=confirms, context=context()
     )
 
     assert "conflicted.py" in seen["conflicted_at_arrival"]
-    assert "conflicted.py" in seen["prompt"]
-    assert "replayed" in seen["prompt"].lower()
+    assert "other.py" in seen["conflicted_at_arrival"]
+    note = note_files(seen["prompt"])
+    assert "- conflicted.py" in note
+    assert "- other.py" not in note
+
+
+def test_a_first_time_conflict_has_markers_and_no_replayed_note(tmp_path: Path) -> None:
+    """No cache yet: the resolver sees exactly what any conflict with nothing
+    replayed has always looked like — markers in the file, and no note."""
+    repo = init_repo(tmp_path / "repo")
+    commit(repo, "conflicted.py", "value = 1\n")
+    pre = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "spec/c/1")
+    commit(repo, "conflicted.py", "value = 2  # predecessor\n")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge predecessor", "spec/c/1")
+    sibling(repo, "spec/c/2", pre)
+    tree2 = sibling_worktree(repo, "spec/c/2", tmp_path)
+
+    seen: dict = {}
+
+    def confirms(prompt: str, *, cwd: Path) -> None:
+        seen["prompt"] = prompt
+        seen["content_on_arrival"] = (cwd / "conflicted.py").read_text()
+        seen["diff"] = restack.git(cwd, "diff", check=False).stdout[:8000]
+        (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+
+    move_branch_onto(
+        tree2, "spec/c/2", new_base="main", old_base=pre, resolve=confirms, context=context()
+    )
+
+    assert any(marker in seen["content_on_arrival"] for marker in restack.CONFLICT_MARKERS)
+    assert "replayed" not in seen["prompt"].lower()
+    assert seen["prompt"] == restack.RESOLVE_PROMPT.format(
+        moving_unit="add-marker/2",
+        moving_intent="register the local value",
+        onto_unit="add-marker/1",
+        onto_intent="register the predecessor's value",
+        files="- conflicted.py",
+        replayed="",
+        diff=seen["diff"],
+    )
 
 
 def test_an_override_of_a_replayed_resolution_is_recorded_in_its_place(
@@ -198,6 +293,92 @@ def test_an_override_of_a_replayed_resolution_is_recorded_in_its_place(
     )
 
 
+def test_a_resolver_that_rejects_a_replay_aborts_and_clears_the_cache(
+    landed: tuple[Path, str], tmp_path: Path
+) -> None:
+    """A resolver that judges a replayed resolution wrong, and cannot
+    reconcile it with what it is resolving, has no markers to leave in a file
+    that already has none — so a marker it plants itself is read as a
+    rejection. That must both stop the move and forget the bad cache entry,
+    or the very next sibling would be offered the same rejected content."""
+    repo, pre = landed
+    sibling(repo, "spec/c/2", pre)
+    sibling(repo, "spec/c/3", pre)
+    sibling(repo, "spec/c/4", pre)
+    tree2 = sibling_worktree(repo, "spec/c/2", tmp_path)
+    tree3 = sibling_worktree(repo, "spec/c/3", tmp_path)
+    tree4 = sibling_worktree(repo, "spec/c/4", tmp_path)
+
+    def derives(prompt: str, *, cwd: Path) -> None:
+        (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+
+    move_branch_onto(
+        tree2, "spec/c/2", new_base="main", old_base=pre, resolve=derives, context=context()
+    )
+
+    def rejects(prompt: str, *, cwd: Path) -> None:
+        (cwd / "conflicted.py").write_text("<<<<<<< rejecting the replay\n")
+
+    with pytest.raises(RestackConflict):
+        move_branch_onto(
+            tree3, "spec/c/3", new_base="main", old_base=pre, resolve=rejects, context=context()
+        )
+
+    assert not rebase_in_progress(tree3)
+    assert git(tree3, "status", "--porcelain") == ""
+
+    seen: dict = {}
+
+    def confirms(prompt: str, *, cwd: Path) -> None:
+        seen["content_on_arrival"] = (cwd / "conflicted.py").read_text()
+        (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+
+    move_branch_onto(
+        tree4, "spec/c/4", new_base="main", old_base=pre, resolve=confirms, context=context()
+    )
+
+    assert any(marker in seen["content_on_arrival"] for marker in restack.CONFLICT_MARKERS), (
+        "the rejected entry should not have been replayed to the next sibling"
+    )
+
+
+def test_a_modify_delete_conflict_is_never_reported_as_a_replay(tmp_path: Path) -> None:
+    """A conflict rerere cannot track at all — here, one side deletes the file
+    the other modifies — leaves no markers either, for a wholly different
+    reason than a replay: git just leaves the modified version in the tree.
+    `git rerere remaining` still lists it, since it was never resolved by
+    rerere, so it must never show up in the replayed note."""
+    repo = init_repo(tmp_path / "repo")
+    commit(repo, "file.txt", "original\n")
+    pre = git(repo, "rev-parse", "HEAD")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/1")
+    git(repo, "rm", "-q", "file.txt")
+    git(repo, "commit", "-qm", "remove file.txt")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge predecessor", "spec/c/1")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/2", pre)
+    commit(repo, "file.txt", "modified by sibling\n")
+    git(repo, "checkout", "-q", "main")
+
+    seen: dict = {}
+
+    def resolves(prompt: str, *, cwd: Path) -> None:
+        seen["prompt"] = prompt
+        seen["conflicted_at_arrival"] = _conflicted_files(cwd)
+        # git already left the modified version in the tree; keep it.
+
+    move_branch_onto(
+        repo, "spec/c/2", new_base="main", old_base=pre, resolve=resolves, context=context()
+    )
+
+    assert "file.txt" in seen["conflicted_at_arrival"]
+    assert "replayed" not in seen["prompt"].lower()
+    assert not rebase_in_progress(repo)
+    assert git(repo, "status", "--porcelain") == ""
+
+
 def test_the_rerere_setting_never_touches_the_repositorys_own_configuration(
     landed: tuple[Path, str], tmp_path: Path
 ) -> None:
@@ -240,13 +421,13 @@ def test_the_rerere_setting_never_touches_the_repositorys_own_configuration(
     assert seen["content"] == "value = 2  # sibling\n"
 
 
-def test_without_a_resolver_the_port_step_sees_the_same_abort_as_today(
+def test_without_a_resolver_a_cached_resolution_still_aborts_cleanly(
     landed: tuple[Path, str], tmp_path: Path
 ) -> None:
-    """A cached resolution changes what the resolver has to do, not whether a
-    restack with nobody to confirm it still stops. The adapt/port step reads
-    exactly this signal — a `RestackConflict` and a clean worktree — and must
-    keep seeing it whether or not a replay was available."""
+    """A cached resolution changes what a resolver has to do, not whether
+    `move_branch_onto` with no resolver at all still stops exactly as it does
+    with an empty cache — this is `move_branch_onto`'s own no-resolver
+    contract, not the path the pipeline actually takes to reach a conflict."""
     repo, pre = landed
     sibling(repo, "spec/c/2", pre)
     sibling(repo, "spec/c/3", pre)
@@ -262,6 +443,48 @@ def test_without_a_resolver_the_port_step_sees_the_same_abort_as_today(
 
     with pytest.raises(RestackConflict):
         move_branch_onto(tree3, "spec/c/3", new_base="main", old_base=pre)
+
+    assert not rebase_in_progress(tree3)
+    assert git(tree3, "status", "--porcelain") == ""
+
+
+def test_a_failing_resolver_aborts_cleanly_through_the_wired_up_path(
+    landed: tuple[Path, str], tmp_path: Path
+) -> None:
+    """The port step never calls `move_branch_onto` directly — it goes through
+    `build_restack_onto`, which always wires up `resolved_move` with a
+    resolver. This is the path that actually reaches a conflict with a replay
+    present, and it must see the same clean `RestackConflict` when the
+    resolver fails, with nothing left mid-rebase for the port step to trip
+    over."""
+    repo, pre = landed
+    sibling(repo, "spec/c/2", pre)
+    sibling(repo, "spec/c/3", pre)
+    tree2 = sibling_worktree(repo, "spec/c/2", tmp_path)
+    tree3 = sibling_worktree(repo, "spec/c/3", tmp_path)
+
+    def derives(prompt: str, *, cwd: Path) -> None:
+        (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+
+    move_branch_onto(
+        tree2, "spec/c/2", new_base="main", old_base=pre, resolve=derives, context=context()
+    )
+
+    def fails(prompt: str, *, cwd: Path) -> None:
+        raise RuntimeError("the resolver blew up")
+
+    with pytest.raises(RestackConflict):
+        restack.resolved_move(
+            tree3,
+            "spec/c/3",
+            new_base="main",
+            old_base=pre,
+            moving_unit="add-marker/3",
+            moving_intent="register the local value",
+            onto_unit="add-marker/1",
+            onto_intent="register the predecessor's value",
+            resolve=fails,
+        )
 
     assert not rebase_in_progress(tree3)
     assert git(tree3, "status", "--porcelain") == ""

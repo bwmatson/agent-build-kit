@@ -115,11 +115,14 @@ leave the markers in place — stopping is better than guessing.
 
 REPLAYED_NOTE = """
 These paths arrived with a resolution replayed from an earlier run of this
-same conflict — filled in, but still unstaged for you to judge rather than
-already accepted:
+same conflict — filled in, but still unstaged for you to judge:
 {files}
-Give each one a verdict: stage it if it's right, or correct it and your fix
-replaces what's cached — either way, say which you did.
+Leave one unchanged to accept it — the pipeline stages it for you. Edit it to
+correct it, and your fix replaces what's cached for the next replay. If it is
+wrong and cannot be reconciled with what you are resolving, put a `<<<<<<<`
+line in the file instead: that is read as a rejection, aborts the move for a
+human, and clears this cached entry so the next sibling sees the conflict
+fresh rather than the same bad resolution.
 """
 
 
@@ -197,18 +200,17 @@ def _conflicted_files(repo: Path) -> list[str]:
 def _replayed_files(repo: Path, files: list[str]) -> list[str]:
     """Which of `files` already carry a rerere replay.
 
-    A conflicted path with no markers in it wasn't left that way by the
-    rebase — rerere filled in a cached resolution. Still unmerged, since
-    `autoUpdate` is off, but a resolver looking at it needs to know the
-    content in front of it is a proposal, not what the rebase itself produced.
+    Derived from rerere itself, not from file contents: `git rerere remaining`
+    lists conflicted paths it did *not* resolve, including ones it cannot
+    track at all — a modify/delete, a binary conflict, a submodule. Anything
+    conflicted that isn't in that list was filled in by a replay. This also
+    keeps the check from ever opening a path that isn't a plain text file in
+    the worktree, since those never appear here at all.
     """
-    return [
-        name
-        for name in files
-        if not any(
-            marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS
-        )
-    ]
+    remaining = {
+        line for line in git(repo, "rerere", "remaining", check=False).stdout.splitlines() if line
+    }
+    return [name for name in files if name not in remaining]
 
 
 def _abort(repo: Path, message: str) -> RestackConflict:
@@ -289,6 +291,12 @@ def move_branch_onto(
     for name in files:
         text = (repo / name).read_text(errors="replace")
         if any(marker in text for marker in CONFLICT_MARKERS):
+            if name in replayed:
+                # A rejected replay: forget the cached entry before the abort
+                # below clears the rebase, so the next sibling to hit this
+                # conflict is offered the conflict itself, not the entry that
+                # was just judged wrong.
+                git(repo, "rerere", "forget", name, check=False)
             raise _abort(
                 repo,
                 f"{name} still has conflict markers after resolution — "
