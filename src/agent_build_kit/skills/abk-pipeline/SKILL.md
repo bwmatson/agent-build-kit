@@ -57,7 +57,7 @@ more task groups of a change.
 |---|---|---|
 | `planned` | In the graph, waiting for its dependencies and a free slot — or, with a `paused before <step>` note, a unit stopped there because the usage window filled and will resume at that step. A step already running is never interrupted; an empty step (an agent that finished having written nothing) against an exhausted window is one of these pauses, not a failure. | Nothing. `abk tick --dry-run` says whether it is ready. |
 | `running` | A worktree is open and an agent is in the build/review loop. | Nothing. A run interrupted mid-way is reclaimed by the next tick. |
-| `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework; a merge moves it on. |
+| `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework; a merge moves it on. A branch that stops merging into its base sends it back to `planned` by itself; `abk status` marks such an entry `cannot be merged`. |
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
 | `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). | See below. |

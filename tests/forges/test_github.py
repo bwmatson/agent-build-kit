@@ -75,6 +75,69 @@ class FakeGh:
         return self.json_out if self.json_out is not None else default
 
 
+# `gh pr list --json <_FIELDS>` as the host answers it: each entry carries only
+# the fields asked for, with their nested metadata, nulls and empty lists.
+def _listed(number: int, mergeable: str) -> dict:
+    return {
+        "baseRefName": "main",
+        "comments": [
+            {
+                "id": f"IC_{number}",
+                "author": {"login": "example"},
+                "authorAssociation": "OWNER",
+                "body": "looks close",
+                "createdAt": "2026-09-28T09:12:44Z",
+                "includesCreatedEdit": False,
+                "isMinimized": False,
+                "minimizedReason": "",
+                "reactionGroups": [],
+                "url": f"https://github.com/example/app/pull/{number}#issuecomment-1",
+                "viewerDidAuthor": True,
+            }
+        ],
+        "headRefName": f"spec/add-marker/{number}",
+        "isDraft": False,
+        "labels": [],
+        "mergeable": mergeable,
+        "mergedAt": None,
+        "number": number,
+        "reviewDecision": "",
+        "reviews": [],
+        "state": "OPEN",
+        "statusCheckRollup": [
+            {
+                "__typename": "CheckRun",
+                "completedAt": "2026-09-28T09:20:01Z",
+                "conclusion": "SUCCESS",
+                "detailsUrl": "https://github.com/example/app/actions/runs/1/job/2",
+                "name": "test",
+                "startedAt": "2026-09-28T09:18:40Z",
+                "status": "COMPLETED",
+                "workflowName": "CI",
+            }
+        ],
+    }
+
+
+def test_the_poll_asks_whether_each_pull_request_can_be_merged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A branch that no longer merges was silence to the poll: mergeability was
+    not among the fields asked for, so a conflicted pull request sat in the
+    review queue looking like any other. The host answers in three words, and
+    UNKNOWN - what it says for a while after every push - is not a conflict."""
+    answer = [_listed(4, "MERGEABLE"), _listed(5, "CONFLICTING"), _listed(6, "UNKNOWN")]
+    fake = FakeGh(stdout=json.dumps(answer))
+    monkeypatch.setattr("agent_build_kit.forges.github.gh_out", fake.out)
+    repo = RepoId(forge="github", account="example", name="app")
+
+    pulls = FORGE.list_prs(repo)
+
+    fields = fake.commands[0][fake.commands[0].index("--json") + 1].split(",")
+    assert "mergeable" in fields
+    assert [(p.number, p.mergeable) for p in pulls] == [(4, True), (5, False), (6, None)]
+
+
 def test_creating_a_pr_names_its_repo_and_base(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without `--repo`, gh infers it from the working directory's remote -
     right by luck, wrong the moment it is called from anywhere else."""

@@ -1,6 +1,6 @@
 """What the pipeline does when GitHub tells it something changed.
 
-`gh_poller` notices; this decides. Until these handlers existed nothing moved
+`pr_poller` notices; this decides. Until these handlers existed nothing moved
 past `open`: a merged PR left its unit sitting there and its children stacked
 on a branch that no longer needed to exist.
 
@@ -17,7 +17,7 @@ import pytest
 
 from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.pr_poller import Poller
+from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict, StaleRemote
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING, SATISFIED
@@ -989,6 +989,31 @@ def test_a_ci_failure_is_reworked_from_its_log_not_the_old_review(tmp_path: Path
     assert "config-check" in feedback
     assert "container names left" in feedback
     assert "old" not in feedback
+
+
+def test_a_conflict_is_reworked_as_a_conflict_not_the_old_review(tmp_path: Path) -> None:
+    """A conflict took the reviewer's path, so the rework was handed the PR's
+    already-answered review and comment and never told the branch conflicts."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/1")])
+    store.set_state("c/1", IN_REVIEW, pr=20, branch="spec/c/1")
+    asked: list[int] = []
+
+    events.on_rework(
+        20,
+        repo="app",
+        reason=CONFLICT_REASON,
+        pull=rework_pull("an old, answered comment"),
+        store=store,
+        fetch_review=lambda pr: asked.append(pr) or ["an old review body"],
+        log=lambda m: None,
+    )
+
+    feedback = store.get("c/1").feedback
+    assert "conflict" in feedback
+    assert "old" not in feedback
+    assert asked == []
+    assert store.get("c/1").state == PLANNED
 
 
 def test_the_failed_run_is_found_from_the_check_s_link() -> None:

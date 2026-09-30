@@ -17,7 +17,13 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges import PullRequest
-from agent_build_kit.pipeline.pr_poller import Poller, PrState, snapshot
+from agent_build_kit.pipeline.pr_poller import (
+    Poller,
+    PrState,
+    snapshot,
+    state_path,
+    unmergeable,
+)
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 
 
@@ -540,3 +546,132 @@ def test_a_merge_recorded_in_the_old_words_is_not_reported_twice(tmp_path: Path)
     ).poll()
 
     assert seen == []
+
+
+@pytest.fixture
+def conflicts(tmp_path: Path):
+    """A poller over successive answers, recording each dispatch's reason."""
+
+    def build(pages: list[list[PullRequest]]) -> tuple[Poller, list[tuple[str, int, str]]]:
+        seen: list[tuple[str, int, str]] = []
+        instance = Poller(
+            repo="app",
+            state_path=tmp_path / "poll.json",
+            list_prs=FakePrs(pages),
+            dispatch=lambda action, pr_number, **k: seen.append(
+                (action, pr_number, k.get("reason", ""))
+            ),
+        )
+        return instance, seen
+
+    return build
+
+
+def test_mergeability_is_kept_in_the_snapshot() -> None:
+    assert snapshot(pr(mergeable=False))["mergeable"] is False
+    assert snapshot(pr(mergeable=True))["mergeable"] is True
+    assert snapshot(pr())["mergeable"] is None
+
+
+def test_a_branch_that_stops_merging_is_sent_back_once(conflicts, tmp_path: Path) -> None:
+    """A unit whose dependencies merged long ago is named by no later merge, so
+    no restack reaches it however far the trunk moves. Becoming unmergeable is
+    the signal - and only becoming: a conflict still there on the next poll is
+    not news, and re-dispatching it would rework the unit every five minutes."""
+    conflicting = pr(mergeable=False)
+    instance, seen = conflicts([[pr(mergeable=True)], [conflicting], [conflicting]])
+    instance.poll()
+
+    instance.poll()
+    instance.poll()
+
+    assert len(seen) == 1
+    action, number, reason = seen[0]
+    assert (action, number) == ("rework", 4)
+    assert "conflict" in reason.lower()
+    assert PrState.load(tmp_path / "poll.json")["4"]["mergeable"] is False
+
+
+def test_an_undetermined_answer_is_not_a_conflict(conflicts, tmp_path: Path) -> None:
+    """The host is undetermined for a while after every push, the pipeline's
+    own included. Read as a conflict, it would rework nearly every unit right
+    after pushing a good branch."""
+    instance, seen = conflicts([[pr(mergeable=True)], [pr()]])
+    instance.poll()
+
+    instance.poll()
+
+    assert seen == []
+    assert PrState.load(tmp_path / "poll.json")["4"]["mergeable"] is True
+
+
+def test_undetermined_then_mergeable_leaves_the_unit_alone(conflicts, tmp_path: Path) -> None:
+    instance, seen = conflicts([[pr(mergeable=True)], [pr()], [pr(mergeable=True)]])
+    instance.poll()
+
+    instance.poll()
+    instance.poll()
+
+    assert seen == []
+    assert PrState.load(tmp_path / "poll.json")["4"]["mergeable"] is True
+
+
+def test_undetermined_then_conflicting_is_sent_back_once(conflicts) -> None:
+    """Undetermined is asked again next poll, so the conflict it resolves into
+    is still a transition - and still only one."""
+    conflicting = pr(mergeable=False)
+    instance, seen = conflicts([[pr(mergeable=True)], [pr()], [conflicting], [conflicting]])
+    instance.poll()
+
+    for _ in range(3):
+        instance.poll()
+
+    assert [(action, number) for action, number, _ in seen] == [("rework", 4)]
+    assert "conflict" in seen[0][2].lower()
+
+
+def test_a_conflict_the_host_forgets_for_a_poll_is_not_sent_back_again(conflicts) -> None:
+    """The host goes undetermined whenever the base moves. Recorded as it
+    stands, the conflict it resolves back into would look new, and a
+    conflicted unit would be reworked once per merge into its base."""
+    conflicting = pr(mergeable=False)
+    instance, seen = conflicts([[pr(mergeable=True)], [conflicting], [pr()], [conflicting]])
+    instance.poll()
+
+    for _ in range(3):
+        instance.poll()
+
+    assert len(seen) == 1
+
+
+def test_a_pull_request_conflicted_on_first_sight_is_sent_back(conflicts) -> None:
+    """The trunk moves during a long build, and the pipeline opens the PR
+    itself, so the first poll to meet it may already find it conflicting."""
+    instance, seen = conflicts([[pr(9, head="spec/other/1")], [pr(mergeable=False)]])
+    instance.poll()
+
+    instance.poll()
+
+    assert [(action, number) for action, number, _ in seen] == [("rework", 4)]
+
+
+def test_a_pull_request_undetermined_on_first_sight_waits(conflicts) -> None:
+    instance, seen = conflicts([[pr(9, head="spec/other/1")], [pr()]])
+    instance.poll()
+
+    instance.poll()
+
+    assert seen == []
+
+
+def test_the_conflicted_pull_requests_are_named_from_the_last_poll(tmp_path: Path) -> None:
+    path = state_path(tmp_path, "app")
+    assert unmergeable(path) == set(), "no poll yet"
+    Poller(
+        repo="app",
+        state_path=path,
+        list_prs=lambda: [pr(4, mergeable=False), pr(5, mergeable=True), pr(6)],
+        dispatch=lambda *a, **k: None,
+    ).poll()
+
+    assert unmergeable(path) == {4}

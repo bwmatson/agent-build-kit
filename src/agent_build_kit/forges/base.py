@@ -71,6 +71,9 @@ class PullRequest(Frozen):
     comment_bodies: tuple[str, ...] = ()
     review_decision: str = ""
     failing_checks: tuple[str, ...] = ()
+    # Whether the host says the branch merges into its base; None while the
+    # host has not worked it out, which is not a conflict.
+    mergeable: bool | None = None
 
 
 class ReviewNote(Frozen):

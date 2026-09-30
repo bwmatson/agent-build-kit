@@ -37,9 +37,10 @@ if TYPE_CHECKING:
 # inline notes and submits CHANGES_REQUESTED registers as silence.
 _FIELDS = (
     "number,headRefName,baseRefName,state,isDraft,mergedAt,labels,comments,"
-    "statusCheckRollup,reviewDecision,reviews"
+    "statusCheckRollup,reviewDecision,reviews,mergeable"
 )
 _FAILING = ("FAILURE", "TIMED_OUT", "CANCELLED")
+_MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 # A failed Actions run, and the timestamp prefix its log lines carry.
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
 _LOG_PREFIX = re.compile(r"^[^\t]*\t[^\t]*\t\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
@@ -279,6 +280,8 @@ class GitHubForge:
                     if str(check.get("conclusion", "")).upper() in _FAILING
                 )
             ),
+            # UNKNOWN is what GitHub says until it has worked the answer out.
+            mergeable=_MERGEABLE.get(str(pull.get("mergeable") or "")),
         )
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
