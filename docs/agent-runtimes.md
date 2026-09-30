@@ -5,10 +5,15 @@
 (`runtimes/claude_code.py`, the one module that builds a `claude` argv), and
 every call site going through `AgentRuntime.run()`, choosing a runtime in
 `abk.yaml` or the environment, per-runtime model names, and the `doctor` and
-`init` runtime checks are in place. Not yet implemented: the `acp` adapter —
-Claude Code is still the only registered runtime. This document specifies the
-whole shape, so that adding a second runtime is writing an adapter against a
-fixed Protocol, not another round of the same subprocess plumbing.
+`init` runtime checks are in place. The `acp` adapter (`runtimes/acp.py`, behind
+the `acp` extra) runs a prompt, maps each end-of-turn reason, selects a model
+and streams progress; a request for a named `worktree` it refuses as a failed
+result rather than run in `cwd`. Its client capabilities, permission
+answering and `check_policy` are not yet implemented, so it stays
+unregistered and Claude Code is still the only registered runtime. This
+document specifies the whole shape, so that adding a second runtime is
+writing an adapter against a fixed Protocol, not another round of the same
+subprocess plumbing.
 
 The second adapter is not another product's SDK. It is **ACP, the Agent Client
 Protocol** ([agentclientprotocol.com](https://agentclientprotocol.com)) — a
@@ -318,8 +323,9 @@ and its siblings already override `models`.
 `runtimes.<active>.models` where present, then the flat block — only the roles
 the file actually names there — then the active adapter's own
 `default_models`. A role no config names never falls back to another
-runtime's names: `claude_code` declares today's `opus`/`fable`, another
-adapter its own. Role to model is deliberately
+runtime's names: `claude_code` declares today's `opus`/`fable`; `acp`
+declares no names at all, and a role no config names runs on whichever agent
+`runtimes.acp.command` spawns and its own default. Role to model is deliberately
 many-to-one: a runtime with no "expensive versus cheap reviewer" split may
 point `rework_review` at the same model as `review`, and a `generic` role
 (init's research and propose, the planner) may fall back to `implement`'s.
@@ -348,10 +354,39 @@ entry left over from trying another runtime out is never made to be complete.
 `--allowedTools` patterns, and `ToolchainProfile.allowed_tools` extends them in
 the same syntax. ACP standardizes no equivalent: an agent's tool set comes from
 its own configuration, and the protocol has no "these tools only" parameter on
-a session. So the `acp` adapter documents these two fields as inert on its
-path, and a workspace scopes its agent's tools in that agent's own config. This
-is a real reduction in expressiveness, not a detail to gloss: it is why the
-policy work below does not lean on tool scoping for anything load-bearing.
+a session. **On the `acp` path both fields are inert**: `runtimes/acp.py` reads
+neither, sends nothing for them, and a request that sets them runs exactly as
+one that does not — with one difference from silent inertness: the run's log
+gets a once-per-run notice that tool scope comes from the agent's own
+configuration, not from the request. Translating the lists would mean guessing
+at each agent's own tool names and config format, which is the per-product
+knowledge this adapter exists to keep out of abk. A workspace scopes its
+agent's tools in that agent's own config instead. This is a real reduction in
+expressiveness, not a detail to gloss: it is why the policy work below does
+not lean on tool scoping for anything load-bearing.
+
+**The one case where the list is not advisory is refused, not ignored.** An
+ordinary run's tool list is a hint the run did not need — it names an edit
+tool because it was going to edit anyway. Two call sites send a list that
+names no edit tool at all, because the list is meant to keep the run from
+editing rather than merely describe what it planned to do anyway.
+`wiring.build_run_review` sends `permission_mode="edit"` with `allowed_tools`
+naming no edit tool, because "The reviewer cannot edit" is a property the
+pipeline states as a guarantee (docs/architecture.md), not a preference — a
+reviewer that could edit the worktree it is judging could approve a diff it
+had itself changed. `init.research.research` sends
+`permission_mode="allowed_tools_only"` with the same shape of list, for a
+run that has no business editing the repo it is researching. `runtimes/acp.py`
+has no way to keep either guarantee (the agent's own configuration decides
+its tools, not this request), so a request shaped that way — `allowed_tools`
+is set but names no edit tool, whatever `permission_mode` it carries — is
+refused with `AgentResult(ok=False, ...)` before the agent is even spawned,
+rather than silently run under a promise this runtime cannot keep. The
+planner's graph call also sends `permission_mode="allowed_tools_only"`, but
+with `allowed_tools` empty, so it is not this shape and is let through:
+under `claude_code` that run is kept from editing by headless permission
+denial, not by a list, so there is no list here for this runtime to fail to
+enforce.
 
 ## Policy enforcement without a hook contract
 
@@ -523,7 +558,7 @@ message.
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
 |---|---|---|---|---|---|---|
 | `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
-| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **not implemented** |
+| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **partly implemented**, as `runtimes/acp.py`: runs, outcomes, models and progress; not yet enforcement or `check_policy` |
 
 ## Open questions
 

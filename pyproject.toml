@@ -14,6 +14,11 @@ dependencies = [
 abk = "agent_build_kit.cli:main"
 abk-policy-hook = "agent_build_kit.hooks.policy:main"
 
+[project.optional-dependencies]
+acp = [
+    "agent-client-protocol==0.12.1",
+]
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.2",
@@ -21,6 +26,7 @@ dev = [
     "pyrefly>=1.2.0",
     "pytest>=8.0.0",
     "ruff>=0.16",
+    "agent-build-kit[acp]",
 ]
 
 [build-system]
@@ -63,3 +69,6 @@ format = "pre-commit run --all-files"
 test = "pytest"
 test-integration = "pytest -m integration"
 scrub = "pytest tests/test_no_installation_leaks.py"
+
+[tool.uv.sources]
+agent-build-kit = { workspace = true }

@@ -87,7 +87,7 @@ tracks:                       # the scheduled health/improve/recommend tracks
                               # the same ramped thresholds, as limits above
   implement_max_prs: 3
   allowed_tools: "..."        # Claude Code --allowedTools syntax
-  disallowed_tools: "..."
+  disallowed_tools: "..."     # both have no effect under the acp runtime
   prompts_dir: null           # a directory overriding the built-in prompts
   raw_output_dir: .last-runs
 
