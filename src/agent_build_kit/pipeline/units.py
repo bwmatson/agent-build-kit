@@ -33,6 +33,10 @@ IN_REVIEW = "in_review"
 MERGED = "merged"
 CLOSED = "closed"
 
+# Stopped on something it could not get past; its feedback says what. Nothing
+# retries it until someone requeues it (`abk requeue`).
+FAILED = "failed"
+
 # The pipeline is keeping its hands off this unit: a reviewer asked it to, the
 # toolchain cannot build it, or a merge left it beyond the rebase cap (which a
 # later merge releases). Not a lifecycle state like the ones above: those

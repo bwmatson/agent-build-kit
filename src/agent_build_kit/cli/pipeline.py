@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager
@@ -62,6 +63,7 @@ from agent_build_kit.pipeline.stack_runner import starting_step
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
+    FAILED,
     HELD,
     IN_FLIGHT,
     IN_REVIEW,
@@ -73,13 +75,13 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     builds_heading_for_pr,
+    local_ref,
     new_start_room,
     open_pr_count,
     ready_units,
-)
-    local_ref,
-from agent_build_kit.pipeline.usage_guard import (
     trunk_of,
+)
+from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
     Limits,
     RateLimited,
@@ -1129,6 +1131,47 @@ def cmd_openspec(args: argparse.Namespace, inst: Installation) -> int:
     return result.returncode
 
 
+def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
+    """Give a failed or held unit another go.
+
+    Two different things, and the command says which. By default the unit
+    resumes where it stopped: a unit that failed its tier 1 check because the
+    toolchain was missing has its work on the branch, and redoing the agent's
+    step would only spend the usage window to arrive at the same branch.
+    `--restart` throws the attempt away — the step it stopped at and the failure
+    it was handed — for a failure that was the attempt's own, such as a build on
+    the wrong base, where resuming would judge work that was never valid.
+
+    Editing the store by hand got this wrong: a failed unit remembers its step,
+    so putting it back to `planned` and nothing else sent the next attempt
+    straight past the agent to a check on a branch with no work on it.
+    """
+    store = store_for(inst)
+    known = {unit.id: unit for unit in store.all()}
+    if args.unit not in known:
+        print(
+            f"abk requeue: no unit {args.unit!r} (known: {', '.join(sorted(known)) or 'none'})",
+            file=sys.stderr,
+        )
+        return 2
+    state = known[args.unit].state
+    if state not in (FAILED, HELD):
+        print(
+            f"{args.unit} is {state}; only a failed or held unit can be requeued "
+            "(a running one would be built twice, an in-review one has a PR to orphan)"
+        )
+        return 1
+    if args.restart:
+        store.set_feedback(args.unit, "")
+        store.set_state(args.unit, PLANNED, note="requeued: starting over", resume_from="")
+        print(f"{args.unit} requeued, starting over from the agent's step")
+    else:
+        store.set_state(args.unit, PLANNED, note="requeued: resuming where it stopped")
+        resume = known[args.unit].resume_from
+        print(f"{args.unit} requeued, resuming" + (f" before {resume}" if resume else ""))
+    return 0
+
+
 def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     """The push gate, for a branch in a checkout: tests-first order, clean
     and red at the tests commit."""
@@ -1189,6 +1232,15 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     check = sub.add_parser("check", help="openspec validate --all --strict --json")
     check.set_defaults(func=cmd_check)
+
+    requeue = sub.add_parser("requeue", help="give a failed or held unit another go")
+    requeue.add_argument("unit", help="the unit id, e.g. add-marker/1")
+    requeue.add_argument(
+        "--restart",
+        action="store_true",
+        help="start over from the agent's step and forget the failure, instead of resuming",
+    )
+    requeue.set_defaults(func=cmd_requeue)
 
     archive = sub.add_parser("archive", help="openspec archive <change> --yes")
     archive.add_argument("change")
