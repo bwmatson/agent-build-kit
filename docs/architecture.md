@@ -229,15 +229,24 @@ not send a unit back for answering itself, and a rework is never handed its
 own summary as review.
 
 **Restack** (`restack.py`) moves a child branch with
-`git rebase --onto <new base> <old base>`. A conflict is handed to a scoped
-Claude run that is told both sides' intent (both are planned units) and may
-edit only the conflict; the result is checked — no markers left, the moving
-unit's own tokens still present — or the rebase is aborted and left for a
-person. After a clean move whose diff (`git patch-id`) is unchanged and whose
-head review had approved, tier 1 runs again and the branch is pushed with a
-lease and a "Restacked" comment. Anything else — a resolved conflict, a
-changed diff, a head review never approved — goes back to `planned` to be
-reviewed before it is pushed.
+`git rebase --onto <new base> <old base>`. Its git invocations carry
+`rerere.enabled=true` (never written to the repository's own configuration,
+so an operator's own checkout is unaffected unless they turn it on
+themselves), which reuses a conflict resolution recorded restacking one unit
+when the same conflict recurs restacking another — the cache lives under the
+repository's common git directory, shared by every worktree of it, so
+anything an operator resolves there with rerere on locally feeds the same
+cache the pipeline reads. `autoUpdate` stays off, so a replayed resolution
+lands in the file but the path stays unmerged and unstaged until something
+stages it deliberately. A conflict — replayed or not — is handed to a scoped
+Claude run that is told both sides' intent (both are planned units), which
+paths arrived with a replayed resolution, and may edit only the conflict; the
+result is checked — no markers left, the moving unit's own tokens still
+present — or the rebase is aborted and left for a person. After a clean move
+whose diff (`git patch-id`) is unchanged and whose head review had approved,
+tier 1 runs again and the branch is pushed with a lease and a "Restacked"
+comment. Anything else — a resolved conflict, a changed diff, a head review
+never approved — goes back to `planned` to be reviewed before it is pushed.
 
 ### 5. Post-merge verify
 

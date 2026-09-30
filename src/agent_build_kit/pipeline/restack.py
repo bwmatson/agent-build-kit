@@ -25,13 +25,14 @@ wrong once:
 from __future__ import annotations
 
 import re
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git as _shell_git
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
@@ -41,6 +42,24 @@ Runner = Callable[[list[str]], str]
 Resolver = Callable[..., None]
 
 CONFLICT_MARKERS = ("<<<<<<<", ">>>>>>>", "=======")
+
+# `-c`, not the repository's own config: an operator working in the same
+# checkout is unaffected unless they turn rerere on themselves. `autoUpdate`
+# stays off deliberately — a replayed resolution lands in the file, but the
+# path stays unmerged until something stages it, so the resolver still has to
+# look at what it's confirming rather than trust a cache blindly.
+RERERE = ("-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=false")
+
+
+def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
+    """Every git invocation this module makes, with `rerere` riding along.
+
+    The cache itself (`rr-cache`) lives under the repository's common git
+    directory regardless of this flag, shared by every worktree; this is only
+    what makes git read and write it on the pipeline's own invocations rather
+    than nowhere.
+    """
+    return _shell_git(repo, *RERERE, *args, **kwargs)
 
 
 class RestackConflict(RuntimeError):
@@ -84,7 +103,7 @@ resolution should keep both unless they genuinely cannot coexist.
 
 Conflicted files:
 {files}
-
+{replayed}
 {diff}
 
 Edit the conflicted files so that both intents survive, and remove every
@@ -92,6 +111,15 @@ conflict marker. Change **only the conflict**: a rebase is not the place for
 improvements, and anything beyond the conflict is unreviewed work smuggled
 into someone else's diff. If the two intents truly contradict each other,
 leave the markers in place — stopping is better than guessing.
+"""
+
+REPLAYED_NOTE = """
+These paths arrived with a resolution replayed from an earlier run of this
+same conflict — filled in, but still unstaged for you to judge rather than
+already accepted:
+{files}
+Give each one a verdict: stage it if it's right, or correct it and your fix
+replaces what's cached — either way, say which you did.
 """
 
 
@@ -166,6 +194,23 @@ def _conflicted_files(repo: Path) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
+def _replayed_files(repo: Path, files: list[str]) -> list[str]:
+    """Which of `files` already carry a rerere replay.
+
+    A conflicted path with no markers in it wasn't left that way by the
+    rebase — rerere filled in a cached resolution. Still unmerged, since
+    `autoUpdate` is off, but a resolver looking at it needs to know the
+    content in front of it is a proposal, not what the rebase itself produced.
+    """
+    return [
+        name
+        for name in files
+        if not any(
+            marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS
+        )
+    ]
+
+
 def _abort(repo: Path, message: str) -> RestackConflict:
     # Leave nothing half-applied: a rebase in progress makes every later
     # command in this worktree fail in a confusing way.
@@ -214,12 +259,17 @@ def move_branch_onto(
     if must_keep is None:
         must_keep = derive_must_keep(repo, branch, old_base=old_base, files=files)
 
+    replayed = _replayed_files(repo, files)
+    replayed_content = {name: (repo / name).read_text(errors="replace") for name in replayed}
     prompt = RESOLVE_PROMPT.format(
         moving_unit=context.moving_unit,
         moving_intent=context.moving_intent,
         onto_unit=context.onto_unit,
         onto_intent=context.onto_intent,
         files="\n".join(f"- {name}" for name in files) or "- (none reported)",
+        replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in replayed))
+        if replayed
+        else "",
         diff=git(repo, "diff", check=False).stdout[:8000],
     )
 
@@ -252,6 +302,15 @@ def move_branch_onto(
                 f"the resolution dropped {needle!r}, which is {context.moving_unit}'s own "
                 "change — resolving a conflict by deleting one side empties the unit.",
             )
+
+    for name in replayed:
+        if (repo / name).read_text(errors="replace") != replayed_content[name]:
+            # Once rerere has auto-applied a cached resolution, it stops
+            # tracking that path for recording — `git add` and `--continue`
+            # alone would leave the stale entry in place. Forgetting it here
+            # is what makes an override replace what's cached instead of
+            # being silently discarded.
+            git(repo, "rerere", "forget", name, check=False)
 
     git(repo, "add", "-A")
     finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
