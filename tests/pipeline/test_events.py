@@ -1012,6 +1012,7 @@ def test_a_conflict_is_reworked_as_a_conflict_not_the_old_review(tmp_path: Path)
     feedback = store.get("c/1").feedback
     assert "conflict" in feedback
     assert "old" not in feedback
+    assert "rebase onto" not in feedback
     assert asked == []
     assert store.get("c/1").state == PLANNED
 

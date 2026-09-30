@@ -673,7 +673,12 @@ def _requeue(
         # Nor a reviewer: the branch no longer merges into its base, and the
         # restack at the start of the run does the rebase. Replaying the
         # PR's answered review would bury that under old work.
-        feedback = f"{reason}: rebase onto it and resolve the conflict"
+        feedback = (
+            f"{reason}: the branch has been moved onto its current base at the "
+            "start of this run; check that the resolution kept this unit's "
+            "behaviour and its tests pass, and do not rebase or reset the "
+            "branch yourself."
+        )
     else:
         words = list(fetch_review(pr)) if fetch_review else []
         feedback = "\n".join([*words, _latest_comment(pull)]).strip() or reason
