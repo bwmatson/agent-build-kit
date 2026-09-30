@@ -77,7 +77,7 @@ def workspace(tmp_path: Path, *, max_concurrent: int = 4, depth_cap: int = 3) ->
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"max_concurrent_stacks": max_concurrent, "stack_depth_cap": depth_cap},
+        limits={"max_concurrent_stacks": max_concurrent, "stack_depth_build_cap": depth_cap},
     )
 
 
@@ -736,3 +736,29 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
     assert moved_onto == [("chain/2", local_ref("main"))]
     assert ("chain/2", "main") in opened
     assert store.get("chain/2").state == IN_REVIEW
+
+
+@pytest.mark.parametrize(
+    ("limits", "expected"),
+    [
+        ({"stack_depth_build_cap": 5, "stack_depth_rebase_cap": 2}, 2),
+        ({"stack_depth_build_cap": 5}, 5),
+    ],
+    ids=["rebase cap set", "defaults to the build cap"],
+)
+def test_the_rebase_cap_reaches_the_merge_handler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limits: dict, expected: int
+) -> None:
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits=limits,
+    )
+    wired: dict = {}
+    monkeypatch.setattr(cli, "build_restack", lambda **kw: None)
+    monkeypatch.setattr(cli, "build_dispatch", lambda store, **kw: wired.update(kw))
+    monkeypatch.setattr(cli, "Poller", lambda **kw: argparse.Namespace(poll=lambda: None))
+
+    REAL_POLL_ALL(inst, store=UnitStore(tmp_path / "units.json"))
+
+    assert wired["rebase_cap"] == expected

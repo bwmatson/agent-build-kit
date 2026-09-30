@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from agent_build_kit.config import ConfigError, LimitsConfig, load
+from tests.conftest import make_installation
 
 
 def test_the_ceiling_on_a_unit_defaults_to_a_thousand_lines() -> None:
@@ -120,3 +121,50 @@ def test_an_azure_repo_with_its_block_loads(tmp_path: Path) -> None:
 def test_the_adapt_rounds_must_allow_at_least_one_answer() -> None:
     with pytest.raises(ValidationError):
         LimitsConfig(max_adapt_rounds=0)
+
+
+def test_the_old_depth_cap_name_fails_to_load_naming_the_new_one(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("limits:\n  stack_depth_cap: 3\n")
+
+    with pytest.raises(ConfigError) as refused:
+        load(path)
+
+    message = str(refused.value)
+    assert "stack_depth_cap" in message
+    assert "stack_depth_build_cap" in message
+
+
+def test_the_old_depth_cap_name_is_refused_by_the_schema() -> None:
+    with pytest.raises(ValidationError) as refused:
+        LimitsConfig.model_validate({"stack_depth_cap": 3})
+
+    assert "stack_depth_build_cap" in str(refused.value)
+
+
+def test_the_build_cap_keeps_the_depth_cap_s_default() -> None:
+    assert LimitsConfig().stack_depth_build_cap == 3
+
+
+@pytest.mark.parametrize("build", [1, 3, 7])
+def test_an_unset_rebase_cap_resolves_to_the_build_cap(tmp_path: Path, build: int) -> None:
+    inst = make_installation(tmp_path, limits={"stack_depth_build_cap": build})
+
+    assert inst.stack_depth_build_cap == build
+    assert inst.stack_depth_rebase_cap == build
+
+
+def test_an_unset_rebase_cap_follows_the_default_build_cap(tmp_path: Path) -> None:
+    inst = make_installation(tmp_path)
+
+    assert inst.stack_depth_rebase_cap == inst.stack_depth_build_cap == 3
+
+
+@pytest.mark.parametrize(("build", "rebase"), [(5, 2), (2, 5)])
+def test_the_two_caps_are_read_independently(tmp_path: Path, build: int, rebase: int) -> None:
+    inst = make_installation(
+        tmp_path, limits={"stack_depth_build_cap": build, "stack_depth_rebase_cap": rebase}
+    )
+
+    assert inst.stack_depth_build_cap == build
+    assert inst.stack_depth_rebase_cap == rebase

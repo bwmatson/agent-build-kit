@@ -108,8 +108,12 @@ class RuntimeConfig(Frozen):
 
 
 class LimitsConfig(Frozen):
-    # Longest chain of in-review PRs from main to a branch.
-    stack_depth_cap: int = 3
+    # Longest chain of in-review PRs from main to a branch that a unit may
+    # start building on.
+    stack_depth_build_cap: int = 3
+    # Deepest a dependent may sit when a merge restacks it; one beyond it is
+    # held until a later merge brings it within. Unset: the build cap's value.
+    stack_depth_rebase_cap: int | None = None
     # How many units are implemented at once, across all repos.
     max_concurrent_stacks: int = 4
     # Estimated changed lines before a unit stops absorbing the next task group.
@@ -140,6 +144,13 @@ class LimitsConfig(Frozen):
     usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _renamed_depth_cap(cls, data: object) -> object:
+        if isinstance(data, dict) and "stack_depth_cap" in data:
+            raise ValueError("stack_depth_cap was renamed to stack_depth_build_cap")
+        return data
 
     @model_validator(mode="after")
     def _ceiling_above_pause(self) -> LimitsConfig:

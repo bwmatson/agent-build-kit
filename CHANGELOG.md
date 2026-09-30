@@ -22,6 +22,14 @@
   and toolchain profiles gain `lint_command_all_files()` and
   `test_commands_all(repo, root_extras)`.
 
+- `limits.stack_depth_cap` is renamed `limits.stack_depth_build_cap`. An
+  `abk.yaml` still using the old name fails to load, naming the new one, so
+  existing installations must rename it. New `limits.stack_depth_rebase_cap`
+  (default: the build cap) bounds how deep a merge restacks a dependent: one
+  left beyond it is held with a note naming the depth and cap, its PR is
+  retargeted and its parent's branch kept, and a later merge in the same repo
+  restacks it once its depth is within the cap.
+
 - The usage threshold ramps instead of being flat: each window (five-hour
   session, seven-day week) may be run from `limits.usage_pause_pct` up to
   `limits.usage_ceiling_pct` (90) over the last `limits.usage_relief_fraction`

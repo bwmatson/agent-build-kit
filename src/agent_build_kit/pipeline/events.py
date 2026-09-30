@@ -56,11 +56,13 @@ from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
     IN_FLIGHT,
+    IN_REVIEW,
     MERGED,
     PLANNED,
     SATISFIED,
     base_of,
     branch_name,
+    depth_of,
     local_ref,
     through_satisfied,
 )
@@ -74,6 +76,29 @@ Restack = Callable[..., None]
 # Holds a unit's branch for the length of a handler, or raises `BranchBusy`
 # because a build holds it. See the module docstring.
 Claim = Callable[[StoredUnit], AbstractContextManager[object]]
+
+
+# What a hold for depth says, so a later merge can find what it held and which
+# branch it still sits on.
+DEPTH_HOLD = "restack onto {new_base} skipped: depth {depth} is beyond the rebase cap {cap}"
+DEPTH_HOLD_BASE = " (still on {old_base})"
+# Derived from the two templates above, so editing either cannot silently stop
+# a later merge from finding what an earlier one held.
+_DEPTH_HOLD = re.compile(
+    re.escape(DEPTH_HOLD + DEPTH_HOLD_BASE)
+    .replace(r"\{new_base\}", r".+?")
+    .replace(r"\{depth\}", r"\d+")
+    .replace(r"\{cap\}", r"\d+")
+    .replace(r"\{old_base\}", r"(?P<base>.+)")
+)
+
+
+def _depth_hold_base(unit: StoredUnit) -> str | None:
+    """The branch a unit held for depth is still on, or None if it was held
+    for another reason (a reviewer, the toolchain) or has been held since."""
+    note = unit.history[-1].get("note", "") if unit.history else ""
+    found = _DEPTH_HOLD.fullmatch(note)
+    return found["base"] if found else None
 
 
 def _unclaimed(unit: StoredUnit) -> AbstractContextManager[object]:
@@ -118,6 +143,7 @@ def on_merged(
     delete_branch: Callable[..., None] | None = None,
     claim: Claim = _unclaimed,
     retarget: Callable[[StoredUnit, str], None] | None = None,
+    rebase_cap: int | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
@@ -143,6 +169,7 @@ def on_merged(
                 delete_branch=delete_branch or (lambda repo, branch: None),
                 claim=claim,
                 retarget=retarget or (lambda unit, base: None),
+                rebase_cap=rebase_cap,
                 log=log,
             )
     except BranchBusy as error:
@@ -159,6 +186,7 @@ def _record_merge(
     delete_branch: Callable[..., None],
     claim: Claim,
     retarget: Callable[[StoredUnit, str], None],
+    rebase_cap: int | None,
     log: Log,
 ) -> None:
     store.set_state(merged.id, MERGED)
@@ -170,14 +198,22 @@ def _record_merge(
     graph = store.all()
     old_base = branch_name(merged)
     building_on_it: list[str] = []
+    held_for_depth: list[str] = []
 
     for child in _children_of(merged, graph):
         new_base = base_of(child, graph)
         if new_base == old_base:
             continue  # Nothing to do: it is not what this child sat on.
 
+        depth = depth_of(child, graph)
         try:
             with claim(child):
+                if rebase_cap is not None and depth > rebase_cap:
+                    _hold_for_depth(
+                        store, child, new_base, old_base, depth, rebase_cap, retarget, log
+                    )
+                    held_for_depth.append(child.id)
+                    continue
                 restack(
                     branch=branch_name(child),
                     old_base=old_base,
@@ -205,6 +241,12 @@ def _record_merge(
             continue
 
         log(f"{child.id}: restacked onto {new_base}")
+
+    if rebase_cap is not None:
+        still_held = _reconsider_held(
+            merged, store=store, restack=restack, claim=claim, rebase_cap=rebase_cap, log=log
+        )
+        held_for_depth += [held for held in still_held if held not in held_for_depth]
 
     # Last, and only the merged unit's own: a child still has an open PR and
     # may yet be restacked or reworked in its tree. Nothing else ever removes
@@ -238,6 +280,11 @@ def _record_merge(
         except BranchBusy:
             building_on_it.append(dependent.id)
 
+    if held_for_depth:
+        # Still based on this branch, and not moved: deleting it strands them.
+        log(f"{merged.id}: branch {old_base} kept — {', '.join(held_for_depth)} held for depth")
+        return
+
     if building_on_it:
         # A running build fixed its base ref when it started, and for a stacked
         # child that ref is this local branch. Deleted under it, the build's
@@ -253,6 +300,84 @@ def _record_merge(
         delete_branch(merged.repo, old_base)
     except Exception as error:  # noqa: BLE001
         log(f"{merged.id}: branch {old_base} left in place — {error}")
+
+
+def _hold_for_depth(
+    store: UnitStore,
+    child: StoredUnit,
+    new_base: str,
+    old_base: str,
+    depth: int,
+    cap: int,
+    retarget: Callable[[StoredUnit, str], None],
+    log: Log,
+) -> None:
+    note = DEPTH_HOLD.format(new_base=new_base, depth=depth, cap=cap)
+    store.set_state(child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base))
+    log(f"{child.id}: held — {note}")
+    # Only the PR moves, as for a child being built: it touches no tree, and
+    # one left on the merged branch may be closed by the host, which would put
+    # the unit out of reach of a later reconsideration.
+    try:
+        retarget(child, new_base)
+    except Exception as error:  # noqa: BLE001
+        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+
+
+def _reconsider_held(
+    merged: StoredUnit,
+    *,
+    store: UnitStore,
+    restack: Restack,
+    claim: Claim,
+    rebase_cap: int,
+    log: Log,
+) -> list[str]:
+    """Restack what an earlier merge held for depth and this one brought within
+    the cap, in the merged unit's repo. Returns those still held on the merged
+    unit's own branch, which is the one its caller must keep.
+
+    Depth only falls, so a merge anywhere below a held unit can free it without
+    anyone touching it.
+    """
+    still_held: list[str] = []
+    graph = store.all()
+    for unit in graph:
+        if unit.repo != merged.repo or unit.state != HELD or not unit.branch:
+            continue
+        old_base = _depth_hold_base(unit)
+        if old_base is None:
+            continue  # Held by a person or the toolchain, not for depth.
+        depth = depth_of(unit, graph)
+        new_base = base_of(unit, graph)
+        parent = next((u for u in graph if branch_name(u) == old_base), None)
+        if depth > rebase_cap or parent is None:
+            if old_base == branch_name(merged):
+                still_held.append(unit.id)
+            continue
+        try:
+            with claim(unit):
+                store.set_state(unit.id, IN_REVIEW, note=f"depth {depth} is within the cap")
+                restack(
+                    branch=branch_name(unit),
+                    old_base=old_base,
+                    new_base=new_base,
+                    child=unit,
+                    parent=parent,
+                )
+        except BranchBusy:
+            # The claim failed before anything was written: it is still held,
+            # its record as it was, and the next merge tries again.
+            if old_base == branch_name(merged):
+                still_held.append(unit.id)
+            continue
+        except Exception as error:  # noqa: BLE001
+            # Left in review on its old base, as a failed restack is for a
+            # child in the merge itself.
+            log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
+            continue
+        log(f"{unit.id}: restacked onto {new_base}")
+    return still_held
 
 
 def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
@@ -792,6 +917,7 @@ def build_dispatch(
     fetch_checks: Callable[..., str] | None = None,
     claim: Claim = _unclaimed,
     retarget: Callable[[StoredUnit, str], None] | None = None,
+    rebase_cap: int | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `gh_poller` hands each event to.
@@ -817,6 +943,7 @@ def build_dispatch(
                 delete_branch=delete_branch,
                 claim=claim,
                 retarget=retarget,
+                rebase_cap=rebase_cap,
                 log=log,
             )
         if event == "closed":

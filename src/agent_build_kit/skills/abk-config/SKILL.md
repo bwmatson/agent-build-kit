@@ -67,7 +67,8 @@ models:                       # bare aliases, not pinned ids; ABK_*_MODEL
   rework_review: fable        # a different model reviews a rework
 
 limits:
-  stack_depth_cap: 3          # longest chain of in-review PRs from main
+  stack_depth_build_cap: 3    # longest chain of in-review PRs from main (was stack_depth_cap)
+  stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_concurrent_stacks: 4    # units implemented at once, across repos
   min_unit_lines: 500         # estimated lines before a unit stops growing
   max_unit_lines: 1000        # estimated lines one unit may carry; above
