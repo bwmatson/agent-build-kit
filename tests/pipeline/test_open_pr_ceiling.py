@@ -67,6 +67,26 @@ def test_a_running_or_held_unit_with_a_pull_request_counts() -> None:
     assert open_pr_count(graph) == 2
 
 
+def test_a_failed_or_unplanned_unit_with_a_pull_request_counts() -> None:
+    """Its pull request stays open on the forge whatever state the unit is in."""
+    assert open_pr_count([stored_unit("a/1", change="a", state="failed", pr=1)]) == 1
+    assert open_pr_count([stored_unit("b/1", change="b", state="unplanned", pr=2)]) == 1
+
+
+def test_a_satisfied_unit_does_not_count() -> None:
+    assert open_pr_count([stored_unit("a/1", change="a", state="satisfied", pr=1)]) == 0
+
+
+def test_a_failed_unit_with_a_pull_request_takes_a_place_under_the_ceiling() -> None:
+    graph = [
+        at_review("a/1", 1),
+        stored_unit("b/1", change="b", state="failed", pr=2),
+        new("c/1"),
+    ]
+
+    assert ready(graph, ceiling=2) == []
+
+
 def test_merged_closed_and_unopened_units_do_not_count() -> None:
     graph = [
         at_review("a/1", 1),

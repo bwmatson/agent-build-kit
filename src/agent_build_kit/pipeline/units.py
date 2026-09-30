@@ -8,6 +8,11 @@ what a unit stacks on, how deep its chain is, and which units are ready.
 Everything here is pure. The planner that produces the estimates, and the
 parts that talk to git and GitHub, live elsewhere — so these rules can be
 argued with directly, in tests, rather than through a subprocess.
+
+`ready_units`, `open_pr_count`, `builds_heading_for_pr` and `new_start_room`
+expect stored units: `pr` and `resume_from` exist only on those, and
+`unit_store` imports this module, so it cannot be named here. Given plain
+`Unit`s they would see no pull request and no resume point.
 """
 
 from __future__ import annotations
@@ -333,13 +338,17 @@ def open_pr_count(graph: Sequence[Unit]) -> int:
     """Pull requests open right now, across every repo.
 
     A unit has one from the moment it opens it until it merges or is closed,
-    whatever it is doing meanwhile: awaiting review, being reworked (planned
-    again), running or held.
+    whatever state it is in meanwhile: awaiting review, being reworked (planned
+    again), running, held, failed, or unplanned. So every unit with a pull
+    request counts except those that merged, were closed, or were satisfied
+    (whose pull request the pipeline closes).
+
+    Expects stored units: `pr` is read from the store's record.
     """
     return sum(
         1
         for unit in graph
-        if getattr(unit, "pr", None) is not None and unit.state in (*IN_FLIGHT, PLANNED, HELD)
+        if getattr(unit, "pr", None) is not None and unit.state not in (MERGED, CLOSED, SATISFIED)
     )
 
 

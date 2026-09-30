@@ -812,8 +812,7 @@ def test_one_short_of_the_ceiling_starts_one_new_unit_not_all(
 
     assert tick(inst) == 0
 
-    assert len(builder.started) == 1
-    assert builder.started[0] in ("new/1", "new/2")
+    assert builder.started == ["new/1"]
 
 
 def test_an_idle_pipeline_still_says_nothing_is_ready(

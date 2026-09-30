@@ -115,7 +115,8 @@ without a fix: it will fail the same way and cost a run.
    ceiling M". The way out is to merge or close a PR. Free slots go to
    open-PR work first (reworks, restacks), then resuming builds, then new
    units. Each builds only its own task groups, never a later unit's, even
-   when the tasks for one are visible right there in `tasks.md`, and ends `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
+   when the tasks for one are visible right there in `tasks.md`, and ends
+   `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
    already did the work.
 4. Humans review and merge. A merge restacks whatever was on the branch.
 5. When every unit is merged or satisfied, the tick deploys the change (`deploy.rules`),
