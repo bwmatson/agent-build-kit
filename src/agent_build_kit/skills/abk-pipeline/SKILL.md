@@ -53,7 +53,7 @@ more task groups of a change.
 
 | State | Meaning | What to do |
 |---|---|---|
-| `planned` | In the graph, waiting for its dependencies and a free slot. | Nothing. `abk tick --dry-run` says whether it is ready. |
+| `planned` | In the graph, waiting for its dependencies and a free slot — or, with a `paused before <step>` note, a unit stopped there because the usage window filled and will resume at that step. A step already running is never interrupted; an empty step (an agent that finished having written nothing) against an exhausted window is one of these pauses, not a failure. | Nothing. `abk tick --dry-run` says whether it is ready. |
 | `running` | A worktree is open and an agent is in the build/review loop. | Nothing. A run interrupted mid-way is reclaimed by the next tick. |
 | `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework; a merge moves it on. |
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |

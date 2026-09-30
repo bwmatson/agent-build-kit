@@ -150,7 +150,10 @@ binds each step to git, gh and `claude`:
    allowed: signatures raising `NotImplementedError`, model fields), runs lint
    and format, and stops. The pipeline commits `test: <title>`.
 4. **Implementation, commit.** A second run makes those tests pass and may
-   not weaken them; commit `feat: <title>`. No commits means the unit fails.
+   not weaken them; commit `feat: <title>`. No commits means the unit fails —
+   unless the usage window is exhausted, which reads as a quiet refusal
+   rather than nothing to do, and pauses instead (see the usage guard,
+   below).
 5. **Review rounds.** A read-only reviewer (`Read Grep Glob`, `git diff/log/
    show`) judges the branch against the repo's `CLAUDE.md` and the change and
    answers JSON: `approved`, `feedback`, `needs_human`. An unreadable reply is
@@ -311,6 +314,14 @@ credits past the plan limit cost money. No new unit starts once a window is
 at its threshold; the reading comes live from the usage endpoint with Claude
 Code's stored OAuth token (cached three minutes), falling back to Claude
 Code's own cache when it is under an hour old. **An unknown reading pauses.**
+**A step already running is never interrupted** — the guard only ever gates
+what starts next. The one place that reading is taken mid-unit rather than
+only at a boundary is judging a step that ends having written nothing: an
+agent told it is out of usage can finish cleanly having said so in prose, and
+against an exhausted window that empty result is a pause, not a failure — one
+more read of the same guard, never a poll, and the same shape (state, note,
+resume point) as a stop between steps. Empty for any other reason still
+fails.
 
 The threshold is not flat, and the two windows do not share one: quota unused
 when a window resets is lost, so each window's threshold ramps from
