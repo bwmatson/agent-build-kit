@@ -19,7 +19,9 @@ and not a capability that was never there.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -28,7 +30,7 @@ import pytest
 
 from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
-from agent_build_kit.runtimes.acp import AcpRuntime
+from agent_build_kit.runtimes.acp import AcpRuntime, _Session
 from tests.factories import git, init_repo
 from tests.runtimes.acp_agent import requests, use_agent
 
@@ -555,11 +557,45 @@ def test_a_whole_line_command_with_no_arguments_runs(
 def test_a_command_reading_stdin_gets_none(tmp_path: Path, worktree: Path, specs: Path) -> None:
     """Not abk's own input, which is the agent's protocol stream's."""
     record = tmp_path / "agent.jsonl"
-
-    _run(record, worktree, specs, act=[{"terminal": "cat", "args": ["-"]}])
+    # Pytest's own fd 0 is already the null device, so give abk's stdin
+    # something to leak for the length of the run.
+    leak = tmp_path / "leak.txt"
+    leak.write_text("leak\n")
+    saved = os.dup(0)
+    with leak.open() as source:
+        os.dup2(source.fileno(), 0)
+    try:
+        _run(record, worktree, specs, act=[{"terminal": "cat", "args": ["-"]}])
+    finally:
+        os.dup2(saved, 0)
+        os.close(saved)
 
     [ran] = _did(record, "terminal")
     assert ran["exitCode"] == 0 and ran["output"] == "", ran
+
+
+def test_a_released_terminals_id_is_not_handed_out_again(worktree: Path) -> None:
+    """Two live terminals, the first released, then a third: three distinct
+    ids, and nothing is left running once the run's terminals end."""
+
+    async def scenario() -> tuple[list[str], list[Any]]:
+        session = _Session(None, worktree=worktree, policy=ToolPolicy())
+        first = await session.create_terminal("s", "sleep", ["30"])
+        second = await session.create_terminal("s", "sleep", ["31"])
+        survivor = session._terminals[second.terminal_id].process
+        await session.release_terminal("s", first.terminal_id)
+        third = await session.create_terminal("s", "sleep", ["32"])
+        ids = [first.terminal_id, second.terminal_id, third.terminal_id]
+        assert session._terminals[second.terminal_id].process is survivor
+        processes = [t.process for t in session._terminals.values()]
+        assert survivor.returncode is None
+        await session.end_terminals()
+        return ids, processes
+
+    ids, processes = asyncio.run(scenario())
+
+    assert len(set(ids)) == 3, ids
+    assert all(p.returncode is not None for p in processes)
 
 
 def test_a_hung_command_is_killed_when_the_agent_gives_up_on_it(

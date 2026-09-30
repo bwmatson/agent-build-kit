@@ -37,6 +37,7 @@ routes through the client, with a throwaway probe worktree of its own.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 import signal
@@ -375,6 +376,8 @@ class _Session:
         )
         self._probe = probe
         self._terminals: dict[str, _Terminal] = {}
+        # Never goes back on release, so an id is never handed out twice.
+        self._terminal_ids = itertools.count(1)
         # Set when this client itself cancelled the turn — no option on offer
         # refused a call the rules forbid — so `_drive` can tell that apart
         # from a cancellation that came from elsewhere: this one would recur
@@ -585,7 +588,7 @@ class _Session:
             raise RequestError.invalid_params(
                 {"reason": f"could not start {command}: {exc}"}
             ) from exc
-        terminal_id = f"term_{len(self._terminals) + 1}"
+        terminal_id = f"term_{next(self._terminal_ids)}"
         self._terminals[terminal_id] = _Terminal(process, output_byte_limit)
         return CreateTerminalResponse(terminal_id=terminal_id)
 
