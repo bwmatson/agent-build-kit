@@ -191,7 +191,8 @@ def verify_one(inst: Installation, change: str, units: list) -> Verification:
 
 
 def _merged_ids(change: str, units: list) -> list[str]:
-    return sorted(u.id for u in units if u.change == change and u.state == MERGED)
+    # The same rule `verify_change` records its units by: a merged unit with a PR.
+    return sorted(u.id for u in units if u.change == change and u.state == MERGED and u.pr)
 
 
 def _unverified(inst: Installation, units: list, record: VerifyRecord) -> list[str]:

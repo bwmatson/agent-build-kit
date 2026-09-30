@@ -513,6 +513,7 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     store.upsert([unit()])
     store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
     store.set_feedback(unit().id, "please double-check the edge case")
+    store.set_pending_replies(unit().id, ("done",))
     recorder = Recorder(commits_from_impl=0, tier1_ok=True)
     runner = make_runner(store, recorder, tmp_path)
     runner.branch_commits = lambda cwd, base: 0
@@ -520,6 +521,8 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
 
     assert outcome.status == "satisfied"
+    assert store.get(unit().id).feedback == "", "a satisfied unit carries no review feedback"
+    assert store.get(unit().id).pending_replies == (), "nor replies to a review it no longer has"
     assert recorder.events.count("claude:rework") == 1
     assert "claude:tests" not in recorder.events
     assert "claude:impl" not in recorder.events
@@ -540,6 +543,7 @@ def test_a_satisfied_unit_resuming_before_its_rework_is_also_reached(tmp_path: P
     store.upsert([unit()])
     store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()), resume_from=REWORK)
     store.set_feedback(unit().id, "please double-check the edge case")
+    store.set_pending_replies(unit().id, ("done",))
     recorder = Recorder(commits_from_impl=0, tier1_ok=True)
     runner = make_runner(store, recorder, tmp_path)
     runner.branch_commits = lambda cwd, base: 0
@@ -547,6 +551,8 @@ def test_a_satisfied_unit_resuming_before_its_rework_is_also_reached(tmp_path: P
     outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
 
     assert outcome.status == "satisfied"
+    assert store.get(unit().id).feedback == ""
+    assert store.get(unit().id).pending_replies == ()
     assert recorder.events.count("claude:rework") == 1
     assert recorder.events.count("close") == 1
     assert recorder.closed[0][1] == 4

@@ -32,7 +32,6 @@ implemented.
 | `test_commands_all(repo, root_extras)` | tier 1 | every test run the repo has, regardless of a diff — used only for a unit with no commits of its own |
 | `tier2_commands(repo, marker)` | tier 2 without a dev stack | every member's live-stack tests |
 | `acceptance_commands(checkout, paths, marker, exclude_marker, root_extras)` | post-merge verify | the live tests among a change's paths |
-| `lint_command_all_files()` | `uv run pre-commit run --all-files` — tier 1 uses it only for a unit with no commits of its own |
 | `clean_command()` | the push gate | lint and format at the tests commit, types skipped |
 | `red_command(files)` | the push gate | run these test files at the tests commit |
 | `interpret_red(output, exit_code)` | the push gate | was that run honestly red, and why not |
@@ -62,6 +61,7 @@ What it runs, exactly:
 | Method | Command |
 |---|---|
 | `lint_command(base)` | `uv run pre-commit run --from-ref <base> --to-ref HEAD` — scoped to the diff, so a unit is not failed for problems in files it never touched |
+| `lint_command_all_files()` | `uv run pre-commit run --all-files` — tier 1 uses it only for a unit with no commits of its own |
 | `clean_command()` | `SKIP=pyrefly-check uv run pre-commit run --all-files` — type checking skipped: a test importing what does not exist yet is the expected state at the tests commit |
 | `red_command(files)` | `uv run pytest <files> -p no:cacheprovider --tb=line -q` |
 | `test_commands`, single-package repo | `uv run pytest -q` if `tests/` exists, else nothing |
