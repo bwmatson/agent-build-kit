@@ -24,9 +24,9 @@ import pytest
 from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name, waiting_on
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
-from tests.factories import unit
+from tests.factories import stored_unit, unit
 
 
 class Recorder:
@@ -158,6 +158,49 @@ def test_each_run_is_scoped_to_this_unit_only(runner) -> None:
     assert all("add-marker" in prompt for prompt in recorder.prompts)
 
 
+def test_the_build_prompts_name_the_boundary_and_why(runner) -> None:
+    """The builder can see the whole of tasks.md, including the groups after
+    its own — so leaving them alone has to be said, not left to be inferred,
+    or a capable agent finishes the group after it too because the code for
+    it is already sitting right there."""
+    recorder = Recorder()
+    graph = [
+        stored_unit("add-marker/1", groups=(1,)),
+        stored_unit("add-marker/2", groups=(2, 3), depends_on=("add-marker/1",)),
+    ]
+
+    runner(recorder).run(unit(groups=(1,)), base="main", graph=graph)
+
+    assert len(recorder.prompts) >= 2, "both the tests and the implementation prompts ran"
+    for prompt in recorder.prompts[:2]:
+        assert "2, 3" in prompt, "the later unit's groups are named, not just this one's own"
+        assert "later" in prompt.lower(), "named as belonging to a later unit"
+        assert "pull request" in prompt.lower(), "the boundary is given with its reason"
+
+
+def test_the_review_is_told_the_same_boundary(runner) -> None:
+    """A finding whose fix belongs to a later group is reported as belonging
+    there, not required of this unit — so the reviewer needs the same
+    boundary the builder was given, and keeps its full reach over the rest."""
+    from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
+
+    recorder = Recorder()
+    graph = [
+        stored_unit("add-marker/1", groups=(1,)),
+        stored_unit("add-marker/2", groups=(2, 3), depends_on=("add-marker/1",)),
+    ]
+
+    runner(recorder).run(unit(groups=(1,)), base="main", graph=graph)
+
+    assert any(
+        "2, 3" in context and "later" in context.lower() and "belong" in context.lower()
+        for context in recorder.contexts
+    ), "the reviewer is told which groups are not this unit's to require"
+    # its reach over the unit's own groups keeps its current force
+    assert "Find everything in one pass" in REVIEW_PROMPT
+    assert "Sweep the domain" in REVIEW_PROMPT
+
+
 def test_nothing_happens_when_the_usage_window_is_low(runner) -> None:
     """The guard gates starting work, so the refusal must come before the
     worktree, not after the first expensive call."""
@@ -173,10 +216,26 @@ def test_nothing_happens_when_the_usage_window_is_low(runner) -> None:
 def test_the_review_pass_runs_only_when_there_were_commits(runner) -> None:
     """Reviewing an empty branch spends a model call to say nothing."""
     recorder = Recorder(commits_from_impl=0)
+    built = runner(recorder)
+    built.branch_commits = lambda cwd, base: 0  # nothing landed anywhere, ever
 
-    runner(recorder).run(unit(), base="main", graph=[])
+    built.run(unit(), base="main", graph=[])
 
     assert "review" not in recorder.events
+
+
+def test_a_unit_whose_remaining_work_is_already_implemented_still_goes_to_review(
+    runner,
+) -> None:
+    """The implementation step adding nothing is not the same as the unit
+    adding nothing: its tests commit is this unit's own work, so there is a
+    diff on the branch, and a diff is reviewed rather than treated as empty."""
+    recorder = Recorder(commits_from_impl=0)
+
+    outcome = runner(recorder).run(unit(), base="main", graph=[])
+
+    assert "review" in recorder.events
+    assert outcome.status == "open"
 
 
 def test_the_review_pass_runs_before_the_tests_do(runner) -> None:
@@ -356,15 +415,43 @@ def test_a_unit_resumes_from_work_already_on_its_branch(tmp_path: Path) -> None:
 
 
 def test_a_unit_with_nothing_anywhere_still_fails(tmp_path: Path) -> None:
-    """The original guard has to survive: a run that wrote nothing, on a branch
-    with nothing, is a failure and not a resume."""
+    """No commits of its own is not enough by itself to call a unit
+    satisfied — the checks have to pass too, or this is a real failure, not
+    work that arrived another way."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    recorder = Recorder(commits_from_impl=0)
+    recorder = Recorder(commits_from_impl=0, tier1_ok=False)
     runner = make_runner(store, recorder, tmp_path)
     runner.branch_commits = lambda cwd, base: 0
 
-    assert runner.run(unit(), base="main", graph=[]).status == "failed"
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert "tier1" in recorder.events, "judged on the checks, not skipped because nothing landed"
+
+
+def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path: Path) -> None:
+    """A predecessor did the work: nothing for this unit to add, and what is
+    already there passes. That is not a failure — it is satisfied, judged
+    from the branch and the checks, never from anything the run says about
+    itself."""
+    tasks = _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "satisfied"
+    assert "tier1" in recorder.events, "judged on the checks, not the run's own report"
+    assert "pr" not in recorder.events, "nothing to open a pull request for"
+    assert store.get(unit().id).state != "failed"
+    assert tasks.read_text().count("- [x]") == 2, "its groups are ticked all the same"
+
+    dependent = unit(uid="add-marker/2", depends_on=(unit().id,))
+    assert waiting_on(dependent, [store.get(unit().id)]) == [], "dependents stop waiting for it"
 
 
 def test_a_resumed_unit_is_not_reviewed_again_at_the_commit_it_approved(tmp_path: Path) -> None:
