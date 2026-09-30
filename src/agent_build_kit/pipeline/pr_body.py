@@ -72,6 +72,23 @@ def assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
     return "\n".join(lines)
 
 
+def _scope_lines(unit: StoredUnit) -> str:
+    """What the unit builds: each change with its groups, and where its spec is."""
+    first, *carried = unit.members()
+    groups = ", ".join(str(group) for group in first.groups) or "—"
+    lines = [
+        f"Unit `{unit.id}` of change **{first.change}**, task group(s) {groups}.",
+        f"Spec: `openspec/changes/{first.change}/` in the planning repo.",
+    ]
+    for member in carried:
+        numbers = ", ".join(str(group) for group in member.groups)
+        lines.append(
+            f"Also carries task group(s) {numbers} of change **{member.change}**. "
+            f"Spec: `openspec/changes/{member.change}/` in the planning repo."
+        )
+    return "\n".join(lines)
+
+
 def build_pr_body(
     unit: StoredUnit,
     *,
@@ -85,8 +102,6 @@ def build_pr_body(
     linear: bool = True,
 ) -> str:
     """The full description for a unit's PR."""
-    groups = ", ".join(str(group) for group in unit.groups) or "—"
-
     if unit.tier == "tier2":
         verification = (
             tier2_snapshot
@@ -142,8 +157,7 @@ def build_pr_body(
     return f"""\
 {position}
 
-Unit `{unit.id}` of change **{unit.change}**, task group(s) {groups}.
-Spec: `openspec/changes/{unit.change}/` in the planning repo.
+{_scope_lines(unit)}
 
 ## Assumptions
 
@@ -190,13 +204,16 @@ def satisfied_reason(unit: StoredUnit, *, graph: Sequence[StoredUnit]) -> str:
     already mechanical, and this is the same kind of text `build_pr_body`
     writes without a model call.
     """
-    groups = ", ".join(str(group) for group in unit.groups) or "—"
+    covered = " and ".join(
+        f"{', '.join(str(group) for group in member.groups) or '—'} of change `{member.change}`"
+        for member in unit.members()
+    )
     landed = _landed_elsewhere(unit, graph)
     where = ""
     if landed is not None:
         where = f" — it landed in `{landed.id}`" + (f" (#{landed.pr})" if landed.pr else "")
     return (
-        f"Task group(s) {groups} of change `{unit.change}` were already implemented "
+        f"Task group(s) {covered} were already implemented "
         f"elsewhere{where}. There is nothing here for this pull request to add, so it is "
         "closing — its tasks are ticked in tasks.md all the same."
     )

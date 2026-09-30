@@ -53,6 +53,14 @@ STATE_STYLES = {
 }
 
 
+def _carried(unit: StoredUnit) -> str:
+    """A line per change the unit carries, with its groups; nothing for a plain unit."""
+    return "".join(
+        f"{member.change}: {', '.join(str(g) for g in member.groups)}<br/>"
+        for member in unit.joined
+    )
+
+
 def _node_id(unit_id: str) -> str:
     """Mermaid reads `/` and `-` as syntax, so ids are flattened."""
     return re.sub(r"[^A-Za-z0-9]", "_", unit_id)
@@ -130,9 +138,8 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
         for unit in [u for u in ordered if u.repo == repo]:
             state = _effective_state(unit, graph)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
-            label = (
-                f"{unit.id}<br/>{unit.title}<br/><small>{unit.tier} · {_label(state)}{pr}</small>"
-            )
+            head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
+            label = f"{head}<small>{unit.tier} · {_label(state)}{pr}</small>"
             lines.append(f'        {_node_id(unit.id)}["{label}"]')
         lines.append("    end")
 

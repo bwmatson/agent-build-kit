@@ -47,7 +47,7 @@ def is_ready_to_archive(change: str, units: list[StoredUnit]) -> bool:
     on another change's branch that is still in review, and archiving then
     would publish behaviour that is not in `main`.
     """
-    mine = [unit for unit in units if unit.change == change]
+    mine = [unit for unit in units if unit.carries(change)]
     if not mine:
         # Nothing merged is not the same as everything merged; an empty change
         # would otherwise archive itself the moment it appeared.
@@ -66,7 +66,7 @@ def _merged_at(change: str, units: list[StoredUnit]) -> str:
     stamps = [
         entry.get("at", "")
         for unit in units
-        if unit.change == change
+        if unit.carries(change)
         for entry in unit.history
         if entry.get("state") == "merged"
     ]
@@ -96,12 +96,13 @@ def archive_ready_changes(
     Returns the changes archived, so the caller can commit them and say so in
     the run log.
     """
+    candidates = {member.change for unit in units for member in unit.members()}
     ready = {
-        unit.change
-        for unit in units
-        if is_ready_to_archive(unit.change, units)
-        and not _already_archived(unit.change, planning_repo, specs_dir)
-        and may_archive(unit.change)
+        change
+        for change in candidates
+        if is_ready_to_archive(change, units)
+        and not _already_archived(change, planning_repo, specs_dir)
+        and may_archive(change)
     }
 
     archived: list[str] = []
