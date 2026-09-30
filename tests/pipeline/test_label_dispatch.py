@@ -174,12 +174,16 @@ def test_a_rework_label_that_stays_on_the_pull_request_reworks_the_unit_once(
         return handle(event, number, repo="app", **kwargs)
 
     labels = StateLabels(lookup(forge), log=lambda m: None)
+
+    def consume(number: int, name: str) -> bool:
+        return labels.consume("app", number, name) if wired else False
+
     poller = Poller(
         repo="app",
         state_path=tmp_path / "poll.json",
         list_prs=partial(forge.list_prs, forge.repo_id()),
         dispatch=dispatch,
-        **({"consume": lambda number, name: labels.consume("app", number, name)} if wired else {}),
+        consume=consume,
     )
     poller.poll()
     forge.on_pr[PR] = {REWORK}
