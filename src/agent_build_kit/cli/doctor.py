@@ -71,23 +71,28 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
                 _fail(f"repo {name}", f"{path} is not a git checkout", "clone the repo there")
             )
             continue
-        result = run(
-            ["git", "config", "--local", "--get", "user.email"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode or not result.stdout.strip():
+
+        def identity(field: str, *, local: bool = False, at: Path = path) -> str:
+            argv = ["git", "config", *(["--local"] if local else []), "--get", f"user.{field}"]
+            answered = run(argv, cwd=at, capture_output=True, text=True, check=False)
+            return "" if answered.returncode else answered.stdout.strip()
+
+        email, who = identity("email"), identity("name")
+        if not email or not who:
+            missing = " and ".join(f"user.{f}" for f in ("email", "name") if not identity(f))
             checks.append(
                 _fail(
                     f"repo {name}",
-                    f"{path} has no repo-local user.email",
-                    f"git -C {path} config user.email <email> (and user.name)",
+                    f"git has no {missing} for {path}, so a commit would be attributed to nobody",
+                    f"git config --global user.email <email> (and user.name), or "
+                    f"git -C {path} config user.email <email> for this repo alone",
                 )
             )
             continue
-        checks.append(_ok(f"repo {name}", f"{path}, commits as {result.stdout.strip()}"))
+        # Which scope it resolves through, so a workspace whose repos belong to
+        # different accounts can see that one identity is signing for all of them.
+        scope = "repo-local" if identity("email", local=True) else "this machine's global"
+        checks.append(_ok(f"repo {name}", f"{path}, commits as {email} ({scope})"))
     return checks
 
 

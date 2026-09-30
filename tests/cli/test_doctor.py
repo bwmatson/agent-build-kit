@@ -121,8 +121,13 @@ def test_a_worktree_root_inside_the_planning_repo_fails(workspace: Path) -> None
     assert checks["worktree root"].status == "FAIL"
 
 
-def test_repo_problems(workspace: Path, tmp_path: Path) -> None:
+def test_repo_problems(workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Isolated from whoever's machine this runs on: with a global identity in
+    # scope the repo has one, and the check would pass here and fail in CI.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global-config"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "no-system-config"))
     git(tmp_path / "app", "config", "--unset", "user.email")
+    git(tmp_path / "app", "config", "--unset", "user.name")
     text = (
         (workspace / "abk.yaml")
         .read_text()
@@ -134,6 +139,7 @@ def test_repo_problems(workspace: Path, tmp_path: Path) -> None:
 
     assert checks["repo app"].status == "FAIL"
     assert "user.email" in checks["repo app"].detail
+    assert "attributed to nobody" in checks["repo app"].detail
     assert checks["repo platform"].status == "FAIL"
     assert "does not exist" in checks["repo platform"].detail
 
