@@ -25,6 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import openspec
+from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
 
@@ -86,6 +87,7 @@ def archive_ready_changes(
     run: Runner | None = None,
     may_archive: Callable[[str], bool] = lambda change: True,
     specs_dir: str = "openspec",
+    run_logs: Path | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change
@@ -107,5 +109,7 @@ def archive_ready_changes(
         # A conflict raises rather than being auto-resolved.
         openspec.archive(change, cwd=planning_repo, run=run)
         archived.append(change)
+        if run_logs is not None:
+            remove_change_logs(run_logs, change)
 
     return archived

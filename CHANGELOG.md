@@ -8,6 +8,12 @@
   unrecorded, what was stacked on it was never moved, and a finished unit could
   be requeued for feedback that was not its own.
 
+- Each unit run writes a file of its own under `<state_dir>/unit-logs/`, named
+  for the unit, its start (UTC) and the step; the unit's record names the
+  latest (`run_log`). The last three runs of a unit are kept and archiving a
+  change removes them. Gitignored; an existing installation adds
+  `runs/unit-logs/` to its `.gitignore`.
+
 - A unit whose groups already landed in its predecessor and whose tier 1 passes
   on the whole repo ends `satisfied` instead of failing: its PR is closed with
   the reason, its groups are ticked and its dependents look through it. A

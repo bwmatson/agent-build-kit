@@ -7,6 +7,7 @@ low, and must not build anything while paused.
 """
 
 import json
+import re
 import subprocess
 import threading
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,7 @@ from agent_build_kit.cli.pipeline import _has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
+from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
 from agent_build_kit.pipeline.pause import pause_until
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -1075,7 +1077,7 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
     monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
     archiving: list[bool] = []
 
-    def archive(units, *, planning_repo, may_archive, specs_dir="openspec"):
+    def archive(units, *, planning_repo, may_archive, specs_dir="openspec", run_logs=None):
         archiving.append(may_archive("c") and not may_archive("other"))
         return ["c"]
 
@@ -1102,3 +1104,443 @@ def test_tags_over_an_empty_store_says_so_rather_than_printing_nothing(
 
     assert cli.cmd_tags(argv_namespace(change=None, all=True), empty) == 0
     assert "no changes in" in capsys.readouterr().out
+
+
+# --- a run log per unit ------------------------------------------------------------------
+
+
+class Speaking:
+    """A runner that says something through the `log` the tick gave it."""
+
+    def __init__(self, log, outcome: RunOutcome | Exception) -> None:
+        self.log = log
+        self.outcome = outcome
+
+    def run(self, unit, *, base, graph):
+        self.log(f"said by {unit.id}")
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return self.outcome
+
+
+def speaking(monkeypatch: pytest.MonkeyPatch, outcomes: dict[str, RunOutcome | Exception]) -> None:
+    monkeypatch.setattr(
+        cli, "build_runner", lambda unit, **kwargs: Speaking(kwargs["log"], outcomes[unit.id])
+    )
+
+
+def opened(number: int) -> RunOutcome:
+    return RunOutcome(status="open", detail=f"opened #{number}", pr=number)
+
+
+def run_logs() -> list[Path]:
+    from agent_build_kit.pipeline.run_log import run_log_dir
+
+    directory = run_log_dir(inst.state_dir)
+    return sorted(directory.iterdir()) if directory.exists() else []
+
+
+def test_a_units_run_is_written_to_a_file_named_for_it(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    (path,) = run_logs()
+    assert re.fullmatch(r"add-marker-01-\d{8}-\d{6}-[a-z_]+\.log", path.name)
+
+
+def test_the_file_holds_only_its_units_lines_between_a_header_and_the_outcome(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored(), stored("add-marker/2")])
+    speaking(monkeypatch, {"add-marker/1": opened(1), "add-marker/2": opened(2)})
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    first, second = run_logs()
+    before, after = first.read_text().split("said by add-marker/1")
+    assert "add-marker/1" in before
+    assert "opened #1" in after
+    assert "add-marker/2" not in first.read_text()
+    assert "said by add-marker/2" in second.read_text()
+
+
+def test_the_units_record_names_its_run_log(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert store.get("add-marker/1").run_log == path.name
+
+
+def test_a_failed_units_record_names_its_run_log(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored(), stored("add-marker/2")])
+    speaking(
+        monkeypatch,
+        {
+            "add-marker/1": RuntimeError("git exploded"),
+            "add-marker/2": RunOutcome(status="failed", detail="tier 1 failed"),
+        },
+    )
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    first, second = run_logs()
+    assert store.get("add-marker/1").state == "failed"
+    assert store.get("add-marker/1").run_log == first.name
+    assert "git exploded" in first.read_text()
+    assert store.get("add-marker/2").run_log == second.name
+    assert "tier 1 failed" in second.read_text()
+
+
+def test_the_pass_still_prints_every_line_as_before(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored(), stored("add-marker/2")])
+    speaking(monkeypatch, {"add-marker/1": opened(1), "add-marker/2": opened(2)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    printed = capsys.readouterr().out.splitlines()
+    for uid in ("add-marker/1", "add-marker/2"):
+        assert any(
+            re.fullmatch(rf"\[\d\d:\d\d:\d\d\] {uid}: said by {uid}", line) for line in printed
+        )
+    assert run_logs(), "and each unit's lines are also in its file"
+    assert not any(line.startswith("model") or line.startswith("base") for line in printed), (
+        "the file's header is not printed"
+    )
+
+
+def start_log(change: str, number: int = 1) -> Path:
+    from agent_build_kit.pipeline.run_log import RunLog, run_log_dir
+    from tests.factories import unit as make_unit
+
+    log = RunLog(
+        run_log_dir(inst.state_dir),
+        make_unit(f"{change}/{number}", change=change),
+        step="implement",
+        model="m",
+        base="main",
+        started=datetime(2026, 9, 23, 22, 44, 5, tzinfo=UTC),
+    )
+    return run_log_dir(inst.state_dir) / log.name
+
+
+def test_a_units_file_names_the_step_and_model_of_a_fresh_build(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert path.name.endswith("-implement.log")
+    assert "step: implement\nmodel: m-implement\n" in path.read_text()
+
+
+def test_a_units_file_names_the_rework_of_waiting_feedback(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    store.set_feedback("add-marker/1", "rename the marker")
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert path.name.endswith("-rework.log")
+    assert "step: rework\nmodel: m-rework\n" in path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("resume", "model"),
+    [
+        ("review", "m-review"),
+        ("rework_review", "m-rework-review"),
+        ("tests", "m-implement"),
+        ("verify", "none"),
+    ],
+)
+def test_a_units_file_names_the_step_it_resumes_at(
+    resume: str, model: str, healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    store.record_step("add-marker/1", resume)
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert path.name.endswith(f"-{resume}.log")
+    assert f"step: {resume}\nmodel: {model}\n" in path.read_text()
+
+
+def _distinct_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent_build_kit.config import ModelsConfig
+    from agent_build_kit.pipeline import stack_runner
+
+    monkeypatch.setattr(
+        stack_runner,
+        "models",
+        lambda: ModelsConfig(
+            implement="m-implement",
+            rework="m-rework",
+            review="m-review",
+            rework_review="m-rework-review",
+        ),
+    )
+
+
+def _unusable_log_dir() -> None:
+    from agent_build_kit.pipeline.run_log import run_log_dir
+
+    run_log_dir(inst.state_dir).write_text("a file where the directory should be")
+
+
+def test_an_unusable_log_directory_does_not_touch_the_build(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+    _unusable_log_dir()
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    assert "said by add-marker/1" in capsys.readouterr().out
+    assert store.get("add-marker/1").state != "failed"
+
+
+def test_an_unusable_log_directory_still_records_a_failed_unit(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": RuntimeError("git exploded")})
+    _unusable_log_dir()
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    assert store.get("add-marker/1").state == "failed"
+    assert "git exploded" in capsys.readouterr().out
+
+
+def _archiving(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    from agent_build_kit import openspec
+
+    archived: list[str] = []
+    monkeypatch.setattr(
+        openspec, "archive", lambda change, cwd, run=None: archived.append(change) or ""
+    )
+    return archived
+
+
+def _two_changes_logged(tmp_path: Path) -> tuple[Path, Path]:
+    UnitStore(tmp_path / "units.json").upsert(
+        [*_merged("c/1"), *_merged("other/1", change="other")]
+    )
+    return start_log("c"), start_log("other")
+
+
+def test_archiving_by_hand_removes_the_changes_logs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _archiving(monkeypatch)
+    mine, other = _two_changes_logged(tmp_path)
+
+    assert cli.cmd_archive(argv_namespace(change="c"), inst) == 0
+
+    assert not mine.exists()
+    assert other.exists()
+
+
+def test_a_passing_verify_removes_the_changes_logs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    archived = _archiving(monkeypatch)
+    mine, other = _two_changes_logged(tmp_path)
+    fake = _verifier([True], [])
+    monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
+
+    assert cli.cmd_verify(argv_namespace(change="c"), inst) == 0
+
+    assert archived == ["c"]
+    assert not mine.exists()
+    assert other.exists()
+
+
+def test_a_tick_that_archives_removes_the_changes_logs(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "archive_ready_changes", real_archive_ready)
+    archived = _archiving(monkeypatch)
+    mine, other = _two_changes_logged(tmp_path)
+    monkeypatch.setattr(
+        cli, "verify_ready", lambda inst, units, **kwargs: lambda change: change == "c"
+    )
+    monkeypatch.setattr(cli, "has_work", lambda inst, store: True)
+
+    cli.cmd_tick(argv_namespace(dry_run=True), inst)
+
+    assert archived == ["c"]
+    assert not mine.exists()
+    assert other.exists()
+
+
+def _tick_one(monkeypatch: pytest.MonkeyPatch, outcome: RunOutcome | Exception) -> list[str]:
+    speaking(monkeypatch, {"add-marker/1": outcome})
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+    (path,) = run_logs()
+    return path.read_text().splitlines()
+
+
+def _closing(lines: list[str]) -> str:
+    assert len([line for line in lines if line.startswith("outcome: ")]) == 1
+    return [line for line in lines if line.strip()][-1]
+
+
+def test_the_file_closes_with_a_returned_open_outcome(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+
+    lines = _tick_one(monkeypatch, opened(1))
+
+    assert _closing(lines) == "outcome: open \u2014 opened #1"
+
+
+def test_the_file_closes_with_a_returned_failure(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+
+    lines = _tick_one(monkeypatch, RunOutcome(status="failed", detail="tier 1 failed"))
+
+    assert _closing(lines) == "outcome: failed \u2014 tier 1 failed"
+
+
+def test_the_file_closes_with_a_raised_error(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+
+    lines = _tick_one(monkeypatch, RuntimeError("git exploded"))
+
+    assert _closing(lines) == "outcome: failed, RuntimeError: git exploded"
+
+
+def test_the_file_closes_interrupted_and_the_unit_is_not_failed(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from agent_build_kit.pipeline.usage_guard import Interrupted
+
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+
+    lines = _tick_one(monkeypatch, Interrupted("claude was killed by signal 9"))
+
+    assert _closing(lines).startswith("outcome: interrupted (")
+    assert store.get("add-marker/1").state != "failed"
+
+
+def test_the_file_closes_rate_limited(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from agent_build_kit.pipeline.usage_guard import RateLimited
+
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    when = datetime.now(UTC) + timedelta(hours=1)
+
+    lines = _tick_one(monkeypatch, RateLimited("usage limit reached", resets_at=when))
+
+    assert _closing(lines).startswith("outcome: rate limited \u2014 pausing until")
+
+
+HEADER = re.compile(
+    r"unit: add-marker/1\nchange: add-marker\nstep: implement\nmodel: m-implement\n"
+    r"base: (?P<base>.+)\nstarted: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[.\d]*\+00:00\n\n"
+)
+
+
+def test_the_file_opens_with_the_unit_change_step_model_base_and_start(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    header = HEADER.match(path.read_text())
+    assert header
+    assert header["base"] == "main"
+
+
+def test_a_stacked_units_file_names_its_parents_branch_as_the_base(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from agent_build_kit.pipeline.units import base_of
+
+    _distinct_models(monkeypatch)
+    store = UnitStore(tmp_path / "units.json")
+    parent = stored("add-marker/1", state=IN_REVIEW)
+    child = stored("add-marker/2", depends_on=("add-marker/1",))
+    store.upsert([parent, child])
+    speaking(monkeypatch, {"add-marker/2": opened(2)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    expected = base_of(child, store.all())
+    assert expected != "main"
+    assert f"step: implement\nmodel: m-implement\nbase: {expected}\nstarted: " in path.read_text()
+
+
+def test_the_files_lines_carry_the_stamp_the_tick_prints(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    printed = re.search(
+        r"\[(\d\d:\d\d:\d\d)\] add-marker/1: said by add-marker/1", capsys.readouterr().out
+    )
+    (path,) = run_logs()
+    written = re.search(r"\[(\d\d:\d\d:\d\d)\] said by add-marker/1", path.read_text())
+    assert printed
+    assert written
+    assert written[1] == printed[1]
+
+
+def test_a_log_that_could_not_be_created_is_not_named_on_the_record(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+    _unusable_log_dir()
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    assert store.get("add-marker/1").run_log == ""

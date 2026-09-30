@@ -37,7 +37,9 @@ what the pipeline is doing, watch the pass, not a single unit.
 - `runs/units.json` — every unit the planner has produced, with its state,
   branch, PR number, review rounds and history. The file is the truth; the
   graph page is a view of it. Read it; only edit it as described under
-  `failed` below.
+  `failed` below. A unit's `run_log` names its latest run's file under
+  `runs/unit-logs/` (the state directory): that unit's lines, with the step
+  and model in its header and the outcome at the end.
 - `docs/unit_graph.md` — the unit graph, regenerated on every state change:
   which unit waits on which, and where each one is.
 - `runs/paused.json` — present while the pipeline is paused for usage; says

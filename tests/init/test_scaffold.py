@@ -247,6 +247,7 @@ def test_the_planning_repo_is_laid_out(tmp_path: Path) -> None:
     assert (planning / "runs" / ".gitkeep").exists()
     assert (planning / "runs" / "units.json").read_text() == '{"units": []}\n'
     assert ".env" in (planning / ".gitignore").read_text()
+    assert "runs/unit-logs/" in (planning / ".gitignore").read_text()
     assert "GH_TOKEN" in (planning / ".env.example").read_text()
     assert "abk-pipeline" in (planning / "CLAUDE.md").read_text()
     assert len(list((planning / "systemd").iterdir())) == 8
