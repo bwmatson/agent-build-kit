@@ -1629,3 +1629,41 @@ def test_a_log_that_could_not_be_created_is_not_named_on_the_record(
     cli.cmd_tick(argv_namespace(dry_run=False), inst)
 
     assert store.get("add-marker/1").run_log == ""
+
+
+def test_status_says_when_the_queue_is_full(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace_inst = make_installation(
+        tmp_path,
+        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
+        limits=dict(max_open_prs=2),
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored(f"c{n}/1", change=f"c{n}") for n in (1, 2, 3)])
+    for n in (1, 2, 3):
+        store.set_state(f"c{n}/1", IN_REVIEW, pr=10 + n)
+    monkeypatch.setattr(cli, "current_usage", lambda: reading())
+
+    assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
+
+    out = capsys.readouterr().out
+    assert "queue is full: 3 open pull requests, ceiling 2" in out
+
+
+def test_status_is_silent_about_the_queue_below_the_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace_inst = make_installation(
+        tmp_path,
+        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
+        limits=dict(max_open_prs=2),
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("one/1", change="one")])
+    store.set_state("one/1", IN_REVIEW, pr=11)
+    monkeypatch.setattr(cli, "current_usage", lambda: reading())
+
+    assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
+
+    assert "queue is full" not in capsys.readouterr().out.lower()

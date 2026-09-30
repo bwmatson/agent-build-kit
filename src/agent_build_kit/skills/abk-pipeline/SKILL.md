@@ -108,9 +108,14 @@ without a fix: it will fail the same way and cost a run.
    (`abk check` and `abk tags` first).
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
 3. Units build in dependency order, at most `limits.max_concurrent_stacks`
-   at a time. Each builds only its own task groups, never a later unit's,
-   even when the tasks for one are visible right there in `tasks.md`, and
-   ends `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
+   at a time. No new unit starts while open PRs across all repos, plus the
+   ones builds in flight will open, are at `limits.max_open_prs`, and a pass
+   starts no more new units than fit under it: the rest stay `planned`, and
+   the tick log and `abk status` say "queue is full: N open pull requests,
+   ceiling M". The way out is to merge or close a PR. Free slots go to
+   open-PR work first (reworks, restacks), then resuming builds, then new
+   units. Each builds only its own task groups, never a later unit's, even
+   when the tasks for one are visible right there in `tasks.md`, and ends `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
    already did the work.
 4. Humans review and merge. A merge restacks whatever was on the branch.
 5. When every unit is merged or satisfied, the tick deploys the change (`deploy.rules`),
