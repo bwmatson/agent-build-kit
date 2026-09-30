@@ -70,7 +70,7 @@ limits:
   stack_depth_build_cap: 3    # longest chain of in-review PRs from main (was stack_depth_cap)
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_concurrent_stacks: 4    # units implemented at once, across repos
-  max_open_prs: 5             # open PRs across repos (>= 1); at it no new unit starts
+  max_units_in_progress: 5    # started, unfinished units (>= 1); at it no never-started unit starts
   min_unit_lines: 500         # estimated lines before a unit stops growing
   max_unit_lines: 1000        # estimated lines one unit may carry; above
                               # min_unit_lines. Plans only, not branches

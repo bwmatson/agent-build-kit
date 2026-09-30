@@ -74,10 +74,8 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
-    builds_heading_for_pr,
+    in_progress,
     local_ref,
-    new_start_room,
-    open_pr_count,
     ready_units,
     trunk_of,
 )
@@ -395,7 +393,7 @@ def _evaluate(
     started: set[str],
     building: set[str],
     only: frozenset[str],
-    enforce_ceiling: bool = True,
+    enforce_limit: bool = True,
 ) -> list[Unit]:
     """What this pass may start now.
 
@@ -419,28 +417,35 @@ def _evaluate(
         view,
         max_concurrent=inst.max_concurrent_stacks,
         depth_cap=inst.stack_depth_build_cap,
-        max_open_prs=inst.max_open_prs if enforce_ceiling else None,
+        max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
     )
     return [unit for unit in ready if unit.id not in started]
 
 
 def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
-    if new_start_room(units, inst.max_open_prs) > 0:
+    held = [unit for unit in units if in_progress(unit)]
+    if len(held) < inst.max_units_in_progress:
         return None
-    count = open_pr_count(units)
-    coming = builds_heading_for_pr(units)
-    heading = f" and {coming} being built" if coming else ""
-    return f"queue is full: {count} open pull requests{heading}, ceiling {inst.max_open_prs}"
+    by_state: dict[str, int] = {}
+    for unit in held:
+        by_state[unit.state] = by_state.get(unit.state, 0) + 1
+    states = ", ".join(
+        f"{count} {state.replace('_', ' ')}" for state, count in sorted(by_state.items())
+    )
+    return (
+        f"queue is full: {len(held)} units in progress, limit {inst.max_units_in_progress} "
+        f"({states})"
+    )
 
 
 def _nothing_started_reason(
     inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
 ) -> str:
-    """Why a pass starts nothing: the ceiling, when lifting it would start a
+    """Why a pass starts nothing: the limit, when lifting it would start a
     unit, and otherwise that nothing is ready."""
     full = _queue_full_line(inst, units)
     if full and _evaluate(
-        inst, units, started=set(), building=set(), only=only, enforce_ceiling=False
+        inst, units, started=set(), building=set(), only=only, enforce_limit=False
     ):
         return f"{full}; no new unit starts until one merges"
     return "nothing ready to build"
