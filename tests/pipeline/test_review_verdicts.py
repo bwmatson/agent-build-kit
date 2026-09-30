@@ -33,9 +33,9 @@ def _verdict(**fields: object) -> str:
 
 
 def _capturing_prs(runner, bodies: list[str]):
-    def open_pr(unit, *, body: str, base: str, cwd: Path) -> int:
+    def open_pr(unit, *, body: str, base: str, cwd: Path, **stacked: str) -> int:
         bodies.append(body)
-        return runner.open_pr(unit, body=body, base=base, cwd=cwd)
+        return runner.open_pr(unit, body=body, base=base, cwd=cwd, **stacked)
 
     return runner.model_copy(update={"open_pr": open_pr})
 

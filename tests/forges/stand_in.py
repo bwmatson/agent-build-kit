@@ -13,10 +13,10 @@ they do not care about.
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
+from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote, Stack, StackRefused
 from agent_build_kit.forges.base import PermittedCommand, Run
 
 
@@ -24,6 +24,7 @@ class StandInForge:
     name: str = "stand_in"
     implemented: bool = True
     deletes_head_branch_on_merge: bool = False
+    supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
     permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ()
@@ -107,6 +108,17 @@ class StandInForge:
 
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
         self.updated.append({"pr": pr, "base": base, "body": body})
+
+    # --- stacks -------------------------------------------------------------
+
+    def stack_of(self, repo: RepoId, pr: int) -> Stack | None:
+        return None
+
+    def create_stack(self, repo: RepoId, pulls: Sequence[int]) -> Stack:
+        raise StackRefused("the stand-in host has no stacks")
+
+    def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
+        raise StackRefused("the stand-in host has no stacks")
 
     # --- review -------------------------------------------------------------
 

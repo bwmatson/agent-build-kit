@@ -146,6 +146,16 @@ class StaleRemote(RuntimeError):
     """The remote branch moved since we last pushed — somebody else's commit."""
 
 
+class HostMoved(RuntimeError):
+    """The host moved the branch since we last pushed, and it was adopted.
+
+    Not a failure: after a stack merge the host rebases the pull requests
+    above and force-pushes their branches itself. The local branch now holds
+    the host's head, which no review has seen, so nothing is pushed until
+    review has.
+    """
+
+
 # Long enough to be distinctive rather than incidental: `x`, `if` or a brace
 # says nothing about whether the unit's change survived.
 MIN_MARKER_LENGTH = 5
@@ -390,6 +400,59 @@ def push_target(repo: Path) -> str:
         return "origin"
 
     return f"git@{active().github.push_host}:{match.group('path')}"
+
+
+def remote_head(repo: Path, branch: str) -> str:
+    """The branch's head where it is pushed, or "" when it cannot be read.
+
+    Read from `push_target`, not `origin`: that is what every lease is
+    checked against, and where the two differ `origin` may not even answer.
+    """
+    found = git(repo, "ls-remote", push_target(repo), f"refs/heads/{branch}", check=False).stdout
+    return found.split()[0] if found.strip() else ""
+
+
+def adopt_host_head(
+    repo: Path, branch: str, *, host_head: str, last_pushed: str | None, cwd: Path
+) -> str:
+    """Bring the local branch to the host's head for it, keeping local work.
+
+    After this the next lease matches the host, and review judges what the
+    host has rather than what it replaced. Commits made here since the last
+    push — a rework not yet pushed — are replayed onto the host's head; if
+    they do not apply, nothing is changed and it is left for a human.
+    """
+    here_head = git(repo, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
+    if here_head == host_head:
+        # Already there — a push whose recording was lost. Nothing to replay.
+        return here_head
+
+    git(repo, "fetch", "-q", push_target(repo), f"refs/heads/{branch}")
+    here = git(cwd, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    checked_out = here == branch
+    local_only = (
+        git(repo, "rev-list", f"{last_pushed}..{branch}", check=False).stdout.split()
+        if last_pushed
+        else []
+    )
+
+    if not local_only:
+        if checked_out:
+            git(cwd, "reset", "-q", "--hard", host_head)
+        else:
+            git(repo, "branch", "-f", branch, host_head)
+        return git(repo, "rev-parse", branch).stdout.strip()
+
+    if checked_out and last_pushed:
+        result = git(cwd, "rebase", "-q", "--onto", host_head, last_pushed, check=False)
+        if not result.returncode:
+            return git(repo, "rev-parse", branch).stdout.strip()
+        git(cwd, "rebase", "--abort", check=False)
+    raise StaleRemote(
+        f"the host moved {branch} to {host_head[:9]}, and the {len(local_only)} "
+        "commit(s) made here since the last push do not apply onto it — include "
+        "them by hand before pushing again."
+    )
 
 
 def resolved_move(

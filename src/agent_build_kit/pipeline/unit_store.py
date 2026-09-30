@@ -76,6 +76,10 @@ class StoredUnit(Unit):
     # The file name of this unit's most recent run log (see `run_log`); empty
     # until it has run.
     run_log: str = ""
+    # Why the host last refused to register this unit's pull request in a
+    # stack; empty when it did, or was never asked. Advisory: nothing reads it
+    # to decide anything.
+    stack_refusal: str = ""
     history: tuple[dict, ...] = ()
 
 
@@ -187,6 +191,7 @@ class UnitStore:
                 predecessor_note=existing.predecessor_note if existing else "",
                 review_rounds=existing.review_rounds if existing else (),
                 run_log=existing.run_log if existing else "",
+                stack_refusal=existing.stack_refusal if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing:
@@ -284,6 +289,11 @@ class UnitStore:
 
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
         self._update(unit_id, predecessor_note=note)
+
+    def set_stack_refusal(self, unit_id: str, reason: str) -> None:
+        """Why the host would not stack this unit's PR, or `""` once it did.
+        Not a state change: the refusal changes nothing about the unit."""
+        self._update(unit_id, stack_refusal=reason)
 
     def record_approval(
         self, unit_id: str, sha: str, deferred: Sequence[str] | None = None

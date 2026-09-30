@@ -18,7 +18,7 @@ import pytest
 from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import Poller
-from agent_build_kit.pipeline.restack import Moved, RestackConflict
+from agent_build_kit.pipeline.restack import Moved, RestackConflict, StaleRemote
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
@@ -379,6 +379,133 @@ def test_a_clean_restack_carries_the_approval_to_the_new_head(tmp_path: Path) ->
     )
 
     assert pushed == ["pushed"]
+    assert store.get("c/2").approved == "rebased-head"
+
+
+def test_a_branch_the_host_moved_is_re_reviewed_before_anything_is_pushed(
+    tmp_path: Path,
+) -> None:
+    """After a stack merge the host rebases the pull requests above and
+    force-pushes their branches itself. No run of the unit moved it, so the
+    local branch still sits at the approved commit — only the branch on the
+    host says otherwise, and that is what has to be inspected. The old
+    approval does not carry to a head review never saw."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/2")])
+    store.set_state("c/2", IN_REVIEW, pr=2, branch="spec/c/2")
+    store.record_approval("c/2", "approved")
+    store.record_push("c/2", "approved")
+    order: list[str] = []
+    adopted: list[dict] = []
+    restack = events.build_restack(
+        repos={"app": tmp_path},
+        store=store,
+        root=tmp_path,
+        move=lambda *a, **k: order.append("move") or Moved(sha="newsha"),
+        tier1=lambda **k: (order.append("tier1"), (True, ""))[1],
+        push=lambda *a, **k: order.append("push") or "newsha",
+        retarget=lambda *a, **k: None,
+        comment=lambda *a, **k: None,
+        diff_id=lambda repo, base, branch: "same-diff",
+        head_of=lambda repo, branch: "approved",
+        remote_head_of=lambda repo, branch: "host-rebased",
+        adopt=lambda repo, branch, **k: order.append("adopt") or adopted.append(k) or "",
+    )
+
+    restack(
+        branch="spec/c/2",
+        old_base="spec/c/1",
+        new_base="main",
+        child=store.get("c/2"),
+        parent=unit("c/1", pr=1, branch="spec/c/1", state=MERGED),
+    )
+
+    assert "push" not in order
+    # The host already rebased it onto the trunk: `old_base..branch` now spans
+    # trunk commits that are not the unit's, and replaying them invites
+    # conflicts in code it never touched.
+    assert "move" not in order, "a branch the host rebased is not moved again"
+    assert adopted[0]["host_head"] == "host-rebased"
+    assert store.get("c/2").state == PLANNED
+    assert store.get("c/2").resume_from == "rework_review"
+    assert store.get("c/2").approved == "", "no approval for the host's head"
+    assert store.get("c/2").pushed == "host-rebased", "the next lease names what the host has"
+
+
+def test_a_failed_adopt_still_retargets_the_pr(tmp_path: Path) -> None:
+    """With its base merged away, a PR left pointing at it is closed by the
+    host. Whatever adopting the host's head does, the retarget has happened."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/2")])
+    store.set_state("c/2", IN_REVIEW, pr=2, branch="spec/c/2")
+    store.record_push("c/2", "approved")
+    retargeted: list[tuple] = []
+
+    def adopt(*a, **k):
+        raise StaleRemote("local commits do not apply")
+
+    restack = events.build_restack(
+        repos={"app": tmp_path},
+        store=store,
+        root=tmp_path,
+        move=lambda *a, **k: Moved(sha="newsha"),
+        tier1=lambda **k: (True, ""),
+        push=lambda *a, **k: "newsha",
+        retarget=lambda pr, base, **k: retargeted.append((pr, base)),
+        comment=lambda *a, **k: None,
+        diff_id=lambda repo, base, branch: "same-diff",
+        head_of=lambda repo, branch: "approved",
+        remote_head_of=lambda repo, branch: "host-rebased",
+        adopt=adopt,
+    )
+
+    with pytest.raises(StaleRemote):
+        restack(
+            branch="spec/c/2",
+            old_base="spec/c/1",
+            new_base="main",
+            child=store.get("c/2"),
+            parent=unit("c/1", pr=1, branch="spec/c/1", state=MERGED),
+        )
+
+    assert retargeted == [(2, "main")]
+
+
+def test_a_push_whose_recording_was_lost_is_not_taken_for_a_host_move(tmp_path: Path) -> None:
+    """A crash between a push and recording it leaves the host ahead of the
+    store but level with the local branch. Nobody moved it, so the approval
+    stands and the restack goes ahead as usual."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/2")])
+    store.set_state("c/2", IN_REVIEW, pr=2, branch="spec/c/2")
+    store.record_approval("c/2", "approved")
+    store.record_push("c/2", "before")
+    leases: list[str | None] = []
+    heads = iter(["approved", "approved", "rebased-head"])
+    restack = events.build_restack(
+        repos={"app": tmp_path},
+        store=store,
+        root=tmp_path,
+        move=lambda *a, **k: Moved(sha="newsha"),
+        tier1=lambda **k: (True, ""),
+        push=lambda repo, branch, last_pushed: leases.append(last_pushed) or "rebased-head",
+        retarget=lambda *a, **k: None,
+        comment=lambda *a, **k: None,
+        diff_id=lambda repo, base, branch: "same-diff",
+        head_of=lambda repo, branch: next(heads),
+        remote_head_of=lambda repo, branch: "approved",
+        adopt=lambda *a, **k: pytest.fail("nothing to adopt"),
+    )
+
+    restack(
+        branch="spec/c/2",
+        old_base="spec/c/1",
+        new_base="main",
+        child=store.get("c/2"),
+        parent=unit("c/1", pr=1, branch="spec/c/1", state=MERGED),
+    )
+
+    assert leases == ["approved"], "the lease names what the host really has"
     assert store.get("c/2").approved == "rebased-head"
 
 

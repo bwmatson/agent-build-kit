@@ -24,6 +24,7 @@ from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.restack import (
     RestackConflict,
     StaleRemote,
+    adopt_host_head,
     move_branch_onto,
     push_with_lease,
 )
@@ -139,6 +140,77 @@ def test_a_push_refuses_when_somebody_else_moved_the_branch(stack: Path, tmp_pat
         push_with_lease(stack, "spec/c/1", last_pushed=pushed)
 
     assert "theirs.txt" in git(stack, "show", "--name-only", "origin/spec/c/1")
+
+
+def _host_rebases(tmp_path: Path, branch: str) -> str:
+    """What the host does after a stack merge: rebase the branch onto a trunk
+    that has moved on, and force-push it from somewhere that is not this
+    checkout. The branch then carries trunk commits that are not its own.
+    Returns the new head."""
+    other = tmp_path / "host"
+    # `-b`: the bare remote's HEAD names the machine's default branch, which
+    # is not always `main`, and a clone of a dangling HEAD checks nothing out.
+    subprocess.run(
+        ["git", "clone", "-q", "-b", "main", str(tmp_path / "remote.git"), str(other)], check=True
+    )
+    git(other, "config", "user.email", "o@o.o")
+    git(other, "config", "user.name", "o")
+    commit(other, "trunk.txt", "landed on the trunk meanwhile")
+    git(other, "push", "-q", "origin", "main")
+    git(other, "checkout", "-q", branch)
+    git(other, "rebase", "-q", "main")
+    git(other, "push", "-q", "--force", "origin", branch)
+    return git(other, "rev-parse", "HEAD").strip()
+
+
+def test_the_host_s_head_is_read_where_branches_are_pushed(
+    stack: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not `origin`: the lease is checked against `push_target`, and where the
+    two differ `origin` may not answer at all."""
+    push_with_lease(stack, "spec/c/1", last_pushed=None)
+    git(stack, "remote", "set-url", "origin", str(tmp_path / "nowhere.git"))
+    monkeypatch.setattr(restack, "push_target", lambda repo: str(tmp_path / "remote.git"))
+
+    assert restack.remote_head(stack, "spec/c/1") == git(stack, "rev-parse", "spec/c/1").strip()
+
+
+def test_a_branch_the_host_moved_is_brought_to_the_host_s_head(stack: Path, tmp_path: Path) -> None:
+    """So review judges what the host has, and the next lease names it."""
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    host_head = _host_rebases(tmp_path, "spec/c/1")
+
+    adopted = adopt_host_head(stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack)
+
+    assert adopted == host_head
+    assert git(stack, "rev-parse", "spec/c/1").strip() == host_head
+    assert "trunk.txt" in git(stack, "show", "--name-only", "spec/c/1~1"), "the host's rebase"
+    push_with_lease(stack, "spec/c/1", last_pushed=host_head)  # the lease now holds
+
+
+def test_a_branch_already_at_the_host_s_head_is_left_alone(stack: Path) -> None:
+    """A push whose recording was lost: the store's last push is older than
+    both. Nothing is replayed, and nothing is refused."""
+    before = git(stack, "rev-parse", "main").strip()
+    head = push_with_lease(stack, "spec/c/1", last_pushed=None)
+
+    adopted = adopt_host_head(stack, "spec/c/1", host_head=head, last_pushed=before, cwd=stack)
+
+    assert adopted == head
+    assert git(stack, "rev-parse", "spec/c/1").strip() == head
+
+
+def test_work_not_yet_pushed_is_kept_on_top_of_the_host_s_head(stack: Path, tmp_path: Path) -> None:
+    """A rework committed here since the last push is replayed, not dropped."""
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    host_head = _host_rebases(tmp_path, "spec/c/1")
+    git(stack, "checkout", "-q", "spec/c/1")
+    commit(stack, "rework.txt")
+
+    adopt_host_head(stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack)
+
+    assert git(stack, "rev-parse", "spec/c/1~1").strip() == host_head
+    assert (stack / "rework.txt").exists()
 
 
 def test_a_blast_radius_note_says_what_moved_and_why() -> None:

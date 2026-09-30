@@ -6,6 +6,8 @@ blocked merge. So the body has to carry what a human needs in order to decide
 — and to notice when they shouldn't merge yet (docs/architecture.md).
 """
 
+import pytest
+
 from agent_build_kit.pipeline.pr_body import (
     assumptions,
     build_pr_body,
@@ -229,3 +231,65 @@ def test_the_satisfied_reason_looks_through_a_satisfied_predecessor() -> None:
 
     assert "scope/1" in reason
     assert "#9" in reason
+
+
+# --- a host that renders the stack itself ---------------------------------------
+
+
+def _chain():
+    parent = unit("add-marker/1", depends_on=(), state="in_review", pr=4)
+    child = unit("add-marker/2", depends_on=("add-marker/1",))
+    return parent, child
+
+
+def test_on_a_host_with_stacks_the_body_leaves_the_order_to_the_host() -> None:
+    """Two sources of one truth, and the pipeline's is the one that goes
+    stale. Where the host has no stacks, the body is exactly today's."""
+    parent, child = _chain()
+    today = build_pr_body(child, graph=[parent, child], base="spec/add-marker/1")
+
+    without = build_pr_body(child, graph=[parent, child], base="spec/add-marker/1", stacks=False)
+    with_stacks = build_pr_body(child, graph=[parent, child], base="spec/add-marker/1", stacks=True)
+
+    assert without == today
+    assert stack_line(child, [parent, child], base="spec/add-marker/1") not in with_stacks
+    assert "Stacked on" not in with_stacks
+    assert "first" not in with_stacks.split("## Assumptions")[0].lower(), (
+        "no merge-order instruction: the host shows the order"
+    )
+    assert "linear" in with_stacks.lower(), "it says what the host cannot: that the chain is linear"
+    assert "not linear" not in with_stacks.lower()
+
+
+@pytest.mark.parametrize("stacks", [True, False], ids=["with-stacks", "without-stacks"])
+def test_a_chain_left_non_linear_says_so_either_way(stacks: bool) -> None:
+    """A non-linear chain cannot be merged until it is rebased; a reviewer
+    should read that, not infer it from a disabled button."""
+    parent, child = _chain()
+
+    body = build_pr_body(
+        child, graph=[parent, child], base="spec/add-marker/1", stacks=stacks, linear=False
+    )
+
+    assert "not linear" in body.lower()
+    assert "rebase" in body.lower()
+
+
+def test_a_unit_on_the_trunk_is_ready_to_merge_whichever_host() -> None:
+    """Nothing unmerged is beneath it, so there is no chain to call linear —
+    and what a reviewer needs is that it can merge now."""
+    body = build_pr_body(unit(), graph=[unit()], base="main", stacks=True)
+
+    assert "sits on the one below it" not in body
+    assert "ready to merge" in body
+
+
+def test_on_a_host_with_stacks_the_body_still_says_what_it_waits_for() -> None:
+    """Without naming its position: that is the host's to show."""
+    parent, child = _chain()
+
+    body = build_pr_body(child, graph=[parent, child], base="spec/add-marker/1", stacks=True)
+    opening = body.split("Unit `")[0]
+
+    assert "merges after everything beneath it" in opening
+    assert "add-marker/1" not in opening

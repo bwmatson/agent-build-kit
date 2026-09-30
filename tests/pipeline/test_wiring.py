@@ -22,6 +22,7 @@ import pytest
 
 from agent_build_kit.config import ProjectConfig, models
 from agent_build_kit.pipeline.pr_replies import MARKER
+from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.wiring import (
@@ -36,6 +37,7 @@ from agent_build_kit.pipeline.wiring import (
     build_run_review,
     build_tier1,
     build_upstream_incomplete,
+    is_linear,
     tip,
 )
 from tests.conftest import make_installation
@@ -162,6 +164,111 @@ def test_the_push_uses_the_sha_we_last_recorded(tmp_path: Path) -> None:
     )("spec/add-marker/1", cwd=tmp_path)
 
     assert pushed[0] == ("spec/add-marker/1", None), "first push has nothing to protect"
+
+
+def test_a_branch_the_host_moved_is_adopted_not_pushed(tmp_path: Path) -> None:
+    """Every push passes here, so this catches a unit the host moved whoever
+    it is — after a stack merge the host rewrites every PR above the merged
+    one, not only its direct child. Pushing would fail its lease forever; the
+    host's head is taken instead, and review sees it before anything is sent."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.record_push("add-marker/1", "before-the-merge")
+    store.record_approval("add-marker/1", "before-the-merge")
+    pushed: list[str] = []
+    adopted: list[dict] = []
+
+    push = build_push(
+        store,
+        push=lambda repo, branch, last_pushed: pushed.append(branch) or "sha1",
+        remote_head_of=lambda repo, branch: "host-rebased",
+        adopt=lambda repo, branch, **k: adopted.append(k) or "host-rebased",
+    )
+    with pytest.raises(HostMoved):
+        push("spec/add-marker/1", cwd=tmp_path)
+
+    assert pushed == []
+    assert adopted == [
+        {"host_head": "host-rebased", "last_pushed": "before-the-merge", "cwd": tmp_path}
+    ]
+    assert store.get("add-marker/1").pushed == "host-rebased", "the next lease holds"
+    assert store.get("add-marker/1").approved == ""
+
+
+def test_a_push_whose_recording_was_lost_is_not_taken_for_a_host_move(tmp_path: Path) -> None:
+    """A crash between a push and recording it: the host is ahead of the store
+    but level with the local branch. Nobody moved it, so nothing is adopted
+    and the approval stands."""
+    repo = init_repo(tmp_path / "repo")
+    (repo / "x.txt").write_text("x")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "x")
+    git(repo, "branch", "-q", "spec/add-marker/1")
+    head = git(repo, "rev-parse", "HEAD").strip()
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.record_push("add-marker/1", "before")
+    store.record_approval("add-marker/1", head)
+    pushed: list[tuple] = []
+
+    build_push(
+        store,
+        push=lambda repo, branch, last_pushed: pushed.append((branch, last_pushed)) or head,
+        remote_head_of=lambda repo, branch: head,
+        adopt=lambda *a, **k: pytest.fail("nothing to adopt"),
+    )("spec/add-marker/1", cwd=repo)
+
+    assert pushed == [("spec/add-marker/1", head)], "the lease names what the host has"
+    assert store.get("add-marker/1").approved == head
+
+
+def test_is_linear_raises_no_alarm_over_a_base_it_cannot_resolve(tmp_path: Path) -> None:
+    """Only a definite "not an ancestor" is not linear; an unknown ref is unknown."""
+    repo = init_repo(tmp_path / "repo")
+    (repo / "x.txt").write_text("x")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "x")
+
+    assert is_linear(repo, "no-such-branch") is True
+
+
+def test_is_linear_follows_whether_the_base_tip_is_in_the_branch(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "repo")
+    (repo / "x.txt").write_text("x")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "x")
+    git(repo, "checkout", "-qb", "child")
+    (repo / "y.txt").write_text("y")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "y")
+
+    assert is_linear(repo, "main") is True
+
+    git(repo, "checkout", "-q", "main")
+    (repo / "z.txt").write_text("z")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "z")
+    git(repo, "checkout", "-q", "child")
+
+    assert is_linear(repo, "main") is False
+
+
+def test_a_branch_the_host_still_has_as_pushed_is_pushed(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.record_push("add-marker/1", "sha0")
+    pushed: list[tuple] = []
+
+    build_push(
+        store,
+        push=lambda repo, branch, last_pushed: pushed.append((branch, last_pushed)) or "sha1",
+        remote_head_of=lambda repo, branch: "sha0",
+    )("spec/add-marker/1", cwd=tmp_path)
+
+    assert pushed == [("spec/add-marker/1", "sha0")]
 
 
 def test_a_pr_is_created_once_and_updated_after_that(tmp_path: Path) -> None:

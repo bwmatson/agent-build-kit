@@ -694,7 +694,7 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
             commits[unit.id] = commits.get(unit.id, 0) + 1
             return 1
 
-        def open_pr(u, *, body: str, base: str, cwd: Path) -> int:
+        def open_pr(u, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
             opened.append((u.id, base))
             return 20 + len(opened)
 

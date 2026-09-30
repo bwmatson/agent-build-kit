@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Collection, Sequence
+from functools import partial
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -37,6 +38,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import last_json
+from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -860,6 +862,9 @@ class UnitRunner(BaseModel):
     # closes it. A no-op default: most units never reach `satisfied` holding
     # one. See `wiring.build_close_pr`.
     close_pr: Callable[[Unit, int, str], None] = lambda unit, pr, reason: None
+    # Whether the branch in the tree still sits on its base ref, which the PR
+    # body reports whichever host renders the stack. See `pr_body`.
+    linear: Callable[[Path, str], bool] = lambda tree, base: True
     # Posts a rework's replies to the review threads it answered, after the
     # push. See `pr_replies`.
     reply: Callable[..., None] = lambda **kwargs: None
@@ -1277,7 +1282,16 @@ class UnitRunner(BaseModel):
                 f"refusing to push {head[:9] or '?'}: review approved "
                 f"{approved_sha[:9] or 'nothing'} on this branch",
             )
-        sha = self.push(branch, cwd=tree)
+        try:
+            sha = self.push(branch, cwd=tree)
+        except HostMoved as moved:
+            # Not pushed: the tree now holds the host's head, and review has
+            # to pass it before anything goes to the PR.
+            self.log(f"not pushed: {moved}")
+            self.store.set_state(
+                unit.id, PLANNED, note=f"not pushed: {moved}", resume_from=REWORK_REVIEW
+            )
+            return RunOutcome(status="held", detail=f"re-reviewing: {moved}")
         self.log(f"pushed {branch} at {sha[:9]}")
 
         # Only now, with the push confirmed: a follow-up recorded ahead of a
@@ -1289,21 +1303,23 @@ class UnitRunner(BaseModel):
             self.store.set_deferred(unit.id, ())
 
         stored = self.store.get(unit.id)
-        pr = self.open_pr(
-            unit,
-            body=build_pr_body(
-                stored,
-                graph=graph or [stored],
-                base=base,
-                tier2_snapshot=snapshot,
-                # From the change's own record of this unit's follow-ups, not
-                # this run's local `deferred`: a unit resumed at VERIFY skips
-                # review and has none, a rework re-pushes without repeating
-                # them, and a later approval must not lose an earlier one's.
-                follow_ups=self._follow_ups_for(unit) or None,
-            ),
+        # Both bodies: whether the host shows this PR in a stack is only known
+        # once `open_pr` has asked it to, so that step picks.
+        body = partial(
+            build_pr_body,
+            stored,
+            graph=graph or [stored],
             base=base,
-            cwd=tree,
+            tier2_snapshot=snapshot,
+            # From the change's own record of this unit's follow-ups, not
+            # this run's local `deferred`: a unit resumed at VERIFY skips
+            # review and has none, a rework re-pushes without repeating
+            # them, and a later approval must not lose an earlier one's.
+            follow_ups=self._follow_ups_for(unit) or None,
+            linear=self.linear(tree, ref),
+        )
+        pr = self.open_pr(
+            unit, body=body(stacks=False), stacked_body=body(stacks=True), base=base, cwd=tree
         )
 
         # After the push, never before: a status for a commit GitHub has not
@@ -1702,20 +1718,27 @@ class UnitRunner(BaseModel):
         worktree. Nothing here is approved or merged — tier 1, tier 2 and the
         approved-commit push gate are all skipped, and no task is ticked.
         """
-        sha = self.push(branch, cwd=tree)
+        try:
+            sha = self.push(branch, cwd=tree)
+        except HostMoved as moved:
+            # Not a failure: the adoption replayed local commits onto the
+            # host's head and recorded it, so the lease holds on a second push.
+            # This path pushes unapproved work for a person by design.
+            self.log(f"{moved} — pushing again")
+            sha = self.push(branch, cwd=tree)
         self.log(f"pushed {branch} at {sha[:9]} — rounds spent, holding for a person")
         stored = self.store.get(unit.id)
-        pr = self.open_pr(
-            unit,
-            body=build_pr_body(
-                stored,
-                graph=graph or [stored],
-                base=base,
-                open_points=why,
-                follow_ups=self._follow_ups_for(unit) or None,
-            ),
+        body = partial(
+            build_pr_body,
+            stored,
+            graph=graph or [stored],
             base=base,
-            cwd=tree,
+            open_points=why,
+            follow_ups=self._follow_ups_for(unit) or None,
+            linear=self.linear(tree, local_ref(base)),
+        )
+        pr = self.open_pr(
+            unit, body=body(stacks=False), stacked_body=body(stacks=True), base=base, cwd=tree
         )
         self.store.set_state(
             unit.id,

@@ -9,7 +9,8 @@ provisional parts of the work come together where a human will see them
 Three things it must always say:
 
 - **Where this sits in the stack,** because merging out of order is the
-  easiest mistake to make and GitHub shows nothing about stacks.
+  easiest mistake to make — unless the host renders the stack itself, when the
+  body says only whether the chain is linear, which the host does not.
 - **What it assumes,** since a unit stacked on unmerged work is built on
   something that may still change.
 - **How it was verified,** including the tier 2 snapshot, which no CI run can
@@ -24,14 +25,19 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import MERGED, through_satisfied
 
 
-def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
-    """One line describing what this PR sits on, and whether it may merge."""
+def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
+    """What this unit depends on that has not merged yet."""
     index = {item.id: item for item in graph}
-    unmerged = [
+    return [
         index[dep]
         for dep in through_satisfied(unit, graph)
         if dep in index and index[dep].state != MERGED
     ]
+
+
+def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
+    """One line describing what this PR sits on, and whether it may merge."""
+    unmerged = _unmerged(unit, graph)
 
     if not unmerged:
         return (
@@ -51,12 +57,7 @@ def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
 def assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
     """The PR body's statement of what the unit assumes about the units beneath it:
     which are still unmerged, or that nothing is."""
-    index = {item.id: item for item in graph}
-    unmerged = [
-        index[dep]
-        for dep in through_satisfied(unit, graph)
-        if dep in index and index[dep].state != MERGED
-    ]
+    unmerged = _unmerged(unit, graph)
 
     if not unmerged:
         return "This unit assumes nothing unmerged: everything it builds on is already in `main`."
@@ -80,6 +81,8 @@ def build_pr_body(
     restack_note: str | None = None,
     open_points: str | None = None,
     follow_ups: list[str] | None = None,
+    stacks: bool = False,
+    linear: bool = True,
 ) -> str:
     """The full description for a unit's PR."""
     groups = ", ".join(str(group) for group in unit.groups) or "—"
@@ -112,8 +115,32 @@ def build_pr_body(
         else ""
     )
 
+    # Where the host renders the stack, it shows the order and what is beneath
+    # this PR; repeated here, the pipeline's copy is the one that goes stale.
+    # Linearity it does not show until the merge button is disabled. On the
+    # trunk there is no chain beneath to be linear or not, and `stack_line`
+    # says what matters: that it is ready to merge.
+    line = stack_line(unit, graph, base=base)
+    beneath = _unmerged(unit, graph)
+    if not beneath:
+        position = line
+    elif not linear:
+        linearity = (
+            "**The chain is not linear**: this branch no longer sits on the one below "
+            "it, so it cannot be merged until the pipeline rebases it."
+        )
+        position = linearity if stacks else f"{line}\n\n{linearity}"
+    elif stacks:
+        position = "The chain beneath this is linear: this branch sits on the one below it."
+    else:
+        position = line
+    if stacks and beneath:
+        # What it is waiting for, without restating where it sits.
+        position += " It merges after everything beneath it in the stack has merged."
+    order = "the stack order the host shows" if stacks else "the stack order above"
+
     return f"""\
-{stack_line(unit, graph, base=base)}
+{position}
 
 Unit `{unit.id}` of change **{unit.change}**, task group(s) {groups}.
 Spec: `openspec/changes/{unit.change}/` in the planning repo.
@@ -133,7 +160,7 @@ formatting and types pass at the tip.
 ---
 
 _Opened by the spec-driven pipeline. It never merges its own PRs — a human
-merges every one, after checking the stack order above._
+merges every one, after checking {order}._
 """
 
 
