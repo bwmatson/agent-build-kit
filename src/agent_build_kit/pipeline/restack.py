@@ -24,14 +24,16 @@ wrong once:
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git as _shell_git
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
@@ -41,6 +43,39 @@ Runner = Callable[[list[str]], str]
 Resolver = Callable[..., None]
 
 CONFLICT_MARKERS = ("<<<<<<<", ">>>>>>>", "=======")
+
+# `-c`, not the repository's own config: an operator working in the same
+# checkout is unaffected unless they turn rerere on themselves. `autoUpdate`
+# stays off deliberately — a replayed resolution lands in the file, but the
+# path stays unmerged until something stages it, so the resolver still has to
+# look at what it's confirming rather than trust a cache blindly.
+RERERE = ("-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=false")
+
+
+def _untranslated_env() -> dict[str, str]:
+    """The environment for the one git call whose *output* we parse.
+
+    rerere's replay notice ("Resolved '<path>' using previous resolution.")
+    goes through gettext, so a translated locale would silently break the
+    match in `_replayed_files` below. This forces it back to the one string we
+    match. Built fresh at call time, not once at import: a copy taken at
+    import would freeze out any environment change made afterwards (HOME,
+    GIT_*, PATH — including what a test fixture sets up after this module is
+    imported), and this is the only call in the module that would otherwise
+    disagree with the live environment every other call sees.
+    """
+    return {**os.environ, "LC_ALL": "C", "LANGUAGE": "C"}
+
+
+def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
+    """Every git invocation this module makes, with `rerere` riding along.
+
+    The cache itself (`rr-cache`) lives under the repository's common git
+    directory regardless of this flag, shared by every worktree; this is only
+    what makes git read and write it on the pipeline's own invocations rather
+    than nowhere.
+    """
+    return _shell_git(repo, *RERERE, *args, **kwargs)
 
 
 class RestackConflict(RuntimeError):
@@ -84,7 +119,7 @@ resolution should keep both unless they genuinely cannot coexist.
 
 Conflicted files:
 {files}
-
+{replayed}
 {diff}
 
 Edit the conflicted files so that both intents survive, and remove every
@@ -92,6 +127,18 @@ conflict marker. Change **only the conflict**: a rebase is not the place for
 improvements, and anything beyond the conflict is unreviewed work smuggled
 into someone else's diff. If the two intents truly contradict each other,
 leave the markers in place — stopping is better than guessing.
+"""
+
+REPLAYED_NOTE = """
+These paths arrived with a resolution replayed from an earlier run of this
+same conflict — filled in, but still unstaged for you to judge:
+{files}
+Leave one unchanged to accept it — the pipeline stages it for you. Edit it to
+correct it, and your fix replaces what's cached for the next replay. If it is
+wrong and cannot be reconciled with what you are resolving, put a `<<<<<<<`
+line in the file instead: that is read as a rejection, aborts the move for a
+human, and clears this cached entry so the next sibling sees the conflict
+fresh rather than the same bad resolution.
 """
 
 
@@ -166,6 +213,25 @@ def _conflicted_files(repo: Path) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
+REPLAYED_NOTICE = re.compile(r"^Resolved '(.+)' using previous resolution\.$", re.MULTILINE)
+
+
+def _replayed_files(output: str, files: list[str]) -> list[str]:
+    """Which of `files` arrived with a rerere replay, from positive evidence
+    in `output` — the text `git rebase` prints (via rerere, in the untranslated
+    locale `_UNTRANSLATED_ENV` forces) when it fills a path from its cache.
+
+    Not `git rerere remaining`: that command lists paths rerere did *not*
+    resolve, and absence from it was read as "resolved by a replay" — but a
+    conflict rerere never tracks at all, such as a binary conflict, is neither
+    PUNTED nor added to MERGE_RR, so it is absent from `remaining` too, with
+    an empty cache and nothing replayed. Absence proves nothing; only the
+    replay notice itself does.
+    """
+    replayed = set(REPLAYED_NOTICE.findall(output))
+    return [name for name in files if name in replayed]
+
+
 def _abort(repo: Path, message: str) -> RestackConflict:
     # Leave nothing half-applied: a rebase in progress makes every later
     # command in this worktree fail in a confusing way.
@@ -198,7 +264,16 @@ def move_branch_onto(
     `must_keep` defaults to lines derived from the moving branch's own diff
     (`derive_must_keep`), so a caller doesn't have to hand-write the guard.
     """
-    result = git(repo, "rebase", "--onto", new_base, old_base, branch, check=False)
+    result = git(
+        repo,
+        "rebase",
+        "--onto",
+        new_base,
+        old_base,
+        branch,
+        check=False,
+        env=_untranslated_env(),
+    )
     if result.returncode == 0:
         return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
 
@@ -214,12 +289,17 @@ def move_branch_onto(
     if must_keep is None:
         must_keep = derive_must_keep(repo, branch, old_base=old_base, files=files)
 
+    replayed = _replayed_files(result.stdout + result.stderr, files)
+    replayed_content = {name: (repo / name).read_text(errors="replace") for name in replayed}
     prompt = RESOLVE_PROMPT.format(
         moving_unit=context.moving_unit,
         moving_intent=context.moving_intent,
         onto_unit=context.onto_unit,
         onto_intent=context.onto_intent,
         files="\n".join(f"- {name}" for name in files) or "- (none reported)",
+        replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in replayed))
+        if replayed
+        else "",
         diff=git(repo, "diff", check=False).stdout[:8000],
     )
 
@@ -236,14 +316,27 @@ def move_branch_onto(
     except Exception as error:
         raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
 
-    for name in files:
-        text = (repo / name).read_text(errors="replace")
-        if any(marker in text for marker in CONFLICT_MARKERS):
-            raise _abort(
-                repo,
-                f"{name} still has conflict markers after resolution — "
-                "left for a human, since staging a conflict is worse than not moving.",
-            )
+    marked = [
+        name
+        for name in files
+        if any(marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS)
+    ]
+    if marked:
+        for name in marked:
+            if name in replayed:
+                # A rejected replay: forget the cached entry before the abort
+                # below clears the rebase, so the next sibling to hit this
+                # conflict is offered the conflict itself, not the entry that
+                # was just judged wrong. Done for every marked file, not just
+                # the first — otherwise a second rejected replay, or one
+                # listed after a plain unresolved file, keeps its stale entry
+                # and gets replayed straight to the next sibling.
+                git(repo, "rerere", "forget", name, check=False)
+        raise _abort(
+            repo,
+            f"{', '.join(marked)} still has conflict markers after resolution — "
+            "left for a human, since staging a conflict is worse than not moving.",
+        )
 
     for needle in must_keep:
         if not any(needle in (repo / name).read_text(errors="replace") for name in files):
@@ -252,6 +345,15 @@ def move_branch_onto(
                 f"the resolution dropped {needle!r}, which is {context.moving_unit}'s own "
                 "change — resolving a conflict by deleting one side empties the unit.",
             )
+
+    for name in replayed:
+        if (repo / name).read_text(errors="replace") != replayed_content[name]:
+            # Once rerere has auto-applied a cached resolution, it stops
+            # tracking that path for recording — `git add` and `--continue`
+            # alone would leave the stale entry in place. Forgetting it here
+            # is what makes an override replace what's cached instead of
+            # being silently discarded.
+            git(repo, "rerere", "forget", name, check=False)
 
     git(repo, "add", "-A")
     finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
