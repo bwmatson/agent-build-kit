@@ -52,12 +52,23 @@ Execute = Callable[..., subprocess.CompletedProcess[str]]
 # A usage reading, or None when there is none: `usage_guard`'s readers.
 ReadUsage = Callable[[], UsageReading | None]
 
-# Passed beside the hook on every policed run. Redundant by design: two
-# independent things have to fail before the agent can merge its own PR.
-DISALLOWED = (
-    "Bash(gh pr merge*) Bash(git push --force *) Bash(git reset --hard*) "
-    "Bash(rm -rf*) Bash(git branch -D*)"
-)
+# Passed beside the hook on every policed run, on top of every registered
+# forge's own merge commands. Redundant by design: two independent things have
+# to fail before the agent can merge its own PR.
+DISALLOWED = "Bash(git push --force *) Bash(git reset --hard*) Bash(rm -rf*) Bash(git branch -D*)"
+
+
+def disallowed() -> str:
+    """The deny flags for a policed run: every forge's, then these.
+
+    Resolved per call rather than at import, so a forge registered later is
+    covered and importing this module never pulls the registry in.
+    """
+    from agent_build_kit import forges
+
+    merges = " ".join(f"Bash({prefix}*)" for prefix in forges.denied_prefixes())
+    return f"{merges} {DISALLOWED}".strip()
+
 
 # abk's permission modes in Claude Code's words; None passes no mode, so the
 # run has what its tool list allows and nothing more.
@@ -116,7 +127,7 @@ def build_argv(request: AgentRequest) -> list[str]:
             request.policy.specs_dir, branch_prefix=request.policy.branch_prefix
         )
         argv += ["--settings", json.dumps(settings)]
-        denied = f"{DISALLOWED} {denied}".strip()
+        denied = f"{disallowed()} {denied}".strip()
     if request.allowed_tools:
         argv += ["--allowedTools", request.allowed_tools]
     if denied:

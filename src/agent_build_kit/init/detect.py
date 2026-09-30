@@ -20,6 +20,8 @@ import tomllib
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from agent_build_kit import forges
+from agent_build_kit.forges import RepoId
 from agent_build_kit.model import Frozen
 
 Run = Callable[..., subprocess.CompletedProcess]
@@ -77,7 +79,12 @@ class RepoDetection(Frozen):
     # The directory name: the repo's name in abk.yaml unless overridden.
     name: str
     is_git: bool
+    # The GitHub owner/name, when that is what this repo has. Kept because
+    # `resolve_consumes` matches dependency refs against it.
     slug: str | None
+    # Which host the origin says this is, and the repo's identity there. None
+    # when no forge recognised the remote.
+    identity: RepoId | None = None
     default_branch: str
     languages: list[str]
     profile: str
@@ -266,11 +273,13 @@ def detect_repo(path: Path, *, run: Run | None = None) -> RepoDetection:
     is_git = (path / ".git").exists()
 
     slug = None
+    identity = None
     default_branch = "main"
     has_code = False
     if is_git:
         origin = _git(run, path, "remote", "get-url", "origin")
-        slug = parse_slug(origin) if origin else None
+        identity = forges.identify(origin) if origin else None
+        slug = parse_slug(origin) if origin and identity and identity.forge == "github" else None
         head = _git(run, path, "symbolic-ref", "refs/remotes/origin/HEAD")
         if head:
             default_branch = head.rsplit("/", 1)[-1]
@@ -296,6 +305,7 @@ def detect_repo(path: Path, *, run: Run | None = None) -> RepoDetection:
         name=path.name,
         is_git=is_git,
         slug=slug,
+        identity=identity,
         default_branch=default_branch,
         languages=languages,
         profile=profile,

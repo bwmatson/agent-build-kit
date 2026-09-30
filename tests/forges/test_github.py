@@ -7,11 +7,14 @@ pattern has to stay permissive and be tried last.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from agent_build_kit import forges
-from agent_build_kit.forges.base import RepoId
+from agent_build_kit.forges.base import PullRequest, RepoId
 from agent_build_kit.forges.github import FORGE
+from agent_build_kit.pipeline.units import CLOSED, MERGED
 
 
 @pytest.mark.parametrize(
@@ -154,3 +157,95 @@ def test_a_status_names_the_tested_commit_and_is_truncated(
     assert "repos/o/r/statuses/abc1234def" in command
     assert "state=success" in command
     assert f"description={'x' * 139}" in command
+
+
+def test_retargeting_points_a_pr_at_its_new_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After its base branch merges away, a PR left pointing at the old one
+    shows a diff containing everything."""
+    fake = FakeGh()
+    monkeypatch.setattr("agent_build_kit.forges.github.gh", fake.out)
+    repo = RepoId(forge="github", account="o", name="r")
+
+    FORGE.update_pr(repo, 7, base="main")
+
+    assert fake.commands[0][:3] == ["gh", "pr", "edit"]
+    assert "--base" in fake.commands[0] and "main" in fake.commands[0]
+
+
+def test_an_update_with_nothing_to_change_makes_no_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeGh()
+    monkeypatch.setattr("agent_build_kit.forges.github.gh", fake.out)
+
+    FORGE.update_pr(RepoId(forge="github", account="o", name="r"), 7)
+
+    assert fake.commands == []
+
+
+# --- what counts as a comment, and what a merge looks like -------------------
+
+PULL = {
+    "number": 16,
+    "headRefName": "spec/add-marker/1",
+    "baseRefName": "main",
+    "state": "OPEN",
+    "isDraft": False,
+    "mergedAt": None,
+    "labels": [],
+    "comments": [],
+    "statusCheckRollup": [],
+    "reviewDecision": "",
+    "reviews": [],
+}
+
+
+def view(**overrides) -> PullRequest:
+    """One PR as `gh pr list --json` returns it, read through the forge."""
+    raw = json.dumps([{**PULL, **overrides}])
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("agent_build_kit.forges.github.gh_out", lambda args: raw)
+        [pull] = FORGE.list_prs(RepoId(forge="github", account="o", name="r"))
+    return pull
+
+
+def test_an_inline_review_counts_as_a_comment() -> None:
+    """A reviewer commenting on a line is reviewing. Reading only issue-level
+    comments meant an entire diff review registered as silence — `comments`
+    returns issue-level comments only."""
+    pull = view(reviews=[{"id": "r1", "state": "COMMENTED", "body": "this needs a look"}])
+
+    assert pull.conversation == ("r1",)
+
+
+def test_a_review_still_being_written_is_not_a_comment() -> None:
+    """A PENDING review is the reviewer's unsubmitted draft. GitHub shows it to
+    its author — whose account the pipeline reads that repo as — and counting
+    it would send the unit back for rework mid-review, with nothing to act on."""
+    pull = view(reviews=[{"id": "r1", "state": "PENDING", "body": ""}])
+
+    assert pull.conversation == ()
+
+
+def test_only_a_merged_at_means_merged() -> None:
+    """`state` alone says MERGED for a PR GitHub has merged, but the field the
+    pipeline must not get wrong is this one: reading an open PR as merged
+    restacks its children and deletes their branches."""
+    assert view(mergedAt="2026-09-23T12:00:00Z", state="MERGED").state == MERGED
+    assert view(state="CLOSED").state == CLOSED
+    assert view().state == "open"
+
+
+def test_only_a_failing_conclusion_is_a_failing_check() -> None:
+    pull = view(
+        statusCheckRollup=[
+            {"name": "CI", "conclusion": "FAILURE"},
+            {"name": "lint", "conclusion": "SUCCESS"},
+            {"name": "slow", "conclusion": "TIMED_OUT"},
+        ]
+    )
+
+    assert pull.failing_checks == ("CI", "slow")
+
+
+def test_changes_requested_is_the_only_decision_that_reworks() -> None:
+    assert view(reviewDecision="CHANGES_REQUESTED").review_decision == "changes_requested"
+    assert view(reviewDecision="APPROVED").review_decision == ""

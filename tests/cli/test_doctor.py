@@ -22,13 +22,23 @@ from tests.runtimes.selectable import SelectableRuntime, select
 class Answers:
     """A subprocess.run stand-in: gh and npx are answered here, git is real."""
 
-    def __init__(self, *, owners: set[str] | None = None, openspec_ok: bool = True):
+    def __init__(
+        self,
+        *,
+        owners: set[str] | None = None,
+        openspec_ok: bool = True,
+        protection: bool = False,
+    ):
         self.owners = {"example"} if owners is None else owners
         self.openspec_ok = openspec_ok
+        self.protection = protection
         self.commands: list[list[str]] = []
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
+        if argv[:2] == ["gh", "api"] and argv[-1].endswith("/protection"):
+            body = '{"required_pull_request_reviews": {}}' if self.protection else ""
+            return subprocess.CompletedProcess(argv, 0 if self.protection else 1, body, "")
         if argv[0] == "gh":
             owner = argv[-1]
             ok = owner in self.owners
@@ -87,7 +97,9 @@ def by_name(checks: list[Check]) -> dict[str, Check]:
 def test_a_healthy_workspace_is_all_ok(workspace: Path) -> None:
     checks = run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
 
-    assert {check.status for check in checks} == {"ok"}, [c for c in checks if c.status != "ok"]
+    assert {check.status for check in checks} <= {"ok", "info"}, [
+        c for c in checks if c.status not in ("ok", "info")
+    ]
     names = by_name(checks)
     assert "repo app" in names and "forge app" in names and "openspec" in names
     assert "rules" in names and "abk.yaml app" in names
@@ -527,3 +539,24 @@ def test_a_policy_check_that_raises_is_a_failed_check_and_not_kept(
     assert "usage window exhausted" in first["runtime policy"].detail
     # Nothing was kept, so the second run asked again.
     assert len(runtime.checked) == 2
+
+
+def test_a_default_branch_nothing_guards_is_reported(workspace: Path) -> None:
+    """Worth reading in the report rather than merely being true: with no
+    branch protection, the command policy hook is the only thing between an
+    agent and merging its own PR. Reported, not warned about — a free private
+    repo cannot have protection, and a permanent warning is one people learn
+    to skip past."""
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["merge guard app"].status == "info"
+    assert "main" in checks["merge guard app"].detail
+    assert "hook" in checks["merge guard app"].fix
+
+
+def test_a_protected_default_branch_is_not_a_warning(workspace: Path) -> None:
+    checks = by_name(
+        run_doctor(workspace / "abk.yaml", run=Answers(protection=True), which=which_all)
+    )
+
+    assert checks["merge guard app"].status == "ok"

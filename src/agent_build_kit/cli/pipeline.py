@@ -27,6 +27,7 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit import forges
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import diagram
 from agent_build_kit.pipeline.archive import (
@@ -45,12 +46,12 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.gh_poller import Poller
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
+from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
-from agent_build_kit.pipeline.shell import gh, git
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -162,13 +163,8 @@ def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
 
 
 def _pr_files(inst: Installation, repo: str, pr: int) -> list[str]:
-    result = gh(
-        ["gh", "pr", "view", str(pr), "--repo", inst.slug(repo), "--json", "files",
-         "--jq", ".files[].path"]
-    )  # fmt: skip
-    if result.returncode:
-        raise RuntimeError(f"gh pr view {pr} ({repo}): {result.stderr.strip()}")
-    return result.stdout.split()
+    forge, repo_id = inst.forge_of(repo)
+    return forge.pr_files(repo_id, pr)
 
 
 def _run_for_verify(command, *, cwd, env=None):
@@ -816,7 +812,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         ),
         remove_worktree=named(build_remove_worktree(checkouts, root=inst.worktree_root)),
         delete_branch=named(build_delete_branch(checkouts)),
-        fetch_review=build_fetch_review(checkouts),
+        fetch_review=build_fetch_review(),
         fetch_checks=build_fetch_check_logs(),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
@@ -826,11 +822,15 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
     )
 
     for repo in checkouts:
-        slug = inst.slug(repo)
+        forge, repo_id = inst.forge_of(repo)
+        # The identity as one string: what `own-posts.json` has always been
+        # keyed on, so an installation keeps its record of its own comments.
+        slug = forges.key(repo_id)
         Poller(
             repo=slug,
             state_path=inst.state_dir / f"prs-{repo}.json",
             dispatch=dispatch,
+            list_prs=lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
             ignore=lambda number, slug=slug: own_posts(inst.state_dir, slug, number),
         ).poll()
 

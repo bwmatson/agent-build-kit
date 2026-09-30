@@ -27,7 +27,7 @@ order: exit silently if nothing needs a tick (no unit `planned`/`running`/
 `in_review` and every change planned in its current form); stop if paused;
 read the usage windows and pause if either is past the threshold that applies
 to it now (`limits.usage_pause_pct`, rising towards `usage_ceiling_pct` as
-that window's reset nears) or unknown; `git fetch --prune origin` in every repo; poll GitHub; reclaim units
+that window's reset nears) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; reclaim units
 left `running` by a dead process; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then build the ready
 units, up to `limits.max_concurrent_stacks` at once.
@@ -188,7 +188,7 @@ default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 
 Run *from an installation*, greps `DIR` (a framework checkout) for anything
 that names this installation. The terms are derived from `abk.yaml` each
-time — the planning directory name, repo names, GitHub owners and project
+time — the planning directory name, repo names, each host identity's parts and project
 names, checkout directory names, `live_written` names, the ssh key name, the
 credentials array, the first path segment of each deploy rule and the words
 of its commands, `verify.env` variable names — minus generic words

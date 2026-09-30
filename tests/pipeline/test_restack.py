@@ -26,7 +26,6 @@ from agent_build_kit.pipeline.restack import (
     StaleRemote,
     move_branch_onto,
     push_with_lease,
-    retarget_pr,
 )
 from tests.factories import activate_with, git, init_repo
 
@@ -140,16 +139,6 @@ def test_a_push_refuses_when_somebody_else_moved_the_branch(stack: Path, tmp_pat
         push_with_lease(stack, "spec/c/1", last_pushed=pushed)
 
     assert "theirs.txt" in git(stack, "show", "--name-only", "origin/spec/c/1")
-
-
-def test_retargeting_points_a_pr_at_its_new_base() -> None:
-    calls: list[list[str]] = []
-
-    retarget_pr(7, "main", repo_slug="o/r", run=lambda args: calls.append(args) or "")
-
-    assert calls[0][:3] == ["gh", "pr", "edit"]
-    assert "--base" in calls[0]
-    assert "main" in calls[0]
 
 
 def test_a_blast_radius_note_says_what_moved_and_why() -> None:

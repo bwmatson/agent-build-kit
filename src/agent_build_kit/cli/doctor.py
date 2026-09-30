@@ -110,6 +110,36 @@ def _forge_access(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
+def _merge_guards(inst: Installation, run: Run) -> list[Check]:
+    """What stops a merge on each repo's default branch.
+
+    Reported rather than warned about: a free private repo cannot have branch
+    protection and a project may have no policy, so a warning here would be
+    permanent and unfixable, which is how a report teaches people to ignore
+    it. But the command hook is then the only thing between an agent and
+    merging its own PR, and that is worth reading rather than merely being
+    true.
+    """
+    checks = []
+    for name in sorted(inst.repos):
+        forge, repo = inst.forge_of(name)
+        branch = inst.repo(name).default_branch
+        unguarded = forge.merge_guard(repo, branch=branch, run=run)
+        title = f"merge guard {name}"
+        if unguarded:
+            checks.append(
+                _info(
+                    title,
+                    unguarded,
+                    "nothing server-side refuses a merge: the command policy hook is the "
+                    "only guard, so keep it installed",
+                )
+            )
+        else:
+            checks.append(_ok(title, f"{branch} is protected"))
+    return checks
+
+
 def _toolchain(inst: Installation, run: Run, which: Which) -> list[Check]:
     checks = []
     missing = [tool for tool in ("node", "npx") if which(tool) is None]
@@ -376,6 +406,7 @@ def run_doctor(
 
     checks += _repos(inst, run)
     checks += _forge_access(inst, run)
+    checks += _merge_guards(inst, run)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which)
     checks += _ssh_keys(inst)

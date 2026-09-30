@@ -90,9 +90,6 @@ class Installation:
                 f"{name!r} is not a repo in abk.yaml (known: {', '.join(self.repos) or 'none'})"
             ) from None
 
-    def slug(self, name: str) -> str:
-        return self.repo(name).slug
-
     def forge_of(self, name: str) -> tuple[Forge, RepoId]:
         """The code host a repo is on, and its identity there.
 

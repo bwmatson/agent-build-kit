@@ -9,19 +9,23 @@ The forge returns **typed values, not the host's JSON**. Every `mergedAt` and
 host is a translation at one boundary rather than a second document shape
 running through the poller, the rework loop and the runner.
 
-It is a `Protocol`, not a base class, for the reason `ToolchainProfile` is:
-implementations own their own code, a test double is a plain class, and the
-shared parts are free functions here rather than inherited behaviour.
+It is a `Protocol`, not a base class, for the reason `runtimes.AgentRuntime`
+and `ToolchainProfile` are: implementations own their own code, a test double
+is a plain class (`tests/forges/stand_in.py`), and the shared parts are free
+functions here rather than inherited behaviour.
 """
 
 from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
+
+if TYPE_CHECKING:
+    # config imports this package to check a repo's forge at load.
+    from agent_build_kit.config import RepoConfig
 
 # Injected so a check can be tested against recorded answers, the way
 # `tier2.post_status` and the `wiring.build_*` factories already take one.
@@ -58,6 +62,12 @@ class PullRequest(Frozen):
     labels: tuple[str, ...] = ()
     # Every comment and review id, opaque: the poller only ever diffs them.
     conversation: tuple[str, ...] = ()
+    # The comment bodies, oldest first. A rework quotes the newest of them
+    # when the reviewer left no inline notes, which is why they travel with
+    # the poll rather than costing a second request. Review bodies are not
+    # here: the rework path fetches those through `review_notes`, and having
+    # them in both places would quote one twice.
+    comment_bodies: tuple[str, ...] = ()
     review_decision: str = ""
     failing_checks: tuple[str, ...] = ()
 
@@ -78,46 +88,7 @@ class ReviewNote(Frozen):
     live: bool = True
 
 
-class OpensPullRequests(Protocol):
-    """The slice of a host the PR step needs.
-
-    A role rather than the whole host, so a consumer's dependency is visible in
-    its signature and a test double is the three methods it actually uses.
-    `Forge` is composed of these, so a real host satisfies every role at once.
-    """
-
-    def find_pr(self, repo: RepoId, *, head: str) -> int | None: ...
-
-    def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int: ...
-
-    def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None: ...
-
-
-class PostsStatuses(Protocol):
-    """The slice the tier 2 gate needs: one result against one commit.
-
-    The description is truncated by the forge, not by its caller — every host
-    has its own limit and the caller has no business knowing them.
-    """
-
-    def post_status(
-        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
-    ) -> None: ...
-
-
-class AnswersReviews(Protocol):
-    """The slice the rework's reply step needs.
-
-    Both calls return the ids of what they posted, because only the forge
-    knows what an id looks like and the poller has to be told to skip them.
-    """
-
-    def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]: ...
-
-    def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]: ...
-
-
-class Forge(OpensPullRequests, PostsStatuses, AnswersReviews, Protocol):
+class Forge(Protocol):
     """The host a repo lives on."""
 
     name: str
@@ -129,10 +100,22 @@ class Forge(OpensPullRequests, PostsStatuses, AnswersReviews, Protocol):
     # Command prefixes no agent may run on any repo - merging, voting, and the
     # raw API escapes that reach both. Folded together by `denies`.
     denied_commands: tuple[tuple[str, ...], ...]
+    # The facts this forge cannot name a repo without, by their key in that
+    # repo's abk.yaml entry (dotted for a nested block). A repo declaring this
+    # forge and leaving one out fails at load, as a runtime selection does.
+    requires: tuple[str, ...]
 
     def parse_remote(self, url: str) -> RepoId | None: ...
 
     def identity(self, repo: RepoConfig) -> RepoId: ...
+
+    def config_entry(self, repo: RepoId) -> dict[str, object]:
+        """The abk.yaml fields that name this repo, keyed as its entry.
+
+        The other side of `requires`: what `abk init` writes, so a drafted
+        file is one that loads.
+        """
+        ...
 
     def web_url(self, repo: RepoId, *, pr: int | None = None) -> str: ...
 
@@ -140,11 +123,44 @@ class Forge(OpensPullRequests, PostsStatuses, AnswersReviews, Protocol):
 
     def access_fix(self, repo: RepoId) -> str: ...
 
-    def merge_guard(self, repo: RepoId, *, branch: str) -> str: ...
+    def merge_guard(self, repo: RepoId, *, branch: str, run: Run | None = None) -> str:
+        """What stops a merge on the server, or "" when nothing does.
+
+        A host that answers "nothing" is answering honestly, and it is worth
+        saying out loud: the command hook is then the only thing between an
+        agent and its own merge.
+        """
+        ...
+
+    def find_pr(self, repo: RepoId, *, head: str) -> int | None: ...
+
+    def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int: ...
+
+    def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None: ...
 
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]: ...
 
+    def pr_files(self, repo: RepoId, pr: int) -> list[str]:
+        """The paths a PR touches, which is what `abk verify` checks a change
+        against. Raises when the host cannot answer: an empty list reads as
+        "this change touched nothing"."""
+        ...
+
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]: ...
+
+    def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]: ...
+
+    def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]: ...
+
+    def post_status(
+        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
+    ) -> None:
+        """Publish one result against one commit.
+
+        The description is truncated by the forge, not by its caller - every
+        host has its own limit and a caller has no business knowing them.
+        """
+        ...
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str: ...
 

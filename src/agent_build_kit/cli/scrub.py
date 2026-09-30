@@ -48,8 +48,11 @@ def terms_for(installation: Installation, *, target: Path | None = None) -> list
         if target is not None and repo.path.expanduser().resolve() == target.resolve():
             continue
         found.add(name)
-        owner, _, project = repo.slug.partition("/")
-        found.update({owner, project, repo.path.expanduser().name})
+        # Every segment of the identity, whatever the host calls them: an
+        # owner and a name on GitHub, an organisation, project and repo on
+        # Azure DevOps.
+        _, repo_id = installation.forge_of(name)
+        found.update({repo_id.account, repo_id.project, repo_id.name, repo.path.expanduser().name})
         for path in repo.deploy.live_written:
             found.add(Path(path).name)
         if repo.deploy.ssh_key is not None:

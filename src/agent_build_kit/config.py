@@ -26,7 +26,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
-from agent_build_kit import runtimes
+from agent_build_kit import forges, runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
@@ -172,9 +172,10 @@ class TracksConfig(Frozen):
         "Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh pr *) "
         "Bash(gh repo view*) Bash(docker compose config*)"
     )
+    # Every registered forge's way of merging is added to whatever this names
+    # (`tracks/runner.py`), so a workspace overriding it cannot drop them.
     disallowed_tools: str = (
-        "Bash(git push --force*) Bash(git reset --hard*) Bash(rm -rf*) "
-        "Bash(git branch -D*) Bash(gh pr merge*)"
+        "Bash(git push --force*) Bash(git reset --hard*) Bash(rm -rf*) Bash(git branch -D*)"
     )
     # A directory of prompt files overriding the built-in ones (same names).
     prompts_dir: Path | None = None
@@ -250,14 +251,30 @@ class ProjectConfig(Frozen):
     profile: str = "python-uv"
 
 
+class AzureDevOpsConfig(Frozen):
+    """Where a repo lives on Azure DevOps, decoded.
+
+    Three separate values rather than one string: the remote percent-encodes a
+    project with a space in it, and a project name containing a slash would
+    make a re-split of `org/project/repo` ambiguous.
+    """
+
+    org: str = ""
+    project: str = ""
+    repo: str = ""
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
-    slug: str
+    # Empty for a repo on a host that names itself some other way.
+    slug: str = ""
     default_branch: str = "main"
     # The code host this repo lives on (forges/). Inferred by `abk init` from
     # the origin URL; set it here when the origin does not say.
     forge: str = "github"
+    # Where the repo lives, for a forge that does not use `slug`.
+    azure_devops: AzureDevOpsConfig = AzureDevOpsConfig()
     # The toolchain profile (profiles/): how to lint, test and read results.
     profile: str = "python-uv"
     languages: list[str] = []
@@ -376,7 +393,33 @@ def load(path: Path) -> WorkspaceConfig:
     except ValidationError as error:
         raise ConfigError(f"{path} does not match the schema:\n{error}") from error
     _check_runtime(loaded, path)
+    _check_forges(loaded, path)
     return loaded
+
+
+def _check_forges(config: WorkspaceConfig, path: Path) -> None:
+    """A repo on a host abk has no forge for fails here, not once every unit
+    in it is held with the same message per tick."""
+    for name, repo in config.repos.items():
+        try:
+            forge = forges.get(repo.forge)
+        except KeyError as error:
+            raise ConfigError(f"{path}: repo {name!r}: {error.args[0]}") from None
+        missing = [fact for fact in forge.requires if not _reach(repo, fact)]
+        if missing:
+            raise ConfigError(
+                f"{path}: repo {name!r} on {repo.forge} needs "
+                + ", ".join(f"repos.{name}.{fact}" for fact in missing)
+            )
+
+
+def _reach(value: object, dotted: str) -> object:
+    """A config field by its abk.yaml key, `block.field` included."""
+    for part in dotted.split("."):
+        value = getattr(value, part, None)
+        if value is None:
+            return None
+    return value
 
 
 def runtime_name(config: WorkspaceConfig | None = None) -> str:

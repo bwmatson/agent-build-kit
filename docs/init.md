@@ -16,7 +16,8 @@ none is given and `--yes` is not), `init/detect.py` reads what it can off the
 checkout without asking anyone:
 
 - the name: the directory name (two repos with the same name is an error);
-- whether it is a git checkout, its GitHub slug from `origin` (ssh, https,
+- whether it is a git checkout, which forge `origin` names and its identity
+  there (ssh, https,
   `ssh://` and ssh-alias forms), and its default branch from
   `origin/HEAD` (else `main`);
 - whether it **has code**: at least one commit and a tracked file that is not

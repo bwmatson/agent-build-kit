@@ -4,7 +4,7 @@ Two files configure an installation, and they answer different questions.
 
 - **`abk.yaml`**, in the planning repo, committed and reviewed: everything
   that describes *this workspace* — which repos, where they are checked out,
-  who owns them on GitHub, how each deploys and tests, what the planner should
+  which host each lives on, how each deploys and tests, what the planner should
   know about how they relate, the limits and models. The schema is strict
   (`extra="forbid"`): a misspelled key fails at load, not later.
 - **`.env`**, in the planning repo, ignored by git: what differs *per machine*

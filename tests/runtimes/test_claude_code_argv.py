@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from agent_build_kit import config, runtimes
+from agent_build_kit import config, forges, runtimes
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy, claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
@@ -36,9 +36,13 @@ REVIEW_TOOLS = "Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)"
 RESEARCH_TOOLS = "Read Grep Glob WebSearch WebFetch"
 PROPOSE_TOOLS = "Read Grep Glob Write Edit Bash(ls*)"
 RESOLVER_TOOLS = "Read Edit Write Grep Glob"
+# Every registered forge's way of merging, then the destructive git commands.
+# Spelled out rather than derived: these are what actually reaches the agent,
+# and a forge added to the registry should show up here as a failing test.
 DENIED = (
-    "Bash(gh pr merge*) Bash(git push --force *) Bash(git reset --hard*) "
-    "Bash(rm -rf*) Bash(git branch -D*)"
+    "Bash(az devops invoke*) Bash(az repos policy*) Bash(az repos pr set-vote*) "
+    "Bash(az repos pr update*) Bash(az rest*) Bash(gh pr merge*) "
+    "Bash(git push --force *) Bash(git reset --hard*) Bash(rm -rf*) Bash(git branch -D*)"
 )
 
 BARE_FLAGS = {"-p", "--verbose"}
@@ -344,3 +348,11 @@ def test_the_restack_resolver_carries_the_flags_it_carries_today(tmp_path: Path)
         "--output-format": "text",
     }
     assert fake.calls[0][1] == tmp_path
+
+
+def test_a_policed_run_denies_every_forge_s_merge_commands() -> None:
+    """The second of the two independent layers: the hook enforces the rules,
+    and these flags mean the agent is not offered them in the first place. A
+    forge added to the registry has to reach both."""
+    for prefix in forges.denied_prefixes():
+        assert f"Bash({prefix}*)" in DENIED, f"{prefix} is denied by the hook but not by a flag"

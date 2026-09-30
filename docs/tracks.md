@@ -24,9 +24,10 @@ for the three scheduled ones.
    pull --ff-only origin`), since every phase writes and pushes its run log
    there. `planning.self_pull: false` skips this. A failed pull is fatal.
 3. **Eligible repos**: each `abk.yaml` repo (or only `--project NAME`) whose
-   checkout is a git repo, whose `origin` is a GitHub remote matching its
+   checkout is a git repo, whose `origin` is a remote some forge recognises,
+   matching its
    `slug`, and which `gh repo view` can see. Anything else is logged and
-   skipped, so a repo can be listed before it exists on GitHub.
+   skipped, so a repo can be listed before it exists on its host.
 4. Per repo, in `abk.yaml` order: pull its default branch (a failure skips
    the repo and counts as failed), then dispatch:
    - `health`: one phase, no worktree. Afterwards the run log's `**Status:**
@@ -60,7 +61,8 @@ claude -p [--worktree abk-<run id>] --add-dir <planning root>
 The raw JSON goes to `<planning root>/<tracks.raw_output_dir>/<run id>-<repo>-<phase>.json`
 (`.last-runs/`, gitignored). The tracks carry no policy hook; what they may
 run is the tool allow/deny lists in `abk.yaml`, which deny force pushes, hard
-resets, recursive deletes, branch force-deletes and `gh pr merge`.
+resets, recursive deletes, branch force-deletes, and every forge's way of
+merging a pull request.
 
 ## Run logs and the tracker
 
@@ -102,7 +104,7 @@ error:
 |---|---|
 | `__RUN_ID__` | this process's run id |
 | `__RUN_LOG__` | the run log path for this repo and phase |
-| `__PROJECT__`, `__PROJECT_DIR__`, `__PROJECT_REPO__`, `__PROJECT_REPO_URL__` | the repo's `abk.yaml` key, checkout path, slug, GitHub URL |
+| `__PROJECT__`, `__PROJECT_DIR__`, `__PROJECT_REPO__`, `__PROJECT_REPO_URL__` | the repo's `abk.yaml` key, checkout path, identity, web URL |
 | `__PROJECT_DESCRIPTION__`, `__PROJECT_CONSUMES__` | the repo's `description` and `consumes` |
 | `__WORKSPACE_REPOS__` | a bullet list of every repo with its description |
 | `__PLANNING_DIR__`, `__STATE_DIR__`, `__PROMPTS_DIR__` | the planning root, the state directory, the prompts directory in use |

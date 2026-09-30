@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 import shlex
 
+from agent_build_kit import forges
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 
@@ -149,10 +150,15 @@ def _check_segment(segment: str, branch: str) -> Verdict:
     if not tokens:
         return Verdict(allowed=True)
 
-    # `gh pr merge` — the rule the entire review model rests on. Matched on
-    # tokens, so a commit message mentioning it is unaffected.
-    if tokens[:3] == ["gh", "pr", "merge"]:
-        return Verdict(allowed=False, reason="the agent never merges: a human merges every PR")
+    # Merging — the rule the entire review model rests on. Asked of every
+    # registered forge, not the repo's own: a GitHub checkout has no business
+    # completing an Azure pull request either, and a union cannot be weakened
+    # by a wrong `forge:` field. Matched on tokens, so a commit message
+    # mentioning one of these is unaffected.
+    if denied := forges.denies(tokens):
+        return Verdict(
+            allowed=False, reason=f"the agent never merges: {denied} (a human merges every PR)"
+        )
 
     if _is_git(tokens, "commit") and "--amend" in tokens:
         return Verdict(

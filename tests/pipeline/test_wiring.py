@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import models
-from agent_build_kit.forges import RepoId
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
 from agent_build_kit.pipeline.wiring import (
@@ -36,6 +35,7 @@ from agent_build_kit.pipeline.wiring import (
 )
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
+from tests.forges.stand_in import StandInForge, lookup
 
 
 class Recorder:
@@ -159,49 +159,14 @@ def test_the_push_uses_the_sha_we_last_recorded(tmp_path: Path) -> None:
     assert pushed[0] == ("spec/add-marker/1", None), "first push has nothing to protect"
 
 
-class FakeForge:
-    """A code host that records what the pipeline asked it to do.
-
-    The argv of each call is the forge's business and is asserted in
-    tests/forges/; here what matters is that a unit gets one PR, updated
-    afterwards rather than created twice.
-    """
-
-    name = "fake"
-    implemented = True
-    deletes_head_branch_on_merge = True
-    denied_commands = ()
-
-    def __init__(self, existing: int | None = None) -> None:
-        self.existing = existing
-        self.created: list[dict] = []
-        self.updated: list[dict] = []
-
-    def find_pr(self, repo, *, head):
-        return self.existing
-
-    def create_pr(self, repo, *, head, base, title, body):
-        self.created.append({"head": head, "base": base, "title": title, "body": body})
-        return 7
-
-    def update_pr(self, repo, pr, *, base="", body=""):
-        self.updated.append({"pr": pr, "base": base, "body": body})
-
-
-def forge_lookup(forge: FakeForge):
-    return lambda repo: (forge, RepoId(forge="fake", account="o", name="r"))
-
-
 def test_a_pr_is_created_once_and_updated_after_that(tmp_path: Path) -> None:
     """Every restack pushes the branch again; a second create would fail, and
     worse, a third would look like the unit was stuck."""
-    first_time = FakeForge(existing=None)
-    already_open = FakeForge(existing=7)
+    first_time = StandInForge(existing=None)
+    already_open = StandInForge(existing=7)
 
-    first = build_open_pr(for_repo=forge_lookup(first_time))(
-        unit(), body="b", base="main", cwd=tmp_path
-    )
-    again = build_open_pr(for_repo=forge_lookup(already_open))(
+    first = build_open_pr(for_repo=lookup(first_time))(unit(), body="b", base="main", cwd=tmp_path)
+    again = build_open_pr(for_repo=lookup(already_open))(
         unit(), body="b", base="main", cwd=tmp_path
     )
 
@@ -215,11 +180,9 @@ def test_a_pr_is_created_once_and_updated_after_that(tmp_path: Path) -> None:
 def test_the_pr_targets_the_units_base_branch(tmp_path: Path) -> None:
     """A stacked unit's PR must show only its own diff, which means basing it
     on its parent rather than on main."""
-    forge = FakeForge(existing=None)
+    forge = StandInForge(existing=None)
 
-    build_open_pr(for_repo=forge_lookup(forge))(
-        unit(), body="b", base="spec/add-marker/0", cwd=tmp_path
-    )
+    build_open_pr(for_repo=lookup(forge))(unit(), body="b", base="spec/add-marker/0", cwd=tmp_path)
 
     assert forge.created[0]["base"] == "spec/add-marker/0"
 

@@ -10,13 +10,13 @@ how a child PR starts showing its parent's diff as its own — or worse, how a
 force-push lands commits nobody reviewed on a base that already has them.
 """
 
-import json
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.gh_poller import Poller
+from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING
@@ -345,8 +345,20 @@ def test_an_unknown_event_is_logged_rather_than_ignored(tmp_path: Path) -> None:
     assert any("something-new" in line for line in logged)
 
 
-def rework_pull(body: str) -> dict:
-    return {"number": 1, "comments": [{"id": "c1", "body": body, "author": {"login": "you"}}]}
+def rework_pull(body: str) -> PullRequest:
+    return PullRequest(
+        number=1,
+        head="spec/add-marker/1",
+        base="main",
+        state="open",
+        conversation=("c1",),
+        comment_bodies=(body,),
+    )
+
+
+def bare_pull() -> PullRequest:
+    """A PR with nothing said on it: a failing check dispatches rework too."""
+    return PullRequest(number=1, head="spec/add-marker/1", base="main", state="open")
 
 
 def test_rework_keeps_what_the_reviewer_actually_said(store: UnitStore) -> None:
@@ -367,7 +379,7 @@ def test_a_reworked_unit_goes_back_in_the_queue(store: UnitStore) -> None:
 
 def test_feedback_with_no_comment_still_says_why(store: UnitStore) -> None:
     """A failing check dispatches rework too, and its reason is all there is."""
-    events.on_rework(1, reason="failing checks: tier1", pull={"number": 1}, store=store)
+    events.on_rework(1, reason="failing checks: tier1", pull=bare_pull(), store=store)
 
     assert "failing checks: tier1" in store.get("add-marker/1").feedback
 
@@ -500,7 +512,7 @@ def test_rework_carries_the_reviewer_s_inline_words(store: UnitStore) -> None:
     events.on_rework(
         1,
         reason="review: changes requested",
-        pull={"number": 1},
+        pull=bare_pull(),
         store=store,
         fetch_review=lambda number: [
             "shared/tests/test_x.py:28 — This should be a StrEnum so it can be used as keys."
@@ -517,7 +529,7 @@ def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStor
     events.on_rework(
         1,
         reason="failing checks: tier1",
-        pull={"number": 1},
+        pull=bare_pull(),
         store=store,
         fetch_review=lambda number: [],
     )
@@ -526,34 +538,31 @@ def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStor
 
 
 def test_outdated_review_comments_are_not_replayed(store: UnitStore) -> None:
-    """GitHub sets `line: null` on a comment whose code has since changed —
-    which, after a rework, is exactly the comment that rework addressed. Sending
-    it again tells the agent to redo work it has done, and every later round
-    would carry every earlier comment. A comment on a line goes outdated the
-    moment the rework landed."""
+    """A note the host reports as no longer live — GitHub sets `line: null`
+    once the code has changed, Azure DevOps resolves the thread — is, after a
+    rework, exactly the note that rework addressed. Sending it again tells the
+    agent to redo work it has done, and every later round would carry every
+    earlier note."""
     fetched = events.review_lines(
-        reviews=[],
-        comments=[
-            {"body": "make it a StrEnum", "path": "a.py", "line": None, "original_line": 28},
-            {"body": "drop the redundant value", "path": "a.py", "line": 35},
-        ],
+        [
+            ReviewNote(id="28", body="make it a StrEnum", path="a.py", line=None, live=False),
+            ReviewNote(id="35", body="drop the redundant value", path="a.py", line=35),
+        ]
     )
 
-    assert fetched == ["a.py:35 — drop the redundant value"]
+    assert fetched == ["[comment 35] a.py:35 — drop the redundant value"]
 
 
 def test_a_review_body_is_never_outdated(store: UnitStore) -> None:
     """Only inline comments are anchored to a line, so a submitted review's own
     body has nothing to go stale against."""
-    lines = events.review_lines(reviews=[{"body": "please split this"}], comments=[])
+    lines = events.review_lines([ReviewNote(id="1", body="please split this")])
 
     assert lines == ["please split this"]
 
 
 def test_inline_comments_carry_their_id_so_replies_can_find_the_thread() -> None:
-    lines = events.review_lines(
-        reviews=[], comments=[{"id": 11, "path": "a.py", "line": 3, "body": "rename"}]
-    )
+    lines = events.review_lines([ReviewNote(id="11", path="a.py", line=3, body="rename")])
 
     assert lines == ["[comment 11] a.py:3 — rename"]
 
@@ -563,11 +572,11 @@ def test_the_pipeline_s_own_replies_are_not_read_back_as_review() -> None:
     from agent_build_kit.pipeline.pr_replies import MARKER
 
     lines = events.review_lines(
-        reviews=[{"body": f"summary of the rework\n{MARKER}"}],
-        comments=[
-            {"id": 11, "path": "a.py", "line": 3, "body": "rename"},
-            {"id": 12, "path": "a.py", "line": 3, "body": f"Renamed.\n{MARKER}"},
-        ],
+        [
+            ReviewNote(id="1", body=f"summary of the rework\n{MARKER}"),
+            ReviewNote(id="11", path="a.py", line=3, body="rename"),
+            ReviewNote(id="12", path="a.py", line=3, body=f"Renamed.\n{MARKER}"),
+        ]
     )
 
     assert lines == ["[comment 11] a.py:3 — rename"]
@@ -622,7 +631,9 @@ def test_a_rework_is_not_handed_the_pipeline_s_own_comment(tmp_path: Path) -> No
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit("c/1")])
     store.set_state("c/1", IN_REVIEW, pr=1, branch="spec/c/1")
-    pull = {"comments": [{"body": "please rename it"}, {"body": f"Renamed.\n{MARKER}"}]}
+    pull = rework_pull("please rename it").model_copy(
+        update={"comment_bodies": ("please rename it", f"Renamed.\n{MARKER}")}
+    )
 
     events.on_rework(1, store=store, reason="new comment", pull=pull, log=lambda m: None)
 
@@ -762,7 +773,7 @@ def test_a_ci_failure_is_reworked_from_its_log_not_the_old_review(tmp_path: Path
     events.on_rework(
         20,
         reason="failing checks: config-check",
-        pull={"comments": [{"body": "an old, answered review comment"}]},
+        pull=rework_pull("an old, answered review comment"),
         store=store,
         fetch_review=lambda pr: ["an old review"],
         fetch_checks=lambda pull: "AssertionError: container names left on profiled services",
@@ -937,27 +948,25 @@ def test_an_event_for_a_unit_being_built_changes_nothing(
     assert (after.state, after.feedback) == (RUNNING, "what the build is addressing")
 
 
-def _pull(**overrides) -> dict:
-    return {
+def _pull(**overrides) -> PullRequest:
+    fields: dict = {
         "number": 1,
-        "headRefName": "spec/add-marker/1",
-        "state": "OPEN",
-        "mergedAt": None,
-        "labels": [],
-        "comments": [],
-        "statusCheckRollup": [],
-        "reviewDecision": "",
-        "reviews": [],
+        "head": "spec/add-marker/1",
+        "base": "main",
+        "state": "open",
         **overrides,
     }
+    return PullRequest(**fields)
 
 
-def _poller(tmp_path: Path, store: UnitStore, locks: Path, pages: list[list[dict]]) -> Poller:
+def _poller(
+    tmp_path: Path, store: UnitStore, locks: Path, pages: list[list[PullRequest]]
+) -> Poller:
     calls = iter(pages)
     return Poller(
         repo="example/app",
         state_path=tmp_path / "prs-app.json",
-        gh=lambda args: json.dumps(next(calls)),
+        list_prs=lambda: next(calls),
         dispatch=events.build_dispatch(
             store, restack=Recorder(), claim=events.build_claim(locks), log=lambda m: None
         ),
@@ -969,7 +978,7 @@ def test_a_hold_that_arrives_mid_build_survives_the_build_finishing(
 ) -> None:
     """The build ends by recording `in_review`. A hold written before that is
     overwritten by it; a hold reported again after it stands."""
-    held = _pull(labels=[{"name": "agent:hold"}])
+    held = _pull(labels=("agent:hold",))
     poller = _poller(tmp_path, store, locks, [[_pull()], [held], [held]])
     poller.poll()
     store.set_state("add-marker/1", RUNNING)
@@ -989,7 +998,7 @@ def test_a_review_that_arrives_mid_rework_is_not_dropped(
     """The build clears the feedback it started with once it has pushed. A
     new review written mid-build was cleared with it; reported again after the
     build, it requeues the unit with the reviewer's words."""
-    reviewed = _pull(comments=[{"id": "c9", "body": "rename the flag too"}])
+    reviewed = _pull(conversation=("c9",), comment_bodies=("rename the flag too",))
     poller = _poller(tmp_path, store, locks, [[_pull()], [reviewed], [reviewed]])
     poller.poll()
     store.set_state("add-marker/1", RUNNING)
