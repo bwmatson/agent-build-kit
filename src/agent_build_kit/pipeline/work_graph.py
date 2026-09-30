@@ -100,6 +100,9 @@ class TaskGroup(Frozen):
     task_count: int
     # "contract", "narrow", "acceptance", or "" — see FLAGS.
     flag: str = ""
+    # A `Separate: <reason>` line in the group: never carried by another
+    # change's unit, and no other change's groups are added to its unit.
+    separate: bool = False
 
 
 class ValidationError(Frozen):
