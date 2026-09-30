@@ -288,7 +288,14 @@ def test_retargeting_goes_through_the_rest_api() -> None:
         seen.append(request)
         return _Answer("{}")
 
-    FORGE.update_pr(REPO, 41, base="main", open_url=open_url)
+    def token(args, **kwargs):
+        """`az account get-access-token ... -o tsv` prints the token bare."""
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
+
+    # `run` as well as `open_url`: without it the call falls through to a real
+    # `az account get-access-token`, which passes on a machine that happens to
+    # be signed in and fails everywhere else.
+    FORGE.update_pr(REPO, 41, base="main", run=token, open_url=open_url)
 
     [request] = seen
     assert request.get_method() == "PATCH"
@@ -296,6 +303,7 @@ def test_retargeting_goes_through_the_rest_api() -> None:
     assert "/AI%20Accelerators" not in request.full_url, "this repo names no installation"
     assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
     assert "/Some%20Project/_apis/git/repositories/Some%20Repo" in request.full_url
+    assert request.get_header("Authorization") == "Bearer a-token"
 
 
 class _Answer:

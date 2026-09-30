@@ -65,9 +65,13 @@ def env() -> dict[str, str]:
     # arrives as a byte no UTF-8 decoder accepts, and the poll dies on what a
     # reviewer happened to type.
     base = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    if not settings.ado_pat:
-        return base
-    return {**base, "AZURE_DEVOPS_EXT_PAT": settings.ado_pat}
+    if settings.ado_pat:
+        return {**base, "AZURE_DEVOPS_EXT_PAT": settings.ado_pat}
+    # An exported but empty variable is not a credential, and passed on it
+    # makes `az` attempt PAT authentication with an empty token rather than
+    # falling back to the sign-in session.
+    base.pop("AZURE_DEVOPS_EXT_PAT", None)
+    return base
 
 
 def call(args: list[str], *, org: str, run: Run | None = None) -> subprocess.CompletedProcess:

@@ -72,6 +72,22 @@ def test_without_a_token_the_call_falls_back_to_the_az_session(
     assert "AZURE_DEVOPS_EXT_PAT" not in calls[0]["env"]
 
 
+def test_an_exported_but_empty_token_is_not_passed_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A variable set to nothing is not a credential. Passed on, `az` attempts
+    PAT authentication with an empty token instead of falling back to the
+    sign-in session — so a machine that once exported one, and a CI runner
+    that sets it blank, would both fail with the session right there."""
+    monkeypatch.setenv("AZURE_DEVOPS_EXT_PAT", "")
+    monkeypatch.setattr(settings, "ado_pat", "")
+    run, calls = recorded("[]")
+
+    az.json_out(["repos", "pr", "list"], org="https://dev.azure.com/acme", run=run)
+
+    assert "AZURE_DEVOPS_EXT_PAT" not in calls[0]["env"]
+
+
 def test_a_sign_in_page_is_an_error_not_an_empty_answer() -> None:
     """The trap this module exists for: HTML with a 2xx, parsed as nothing,
     reads as "no pull requests" and the poller never backs off."""
