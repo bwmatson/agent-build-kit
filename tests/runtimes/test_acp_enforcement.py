@@ -20,6 +20,7 @@ and not a capability that was never there.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -358,3 +359,282 @@ def test_a_forbidden_command_with_no_way_to_refuse_cancels_the_turn(
     assert _did(record, "run") == []
     assert result.ok is False
     assert "refus" in result.error.lower(), result.error
+
+
+# --- what the options allow ----------------------------------------------------------
+
+
+def test_an_allowed_command_is_never_answered_with_an_always_option(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """With no `allow_once` on offer the call is answered cancelled and
+    nothing runs; the turn is not cancelled on its account."""
+    record = tmp_path / "agent.jsonl"
+
+    result = _run(
+        record,
+        worktree,
+        specs,
+        act=[
+            {
+                "ask": "execute",
+                "command": "git status",
+                "options": ["allow_always"],
+                "carry_on": True,
+            }
+        ],
+    )
+
+    [answer] = _answered(record)
+    assert answer["outcome"] == "cancelled", answer
+    assert _did(record, "run") == []
+    assert not requests(record, "session/cancel")
+    assert result.ok is True
+
+
+# --- a run with nothing to enforce ---------------------------------------------------
+
+
+def test_an_unpoliced_run_is_answered_method_not_found_for_file_and_terminal_work(
+    tmp_path: Path, worktree: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    use_agent(
+        record,
+        act=[
+            {"terminal": "touch", "args": ["ran-unpoliced"]},
+            {"write": str(worktree / "written-unpoliced"), "content": "x\n"},
+            {"read": str(worktree / "src" / "app.py")},
+        ],
+    )
+
+    result = AcpRuntime().run(AgentRequest(prompt="Read only.", role="review", cwd=worktree))
+
+    assert result.ok is True
+    assert not (worktree / "ran-unpoliced").exists()
+    assert not (worktree / "written-unpoliced").exists()
+    [terminal] = _did(record, "terminal")
+    [wrote] = _did(record, "write")
+    [read] = _did(record, "read")
+    for entry in (terminal, wrote, read):
+        assert entry["error"]["code"] == -32601, entry
+        assert "content" not in entry
+
+
+def test_a_run_relying_on_headless_denial_has_every_permission_request_refused(
+    tmp_path: Path, worktree: Path
+) -> None:
+    """The planner's graph call: no tool list and `allowed_tools_only`, so
+    nothing it asks about is granted, allowed by the rules or not."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, act=[{"ask": "execute", "command": "git status --short"}])
+
+    result = AcpRuntime().run(
+        AgentRequest(
+            prompt="Plan.", role="generic", cwd=worktree, permission_mode="allowed_tools_only"
+        )
+    )
+
+    [answer] = _answered(record)
+    assert answer["optionKind"] in ("reject_once", "reject_always"), answer
+    assert _did(record, "run") == []
+    assert result.ok is True
+
+
+# --- answering by what the request names ---------------------------------------------
+
+
+def test_a_read_of_the_specs_or_an_extra_directory_is_allowed_but_an_edit_there_is_not(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    extra = tmp_path / "reference"
+    extra.mkdir()
+    (extra / "notes.md").write_text("notes\n")
+    spec = str(specs / "feature" / "spec.md")
+    use_agent(
+        record,
+        act=[
+            {"ask": "read", "paths": [spec]},
+            {"ask": "read", "paths": [str(extra / "notes.md")]},
+            {"ask": "read", "paths": [str(tmp_path / "elsewhere.txt")]},
+            {"ask": "edit", "paths": [spec]},
+        ],
+    )
+
+    AcpRuntime().run(
+        AgentRequest(
+            prompt="Build.",
+            role="implement",
+            cwd=worktree,
+            add_dirs=(specs, extra),
+            policy=ToolPolicy(specs_dir=specs),
+        )
+    )
+
+    kinds = [answer["optionKind"] for answer in _answered(record)]
+    assert kinds[:2] == ["allow_once", "allow_once"], kinds
+    assert kinds[2] in ("reject_once", "reject_always"), kinds
+    assert kinds[3] in ("reject_once", "reject_always"), kinds
+
+
+def test_a_command_in_the_raw_input_is_weighed_whatever_the_kind(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    inside = str(worktree / "src" / "app.py")
+
+    _run(
+        record,
+        worktree,
+        specs,
+        act=[
+            {"ask": "other", "command": "gh pr merge 1", "paths": [inside]},
+            {"ask": "other", "command": "git status", "paths": [inside]},
+        ],
+    )
+
+    refused, allowed = _answered(record)
+    assert refused["optionKind"] in ("reject_once", "reject_always"), refused
+    assert allowed["optionKind"] == "allow_once", allowed
+    assert [ran["command"] for ran in _did(record, "run")] == ["git status"]
+
+
+@pytest.mark.parametrize(
+    ("command", "paths", "permitted"),
+    [
+        pytest.param("rm -rf victim", [], False, id="forbidden-command"),
+        pytest.param("git status --short", [], True, id="allowed-command"),
+        pytest.param(None, ["src/app.py"], True, id="edit-in-the-worktree"),
+        pytest.param(None, ["../outside.txt"], False, id="edit-outside-the-worktree"),
+    ],
+)
+def test_a_permission_request_naming_only_its_id_is_answered_from_the_tool_calls_start(
+    tmp_path: Path,
+    worktree: Path,
+    specs: Path,
+    command: str | None,
+    paths: list[str],
+    permitted: bool,
+) -> None:
+    """The request's `toolCall` is an update: everything but the id may be
+    absent, the start having said it."""
+    record = tmp_path / "agent.jsonl"
+    kind = "execute" if command else "edit"
+    resolved = [str(worktree / path) for path in paths]
+
+    _run(
+        record,
+        worktree,
+        specs,
+        act=[{"ask": kind, "command": command, "paths": resolved, "sparse": True}],
+    )
+
+    [answer] = _answered(record)
+    if permitted:
+        assert answer["optionKind"] == "allow_once", answer
+    else:
+        assert answer["optionKind"] in ("reject_once", "reject_always"), answer
+
+
+# --- the terminal ---------------------------------------------------------------------
+
+
+def test_a_whole_line_command_with_no_arguments_runs(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+
+    _run(record, worktree, specs, act=[{"terminal": "git status --short", "args": []}])
+
+    [ran] = _did(record, "terminal")
+    assert "error" not in ran, ran
+    assert ran["exitCode"] == 0
+
+
+def test_a_command_reading_stdin_gets_none(tmp_path: Path, worktree: Path, specs: Path) -> None:
+    """Not abk's own input, which is the agent's protocol stream's."""
+    record = tmp_path / "agent.jsonl"
+
+    _run(record, worktree, specs, act=[{"terminal": "cat", "args": ["-"]}])
+
+    [ran] = _did(record, "terminal")
+    assert ran["exitCode"] == 0 and ran["output"] == "", ran
+
+
+def test_a_hung_command_is_killed_when_the_agent_gives_up_on_it(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """`terminal/create` returns once the command has started, so the agent's
+    own timeout can fire and kill it: the run finishes promptly and records
+    the signal."""
+    record = tmp_path / "agent.jsonl"
+    started = time.monotonic()
+
+    result = _run(
+        record,
+        worktree,
+        specs,
+        act=[{"terminal": "sleep", "args": ["60"], "kill_after": 0.3}],
+    )
+
+    assert time.monotonic() - started < 20
+    [ran] = _did(record, "terminal")
+    assert ran["signal"] == "SIGKILL", ran
+    assert result.ok is True
+
+
+def test_output_is_cut_to_the_byte_limit_from_the_front(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+
+    _run(
+        record,
+        worktree,
+        specs,
+        act=[{"terminal": "printf", "args": ["abcdefghij"], "limit": 4}],
+    )
+
+    [ran] = _did(record, "terminal")
+    assert ran["output"] == "ghij" and ran["truncated"] is True, ran
+
+
+def test_the_branch_is_read_where_the_command_runs_on_every_call(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """A lease push is fine on the unit's branch; after a checkout of another
+    through the terminal it is refused, and the rule's reason says why."""
+    record = tmp_path / "agent.jsonl"
+    push = ["push", "--force-with-lease=x:abc", "origin", "x"]
+    reason = check_command(" ".join(["git", *push]), branch="other").reason
+    assert reason
+
+    _run(
+        record,
+        worktree,
+        specs,
+        act=[
+            {"terminal": "git", "args": push},
+            {"terminal": "git", "args": ["checkout", "-q", "-b", "other"]},
+            {"terminal": "git", "args": push},
+        ],
+    )
+
+    before, _checkout, after = _did(record, "terminal")
+    assert "error" not in before or before["error"]["data"]["reason"] != reason, before
+    assert after["error"]["data"]["reason"] == reason, after
+
+
+# --- paging a file ---------------------------------------------------------------------
+
+
+def test_a_read_honours_line_and_limit(tmp_path: Path, worktree: Path, specs: Path) -> None:
+    record = tmp_path / "agent.jsonl"
+    paged = worktree / "src" / "paged.txt"
+    paged.write_text("one\ntwo\nthree\n")
+
+    _run(record, worktree, specs, act=[{"read": str(paged), "line": 2, "limit": 1}])
+
+    [read] = _did(record, "read")
+    assert read["content"] == "two\n", read

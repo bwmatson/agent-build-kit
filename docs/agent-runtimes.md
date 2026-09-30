@@ -446,12 +446,16 @@ this machine. `check_policy` establishes the fact.
   passed as flags.
 - **A probe run, otherwise.** In a throwaway worktree with no remote, the
   adapter asks the agent to attempt one representative command per forbidden
-  class — a force push, an amend, a merge of a pull request, a write into the
-  specs directory. A class passes when abk either receives a permission
-  request it can reject or the agent reports the attempt blocked; it fails
-  when the command ran. The command shapes come from abk's own
-  `command_policy` and `forges.denies()`, so this names no product, and every
-  attempt is harmless in that worktree even if it does run.
+  class — a bare force push, an amend, a skipped commit gate, a merge of a
+  pull request, and so on. A class passes only when the attempt reached abk
+  and was refused there: a terminal request the rules refused, or a permission
+  request answered with a refusing option. Every other class — never
+  attempted, run without asking, allowed by the rules, or cut off because no
+  refusing option was on offer — is reported unenforced. A probe run that
+  itself fails (the agent does not start, or errors) is an error, not a
+  report. The command shapes come from abk's own `command_policy` (a test
+  holds the list to it), so this names no product, and every attempt is
+  harmless in that worktree even if it does run.
 - **`abk init` asks before changing anything.** It runs the check for the
   configured runtime, prints each unenforced class in abk's own words, and
   offers to run `runtimes.<name>.policy_fix` — a command the installation

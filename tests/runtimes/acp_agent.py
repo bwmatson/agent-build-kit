@@ -41,21 +41,28 @@ reports. What it did, and what the client answered, is appended to RECORD as
 `did/<what>` lines beside the requests:
 
     [--act ACTIONS] [--probe terminal|ask] [--unasked PREFIX]
+    [--only PREFIX] [--split] [--offer KIND,...]
 
 `--act` names a JSON file holding a list of actions, taken in order:
 
 - `{"terminal": COMMAND, "args": [...]}` has the client run a command through
   its terminal capability — create, wait for exit, read the output, release —
   and records the output and exit status, or the error the client answered.
-- `{"write": PATH, "content": TEXT}` and `{"read": PATH}` go through the
-  client's file capability, recording the error for one that is refused.
+  `"kill_after": SECONDS` gives up waiting for it after that long and kills it
+  first, as an agent with a timeout of its own does; `"limit": BYTES` is the
+  output byte limit it asks for.
+- `{"write": PATH, "content": TEXT}` and `{"read": PATH, "line": N, "limit": N}`
+  go through the client's file capability, recording the error for one that
+  is refused.
 - `{"ask": KIND, "command": ..., "paths": [...], "options": [KIND, ...]}` runs a
   tool of the agent's own the way an agent that executes its own tools does:
   it asks permission, naming the command in its raw input and the paths as
   locations, offering the option kinds given (all four unless said), and
   records which it was answered. It "runs" the tool only if allowed — a
   `did/run` line, never a real process — and on a cancelled answer waits for
-  the client's `session/cancel` and ends the turn `cancelled`.
+  the client's `session/cancel` and ends the turn `cancelled`, unless
+  `"carry_on": true`. `"sparse": true` sends a permission request naming
+  nothing but the tool call's id, the tool call's start having said the rest.
 
 `--probe` has it attempt what the prompt names, one attempt per inline code
 span: an absolute path is a write to it, anything else a command — through
@@ -63,7 +70,10 @@ the client's capabilities (`terminal`) or by asking permission (`ask`).
 `--unasked` makes it run, without asking, any command starting with PREFIX:
 an agent whose own configuration does not flag that class, so the client
 only hears of it from the tool call's updates. That run too is only
-reported, never performed.
+reported, never performed. `--only` has it attempt just the commands starting
+with PREFIX; `--split` sends a probed terminal command as a program and its
+arguments rather than one line; `--offer` is the option kinds its probed asks
+offer.
 """
 
 from __future__ import annotations
@@ -182,6 +192,9 @@ class FakeAgent:
         acts: list[dict[str, Any]] | None = None,
         probe: str | None = None,
         unasked: str | None = None,
+        only: str | None = None,
+        split: bool = False,
+        offer: list[str] | None = None,
     ) -> None:
         self._record = record
         self._stop = stop
@@ -191,6 +204,9 @@ class FakeAgent:
         self._acts = acts
         self._probe = probe
         self._unasked = unasked
+        self._only = only
+        self._split = split
+        self._offer = offer
         self._model = DEFAULT_MODEL
         self._client: Client | None = None
         self._cwd = str(Path.cwd())
@@ -346,14 +362,24 @@ class FakeAgent:
         acts = list(self._acts or [])
         if self._probe is not None:
             text = " ".join(getattr(block, "text", "") for block in prompt)
-            acts += [self._attempt(span) for span in re.findall(r"`([^`\n]+)`", text)]
+            acts += [
+                self._attempt(span)
+                for span in re.findall(r"`([^`\n]+)`", text)
+                if self._only is None or span.startswith(self._only)
+            ]
         for act in acts:
             if "terminal" in act:
-                await self._terminal(session_id, act["terminal"], act.get("args", []))
+                await self._terminal(
+                    session_id,
+                    act["terminal"],
+                    act.get("args", []),
+                    kill_after=act.get("kill_after"),
+                    limit=act.get("limit", OUTPUT_LIMIT),
+                )
             elif "write" in act:
                 await self._write_file(session_id, act["write"], act.get("content", ""))
             elif "read" in act:
-                await self._read(session_id, act["read"])
+                await self._read(session_id, act["read"], act.get("line"), act.get("limit"))
             elif "unasked" in act:
                 await self._run_unasked(session_id, act["unasked"])
             elif not await self._ask(session_id, act):
@@ -369,8 +395,11 @@ class FakeAgent:
         if self._unasked and span.startswith(self._unasked):
             return {"unasked": span}
         if self._probe == "terminal":
+            if self._split:
+                command, *args = span.split()
+                return {"terminal": command, "args": args}
             return {"terminal": span, "args": []}
-        return {"ask": "execute", "command": span}
+        return {"ask": "execute", "command": span, "options": self._offer or list(OPTIONS)}
 
     def _call_id(self) -> str:
         self._calls += 1
@@ -381,7 +410,15 @@ class FakeAgent:
         assert client is not None
         await client.session_update(session_id=session_id, update=update)
 
-    async def _terminal(self, session_id: str, command: str, args: list[str]) -> None:
+    async def _terminal(
+        self,
+        session_id: str,
+        command: str,
+        args: list[str],
+        *,
+        kill_after: float | None = None,
+        limit: int = OUTPUT_LIMIT,
+    ) -> None:
         client = self._client
         assert client is not None
         entry: dict[str, Any] = {"command": command, "args": args}
@@ -403,11 +440,20 @@ class FakeAgent:
                 args=args,
                 env=[],
                 cwd=self._cwd,
-                output_byte_limit=OUTPUT_LIMIT,
+                output_byte_limit=limit,
             )
-            exited = await client.wait_for_terminal_exit(
-                session_id=session_id, terminal_id=created.terminal_id
-            )
+            try:
+                exited = await asyncio.wait_for(
+                    client.wait_for_terminal_exit(
+                        session_id=session_id, terminal_id=created.terminal_id
+                    ),
+                    timeout=kill_after,
+                )
+            except TimeoutError:
+                await client.kill_terminal(session_id=session_id, terminal_id=created.terminal_id)
+                exited = await client.wait_for_terminal_exit(
+                    session_id=session_id, terminal_id=created.terminal_id
+                )
             output = await client.terminal_output(
                 session_id=session_id, terminal_id=created.terminal_id
             )
@@ -440,12 +486,14 @@ class FakeAgent:
             entry["error"] = exc.to_error_obj()
         self._write("did/write", entry)
 
-    async def _read(self, session_id: str, path: str) -> None:
+    async def _read(self, session_id: str, path: str, line: int | None, limit: int | None) -> None:
         client = self._client
         assert client is not None
         entry: dict[str, Any] = {"path": path}
         try:
-            read = await client.read_text_file(session_id=session_id, path=path)
+            read = await client.read_text_file(
+                session_id=session_id, path=path, line=line, limit=limit
+            )
             entry["content"] = read.content
         except RequestError as exc:
             entry["error"] = exc.to_error_obj()
@@ -473,7 +521,9 @@ class FakeAgent:
         )
         answer = await client.request_permission(
             session_id=session_id,
-            tool_call=ToolCallUpdate(
+            tool_call=ToolCallUpdate(tool_call_id=call)
+            if act.get("sparse")
+            else ToolCallUpdate(
                 tool_call_id=call,
                 title=title,
                 kind=kind,
@@ -503,6 +553,8 @@ class FakeAgent:
         )
         if outcome.outcome == "cancelled":
             await self._send(session_id, update_tool_call(call, status="failed"))
+            if act.get("carry_on"):
+                return True
             try:
                 await asyncio.wait_for(self._cancelled.wait(), timeout=CANCEL_WAIT)
             except TimeoutError:
@@ -562,6 +614,9 @@ def command(
     act: list[dict[str, Any]] | None = None,
     probe: str | None = None,
     unasked: str | None = None,
+    only: str | None = None,
+    split: bool = False,
+    offer: list[str] | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -580,6 +635,12 @@ def command(
         argv += ["--probe", probe]
     if unasked:
         argv += ["--unasked", unasked]
+    if only:
+        argv += ["--only", only]
+    if split:
+        argv.append("--split")
+    if offer:
+        argv += ["--offer", ",".join(offer)]
     return argv
 
 
@@ -593,6 +654,9 @@ def use_agent(
     act: list[dict[str, Any]] | None = None,
     probe: str | None = None,
     unasked: str | None = None,
+    only: str | None = None,
+    split: bool = False,
+    offer: list[str] | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -606,6 +670,9 @@ def use_agent(
             act=act,
             probe=probe,
             unasked=unasked,
+            only=only,
+            split=split,
+            offer=offer,
         )
     )
 
@@ -640,6 +707,9 @@ def main() -> None:
     parser.add_argument("--act", type=Path)
     parser.add_argument("--probe", choices=["terminal", "ask"])
     parser.add_argument("--unasked")
+    parser.add_argument("--only")
+    parser.add_argument("--split", action="store_true")
+    parser.add_argument("--offer")
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -650,6 +720,9 @@ def main() -> None:
         acts=json.loads(args.act.read_text()) if args.act else None,
         probe=args.probe,
         unasked=args.unasked,
+        only=args.only,
+        split=args.split,
+        offer=args.offer.split(",") if args.offer else None,
     )
     # Only the methods these tests drive: the rest answer "method not found".
     asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))
