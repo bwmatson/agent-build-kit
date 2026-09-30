@@ -115,3 +115,8 @@ def test_an_azure_repo_with_its_block_loads(tmp_path: Path) -> None:
     loaded = load(path)
 
     assert loaded.repos["app"].azure_devops.project == "Some Project"
+
+
+def test_the_adapt_rounds_must_allow_at_least_one_answer() -> None:
+    with pytest.raises(ValidationError):
+        LimitsConfig(max_adapt_rounds=0)

@@ -18,6 +18,7 @@ Two guarantees are enforced here rather than trusted to the prompt:
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 from collections.abc import Callable
@@ -896,6 +897,76 @@ def _tests_in(tree: Path) -> set[str]:
     return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
 
 
+def _test_bodies(source: str) -> dict[str, list[str]]:
+    """Each `test_*` function's own source text, by name, decorators included.
+
+    Body against body, not the file's diff: a test moved or resurrounded by
+    unrelated edits should not read as changed, but one whose assertions,
+    markers or parametrized cases actually shifted must — even kept under its
+    old name. Every same-named test is kept (in different classes, say), so a
+    change to any of them shows. A test moved into a class reads as changed,
+    the safe direction.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}
+    lines = source.splitlines()
+    bodies: dict[str, list[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+            "test_"
+        ):
+            first = min([d.lineno for d in node.decorator_list] + [node.lineno])
+            end = node.end_lineno or node.lineno
+            bodies.setdefault(node.name, []).append("\n".join(lines[first - 1 : end]))
+    return {name: sorted(texts) for name, texts in bodies.items()}
+
+
+def _tests_changed(tree: Path, ref: str) -> set[str]:
+    """Test functions whose body differs between `ref` and the tree, per file.
+
+    Compared file by file in both directions, so a test that only survived the
+    replay by name — kept, but silently weakened — is caught, and so is one
+    gone from the file it was in, even when the same name lives on in another
+    file or in a string. A test moved to another file unchanged reads as
+    changed. Data living outside the function, such as a module-level table a
+    parametrize reads, is not seen.
+    """
+    # `-z` so git does not C-quote paths; no `check=False`, since a failing
+    # listing must not read as "nothing changed".
+    diff = git(
+        tree,
+        "diff",
+        "-z",
+        "--name-only",
+        "--no-renames",
+        ref,
+        "--",
+        "*.py",
+        errors="surrogateescape",
+    )
+    new = git(
+        tree,
+        "ls-files",
+        "-z",
+        "--others",
+        "--exclude-standard",
+        "--",
+        "*.py",
+        errors="surrogateescape",
+    )
+    paths = {p for p in (diff.stdout + "\0" + new.stdout).split("\0") if p}
+    changed: set[str] = set()
+    for path in paths:
+        file = tree / path
+        current = _test_bodies(file.read_text(errors="replace")) if file.is_file() else {}
+        old_source = git(tree, "show", f"{ref}:{path}", check=False, errors="replace")
+        old = _test_bodies(old_source.stdout) if old_source.returncode == 0 else {}
+        changed |= {n for n in old.keys() | current.keys() if old.get(n) != current.get(n)}
+    return changed
+
+
 def _reset_to(tree: Path, onto: str, keep: str) -> None:
     """Keep the current work under `keep`, then put the branch on `onto`.
 
@@ -1034,6 +1105,7 @@ def build_runner(
         worktree=worktree_in_turn,
         reset_to=_reset_to,
         tests_in=_tests_in,
+        tests_changed=_tests_changed,
         may_start=build_may_start(),
         run_claude=run_claude,
         run_rework=build_run_claude(

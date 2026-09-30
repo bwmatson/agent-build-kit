@@ -1722,6 +1722,370 @@ def test_what_counts_as_accounting_for_a_test() -> None:
     ]
 
 
+def test_a_changed_test_cannot_be_answered_keep() -> None:
+    from agent_build_kit.pipeline.stack_runner import PortedTest, check_test_decisions
+
+    present = {"test_a"}
+    kept = [PortedTest(name="test_a", decision="keep")]
+    adapted = [PortedTest(name="test_a", decision="adapt", reason="relaxed to fit the new shape")]
+
+    problems = check_test_decisions(["test_a"], kept, present, changed={"test_a"})
+    assert problems == [
+        "`test_a` is marked keep but differs from the previous work — mark it "
+        "adapt and say what changed"
+    ]
+    assert check_test_decisions(["test_a"], adapted, present, changed={"test_a"}) == []
+    assert check_test_decisions(["test_a"], [], present, changed={"test_a"}) == [
+        "no decision for `test_a`, which differs from the previous work — mark it "
+        "adapt and say what changed, or retire it with a reason"
+    ]
+    assert check_test_decisions(["test_b"], [], present=set(), changed={"test_b"}) == [
+        "no decision for `test_b`, which is no longer in the tree — retire it with a reason "
+        "naming what in the predecessor made it invalid, or mark it adapt and name the test "
+        "that replaced it"
+    ]
+
+
+def test_only_the_uncertain_tests_need_a_decision() -> None:
+    """A test the replay left alone is not asked about at all; one that
+    vanished, or that survived in changed form, still must be."""
+    from agent_build_kit.pipeline.stack_runner import tests_needing_decision
+
+    # present and unchanged by the replay: no decision required
+    assert tests_needing_decision(["test_a"], present={"test_a"}, changed=set()) == []
+    # missing from the tree: still required
+    assert tests_needing_decision(["test_b"], present=set(), changed=set()) == ["test_b"]
+    # present, but the replay changed it: still required
+    assert tests_needing_decision(["test_c"], present={"test_c"}, changed={"test_c"}) == ["test_c"]
+    # a mix keeps only the uncertain ones
+    assert tests_needing_decision(
+        ["test_a", "test_b", "test_c"], present={"test_a", "test_c"}, changed={"test_c"}
+    ) == ["test_b", "test_c"]
+
+
+def test_the_silent_drop_guard_still_holds_over_the_narrowed_list() -> None:
+    """Narrowing which tests must be accounted for must not narrow what makes
+    an accounting wrong: a false keep or a bare retirement is still a problem
+    once the test is one of the ones actually asked about."""
+    from agent_build_kit.pipeline.stack_runner import (
+        PortedTest,
+        check_test_decisions,
+        tests_needing_decision,
+    )
+
+    old_tests = ["test_a", "test_b"]
+    present = {"test_a"}  # test_b vanished in the replay
+    required = tests_needing_decision(old_tests, present=present, changed=set())
+
+    claims_kept = [
+        PortedTest(name="test_a", decision="keep"),
+        PortedTest(name="test_b", decision="keep"),
+    ]
+    assert check_test_decisions(required, claims_kept, present) == [
+        "`test_b` is marked keep but is not in the tree"
+    ]
+
+    bare_retirement = [
+        PortedTest(name="test_a", decision="keep"),
+        PortedTest(name="test_b", decision="retire", reason="moot"),
+    ]
+    assert check_test_decisions(required, bare_retirement, present) == [
+        "`test_b` retired without a reason naming the predecessor's change"
+    ]
+
+
+def test_a_test_the_replay_left_alone_is_not_required_in_the_accounting(
+    tmp_path: Path,
+) -> None:
+    """The runner can see for itself that a test is present and untouched, so
+    the agent is not asked to restate it — only `test_console`, which the
+    replay actually dropped, needs a decision."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    who, contexts = _reviews_seen(recorder)
+    answer = json.dumps(
+        {
+            "tests": [
+                {
+                    "name": "test_console",
+                    "decision": "retire",
+                    "reason": "the predecessor made console capture opt-in, so this is moot",
+                },
+            ],
+            "summary": "ported",
+        }
+    )
+    # Empty until the port (the run_rework call) has actually happened, as the
+    # real reset-then-port does: nothing of the unit's own is in the tree
+    # right after the reset.
+    ported: list[bool] = []
+
+    def run_rework(prompt: str, *, cwd: Path) -> str:
+        ported.append(True)
+        return answer
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(
+                conflict="x", old_tests=("test_click", "test_console")
+            ),
+            "reset_to": lambda tree, onto, keep: None,
+            # test_console dropped; test_click stayed
+            "tests_in": lambda tree: {"test_click"} if ported else set(),
+            "tests_changed": lambda tree, ref: set(),  # test_click's content is untouched
+            "run_rework": run_rework,
+            "run_review": recorder.standard_review,  # type: ignore[attr-defined]
+            "run_rework_review": recorder.rework_review,  # type: ignore[attr-defined]
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert outcome.status == "open", "test_click needed no decision, so nothing was missing"
+    assert "counted as kept without being asked about" in contexts[0]
+    assert "`test_click`" in contexts[0]
+    assert "`test_console`: retire" in contexts[0]
+
+
+def test_a_kept_test_ported_after_the_reset_passes_the_keep_check(tmp_path: Path) -> None:
+    """`present` and `required` must be read after the port, not right after
+    the reset: sampled then, the tree is empty of the unit's own tests, a
+    correct `keep` for one it carried over is checked against that empty
+    snapshot, and the unit fails on work it actually did."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    answer = json.dumps({"tests": [{"name": "test_click", "decision": "keep"}]})
+    ported: list[bool] = []
+
+    def run_rework(prompt: str, *, cwd: Path) -> str:
+        ported.append(True)
+        return answer
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"} if ported else set(),
+            "tests_changed": lambda tree, ref: set(),
+            "run_rework": run_rework,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert outcome.status == "open"
+
+
+def test_a_changed_test_still_requires_a_decision(tmp_path: Path) -> None:
+    """A test that survived the replay by name only — present, but weakened —
+    still needs an accounting, and `tests_changed` is read against the old
+    work's own ref, after the port has actually landed."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    no_decision = json.dumps({"tests": []})
+    refs_seen: list[str] = []
+
+    def tests_changed(tree: Path, ref: str) -> set[str]:
+        refs_seen.append(ref)
+        assert recorder.events.count("commit:adapt") == 1, "called after the adapt commit"
+        return {"test_click"}
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"},
+            "tests_changed": tests_changed,
+            "run_rework": lambda prompt, *, cwd: recorder.prompts.append(prompt) or no_decision,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert refs_seen == [f"refs/spec-driven/pre-adapt/{unit().id}"]
+    assert outcome.status == "failed"
+    assert "no decision for `test_click`" in store.get(unit().id).feedback
+    assert "test_click" in recorder.prompts[1], "the follow-up names it"
+
+
+def test_an_incomplete_accounting_is_asked_again_before_the_unit_fails(
+    tmp_path: Path,
+) -> None:
+    """One decision missing is put back to the agent, naming it, rather than
+    failing a unit whose ported code already landed."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    incomplete = json.dumps({"tests": [{"name": "test_click", "decision": "keep"}]})
+    complete = json.dumps(
+        {
+            "tests": [
+                {"name": "test_click", "decision": "keep"},
+                {
+                    "name": "test_console",
+                    "decision": "retire",
+                    "reason": "the predecessor made console capture opt-in, so this is moot",
+                },
+            ]
+        }
+    )
+    answers = [incomplete, complete]
+    ported: list[bool] = []
+
+    def run_rework(prompt: str, *, cwd: Path) -> str:
+        ported.append(True)
+        recorder.prompts.append(prompt)
+        return answers[len(recorder.prompts) - 1]
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(
+                conflict="x", old_tests=("test_click", "test_console")
+            ),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"} if ported else set(),
+            "tests_changed": lambda tree, ref: set(),
+            "run_rework": run_rework,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert len(recorder.prompts) == 2, "asked again rather than failed on the first miss"
+    assert "test_console" in recorder.prompts[1], "told which decision was still outstanding"
+    assert recorder.events.count("commit:adapt") == 1, "the ported code is not rebuilt for the ask"
+    assert outcome.status == "open"
+
+
+def test_an_accounting_still_incomplete_after_the_last_attempt_fails_the_unit(
+    tmp_path: Path,
+) -> None:
+    """A unit that cannot complete its own accounting after being told what
+    is missing fails, with those problems on its record."""
+    from tests.factories import activate_with
+
+    activate_with(limits={"max_adapt_rounds": 2})
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    always_incomplete = json.dumps({"tests": [{"name": "test_click", "decision": "keep"}]})
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(
+                conflict="x", old_tests=("test_click", "test_console")
+            ),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"},
+            "tests_changed": lambda tree, ref: set(),
+            "run_rework": (
+                lambda prompt, *, cwd: recorder.prompts.append(prompt) or always_incomplete
+            ),
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert outcome.status == "failed"
+    assert len(recorder.prompts) == 2, "asked again up to the bound, then stopped"
+    assert "no decision for `test_console`" in store.get(unit().id).feedback
+    assert "push" not in recorder.events
+
+
+def test_a_changed_test_answered_keep_is_asked_again(tmp_path: Path) -> None:
+    """The pipeline measured `test_click` as different from the old work, so
+    the agent saying it is unchanged does not stand."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    answers = [
+        json.dumps({"tests": [{"name": "test_click", "decision": "keep"}]}),
+        json.dumps(
+            {
+                "tests": [
+                    {
+                        "name": "test_click",
+                        "decision": "adapt",
+                        "reason": "dropped the console assertion to fit the new shape",
+                    }
+                ]
+            }
+        ),
+    ]
+
+    def run_rework(prompt: str, *, cwd: Path) -> str:
+        recorder.prompts.append(prompt)
+        return answers[len(recorder.prompts) - 1]
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"},
+            "tests_changed": lambda tree, ref: {"test_click"},
+            "run_rework": run_rework,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert outcome.status == "open"
+    assert "test_click" in recorder.prompts[1]
+    assert "differs from the previous work" in recorder.prompts[1]
+
+
+def test_follow_up_decisions_are_merged_over_the_first_answers(tmp_path: Path) -> None:
+    """An agent that only answers for the tests just named must not lose the
+    decisions it already gave."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+
+    def retire(name: str) -> str:
+        return json.dumps(
+            {
+                "tests": [
+                    {
+                        "name": name,
+                        "decision": "retire",
+                        "reason": "the predecessor made console capture opt-in, so this is moot",
+                    }
+                ]
+            }
+        )
+
+    answers = [retire("test_click"), retire("test_console")]
+
+    def run_rework(prompt: str, *, cwd: Path) -> str:
+        recorder.prompts.append(prompt)
+        return answers[len(recorder.prompts) - 1]
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(
+                conflict="x", old_tests=("test_click", "test_console")
+            ),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: set(),
+            "tests_changed": lambda tree, ref: set(),
+            "run_rework": run_rework,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert outcome.status == "open"
+
+
 def test_a_later_review_sees_what_earlier_rounds_asked_and_what_was_done(
     tmp_path: Path,
 ) -> None:

@@ -15,6 +15,7 @@ Three things carry real weight:
 """
 
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -681,6 +682,147 @@ def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path
 
     assert git(repo, "rev-parse", "HEAD") == base
     assert git(repo, "rev-parse", "refs/spec-driven/pre-adapt/c-3") == head, "old work kept"
+
+
+def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Path) -> None:
+    """A test kept under its old name but quietly weakened — an assertion
+    relaxed, a case deleted — must not read as untouched just because its
+    name still matches. Comparing bodies, not names, is what catches it."""
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    (repo / "test_mod.py").write_text(
+        "def test_a():\n    assert 1 == 1\n\n\ndef test_b():\n    assert 1 == 1\n"
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    keep = "refs/spec-driven/pre-adapt/c-3"
+    git(repo, "update-ref", keep, "HEAD")
+
+    (repo / "test_mod.py").write_text(
+        "def test_a():\n    assert 1 == 1\n\n\ndef test_b():\n    assert 1 == 2\n"
+    )
+
+    assert _tests_changed(repo, keep) == {"test_b"}
+
+
+def _changed_after(
+    tmp_path: Path,
+    before: str | Mapping[str, str],
+    after: str | Mapping[str, str | None],
+) -> set[str]:
+    """`_tests_changed` on a real repo: `before` is committed, `after` written
+    over it (a `None` value deletes the file)."""
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    for name, text in ({"test_mod.py": before} if isinstance(before, str) else before).items():
+        (repo / name).write_text(text)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    keep = "refs/spec-driven/pre-adapt/c-3"
+    git(repo, "update-ref", keep, "HEAD")
+    for name, text in ({"test_mod.py": after} if isinstance(after, str) else after).items():
+        if text is None:
+            (repo / name).unlink()
+        else:
+            (repo / name).write_text(text)
+    return _tests_changed(repo, keep)
+
+
+_DEFAULTS = "def test_defaults():\n    assert 1 == 1\n"
+
+
+def test_a_test_weakened_in_a_file_whose_path_git_quotes_reads_as_changed(
+    tmp_path: Path,
+) -> None:
+    before = {"test_é.py": "def test_a():\n    assert 1 == 1\n"}
+    after = {"test_é.py": "def test_a():\n    pass\n"}
+
+    assert _changed_after(tmp_path, before, after) == {"test_a"}
+
+
+def test_a_file_that_is_not_utf8_is_compared_without_raising(tmp_path: Path) -> None:
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    head = b"# caf\xe9\n"
+    (repo / "test_mod.py").write_bytes(head + b"def test_a():\n    assert 1 == 1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    git(repo, "update-ref", "refs/keep", "HEAD")
+    (repo / "test_mod.py").write_bytes(head + b"def test_a():\n    pass\n")
+
+    assert _tests_changed(repo, "refs/keep") == {"test_a"}
+
+
+def test_a_ref_that_does_not_exist_raises_rather_than_reading_as_unchanged(
+    tmp_path: Path,
+) -> None:
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import init_repo
+
+    repo = init_repo(tmp_path / "r")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _tests_changed(repo, "refs/does-not-exist")
+
+
+def test_a_test_removed_from_one_file_reads_as_changed_though_another_has_the_name(
+    tmp_path: Path,
+) -> None:
+    both = {"test_a.py": _DEFAULTS, "test_b.py": _DEFAULTS}
+
+    assert _changed_after(tmp_path, both, {"test_a.py": "x = 1\n"}) == {"test_defaults"}
+
+
+def test_a_test_file_deleted_reads_as_its_tests_changed(tmp_path: Path) -> None:
+    both = {"test_a.py": _DEFAULTS, "test_b.py": _DEFAULTS}
+
+    assert _changed_after(tmp_path, both, {"test_a.py": None}) == {"test_defaults"}
+
+
+def test_a_removed_test_reads_as_changed_though_its_text_survives_in_a_string(
+    tmp_path: Path,
+) -> None:
+    before = {"test_a.py": _DEFAULTS, "test_b.py": "x = 1\n"}
+    after = {"test_a.py": "x = 1\n", "test_b.py": 'SRC = "def test_defaults(): pass"\n'}
+
+    assert _changed_after(tmp_path, before, after) == {"test_defaults"}
+
+
+def test_a_file_rewritten_to_a_syntax_error_reports_its_old_tests(tmp_path: Path) -> None:
+    assert _changed_after(tmp_path, _DEFAULTS, "def test_defaults(:\n") == {"test_defaults"}
+
+
+def test_a_skip_added_over_an_unchanged_body_reads_as_changed(tmp_path: Path) -> None:
+    before = "def test_a():\n    assert 1 == 1\n"
+    after = "import pytest\n\n\n@pytest.mark.skip\ndef test_a():\n    assert 1 == 1\n"
+
+    assert _changed_after(tmp_path, before, after) == {"test_a"}
+
+
+def test_a_parametrize_list_shortened_over_an_unchanged_body_reads_as_changed(
+    tmp_path: Path,
+) -> None:
+    body = "def test_a(x):\n    assert x\n"
+    before = "import pytest\n\n\n@pytest.mark.parametrize('x', [1, 2, 3])\n" + body
+    after = "import pytest\n\n\n@pytest.mark.parametrize('x', [1])\n" + body
+
+    assert _changed_after(tmp_path, before, after) == {"test_a"}
+
+
+def test_one_of_two_same_named_tests_weakened_reads_as_changed(tmp_path: Path) -> None:
+    def source(first: str) -> str:
+        return (
+            f"class TestA:\n    def test_x(self):\n        {first}\n\n\n"
+            "class TestB:\n    def test_x(self):\n        assert 1 == 1\n"
+        )
+
+    assert _changed_after(tmp_path, source("assert 1 == 1"), source("pass")) == {"test_x"}
 
 
 def test_a_review_can_be_told_what_happened_to_the_branch(tmp_path: Path) -> None:

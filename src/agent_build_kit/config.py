@@ -119,6 +119,9 @@ class LimitsConfig(Frozen):
     max_unit_lines: int = 1000
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
+    # How many times, the first included, the adapt step's test accounting is
+    # asked for before the unit fails, when it is incomplete rather than wrong.
+    max_adapt_rounds: Annotated[int, Field(ge=1)] = 2
     # Percent of the Claude usage window at which no NEW unit starts, for
     # most of a window. Near the reset this rises — see `usage_ceiling_pct`.
     usage_pause_pct: int = 70

@@ -110,6 +110,8 @@ limits:
                                 # must exceed min_unit_lines. Shapes plans
                                 # only — a branch is not measured against it
   max_review_rounds: 3          # review rounds before a unit fails
+  max_adapt_rounds: 2           # adapt-step accounting asks, first included,
+                                # before a unit fails
   usage_pause_pct: 70           # % of a usage window at which no new unit
                                 # starts, for most of that window
   usage_ceiling_pct: 90         # what that rises to at the window's reset;
