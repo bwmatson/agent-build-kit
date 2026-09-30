@@ -1,8 +1,8 @@
-# One pipeline pass in the planning repo. Rendered by `abk init`.
+# One pipeline pass in the planning repo.
 #
-# Install for the user manager:
-#   cp systemd/abk-tick.* $HOME/.config/systemd/user/
-#   systemctl --user daemon-reload && systemctl --user enable --now abk-tick.timer
+# Rendered by `abk install-timers` on the machine that will run it, and named
+# for its installation - a unit written into the planning repo instead would
+# name whoever ran init, and one machine may run several installations.
 #
 # PATH carries uv and node: the OpenSpec CLI runs through npx, so a node
 # install (here volta's, alongside the usual system directories) must be

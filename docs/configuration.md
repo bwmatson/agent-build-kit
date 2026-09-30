@@ -151,9 +151,31 @@ repos:                          # ordered: deploy order is derived from
     path: /srv/src/platform     # the checkout (~ is expanded)
     slug: example/platform      # GitHub owner/name. The owner decides which
                                 # `gh` account's token is used.
-    default_branch: main
+    default_branch: main        # the branch units are built on. `abk init`
+                                # learns it from where the host says pull
+                                # requests actually target, falling back to
+                                # `origin/HEAD` — which is a pointer nobody
+                                # updates, so a repo that moved to `dev` still
+                                # answers `main`.
+    forge: github               # the code host (forges/): github or
+                                # azure_devops. Inferred by init from origin.
+    azure_devops:               # only for forge: azure_devops. Decoded, not
+      org: ""                   # percent-encoded: `%20` handed to
+      project: ""               # `az repos --project` names a project that
+      repo: ""                  # does not exist.
     profile: python-uv          # toolchain profile: python-uv, or node-npm
-                                # (declared, not implemented)
+                                # (declared, not implemented). The repo-wide
+                                # default; a project below may set its own.
+    projects: []                # where each project inside the repo lives, so
+                                # tier 1 runs its checks *inside* it:
+                                #   - path: services/api
+                                #     languages: [python]
+                                #     profile: python-uv
+                                # A file belongs to the deepest project holding
+                                # it. Left empty, checks run at the repo root —
+                                # which fails outright when the repo root is not
+                                # a project (`uv run pre-commit` cannot resolve
+                                # pre-commit there). Written by `abk init`.
     languages: []               # e.g. [python]; informs init's research
     description: ""             # one paragraph, for prompts and the
                                 # planning context

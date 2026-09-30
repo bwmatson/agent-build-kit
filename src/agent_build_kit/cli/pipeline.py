@@ -392,10 +392,10 @@ def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
     unconfigured = [repo for repo in {unit.repo for unit in ready} if not _has_identity(inst, repo)]
     if unconfigured:
         log(
-            f"refusing to build: {', '.join(sorted(unconfigured))} has no repo-local "
-            "user.email, so agent commits would fall back to this machine's global "
-            "identity instead of the account that owns the repo. Set it with "
-            "`git -C <repo> config user.email <account>@users.noreply.github.com`."
+            f"refusing to build: git has no identity for {', '.join(sorted(unconfigured))}, "
+            "so an agent's commits would be attributed to nobody. Set one globally with "
+            "`git config --global user.email <email>` (and user.name), or for this repo "
+            "alone with `git -C <repo> config user.email <email>`."
         )
     return bool(unconfigured)
 
@@ -764,18 +764,30 @@ def _write_planned(inst: Installation, records: dict[str, dict]) -> None:
 
 
 def _has_identity(inst: Installation, repo: str) -> bool:
-    """Whether `repo` says who its commits belong to, rather than inheriting.
+    """Whether git in `repo` knows who its commits belong to.
 
-    The agent commits as whoever the repo is configured for — the same
-    identity the developer uses there — so there is nothing for the pipeline
-    to override. What it must not do is fall through to the machine's global
-    identity, which may belong to neither account.
+    The effective identity, not a repo-local one: one global identity is an
+    ordinary way to set a machine up, and refusing to build until it is copied
+    into every checkout rejects a working configuration over a difference that
+    makes none.
+
+    What it must not do is commit with no identity at all. Git then either
+    refuses outright or invents one from the login name and the hostname, and
+    an unattended agent's commits end up attributed to nobody.
+
+    A workspace whose repos belong to different accounts does still want an
+    identity per repo. `abk doctor` reports which scope each one resolves
+    through, so that stays visible rather than being enforced here — the
+    pipeline cannot tell a deliberate single identity from a careless one.
     """
     path = inst.checkouts.get(repo)
     if path is None:
         return False
 
-    return bool(git(path, "config", "--local", "user.email", check=False).stdout.strip())
+    return all(
+        git(path, "config", f"user.{field}", check=False).stdout.strip()
+        for field in ("email", "name")
+    )
 
 
 def fetch_all(inst: Installation) -> None:

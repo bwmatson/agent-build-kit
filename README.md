@@ -54,20 +54,68 @@ uv run abk init . --repo ../app --repo ../platform
 ```
 
 `abk init` detects each repo, drafts `abk.yaml`, lays out the planning repo
-(OpenSpec store, state directory, systemd units, skills), researches a
+(OpenSpec store, state directory, skills), researches a
 tooling-recommendations document per language and asks a model to write each
 repo's first changes. Then:
 
 ```bash
 uv run abk doctor                        # is this installation runnable?
 uv run abk tick --dry-run                # what would build now
-cp systemd/abk-tick.* ~/.config/systemd/user/ && systemctl --user enable --now abk-tick.timer
+abk install-timers
 ```
 
 Requirements: Python 3.12+, `uv`, `git`, and a client for each host a repo
 lives on: `gh` (logged in for every GitHub
 owner in `abk.yaml`), `claude` (Claude Code), and `node` on the PATH — the
 OpenSpec CLI runs through `npx`.
+
+## Configuration
+
+Everything about an installation lives in `abk.yaml` beside the planning repo;
+the framework itself knows nothing about any particular one. `abk init` writes
+it and leaves out anything at its default, so a short file is a normal file.
+
+```yaml
+repos:
+  app:
+    path: ../app
+    forge: github               # or azure_devops
+    slug: example/app
+    default_branch: dev         # what units are built on
+    profile: python-uv          # how it lints, tests and reads results
+    projects:                   # where each project *inside* the repo lives,
+      - path: services/api      # so tier 1 runs its checks inside it
+        languages: [python]
+        profile: python-uv
+
+models:                         # bare aliases, so they track new releases
+  implement: sonnet
+  review: opus
+
+limits:
+  usage_pause_pct: 70           # no new unit starts above this share of a
+                                # usage window
+  max_unit_lines: 1000          # the ceiling on what one unit may change
+```
+
+The decisions worth knowing you can make:
+
+| Key | Why you would change it |
+|---|---|
+| `repos.<name>.default_branch` | Units build on it. Init learns it from where pull requests actually target; set it when the repo's convention differs. |
+| `repos.<name>.projects` | A repo whose projects are not at its root. Without it, a toolchain command runs where there is no project to run it in. |
+| `repos.<name>.forge` | `github` or `azure_devops`. Inferred from the origin URL. |
+| `repos.<name>.profile` | Which toolchain runs the checks — see [docs/toolchain-profiles.md](docs/toolchain-profiles.md). |
+| `models.*` | Which model does which part of a unit: `implement`, `rework`, `review`, `rework_review`. |
+| `limits.usage_pause_pct` | How much of a usage window the pipeline may spend before it stops starting work. |
+| `limits.max_unit_lines` | How large a unit the planner may produce. |
+| `runtime`, `runtimes.*` | Which agent runs the work — see [docs/agent-runtimes.md](docs/agent-runtimes.md). |
+| `tracks.*` | The scheduled health, improve and recommend passes — see [docs/tracks.md](docs/tracks.md). |
+| `verify.*`, `repos.<name>.deploy` | What a merged change is deployed and proved with. |
+
+**[docs/configuration.md](docs/configuration.md) is the full reference** — every
+field, with its default, as one annotated file. Read it rather than the source;
+if something is only findable in `config.py`, that is a bug in the reference.
 
 ## Commands
 
@@ -94,7 +142,7 @@ Details, arguments and exit codes: [docs/cli.md](docs/cli.md).
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — the whole flow, the guards, the state on disk, and why it is shaped this way.
-- [docs/configuration.md](docs/configuration.md) — the `abk.yaml` schema, env providers, environment variables.
+- [docs/configuration.md](docs/configuration.md) — every `abk.yaml` field with its default, env providers, environment variables.
 - [docs/cli.md](docs/cli.md) — every subcommand.
 - [docs/toolchain-profiles.md](docs/toolchain-profiles.md) — what a profile is, what `python-uv` runs, what `node-npm` still needs.
 - [docs/code-forges.md](docs/code-forges.md) — the hosts a repo can live on, what each makes easy to get wrong, and how to add one.

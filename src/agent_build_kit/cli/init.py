@@ -1,4 +1,5 @@
-"""`abk init`: a planning repo for a set of checkouts, and `abk install-skills`.
+"""`abk init`: a planning repo for a set of checkouts, plus `abk install-skills`
+and `abk install-timers`.
 
 Init is the one command that creates an installation rather than reading
 one. It detects each repo, drafts abk.yaml, lays the planning repo out,
@@ -20,7 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import config as config_module
-from agent_build_kit import openspec, runtimes, skills
+from agent_build_kit import openspec, runtimes, skills, timers
 from agent_build_kit.config import CONFIG_FILENAME, ConfigError, dump
 from agent_build_kit.init.claude_call import RunClaude
 from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
@@ -70,12 +71,27 @@ def _prompt_for_repos() -> list[Path]:
         paths.append(Path(answer))
 
 
+def pr_bases(identity) -> list[str]:
+    """Which branch this repo's pull requests target, asked of its own host.
+
+    `origin/HEAD` is a pointer somebody set once, so a repo that moved its
+    integration branch still answers the old one — and every unit would be
+    built where the work is not. What the host says about real pull requests
+    is the evidence; a host that cannot be reached simply says nothing, and
+    `origin/HEAD` stands.
+    """
+    from agent_build_kit import forges
+
+    forge = forges.get(identity.forge)
+    return [pull.base for pull in forge.list_prs(identity)]
+
+
 def _detect_all(paths: list[Path]) -> dict[str, RepoDetection]:
     detections: dict[str, RepoDetection] = {}
     for path in paths:
         if not path.expanduser().is_dir():
             raise InitError(f"{path} is not a directory")
-        detection = detect_repo(path)
+        detection = detect_repo(path, pr_bases=pr_bases)
         if detection.name in detections:
             raise InitError(
                 f"two repos are both named {detection.name!r} "
@@ -132,7 +148,7 @@ def _planned_work(
     lines = [f"planning repo: {planning}"]
     lines += [
         "  git init, openspec init, abk.yaml, openspec/config.yaml, runs/, .gitignore,",
-        "  .env.example, CLAUDE.md, systemd/ (8 units), .claude/skills/ (3 skills)",
+        "  .env.example, CLAUDE.md, .claude/skills/ (3 skills)",
     ]
     if args.skip_research:
         lines.append("research: skipped")
@@ -325,7 +341,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         "`git config user.email <email>` (and user.name).\n"
         "  3. Log `gh` in for every GitHub owner in abk.yaml: `gh auth login`.\n"
         "  4. Copy .env.example to .env and fill what this machine needs.\n"
-        "  5. Run `abk doctor`, then install the timers from systemd/."
+        "  5. Run `abk doctor`, then `abk install-timers`."
     )
     if failures:
         print(f"\n{len(failures)} change(s) need finishing by hand: {', '.join(failures)}")
@@ -361,6 +377,50 @@ def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> i
     return 1 if refused_any else 0
 
 
+# --- install-timers ----------------------------------------------------------------
+
+
+def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> int:
+    """Put this installation's systemd units on this machine, or take them off.
+
+    Not written at init time: a unit carries an absolute `WorkingDirectory`, so
+    one rendered into the planning repo names whoever ran init, and everyone who
+    cloned that repo afterwards got units aimed at someone else's home
+    directory. `systemctl --user enable` takes such a unit without complaint,
+    because a unit naming a directory that is not there is still a valid unit.
+    """
+    if inst is None:
+        print(
+            "abk install-timers: no abk.yaml found; run this from a planning repo",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.remove:
+        change = timers.remove(inst.root, dry_run=args.dry_run)
+        for path in change.removed:
+            print(f"{'would remove' if args.dry_run else 'removed'} {path}")
+        if not change.removed:
+            print(f"nothing installed for {inst.root}")
+        return 0
+
+    change = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run)
+    for path in change.written:
+        print(f"{'would write' if args.dry_run else 'wrote'} {path}")
+    for path in change.unchanged:
+        print(f"unchanged {path}")
+    for path in change.refused:
+        print(f"refused {path}: not written by agent-build-kit (no marker)")
+
+    if not args.dry_run and (change.written or change.unchanged):
+        print(f"\nunits point at {inst.root}")
+        if args.enable:
+            print("timers enabled; `systemctl --user list-timers` shows when each next runs")
+        else:
+            print("nothing is scheduled: --no-enable was given, so enable them by hand")
+    return 1 if change.refused else 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     init = sub.add_parser("init", help="create a planning repo for a set of checkouts")
     init.add_argument("planning_dir", nargs="?", default=".", help="the planning repo (default .)")
@@ -385,3 +445,18 @@ def register(sub: argparse._SubParsersAction) -> None:
     install.add_argument("--repo", action="append", metavar="PATH", help="a checkout (repeatable)")
     install.add_argument("--user", action="store_true", help="the user-level skills directory")
     install.set_defaults(func=cmd_install_skills, needs_installation="optional")
+
+    units = sub.add_parser(
+        "install-timers", help="render this installation's systemd units for the user manager"
+    )
+    units.add_argument(
+        "--no-enable",
+        dest="enable",
+        action="store_false",
+        help="write the units without scheduling them",
+    )
+    units.add_argument(
+        "--remove", action="store_true", help="stop, disable and delete this installation's units"
+    )
+    units.add_argument("--dry-run", action="store_true", help="print what would change")
+    units.set_defaults(func=cmd_install_timers, needs_installation="optional")

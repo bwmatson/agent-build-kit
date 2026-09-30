@@ -16,6 +16,11 @@ Conventions that hold across every repo:
   module's folder under the package root. Integration tests — anything that
   needs a datastore or the stack — live under `tests/integration/`, mirrored
   the same way. A file that mixes marked and unmarked tests is split.
+- A file that moves or is renamed moves with `git mv`, in a commit that does
+  nothing else. Git then records a rename rather than a delete beside an add,
+  so `git log --follow` and `git blame` still reach the file's history and a
+  reviewer can see at a glance that the contents did not change. Editing it
+  belongs in a later commit.
 - No test calls a live website. Recording a fixture from one, and replaying
   that recording in a test, is fine — the test names where the recording
   came from.

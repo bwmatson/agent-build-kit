@@ -3,7 +3,7 @@
 Beside the unit pipeline, four **tracks** keep watch on the repos: `health`,
 `improve`, `recommend`, and the `implement` pass the first three hand off
 to. Each is a Claude Code run against one repo with a Markdown mission
-prompt; `abk track PHASE` runs one now, and `abk init` writes systemd timers
+prompt; `abk track PHASE` runs one now, and `abk install-timers` writes systemd timers
 for the three scheduled ones.
 
 | Track | Cadence | Reads | Writes |
@@ -142,7 +142,7 @@ headroom.
 
 ## The systemd templates
 
-`abk init` renders `systemd/` from `templates/systemd/`, with the planning
+`abk install-timers` renders the units from `templates/systemd/`, with the planning
 directory filled in. Each service is `Type=oneshot`, runs in the planning
 directory with a PATH carrying `uv` and a node install (the OpenSpec CLI
 runs through `npx`, and a user unit starts with no login environment), and
@@ -160,8 +160,7 @@ skipping it; the two weekly tracks are on different days so they never
 compete for the usage window. Install for the user manager:
 
 ```bash
-cp systemd/abk-tick.* ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now abk-tick.timer
+abk install-timers
 ```
 
 and the same for each `abk-track-*` pair.

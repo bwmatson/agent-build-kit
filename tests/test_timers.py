@@ -6,6 +6,12 @@ baked in whoever ran init: a teammate cloning that repo got units pointing at
 someone else's home directory, and `systemctl --user enable` accepted them.
 These render on the machine doing the installing, against the installation it
 is installing for.
+
+The other thing one machine has to survive is *several* installations. The
+user manager has one namespace, so units named for the framework rather than
+for the installation would have the second install quietly replace the first's
+— both stamped with the same marker, so nothing would refuse it, and the first
+workspace would simply stop being ticked.
 """
 
 from __future__ import annotations
@@ -24,88 +30,217 @@ def fake_run(calls: list[list[str]]):
     return run
 
 
+def planning_at(tmp_path: Path, name: str) -> Path:
+    root = tmp_path / name
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+# --- one installation ---------------------------------------------------------------
+
+
 def test_the_units_are_rendered_against_the_installation_being_installed_for(
     tmp_path: Path,
 ) -> None:
-    planning = tmp_path / "meta-agent"
-    dest = tmp_path / "systemd-user"
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
 
-    written, refused = timers.install(planning, dest=dest, run=fake_run([]))
+    change = timers.install(planning, dest=dest, run=fake_run([]))
 
-    assert refused == []
-    assert {path.name for path in written} == set(timers.UNITS)
-    service = (dest / "abk-tick.service").read_text()
-    assert f"WorkingDirectory={planning}" in service
-
-
-def test_reinstalling_after_the_repo_moves_rewrites_the_path(tmp_path: Path) -> None:
-    """The case the committed copies could not answer: the planning repo moved,
-    so every unit points somewhere that is no longer an installation."""
-    dest = tmp_path / "systemd-user"
-    timers.install(tmp_path / "before", dest=dest, run=fake_run([]))
-
-    timers.install(tmp_path / "after", dest=dest, run=fake_run([]))
-
-    service = (dest / "abk-tick.service").read_text()
-    assert f"WorkingDirectory={tmp_path / 'after'}" in service
-    assert "before" not in service
+    assert {path.name for path in change.written} == set(timers.unit_names(planning))
+    assert timers.installed_root(dest, planning) == planning.resolve()
+    assert (
+        f"WorkingDirectory={planning.resolve()}"
+        in (dest / timers.unit_names(planning)[0]).read_text()
+    )
 
 
-def test_a_unit_this_framework_did_not_write_is_refused(tmp_path: Path) -> None:
-    """Same guard as install-skills: a hand-written unit of the same name is
-    someone's own work, and overwriting it silently would be the framework
-    taking a file it does not own."""
-    dest = tmp_path / "systemd-user"
-    dest.mkdir()
-    (dest / "abk-tick.service").write_text("[Service]\nExecStart=/usr/bin/true\n")
+def test_every_unit_is_named_for_its_installation(tmp_path: Path) -> None:
+    """The name is what keeps two workspaces apart in one user manager."""
+    planning = planning_at(tmp_path, "meta-agent")
 
-    written, refused = timers.install(tmp_path / "planning", dest=dest, run=fake_run([]))
+    names = timers.unit_names(planning)
 
-    assert [path.name for path in refused] == ["abk-tick.service"]
-    assert "abk-tick.service" not in {path.name for path in written}
-    assert (dest / "abk-tick.service").read_text() == "[Service]\nExecStart=/usr/bin/true\n"
+    assert all("meta-agent" in name for name in names)
+    assert sorted(names) == sorted([f"abk-meta-agent-{base}" for base in timers.BASE_UNITS])
 
 
-def test_installing_reloads_the_user_manager(tmp_path: Path) -> None:
+def test_a_name_systemd_would_refuse_is_made_safe(tmp_path: Path) -> None:
+    """A checkout directory may be called anything at all; a unit name may not."""
+    planning = planning_at(tmp_path, "AI%20Accelerators meta")
+
+    names = timers.unit_names(planning)
+
+    assert all(set(name) <= set(timers.SAFE_CHARACTERS) for name in names), names
+    assert "abk-AI-20Accelerators-meta-tick.service" in names
+
+
+# --- several installations ----------------------------------------------------------
+
+
+def test_a_second_installation_does_not_displace_the_first(tmp_path: Path) -> None:
+    """The failure this prevents: the first workspace silently stops ticking."""
+    first = planning_at(tmp_path, "one")
+    second = planning_at(tmp_path, "two")
+    dest = tmp_path / "units"
+
+    timers.install(first, dest=dest, run=fake_run([]))
+    timers.install(second, dest=dest, run=fake_run([]))
+
+    assert timers.installed_root(dest, first) == first.resolve()
+    assert timers.installed_root(dest, second) == second.resolve()
+    assert len(list(dest.iterdir())) == 2 * len(timers.BASE_UNITS)
+
+
+def test_removing_one_installation_leaves_the_other_running(tmp_path: Path) -> None:
+    first = planning_at(tmp_path, "one")
+    second = planning_at(tmp_path, "two")
+    dest = tmp_path / "units"
+    timers.install(first, dest=dest, run=fake_run([]))
+    timers.install(second, dest=dest, run=fake_run([]))
+
+    change = timers.remove(first, dest=dest, run=fake_run([]))
+
+    assert {path.name for path in change.removed} == set(timers.unit_names(first))
+    assert timers.installed_root(dest, first) is None
+    assert timers.installed_root(dest, second) == second.resolve()
+
+
+# --- running it twice ---------------------------------------------------------------
+
+
+def test_installing_what_is_already_there_changes_nothing(tmp_path: Path) -> None:
+    """Idempotent: the command is safe to run from a setup script, and says
+    plainly that it did nothing rather than reporting eight writes."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    timers.install(planning, dest=dest, run=fake_run([]))
+    stamps = {p.name: p.stat().st_mtime_ns for p in dest.iterdir()}
     calls: list[list[str]] = []
 
-    timers.install(tmp_path / "planning", dest=tmp_path / "dest", run=fake_run(calls))
+    change = timers.install(planning, dest=dest, run=fake_run(calls))
+
+    assert change.written == ()
+    assert {path.name for path in change.unchanged} == set(timers.unit_names(planning))
+    assert {p.name: p.stat().st_mtime_ns for p in dest.iterdir()} == stamps
+    assert ["systemctl", "--user", "daemon-reload"] not in calls, (
+        "nothing changed, so the manager is not asked to reload"
+    )
+
+
+def test_a_unit_whose_content_moved_on_is_rewritten(tmp_path: Path) -> None:
+    """Reinstalling is the repair when the framework's template changes."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    timers.install(planning, dest=dest, run=fake_run([]))
+    target = dest / timers.unit_names(planning)[0]
+    target.write_text(f"{timers.MARKER}\nstale\n")
+    calls: list[list[str]] = []
+
+    change = timers.install(planning, dest=dest, run=fake_run(calls))
+
+    assert [path.name for path in change.written] == [target.name]
+    assert "stale" not in target.read_text()
+    assert ["systemctl", "--user", "daemon-reload"] in calls
+
+
+def test_a_unit_somebody_else_wrote_is_refused(tmp_path: Path) -> None:
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    dest.mkdir()
+    mine = dest / timers.unit_names(planning)[0]
+    mine.write_text("[Unit]\nDescription=mine\n")
+
+    change = timers.install(planning, dest=dest, run=fake_run([]))
+
+    assert [path.name for path in change.refused] == [mine.name]
+    assert mine.read_text() == "[Unit]\nDescription=mine\n"
+    assert len(change.written) == len(timers.BASE_UNITS) - 1, "the rest still land"
+
+
+# --- enabling and removing ----------------------------------------------------------
+
+
+def test_installing_schedules_them(tmp_path: Path) -> None:
+    """What installing a timer is for. Written but not enabled is the failure
+    that looks most like success: `abk status` answers perfectly while no tick
+    has happened in a week."""
+    planning = planning_at(tmp_path, "meta-agent")
+    calls: list[list[str]] = []
+
+    timers.install(planning, dest=tmp_path / "d", run=fake_run(calls))
+
+    enabled = [argv[-1] for argv in calls if "enable" in argv]
+    assert enabled == [n for n in timers.unit_names(planning) if n.endswith(".timer")]
+
+
+def test_the_services_beside_them_are_never_enabled(tmp_path: Path) -> None:
+    """Enabling a `.service` would run it at boot, outside the schedule that is
+    the whole point of the timer beside it."""
+    planning = planning_at(tmp_path, "meta-agent")
+    calls: list[list[str]] = []
+
+    timers.install(planning, dest=tmp_path / "d", run=fake_run(calls))
+
+    assert not any(argv[-1].endswith(".service") for argv in calls if "enable" in argv)
+
+
+def test_a_caller_that_will_schedule_them_itself_can_say_so(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    timers.install(
+        planning_at(tmp_path, "meta-agent"), dest=tmp_path / "d", run=fake_run(calls), enable=False
+    )
 
     assert calls == [["systemctl", "--user", "daemon-reload"]]
 
 
-def test_enabling_starts_only_the_timers(tmp_path: Path) -> None:
-    """Enabling a `.service` here would run a tick at boot outside its timer."""
+def test_enabling_again_is_harmless(tmp_path: Path) -> None:
+    """`enable --now` is idempotent, so it runs whether or not a file changed —
+    which is what repairs a unit that was written but never scheduled."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "d"
+    timers.install(planning, dest=dest, run=fake_run([]))
     calls: list[list[str]] = []
 
-    timers.install(tmp_path / "planning", dest=tmp_path / "dest", run=fake_run(calls), enable=True)
+    change = timers.install(planning, dest=dest, run=fake_run(calls))
 
-    assert calls[0] == ["systemctl", "--user", "daemon-reload"]
-    enabled = [call for call in calls if "enable" in call]
-    assert len(enabled) == 4
-    assert all(call[-1].endswith(".timer") for call in enabled)
+    assert change.written == ()
+    assert [argv[-1] for argv in calls if "enable" in argv] == [
+        n for n in timers.unit_names(planning) if n.endswith(".timer")
+    ]
 
 
-def test_a_dry_run_writes_nothing_and_runs_nothing(tmp_path: Path) -> None:
+def test_removing_stops_the_timers_before_deleting_them(tmp_path: Path) -> None:
+    """A unit file deleted from under a running timer leaves the manager holding
+    a job it can no longer describe."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    timers.install(planning, dest=dest, run=fake_run([]))
     calls: list[list[str]] = []
-    dest = tmp_path / "dest"
 
-    written, refused = timers.install(
-        tmp_path / "planning", dest=dest, run=fake_run(calls), dry_run=True
-    )
+    timers.remove(planning, dest=dest, run=fake_run(calls))
 
-    assert {path.name for path in written} == set(timers.UNITS)
+    disabled = [argv for argv in calls if "disable" in argv]
+    assert disabled, "the timers are disabled"
+    assert all(argv[-1].endswith(".timer") for argv in disabled)
+    assert calls.index(disabled[0]) < calls.index(["systemctl", "--user", "daemon-reload"])
+    assert not list(dest.iterdir())
+
+
+def test_removing_what_is_not_installed_is_not_an_error(tmp_path: Path) -> None:
+    change = timers.remove(planning_at(tmp_path, "meta-agent"), dest=tmp_path / "none")
+
+    assert change.removed == ()
+
+
+def test_a_dry_run_touches_nothing(tmp_path: Path) -> None:
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    calls: list[list[str]] = []
+
+    change = timers.install(planning, dest=dest, run=fake_run(calls), dry_run=True)
+
+    assert len(change.written) == len(timers.BASE_UNITS)
     assert not dest.exists()
     assert calls == []
-
-
-def test_the_installed_working_directory_is_readable(tmp_path: Path) -> None:
-    """What doctor needs: which installation the units on this machine serve."""
-    dest = tmp_path / "dest"
-    timers.install(tmp_path / "planning", dest=dest, run=fake_run([]))
-
-    assert timers.installed_root(dest) == tmp_path / "planning"
-
-
-def test_no_installed_units_reads_as_none(tmp_path: Path) -> None:
-    assert timers.installed_root(tmp_path / "empty") is None

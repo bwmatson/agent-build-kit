@@ -28,3 +28,11 @@ committed. Three skills under `.claude/skills/` cover the rest:
 - `abk-pipeline` — reading the pipeline's state and what to do about it.
 - `abk-authoring` — writing a change's tasks so the pipeline can build them.
 - `abk-config` — the `abk.yaml` schema and `abk doctor`.
+
+**A change here is built by the pipeline, not applied by hand.** Writing a
+change ends at its artifacts; `abk tick` plans its task groups into units and
+opens a branch and a pull request for each, with the review loop and the test
+tiers around them. OpenSpec's own skills close by offering `/opsx:apply`, which
+implements the tasks in the session instead — that is the wrong path in this
+workspace, and the tick will later find the work already done. Run `abk tick`,
+or let the timer.

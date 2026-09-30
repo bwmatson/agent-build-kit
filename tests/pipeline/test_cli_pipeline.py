@@ -368,24 +368,62 @@ def test_a_dry_run_still_reports_without_a_configured_identity(
     assert "add-marker/1" in capsys.readouterr().out
 
 
-def test_a_repo_with_a_local_identity_passes_the_check(
+def _isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A checkout whose git sees no config but its own.
+
+    Whether these pass must not depend on whose machine they run on: with the
+    developer's global identity in scope every fresh repo has one, and the
+    check would read as satisfied here and unsatisfied in CI.
+    """
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "system"))
+    repo = inst.checkouts["app"]
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    return repo
+
+
+def test_a_repo_with_no_identity_anywhere_fails_the_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Against a real checkout, not a stub: the whole point is what git
-    actually resolves, and `--local` is what distinguishes a deliberate
-    per-repo identity from inheriting the machine's global one."""
-    repo = inst.checkouts["app"]
-    repo.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    """Git would refuse the commit, or invent an identity from the login name
+    and the hostname — either way the commit says nothing about who made it."""
+    _isolated_git(monkeypatch, tmp_path)
 
     assert real_has_identity(inst, "app") is False
 
-    subprocess.run(
-        ["git", "config", "user.email", "example@users.noreply.github.com"],
-        cwd=repo,
-        check=True,
-    )
+
+def test_the_machine_s_global_identity_is_enough(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One identity for the machine is an ordinary way to set one up. Refusing
+    to build until it is copied into every checkout rejects a configuration
+    that works, over a difference that makes none."""
+    _isolated_git(monkeypatch, tmp_path)
+    (tmp_path / "global").write_text("[user]\n\temail = me@example.com\n\tname = Me\n")
+
     assert real_has_identity(inst, "app") is True
+
+
+def test_a_repo_local_identity_is_enough(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A workspace whose repos belong to different accounts wants one per
+    repo, and that still satisfies the check."""
+    repo = _isolated_git(monkeypatch, tmp_path)
+    subprocess.run(["git", "config", "user.email", "app@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "App"], cwd=repo, check=True)
+
+    assert real_has_identity(inst, "app") is True
+
+
+def test_an_email_with_no_name_is_not_an_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Git needs both to commit, so half of one is not a configured repo — it
+    is a build that fails at the first commit instead of before it starts."""
+    repo = _isolated_git(monkeypatch, tmp_path)
+    subprocess.run(["git", "config", "user.email", "app@example.com"], cwd=repo, check=True)
+
+    assert real_has_identity(inst, "app") is False
 
 
 def test_a_repo_we_have_no_checkout_of_fails_the_check(monkeypatch: pytest.MonkeyPatch) -> None:
