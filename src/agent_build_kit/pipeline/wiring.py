@@ -933,13 +933,35 @@ def _tests_changed(tree: Path, ref: str) -> set[str]:
     changed. Data living outside the function, such as a module-level table a
     parametrize reads, is not seen.
     """
-    diff = git(tree, "diff", "--name-only", "--no-renames", ref, "--", "*.py", check=False)
-    new = git(tree, "ls-files", "--others", "--exclude-standard", "--", "*.py", check=False)
+    # `-z` so git does not C-quote paths; no `check=False`, since a failing
+    # listing must not read as "nothing changed".
+    diff = git(
+        tree,
+        "diff",
+        "-z",
+        "--name-only",
+        "--no-renames",
+        ref,
+        "--",
+        "*.py",
+        errors="surrogateescape",
+    )
+    new = git(
+        tree,
+        "ls-files",
+        "-z",
+        "--others",
+        "--exclude-standard",
+        "--",
+        "*.py",
+        errors="surrogateescape",
+    )
+    paths = {p for p in (diff.stdout + "\0" + new.stdout).split("\0") if p}
     changed: set[str] = set()
-    for path in set(diff.stdout.splitlines()) | set(new.stdout.splitlines()):
+    for path in paths:
         file = tree / path
         current = _test_bodies(file.read_text(errors="replace")) if file.is_file() else {}
-        old_source = git(tree, "show", f"{ref}:{path}", check=False)
+        old_source = git(tree, "show", f"{ref}:{path}", check=False, errors="replace")
         old = _test_bodies(old_source.stdout) if old_source.returncode == 0 else {}
         changed |= {n for n in old.keys() | current.keys() if old.get(n) != current.get(n)}
     return changed

@@ -1739,6 +1739,11 @@ def test_a_changed_test_cannot_be_answered_keep() -> None:
         "no decision for `test_a`, which differs from the previous work — mark it "
         "adapt and say what changed, or retire it with a reason"
     ]
+    assert check_test_decisions(["test_b"], [], present=set(), changed={"test_b"}) == [
+        "no decision for `test_b`, which is no longer in the tree — retire it with a reason "
+        "naming what in the predecessor made it invalid, or mark it adapt and name the test "
+        "that replaced it"
+    ]
 
 
 def test_only_the_uncertain_tests_need_a_decision() -> None:

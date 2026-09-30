@@ -15,6 +15,7 @@ Three things carry real weight:
 """
 
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -708,8 +709,8 @@ def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Pa
 
 def _changed_after(
     tmp_path: Path,
-    before: str | dict[str, str],
-    after: str | dict[str, str | None],
+    before: str | Mapping[str, str],
+    after: str | Mapping[str, str | None],
 ) -> set[str]:
     """`_tests_changed` on a real repo: `before` is committed, `after` written
     over it (a `None` value deletes the file)."""
@@ -732,6 +733,42 @@ def _changed_after(
 
 
 _DEFAULTS = "def test_defaults():\n    assert 1 == 1\n"
+
+
+def test_a_test_weakened_in_a_file_whose_path_git_quotes_reads_as_changed(
+    tmp_path: Path,
+) -> None:
+    before = {"test_é.py": "def test_a():\n    assert 1 == 1\n"}
+    after = {"test_é.py": "def test_a():\n    pass\n"}
+
+    assert _changed_after(tmp_path, before, after) == {"test_a"}
+
+
+def test_a_file_that_is_not_utf8_is_compared_without_raising(tmp_path: Path) -> None:
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    head = b"# caf\xe9\n"
+    (repo / "test_mod.py").write_bytes(head + b"def test_a():\n    assert 1 == 1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    git(repo, "update-ref", "refs/keep", "HEAD")
+    (repo / "test_mod.py").write_bytes(head + b"def test_a():\n    pass\n")
+
+    assert _tests_changed(repo, "refs/keep") == {"test_a"}
+
+
+def test_a_ref_that_does_not_exist_raises_rather_than_reading_as_unchanged(
+    tmp_path: Path,
+) -> None:
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import init_repo
+
+    repo = init_repo(tmp_path / "r")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _tests_changed(repo, "refs/does-not-exist")
 
 
 def test_a_test_removed_from_one_file_reads_as_changed_though_another_has_the_name(

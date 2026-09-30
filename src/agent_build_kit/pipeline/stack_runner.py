@@ -521,12 +521,19 @@ def check_test_decisions(
     for name in old_tests:
         decision = decided.get(name)
         if decision is None:
-            problems.append(
-                f"no decision for `{name}`, which differs from the previous work — mark it "
-                "adapt and say what changed, or retire it with a reason"
-                if name in changed
-                else f"no decision for `{name}`"
-            )
+            if name not in present:
+                problems.append(
+                    f"no decision for `{name}`, which is no longer in the tree — retire it "
+                    "with a reason naming what in the predecessor made it invalid, or mark it "
+                    "adapt and name the test that replaced it"
+                )
+            elif name in changed:
+                problems.append(
+                    f"no decision for `{name}`, which differs from the previous work — mark it "
+                    "adapt and say what changed, or retire it with a reason"
+                )
+            else:
+                problems.append(f"no decision for `{name}`")
         elif decision.decision not in ("keep", "adapt", "retire"):
             problems.append(f"`{name}`: unknown decision {decision.decision!r}")
         elif decision.decision == "retire" and len(decision.reason.strip()) < 20:
