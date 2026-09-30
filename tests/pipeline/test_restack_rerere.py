@@ -342,6 +342,87 @@ def test_a_resolver_that_rejects_a_replay_aborts_and_clears_the_cache(
     )
 
 
+def test_a_rejected_replay_is_forgotten_even_when_not_the_first_marked_file(
+    tmp_path: Path,
+) -> None:
+    """Two files both carry a cached resolution; the resolver rejects both by
+    planting a marker in each. Raising on the first marked file found would
+    skip the `rerere forget` for the second, so the next sibling would still
+    be offered the very resolution just judged wrong for that file — exactly
+    what a rejected replay is meant to stop."""
+
+    def commit_both(conflicted_value: str, other_value: str) -> None:
+        (repo / "conflicted.py").write_text(conflicted_value)
+        (repo / "other.py").write_text(other_value)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "write both files")
+
+    repo = init_repo(tmp_path / "repo")
+    commit_both("value = 1\n", "value = 1\n")
+    pre = git(repo, "rev-parse", "HEAD")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/1")
+    commit_both("value = 2  # predecessor\n", "value = 2  # predecessor\n")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge predecessor", "spec/c/1")
+
+    def make_sibling(name: str) -> None:
+        git(repo, "checkout", "-q", "-b", name, pre)
+        commit_both("value = 1  # sibling\n", "value = 1  # sibling\n")
+        git(repo, "checkout", "-q", "main")
+
+    make_sibling("spec/c/2")
+    make_sibling("spec/c/3")
+    make_sibling("spec/c/4")
+    tree2 = sibling_worktree(repo, "spec/c/2", tmp_path)
+    tree3 = sibling_worktree(repo, "spec/c/3", tmp_path)
+    tree4 = sibling_worktree(repo, "spec/c/4", tmp_path)
+
+    def derives(prompt: str, *, cwd: Path) -> None:
+        (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+        (cwd / "other.py").write_text("value = 2  # sibling\n")
+
+    move_branch_onto(
+        tree2, "spec/c/2", new_base="main", old_base=pre, resolve=derives, context=context()
+    )
+
+    def rejects_both(prompt: str, *, cwd: Path) -> None:
+        (cwd / "conflicted.py").write_text("<<<<<<< rejecting\n")
+        (cwd / "other.py").write_text("<<<<<<< rejecting\n")
+
+    with pytest.raises(RestackConflict):
+        move_branch_onto(
+            tree3,
+            "spec/c/3",
+            new_base="main",
+            old_base=pre,
+            resolve=rejects_both,
+            context=context(),
+        )
+
+    assert not rebase_in_progress(tree3)
+    assert git(tree3, "status", "--porcelain") == ""
+
+    seen: dict = {}
+
+    def confirms(prompt: str, *, cwd: Path) -> None:
+        seen["conflicted"] = (cwd / "conflicted.py").read_text()
+        seen["other"] = (cwd / "other.py").read_text()
+        (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
+        (cwd / "other.py").write_text("value = 2  # sibling\n")
+
+    move_branch_onto(
+        tree4, "spec/c/4", new_base="main", old_base=pre, resolve=confirms, context=context()
+    )
+
+    assert any(marker in seen["conflicted"] for marker in restack.CONFLICT_MARKERS), (
+        "the rejected entry for conflicted.py should not have been replayed"
+    )
+    assert any(marker in seen["other"] for marker in restack.CONFLICT_MARKERS), (
+        "the rejected entry for other.py should not have been replayed either"
+    )
+
+
 def test_a_modify_delete_conflict_is_never_reported_as_a_replay(tmp_path: Path) -> None:
     """A conflict rerere cannot track at all — here, one side deletes the file
     the other modifies — leaves no markers either, for a wholly different
@@ -375,6 +456,48 @@ def test_a_modify_delete_conflict_is_never_reported_as_a_replay(tmp_path: Path) 
 
     assert "file.txt" in seen["conflicted_at_arrival"]
     assert "replayed" not in seen["prompt"].lower()
+    assert not rebase_in_progress(repo)
+    assert git(repo, "status", "--porcelain") == ""
+
+
+def test_a_binary_conflict_with_an_empty_cache_is_never_reported_as_a_replay(
+    tmp_path: Path,
+) -> None:
+    """A binary conflict is three-staged, so it is never PUNTED, and rerere's
+    own `handle_file` finds no marker hunks to record, so it never enters
+    MERGE_RR either — it is simply absent from `git rerere remaining`, the
+    same as every path that *was* replayed. With an empty cache that must
+    still read as "nothing replayed", not "everything replayed"."""
+    repo = init_repo(tmp_path / "repo")
+    (repo / "file.bin").write_bytes(b"\x00original\x00")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "write file.bin")
+    pre = git(repo, "rev-parse", "HEAD")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/1")
+    (repo / "file.bin").write_bytes(b"\x00predecessor\x00")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "predecessor edits file.bin")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge predecessor", "spec/c/1")
+
+    git(repo, "checkout", "-q", "-b", "spec/c/2", pre)
+    (repo / "file.bin").write_bytes(b"\x00sibling\x00")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "sibling edits file.bin")
+    git(repo, "checkout", "-q", "main")
+
+    seen: dict = {}
+
+    def resolves(prompt: str, *, cwd: Path) -> None:
+        seen["prompt"] = prompt
+        (cwd / "file.bin").write_bytes(b"\x00resolved\x00")
+
+    move_branch_onto(
+        repo, "spec/c/2", new_base="main", old_base=pre, resolve=resolves, context=context()
+    )
+
+    assert note_files(seen["prompt"]) == ""
     assert not rebase_in_progress(repo)
     assert git(repo, "status", "--porcelain") == ""
 

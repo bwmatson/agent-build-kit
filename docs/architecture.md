@@ -240,9 +240,13 @@ cache the pipeline reads. `autoUpdate` stays off, so a replayed resolution
 lands in the file but the path stays unmerged and unstaged until something
 stages it deliberately. A conflict — replayed or not — is handed to a scoped
 Claude run that is told both sides' intent (both are planned units), which
-paths arrived with a replayed resolution, and may edit only the conflict; the
-result is checked — no markers left, the moving unit's own tokens still
-present — or the rebase is aborted and left for a person. After a clean move
+paths arrived with a replayed resolution, and may edit only the conflict.
+Leaving a replayed file unchanged accepts it, editing it replaces what's
+cached for the next replay, and planting a `<<<<<<<` in it rejects the
+replay — which aborts the move and forgets that cached entry so the next
+sibling sees the conflict fresh. The result is checked — no markers left, the
+moving unit's own tokens still present — or the rebase is aborted and left
+for a person. After a clean move
 whose diff (`git patch-id`) is unchanged and whose head review had approved,
 tier 1 runs again and the branch is pushed with a lease and a "Restacked"
 comment. Anything else — a resolved conflict, a changed diff, a head review
