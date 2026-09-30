@@ -132,8 +132,13 @@ class Installation:
         return self.config.limits.max_concurrent_stacks
 
     @property
-    def stack_depth_cap(self) -> int:
-        return self.config.limits.stack_depth_cap
+    def stack_depth_build_cap(self) -> int:
+        return self.config.limits.stack_depth_build_cap
+
+    @property
+    def stack_depth_rebase_cap(self) -> int:
+        rebase = self.config.limits.stack_depth_rebase_cap
+        return self.stack_depth_build_cap if rebase is None else rebase
 
     @property
     def max_plan_attempts(self) -> int:

@@ -60,16 +60,18 @@ more task groups of a change.
 | `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework; a merge moves it on. |
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
-| `held` | A reviewer took the unit over, the toolchain cannot build it, or the review loop held it itself — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it. | See below. |
+| `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). | See below. |
 | `failed` | The build raised. | See below. |
 | `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`
 
-Three ways in: a reviewer put the `agent:hold` label on the PR, the review loop
-itself held it, or the tick found it cannot build the unit (the unit's
-`history` entry says which — a toolchain profile the framework does not
-implement yet, for instance).
+Four ways in: a reviewer put the `agent:hold` label on the PR, the review loop
+itself held it, a merge left it deeper than `limits.stack_depth_rebase_cap`
+(the history note names the depth and the cap, and the branch it is still on),
+or the tick found it cannot build the unit (the unit's `history` entry says
+which — a toolchain profile the framework does not implement yet, for
+instance).
 
 - A reviewer's hold: the human is driving. Finish the PR by hand, or remove
   the label and comment what should change; the next poll picks either up.
@@ -88,6 +90,9 @@ implement yet, for instance).
   earlier one left open or unanswered, means the round is not an approval.
 - A toolchain hold: nothing a retry fixes. Either build the unit by hand on
   its branch, or change the plan.
+- A depth hold: no action needed. Its PR was retargeted, and a later merge in
+  the same repo restacks it once its depth is within the cap. To move it
+  sooner, raise `limits.stack_depth_rebase_cap` or restack the branch by hand.
 
 ### `failed`
 

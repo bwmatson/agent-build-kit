@@ -96,7 +96,7 @@ dependency may be `in_review` (the unit stacks on its branch), a cross-repo one
 must be `merged` (stacks cannot span repos). A `satisfied` dependency is
 looked through to what it was built on: same-repo, the dependent waits on and
 stacks on that predecessor; cross-repo, it counts once that predecessor has
-merged. `limits.stack_depth_cap` holds
+merged. `limits.stack_depth_build_cap` holds
 back chains of open PRs; `limits.max_concurrent_stacks` bounds units being
 built, not PRs awaiting review. Ready units build in parallel threads, each
 under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
@@ -282,7 +282,7 @@ add or push until its resolver finishes. Its tier 1 run happens outside the turn
 
 | Change seen | Event | Effect (`events.py`) |
 |---|---|---|
-| `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
+| `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; a merge only cascades within `limits.stack_depth_rebase_cap`: a child deeper than it is `held` with its depth and the cap on its record and the merged branch is kept, and a later merge in the same repo restacks it once its depth falls within the cap (the branch kept for it is left behind afterwards, like any other leftover local branch); a child being built is not held: it is retargeted as above; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
 | closed without merging | `closed` | unit `closed`; nothing cascades to what was stacked on it. Deferred while the unit is being built. |
 | label `agent:hold` added | `hold` | unit `held`; nothing automatic touches it again. Deferred while the unit is being built. |
 | label `agent:rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, or a newly failing check | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail). A held unit ignores it. Deferred while the unit is being built. |

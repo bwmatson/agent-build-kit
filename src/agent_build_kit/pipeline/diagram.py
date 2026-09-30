@@ -210,7 +210,8 @@ edit by hand.
   stack's depth.
 - **held** — a reviewer took it over, or the review loop held it itself: needs
   a human, an escalated class or disagreement, or rounds spent with a pushed
-  branch and PR. Nothing automatic touches it.
+  branch and PR; or a merge left it beyond the rebase cap. Nothing automatic
+  touches it, but a later merge restacks the depth case.
 - **failed** — stopped on something it could not get past; its feedback says
   what. Nothing retries it until someone requeues it.
 - **closed** / **unplanned** — stopped, or dropped from the latest plan while

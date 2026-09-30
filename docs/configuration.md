@@ -100,8 +100,10 @@ models:                         # bare aliases, not pinned ids. These are the
                                 # from the one that made the edit
 
 limits:
-  stack_depth_cap: 3            # longest chain of in-review PRs from main a
-                                # new unit may extend
+  stack_depth_build_cap: 3      # longest chain of in-review PRs from main a
+                                # new unit may extend (was stack_depth_cap)
+  stack_depth_rebase_cap:       # deepest a dependent may sit when a merge
+                                # restacks it; unset = the build cap's value
   max_concurrent_stacks: 4      # units being built at once, across all repos
                                 # (PRs awaiting review are unbounded)
   min_unit_lines: 500           # estimated changed lines before the planner

@@ -28,9 +28,10 @@ IN_REVIEW = "in_review"
 MERGED = "merged"
 CLOSED = "closed"
 
-# A reviewer has asked the pipeline to keep its hands off this unit. Not a
-# lifecycle state like the ones above: those describe how far a unit has got,
-# and this describes who is driving it.
+# The pipeline is keeping its hands off this unit: a reviewer asked it to, the
+# toolchain cannot build it, or a merge left it beyond the rebase cap (which a
+# later merge releases). Not a lifecycle state like the ones above: those
+# describe how far a unit has got, and this describes who is driving it.
 HELD = "held"
 
 # A unit whose groups needed nothing: it added no commits of its own, and what

@@ -383,7 +383,7 @@ def _evaluate(
             unit = unit.model_copy(update={"state": HELD})
         view.append(unit)
     ready = ready_units(
-        view, max_concurrent=inst.max_concurrent_stacks, depth_cap=inst.stack_depth_cap
+        view, max_concurrent=inst.max_concurrent_stacks, depth_cap=inst.stack_depth_build_cap
     )
     return [unit for unit in ready if unit.id not in started]
 
@@ -866,6 +866,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         # building; the handlers leave it to a later poll. See `events`.
         claim=build_claim(inst.state_dir / "locks"),
         retarget=build_retarget(),
+        rebase_cap=inst.stack_depth_rebase_cap,
         log=log,
     )
 
