@@ -489,3 +489,106 @@ def test_spending_the_rounds_still_checks_the_last_gate_before_a_push(tmp_path: 
     stored = store.get(unit().id)
     assert stored.state == PLANNED
     assert "still no" in stored.feedback, "the last round's points survive the hold"
+
+
+def _approval_with(*items: dict) -> str:
+    return json.dumps({"approved": True, "feedback": "", "follow_ups": list(items)})
+
+
+def test_a_unit_that_stops_between_approval_and_push_keeps_its_follow_ups(
+    tmp_path: Path,
+) -> None:
+    """The follow-ups belong to the approval, not to the run that got it: a
+    unit held at the gate before its push resumes at VERIFY with no review to
+    repeat them."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [_approval_with({"kind": "optional", "point": "Name the lock"})]
+    runner = make_runner(store, recorder, tmp_path)
+    gate = {"clear": False}
+    runner.upstream_incomplete = lambda u: (
+        "its base moved" if recorder.events.count("review") and not gate["clear"] else ""
+    )
+
+    first = runner.run(unit(), base="main", graph=[])
+    assert first.status == "held"
+    assert "push" not in recorder.events
+
+    gate["clear"] = True
+    bodies: list[str] = []
+    outcome = _capturing_prs(runner, bodies).run(store.get(unit().id), base="main", graph=[])
+
+    assert outcome.status == "open"
+    assert recorder.events.count("review") == 1
+    assert "Name the lock" in (tmp_path / "meta" / FOLLOW_UPS).read_text()
+    assert "Name the lock" in bodies[0]
+    assert store.get(unit().id).deferred == (), "cleared once written"
+
+
+def test_spent_rounds_keep_the_units_recorded_follow_ups_in_the_pr_body(tmp_path: Path) -> None:
+    total = active().limits.max_review_rounds
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [_approval_with({"kind": "optional", "point": "Name the lock"})]
+    make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    store.set_feedback(unit().id, "tidy the error message")
+    later = Recorder()
+    later.verdicts = [_verdict(feedback="the timeout is still wrong")] * total
+    bodies: list[str] = []
+    outcome = _capturing_prs(make_runner(store, later, tmp_path), bodies).run(
+        store.get(unit().id), base="main", graph=[]
+    )
+
+    assert outcome.status == "held"
+    assert "the timeout is still wrong" in bodies[-1]
+    assert "Name the lock" in bodies[-1], "the follow-up is not lost with the body's replacement"
+    assert store.get(unit().id).resume_from == ""
+
+
+def test_a_multi_line_follow_up_is_recorded_and_read_back_as_one_item(tmp_path: Path) -> None:
+    point = "Rename the lock:\nit guards the registry,\n- not the tick"
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [
+        _approval_with(
+            {"kind": "optional", "point": point},
+            {"kind": "optional", "point": "  \n "},
+        )
+    ]
+    bodies: list[str] = []
+    _capturing_prs(make_runner(store, recorder, tmp_path), bodies).run(
+        unit(), base="main", graph=[]
+    )
+
+    recorded = (tmp_path / "meta" / FOLLOW_UPS).read_text()
+    assert [line for line in recorded.splitlines() if line.startswith("- ")] == [
+        f"- {_flat(point)}"
+    ]
+    later = bodies[0].split("Left for later", 1)[1]
+    items = [line for line in later.splitlines() if line.startswith("- ")]
+    assert len(items) == 1
+    assert all(part in items[0] for part in ("Rename the lock:", "registry,", "not the tick"))
+
+
+@pytest.mark.parametrize(
+    ("value", "kinds", "points"),
+    [
+        (True, ["unreadable"], ["true"]),
+        (3, ["unreadable"], ["3"]),
+        ({"kind": "optional", "point": "x"}, ["optional"], ["x"]),
+        ("fix the lock", ["unreadable"], ["fix the lock"]),
+    ],
+)
+def test_a_follow_ups_value_that_is_not_a_list_is_read_as_one_item(
+    value: object, kinds: list[str], points: list[str]
+) -> None:
+    from agent_build_kit.pipeline.stack_runner import parse_verdict
+
+    verdict = parse_verdict(json.dumps({"approved": True, "follow_ups": value}))
+
+    assert [f.kind for f in verdict.follow_ups] == kinds
+    assert [f.point for f in verdict.follow_ups] == points

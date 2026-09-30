@@ -89,8 +89,9 @@ def _follow_ups_marker(unit_id: str) -> str:
 
 def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
     """Where this unit's block ends in `content`: the next unit's marker, or the end."""
-    next_marker = content.find("## From `", start + len(marker))
-    return next_marker if next_marker != -1 else len(content)
+    # Line-anchored: a marker inside a point's text is not a block boundary.
+    next_marker = content.find("\n## From `", start + len(marker) - 1)
+    return next_marker + 1 if next_marker != -1 else len(content)
 
 
 TESTS_PROMPT = """\
@@ -205,17 +206,19 @@ def parse_verdict(output: str) -> Verdict:
     except ValueError:
         return Verdict(feedback="the reviewer's reply was not readable as a verdict")
     follow_ups = []
-    for item in payload.get("follow_ups") or []:
+    raw = payload.get("follow_ups") or []
+    if not isinstance(raw, list):
+        raw = [raw]
+    for item in raw:
         try:
             follow_ups.append(FollowUp.model_validate(item))
         except ValueError:
             # Not skipped: a follow-up the pipeline cannot read is not one it
             # can trust to be optional, so it blocks the approval same as a
             # correctness point would.
-            point = item.get("point") if isinstance(item, dict) else None
-            follow_ups.append(
-                FollowUp(kind="unreadable", point=str(point) if point else json.dumps(item))
-            )
+            point = item.get("point") if isinstance(item, dict) else item
+            text = point if isinstance(point, str) and point else json.dumps(item)
+            follow_ups.append(FollowUp(kind="unreadable", point=text))
     escalate = str(payload.get("escalate") or "").strip()
     return Verdict(
         approved=bool(payload.get("approved")),
@@ -820,7 +823,6 @@ class UnitRunner(BaseModel):
             self.log("the branch is not the commit review approved; reviewing it")
             needs_review = True
 
-        deferred: tuple[FollowUp, ...] = ()
         if needs_review:
             # The reviewer reports and the builder fixes, alternating until the
             # reviewer is satisfied. It used to edit the branch itself, which
@@ -830,7 +832,7 @@ class UnitRunner(BaseModel):
             #
             # Before tier 1, because a review that changed code afterwards
             # would invalidate the run that verified it.
-            approved, why, deferred = self._review_until_satisfied(
+            approved, why = self._review_until_satisfied(
                 unit,
                 tree,
                 change_dir,
@@ -955,8 +957,10 @@ class UnitRunner(BaseModel):
         # Only now, with the push confirmed: a follow-up recorded ahead of a
         # tier 1 or tier 2 failure would describe work that never left the
         # machine.
-        if deferred:
-            self._record_follow_ups(unit, deferred)
+        # From the store, not this run: a unit resumed at VERIFY skips review.
+        if self.store.get(unit.id).deferred:
+            self._record_follow_ups(unit, self.store.get(unit.id).deferred)
+            self.store.set_deferred(unit.id, ())
 
         stored = self.store.get(unit.id)
         pr = self.open_pr(
@@ -1016,14 +1020,15 @@ class UnitRunner(BaseModel):
         checkpoint: Callable[[str], RunOutcome | None],
         build_boundary: str = "",
         review_boundary: str = "",
-    ) -> tuple[bool | RunOutcome, str, tuple[FollowUp, ...]]:
+    ) -> tuple[bool | RunOutcome, str]:
         """Alternate review and rework until the reviewer approves, or give up.
 
         The first round reviews a freshly built branch; every round after
         reviews a rework, which is why the model differs between them.
 
-        Returns what to fix (unused once approved or held) and, on approval,
-        the follow-ups the reviewer deferred rather than blocked on. A `False`
+        Returns what to fix (unused once approved or held). On approval the
+        follow-ups the reviewer deferred rather than blocked on are recorded on
+        the unit with the approval. A `False`
         with no `RunOutcome` means the round budget was spent with blocking
         work still outstanding — the one case `run` has to push and hold for
         rather than fail.
@@ -1037,7 +1042,7 @@ class UnitRunner(BaseModel):
         for round_number in range(total):
             first = round_number == 0 and not reworking
             if outcome := checkpoint(REVIEW if first else REWORK_REVIEW):
-                return outcome, why, ()
+                return outcome, why
             # Committed before the reviewer looks, so the verdict is on a commit
             # — the one recorded below, and the only one that may be pushed. It
             # used to be committed after approval, as "leftovers", which put an
@@ -1071,11 +1076,16 @@ class UnitRunner(BaseModel):
 
             if approved:
                 sha = self.head(tree)
-                self.store.record_approval(unit.id, sha)
+                # One line each, so the change's file and the PR body read a
+                # point back as the one item it was.
+                points = tuple(
+                    p for p in (" ".join(f.point.split()) for f in verdict.deferrable) if p
+                )
+                self.store.record_approval(unit.id, sha, points)
                 self.log(f"review approved {sha[:9]}")
-                if verdict.deferrable:
-                    self.log(f"deferred {len(verdict.deferrable)} follow-up(s) to the change")
-                return True, "", verdict.deferrable
+                if points:
+                    self.log(f"deferred {len(points)} follow-up(s) to the change")
+                return True, ""
 
             self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
             rounds = self.store.get(unit.id).review_rounds
@@ -1087,7 +1097,7 @@ class UnitRunner(BaseModel):
                 self.store.set_feedback(unit.id, why)
                 self.store.set_state(unit.id, HELD, note=f"needs a human: {why[:300]}")
                 self.log(f"needs a human — held: {' '.join(why.split())[:300]}")
-                return RunOutcome(status="held", detail=f"needs a human: {why[:200]}"), why, ()
+                return RunOutcome(status="held", detail=f"needs a human: {why[:200]}"), why
             # A class escalation needs an earlier round to be another instance
             # of; a disagreement needs the builder to have declined a point on
             # an earlier round, so both positions can go on the record. With
@@ -1127,7 +1137,6 @@ class UnitRunner(BaseModel):
                         detail=f"escalated ({verdict.escalate}): {reasoning_flat[:200]}",
                     ),
                     why,
-                    (),
                 )
             if round_number == total - 1:
                 # The last round's review is the verdict. A rework after it
@@ -1138,7 +1147,7 @@ class UnitRunner(BaseModel):
             # this round asked for instead of reviewing the same branch again.
             self.store.set_feedback(unit.id, why)
             if outcome := checkpoint(REWORK):
-                return outcome, why, ()
+                return outcome, why
             self.log(f"step: address review round {round_number + 1} ({models().rework})")
             response = self.run_rework(
                 REVIEW_FEEDBACK_PROMPT.format(
@@ -1148,7 +1157,7 @@ class UnitRunner(BaseModel):
             )
             self._record_response(unit, response)
             self.commit(f"fix: {unit.title} (review round {round_number + 1})", cwd=tree)
-        return False, why, ()
+        return False, why
 
     def _record_response(self, unit: Unit, response: str) -> None:
         """The builder's account of the last round's ask, for the next review."""
@@ -1264,7 +1273,7 @@ class UnitRunner(BaseModel):
         block = content[start + len(marker) : _follow_ups_block_end(content, start, marker)]
         return [line[2:].strip() for line in block.splitlines() if line.startswith("- ")]
 
-    def _record_follow_ups(self, unit: Unit, items: Sequence[FollowUp]) -> None:
+    def _record_follow_ups(self, unit: Unit, items: Sequence[str]) -> None:
         if not items:
             return
         path = self._follow_ups_path(unit)
@@ -1272,7 +1281,7 @@ class UnitRunner(BaseModel):
         with file_lock(path.with_name(f"{path.name}.lock")):
             existing = path.read_text() if path.exists() else ""
             marker = _follow_ups_marker(unit.id)
-            block = marker + "\n".join(f"- {i.point}" for i in items) + "\n\n"
+            block = marker + "\n".join(f"- {i}" for i in items) + "\n\n"
             start = existing.find(marker)
             if start == -1:
                 # First time this unit has deferred anything.
@@ -1301,7 +1310,13 @@ class UnitRunner(BaseModel):
         stored = self.store.get(unit.id)
         pr = self.open_pr(
             unit,
-            body=build_pr_body(stored, graph=graph or [stored], base=base, open_points=why),
+            body=build_pr_body(
+                stored,
+                graph=graph or [stored],
+                base=base,
+                open_points=why,
+                follow_ups=self._follow_ups_for(unit) or None,
+            ),
             base=base,
             cwd=tree,
         )
@@ -1309,6 +1324,7 @@ class UnitRunner(BaseModel):
             unit.id,
             HELD,
             pr=pr,
+            resume_from="",
             note=f"rounds spent with work outstanding: {' '.join(why.split())[:300]}",
         )
         self.log(f"held: rounds spent — #{pr}")
