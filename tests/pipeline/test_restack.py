@@ -148,7 +148,11 @@ def _host_rebases(tmp_path: Path, branch: str) -> str:
     checkout. The branch then carries trunk commits that are not its own.
     Returns the new head."""
     other = tmp_path / "host"
-    subprocess.run(["git", "clone", "-q", str(tmp_path / "remote.git"), str(other)], check=True)
+    # `-b`: the bare remote's HEAD names the machine's default branch, which
+    # is not always `main`, and a clone of a dangling HEAD checks nothing out.
+    subprocess.run(
+        ["git", "clone", "-q", "-b", "main", str(tmp_path / "remote.git"), str(other)], check=True
+    )
     git(other, "config", "user.email", "o@o.o")
     git(other, "config", "user.name", "o")
     commit(other, "trunk.txt", "landed on the trunk meanwhile")
