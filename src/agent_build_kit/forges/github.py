@@ -12,11 +12,12 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING
 
 from agent_build_kit.forges.base import (
     BaseMissing,
+    Label,
     PermittedCommand,
     PullRequest,
     RepoId,
@@ -409,6 +410,45 @@ class GitHubForge:
                 f"CI run {run} ({names}), end of its failed log:\n```\n{text[-_LOG_CHARS:]}\n```"
             )
         return "\n\n".join(parts)
+
+    def _ensure_label(self, slug: str, label: Label) -> None:
+        known = gh_json(
+            ["gh", "label", "list", "--repo", slug, "--json", "name", "--limit", "1000"],
+            slug=slug,
+        )
+        # The host matches names without regard to case, so `Running` already
+        # there means creating `running` would fail every time.
+        wanted = label.name.casefold()
+        if any(str(item.get("name", "")).casefold() == wanted for item in known):  # type: ignore[union-attr]
+            return
+        gh_out(
+            [
+                "gh", "label", "create", label.name, "--repo", slug,
+                "--color", label.color, "--description", label.description,
+            ],
+            slug=slug,
+        )  # fmt: skip
+
+    def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
+        slug = key(repo)
+        self._ensure_label(slug, label)
+        gh_out(["gh", "pr", "edit", str(pr), "--repo", slug, "--add-label", label.name], slug=slug)
+
+    def set_exclusive_label(
+        self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
+    ) -> None:
+        slug = key(repo)
+        self._ensure_label(slug, label)
+        view = gh_out(["gh", "pr", "view", str(pr), "--repo", slug, "--json", "labels"], slug=slug)
+        present = {item["name"] for item in json.loads(view or "{}").get("labels", [])}
+        argv = ["gh", "pr", "edit", str(pr), "--repo", slug, "--add-label", label.name]
+        for name in sorted((present & set(family)) - {label.name}):
+            argv += ["--remove-label", name]
+        gh_out(argv, slug=slug)
+
+    def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
+        slug = key(repo)
+        gh_out(["gh", "pr", "edit", str(pr), "--repo", slug, "--remove-label", name], slug=slug)
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.

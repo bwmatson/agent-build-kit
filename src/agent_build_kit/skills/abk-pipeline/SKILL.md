@@ -102,6 +102,21 @@ branch someone deleted — then set the unit's `state` back to `planned` in
 `runs/units.json` and let the next tick take it. Do not mark it `planned`
 without a fix: it will fail the same way and cost a run.
 
+### Labels on the pull request
+
+Two families. The `agent-` labels are instructions a person sets:
+`agent-hold` (the unit is taken over; it stays until a person removes it) and
+`agent-rework` (send it back; the pipeline **removes it once acted on**, so it
+can be given again — where the host cannot remove it, it is left and acted on
+once). The other family is the pipeline's own: one **state label** per pull
+request, replaced whenever the unit's state changes, and a **change label**
+naming its change. State names and colours (the outline) are the graph's, so
+a label reads as its node does. `merged`, `closed`, `unplanned` and
+`satisfied` have none: the host shows the first two, the last two have no pull
+request of their own. Labels are cosmetic and never read back — the unit store
+is the truth, so a stale label on a PR changes nothing; a label that cannot be
+written is logged and the unit carries on.
+
 ## A change's lifecycle
 
 1. The change is authored in `openspec/changes/<change>/` and committed

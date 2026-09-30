@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agent_build_kit.forges.base import (
     Forge,
+    Label,
     PermittedCommand,
     PullRequest,
     RegistersStacks,
@@ -115,6 +116,7 @@ def _load_builtin() -> None:
 
 __all__ = [
     "Forge",
+    "Label",
     "PermittedCommand",
     "PullRequest",
     "RegistersStacks",

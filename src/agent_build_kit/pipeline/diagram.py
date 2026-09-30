@@ -34,23 +34,8 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
-    waiting_on,
 )
-
-STATE_STYLES = {
-    "planned": "fill:#eef2ff,stroke:#6366f1,color:#1e1b4b",
-    "blocked": "fill:#f5f5f4,stroke:#a8a29e,color:#44403c,stroke-dasharray:3 3",
-    "running": "fill:#fef3c7,stroke:#d97706,color:#451a03",
-    "paused_rework": "fill:#ffedd5,stroke:#ea580c,color:#431407,stroke-dasharray:3 3",
-    "paused_usage": "fill:#fef9c3,stroke:#ca8a04,color:#422006,stroke-dasharray:3 3",
-    HELD: "fill:#fae8ff,stroke:#a21caf,color:#4a044e",
-    IN_REVIEW: "fill:#dbeafe,stroke:#2563eb,color:#172554",
-    "merged": "fill:#dcfce7,stroke:#16a34a,color:#052e16",
-    SATISFIED: "fill:#d1fae5,stroke:#059669,color:#022c22",
-    "closed": "fill:#fee2e2,stroke:#dc2626,color:#450a0a",
-    "failed": "fill:#fecaca,stroke:#b91c1c,color:#450a0a,stroke-width:3px",
-    "unplanned": "fill:#f5f5f4,stroke:#a8a29e,color:#44403c",
-}
+from agent_build_kit.pipeline.vocabulary import STATES, effective_state
 
 
 def _carried(unit: StoredUnit) -> str:
@@ -64,34 +49,6 @@ def _carried(unit: StoredUnit) -> str:
 def _node_id(unit_id: str) -> str:
     """Mermaid reads `/` and `-` as syntax, so ids are flattened."""
     return re.sub(r"[^A-Za-z0-9]", "_", unit_id)
-
-
-def _effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
-    """What to colour the node.
-
-    A planned unit the scheduler would hold back is *blocked*, not merely
-    planned — that distinction is the whole point of the diagram. Asked of the
-    scheduler's own rule, which this used to restate and had drifted from: it
-    showed a unit as startable while its same-repo parent was still building.
-    """
-    if unit.state != PLANNED:
-        return unit.state
-
-    # Stopped part-way through its loop, rather than never started: the runner
-    # records that as a return to planned with a note saying why.
-    last = unit.history[-1] if unit.history else {}
-    note = str(last.get("note", ""))
-    if note.startswith("paused before"):
-        # Not gated on `waiting_on`: nothing upstream holds it, only the window.
-        return "paused_usage"
-    if waiting_on(unit, units):
-        return "paused_rework" if note.startswith(("held before", "held after")) else "blocked"
-    return PLANNED
-
-
-def _label(state: str) -> str:
-    """How a state reads in a node: the state name with dashes, like the PR labels."""
-    return state.replace("_", "-")
 
 
 # States that are still going somewhere, or stuck until someone looks.
@@ -136,10 +93,11 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
     for repo in sorted({unit.repo for unit in units}):
         lines.append(f"    subgraph {repo}")
         for unit in [u for u in ordered if u.repo == repo]:
-            state = _effective_state(unit, graph)
+            state = effective_state(unit, graph)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
+            name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
-            label = f"{head}<small>{unit.tier} · {_label(state)}{pr}</small>"
+            label = f"{head}<small>{unit.tier} · {name}{pr}</small>"
             lines.append(f'        {_node_id(unit.id)}["{label}"]')
         lines.append("    end")
 
@@ -152,11 +110,14 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
             arrow = "-->" if parent.repo == unit.repo else "-.->"
             lines.append(f"    {_node_id(dependency)} {arrow} {_node_id(unit.id)}")
 
-    for state, style in STATE_STYLES.items():
-        lines.append(f"    classDef {state} {style}")
+    for state, style in STATES.items():
+        painted = f"fill:{style.fill},stroke:{style.stroke},color:{style.text}"
+        if style.extra:
+            painted += f",{style.extra}"
+        lines.append(f"    classDef {state} {painted}")
 
     for unit in ordered:
-        lines.append(f"    class {_node_id(unit.id)} {_effective_state(unit, graph)}")
+        lines.append(f"    class {_node_id(unit.id)} {effective_state(unit, graph)}")
 
     return "\n".join(lines)
 

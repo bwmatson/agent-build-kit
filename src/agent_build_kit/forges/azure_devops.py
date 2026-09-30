@@ -23,12 +23,13 @@ registry's union means they are refused in a GitHub checkout too.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
 from agent_build_kit.forges.base import (
     BaseMissing,
+    Label,
     PermittedCommand,
     PullRequest,
     RepoId,
@@ -553,6 +554,17 @@ class AzureDevOpsForge:
             if str(status.get("state") or "") in _FAILING
         ]
         return "\n\n".join(parts)
+
+    def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
+        raise NotImplementedError
+
+    def set_exclusive_label(
+        self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
+    ) -> None:
+        raise NotImplementedError
+
+    def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
+        raise NotImplementedError
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.
