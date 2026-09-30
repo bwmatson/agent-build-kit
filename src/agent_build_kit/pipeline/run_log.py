@@ -7,6 +7,7 @@ it where a person looking for that unit can find it.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -32,31 +33,61 @@ def run_log_name(unit: Unit, started: datetime, step: str) -> str:
 
 
 class RunLog:
-    """One run's file: a header on open, the unit's lines, an outcome on close."""
+    """One run's file: a header on open, the unit's lines, an outcome on close.
+
+    A diagnostic copy, so it never affects the build: a write that fails
+    (unwritable directory, full disk, an encoding the locale cannot write) is
+    dropped, and reported once through `report`.
+    """
 
     def __init__(
-        self, directory: Path, unit: Unit, *, step: str, model: str, base: str, started: datetime
+        self,
+        directory: Path,
+        unit: Unit,
+        *,
+        step: str,
+        model: str,
+        base: str,
+        started: datetime,
+        report: Callable[[str], None] = lambda message: None,
     ) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
         self._name = run_log_name(unit, started, step)
         self._path = directory / self._name
-        self._path.write_text(
-            f"unit: {unit.id}\nchange: {unit.change}\nstep: {step}\nmodel: {model}\n"
-            f"base: {base}\nstarted: {started.isoformat()}\n\n"
-        )
-        _prune(directory, unit)
+        self._report = report
+        self._working = True
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                f"unit: {unit.id}\nchange: {unit.change}\nstep: {step}\nmodel: {model}\n"
+                f"base: {base}\nstarted: {started.isoformat()}\n\n"
+            )
+            _prune(directory, unit)
+        except (OSError, ValueError) as error:
+            self._failed(error)
 
     @property
     def name(self) -> str:
         return self._name
 
+    def _failed(self, error: Exception) -> None:
+        if self._working:
+            self._working = False
+            self._report(f"run log {self._name} not written: {type(error).__name__}: {error}")
+
+    def _append(self, text: str) -> None:
+        if not self._working:
+            return
+        try:
+            with self._path.open("a") as file:
+                file.write(text)
+        except (OSError, ValueError) as error:
+            self._failed(error)
+
     def emit(self, message: str) -> None:
-        with self._path.open("a") as file:
-            file.write(f"{message}\n")
+        self._append(f"{message}\n")
 
     def close(self, outcome: str) -> None:
-        with self._path.open("a") as file:
-            file.write(f"\noutcome: {outcome}\n")
+        self._append(f"\noutcome: {outcome}\n")
 
 
 def _unit_logs(directory: Path, prefix: str) -> list[Path]:
@@ -72,10 +103,12 @@ def _prune(directory: Path, unit: Unit) -> None:
 
 
 def remove_change_logs(directory: Path, change: str) -> None:
-    """Drop every unit log of a change."""
-    if not directory.exists():
-        return
+    """Drop every unit log of a change. The logs are a diagnostic copy: a
+    directory that cannot be read leaves the archive it follows standing."""
     pattern = re.compile(re.escape(change) + r"-\d{2,}-\d{8}-\d{6}-")
-    for path in directory.iterdir():
-        if pattern.match(path.name):
-            path.unlink(missing_ok=True)
+    try:
+        for path in directory.iterdir():
+            if pattern.match(path.name):
+                path.unlink(missing_ok=True)
+    except (FileNotFoundError, NotADirectoryError):
+        return

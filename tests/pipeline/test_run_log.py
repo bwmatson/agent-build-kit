@@ -5,7 +5,6 @@ So the name leads with the unit, the header says what the run was, and the
 file carries that unit's lines and no one else's.
 """
 
-import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -228,4 +227,56 @@ def test_the_store_records_a_units_most_recent_run_log(tmp_path: Path) -> None:
     store.set_run_log("add-marker/1", name)
 
     assert store.get("add-marker/1").run_log == name
-    assert re.fullmatch(r"add-marker-\d\d-\d{8}-\d{6}-\w+\.log", name)
+
+
+def test_a_replan_keeps_the_units_run_log(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    name = "add-marker-01-20260923-224405-implement.log"
+    store.set_run_log("add-marker/1", name)
+
+    store.upsert([unit()])
+
+    assert store.get("add-marker/1").run_log == name
+
+
+def test_a_log_that_cannot_be_written_is_reported_once_and_never_raises(tmp_path: Path) -> None:
+    directory = run_log_dir(tmp_path)
+    directory.write_text("a file, not a directory")
+    reported: list[str] = []
+
+    log = RunLog(
+        directory,
+        unit(),
+        step="implement",
+        model="m",
+        base="main",
+        started=START,
+        report=reported.append,
+    )
+    log.emit("a line")
+    log.close("open")
+
+    assert len(reported) == 1
+    assert "not written" in reported[0]
+
+
+def test_a_log_that_fails_midway_stops_writing_and_reports_once(tmp_path: Path) -> None:
+    directory = run_log_dir(tmp_path)
+    reported: list[str] = []
+    log = RunLog(
+        directory,
+        unit(),
+        step="implement",
+        model="m",
+        base="main",
+        started=START,
+        report=reported.append,
+    )
+    (directory / log.name).unlink()
+    (directory / log.name).mkdir()
+
+    log.emit("a line")
+    log.close("open")
+
+    assert len(reported) == 1

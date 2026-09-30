@@ -22,6 +22,7 @@ from agent_build_kit.cli.pipeline import _has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
+from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
 from agent_build_kit.pipeline.pause import pause_until
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -1076,7 +1077,7 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
     monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
     archiving: list[bool] = []
 
-    def archive(units, *, planning_repo, may_archive, specs_dir="openspec"):
+    def archive(units, *, planning_repo, may_archive, specs_dir="openspec", run_logs=None):
         archiving.append(may_archive("c") and not may_archive("other"))
         return ["c"]
 
@@ -1220,3 +1221,185 @@ def test_the_pass_still_prints_every_line_as_before(
     assert not any(line.startswith("model") or line.startswith("base") for line in printed), (
         "the file's header is not printed"
     )
+
+
+def start_log(change: str, number: int = 1) -> Path:
+    from agent_build_kit.pipeline.run_log import RunLog, run_log_dir
+    from tests.factories import unit as make_unit
+
+    log = RunLog(
+        run_log_dir(inst.state_dir),
+        make_unit(f"{change}/{number}", change=change),
+        step="implement",
+        model="m",
+        base="main",
+        started=datetime(2026, 9, 23, 22, 44, 5, tzinfo=UTC),
+    )
+    return run_log_dir(inst.state_dir) / log.name
+
+
+def test_a_units_file_names_the_step_and_model_of_a_fresh_build(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert path.name.endswith("-implement.log")
+    assert "step: implement\nmodel: m-implement\n" in path.read_text()
+
+
+def test_a_units_file_names_the_rework_of_waiting_feedback(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    store.set_feedback("add-marker/1", "rename the marker")
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert path.name.endswith("-rework.log")
+    assert "step: rework\nmodel: m-rework\n" in path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("resume", "model"),
+    [
+        ("review", "m-review"),
+        ("rework_review", "m-rework-review"),
+        ("tests", "m-implement"),
+        ("verify", "none"),
+    ],
+)
+def test_a_units_file_names_the_step_it_resumes_at(
+    resume: str, model: str, healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _distinct_models(monkeypatch)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    store.record_step("add-marker/1", resume)
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert path.name.endswith(f"-{resume}.log")
+    assert f"step: {resume}\nmodel: {model}\n" in path.read_text()
+
+
+def _distinct_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent_build_kit.config import ModelsConfig
+    from agent_build_kit.pipeline import stack_runner
+
+    monkeypatch.setattr(
+        stack_runner,
+        "models",
+        lambda: ModelsConfig(
+            implement="m-implement",
+            rework="m-rework",
+            review="m-review",
+            rework_review="m-rework-review",
+        ),
+    )
+
+
+def _unusable_log_dir() -> None:
+    from agent_build_kit.pipeline.run_log import run_log_dir
+
+    run_log_dir(inst.state_dir).write_text("a file where the directory should be")
+
+
+def test_an_unusable_log_directory_does_not_touch_the_build(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+    _unusable_log_dir()
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    assert "said by add-marker/1" in capsys.readouterr().out
+    assert store.get("add-marker/1").state != "failed"
+
+
+def test_an_unusable_log_directory_still_records_a_failed_unit(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": RuntimeError("git exploded")})
+    _unusable_log_dir()
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    assert store.get("add-marker/1").state == "failed"
+    assert "git exploded" in capsys.readouterr().out
+
+
+def _archiving(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    from agent_build_kit import openspec
+
+    archived: list[str] = []
+    monkeypatch.setattr(
+        openspec, "archive", lambda change, cwd, run=None: archived.append(change) or ""
+    )
+    return archived
+
+
+def _two_changes_logged(tmp_path: Path) -> tuple[Path, Path]:
+    UnitStore(tmp_path / "units.json").upsert(
+        [*_merged("c/1"), *_merged("other/1", change="other")]
+    )
+    return start_log("c"), start_log("other")
+
+
+def test_archiving_by_hand_removes_the_changes_logs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _archiving(monkeypatch)
+    mine, other = _two_changes_logged(tmp_path)
+
+    assert cli.cmd_archive(argv_namespace(change="c"), inst) == 0
+
+    assert not mine.exists()
+    assert other.exists()
+
+
+def test_a_passing_verify_removes_the_changes_logs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    archived = _archiving(monkeypatch)
+    mine, other = _two_changes_logged(tmp_path)
+    fake = _verifier([True], [])
+    monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
+
+    assert cli.cmd_verify(argv_namespace(change="c"), inst) == 0
+
+    assert archived == ["c"]
+    assert not mine.exists()
+    assert other.exists()
+
+
+def test_a_tick_that_archives_removes_the_changes_logs(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "archive_ready_changes", real_archive_ready)
+    archived = _archiving(monkeypatch)
+    mine, other = _two_changes_logged(tmp_path)
+    monkeypatch.setattr(
+        cli, "verify_ready", lambda inst, units, **kwargs: lambda change: change == "c"
+    )
+    monkeypatch.setattr(cli, "has_work", lambda inst, store: True)
+
+    cli.cmd_tick(argv_namespace(dry_run=True), inst)
+
+    assert archived == ["c"]
+    assert not mine.exists()
+    assert other.exists()

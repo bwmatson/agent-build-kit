@@ -65,6 +65,35 @@ REWORK_REVIEW = "rework_review"
 REWORK = "rework"
 VERIFY = "verify"
 
+
+def starting_step(unit: StoredUnit) -> tuple[str, str]:
+    """The step a run of this stored unit starts at, and the model it names.
+
+    Mirrors the branch order in `StackRunner.run`: a recorded review or verify
+    resume first, then waiting feedback (a rework), else the build. Verify
+    calls no model, and says so.
+    """
+    resume = unit.resume_from
+    if resume in (REVIEW, REWORK_REVIEW, VERIFY):
+        step = resume
+    elif unit.feedback:
+        step = REWORK
+    elif resume == TESTS:
+        step = TESTS
+    else:
+        step = IMPLEMENT
+    role = models()
+    named = {
+        REVIEW: role.review,
+        REWORK_REVIEW: role.rework_review,
+        REWORK: role.rework,
+        TESTS: role.implement,
+        IMPLEMENT: role.implement,
+        VERIFY: "none",
+    }
+    return step, named[step]
+
+
 # The change lives in the planning repo, which the run can read because
 # `build_run_claude` passes `--add-dir`. Named by path rather than driven by
 # `/opsx:apply`: that command exists only where OpenSpec is installed, which

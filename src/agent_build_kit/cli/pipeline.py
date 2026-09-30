@@ -27,7 +27,7 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_build_kit import config, forges
+from agent_build_kit import forges
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import diagram
 from agent_build_kit.pipeline.archive import (
@@ -53,7 +53,7 @@ from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.stack_runner import IMPLEMENT
+from agent_build_kit.pipeline.stack_runner import starting_step
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -262,8 +262,8 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         planning_repo=inst.root,
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
+        run_logs=run_log_dir(inst.state_dir),
     ):
-        remove_change_logs(run_log_dir(inst.state_dir), change)
         print(f"archived {change}")
     return 0
 
@@ -909,15 +909,15 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 # this.
                 graph = store.all()
                 base = base_of(unit, graph)
-                step = store.get(unit.id).resume_from or IMPLEMENT
-                models = config.models()
+                step, model = starting_step(store.get(unit.id))
                 run_log = RunLog(
                     run_log_dir(inst.state_dir),
                     unit,
                     step=step,
-                    model=getattr(models, step, "") or models.implement,
+                    model=model,
                     base=base,
                     started=datetime.now(UTC),
+                    report=lambda message: log(f"{unit.id}: {message}"),
                 )
                 store.set_run_log(unit.id, run_log.name)
                 runner = build_runner(unit, store=store, installation=inst, log=say)
@@ -961,7 +961,7 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
             try:
                 store.set_state(unit.id, "failed", note=note)
             except Exception as second:  # noqa: BLE001
-                end(f"could not be recorded as failed — {second}")
+                say(f"could not be recorded as failed — {second}")
             return True
 
         end(f"{outcome.status} — {outcome.detail}")
@@ -1030,6 +1030,7 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
     from agent_build_kit import openspec
 
     print(openspec.archive(args.change, cwd=inst.root), end="")
+    remove_change_logs(run_log_dir(inst.state_dir), args.change)
     return 0
 
 

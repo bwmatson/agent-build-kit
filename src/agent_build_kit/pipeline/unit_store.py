@@ -186,6 +186,7 @@ class UnitStore:
                 pending_replies=existing.pending_replies if existing else (),
                 predecessor_note=existing.predecessor_note if existing else "",
                 review_rounds=existing.review_rounds if existing else (),
+                run_log=existing.run_log if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing:
