@@ -116,9 +116,9 @@ def on(fake) -> ClaudeCodeRuntime:
 # --- budgets and headroom -------------------------------------------------------
 
 
-def test_implement_runs_without_a_dollar_budget(inst, recorder) -> None:
+def test_propose_runs_without_a_dollar_budget(inst, recorder) -> None:
     """The session window is what bounds it."""
-    runner.implement(inst, project(inst), runtime=on(recorder))
+    runner.propose(inst, project(inst), runtime=on(recorder))
 
     assert "--max-budget-usd" not in recorder.argv
 
@@ -157,7 +157,7 @@ def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
         tracks={"model": "haiku", "allowed_tools": "Read", "disallowed_tools": "Bash(rm *)"},
     )
 
-    runner.implement(inst, project(inst), runtime=on(recorder))
+    runner.health(inst, project(inst), runtime=on(recorder))
 
     cmd = recorder.argv
     assert cmd[:2] == ["claude", "-p"]
@@ -165,21 +165,36 @@ def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
     assert cmd[cmd.index("--model") + 1] == "haiku"
     assert cmd[cmd.index("--allowedTools") + 1] == "Read"
     assert cmd[cmd.index("--disallowedTools") + 1] == runner.denied_tools_value("Bash(rm *)")
-    assert cmd[cmd.index("--worktree") + 1] == f"abk-{runner.RUN_ID}"
+    assert "--worktree" not in cmd, "no track runs in a worktree of the project"
+
+
+def test_propose_runs_in_the_planning_repo_with_the_project_readable(tmp_path, recorder) -> None:
+    """It writes a change, not code. Running it in the project's checkout would
+    put it where the thing it must not edit is the working directory, and a
+    worktree of that checkout would be a branch nobody asked for."""
+    inst = make_installation(tmp_path)
+    found = project(inst)
+
+    runner.propose(inst, found, runtime=on(recorder))
+
+    argv, cwd = recorder.calls[0]
+    assert cwd == inst.root, "it runs where the change is written"
+    assert argv[argv.index("--add-dir") + 1] == str(found.path), "the project is readable"
+    assert "--worktree" not in argv, "a change needs no branch of the project"
 
 
 def test_raw_output_lands_under_the_planning_root(tmp_path, recorder) -> None:
     inst = make_installation(tmp_path, tracks={"raw_output_dir": "raw"})
 
-    runner.implement(inst, project(inst), runtime=on(recorder))
+    runner.propose(inst, project(inst), runtime=on(recorder))
 
-    assert (inst.root / "raw" / f"{runner.RUN_ID}-app-implement.json").read_text() == "{}"
+    assert (inst.root / "raw" / f"{runner.RUN_ID}-app-propose.json").read_text() == "{}"
 
 
 def test_a_failed_phase_reports_and_continues(inst, capsys) -> None:
     failing = FakeClaude(returncode=3, stderr="budget exhausted")
 
-    assert runner.implement(inst, project(inst), runtime=on(failing)) == 1
+    assert runner.propose(inst, project(inst), runtime=on(failing)) == 1
     assert "exited 3" in capsys.readouterr().out
 
 
@@ -210,8 +225,8 @@ def phases_run(inst: Installation, *, status: str | None) -> list[str]:
     return phases
 
 
-def test_an_attention_status_runs_implement_at_once(inst) -> None:
-    assert phases_run(inst, status="ATTENTION") == ["health", "implement"]
+def test_an_attention_status_runs_propose_at_once(inst) -> None:
+    assert phases_run(inst, status="ATTENTION") == ["health", "propose"]
 
 
 def test_an_ok_status_stops_after_health(inst) -> None:
@@ -222,7 +237,7 @@ def test_pending_resolution_stops_after_health(inst) -> None:
     assert phases_run(inst, status="PENDING RESOLUTION") == ["health"]
 
 
-def test_a_missing_run_log_does_not_trigger_implement(inst, capsys) -> None:
+def test_a_missing_run_log_does_not_trigger_propose(inst, capsys) -> None:
     assert phases_run(inst, status=None) == ["health"]
     assert "couldn't determine health status" in capsys.readouterr().out
 
@@ -235,17 +250,17 @@ def test_read_status_only_accepts_the_documented_words(tmp_path) -> None:
     assert runner.read_status(path) == "URGENT"
 
 
-def test_discovery_failure_still_runs_implement(inst) -> None:
+def test_discovery_failure_still_runs_propose(inst) -> None:
     phases: list[str] = []
 
     def fake(argv, *, cwd=None, on_event=None) -> subprocess.CompletedProcess:
         prompt = argv[argv.index("-p") + 1]
-        name = "improve" if "improve phase" in prompt.splitlines()[0] else "implement"
+        name = "improve" if "improve phase" in prompt.splitlines()[0] else "propose"
         phases.append(name)
         return subprocess.CompletedProcess(argv, 1 if name == "improve" else 0, "{}", "")
 
     assert runner.DISPATCH["improve"](inst, project(inst), None, runtime=on(fake)) == 1
-    assert phases == ["improve", "implement"]
+    assert phases == ["improve", "propose"]
 
 
 # --- placeholders ---------------------------------------------------------------
@@ -268,7 +283,7 @@ def test_every_shipped_prompt_renders_fully(inst, phase) -> None:
 
 
 def test_the_new_placeholders_render_from_the_repo_config(inst) -> None:
-    values = runner.placeholders(inst, project(inst), "implement")
+    values = runner.placeholders(inst, project(inst), "propose")
 
     assert values["__PROJECT_DESCRIPTION__"] == "The application."
     assert values["__PROJECT_CONSUMES__"] == "platform"
@@ -278,7 +293,7 @@ def test_the_new_placeholders_render_from_the_repo_config(inst) -> None:
     assert values["__PLANNING_DIR__"] == str(inst.root)
     assert values["__STATE_DIR__"] == str(inst.state_dir)
     assert values["__PROJECT_REPO_URL__"] == "https://github.com/example/app"
-    assert values["__IMPLEMENT_MAX_PRS__"] == "3"
+    assert values["__MAX_ISSUES__"] == "3"
 
 
 def test_a_repo_that_consumes_nothing_says_so(inst) -> None:
@@ -327,10 +342,23 @@ def test_focus_on_a_track_names_the_latest_run_log(inst) -> None:
     assert hint.startswith(str(inst.state_dir / "20260102-000000-app-improve.md"))
 
 
-def test_focus_on_a_run_id_prefers_the_source_track_over_its_implement_log(inst) -> None:
+@pytest.mark.parametrize(
+    "own_log",
+    [
+        "20260101-000000-app-propose.md",
+        "20260101-000000-app-propose-rejected.md",
+        # What the phase was called before it stopped editing code. An
+        # installation that ran it still has these, and they are no more a
+        # source of candidates now than they were then.
+        "20260101-000000-app-implement.md",
+    ],
+)
+def test_focus_on_a_run_id_prefers_the_source_track_over_the_phase_s_own_log(
+    inst, own_log: str
+) -> None:
     inst.state_dir.mkdir(parents=True)
     (inst.state_dir / "20260101-000000-app-recommend.md").write_text("")
-    (inst.state_dir / "20260101-000000-app-implement.md").write_text("")
+    (inst.state_dir / own_log).write_text("")
 
     hint = runner.resolve_focus(inst, project(inst), "20260101-000000")
 
@@ -438,7 +466,7 @@ def test_a_project_pulls_its_own_default_branch(inst, monkeypatch, recorder) -> 
     pulled: list[tuple[Path, str]] = []
     monkeypatch.setattr(runner, "pull", lambda path, branch: pulled.append((path, branch)) or True)
 
-    assert runner.run_track(inst, "implement", only="app", runtime=on(recorder)) == 0
+    assert runner.run_track(inst, "propose", only="app", runtime=on(recorder)) == 0
     assert pulled == [(inst.repo("app").path, "trunk")]
     assert len(recorder.calls) == 1
 
@@ -454,7 +482,7 @@ def test_run_track_reports_a_failed_project(inst, monkeypatch) -> None:
     monkeypatch.setattr(runner, "pull_planning", lambda inst: True)
     monkeypatch.setattr(runner, "pull", lambda path, branch: path.name != "platform")
 
-    assert runner.run_track(inst, "implement", runtime=on(FakeClaude(stdout="{}"))) == 1
+    assert runner.run_track(inst, "propose", runtime=on(FakeClaude(stdout="{}"))) == 1
 
 
 def test_no_headroom_ends_the_run_quietly(inst, monkeypatch) -> None:
@@ -475,7 +503,7 @@ def test_dry_run_prints_prompts_and_commands_without_running_claude(
 
     out = capsys.readouterr().out
     assert "# Mission: improve phase — project `app`" in out
-    assert "# Mission: implement phase — project `app`" in out
+    assert "# Mission: propose phase — project `app`" in out
     assert "claude -p" in out
     assert f"--add-dir {inst.root}" in out
     assert "'<prompt>'" in out
@@ -497,11 +525,11 @@ def test_abk_track_dispatches_to_run_track(inst, monkeypatch) -> None:
     tracks_cli.register(parser.add_subparsers(dest="command"))
 
     args = parser.parse_args(
-        ["track", "implement", "--project", "app", "--focus", "recommend", "--dry-run"]
+        ["track", "propose", "--project", "app", "--focus", "recommend", "--dry-run"]
     )
 
     assert args.func(args, inst) == 0
-    assert calls == [(inst, "implement", {"only": "app", "focus": "recommend", "dry_run": True})]
+    assert calls == [(inst, "propose", {"only": "app", "focus": "recommend", "dry_run": True})]
 
 
 def test_abk_track_rejects_an_unknown_phase() -> None:

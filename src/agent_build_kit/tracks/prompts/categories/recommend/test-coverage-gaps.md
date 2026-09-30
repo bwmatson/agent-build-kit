@@ -23,11 +23,11 @@ don't just restate that, go deeper:
 - Is there a *specific*, small, addable test that would meaningfully
   close a gap — e.g. one missing test for one already-identified risky
   function — as opposed to "this whole service needs a test suite" (too
-  big for one implement pass)?
+  big for one task group)?
 
 Report: a short prioritized list of untested/undertested areas with your
 reasoning for the ranking, plus — separately — any single small,
-bounded test addition specific enough for `implement.md` to actually
-write in one pass. Most findings here will be recommendations, not
+bounded test addition specific enough for `propose.md` to actually
+write up as a task group. Most findings here will be recommendations, not
 actionable candidates; that's expected, say so plainly rather than
 forcing everything into "actionable."

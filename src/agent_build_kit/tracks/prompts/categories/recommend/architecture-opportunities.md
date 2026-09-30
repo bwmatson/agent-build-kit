@@ -109,5 +109,5 @@ observed twice, a specific external source) as evidence, not general
 software-architecture platitudes. If you don't have real evidence for
 something, don't report it just to have something to say. Report: the
 observation, the concrete evidence for it, and roughly how big a change
-it'd take to address. Essentially never actionable in `implement.md`'s
+it'd take to address. Essentially never actionable in `propose.md`'s
 bounded sense — that's expected for this category specifically.

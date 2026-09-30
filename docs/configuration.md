@@ -132,7 +132,9 @@ tracks:                         # the scheduled tracks (docs/tracks.md); their
   model: sonnet                 # Claude Code's alias, sent to whichever
                                 # runtime is active and not resolved per
                                 # runtime: set it when selecting another
-  implement_max_prs: 3          # PRs one implement pass may open per repo
+  propose_max_issues: 3         # issues one propose pass may write up as task
+                                # groups in its change, per repo. The change is
+                                # built by the pipeline, not by the track.
   allowed_tools: >-             # Claude Code --allowedTools syntax; both
                                 # lists have no effect under the acp runtime
     Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch

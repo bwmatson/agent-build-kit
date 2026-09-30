@@ -64,14 +64,17 @@ _WORKING_DIRECTORY = "WorkingDirectory="
 class UnitChange(Frozen):
     """What an install or a remove did, by unit path.
 
-    Four lists rather than a pair, because "already correct" and "written" are
-    different answers and a caller that cannot tell them apart reports eight
-    writes every time it runs.
+    Separate lists rather than a pair, because "already correct" and "written"
+    are different answers and a caller that cannot tell them apart reports
+    eight writes every time it runs. `refused` is a file somebody else wrote;
+    `taken` is one this framework wrote for a *different, live* installation
+    that happens to share this one's directory name.
     """
 
     written: tuple[Path, ...] = ()
     unchanged: tuple[Path, ...] = ()
     refused: tuple[Path, ...] = ()
+    taken: tuple[Path, ...] = ()
     removed: tuple[Path, ...] = ()
 
     @property
@@ -107,6 +110,134 @@ def render(root: Path) -> dict[str, str]:
     }
 
 
+def _is_ours(path: Path) -> bool:
+    """Whether this framework wrote the file."""
+    try:
+        return MARKER in path.read_text()
+    except OSError:
+        return False
+
+
+def _working_directory(service: Path) -> Path | None:
+    """Where a service unit says it runs."""
+    try:
+        text = service.read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith(_WORKING_DIRECTORY):
+            return Path(line[len(_WORKING_DIRECTORY) :].strip())
+    return None
+
+
+def owner_of(unit: Path) -> Path | None:
+    """The installation a unit file serves: where its service runs. A timer
+    names no directory of its own, so whose it is is whose service it fires."""
+    return _working_directory(unit.with_suffix(".service"))
+
+
+def installed_units(root: Path, dest: Path | None = None) -> list[Path]:
+    """Every unit in `dest` that belongs to this installation — current or not.
+
+    Ownership is where a unit *points*, never what its name starts with.
+    Installation `meta`'s units begin `abk-meta-`, and so do installation
+    `meta-agent`'s; matching by prefix would call one's units the other's and
+    delete them. A service belongs here when this framework wrote it and its
+    `WorkingDirectory` is this root, and its timer goes with it.
+    """
+    dest = dest or user_unit_dir()
+    if not dest.is_dir():
+        return []
+    root = root.expanduser().resolve()
+    found: list[Path] = []
+    for service in sorted(dest.glob("abk-*.service")):
+        where = _working_directory(service)
+        if not _is_ours(service) or where is None or where.resolve() != root:
+            continue
+        found.append(service)
+        timer = service.with_suffix(".timer")
+        if timer.is_file() and _is_ours(timer):
+            found.append(timer)
+    return found
+
+
+def outdated_units(root: Path, dest: Path | None = None) -> list[Path]:
+    """This installation's units that the current version no longer installs.
+
+    What an earlier version named differently (before units carried their
+    installation's name, `abk-tick.service` sat beside the new one running the
+    same tick twice), or a later one dropped from the set. Reinstalling is how
+    a machine is brought up to date, so it has to clean up after both.
+    """
+    current = set(unit_names(root))
+    return [path for path in installed_units(root, dest) if path.name not in current]
+
+
+def dangling_units(dest: Path | None = None) -> list[Path]:
+    """Service units this framework wrote that point at a directory that is gone.
+
+    A unit naming a directory that is not there is still a valid unit, and
+    `systemctl --user enable` accepts it without complaint - so the pipeline
+    fails every five minutes with nothing to see. Found for any installation,
+    not just this one: the point is that nobody is left to remove them.
+    """
+    dest = dest or user_unit_dir()
+    if not dest.is_dir():
+        return []
+    found = []
+    for service in sorted(dest.glob("abk-*.service")):
+        where = _working_directory(service)
+        if _is_ours(service) and where is not None and not where.exists():
+            found.append(service)
+    return found
+
+
+class TimerReport(Frozen):
+    """Where this installation's units stand, without touching anything."""
+
+    installed: bool
+    missing: tuple[str, ...] = ()
+    drifted: tuple[Path, ...] = ()
+    outdated: tuple[Path, ...] = ()
+
+
+def report(root: Path, *, dest: Path | None = None) -> TimerReport:
+    """Whether the units on this machine are the ones install would write now.
+
+    `drifted` is a current unit whose content differs from the template — the
+    same test `install` uses to decide a file needs rewriting, so a report that
+    says everything is fine means a reinstall would change nothing.
+    """
+    dest = dest or user_unit_dir()
+    wanted = render(root)
+    missing = tuple(name for name in wanted if not (dest / name).is_file())
+    drifted = tuple(
+        dest / name
+        for name, text in wanted.items()
+        if (dest / name).is_file() and _is_ours(dest / name) and (dest / name).read_text() != text
+    )
+    present = len(wanted) - len(missing)
+    return TimerReport(
+        installed=present > 0,
+        missing=missing,
+        drifted=drifted,
+        outdated=tuple(outdated_units(root, dest)),
+    )
+
+
+def _stop_and_delete(paths: list[Path], run: Run) -> None:
+    """Stop and disable the timers among `paths`, then delete the files.
+
+    In that order: a unit file deleted from under a running timer leaves the
+    manager holding a job it can no longer describe.
+    """
+    for path in paths:
+        if path.name.endswith(".timer"):
+            run(["systemctl", "--user", "disable", "--now", path.name], check=False)
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
 def install(
     root: Path,
     *,
@@ -124,22 +255,38 @@ def install(
     for a caller that wants the files and will schedule them itself.
 
     A unit already there without the marker is refused rather than overwritten.
-    One this framework wrote is replaced only when its content has moved on,
-    which is what makes reinstalling the repair for a template that changed
-    while costing nothing when it has not.
+    One this framework wrote for a *different installation that still exists* is
+    taken over by nobody: two planning repos both called `planning` produce the
+    same unit names, and overwriting would stop the first silently. One whose
+    directory is gone, or that points here, is replaced only when its content
+    has moved on, which is what makes reinstalling the repair for a template
+    that changed or a planning repo that moved, while costing nothing when
+    neither has happened.
+
+    Units of this installation that the current version no longer installs are
+    stopped and removed, so reinstalling also heals what an earlier version
+    left behind.
     """
     run = run or subprocess.run
     dest = dest or user_unit_dir()
+    here = root.expanduser().resolve()
 
     written: list[Path] = []
     unchanged: list[Path] = []
     refused: list[Path] = []
+    taken: list[Path] = []
     for name, text in render(root).items():
         target = dest / name
         if target.exists():
             current = target.read_text()
             if MARKER not in current:
                 refused.append(target)
+                continue
+            # A timer names no directory of its own: whose it is is whose
+            # service it fires.
+            owner = owner_of(target)
+            if owner is not None and owner.resolve() != here and owner.exists():
+                taken.append(target)
                 continue
             if current == text:
                 unchanged.append(target)
@@ -150,10 +297,18 @@ def install(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
 
-    change = UnitChange(written=tuple(written), unchanged=tuple(unchanged), refused=tuple(refused))
+    outdated = outdated_units(root, dest)
+    change = UnitChange(
+        written=tuple(written),
+        unchanged=tuple(unchanged),
+        refused=tuple(refused),
+        taken=tuple(taken),
+        removed=tuple(outdated),
+    )
     if dry_run:
         return change
 
+    _stop_and_delete(outdated, run)
     if change.touched:
         run(["systemctl", "--user", "daemon-reload"], check=False)
     if enable:
@@ -161,7 +316,7 @@ def install(
         # schedule that is the whole point of the timer beside it. `enable
         # --now` is idempotent, so it runs whether or not anything was written.
         for name in unit_names(root):
-            if name.endswith(".timer"):
+            if name.endswith(".timer") and (dest / name).is_file() and (dest / name) not in taken:
                 run(["systemctl", "--user", "enable", "--now", name], check=False)
     return change
 
@@ -173,29 +328,22 @@ def remove(
     run: Run | None = None,
     dry_run: bool = False,
 ) -> UnitChange:
-    """Take this installation's units off this machine.
+    """Take this installation's units off this machine, current and outdated.
 
     The timers are stopped and disabled before the files go: a unit file deleted
     from under a running timer leaves the manager holding a job it can no longer
-    describe. Only files this framework wrote are removed, and only this
-    installation's — another workspace's units are none of our business.
+    describe. Only files this framework wrote are removed, and only those that
+    point at this installation — another workspace's units are none of our
+    business.
     """
     run = run or subprocess.run
     dest = dest or user_unit_dir()
 
-    ours = [
-        dest / name
-        for name in unit_names(root)
-        if (dest / name).is_file() and MARKER in (dest / name).read_text()
-    ]
+    ours = installed_units(root, dest)
     if not ours or dry_run:
         return UnitChange(removed=tuple(ours))
 
-    for path in ours:
-        if path.name.endswith(".timer"):
-            run(["systemctl", "--user", "disable", "--now", path.name], check=False)
-    for path in ours:
-        path.unlink()
+    _stop_and_delete(ours, run)
     run(["systemctl", "--user", "daemon-reload"], check=False)
     return UnitChange(removed=tuple(ours))
 
@@ -215,9 +363,8 @@ def installed_root(dest: Path | None = None, root: Path | None = None) -> Path |
         else sorted(dest.glob("abk-*-tick.service"))
     )
     for unit in candidates:
-        if not unit.is_file():
-            continue
-        for line in unit.read_text().splitlines():
-            if line.startswith(_WORKING_DIRECTORY):
-                return Path(line[len(_WORKING_DIRECTORY) :].strip())
+        if unit.is_file():
+            where = _working_directory(unit)
+            if where is not None:
+                return where
     return None

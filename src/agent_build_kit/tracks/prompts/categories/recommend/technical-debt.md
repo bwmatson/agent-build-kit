@@ -36,5 +36,5 @@ Be conservative — technical debt framing is easy to overreach with
 enough that a specific person reading it would immediately understand
 what to do and roughly how big it is. Report: what you found, where,
 and a rough sense of whether it's a quick fix or a real undertaking.
-Note separately if anything is small/bounded enough for `implement.md`
-to actually do in one pass (most won't be — that's fine, say so).
+Note separately if anything is small/bounded enough for `propose.md`
+to actually write up as a change (most won't be — that's fine, say so).

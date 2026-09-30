@@ -409,8 +409,16 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         print(f"{'would write' if args.dry_run else 'wrote'} {path}")
     for path in change.unchanged:
         print(f"unchanged {path}")
+    for path in change.removed:
+        print(f"{'would remove' if args.dry_run else 'removed'} outdated {path}")
     for path in change.refused:
         print(f"refused {path}: not written by agent-build-kit (no marker)")
+    for path in change.taken:
+        print(
+            f"refused {path}: belongs to the installation at {timers.owner_of(path)}, whose "
+            "directory has the same name as this one. Unit names come from that name, so "
+            "give one of the two a different name"
+        )
 
     if not args.dry_run and (change.written or change.unchanged):
         print(f"\nunits point at {inst.root}")
@@ -418,7 +426,7 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
             print("timers enabled; `systemctl --user list-timers` shows when each next runs")
         else:
             print("nothing is scheduled: --no-enable was given, so enable them by hand")
-    return 1 if change.refused else 0
+    return 1 if change.refused or change.taken else 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:

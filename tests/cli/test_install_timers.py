@@ -196,3 +196,61 @@ def test_removing_when_none_are_installed_says_so(
 
     assert code == 0
     assert "nothing installed" in capsys.readouterr().out
+
+
+def test_installing_says_what_it_removed_as_outdated(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Reinstalling is how a machine is brought up to date, so it says what it
+    cleaned up instead of deleting units without a word."""
+    from tests.test_timers import legacy_units
+
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    legacy_units(units, inst.root)
+
+    code = main(["install-timers"])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.count("removed outdated") == 8
+    assert "abk-tick.service" in out
+
+
+def test_a_dry_run_says_what_it_would_remove(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    from tests.test_timers import legacy_units
+
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+    old = legacy_units(units, inst.root)
+
+    main(["install-timers", "--dry-run"])
+
+    assert capsys.readouterr().out.count("would remove outdated") == 8
+    assert all(p.exists() for p in old)
+
+
+def test_an_installation_with_the_same_name_is_reported_not_overwritten(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """The other installation is alive, so its units are not ours to replace.
+    The message names where it lives, because that is what a person needs to
+    decide which of two directories called the same thing should keep them."""
+    other = planning(tmp_path / "a" / "planning")
+    here = planning(tmp_path / "b" / "planning")
+    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.chdir(other.root)
+    main(["install-timers"])
+    capsys.readouterr()
+    monkeypatch.chdir(here.root)
+
+    code = main(["install-timers"])
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "belongs to the installation at" in out
+    assert str(other.root.resolve()) in out
+    assert timers.installed_root(units, other.root) == other.root.resolve()

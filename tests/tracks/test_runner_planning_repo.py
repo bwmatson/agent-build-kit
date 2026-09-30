@@ -65,9 +65,7 @@ def doing(inst: Installation, *steps: Callable[[], None]) -> StandInRuntime:
 
 
 def phase(inst: Installation, runtime: StandInRuntime) -> int:
-    return runner.claude_phase(
-        inst, project=project(inst), name="health", worktree=None, runtime=runtime
-    )
+    return runner.claude_phase(inst, project=project(inst), name="health", runtime=runtime)
 
 
 def count(repo: Path, ref: str = "main") -> int:

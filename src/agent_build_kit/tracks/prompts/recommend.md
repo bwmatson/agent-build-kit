@@ -11,7 +11,7 @@ design. **Do not edit any file in `__PROJECT__`, do not create a branch,
 do not open a PR.** This phase only reports.
 
 Most findings here are **recommendations for a human to read and decide
-on**, not things `implement.md` should act on unattended — "add tests to
+on**, not things `propose.md` should act on unattended — "add tests to
 8 services" or "restructure X" isn't a bounded fix. Don't force
 everything into "actionable" just because that's how `health.md`/
 `improve.md` work; a clear-eyed "here's what I found, here's why it
@@ -36,9 +36,13 @@ repo's internals are not.
 Read `__STATE_DIR__/tracked-issues.md` before anything else (create it
 with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet), same as `health.md`/`improve.md` do — for each "Pending
-resolution" entry (every project's), check `gh pr view <url> --json
-state -q .state`: `MERGED` → remove it; `CLOSED` (without merging) → move
-to "Rejected." The pipeline commits these edits with everything else you write in the planning repo.
+resolution" entry (every project's), check where its change has got to: a
+directory ending `-<change>` under `__PLANNING_DIR__/openspec/changes/archive/`
+→ it merged, remove the entry; still at
+`__PLANNING_DIR__/openspec/changes/<change>/` → in flight, leave it; neither →
+rejected or dropped, move it to "Rejected." (An older entry that names a PR URL
+instead: `gh pr view <url> --json state -q .state`, `MERGED` → remove, `CLOSED`
+→ "Rejected.") The pipeline commits these edits with everything else you write in the planning repo.
 
 ## 2. Check whether last run's open candidates have already been resolved
 
@@ -55,8 +59,8 @@ fresh investigation, just confirming or refuting what's already there.
 If unambiguously resolved and you can identify which commit did it, mark
 it directly on its line in that source file: `[actioned — commit
 <short-hash>](__PROJECT_REPO_URL__/commit/<hash>)` — same mechanic
-`implement.md` uses for its own PRs, but pointing at a commit instead of
-a PR since this didn't go through the tracks' PR flow. If you can't
+`propose.md` uses to mark what it wrote up as a change, but pointing at a
+commit instead, since this was resolved outside the pipeline. If you can't
 clearly tell, leave it as `[not-yet-actioned]` rather than guessing —
 this is a bonus check, not a requirement to resolve everything.
 
@@ -108,7 +112,7 @@ into a one-liner>
 
 (repeat per category)
 
-## Actionable candidates for the next implement run
+## Actionable candidates for the next propose run
 
 1. [not-yet-actioned] <only genuinely small, bounded findings in
    `__PROJECT__` from any category above — most runs should have few or

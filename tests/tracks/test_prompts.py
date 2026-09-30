@@ -60,7 +60,8 @@ def test_each_track_prompt_points_at_its_playbooks(path: Path) -> None:
         for playbook in (PROMPTS / "categories" / path.stem).glob("*.md"):
             assert f"`{playbook.stem}`" in text
     else:
-        assert "__IMPLEMENT_MAX_PRS__" in text and "__FOCUS_HINT__" in text
+        assert "__MAX_ISSUES__" in text and "__FOCUS_HINT__" in text
+        assert "__PROPOSED_CHANGE__" in text, "the propose pass names the change it writes"
 
 
 @pytest.mark.parametrize("path", CATEGORIES, ids=lambda p: f"{p.parent.name}/{p.stem}")

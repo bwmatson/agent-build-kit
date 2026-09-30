@@ -125,6 +125,7 @@ def build_argv(request: AgentRequest) -> list[str]:
     planning = {
         "planning_repo": request.planning_repo,
         "planning_state_dir": request.planning_state_dir,
+        "planning_change_dir": request.planning_change_dir,
     }
     if request.policy is not None:
         settings = hook_settings(

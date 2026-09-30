@@ -6,8 +6,9 @@ See its `CLAUDE.md` for the full picture. Your job: find concrete "this
 could be better" findings — code quality, drift from documented
 conventions, staleness — as opposed to `health.md`'s "is something
 actually broken" findings (a separate, daily phase). **Do not edit any
-file in `__PROJECT__`, do not create a branch, do not open a PR.** That's
-`implement.md`'s job, run afterward with its own budget. This phase does
+file in `__PROJECT__`, do not create a branch, do not open a PR, and do not
+write a change.** Turning what you find into a change is `propose.md`'s job,
+run afterward with its own budget. This phase does
 update `__STATE_DIR__/tracked-issues.md` in the planning repo — that's
 bookkeeping, not application code.
 
@@ -33,13 +34,20 @@ own code is not — note it in one line as "belongs to <repo>" and move on.
 Read `__STATE_DIR__/tracked-issues.md` before anything else (create it
 with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet). For each entry under "Pending resolution" (every project's),
-check its PR's real state: `gh pr view <url> --json state -q .state`.
+check where its change has got to. An entry names a change in the planning
+repo (`__PLANNING_DIR__`):
 
-- `MERGED` → remove that entry. The fix landed; if the same problem
-  shows up again in this run's findings (step 4), it's a fresh finding,
-  not a duplicate.
-- `CLOSED` (without merging) → move it to the "Rejected" section instead.
-- `OPEN` → leave it as-is.
+- A directory ending `-<change>` under `__PLANNING_DIR__/openspec/changes/archive/`
+  → the pipeline built it and it merged. Remove that entry. The fix landed; if
+  the same problem shows up again in this run's findings (step 4), it's a
+  fresh finding, not a duplicate.
+- Still at `__PLANNING_DIR__/openspec/changes/<change>/` → it's in flight.
+  Leave it as-is.
+- Neither → it was rejected or dropped. Move it to the "Rejected" section.
+
+An older entry names a pull request URL instead, from before tracks wrote
+changes. Check those with `gh pr view <url> --json state -q .state`: `MERGED`
+→ remove, `CLOSED` (without merging) → "Rejected", `OPEN` → leave.
 
 The pipeline commits these edits with everything else you write in the planning repo.
 
@@ -57,8 +65,8 @@ already there.
 If unambiguously resolved and you can identify which commit did it, mark
 it directly on its line in that source file: `[actioned — commit
 <short-hash>](__PROJECT_REPO_URL__/commit/<hash>)` — same mechanic
-`implement.md` uses for its own PRs, but pointing at a commit instead of
-a PR since this didn't go through the tracks' PR flow. If you can't
+`propose.md` uses to mark what it wrote up as a change, but pointing at a
+commit instead, since this was resolved outside the pipeline. If you can't
 clearly tell, leave it as `[not-yet-actioned]` rather than guessing —
 this is a bonus check, not a requirement to resolve everything.
 
@@ -111,11 +119,11 @@ if a given finding matches a tracked pending/rejected issue>
 
 (repeat per category)
 
-## Actionable candidates for the next implement run
+## Actionable candidates for the next propose run
 
 1. [not-yet-actioned] <concrete, specific, genuinely NEW finding in
    `__PROJECT__` — not one already in "Pending resolution" or
-   "Rejected" — an implement run could act on in this project's repo>
+   "Rejected" — a propose run could write up as a change for this project's repo>
 2. ...
 
 (if everything found is either nothing, or already tracked as pending/

@@ -40,4 +40,4 @@ actual call count, an actual query, an actual trend line) — not "this
 seems like it could be slow." Report: the finding, the evidence, and a
 rough sense of the win if addressed. Flag anything genuinely small and
 bounded (e.g. "add one cache lookup here, the pattern already exists")
-as a candidate for `implement.md`; bigger ones are recommendations only.
+as a candidate for `propose.md`; bigger ones are recommendations only.

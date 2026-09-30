@@ -28,14 +28,23 @@ class Answers:
         owners: set[str] | None = None,
         openspec_ok: bool = True,
         protection: bool = False,
+        scheduled: bool = True,
     ):
         self.owners = {"example"} if owners is None else owners
         self.openspec_ok = openspec_ok
         self.protection = protection
+        self.scheduled = scheduled
         self.commands: list[list[str]] = []
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
+        if argv[:3] == ["systemctl", "--user", "is-enabled"]:
+            return subprocess.CompletedProcess(
+                argv,
+                0 if self.scheduled else 1,
+                "enabled\n" if self.scheduled else "disabled\n",
+                "",
+            )
         if argv[:2] == ["gh", "api"] and argv[-1].endswith("/protection"):
             body = '{"required_pull_request_reviews": {}}' if self.protection else ""
             return subprocess.CompletedProcess(argv, 0 if self.protection else 1, body, "")
@@ -566,3 +575,130 @@ def test_a_protected_default_branch_is_not_a_warning(workspace: Path) -> None:
     )
 
     assert checks["merge guard app"].status == "ok"
+
+
+# --- the pipeline's timers -----------------------------------------------------------
+#
+# Installed-but-not-enabled is the failure that looks most like success: the
+# units are there, `abk status` answers perfectly, and no tick has happened in
+# a week. The doctor is where that gets said out loud.
+
+
+def installed_timers(workspace: Path, tmp_path: Path) -> Path:
+    from agent_build_kit import timers
+
+    units = tmp_path / "units"
+    timers.install(workspace, dest=units, run=lambda *a, **k: subprocess.CompletedProcess(a, 0))
+    return units
+
+
+def timer_check(workspace: Path, units: Path, **answers) -> Check:
+    checks = by_name(
+        run_doctor(workspace / "abk.yaml", run=Answers(**answers), which=which_all, units=units)
+    )
+    return checks["timers"]
+
+
+def test_no_timers_installed_is_worth_knowing_not_a_problem(
+    workspace: Path, tmp_path: Path
+) -> None:
+    """Something else may run `abk tick` — cron, a CI job, a person — so the
+    absence of systemd units is not a fault, only a thing to say."""
+    check = timer_check(workspace, tmp_path / "none")
+
+    assert check.status == "info"
+    assert "abk install-timers" in check.fix
+
+
+def test_installed_and_enabled_timers_are_ok(workspace: Path, tmp_path: Path) -> None:
+    check = timer_check(workspace, installed_timers(workspace, tmp_path))
+
+    assert check.status == "ok"
+    assert str(workspace) in check.detail
+
+
+def test_timers_that_are_installed_but_not_enabled_warn(workspace: Path, tmp_path: Path) -> None:
+    """The one that looks like success."""
+    check = timer_check(workspace, installed_timers(workspace, tmp_path), scheduled=False)
+
+    assert check.status == "warn"
+    assert "not enabled" in check.detail
+    assert "abk install-timers" in check.fix
+
+
+def test_a_unit_that_no_longer_matches_the_template_warns(workspace: Path, tmp_path: Path) -> None:
+    from agent_build_kit import timers
+
+    units = installed_timers(workspace, tmp_path)
+    (units / timers.unit_names(workspace)[0]).write_text(
+        f"{timers.MARKER}\nWorkingDirectory={workspace.resolve()}\nold\n"
+    )
+
+    check = timer_check(workspace, units)
+
+    assert check.status == "warn"
+    assert "out of date" in check.detail
+
+
+def test_a_missing_unit_warns(workspace: Path, tmp_path: Path) -> None:
+    from agent_build_kit import timers
+
+    units = installed_timers(workspace, tmp_path)
+    (units / timers.unit_names(workspace)[2]).unlink()
+
+    check = timer_check(workspace, units)
+
+    assert check.status == "warn"
+    assert "missing" in check.detail
+
+
+def test_units_an_earlier_version_left_behind_are_named(workspace: Path, tmp_path: Path) -> None:
+    """Reinstalling removes them, and the doctor says so rather than leaving a
+    person to wonder why the tick seems to run twice."""
+    from tests.test_timers import legacy_units
+
+    units = installed_timers(workspace, tmp_path)
+    legacy_units(units, workspace)
+
+    check = timer_check(workspace, units)
+
+    assert check.status == "warn"
+    assert "outdated" in check.detail and "abk-tick.service" in check.detail
+    assert "removes" in check.fix
+
+
+def test_a_unit_pointing_at_a_directory_that_is_gone_is_reported(
+    workspace: Path, tmp_path: Path
+) -> None:
+    """Nobody is left to remove it: the repo it served moved away. It fails
+    every five minutes and `systemctl enable` accepted it without complaint."""
+    from tests.test_timers import legacy_units
+
+    units = installed_timers(workspace, tmp_path)
+    legacy_units(units, tmp_path / "moved-away")
+
+    checks = by_name(
+        run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all, units=units)
+    )
+
+    assert checks["stale timer units"].status == "warn"
+    assert "moved-away" in checks["stale timer units"].detail
+    assert "systemctl --user disable --now" in checks["stale timer units"].fix
+
+
+def test_systemd_that_cannot_be_asked_is_said_not_assumed(workspace: Path, tmp_path: Path) -> None:
+    """No `systemctl` (a container, another OS): whether the timers are enabled
+    cannot be told from here, which is not the same as their being off."""
+    units = installed_timers(workspace, tmp_path)
+
+    def no_systemd(argv, **kwargs):
+        if argv[0] == "systemctl":
+            raise FileNotFoundError("systemctl")
+        return Answers()(argv, **kwargs)
+
+    checks = by_name(
+        run_doctor(workspace / "abk.yaml", run=no_systemd, which=which_all, units=units)
+    )
+
+    assert checks["timers"].status == "info"
+    assert "cannot ask systemd" in checks["timers"].detail

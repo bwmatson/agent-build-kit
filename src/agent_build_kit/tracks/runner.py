@@ -1,30 +1,37 @@
-"""The scheduled tracks: health, improve, recommend, and the implement pass.
+"""The scheduled tracks: health, improve and recommend, and the propose pass.
 
 Each track runs **once per repo** in the workspace (`abk.yaml`'s `repos`, in
-order) — its own agent run(s) through the runtime, its own budget, its own run-log
-entry in the planning repo's state directory, and its own worktree and PRs in
-that repo. A repo is eligible only when its checkout is a git repo whose
-`origin` is the GitHub repo abk.yaml names and `gh` can see it; anything else
-is logged and skipped (see `eligible_projects`), so a repo can be listed
-before it exists on GitHub without failing the run.
+order) — its own agent run(s) through the runtime, its own budget, and its own
+run-log entry in the planning repo's state directory. A repo is eligible only
+when its checkout is a git repo whose `origin` is the repo abk.yaml names, on a
+host that answers for it; anything else is logged and skipped (see
+`eligible_projects`), so a repo can be listed before it exists on its host
+without failing the run.
 
-- `health`: daily, read-only, no worktree — "is something actually wrong right
+**A track never edits a repo or opens a pull request.** `propose` writes what it
+found as an OpenSpec change in the planning repo; the runner commits it to the
+default branch if it validates, and the pipeline's tick then plans and builds
+it, with a review loop and the test tiers around every unit. Work written by a
+track directly would go around all of that, and the tick would later find it
+already done.
+
+- `health`: daily, read-only — "is something actually wrong right
   now". Fans out the health playbooks, cross-checks findings against the
-  tracked-issues list so a problem with a PR already open is not re-proposed,
-  and writes a Status line. ATTENTION or URGENT — a genuinely new finding —
-  runs `implement` for the same repo straight away instead of waiting for the
-  weekly improve run; OK or PENDING RESOLUTION costs nothing more.
+  tracked-issues list so a problem already in flight is not re-proposed, and
+  writes a Status line. ATTENTION or URGENT — a genuinely new finding — runs
+  `propose` for the same repo straight away instead of waiting for the weekly
+  improve run; OK or PENDING RESOLUTION costs nothing more.
 - `improve`: weekly — the improve playbooks (read-only) find "this could be
-  better" findings, then `implement` (its own worktree) opens up to
-  `tracks.implement_max_prs` PRs. Two invocations rather than one so a heavy
-  discovery pass cannot spend the budget the implementing phase needs. A
-  nonzero exit is never fatal to the next phase or repo: implement falls back
-  to whatever candidates the run log already holds.
+  better" findings, then `propose` writes up to `tracks.propose_max_issues` of
+  them as one change. Two invocations rather than one so a heavy discovery pass
+  cannot spend the budget the proposing phase needs. A nonzero exit is never
+  fatal to the next phase or repo: propose falls back to whatever candidates
+  the run log already holds.
 - `recommend`: weekly on a different day — bigger-picture playbooks (test
   coverage, technical debt, architecture, cost/performance) that mostly
-  produce recommendations for a human, plus the same implement pass for the
-  rare bounded finding.
-- `implement` on its own works down the existing backlog on demand; `--focus`
+  produce recommendations for a human, plus the same propose pass for the rare
+  bounded finding.
+- `propose` on its own works down the existing backlog on demand; `--focus`
   biases which run-log entries it reads first (a track name, or a run id).
 
 Every phase's run log has a filename built from this process's RUN_ID and
@@ -40,11 +47,14 @@ from __future__ import annotations
 
 import re
 import shlex
+import shutil
 import subprocess
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges, runtimes
+from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
@@ -57,7 +67,7 @@ from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, build_argv
 
 RUN_ID = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 TRACKS = ("health", "improve", "recommend")
-PHASES = (*TRACKS, "implement")
+PHASES = (*TRACKS, "propose")
 
 # What a phase returns when the planning repo's default branch was rewritten:
 # not a failed phase the next one can follow, but a reason to stop the run.
@@ -79,7 +89,8 @@ PLACEHOLDERS = frozenset(
         "__PLANNING_DIR__",
         "__STATE_DIR__",
         "__PROMPTS_DIR__",
-        "__IMPLEMENT_MAX_PRS__",
+        "__MAX_ISSUES__",
+        "__PROPOSED_CHANGE__",
         "__FOCUS_HINT__",
     }
 )
@@ -241,7 +252,7 @@ def run_log(inst: Installation, project: Project, track: str) -> Path:
 
 
 def resolve_focus(inst: Installation, project: Project, focus: str | None) -> str:
-    """Turns --focus into the sentence implement.md's __FOCUS_HINT__ is
+    """Turns --focus into the sentence propose.md's __FOCUS_HINT__ is
     replaced with, for one project. `focus` is either a track name
     (resolving to that project's most recent run log for the track) or a
     run-id prefix (resolving to the project's run-log filename it matches,
@@ -264,10 +275,13 @@ def resolve_focus(inst: Installation, project: Project, focus: str | None) -> st
     else:
         matches = sorted(state_dir.glob(f"{focus}-{project.name}-*.md"))
         # An exact run-id can match both its source track's log (real
-        # candidates) and its own -implement.md (just that run's output,
+        # candidates) and the propose phase's own (just that run's output,
         # never a candidate source) — prefer the former when both exist.
-        non_implement = [m for m in matches if not m.name.endswith("-implement.md")]
-        matches = non_implement or matches
+        # `-implement.md` is what the phase was called before it stopped
+        # editing code, and installations that ran it still have those logs.
+        own = ("-propose.md", "-propose-rejected.md", "-implement.md")
+        candidates = [m for m in matches if not m.name.endswith(own)]
+        matches = candidates or matches
         if not matches:
             return (
                 f"none — no run log filename for {project.name} matched '{focus}', "
@@ -311,7 +325,8 @@ def placeholders(
         "__PLANNING_DIR__": str(inst.root),
         "__STATE_DIR__": str(inst.state_dir),
         "__PROMPTS_DIR__": str(prompts_dir(inst)),
-        "__IMPLEMENT_MAX_PRS__": str(inst.config.tracks.implement_max_prs),
+        "__MAX_ISSUES__": str(inst.config.tracks.propose_max_issues),
+        "__PROPOSED_CHANGE__": proposed_change(project),
         "__FOCUS_HINT__": resolve_focus(inst, project, focus),
     }
     assert set(values) == PLACEHOLDERS
@@ -334,23 +349,38 @@ def render_prompt(
 
 
 def phase_request(
-    inst: Installation, project: Project, *, prompt: str, worktree: str | None
+    inst: Installation,
+    project: Project,
+    *,
+    prompt: str,
+    at: Path | None = None,
+    change_dir: Path | None = None,
 ) -> AgentRequest:
-    """One phase's run, with its model and tool lists from `tracks`: in the
-    project's checkout, the planning repo readable for its run log, and the
-    whole machine-readable record kept as the raw output."""
+    """One phase's run, with its model and tool lists from `tracks`.
+
+    A discovery phase runs in the project's checkout with the planning repo
+    readable for its run log. `at` turns that around for the propose phase,
+    which runs in the planning repo — what it writes is a change — with the
+    project readable beside it. Whichever is not the working directory is the
+    one added, so neither phase can write where it is only meant to read by
+    habit rather than by grant.
+    """
     tracks = inst.config.tracks
+    cwd = at or project.path
     return AgentRequest(
         prompt=prompt,
-        cwd=project.path,
-        add_dirs=(inst.root,),
+        cwd=cwd,
+        add_dirs=tuple(path for path in (inst.root, project.path) if path != cwd),
         model=tracks.model,
         allowed_tools=tracks.allowed_tools,
         denied_tools=denied_tools_value(tracks.disallowed_tools),
         permission_mode="edit",
         planning_repo=inst.root,
         planning_state_dir=inst.state_dir,
-        worktree=worktree,
+        planning_change_dir=change_dir,
+        # No track runs in a worktree: discovery reads the checkout, and
+        # propose writes a change in the planning repo. The implement flow was
+        # the only phase that needed a branch of its own, and it is gone.
         keep_record=True,
     )
 
@@ -411,22 +441,83 @@ def settle_planning(inst: Installation, before: PlanningHead, project: Project, 
             f"phase (it was {before.head[:10]}) — committing nothing; stopping the run"
         )
         return False
-    commit_bookkeeping(inst, before.branch, project, name)
+    changes = _vet_proposed_change(inst, project) if name == "propose" else []
+    commit_bookkeeping(inst, before.branch, project, name, changes)
     return True
 
 
-def commit_bookkeeping(inst: Installation, branch: str, project: Project, name: str) -> None:
+def _vet_proposed_change(inst: Installation, project: Project) -> list[str]:
+    """The propose phase's change, if it may be committed: its path relative to
+    the planning repo, in a list so "nothing to commit" is an empty one.
+
+    A change is committed straight to the default branch, where the tick plans
+    it, so this is the only check between a timer-written spec and the pipeline.
+    One that does not validate is worse than none: the tick reads it, cannot
+    plan it, and says so a cycle later with nobody present. So it is moved out
+    of `changes/` — the tick plans whatever is there, committed or not — into
+    the state directory where a human can still read it, and a note saying why
+    is committed in its place, so the tracker's claim that a change is in
+    flight does not stand with nothing anywhere to contradict it.
+
+    A run that wrote no change is fine: nothing surviving is a valid outcome.
+    """
+    change = proposed_change(project)
+    directory = inst.changes_dir / change
+    if not directory.exists():
+        return []
+    errors = validation_errors(
+        inst.root,
+        change,
+        repos=tuple(inst.repos),
+        specs_dir=inst.config.planning.specs_dir,
+    )
+    if not errors:
+        try:
+            return [directory.relative_to(inst.root).as_posix()]
+        except ValueError:
+            log(f"[{project.name}] {change} is outside the planning repo; not committing it")
+            return []
+
+    kept = inst.state_dir / "rejected-changes" / change
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    if kept.exists():
+        shutil.rmtree(kept)
+    shutil.move(str(directory), str(kept))
+    note = run_log(inst, project, "propose-rejected")
+    note.write_text(
+        f"# Rejected change: {change}\n\n"
+        f"The propose phase for `{project.name}` wrote this change, and it did not "
+        f"validate, so it was not committed and not offered to the pipeline. Its files "
+        f"are kept in `{kept.relative_to(inst.root).as_posix()}`.\n\n"
+        + "\n".join(f"- {error}" for error in errors)
+        + "\n"
+    )
+    log(f"[{project.name}] {change} did not validate — set aside, not committed:")
+    for error in errors:
+        log(f"[{project.name}]   {error}")
+    return []
+
+
+def commit_bookkeeping(
+    inst: Installation,
+    branch: str,
+    project: Project,
+    name: str,
+    changes: Sequence[str] = (),
+) -> None:
     """Commits and pushes the phase's Markdown under the state directory: run
-    logs and `tracked-issues.md`. The rest of that directory is the tick's live
-    state, which the operator commits and a tick may be rewriting right now.
+    logs and `tracked-issues.md`, plus any change the phase wrote (already
+    vetted). The rest of that directory is the tick's live state, which the
+    operator commits and a tick may be rewriting right now.
     A rejected push is retried once after a fast-forward; a second rejection
     is reported and the commit stays."""
     notes = f":(glob){inst.state_dir.relative_to(inst.root).as_posix()}/**/*.md"
-    _git(["add", "-A", "--", notes], inst.root)
-    if _git(["diff", "--cached", "--quiet", "--", notes], inst.root).returncode == 0:
+    paths = [notes, *changes]
+    _git(["add", "-A", "--", *paths], inst.root)
+    if _git(["diff", "--cached", "--quiet", "--", *paths], inst.root).returncode == 0:
         return
     message = f"track: {RUN_ID} {project.name} {name}"
-    committed = _git(["commit", "-q", "-m", message, "--", notes], inst.root)
+    committed = _git(["commit", "-q", "-m", message, "--", *paths], inst.root)
     if committed.returncode != 0:
         log(f"[{project.name}] committing the {name} bookkeeping failed:\n{committed.stderr}")
         return
@@ -463,15 +554,27 @@ def _print_dry_run(
         print(request.model_dump(exclude={"prompt", "on_event"}))
 
 
+def proposed_change(project: Project) -> str:
+    """The change a propose run writes, named for its project and this run.
+
+    Fixed before the run rather than chosen by the model, because the run is
+    only useful if what it wrote can be validated, and validating a change
+    means knowing which one to validate.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", project.name.lower()).strip("-") or "workspace"
+    return f"{slug}-track-{RUN_ID}"
+
+
 def claude_phase(
     inst: Installation,
     *,
     project: Project,
     name: str,
-    worktree: str | None,
     focus: str | None = None,
     dry_run: bool = False,
     runtime: AgentRuntime | None = None,
+    at: Path | None = None,
+    change_dir: Path | None = None,
 ) -> int:
     """Runs one phase for one project through the agent runtime (cwd = that
     project's checkout, the planning repo added as an extra dir for run
@@ -487,7 +590,11 @@ def claude_phase(
     instead of running it."""
     agent = runtime or runtimes.active()
     request = phase_request(
-        inst, project, prompt=render_prompt(inst, project, name, focus), worktree=worktree
+        inst,
+        project,
+        prompt=render_prompt(inst, project, name, focus),
+        at=at,
+        change_dir=change_dir,
     )
     if dry_run:
         _print_dry_run(project, name, request, agent)
@@ -550,7 +657,7 @@ def has_headroom() -> bool:
     return decision.may_start
 
 
-def implement(
+def propose(
     inst: Installation,
     project: Project,
     focus: str | None = None,
@@ -558,11 +665,20 @@ def implement(
     dry_run: bool = False,
     runtime: AgentRuntime | None = None,
 ) -> int:
+    """Turn this project's findings into one change for the pipeline to build.
+
+    Runs in the planning repo, not in a worktree of the project: what it writes
+    is a change, and the project's checkout is there to be read. The pipeline
+    turns the change's task groups into branches and pull requests itself, with
+    a build and review loop around each — which is the whole reason a track
+    does not open one directly.
+    """
     return claude_phase(
         inst,
         project=project,
-        name="implement",
-        worktree=f"abk-{RUN_ID}",
+        name="propose",
+        at=inst.root,
+        change_dir=inst.changes_dir / proposed_change(project),
         focus=focus,
         dry_run=dry_run,
         runtime=runtime,
@@ -581,7 +697,6 @@ def health(
         inst,
         project=project,
         name="health",
-        worktree=None,
         dry_run=dry_run,
         runtime=runtime,
     )
@@ -605,14 +720,14 @@ def health(
 
     log(
         f"[{project.name}] status is {status} — a genuinely new finding, not "
-        f"something already pending — running implement now rather than "
+        f"something already pending — proposing a change now rather than "
         f"waiting for the weekly improve run."
     )
-    implement_rc = implement(inst, project, runtime=runtime)
-    return 1 if (health_rc != 0 or implement_rc != 0) else 0
+    propose_rc = propose(inst, project, runtime=runtime)
+    return 1 if (health_rc != 0 or propose_rc != 0) else 0
 
 
-def discover_then_implement(track: str):
+def discover_then_propose(track: str):
     def run(
         inst: Installation,
         project: Project,
@@ -625,25 +740,24 @@ def discover_then_implement(track: str):
             inst,
             project=project,
             name=track,
-            worktree=None,
             dry_run=dry_run,
             runtime=runtime,
         )
         if discover_rc == STOPPED:
             return STOPPED
-        # Always runs, even if discovery exited nonzero — implement falls
+        # Always runs, even if discovery exited nonzero — propose falls
         # back to whatever candidates already exist in the run log.
-        implement_rc = implement(inst, project, dry_run=dry_run, runtime=runtime)
-        return 1 if (discover_rc != 0 or implement_rc != 0) else 0
+        propose_rc = propose(inst, project, dry_run=dry_run, runtime=runtime)
+        return 1 if (discover_rc != 0 or propose_rc != 0) else 0
 
     return run
 
 
 DISPATCH = {
     "health": health,
-    "improve": discover_then_implement("improve"),
-    "recommend": discover_then_implement("recommend"),
-    "implement": implement,
+    "improve": discover_then_propose("improve"),
+    "recommend": discover_then_propose("recommend"),
+    "propose": propose,
 }
 
 
