@@ -190,12 +190,23 @@ Every round you ask for costs a rework and another review, so:
   named accessor instead of a raw reach-through); note it as optional, not
   required, when fixing it well means a real design decision spanning several
   callers — that is not a rework a builder should be sent back to make alone.
+- **Read the code around the change, not only the diff.** For each hunk, open
+  the enclosing function and read it whole. For each removed line, ask what it
+  enforced — a check, a lock, a validation, an ordering — and whether the change
+  still enforces it somewhere. Follow callers and callees one step out: who
+  depends on what changed, and what the changed code now assumes of what it
+  calls.
+- **Re-check each candidate before you report it.** Before a problem goes in
+  your reply, re-read the code it points at and try to show it is wrong: is it
+  handled elsewhere, does a test cover it, does the caller never do that? Drop
+  what does not survive. Report what does with the evidence — the location and
+  the concrete input or state that goes wrong — not a suspicion.
 - **Say what done looks like.** For each required change, state the outcome
   concretely — the behaviour, the value, the test that should exist and what it
   asserts — so it can be fixed in one attempt. Where one fix is clearly best,
   prescribe it; where the fix is open, state the constraint it must meet.
-- **Separate what is required from what is optional,** under those headings.
-  Only required changes block approval.
+- **Separate what is required from what is optional** with each finding's
+  `required` field. Only required changes block approval.
 
 **Check the tests against the real system, not against the code.** A test
 passing proves only what its fakes allow. For every fake, stub or fixture
@@ -243,8 +254,23 @@ that is merely inconvenient to fix now.
   it is wrong. Do not ask a third time: set `"escalate": "disagreement"` and
   say in `reasoning` why the builder's reason does not hold.
 
+List each problem in `findings`, one entry per problem, with the `consequence`
+and what `done` looks like. A required finding's consequence is the triggering
+input or state and the wrong result. For a documented convention, it is the
+rule and where it is written; for a test, the wrong behaviour it would let
+through; for a doc, the sentence it makes false. A finding whose consequence
+you cannot name is reported `required: false`. List optional findings most
+important first: only the first five are kept. A
+required finding blocks approval, so `approved` cannot be true while one is
+listed. When an earlier round's findings are shown above, answer each earlier
+required one by id in `earlier` as `fixed`, `open` or `declined` (the builder's
+reason holds); leave none unanswered.
+
 Reply with JSON and nothing else:
-{"approved": true|false, "feedback": "what to change, empty when approved",
+{"approved": true|false, "feedback": "anything that is not a finding, empty when approved",
+ "findings": [{"file": "path", "line": 12, "summary": "...", "consequence": "...",
+               "done": "...", "required": true|false}],
+ "earlier": [{"id": "1.1", "status": "fixed|open|declined"}],
  "needs_human": false,
  "follow_ups": [{"kind": "optional|correctness|test_passes_regardless|missing_test|policy",
                  "point": "..."}],

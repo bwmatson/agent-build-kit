@@ -80,6 +80,12 @@ implement yet, for instance).
   decision on the approach, not another round; rounds spent with blocking work
   outstanding leaves a pushed branch and a PR carrying the open points, ready
   to finish by hand.
+  What a reviewer returns is a verdict: `approved`, a `findings` list (file,
+  optional line, summary, consequence, what done looks like, required), and
+  from round two an `earlier` list answering each earlier required finding by
+  id as `fixed`, `open` or `declined`. The unit's `review_rounds` keep each
+  round's findings, ids and the commit it judged; a required finding, or an
+  earlier one left open or unanswered, means the round is not an approval.
 - A toolchain hold: nothing a retry fixes. Either build the unit by hand on
   its branch, or change the plan.
 
