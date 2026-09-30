@@ -26,7 +26,7 @@ import re
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
-from agent_build_kit.forges.base import PullRequest, RepoId, ReviewNote, Run
+from agent_build_kit.forges.base import PermittedCommand, PullRequest, RepoId, ReviewNote, Run
 from agent_build_kit.pipeline import az, units
 
 if TYPE_CHECKING:
@@ -67,16 +67,32 @@ class AzureDevOpsForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (
-        # Denied whole rather than by flag: `--status completed`,
-        # `--auto-complete` and `--bypass-policy` all merge, and its only
-        # innocent uses are the title and description, which the pipeline sets
-        # itself.
+        # Denied whole, bar `permitted_commands`: `--status completed`,
+        # `--auto-complete` and `--bypass-policy` all merge, so only the exact
+        # shapes listed there are let through.
         ("az", "repos", "pr", "update"),
         ("az", "repos", "pr", "set-vote"),
         ("az", "repos", "policy"),
         # The raw escapes, which reach all of the above.
         ("az", "rest"),
         ("az", "devops", "invoke"),
+    )
+    # Abandoning or reopening a PR and toggling draft are the pipeline's own
+    # calls; each flag is spelled in full with the values it may carry.
+    permitted_commands: tuple[PermittedCommand, ...] = (
+        PermittedCommand(
+            prefix=("az", "repos", "pr", "update"),
+            flags=(
+                ("--id", r"\d+"),
+                ("--status", "abandoned|active"),
+                ("--draft", "true|false"),
+                ("--org", ".+"),
+                ("--organization", ".+"),
+                ("--detect", ".+"),
+                # `az.call` appends it to every call.
+                ("--output", "json"),
+            ),
+        ),
     )
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
 
@@ -490,6 +506,20 @@ class AzureDevOpsForge:
             if str(status.get("state") or "") in _FAILING
         ]
         return "\n\n".join(parts)
+
+    def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
+        """Abandon without merging - a satisfied unit's stale pull request.
+
+        Through the CLI, which `permitted_commands` lets through for exactly
+        this shape, and `az.json_out`, which raises `AzError` on failure: a
+        close that did not happen must not read as one that did. Only the base
+        retarget in `update_pr` goes through REST, having no CLI flag.
+        """
+        az.json_out(
+            ["repos", "pr", "update", "--id", str(pr), "--status", "abandoned"],
+            org=az.org_url(repo.account),
+            run=run,
+        )
 
     def delete_remote_branch(self, repo: RepoId, branch: str, run: Run | None = None) -> None:
         """Remove the source branch, which a merge here leaves behind.

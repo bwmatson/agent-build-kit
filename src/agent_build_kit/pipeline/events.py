@@ -58,9 +58,11 @@ from agent_build_kit.pipeline.units import (
     IN_FLIGHT,
     MERGED,
     PLANNED,
+    SATISFIED,
     base_of,
     branch_name,
     local_ref,
+    through_satisfied,
 )
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
@@ -248,6 +250,13 @@ def _record_merge(
 def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
     """The still-open units stacked on `parent`, in the same repo.
 
+    Not only its direct dependents: a unit whose real dependency is `parent`
+    but whose own `depends_on` names a satisfied unit in between is stacked on
+    `parent` all the same, since the satisfied unit between them added no
+    commits of its own — `through_satisfied` looks past it the same way
+    `base_of` does, so a grandchild through one is restacked (or held) here
+    exactly as a direct child would be.
+
     A cross-repo dependent is never stacked on it — stacks can't span repos —
     so it has nothing to move; `ready_units` makes it wait for the merge
     instead.
@@ -255,7 +264,7 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
     return [
         unit
         for unit in graph
-        if parent.id in unit.depends_on
+        if parent.id in through_satisfied(unit, graph)
         and unit.repo == parent.repo
         and unit.state in IN_FLIGHT
         and unit.branch
@@ -266,12 +275,13 @@ def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUn
     """Every same-repo unit on `parent` that may yet build, whatever its state.
 
     Wider than `_children_of`: a build may already have taken `parent`'s
-    branch as its base before it has a branch or reads `running`.
+    branch as its base before it has a branch or reads `running`. Reaches
+    through a satisfied intermediate unit the same way `_children_of` does.
     """
     return [
         unit
         for unit in graph
-        if parent.id in unit.depends_on
+        if parent.id in through_satisfied(unit, graph)
         and unit.repo == parent.repo
         and unit.state not in (MERGED, CLOSED)
     ]
@@ -393,6 +403,13 @@ def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log 
     Deliberately not propagated to whatever was stacked on it: closing is a
     decision about one unit, and the branches above it hold work that nobody
     asked to drop.
+
+    A satisfied unit is left alone. Its own close — posted, then closed, by
+    `wiring.build_close_pr` once its work turned up already implemented
+    elsewhere — is this same OPEN→CLOSED transition, and the poller cannot
+    tell its close from a human's. Recording it here would turn SATISFIED into
+    CLOSED, which blocks archiving, leaves dependents waiting forever (CLOSED
+    is not in `REVIEWED`) and stops `through_satisfied` looking through it.
     """
     unit = _find(store, pr)
     if unit is None:
@@ -401,6 +418,11 @@ def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log 
 
     try:
         with claim(unit):
+            # Re-read under the lock, as `on_rework` does: a build that has
+            # just ended may have moved it.
+            if store.get(unit.id).state == SATISFIED:
+                log(f"closed #{pr}: {unit.id} is satisfied — its own close, leaving it as it is")
+                return True
             store.set_state(unit.id, CLOSED)
     except BranchBusy as error:
         return _deferred(f"closed #{pr}", unit, error, log)
@@ -409,7 +431,12 @@ def on_closed(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log 
 
 
 def on_hold(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = print) -> bool:
-    """A reviewer has taken the unit over. Nothing automatic touches it again."""
+    """A reviewer has taken the unit over. Nothing automatic touches it again.
+
+    A satisfied unit is left as it is — see `on_closed` for why its own
+    OPEN→CLOSED is not the only transition that can arrive after it is
+    already done.
+    """
     unit = _find(store, pr)
     if unit is None:
         log(f"hold #{pr}: no unit recorded for it, ignoring")
@@ -417,6 +444,9 @@ def on_hold(pr: int, *, store: UnitStore, claim: Claim = _unclaimed, log: Log = 
 
     try:
         with claim(unit):
+            if store.get(unit.id).state == SATISFIED:
+                log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
+                return True
             store.set_state(unit.id, HELD)
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
@@ -480,6 +510,11 @@ def _requeue(
         # A human has taken it over; requeuing would push over work they are
         # in the middle of.
         log(f"rework #{pr}: {unit.id} is held, ignoring")
+        return
+    if unit.state == SATISFIED:
+        # See `on_closed`: requeuing it would judge a branch this unit never
+        # built, over feedback aimed at a pull request that is closing.
+        log(f"rework #{pr}: {unit.id} is satisfied, ignoring")
         return
 
     # A poll cannot afford a second request per PR, so the reviewer's actual

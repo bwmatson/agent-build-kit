@@ -20,18 +20,22 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import models
+from agent_build_kit.pipeline.pr_replies import MARKER
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
+    _branch_commits,
     _tip,
     build_base_moved,
+    build_close_pr,
     build_commit,
     build_open_pr,
     build_push,
     build_run_claude,
     build_run_review,
     build_tier1,
+    build_upstream_incomplete,
 )
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
@@ -187,6 +191,43 @@ def test_the_pr_targets_the_units_base_branch(tmp_path: Path) -> None:
     assert forge.created[0]["base"] == "spec/add-marker/0"
 
 
+def test_closing_posts_the_reason_before_closing(tmp_path: Path) -> None:
+    """The explanation must never be missing, so it is posted before the
+    close is even attempted.
+
+    Checked against one ordered call log, not two separate lists: those would
+    still pass even if the close came first.
+    """
+    forge = StandInForge(existing=7)
+
+    build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
+
+    assert forge.calls == [("comment", 7), ("close", 7)]
+    assert forge.comments == ["implemented elsewhere\n" + MARKER]
+
+
+def test_the_posted_reason_is_marked_as_the_pipelines_own(tmp_path: Path) -> None:
+    """Unmarked, the reason would read back as a reviewer's new comment on the
+    next poll and send a satisfied unit to rework over its own explanation —
+    see `events.review_lines` and `_latest_comment`."""
+    forge = StandInForge(existing=7)
+
+    build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
+
+    assert MARKER in forge.comments[0]
+
+
+def test_a_failed_reason_post_leaves_the_pull_request_open(tmp_path: Path) -> None:
+    """A post that fails must not be followed by a close: that would leave
+    the PR shut with no reason ever posted on it."""
+    forge = StandInForge(existing=7, comment_error=True)
+
+    with pytest.raises(RuntimeError, match="not posted"):
+        build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
+
+    assert forge.closed == []
+
+
 def test_a_rejected_commit_is_not_reported_as_nothing_to_commit(tmp_path: Path) -> None:
     """A failing pre-commit hook and an empty diff both used to return 0, so
     the runner blamed the model for producing nothing. On an unattended run
@@ -291,6 +332,45 @@ def test_a_plain_repo_still_runs_pytest_at_the_root(tmp_path: Path) -> None:
     build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
 
     assert [c for c, _ in calls if "pytest" in c] == [["uv", "run", "pytest", "-q"]]
+
+
+def test_whole_repo_mode_lints_and_tests_everything_regardless_of_the_diff(
+    tmp_path: Path,
+) -> None:
+    """A unit that produced no commits of its own has no diff to scope tier 1
+    to: `changed` returning `[]` would otherwise lint an empty range and test
+    no member at all, which is an empty-scope pass rather than proof anything
+    actually works. `whole_repo=True` has to run a real lint and one test
+    command per testable member instead, whatever `changed` says."""
+    calls: list[tuple] = []
+    repo = workspace(tmp_path, ["shared", "svc-a", "svc-b"], with_tests=["shared", "svc-b"])
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs.get("cwd")))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    build_tier1(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
+
+    lint = [c for c, _ in calls if "pre-commit" in c][0]
+    assert "--all-files" in lint
+    assert "--from-ref" not in lint
+
+    tested = sorted(c[c.index("--package") + 1] for c, _ in calls if "pytest" in c)
+    assert tested == ["shared", "svc-b"]
+
+
+def test_whole_repo_mode_still_fails_on_a_failing_member(tmp_path: Path) -> None:
+    """The lint passes — only `shared`'s tests fail — so whole-repo mode has
+    to be judged the same way `test_commands` is: any one member failing
+    fails the unit, not just a failing lint."""
+    repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
+
+    def run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1 if "pytest" in command else 0, "", "")
+
+    passed, _ = build_tier1(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
+
+    assert passed is False
 
 
 def test_a_failing_member_fails_the_unit(tmp_path: Path) -> None:
@@ -504,6 +584,79 @@ def test_after_a_squash_merge_only_the_unit_s_own_commits_are_replayed(tmp_path:
     git(repo, "rebase", "-q", "--onto", "main", start, "spec/c/3")  # applies cleanly
     assert (repo / "mcp.py").read_text() == "tools = ['a', 'b']\n"
     assert (repo / "acting.py").read_text() == "click\n"
+
+
+def test_own_work_starts_after_looks_through_a_satisfied_unit_with_no_refs(
+    tmp_path: Path,
+) -> None:
+    """c/3 forked straight off c/1's branch — c/2, satisfied on it, never had
+    a branch, push or approval of its own. Reading only the direct parent's
+    refs finds nothing there and falls back to the plain merge-base, which
+    misses the fork and would let c/1's later rework be replayed onto c/3 a
+    second time after a squash-merge."""
+    from agent_build_kit.pipeline.wiring import _own_work_starts_after
+    from tests.factories import git, init_repo, stored_unit
+
+    repo = init_repo(tmp_path / "r")
+
+    def commit(name: str) -> str:
+        (repo / name).write_text(name)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", name)
+        return git(repo, "rev-parse", "HEAD")
+
+    commit("base.txt")
+    plain_merge_base = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "spec/add-marker/1")
+    fork = commit("c1.txt")
+    git(repo, "checkout", "-q", "-b", "spec/add-marker/3")
+    commit("c3.txt")
+    git(repo, "checkout", "-q", "spec/add-marker/1")
+    commit("c1-round-2.txt")
+    git(repo, "checkout", "-q", "spec/add-marker/3")
+
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored_unit("add-marker/1"),
+            stored_unit("add-marker/2", depends_on=("add-marker/1",)),
+            stored_unit("add-marker/3", depends_on=("add-marker/2",)),
+        ]
+    )
+    store.set_state("add-marker/1", IN_REVIEW, branch="spec/add-marker/1")
+    store.record_push("add-marker/1", git(repo, "rev-parse", "spec/add-marker/1"))
+    store.set_state("add-marker/2", SATISFIED)
+
+    start = _own_work_starts_after(repo, "main", store.get("add-marker/3"), store)
+
+    assert start == fork
+    assert start != plain_merge_base
+
+
+def test_predecessor_looks_through_a_satisfied_unit_once_its_parent_merges(
+    tmp_path: Path,
+) -> None:
+    """add-marker/2 is satisfied on add-marker/1's branch. Once add-marker/1
+    merges and the base becomes `main`, the predecessor is add-marker/1 —
+    which has commits and a PR — not add-marker/2, which never had either."""
+    from agent_build_kit.pipeline.wiring import _predecessor
+    from tests.factories import stored_unit
+
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored_unit("add-marker/1"),
+            stored_unit("add-marker/2", depends_on=("add-marker/1",)),
+            stored_unit("add-marker/3", depends_on=("add-marker/2",)),
+        ]
+    )
+    store.set_state("add-marker/2", SATISFIED)
+    store.set_state("add-marker/1", MERGED)
+
+    predecessor = _predecessor(store.get("add-marker/3"), "main", store)
+
+    assert predecessor is not None
+    assert predecessor.id == "add-marker/1"
 
 
 def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path) -> None:
@@ -875,3 +1028,42 @@ def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(
     git(repo, "branch", "-f", "spec/add-marker/1", "main")
     reason = base_moved(child, "spec/add-marker/1", tree=repo, start=start)
     assert "spec/add-marker/1 was rewritten" in reason
+
+
+def test_upstream_incomplete_looks_through_a_satisfied_unit(tmp_path: Path) -> None:
+    """add-marker/2 is satisfied on add-marker/1's branch, so add-marker/3
+    reads it as reviewed and carries on — even though add-marker/1, what
+    add-marker/2 was really built on, was requeued after going back."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            unit("add-marker/1"),
+            unit("add-marker/2", depends_on=("add-marker/1",)),
+            unit("add-marker/3", depends_on=("add-marker/2",)),
+        ]
+    )
+    store.set_state("add-marker/2", SATISFIED)
+    store.set_state("add-marker/1", RUNNING)
+
+    reason = build_upstream_incomplete(store)(store.get("add-marker/3"))
+
+    assert "add-marker/1" in reason
+
+
+def test_branch_commits_raises_on_an_unresolvable_base(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "repo")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "root")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _branch_commits(repo, "no-such-ref")
+
+
+def test_branch_commits_counts_what_the_branch_adds(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "repo")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "root")
+    assert _branch_commits(repo, "main") == 0
+
+    git(repo, "checkout", "-q", "-b", "work")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "one")
+
+    assert _branch_commits(repo, "main") == 1

@@ -17,7 +17,7 @@ from collections.abc import Collection
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
-from agent_build_kit.forges.base import Run
+from agent_build_kit.forges.base import PermittedCommand, Run
 
 
 class StandInForge:
@@ -25,6 +25,7 @@ class StandInForge:
     implemented: bool = True
     deletes_head_branch_on_merge: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
+    permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ()
 
     def __init__(
@@ -39,6 +40,8 @@ class StandInForge:
         access: str = "",
         guard: str = "",
         failing_replies: Collection[str] = (),
+        close_error: str = "",
+        comment_error: bool = False,
     ) -> None:
         self.existing = existing
         self.number = number
@@ -49,12 +52,19 @@ class StandInForge:
         self.access = access
         self.guard = guard
         self.failing_replies = failing_replies
+        self.close_error = close_error
+        self.comment_error = comment_error
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.replies: list[tuple[str, str]] = []
         self.comments: list[str] = []
         self.statuses: list[dict] = []
         self.deleted: list[str] = []
+        self.closed: list[int] = []
+        # Every post and close, in the order they happened — a post and a
+        # close each land in their own list too, but those don't tell apart a
+        # close that came first from one that came after.
+        self.calls: list[tuple[str, int]] = []
 
     # --- identity -----------------------------------------------------------
 
@@ -113,7 +123,14 @@ class StandInForge:
         return [f"reply-{note_id}", f"review-{note_id}"]
 
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
+        if self.comment_error:
+            # What a real forge call answers when it fails: `GitHubForge`'s
+            # `gh_json(..., default={})` swallows the error and this reads an
+            # empty dict back; the Azure forge answers the same way when it
+            # cannot read the response.
+            return []
         self.comments.append(body)
+        self.calls.append(("comment", pr))
         return ["comment-1"]
 
     def post_status(
@@ -128,6 +145,12 @@ class StandInForge:
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         self.deleted.append(branch)
+
+    def close_pr(self, repo: RepoId, pr: int) -> None:
+        if self.close_error:
+            raise RuntimeError(self.close_error)
+        self.closed.append(pr)
+        self.calls.append(("close", pr))
 
 
 def lookup(forge: StandInForge):

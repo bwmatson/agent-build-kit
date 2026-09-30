@@ -19,7 +19,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
@@ -86,6 +86,38 @@ def test_a_child_moves_onto_its_next_open_parent_not_main(tmp_path: Path) -> Non
     assert moved["spec/c/3"] == "spec/c/2", "still stacked on the open middle"
 
 
+def test_a_grandchild_through_a_satisfied_unit_is_restacked_like_a_direct_child(
+    tmp_path: Path,
+) -> None:
+    """Unit 2 added nothing of its own and was judged satisfied on unit 1's
+    branch, so unit 3 — which depends on unit 2 — was actually built directly
+    on unit 1's branch (`base_of` looks straight through a satisfied unit).
+    When unit 1 merges, unit 3 is a grandchild through unit 2 and has to move
+    exactly as a direct child would; finding only unit 2 as the child would
+    leave unit 3 sitting on a branch about to be deleted."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            unit("c/1"),
+            unit("c/2", depends_on=("c/1",)),
+            unit("c/3", depends_on=("c/2",)),
+        ]
+    )
+    store.set_state("c/1", IN_REVIEW, pr=1, branch="spec/c/1")
+    store.set_state("c/2", "satisfied")
+    store.set_state("c/3", IN_REVIEW, pr=3, branch="spec/c/3")
+    recorder = Recorder()
+
+    events.on_merged(1, store=store, restack=recorder)
+
+    assert len(recorder.restacked) == 1
+    moved = recorder.restacked[0]
+    assert moved["branch"] == "spec/c/3"
+    assert moved["old_base"] == "spec/c/1"
+    assert moved["new_base"] == "main"
+    assert moved["parent"].id == "c/1"
+
+
 def test_a_merge_we_have_no_unit_for_is_ignored(store: UnitStore) -> None:
     """Someone else's PR on a spec/ branch, or a unit removed from the store.
     Restacking against a unit we don't know is how the wrong branch moves."""
@@ -143,6 +175,35 @@ def test_a_held_unit_is_recorded_so_nothing_reworks_it(store: UnitStore) -> None
     events.on_hold(1, store=store)
 
     assert store.get("add-marker/1").state == events.HELD
+
+
+def test_a_satisfied_units_own_close_is_not_read_back_as_a_real_one(store: UnitStore) -> None:
+    """`wiring.build_close_pr` posts the reason and closes a satisfied unit's
+    stale pull request itself — the same OPEN→CLOSED transition a human's
+    close would make. Recording that here would turn SATISFIED into CLOSED,
+    which blocks archiving, leaves dependents waiting forever (CLOSED is not
+    in `REVIEWED`) and stops `through_satisfied` looking through it."""
+    store.set_state("add-marker/1", SATISFIED, pr=4)
+
+    events.on_closed(4, store=store)
+
+    assert store.get("add-marker/1").state == SATISFIED
+
+
+def test_a_satisfied_unit_is_not_reworked_by_a_late_comment(store: UnitStore) -> None:
+    store.set_state("add-marker/1", SATISFIED, pr=4)
+
+    events.on_rework(4, reason="new comment", store=store)
+
+    assert store.get("add-marker/1").state == SATISFIED
+
+
+def test_a_satisfied_unit_is_not_held_by_a_late_review(store: UnitStore) -> None:
+    store.set_state("add-marker/1", SATISFIED, pr=4)
+
+    events.on_hold(4, store=store)
+
+    assert store.get("add-marker/1").state == SATISFIED
 
 
 def test_a_restack_reruns_the_checks_before_it_pushes(tmp_path: Path) -> None:

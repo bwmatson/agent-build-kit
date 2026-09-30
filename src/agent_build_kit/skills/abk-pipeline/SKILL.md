@@ -60,6 +60,7 @@ more task groups of a change.
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
 | `held` | A reviewer took the unit over, or the toolchain cannot build it. The pipeline will not touch it. | See below. |
 | `failed` | The build raised. | See below. |
+| `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`
 
@@ -86,9 +87,12 @@ without a fix: it will fail the same way and cost a run.
    (`abk check` and `abk tags` first).
 2. The next tick's planner reads its `tasks.md` and adds units to the graph.
 3. Units build in dependency order, at most `limits.max_concurrent_stacks`
-   at a time; each ends `in_review` with a PR.
+   at a time. Each builds only its own task groups, never a later unit's,
+   even when the tasks for one are visible right there in `tasks.md`, and
+   ends `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
+   already did the work.
 4. Humans review and merge. A merge restacks whatever was on the branch.
-5. When every unit is merged, the tick deploys the change (`deploy.rules`),
+5. When every unit is merged or satisfied, the tick deploys the change (`deploy.rules`),
    runs its tier 2 tests and — if it passes — archives it: the delta specs
    are folded into `openspec/specs/` and the change moves to
    `openspec/changes/archive/`.

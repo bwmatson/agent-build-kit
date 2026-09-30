@@ -18,15 +18,19 @@ Three things it must always say:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import MERGED, through_satisfied
 
 
 def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
     """One line describing what this PR sits on, and whether it may merge."""
     index = {item.id: item for item in graph}
     unmerged = [
-        index[dep] for dep in unit.depends_on if dep in index and index[dep].state != MERGED
+        index[dep]
+        for dep in through_satisfied(unit, graph)
+        if dep in index and index[dep].state != MERGED
     ]
 
     if not unmerged:
@@ -47,7 +51,9 @@ def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
 def _assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
     index = {item.id: item for item in graph}
     unmerged = [
-        index[dep] for dep in unit.depends_on if dep in index and index[dep].state != MERGED
+        index[dep]
+        for dep in through_satisfied(unit, graph)
+        if dep in index and index[dep].state != MERGED
     ]
 
     if not unmerged:
@@ -112,3 +118,41 @@ formatting and types pass at the tip.
 _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking the stack order above._
 """
+
+
+def _landed_elsewhere(unit: StoredUnit, graph: Sequence[StoredUnit]) -> StoredUnit | None:
+    """The same-repo predecessor whose branch already carried this unit's
+    work, if the graph can say.
+
+    A unit that reaches `satisfied` built on some base — its nearest same-repo
+    dependency, looked through any satisfied one in between (`through_satisfied`,
+    the same lookup `base_of` uses). That predecessor is where the work landed;
+    a unit with no same-repo dependency in the graph answers None rather than
+    guessing.
+    """
+    index = {item.id: item for item in graph}
+    for dep_id in through_satisfied(unit, graph):
+        dep = index.get(dep_id)
+        if dep is not None and dep.repo == unit.repo:
+            return dep
+    return None
+
+
+def satisfied_reason(unit: StoredUnit, *, graph: Sequence[StoredUnit]) -> str:
+    """Why a satisfied unit's stale pull request is closing.
+
+    Composed here, mechanically, rather than asked of a model: the judgement
+    that got the unit here (no commits of its own, tier 1 green at the tip) is
+    already mechanical, and this is the same kind of text `build_pr_body`
+    writes without a model call.
+    """
+    groups = ", ".join(str(group) for group in unit.groups) or "—"
+    landed = _landed_elsewhere(unit, graph)
+    where = ""
+    if landed is not None:
+        where = f" — it landed in `{landed.id}`" + (f" (#{landed.pr})" if landed.pr else "")
+    return (
+        f"Task group(s) {groups} of change `{unit.change}` were already implemented "
+        f"elsewhere{where}. There is nothing here for this pull request to add, so it is "
+        "closing — its tasks are ticked in tasks.md all the same."
+    )

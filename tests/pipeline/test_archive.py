@@ -53,6 +53,39 @@ def test_a_dropped_unit_does_not_block_forever() -> None:
     assert is_ready_to_archive("add-marker", units)
 
 
+def test_a_satisfied_unit_does_not_block_archiving() -> None:
+    """A satisfied unit added nothing of its own, so it never opens a PR and
+    never merges; waiting for one to merge would strand the change forever,
+    the same as waiting for a dropped unit would."""
+    units = [unit("add-marker/1"), unit("add-marker/2", state="satisfied")]
+
+    assert is_ready_to_archive("add-marker", units)
+
+
+def test_a_satisfied_unit_on_an_unmerged_branch_is_not_ready() -> None:
+    """It stacked on another change's branch, still in review: archiving now
+    would publish behaviour that is not in main."""
+    units = [
+        unit("add-marker/1", change="add-marker", state="in_review"),
+        unit("feature/1", change="feature", state="satisfied", depends_on=("add-marker/1",)),
+    ]
+
+    assert not is_ready_to_archive("feature", units)
+
+
+def test_a_satisfied_unit_is_ready_once_what_it_stacked_on_has_merged() -> None:
+    units = [
+        unit("add-marker/1", change="add-marker", state="merged"),
+        unit("feature/1", change="feature", state="satisfied", depends_on=("add-marker/1",)),
+    ]
+
+    assert is_ready_to_archive("feature", units)
+
+
+def test_a_satisfied_unit_with_no_same_repo_dependency_is_ready() -> None:
+    assert is_ready_to_archive("feature", [unit("feature/1", change="feature", state="satisfied")])
+
+
 def test_a_closed_unit_blocks_archiving() -> None:
     """Closed means someone rejected that work, so the change is not done —
     it needs a human, not an archive."""

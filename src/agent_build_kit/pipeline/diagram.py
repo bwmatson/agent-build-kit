@@ -27,7 +27,15 @@ from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, RUNNING, waiting_on
+from agent_build_kit.pipeline.units import (
+    HELD,
+    IN_REVIEW,
+    MERGED,
+    PLANNED,
+    RUNNING,
+    SATISFIED,
+    waiting_on,
+)
 
 STATE_STYLES = {
     "planned": "fill:#eef2ff,stroke:#6366f1,color:#1e1b4b",
@@ -38,6 +46,7 @@ STATE_STYLES = {
     HELD: "fill:#fae8ff,stroke:#a21caf,color:#4a044e",
     IN_REVIEW: "fill:#dbeafe,stroke:#2563eb,color:#172554",
     "merged": "fill:#dcfce7,stroke:#16a34a,color:#052e16",
+    SATISFIED: "fill:#d1fae5,stroke:#059669,color:#022c22",
     "closed": "fill:#fee2e2,stroke:#dc2626,color:#450a0a",
     "failed": "fill:#fecaca,stroke:#b91c1c,color:#450a0a,stroke-width:3px",
     "unplanned": "fill:#f5f5f4,stroke:#a8a29e,color:#44403c",
@@ -89,15 +98,18 @@ def in_view(units: list[StoredUnit]) -> list[StoredUnit]:
 
     Every unit ever planned would make the graph grow without bound, and the
     merged ones answer nothing about what is happening now. The exception is
-    a merged unit that active work depends on directly — the base it stands
-    on. Its ancestors, and closed or unplanned units, are left out.
+    a merged or satisfied unit that active work depends on directly — the
+    base it stands on, or, for a satisfied one, the unit whose branch its
+    dependent actually stacks on. Left out either way, a dependent would show
+    an edge pointing at a node that isn't drawn. Its ancestors, and closed or
+    unplanned units, are left out.
     """
     active = [unit for unit in units if unit.state in ACTIVE]
     parents = {dep for unit in active for dep in unit.depends_on}
     return [
         unit
         for unit in units
-        if unit.state in ACTIVE or (unit.state == MERGED and unit.id in parents)
+        if unit.state in ACTIVE or (unit.state in (MERGED, SATISFIED) and unit.id in parents)
     ]
 
 
@@ -193,6 +205,9 @@ edit by hand.
 - **in_review** — through the build/review loop; its PR is waiting for human
   review. Dependents in the same repo may stack on it. Deliberately uncapped.
 - **merged** — done, and no longer counted against its stack's depth.
+- **satisfied** — its groups needed nothing beyond what was already on the
+  branch it built on; no PR of its own, and no longer counted against its
+  stack's depth.
 - **held** — a reviewer took it over; nothing automatic touches it.
 - **failed** — stopped on something it could not get past; its feedback says
   what. Nothing retries it until someone requeues it.

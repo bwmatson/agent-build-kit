@@ -13,7 +13,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from agent_build_kit.forges.base import PullRequest, RepoId, ReviewNote, Run, key
+from agent_build_kit.forges.base import PermittedCommand, PullRequest, RepoId, ReviewNote, Run, key
 from agent_build_kit.pipeline import units
 from agent_build_kit.pipeline.shell import gh, gh_json, gh_out
 
@@ -51,6 +51,8 @@ class GitHubForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
+    # `gh pr close` and `gh pr ready` are not denied, so nothing needs an exception.
+    permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ("slug",)
 
     def parse_remote(self, url: str) -> RepoId | None:
@@ -369,6 +371,14 @@ class GitHubForge:
                 f"CI run {run} ({names}), end of its failed log:\n```\n{text[-_LOG_CHARS:]}\n```"
             )
         return "\n\n".join(parts)
+
+    def close_pr(self, repo: RepoId, pr: int) -> None:
+        """Close without merging - a satisfied unit's stale pull request.
+
+        Through `gh_out`, which raises on failure, unlike `update_pr`'s silent
+        `gh()`: a close that did not happen must not read as one that did.
+        """
+        gh_out(["gh", "pr", "close", str(pr), "--repo", key(repo)], slug=key(repo))
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         """Not reached in practice: GitHub deletes the head branch on merge,

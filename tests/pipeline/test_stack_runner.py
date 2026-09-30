@@ -22,11 +22,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.diagram import render_mermaid
-from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
+from agent_build_kit.pipeline.stack_runner import IMPLEMENT, REWORK, Restacked, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name, waiting_on
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
-from tests.factories import unit
+from tests.factories import stored_unit, unit
 
 
 class Recorder:
@@ -34,13 +34,23 @@ class Recorder:
 
     tier1_output: str = ""
 
-    def __init__(self, *, commits_from_impl: int = 1, tier2_ok: bool = True, tier1_ok: bool = True):
+    def __init__(
+        self,
+        *,
+        commits_from_impl: int = 1,
+        tier2_ok: bool = True,
+        tier1_ok: bool = True,
+        close_error: str = "",
+    ):
         self.events: list[str] = []
         self.prompts: list[str] = []
         self.commits_from_impl = commits_from_impl
         self.tier2_ok = tier2_ok
         self.tier1_ok = tier1_ok
         self.pushed_shas: list[str] = []
+        self.close_error = close_error
+        self.closed: list[tuple[str, int, str]] = []
+        self.logged: list[str] = []
 
     def claude(self, prompt: str, *, cwd: Path) -> str:
         self.prompts.append(prompt)
@@ -77,8 +87,8 @@ class Recorder:
         """Moves with every commit, as a real HEAD does."""
         return f"sha-{self.made}"
 
-    def tier1(self, *, cwd: Path, base: str = "main") -> tuple[bool, str]:
-        self.events.append("tier1")
+    def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
+        self.events.append("tier1:whole_repo" if whole_repo else "tier1")
         return self.tier1_ok, self.tier1_output
 
     def tier2(self, *, cwd: Path) -> tuple[bool, str]:
@@ -96,6 +106,15 @@ class Recorder:
 
     def post_status(self, sha: str, ok: bool) -> None:
         self.events.append("status")
+
+    def close_pr(self, unit, pr: int, reason: str) -> None:
+        self.events.append("close")
+        if self.close_error:
+            raise RuntimeError(self.close_error)
+        self.closed.append((unit.id, pr, reason))
+
+    def log(self, message: str) -> None:
+        self.logged.append(message)
 
 
 @pytest.fixture
@@ -122,6 +141,8 @@ def runner(tmp_path: Path):
             push=recorder.push,
             open_pr=recorder.open_pr,
             post_status=recorder.post_status,
+            close_pr=recorder.close_pr,
+            log=recorder.log,
         )
 
     return build
@@ -158,6 +179,63 @@ def test_each_run_is_scoped_to_this_unit_only(runner) -> None:
     assert all("add-marker" in prompt for prompt in recorder.prompts)
 
 
+def test_the_build_prompts_name_the_boundary_and_why(runner) -> None:
+    """The builder can see the whole of tasks.md, including the groups after
+    its own — so leaving them alone has to be said, not left to be inferred,
+    or a capable agent finishes the group after it too because the code for
+    it is already sitting right there."""
+    recorder = Recorder()
+    graph = [
+        stored_unit("add-marker/1", groups=(1,)),
+        stored_unit("add-marker/2", groups=(2, 3), depends_on=("add-marker/1",)),
+    ]
+
+    runner(recorder).run(unit(groups=(1,)), base="main", graph=graph)
+
+    assert len(recorder.prompts) >= 2, "both the tests and the implementation prompts ran"
+    for prompt in recorder.prompts[:2]:
+        assert "2, 3" in prompt, "the later unit's groups are named, not just this one's own"
+        assert "later" in prompt.lower(), "named as belonging to a later unit"
+        assert "pull request" in prompt.lower(), "the boundary is given with its reason"
+
+
+def test_the_review_is_told_the_same_boundary(runner) -> None:
+    """A finding whose fix belongs to a later group is reported as belonging
+    there, not required of this unit — so the reviewer needs the same
+    boundary the builder was given, and keeps its full reach over the rest."""
+    from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
+
+    recorder = Recorder()
+    graph = [
+        stored_unit("add-marker/1", groups=(1,)),
+        stored_unit("add-marker/2", groups=(2, 3), depends_on=("add-marker/1",)),
+    ]
+
+    runner(recorder).run(unit(groups=(1,)), base="main", graph=graph)
+
+    assert any(
+        "2, 3" in context and "later" in context.lower() and "belong" in context.lower()
+        for context in recorder.contexts
+    ), "the reviewer is told which groups are not this unit's to require"
+    # its reach over the unit's own groups keeps its current force
+    assert "Find everything in one pass" in REVIEW_PROMPT
+    assert "Sweep the domain" in REVIEW_PROMPT
+
+
+def test_no_boundary_is_given_when_there_is_no_later_unit(runner) -> None:
+    """A change with only this unit left has nothing to protect a boundary
+    from — naming an empty later group would just be noise in every prompt."""
+    recorder = Recorder()
+    graph = [stored_unit("add-marker/1", groups=(1,))]
+
+    runner(recorder).run(unit(groups=(1,)), base="main", graph=graph)
+
+    for prompt in recorder.prompts:
+        assert "belong" not in prompt.lower()
+    for context in getattr(recorder, "contexts", []):
+        assert "belong" not in context.lower()
+
+
 def test_nothing_happens_when_the_usage_window_is_low(runner) -> None:
     """The guard gates starting work, so the refusal must come before the
     worktree, not after the first expensive call."""
@@ -173,10 +251,26 @@ def test_nothing_happens_when_the_usage_window_is_low(runner) -> None:
 def test_the_review_pass_runs_only_when_there_were_commits(runner) -> None:
     """Reviewing an empty branch spends a model call to say nothing."""
     recorder = Recorder(commits_from_impl=0)
+    built = runner(recorder)
+    built.branch_commits = lambda cwd, base: 0  # nothing landed anywhere, ever
 
-    runner(recorder).run(unit(), base="main", graph=[])
+    built.run(unit(), base="main", graph=[])
 
     assert "review" not in recorder.events
+
+
+def test_a_unit_whose_remaining_work_is_already_implemented_still_goes_to_review(
+    runner,
+) -> None:
+    """The implementation step adding nothing is not the same as the unit
+    adding nothing: its tests commit is this unit's own work, so there is a
+    diff on the branch, and a diff is reviewed rather than treated as empty."""
+    recorder = Recorder(commits_from_impl=0)
+
+    outcome = runner(recorder).run(unit(), base="main", graph=[])
+
+    assert "review" in recorder.events
+    assert outcome.status == "open"
 
 
 def test_the_review_pass_runs_before_the_tests_do(runner) -> None:
@@ -280,6 +374,8 @@ def make_runner(store: UnitStore, recorder: Recorder, tmp_path: Path) -> UnitRun
         push=recorder.push,
         open_pr=recorder.open_pr,
         post_status=recorder.post_status,
+        close_pr=recorder.close_pr,
+        log=recorder.log,
     )
 
 
@@ -356,15 +452,167 @@ def test_a_unit_resumes_from_work_already_on_its_branch(tmp_path: Path) -> None:
 
 
 def test_a_unit_with_nothing_anywhere_still_fails(tmp_path: Path) -> None:
-    """The original guard has to survive: a run that wrote nothing, on a branch
-    with nothing, is a failure and not a resume."""
+    """No commits of its own is not enough by itself to call a unit
+    satisfied — the checks have to pass too, or this is a real failure, not
+    work that arrived another way."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    recorder = Recorder(commits_from_impl=0)
+    recorder = Recorder(commits_from_impl=0, tier1_ok=False)
     runner = make_runner(store, recorder, tmp_path)
     runner.branch_commits = lambda cwd, base: 0
 
-    assert runner.run(unit(), base="main", graph=[]).status == "failed"
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert "tier1:whole_repo" in recorder.events, (
+        "judged on the whole-repo checks, not skipped because nothing landed"
+    )
+
+
+def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path: Path) -> None:
+    """A predecessor did the work: nothing for this unit to add, and what is
+    already there passes. That is not a failure — it is satisfied, judged
+    from the branch and the checks, never from anything the run says about
+    itself."""
+    tasks = _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "satisfied"
+    assert "tier1:whole_repo" in recorder.events, (
+        "judged on the whole-repo checks, not the run's own report"
+    )
+    assert "pr" not in recorder.events, "nothing to open a pull request for"
+    assert "push" not in recorder.events, "nothing to push either"
+    assert "close" not in recorder.events, "there was never a pull request to close either"
+    assert store.get(unit().id).state == "satisfied"
+    assert tasks.read_text().count("- [x]") == 2, "its groups are ticked all the same"
+
+    dependent = unit(uid="add-marker/2", depends_on=(unit().id,))
+    assert waiting_on(dependent, [store.get(unit().id)]) == [], "dependents stop waiting for it"
+
+
+def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
+    tmp_path: Path,
+) -> None:
+    """A rework that finds the work has landed elsewhere in the meantime — the
+    restack having dropped its commits as empty because the predecessor now
+    carries the same change — leaves an open pull request with no diff and no
+    future. The explanation must never be missing, so it is posted before the
+    close is even attempted — one call does both, in that order.
+
+    Reached from feedback waiting on an open PR, the real path: nothing here
+    goes through the tests or implementation prompts at all."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    store.set_feedback(unit().id, "please double-check the edge case")
+    store.set_pending_replies(unit().id, ("done",))
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert outcome.status == "satisfied"
+    assert store.get(unit().id).feedback == "", "a satisfied unit carries no review feedback"
+    assert store.get(unit().id).pending_replies == (), "nor replies to a review it no longer has"
+    assert recorder.events.count("claude:rework") == 1
+    assert "claude:tests" not in recorder.events
+    assert "claude:impl" not in recorder.events
+    assert "review" not in recorder.events
+    assert recorder.events.count("close") == 1
+    (unit_id, pr, reason) = recorder.closed[0]
+    assert unit_id == unit().id
+    assert pr == 4
+    assert "Task group(s) 1" in reason and "implemented elsewhere" in reason.lower()
+
+
+def test_a_satisfied_unit_resuming_before_its_rework_is_also_reached(tmp_path: Path) -> None:
+    """The same empty-branch-after-restack outcome, reached from a unit that
+    stopped between a review and its rework rather than one freshly picked up
+    with feedback waiting."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()), resume_from=REWORK)
+    store.set_feedback(unit().id, "please double-check the edge case")
+    store.set_pending_replies(unit().id, ("done",))
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert outcome.status == "satisfied"
+    assert store.get(unit().id).feedback == ""
+    assert store.get(unit().id).pending_replies == ()
+    assert recorder.events.count("claude:rework") == 1
+    assert recorder.events.count("close") == 1
+    assert recorder.closed[0][1] == 4
+
+
+def test_a_satisfied_unit_with_no_pull_request_posts_and_closes_nothing(tmp_path: Path) -> None:
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    runner.run(unit(), base="main", graph=[])
+
+    assert "close" not in recorder.events
+
+
+def test_a_failure_to_close_a_satisfied_units_pull_request_is_recorded_and_leaves_it_satisfied(
+    tmp_path: Path,
+) -> None:
+    """The judgement rests on the branch and the checks; a stale pull request
+    that refuses to close is a nuisance, not a reason to revisit it."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True, close_error="404 gone")
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert outcome.status == "satisfied"
+    assert store.get(unit().id).state == "satisfied"
+    assert any("404 gone" in message for message in recorder.logged)
+    note = store.get(unit().id).history[-1]["note"]
+    assert "404 gone" in note
+
+
+def test_no_model_call_decides_or_writes_the_satisfied_close(tmp_path: Path) -> None:
+    """The judgement that gets a unit here (no commits of its own, tier 1
+    green) is already mechanical, and so is the text posted on its pull
+    request — nothing after the checks may ask an agent anything."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    store.set_feedback(unit().id, "please double-check the edge case")
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert "review" not in recorder.events, "no review round runs for an empty branch"
+    after_checks = recorder.events[recorder.events.index("tier1:whole_repo") + 1 :]
+    assert not any(event.startswith("claude") or event == "review" for event in after_checks), (
+        "nothing asks an agent anything once the checks have judged the branch"
+    )
 
 
 def test_a_resumed_unit_is_not_reviewed_again_at_the_commit_it_approved(tmp_path: Path) -> None:
@@ -404,9 +652,11 @@ def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> Non
     recorder = Recorder()
     original_tier1 = recorder.tier1
 
-    def tier1_that_commits(*, cwd: Path, base: str = "main") -> tuple[bool, str]:
+    def tier1_that_commits(
+        *, cwd: Path, base: str = "main", whole_repo: bool = False
+    ) -> tuple[bool, str]:
         recorder.made += 1
-        return original_tier1(cwd=cwd, base=base)
+        return original_tier1(cwd=cwd, base=base, whole_repo=whole_repo)
 
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={"run_tier1": tier1_that_commits}
@@ -588,6 +838,28 @@ def test_a_rejected_build_is_sent_back_and_reviewed_again(tmp_path: Path) -> Non
     assert recorder.events.count("review") == 2
     assert "claude:rework" in recorder.events
     assert "leaks" in " ".join(recorder.prompts)
+
+
+def test_the_rework_prompt_carries_the_same_boundary_as_the_build(tmp_path: Path) -> None:
+    """The rework is a build run too: if the reviewer's rejection points at
+    something the plan gave to a later unit, the boundary has to travel with
+    it, or a capable agent just implements what was only supposed to be
+    reported."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(groups=(1,))])
+    recorder = Recorder()
+    recorder.verdicts = [rejecting("consider handling group 2's case too"), approving()]
+    graph = [
+        stored_unit("add-marker/1", groups=(1,)),
+        stored_unit("add-marker/2", groups=(2, 3), depends_on=("add-marker/1",)),
+    ]
+
+    make_runner(store, recorder, tmp_path).run(unit(groups=(1,)), base="main", graph=graph)
+
+    rework_prompts = [p for p in recorder.prompts if "review of this branch" in p.lower()]
+    assert rework_prompts, "the rework prompt ran"
+    assert "2, 3" in rework_prompts[0], "the later unit's groups are named"
+    assert "leave" in rework_prompts[0].lower(), "and left alone, not implemented"
 
 
 def test_the_loop_is_bounded(tmp_path: Path) -> None:
@@ -1149,6 +1421,7 @@ def test_a_unit_resumed_before_a_rework_review_gets_the_rework_reviewer(tmp_path
     used: list[str] = []
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
+            "branch_commits": lambda cwd, base: 2,
             "run_review": lambda *, cwd: used.append("standard") or recorder.review(cwd=cwd),
             "run_rework_review": lambda *, cwd: used.append("rework") or recorder.review(cwd=cwd),
         }
@@ -1602,18 +1875,22 @@ def test_the_pause_check_costs_no_more_than_the_one_read_it_takes(tmp_path: Path
     assert gate.calls == 3
 
 
-def test_an_empty_step_still_fails_when_usage_is_healthy(tmp_path: Path) -> None:
-    """Not every empty step is a quiet refusal. With usage to spare this is
-    just a run that produced nothing, and it stays a failure — judged
-    elsewhere, by the companion change about a unit with nothing left to do."""
+def test_an_empty_step_is_not_a_pause_when_usage_is_healthy(tmp_path: Path) -> None:
+    """Not every empty implementation step is a pause or a failure. The tests
+    step still committed, so the branch carries this unit's own work even
+    though the implementation added nothing on top of it — reviewed and
+    pushed like any other unit, not judged as if nothing were there at all."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder(commits_from_impl=0)
 
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
-    assert outcome.status == "failed"
-    assert store.get(unit().id).state == "failed"
+    assert outcome.status == "open"
+    assert "review" in recorder.events
+    stored = store.get(unit().id)
+    assert stored.resume_from != IMPLEMENT
+    assert stored.state != PLANNED
 
 
 def test_a_usage_paused_empty_step_is_drawn_as_paused_and_resumes_with_its_commits_intact(

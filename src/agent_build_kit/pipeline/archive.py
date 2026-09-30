@@ -26,26 +26,38 @@ from pathlib import Path
 
 from agent_build_kit import openspec
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
 
 # A subprocess.run-like callable, for tests to record the OpenSpec CLI call
 # instead of making it.
 Runner = Callable[..., subprocess.CompletedProcess]
 
-# States that mean a unit will never merge, and so must not hold its change
+# A state that means a unit will never merge, and so must not hold its change
 # back: "unplanned" is work the plan dropped, which would otherwise strand the
 # change permanently.
 FINISHED_WITHOUT_MERGING = ("unplanned",)
 
 
 def is_ready_to_archive(change: str, units: list[StoredUnit]) -> bool:
-    """Has every unit of this change landed?"""
+    """Has every unit of this change landed?
+
+    A satisfied unit never opens a PR of its own to merge, so it counts once
+    the work it was built on has (`satisfied_landed`) — not before: it may sit
+    on another change's branch that is still in review, and archiving then
+    would publish behaviour that is not in `main`.
+    """
     mine = [unit for unit in units if unit.change == change]
     if not mine:
         # Nothing merged is not the same as everything merged; an empty change
         # would otherwise archive itself the moment it appeared.
         return False
 
-    return all(unit.state == "merged" or unit.state in FINISHED_WITHOUT_MERGING for unit in mine)
+    return all(
+        unit.state == "merged"
+        or unit.state in FINISHED_WITHOUT_MERGING
+        or (unit.state == SATISFIED and satisfied_landed(unit, units))
+        for unit in mine
+    )
 
 
 def _merged_at(change: str, units: list[StoredUnit]) -> str:

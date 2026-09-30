@@ -34,11 +34,20 @@ from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active, models
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.pr_body import build_pr_body
+from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import last_json
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, Unit, branch_name, local_ref
+from agent_build_kit.pipeline.units import (
+    HELD,
+    IN_REVIEW,
+    PLANNED,
+    SATISFIED,
+    Unit,
+    branch_name,
+    later_groups,
+    local_ref,
+)
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 # Where a unit stopped between steps, so its resume starts there. See
@@ -67,7 +76,7 @@ tasks.md, proposal.md, design.md and specs/ before you start.
 
 Work ONLY the test tasks of task group(s) {groups}, which are tagged for this
 repo. Write the tests the group's acceptance criteria call for, and stop.
-
+{boundary}
 You may add stubs for code that does not exist yet — a signature whose body is
 only `raise NotImplementedError`, or a model field — so the tests fail when
 they run instead of failing to import. Stubs contain no logic.
@@ -95,7 +104,7 @@ group(s) {groups}:
 ---
 {feedback}
 ---
-
+{boundary}
 Address it. The reviewer reads the branch but does not edit it, so nothing here
 is fixed unless you fix it. Fix every instance it names, and look for others of
 the same kind — the same pattern in sibling tools, callers or code paths — so
@@ -157,7 +166,7 @@ Review asked for a change to the work already on this branch, specified at
 ---
 {feedback}
 ---
-
+{boundary}
 Address what was **meant**, not only what was written. Review comments are
 written quickly against a diff, and a reviewer can be wrong in a way the code
 cannot be: a suggestion may name the wrong mechanism, assume a default that
@@ -200,13 +209,34 @@ the unit has passed review, tier 1 and been pushed.
 IMPLEMENTATION_PROMPT = """\
 Work the remaining tasks of task group(s) {groups} in the change specified at
 {change_dir}, and stop before any later group.
-
+{boundary}
 Make the tests written in the previous commit pass, keeping the change to what
 those tests require. Do not weaken or delete a test to make it pass. Run
 linting, formatting, types and the tests before you finish.
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
+"""
+
+# Given to every build-side prompt above, only when this change has units
+# after this one: naming what belongs to them is what stops a capable agent
+# finishing that work too, once it notices the next group is one edit away —
+# or a review comment names it, which is just as much an invitation.
+BUILD_BOUNDARY_NOTE = """
+Task group(s) {later} belong to later units of this change, each its own pull request.
+Leave them alone even where their code looks one edit away, or where review
+feedback names one of them: pulling that work forward makes this pull request
+bigger than the plan intended, and leaves the change's record of what is done
+crediting the wrong unit. Where feedback names something that belongs to a
+later group, answer that in your account instead of implementing it — the
+unit that owns the group is where it gets addressed.
+"""
+
+# Given to the reviewer alongside the build boundary above: the same groups,
+# so a finding whose fix belongs there is reported rather than required.
+REVIEW_BOUNDARY_NOTE = """**Task group(s) {later} belong to later units of this change.** A finding
+whose fix is only there does not block this review — report it as belonging
+to a later unit, not required of this one.
 """
 
 
@@ -372,7 +402,7 @@ def check_test_decisions(
 
 
 class RunOutcome(Frozen):
-    status: str  # "open" | "paused" | "failed"
+    status: str  # "open" | "paused" | "held" | "satisfied" | "failed"
     detail: str
     pr: int | None = None
 
@@ -409,6 +439,10 @@ class UnitRunner(BaseModel):
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]
+    # Posts the reason on a satisfied unit's already-open pull request, then
+    # closes it. A no-op default: most units never reach `satisfied` holding
+    # one. See `wiring.build_close_pr`.
+    close_pr: Callable[[Unit, int, str], None] = lambda unit, pr, reason: None
     # Posts a rework's replies to the review threads it answered, after the
     # push. See `pr_replies`.
     reply: Callable[..., None] = lambda **kwargs: None
@@ -432,6 +466,9 @@ class UnitRunner(BaseModel):
 
         branch = branch_name(unit)
         groups = ", ".join(str(group) for group in unit.groups)
+        later = ", ".join(str(group) for group in later_groups(unit, graph))
+        build_boundary = BUILD_BOUNDARY_NOTE.format(later=later) if later else ""
+        review_boundary = REVIEW_BOUNDARY_NOTE.format(later=later) if later else ""
         # From the store, not the passed-in unit: `run` takes a `Unit`, and
         # the store is what the poller wrote the review's words to.
         feedback = self.store.get(unit.id).feedback
@@ -494,6 +531,14 @@ class UnitRunner(BaseModel):
                 existing = self.branch_commits(tree, ref)
 
         resume = self.store.get(unit.id).resume_from
+        # Whether this unit's own work is on the branch at all, judged once
+        # below after whichever path ran — a fresh build, a rework, or a
+        # resume — rather than from what that path reports about itself. A
+        # run can finish cleanly having written nothing, and a restack can
+        # drop a rework's only commit when the predecessor already carries
+        # the same change. Either way there is nothing here to review or
+        # push, only tier 1 to judge it by.
+        produced_nothing = False
 
         def pause(next_step: str, why: str) -> RunOutcome:
             self.log(f"paused before {next_step}: {why}")
@@ -560,7 +605,7 @@ class UnitRunner(BaseModel):
             self.log(f"step: address the review it stopped before ({models().rework})")
             response = self.run_rework(
                 REVIEW_FEEDBACK_PROMPT.format(
-                    change_dir=change_dir, groups=groups, feedback=feedback
+                    change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
                 ),
                 cwd=tree,
             )
@@ -582,6 +627,7 @@ class UnitRunner(BaseModel):
                     change_dir=change_dir,
                     feedback=feedback,
                     pr=self.store.get(unit.id).pr or "(not yet opened)",
+                    boundary=build_boundary,
                 ),
                 cwd=tree,
             )
@@ -608,7 +654,12 @@ class UnitRunner(BaseModel):
             if resume != IMPLEMENT:
                 self.store.record_step(unit.id, TESTS)
                 self.log(f"step: write the tests ({models().implement})")
-                self.run_claude(TESTS_PROMPT.format(groups=groups, change_dir=change_dir), cwd=tree)
+                self.run_claude(
+                    TESTS_PROMPT.format(
+                        groups=groups, change_dir=change_dir, boundary=build_boundary
+                    ),
+                    cwd=tree,
+                )
                 self.commit(f"test: {unit.title}", cwd=tree)
                 if outcome := checkpoint(IMPLEMENT):
                     return outcome
@@ -616,30 +667,53 @@ class UnitRunner(BaseModel):
             self.log(f"step: implement ({models().implement})")
             before = self.branch_commits(tree, ref)
             self.run_claude(
-                IMPLEMENTATION_PROMPT.format(groups=groups, change_dir=change_dir), cwd=tree
+                IMPLEMENTATION_PROMPT.format(
+                    groups=groups, change_dir=change_dir, boundary=build_boundary
+                ),
+                cwd=tree,
             )
             self.commit(f"feat: {unit.title}", cwd=tree)
             # Counted on the branch, not taken from the commit step: an agent
             # that commits its own work leaves the pipeline nothing to commit,
-            # which read as the run having produced nothing.
-            needs_review = self.branch_commits(tree, ref) > before
-            if not needs_review:
+            # which read as the run having produced nothing. And a diff from
+            # the tests step alone is still this unit's own work — reviewed,
+            # not treated as empty just because the implementation added
+            # nothing on top of it.
+            after = self.branch_commits(tree, ref)
+            if after == before:
                 # An agent told it is out of usage can finish a step cleanly
                 # having written nothing. Told apart here by the same reading
                 # `checkpoint` already takes at each boundary, that is a pause
                 # rather than a failure — the same shape a stop between steps
-                # already uses. Anything else empty for another reason is
-                # still a failure.
+                # already uses.
                 allowed, why = self.may_start()
                 if not allowed:
                     return pause(IMPLEMENT, why)
-                return self._fail(unit, "the implementation run produced no commits")
+                # Empty for any other reason is not judged here: the unified
+                # check below judges the branch itself, and tier 1 after it
+                # judges a branch with nothing on it at all.
+            needs_review = True
 
-        if not needs_review and self.head(tree) != self.store.get(unit.id).approved:
+        # Judged once, on the branch itself, after whichever path above ran:
+        # a restack can drop a rework's only commit when the predecessor now
+        # carries the same change, and a fresh run can finish cleanly having
+        # written nothing — neither is visible from what that path reports
+        # about itself.
+        if self.branch_commits(tree, ref) == 0:
+            produced_nothing = True
+            needs_review = False
+
+        if (
+            not needs_review
+            and not produced_nothing
+            and self.head(tree) != self.store.get(unit.id).approved
+        ):
             # Whatever the path here, nothing reaches the PR that the review
             # loop has not approved at this exact commit — a restack that
             # rewrote the branch, or work from a run that stopped before its
-            # verdict, is reviewed like anything else.
+            # verdict, is reviewed like anything else. Not for a branch with
+            # nothing on it at all: there is nothing there for a review to
+            # read either.
             self.log("the branch is not the commit review approved; reviewing it")
             needs_review = True
 
@@ -661,6 +735,8 @@ class UnitRunner(BaseModel):
                 or resume in (REWORK, REWORK_REVIEW)
                 or bool(self.store.get(unit.id).predecessor_note),
                 checkpoint,
+                build_boundary,
+                review_boundary,
             )
             if isinstance(approved, RunOutcome):
                 return approved
@@ -673,7 +749,10 @@ class UnitRunner(BaseModel):
             return outcome
 
         self.log("step: tier 1")
-        tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref)
+        # Whole-repo when the unit produced nothing: a diff-scoped tier 1
+        # would lint an empty range and test nothing, which is not proof that
+        # anything actually passes. See `wiring.build_tier1`.
+        tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=produced_nothing)
         self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
         if not tier1_ok:
             # Kept, not thrown away. Both pilot units failed here and a retry
@@ -683,6 +762,59 @@ class UnitRunner(BaseModel):
             # comments take.
             self.store.set_feedback(unit.id, f"tier 1 failed:\n{tier1_output}".strip())
             return self._fail(unit, "tier 1 failed")
+
+        if produced_nothing:
+            # Nothing of this unit's own on the branch, and what is already at
+            # the tip passes — the work its groups called for arrived another
+            # way. Judged here, on the branch and the checks, never on the
+            # build step's own report: that is the same sentence a run that
+            # wrote nothing and should have failed would also produce.
+            self.log("nothing to add and tier 1 passes — satisfied")
+            self.store.set_state(
+                unit.id, SATISFIED, note="already implemented; tier 1 passed", resume_from=""
+            )
+            # Cleared the same as the in_review path below clears them: a
+            # satisfied unit is done, and nothing here should look like a
+            # build still in progress if it is ever inspected or resumed.
+            if self.store.get(unit.id).predecessor_note:
+                self.store.set_predecessor_note(unit.id, "")
+            if self.store.get(unit.id).review_rounds:
+                self.store.set_review_rounds(unit.id, ())
+            # The review feedback and its replies belong to a build this unit
+            # is no longer doing; the PR is closed below with the reason.
+            if self.store.get(unit.id).feedback:
+                self.store.set_feedback(unit.id, "")
+            if self.store.get(unit.id).pending_replies:
+                self.store.set_pending_replies(unit.id, ())
+            stored = self.store.get(unit.id)
+            if stored.pr:
+                # A rework that finds the work has landed elsewhere in the
+                # meantime leaves an open pull request with no diff and no
+                # future. Posting and closing are one call, so the reason is
+                # never missing before the close. Neither this text nor the
+                # decision to close asks a model anything: both are mechanical,
+                # the same as everything else on this path.
+                try:
+                    self.close_pr(
+                        unit, stored.pr, satisfied_reason(stored, graph=graph or [stored])
+                    )
+                except Exception as error:  # noqa: BLE001
+                    # The unit stays satisfied regardless: a stale pull
+                    # request is a nuisance, not a reason to revisit a
+                    # judgement the branch and the checks already settled.
+                    # But the failure is recorded on the unit itself, not only
+                    # in a tick log someone would have to find — otherwise it
+                    # looks identical to a unit whose close worked, and the PR
+                    # sits open with no one told.
+                    self.log(f"{unit.id}: pull request #{stored.pr} not closed — {error}")
+                    self.store.set_state(
+                        unit.id,
+                        SATISFIED,
+                        note=f"already implemented; tier 1 passed; PR #{stored.pr} not closed "
+                        f"— {error}",
+                    )
+            mark_groups(self._tasks(unit), unit.groups, done=True)
+            return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
 
         snapshot = None
         if unit.tier == "tier2":
@@ -759,6 +891,8 @@ class UnitRunner(BaseModel):
         groups: str,
         reworking: bool,
         checkpoint: Callable[[str], RunOutcome | None],
+        build_boundary: str = "",
+        review_boundary: str = "",
     ) -> tuple[bool | RunOutcome, str]:
         """Alternate review and rework until the reviewer approves, or give up.
 
@@ -784,7 +918,11 @@ class UnitRunner(BaseModel):
             # A branch moved onto a changed predecessor tells its reviewer so,
             # with the instruction to check its tests still fit.
             stored = self.store.get(unit.id)
-            notes = [stored.predecessor_note, _earlier_rounds(stored.review_rounds)]
+            notes = [
+                review_boundary,
+                stored.predecessor_note,
+                _earlier_rounds(stored.review_rounds),
+            ]
             text = "\n\n".join(n for n in notes if n)
             context = {"context": text} if text else {}
             verdict = (self.run_review if first else self.run_rework_review)(cwd=tree, **context)
@@ -818,7 +956,9 @@ class UnitRunner(BaseModel):
                 return outcome, why
             self.log(f"step: address review round {round_number + 1} ({models().rework})")
             response = self.run_rework(
-                REVIEW_FEEDBACK_PROMPT.format(change_dir=change_dir, groups=groups, feedback=why),
+                REVIEW_FEEDBACK_PROMPT.format(
+                    change_dir=change_dir, groups=groups, feedback=why, boundary=build_boundary
+                ),
                 cwd=tree,
             )
             self._record_response(unit, response)

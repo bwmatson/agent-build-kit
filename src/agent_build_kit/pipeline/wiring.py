@@ -29,7 +29,7 @@ from agent_build_kit.config import RepoConfig, active, active_root, models
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.pr_replies import build_post_replies
+from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies
 from agent_build_kit.pipeline.restack import (
     Moved,
     RestackConflict,
@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     resolved_move,
 )
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
@@ -49,7 +49,14 @@ from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import REVIEWED, Unit, base_of, branch_name, local_ref
+from agent_build_kit.pipeline.units import (
+    REVIEWED,
+    Unit,
+    base_of,
+    branch_name,
+    local_ref,
+    through_satisfied,
+)
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -355,10 +362,11 @@ def _branch_commits(repo: Path, base: str) -> int:
     """How many commits the branch carries beyond its base.
 
     The question a resumed unit asks: not "did this run write anything" but
-    "is the work there".
+    "is the work there". A git failure raises rather than counting as none:
+    "no commits of its own" can end a unit as satisfied, so an unresolvable
+    base must not read as that.
     """
-    result = git(repo, "rev-list", "--count", f"{base}..HEAD", check=False)
-    return int(result.stdout.strip() or 0)
+    return int(git_out(repo, "rev-list", "--count", f"{base}..HEAD"))
 
 
 def _changed_files(repo: Path, base: str) -> list[str]:
@@ -382,20 +390,35 @@ def build_tier1(
     problems in files it never touched: the pilot's first unit died on a
     pre-existing type error elsewhere while its own three files were clean.
     The profile's lint command takes the base ref for that reason.
+
+    **`whole_repo` switches to judging the tip instead of the diff.** A unit
+    that produced no commits of its own has no diff to scope to: the diff-
+    scoped lint command runs over an empty range and the diff-scoped test
+    commands touch nothing, so both pass without checking anything at all.
+    Judging such a unit "satisfied" on that basis would let any run that wrote
+    nothing through. `whole_repo` runs the profile's whole-repo lint and every
+    testable member's tests (plus the root `tests/`) instead, so the checks
+    that make a unit satisfied are the repo's real tier 1, not an empty scope.
     """
     run = run or _run
     changed = changed or _changed_files
     profile = profile or profiles.get("python-uv")
 
-    def tier1(*, cwd: Path, base: str) -> tuple[bool, str]:
+    def tier1(*, cwd: Path, base: str, whole_repo: bool = False) -> tuple[bool, str]:
         """(passed, what failed) — the output is what makes a retry useful."""
-        files = changed(cwd, base)
+        if whole_repo:
+            lint_command = profile.lint_command_all_files()
+            test_commands = profile.test_commands_all(cwd, root_extras=root_extras or [])
+        else:
+            files = changed(cwd, base)
+            lint_command = profile.lint_command(base)
+            test_commands = profile.test_commands(cwd, files, root_extras=root_extras or [])
 
-        result = run(profile.lint_command(base), cwd=cwd)
+        result = run(lint_command, cwd=cwd)
         if result.returncode:
             return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
 
-        for command in profile.test_commands(cwd, files, root_extras=root_extras or []):
+        for command in test_commands:
             result = run(command, cwd=cwd)
             if result.returncode:
                 return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
@@ -473,6 +496,34 @@ def build_open_pr(
         return number
 
     return open_pr
+
+
+def build_close_pr(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[Unit, int, str], None]:
+    """Post the reason a satisfied unit's stale pull request is closing, then
+    close it — in that order, so the explanation is never missing.
+
+    Marked, like every other pipeline post, so `events.review_lines` and
+    `_latest_comment` leave it out: an unmarked reason that outlives a failed
+    close would come back on the next poll as a reviewer's "new comment" and
+    send the unit to rework over its own explanation.
+
+    A post that fails is not followed by a close: `post_comment` returns `[]`
+    when the host call failed (both `GitHubForge` and the Azure forge do
+    this), and closing anyway would leave the PR shut with no reason on it —
+    the one outcome the ordering here exists to prevent.
+    """
+    for_repo = for_repo or forges.for_repo
+
+    def close_pr(unit: Unit, pr: int, reason: str) -> None:
+        forge, repo = for_repo(unit.repo)
+        posted = forge.post_comment(repo, pr, body=f"{reason}\n{MARKER}")
+        if not posted:
+            raise RuntimeError(f"reason not posted on #{pr}; left open")
+        forge.close_pr(repo, pr)
+
+    return close_pr
 
 
 def build_worktree(
@@ -702,8 +753,9 @@ def _own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) 
     since a merged parent's branch may already be deleted.
     """
     start = git(tree, "merge-base", base, "HEAD", check=False).stdout.strip()
-    index = {u.id: u for u in store.all()}
-    for dep in unit.depends_on:
+    known = list(store.all())
+    index = {u.id: u for u in known}
+    for dep in through_satisfied(unit, known):
         parent = index.get(dep)
         if parent is None or parent.repo != unit.repo:
             continue
@@ -798,7 +850,11 @@ def _predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
     if by_branch is not None:
         return by_branch
     index = {u.id: u for u in units}
-    parents = [index[d] for d in unit.depends_on if d in index and index[d].repo == unit.repo]
+    parents = [
+        index[d]
+        for d in through_satisfied(unit, units)
+        if d in index and index[d].repo == unit.repo
+    ]
     return parents[-1] if parents else None
 
 
@@ -844,9 +900,10 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., str]:
     """
 
     def upstream_incomplete(unit: Unit) -> str:
-        known = {u.id: u for u in store.all()}
-        for dep in unit.depends_on:
-            parent = known.get(dep)
+        known = list(store.all())
+        index = {u.id: u for u in known}
+        for dep in through_satisfied(unit, known):
+            parent = index.get(dep)
             if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
                 return f"{dep} is {parent.state} — it went back after this unit started"
         return ""
@@ -982,6 +1039,7 @@ def build_runner(
         push=push_in_turn,
         open_pr=build_open_pr(),
         post_status=tier2.post,
+        close_pr=build_close_pr(),
         reply=build_post_replies(root=root, log=log),
         head=_head_sha,
         log=log,
