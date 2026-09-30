@@ -495,6 +495,16 @@ class UnitRunner(BaseModel):
 
         resume = self.store.get(unit.id).resume_from
 
+        def pause(next_step: str, why: str) -> RunOutcome:
+            self.log(f"paused before {next_step}: {why}")
+            self.store.set_state(
+                unit.id,
+                PLANNED,
+                note=f"paused before {next_step}: {why}",
+                resume_from=next_step,
+            )
+            return RunOutcome(status="paused", detail=why)
+
         def checkpoint(next_step: str, *, usage: bool = True) -> RunOutcome | None:
             """Stop before `next_step` if the unit should not go on yet.
 
@@ -529,14 +539,7 @@ class UnitRunner(BaseModel):
             if usage:
                 allowed, why = self.may_start()
                 if not allowed:
-                    self.log(f"paused before {next_step}: {why}")
-                    self.store.set_state(
-                        unit.id,
-                        PLANNED,
-                        note=f"paused before {next_step}: {why}",
-                        resume_from=next_step,
-                    )
-                    return RunOutcome(status="paused", detail=why)
+                    return pause(next_step, why)
             # Going ahead: record the step, so a run killed inside it resumes
             # there rather than guessing from the branch.
             self.store.record_step(unit.id, next_step)
@@ -621,6 +624,15 @@ class UnitRunner(BaseModel):
             # which read as the run having produced nothing.
             needs_review = self.branch_commits(tree, ref) > before
             if not needs_review:
+                # An agent told it is out of usage can finish a step cleanly
+                # having written nothing. Told apart here by the same reading
+                # `checkpoint` already takes at each boundary, that is a pause
+                # rather than a failure — the same shape a stop between steps
+                # already uses. Anything else empty for another reason is
+                # still a failure.
+                allowed, why = self.may_start()
+                if not allowed:
+                    return pause(IMPLEMENT, why)
                 return self._fail(unit, "the implementation run produced no commits")
 
         if not needs_review and self.head(tree) != self.store.get(unit.id).approved:
