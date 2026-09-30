@@ -157,6 +157,11 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     has to look straight through it to what *it* depended on. Used by
     `base_of` and `depth_of` here, and by `events._children_of` and
     `_dependents_of` to find a dependent stacked past a satisfied unit.
+
+    A satisfied unit's cross-repo dependencies are passed up into the result
+    alongside the same-repo ones they replace — every caller today filters
+    the result by repo before using it, so this is harmless, but the result
+    is not same-repo-only on its own.
     """
     index = _by_id(graph)
 

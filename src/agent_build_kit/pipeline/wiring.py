@@ -49,7 +49,14 @@ from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import REVIEWED, Unit, base_of, branch_name, local_ref
+from agent_build_kit.pipeline.units import (
+    REVIEWED,
+    Unit,
+    base_of,
+    branch_name,
+    local_ref,
+    through_satisfied,
+)
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -717,8 +724,9 @@ def _own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) 
     since a merged parent's branch may already be deleted.
     """
     start = git(tree, "merge-base", base, "HEAD", check=False).stdout.strip()
-    index = {u.id: u for u in store.all()}
-    for dep in unit.depends_on:
+    known = list(store.all())
+    index = {u.id: u for u in known}
+    for dep in through_satisfied(unit, known):
         parent = index.get(dep)
         if parent is None or parent.repo != unit.repo:
             continue
@@ -813,7 +821,11 @@ def _predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
     if by_branch is not None:
         return by_branch
     index = {u.id: u for u in units}
-    parents = [index[d] for d in unit.depends_on if d in index and index[d].repo == unit.repo]
+    parents = [
+        index[d]
+        for d in through_satisfied(unit, units)
+        if d in index and index[d].repo == unit.repo
+    ]
     return parents[-1] if parents else None
 
 
@@ -859,9 +871,10 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., str]:
     """
 
     def upstream_incomplete(unit: Unit) -> str:
-        known = {u.id: u for u in store.all()}
-        for dep in unit.depends_on:
-            parent = known.get(dep)
+        known = list(store.all())
+        index = {u.id: u for u in known}
+        for dep in through_satisfied(unit, known):
+            parent = index.get(dep)
             if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
                 return f"{dep} is {parent.state} — it went back after this unit started"
         return ""

@@ -21,7 +21,7 @@ import pytest
 
 from agent_build_kit.config import models
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
     _tip,
@@ -32,6 +32,7 @@ from agent_build_kit.pipeline.wiring import (
     build_run_claude,
     build_run_review,
     build_tier1,
+    build_upstream_incomplete,
 )
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
@@ -545,6 +546,79 @@ def test_after_a_squash_merge_only_the_unit_s_own_commits_are_replayed(tmp_path:
     assert (repo / "acting.py").read_text() == "click\n"
 
 
+def test_own_work_starts_after_looks_through_a_satisfied_unit_with_no_refs(
+    tmp_path: Path,
+) -> None:
+    """c/3 forked straight off c/1's branch — c/2, satisfied on it, never had
+    a branch, push or approval of its own. Reading only the direct parent's
+    refs finds nothing there and falls back to the plain merge-base, which
+    misses the fork and would let c/1's later rework be replayed onto c/3 a
+    second time after a squash-merge."""
+    from agent_build_kit.pipeline.wiring import _own_work_starts_after
+    from tests.factories import git, init_repo, stored_unit
+
+    repo = init_repo(tmp_path / "r")
+
+    def commit(name: str) -> str:
+        (repo / name).write_text(name)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", name)
+        return git(repo, "rev-parse", "HEAD")
+
+    commit("base.txt")
+    plain_merge_base = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "spec/add-marker/1")
+    fork = commit("c1.txt")
+    git(repo, "checkout", "-q", "-b", "spec/add-marker/3")
+    commit("c3.txt")
+    git(repo, "checkout", "-q", "spec/add-marker/1")
+    commit("c1-round-2.txt")
+    git(repo, "checkout", "-q", "spec/add-marker/3")
+
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored_unit("add-marker/1"),
+            stored_unit("add-marker/2", depends_on=("add-marker/1",)),
+            stored_unit("add-marker/3", depends_on=("add-marker/2",)),
+        ]
+    )
+    store.set_state("add-marker/1", IN_REVIEW, branch="spec/add-marker/1")
+    store.record_push("add-marker/1", git(repo, "rev-parse", "spec/add-marker/1"))
+    store.set_state("add-marker/2", SATISFIED)
+
+    start = _own_work_starts_after(repo, "main", store.get("add-marker/3"), store)
+
+    assert start == fork
+    assert start != plain_merge_base
+
+
+def test_predecessor_looks_through_a_satisfied_unit_once_its_parent_merges(
+    tmp_path: Path,
+) -> None:
+    """add-marker/2 is satisfied on add-marker/1's branch. Once add-marker/1
+    merges and the base becomes `main`, the predecessor is add-marker/1 —
+    which has commits and a PR — not add-marker/2, which never had either."""
+    from agent_build_kit.pipeline.wiring import _predecessor
+    from tests.factories import stored_unit
+
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored_unit("add-marker/1"),
+            stored_unit("add-marker/2", depends_on=("add-marker/1",)),
+            stored_unit("add-marker/3", depends_on=("add-marker/2",)),
+        ]
+    )
+    store.set_state("add-marker/2", SATISFIED)
+    store.set_state("add-marker/1", MERGED)
+
+    predecessor = _predecessor(store.get("add-marker/3"), "main", store)
+
+    assert predecessor is not None
+    assert predecessor.id == "add-marker/1"
+
+
 def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path) -> None:
     from agent_build_kit.pipeline.wiring import _reset_to, _tests_added, _tests_in
     from tests.factories import git, init_repo
@@ -914,3 +988,23 @@ def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(
     git(repo, "branch", "-f", "spec/add-marker/1", "main")
     reason = base_moved(child, "spec/add-marker/1", tree=repo, start=start)
     assert "spec/add-marker/1 was rewritten" in reason
+
+
+def test_upstream_incomplete_looks_through_a_satisfied_unit(tmp_path: Path) -> None:
+    """add-marker/2 is satisfied on add-marker/1's branch, so add-marker/3
+    reads it as reviewed and carries on — even though add-marker/1, what
+    add-marker/2 was really built on, was requeued after going back."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            unit("add-marker/1"),
+            unit("add-marker/2", depends_on=("add-marker/1",)),
+            unit("add-marker/3", depends_on=("add-marker/2",)),
+        ]
+    )
+    store.set_state("add-marker/2", SATISFIED)
+    store.set_state("add-marker/1", RUNNING)
+
+    reason = build_upstream_incomplete(store)(store.get("add-marker/3"))
+
+    assert "add-marker/1" in reason

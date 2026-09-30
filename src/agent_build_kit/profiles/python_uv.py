@@ -136,6 +136,29 @@ class PythonUvProfile:
         withs = [arg for extra in ["pytest", *root_extras] for arg in ("--with", extra)]
         return ["uv", "run", "--no-project", "--isolated", *withs, "pytest", "tests", "-q"]
 
+    def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
+        # A repo that is not a workspace: no members to run one at a time.
+        # No tests/ at all is intentional too — the satisfied verdict then
+        # rests on lint alone, since there is nothing here to run.
+        return [["uv", "run", "pytest", "-q"]] if (repo / "tests").is_dir() else []
+
+    def _member_commands(self, repo: Path, members: list[str]) -> list[list[str]]:
+        # `--package` names the package; the trailing path names the directory.
+        # They differ more often than not.
+        return [
+            [
+                "uv",
+                "run",
+                "--package",
+                package_name(repo / member),
+                "--isolated",
+                "pytest",
+                member,
+                "-q",
+            ]
+            for member in members
+        ]
+
     def test_commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
@@ -148,7 +171,7 @@ class PythonUvProfile:
         """
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-q"]] if (repo / "tests").is_dir() else []
+            return self._whole_repo_tests(repo)
 
         testable = [member for member in members if (repo / member / "tests").is_dir()]
         touched = {
@@ -166,21 +189,7 @@ class PythonUvProfile:
         root = []
         if (repo / "tests").is_dir() and (outside or any(p.startswith("tests/") for p in changed)):
             root = [self._root_tests(root_extras)]
-        # `--package` names the package; the trailing path names the directory.
-        # They differ more often than not.
-        return [
-            [
-                "uv",
-                "run",
-                "--package",
-                package_name(repo / member),
-                "--isolated",
-                "pytest",
-                member,
-                "-q",
-            ]
-            for member in chosen
-        ] + root
+        return self._member_commands(repo, chosen) + root
 
     def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
         """Every testable member plus the root tests/, unconditionally.
@@ -192,23 +201,11 @@ class PythonUvProfile:
         """
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-q"]] if (repo / "tests").is_dir() else []
+            return self._whole_repo_tests(repo)
 
         testable = [member for member in members if (repo / member / "tests").is_dir()]
         root = [self._root_tests(root_extras)] if (repo / "tests").is_dir() else []
-        return [
-            [
-                "uv",
-                "run",
-                "--package",
-                package_name(repo / member),
-                "--isolated",
-                "pytest",
-                member,
-                "-q",
-            ]
-            for member in testable
-        ] + root
+        return self._member_commands(repo, testable) + root
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The live-stack tests, every member with tests, one at a time: a

@@ -19,14 +19,16 @@ Three things it must always say:
 from __future__ import annotations
 
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import MERGED, through_satisfied
 
 
 def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
     """One line describing what this PR sits on, and whether it may merge."""
     index = {item.id: item for item in graph}
     unmerged = [
-        index[dep] for dep in unit.depends_on if dep in index and index[dep].state != MERGED
+        index[dep]
+        for dep in through_satisfied(unit, graph)
+        if dep in index and index[dep].state != MERGED
     ]
 
     if not unmerged:
@@ -47,7 +49,9 @@ def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
 def _assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
     index = {item.id: item for item in graph}
     unmerged = [
-        index[dep] for dep in unit.depends_on if dep in index and index[dep].state != MERGED
+        index[dep]
+        for dep in through_satisfied(unit, graph)
+        if dep in index and index[dep].state != MERGED
     ]
 
     if not unmerged:

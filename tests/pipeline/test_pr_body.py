@@ -6,7 +6,7 @@ blocked merge. So the body has to carry what a human needs in order to decide
 — and to notice when they shouldn't merge yet (docs/architecture.md).
 """
 
-from agent_build_kit.pipeline.pr_body import build_pr_body, stack_line
+from agent_build_kit.pipeline.pr_body import _assumptions, build_pr_body, stack_line
 from tests.factories import stored_unit as unit
 
 
@@ -112,3 +112,33 @@ def test_the_body_records_which_task_groups_it_covers() -> None:
     body = build_pr_body(unit(groups=(2, 3)), graph=[unit()], base="main")
 
     assert "2, 3" in body
+
+
+def test_stack_line_looks_through_a_satisfied_parent() -> None:
+    """A satisfied unit never opens a PR: naming it as the thing to merge
+    first would tell a reviewer to wait on a PR that will never exist."""
+    unit1 = unit("scope/1", depends_on=(), state="in_review", pr=4)
+    unit2 = unit("scope/2", depends_on=("scope/1",), state="satisfied")
+    unit3 = unit("scope/3", depends_on=("scope/2",))
+    graph = [unit1, unit2, unit3]
+
+    line = stack_line(unit3, graph, base="spec/scope/1")
+
+    assert "scope/1" in line
+    assert "scope/2" not in line
+
+
+def test_stack_line_and_assumptions_clear_once_the_satisfied_chain_merges() -> None:
+    """Once unit1 merges, unit2 (satisfied on it) has nothing left unmerged
+    behind it either — the stack line should not keep pointing at unit2
+    forever."""
+    unit1 = unit("scope/1", depends_on=(), state="merged", pr=4)
+    unit2 = unit("scope/2", depends_on=("scope/1",), state="satisfied")
+    unit3 = unit("scope/3", depends_on=("scope/2",))
+    graph = [unit1, unit2, unit3]
+
+    line = stack_line(unit3, graph, base="main")
+    assumptions = _assumptions(unit3, graph)
+
+    assert "ready to merge" in line.lower()
+    assert "nothing unmerged" in assumptions.lower()
