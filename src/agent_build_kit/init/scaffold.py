@@ -39,7 +39,25 @@ from agent_build_kit.config import (
 from agent_build_kit.init.detect import RepoDetection
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
-RULES_HEADER = "# abk-rules: v1"
+
+# The version of the rules block this framework writes. An installation is
+# expected to reword these rules for its own repos and conventions, so the
+# stamp — not the text — is what says whether its rules predate the
+# framework's. Bump it whenever the template gains or changes a rule, and say
+# what changed in RULES_CHANGES so `abk doctor` can report it.
+RULES_VERSION = 2
+
+# version -> what that version added or changed, in an installation's terms.
+RULES_CHANGES: dict[int, list[str]] = {
+    1: ["the initial rules"],
+    2: ["a file that moves or is renamed moves with `git mv`, alone in its commit"],
+}
+
+# The stamp a rendered rules block carries, derived from the version rather
+# than written beside it: the two drifted apart the first time the version was
+# bumped, so every fresh `abk init` wrote a file the doctor then reported as
+# out of date.
+RULES_HEADER = f"# abk-rules: v{RULES_VERSION}"
 # What a slug looks like until the person fills it in.
 PLACEHOLDER_OWNER = "todo-owner"
 
@@ -150,21 +168,11 @@ def _repo_words(repos: Sequence[str]) -> dict[str, str]:
 
 
 def render_rules(repos: Sequence[str]) -> str:
-    """The `rules:` block of openspec/config.yaml for these repos."""
-    return template("openspec_rules.yaml").format(**_repo_words(repos))
+    """The `rules:` block of openspec/config.yaml for these repos, stamped with
+    the version it was written against."""
+    body = template("openspec_rules.yaml").format(**_repo_words(repos))
+    return f"{RULES_HEADER}\n{body}"
 
-
-# The version of the rules block this framework writes. An installation is
-# expected to reword these rules for its own repos and conventions, so the
-# stamp — not the text — is what says whether its rules predate the
-# framework's. Bump it whenever the template gains or changes a rule, and say
-# what changed in RULES_CHANGES so `abk doctor` can report it.
-RULES_VERSION = 1
-
-# version -> what that version added or changed, in an installation's terms.
-RULES_CHANGES: dict[int, list[str]] = {
-    1: ["the initial rules"],
-}
 
 _RULES_STAMP = re.compile(r"^#\s*abk-rules:\s*v(?P<version>\d+)\s*$", re.M)
 
