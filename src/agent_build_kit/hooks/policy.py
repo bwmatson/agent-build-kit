@@ -97,7 +97,11 @@ def _checkout_of(path: Path) -> Path | None:
 
 
 def _check_file_write(
-    payload: dict, specs: Path | None, planning_state_dir: Path | None = None
+    payload: dict,
+    specs: Path | None,
+    planning_state_dir: Path | None = None,
+    planning_repo: Path | None = None,
+    planning_change_dir: Path | None = None,
 ) -> dict | None:
     target = (payload.get("tool_input") or {}).get("file_path") or (
         payload.get("tool_input") or {}
@@ -118,6 +122,26 @@ def _check_file_write(
         return _deny(
             f"{target} is in the planning repo's specs, which are read-only for build "
             "agents; the pipeline marks tasks done once a unit has passed review"
+        )
+
+    # The planning repo is fenced by path, not by checkout. A run that works
+    # *in* it (the propose phase, which writes a change) has it as its own
+    # checkout, and everything in one's own checkout is ordinarily one's to
+    # write — including the tick's live state. So when this path belongs to the
+    # planning repo's own git, only the run's log and tracker, and the one
+    # change it was granted, are open; the rest is the pipeline's.
+    #
+    # "Belongs to its own git" and not merely "is beneath it": a code checkout
+    # nested inside the planning repo is a checkout of its own.
+    if planning_repo is not None and _checkout_of(path) == planning_repo.resolve():
+        if _may_write_planning(path, planning_state_dir, planning_change_dir):
+            return None
+        return _deny(
+            f"{target} is in the planning repo, where this run may write only its run log "
+            "and tracker under the state directory"
+            + (" and the change it was asked to propose" if planning_change_dir else "")
+            + ". The rest — the tick's live state, abk.yaml, the specs — is the pipeline's; "
+            "if it needs changing, report it as `BLOCKED: <what and where>` so a human can make it"
         )
 
     # A unit's changes belong in its own worktree, where review and the PR
@@ -151,17 +175,36 @@ def _check_file_write(
     )
 
 
+def _may_write_planning(
+    path: Path, planning_state_dir: Path | None, planning_change_dir: Path | None
+) -> bool:
+    """Whether a planning-repo path is one this run was granted.
+
+    Its Markdown run log and tracker, which the runner commits — the rest of the
+    state directory is the tick's live JSON, which a tick may be rewriting right
+    now — and, for a propose run, anything under the one change it was asked to
+    write.
+    """
+    if planning_state_dir is not None:
+        if path.suffix == ".md" and path.is_relative_to(planning_state_dir.resolve()):
+            return True
+    return planning_change_dir is not None and path.is_relative_to(planning_change_dir.resolve())
+
+
 def decide(
     payload: dict,
     *,
     specs: Path | None = None,
     planning_repo: Path | None = None,
     planning_state_dir: Path | None = None,
+    planning_change_dir: Path | None = None,
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
         if payload.get("tool_name") in FILE_TOOLS:
-            return _check_file_write(payload, specs, planning_state_dir)
+            return _check_file_write(
+                payload, specs, planning_state_dir, planning_repo, planning_change_dir
+            )
         if payload.get("tool_name") != "Bash":
             return None
 
@@ -197,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--branch-prefix", default=None)
     parser.add_argument("--planning-repo", type=Path, default=None)
     parser.add_argument("--planning-state-dir", type=Path, default=None)
+    parser.add_argument("--planning-change-dir", type=Path, default=None)
     try:
         args = parser.parse_args(argv)
         if args.branch_prefix:
@@ -221,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         specs=args.specs,
         planning_repo=args.planning_repo,
         planning_state_dir=args.planning_state_dir,
+        planning_change_dir=args.planning_change_dir,
     )
     if answer is not None:
         print(json.dumps(answer))
@@ -233,6 +278,7 @@ def hook_settings(
     branch_prefix: str = "spec/",
     planning_repo: Path | None = None,
     planning_state_dir: Path | None = None,
+    planning_change_dir: Path | None = None,
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
@@ -245,6 +291,7 @@ def hook_settings(
     run whose job is to write there (a proposal into the planning repo).
     `planning_repo` is set for a track run: its branches are the pipeline's.
     `planning_state_dir` is where in it that run may write its run log.
+    `planning_change_dir` is the one change a propose run may write there.
     """
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
@@ -253,6 +300,8 @@ def hook_settings(
         command += f" --planning-repo {planning_repo}"
     if planning_state_dir is not None:
         command += f" --planning-state-dir {planning_state_dir}"
+    if planning_change_dir is not None:
+        command += f" --planning-change-dir {planning_change_dir}"
     return {
         "hooks": {
             "PreToolUse": [

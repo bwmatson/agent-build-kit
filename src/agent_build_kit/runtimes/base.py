@@ -77,6 +77,10 @@ class AgentRequest(Frozen):
     # Where in that repo the run may write (its run log and tracker); the hook
     # refuses file writes outside the run's checkout otherwise.
     planning_state_dir: Path | None = None
+    # The one change a propose run may write in that repo. A run with cwd in the
+    # planning repo owns all of it as its checkout, so this and the state
+    # directory are what the hook opens, and the rest stays fenced off.
+    planning_change_dir: Path | None = None
     # The caller keeps the run's whole machine-readable record (`AgentResult.raw`),
     # not only its answer — a track phase writes it to its raw output file.
     # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.
