@@ -21,10 +21,13 @@ detected:
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,6 +35,14 @@ from pathlib import Path
 from agent_build_kit.settings import settings
 
 Run = Callable[..., subprocess.CompletedProcess]
+OpenUrl = Callable[..., object]
+
+# Azure DevOps' own application id, for `az account get-access-token`.
+_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
+
+# Long enough for a slow answer, short enough that a wedged call does not hold
+# a tick open.
+_TIMEOUT = 30
 
 
 class AzError(RuntimeError):
@@ -112,3 +123,66 @@ def body_file(payload: object) -> Iterator[str]:
     finally:
         handle.close()
         Path(handle.name).unlink(missing_ok=True)
+
+
+def rest(
+    method: str,
+    url: str,
+    *,
+    payload: object = None,
+    run: Run | None = None,
+    open_url: OpenUrl | None = None,
+) -> object:
+    """A REST call `az devops invoke` cannot make.
+
+    It exists for one reason: `invoke` resolves `git/pullRequests` to the
+    organisation-level location, which answers GET and refuses PATCH — so
+    retargeting a pull request, which has no CLI command either, is
+    unreachable through the CLI at all.
+
+    Authenticated the same two ways as everything else here, and kept in this
+    module for the same reason: there must be no second place that knows how
+    to authenticate, or a new call site will invent one.
+    """
+    body = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(url, data=body, method=method)
+    request.add_header("Content-Type", "application/json")
+    request.add_header("Authorization", _authorization(run))
+    opener = open_url or urllib.request.urlopen
+    try:
+        with opener(request, timeout=_TIMEOUT) as answer:  # type: ignore[union-attr]
+            text = answer.read().decode("utf-8", "replace").strip()
+    except urllib.error.HTTPError as error:
+        raise AzError(f"{method} {url}: {error.code} {error.reason}") from None
+    except OSError as error:
+        raise AzError(f"{method} {url}: {error}") from None
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise AzError(
+            f"{method} {url}: answered with something that is not JSON "
+            f"(a sign-in page means the call was not authenticated): {text[:120]}"
+        ) from None
+
+
+def _authorization(run: Run | None = None) -> str:
+    """A PAT as the password of an empty user, or the `az` session's token."""
+    if settings.ado_pat:
+        return "Basic " + base64.b64encode(f":{settings.ado_pat}".encode()).decode()
+    execute = run or subprocess.run
+    result = execute(
+        ["az", "account", "get-access-token", "--resource", _RESOURCE,
+         "--query", "accessToken", "-o", "tsv"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=env(),
+    )  # fmt: skip
+    token = (result.stdout or "").strip()
+    if result.returncode or not token:
+        raise AzError("no Azure DevOps credential: set AZURE_DEVOPS_EXT_PAT, or run `az login`")
+    return f"Bearer {token}"

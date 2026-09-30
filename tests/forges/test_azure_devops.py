@@ -277,24 +277,41 @@ def test_a_branch_with_no_pull_request_yet() -> None:
     assert FORGE.find_pr(REPO, head="spec/x/1", run=answering([])) is None
 
 
-def test_retargeting_goes_through_the_rest_api(tmp_path: Path) -> None:
-    """`az repos pr update` has no `--target-branch`, so the base can only be
-    changed by a PATCH — and a PR left pointing at a branch that merged away
-    shows a diff containing everything."""
-    calls: list[list[str]] = []
-    sent: list[object] = []
+def test_retargeting_goes_through_the_rest_api() -> None:
+    """Twice unreachable through the CLI: `az repos pr update` has no
+    `--target-branch`, and `az devops invoke` resolves `git/pullRequests` to
+    the organisation-level location, which answers GET and refuses PATCH. A PR
+    left pointing at a branch that merged away shows a diff of everything."""
+    seen: list = []
 
-    def run(args, **kwargs):
-        calls.append(args)
-        sent.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
-        return subprocess.CompletedProcess(args, 0, "{}", "")
+    def open_url(request, timeout=None):
+        seen.append(request)
+        return _Answer("{}")
 
-    FORGE.update_pr(REPO, 41, base="main", run=run)
+    FORGE.update_pr(REPO, 41, base="main", open_url=open_url)
 
-    [args] = calls
-    assert args[:3] == ["az", "devops", "invoke"]
-    assert args[args.index("--http-method") + 1] == "PATCH"
-    assert sent == [{"targetRefName": "refs/heads/main"}], "the API wants the full ref"
+    [request] = seen
+    assert request.get_method() == "PATCH"
+    assert json.loads(request.data.decode()) == {"targetRefName": "refs/heads/main"}
+    assert "/AI%20Accelerators" not in request.full_url, "this repo names no installation"
+    assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
+    assert "/Some%20Project/_apis/git/repositories/Some%20Repo" in request.full_url
+
+
+class _Answer:
+    """The little of a urlopen answer that `az.rest` reads."""
+
+    def __init__(self, body: str) -> None:
+        self.body = body
+
+    def read(self) -> bytes:
+        return self.body.encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
 
 
 def test_updating_only_the_body_uses_the_plain_command() -> None:

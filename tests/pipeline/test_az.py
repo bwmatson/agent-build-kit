@@ -11,7 +11,10 @@ clean log.
 
 from __future__ import annotations
 
+import base64
+import json
 import subprocess
+import urllib.error
 
 import pytest
 
@@ -123,3 +126,95 @@ def test_an_undecodable_byte_costs_a_character_not_the_poll() -> None:
 
     assert calls[0]["errors"] == "replace"
     assert calls[0]["encoding"] == "utf-8"
+
+
+# --- the calls `az devops invoke` cannot make ------------------------------------
+
+
+class FakeResponse:
+    def __init__(self, body: str) -> None:
+        self.body = body
+
+    def read(self) -> bytes:
+        return self.body.encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+
+def opener(body: str = "{}", *, seen: list | None = None):
+    def open_url(request, timeout=None):
+        if seen is not None:
+            seen.append(request)
+        return FakeResponse(body)
+
+    return open_url
+
+
+def test_a_pat_authenticates_as_basic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Azure DevOps takes a PAT as the password of an empty user."""
+    monkeypatch.setattr(settings, "ado_pat", "a-secret")
+    seen: list = []
+
+    az.rest(
+        "PATCH", "https://dev.azure.com/acme/_apis/x", payload={"a": 1}, open_url=opener(seen=seen)
+    )
+
+    header = seen[0].get_header("Authorization")
+    assert header.startswith("Basic ")
+    assert base64.b64decode(header.removeprefix("Basic ")).decode() == ":a-secret"
+
+
+def test_without_a_pat_a_token_is_fetched_through_az(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other supported way to be authenticated: the `az` sign-in session."""
+    monkeypatch.setattr(settings, "ado_pat", "")
+    run, calls = recorded("a-token\n")
+    seen: list = []
+
+    az.rest(
+        "PATCH",
+        "https://dev.azure.com/acme/_apis/x",
+        payload={},
+        run=run,
+        open_url=opener(seen=seen),
+    )
+
+    assert calls[0]["args"][:3] == ["az", "account", "get-access-token"]
+    assert seen[0].get_header("Authorization") == "Bearer a-token"
+
+
+def test_the_method_and_body_are_what_was_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "ado_pat", "a-secret")
+    seen: list = []
+
+    az.rest(
+        "PATCH",
+        "https://dev.azure.com/acme/_apis/x",
+        payload={"targetRefName": "refs/heads/main"},
+        open_url=opener(seen=seen),
+    )
+
+    assert seen[0].get_method() == "PATCH"
+    assert json.loads(seen[0].data.decode()) == {"targetRefName": "refs/heads/main"}
+
+
+def test_a_sign_in_page_is_still_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same rule as the CLI path: HTML with a 2xx must not read as an
+    empty answer."""
+    monkeypatch.setattr(settings, "ado_pat", "a-secret")
+
+    with pytest.raises(az.AzError, match="not JSON"):
+        az.rest("PATCH", "https://dev.azure.com/acme/_apis/x", open_url=opener("<!DOCTYPE html>"))
+
+
+def test_a_refused_call_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "ado_pat", "a-secret")
+
+    def refuses(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+    with pytest.raises(az.AzError, match="403"):
+        az.rest("PATCH", "https://dev.azure.com/acme/_apis/x", open_url=refuses)

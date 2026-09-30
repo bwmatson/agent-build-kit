@@ -160,6 +160,14 @@ class AzureDevOpsForge:
             return f"cannot tell what guards {branch}: {error}"
         return "" if found else f"no branch policy guards {branch}"
 
+    def _api(self, repo: RepoId) -> str:
+        """The repository's REST root, with the spaces a project name may
+        carry encoded."""
+        return (
+            f"{az.org_url(repo.account)}/{quote(repo.project)}"
+            f"/_apis/git/repositories/{quote(repo.name)}"
+        )
+
     def _rest(
         self,
         repo: RepoId,
@@ -312,7 +320,14 @@ class AzureDevOpsForge:
         return int(made["pullRequestId"])
 
     def update_pr(
-        self, repo: RepoId, pr: int, *, base: str = "", body: str = "", run: Run | None = None
+        self,
+        repo: RepoId,
+        pr: int,
+        *,
+        base: str = "",
+        body: str = "",
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
     ) -> None:
         """Change a PR's base or body.
 
@@ -321,13 +336,16 @@ class AzureDevOpsForge:
         shows a diff containing everything.
         """
         if base:
-            self._rest(
-                repo,
-                "pullrequests",
-                method="PATCH",
+            # Not through `az devops invoke`: it resolves `git/pullRequests` to
+            # the organisation-level location, which answers GET and refuses
+            # PATCH. There is no CLI command for this either - `az repos pr
+            # update` has no `--target-branch` - so the API is the only way.
+            az.rest(
+                "PATCH",
+                f"{self._api(repo)}/pullRequests/{pr}?api-version={_API}",
                 payload={"targetRefName": f"refs/heads/{base}"},
-                pullRequestId=pr,
                 run=run,
+                open_url=open_url,
             )
         if body:
             az.json_out(
