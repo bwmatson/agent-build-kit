@@ -173,8 +173,22 @@ binds each step to git, gh and `claude`:
 5. **Review rounds.** A read-only reviewer (`Read Grep Glob`, `git diff/log/
    show`) judges the branch against the repo's `CLAUDE.md` and the change,
    told which round this is, how many remain and what running out costs, and
-   answers JSON: `approved`, `feedback`, `needs_human`, `follow_ups`,
-   `escalate`, `reasoning`. It is told the same boundary as the build: a
+   answers JSON: `approved`, `feedback`, `findings`, `earlier`, `needs_human`,
+   `follow_ups`, `escalate`, `reasoning`. Its prompt names its angles — the
+   enclosing function of each hunk, what each removed line enforced, callers
+   and callees — and an evidence bar: each candidate is re-checked before it is
+   reported. Each finding carries a file, an optional line, a summary, a
+   consequence, what done looks like and whether it is required; the builder's
+   feedback is rendered from the list, required first, with optional findings
+   past five left out (logged) and a required one without a consequence marked
+   as having none. A required finding blocks approval whatever `approved`
+   says. Each round records its findings with ids (`round.n`) and the commit it
+   judged; the next round is shown every earlier required finding whole with
+   the builder's answer, and answers each by id in `earlier` (`fixed`, `open`,
+   `declined`) — it cannot approve while one is open or unanswered. A note too
+   long for its budget leaves out whole findings, reported-fixed first, and
+   says how many. A reply in the earlier prose shape (no `findings`, no
+   `earlier`) still works unchanged. It is told the same boundary as the build: a
    finding whose fix belongs to a later group is reported as belonging there,
    not required of this unit, while it keeps its full reach — find everything
    in one pass, sweep the domain — over this unit's own groups. An unreadable

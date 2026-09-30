@@ -213,8 +213,50 @@ class EarlierAnswer(Frozen):
     status: str  # "fixed" | "open" | "declined"
 
 
+# Optional findings past this many are left out of the feedback: a long tail of
+# asides buries the required ones and buys a round of polish.
+MAX_OPTIONAL = 5
+
+NO_CONSEQUENCE = "(no consequence stated)"
+
+
+def _render_one(finding: Finding, status: str = "") -> str:
+    where = f"{finding.file}:{finding.line}" if finding.line is not None else finding.file
+    tag = f"[{finding.id}] " if finding.id else ""
+    suffix = f" (reported {status})" if status else ""
+    lines = [f"- {tag}{where}{suffix} — {finding.summary}"]
+    consequence = finding.consequence or (NO_CONSEQUENCE if finding.required else "")
+    if consequence:
+        lines.append(f"  Consequence: {consequence}")
+    if finding.done:
+        lines.append(f"  Done when: {finding.done}")
+    return "\n".join(lines)
+
+
 def render_findings(findings: Sequence[Finding]) -> str:
-    raise NotImplementedError
+    """The builder's feedback text for a findings list: required first."""
+    sections = []
+    for heading, required in (("Required", True), ("Optional", False)):
+        items = [_render_one(f) for f in findings if f.required is required]
+        if items:
+            sections.append(f"{heading}:\n" + "\n".join(items))
+    return "\n\n".join(sections)
+
+
+def cap_optional(findings: Sequence[Finding]) -> tuple[list[Finding], int]:
+    """The findings to show, and how many optional ones were left out.
+
+    Required findings are never cut.
+    """
+    kept, cut, optional = [], 0, 0
+    for finding in findings:
+        if not finding.required:
+            optional += 1
+            if optional > MAX_OPTIONAL:
+                cut += 1
+                continue
+        kept.append(finding)
+    return kept, cut
 
 
 class Verdict(Frozen):
@@ -231,7 +273,9 @@ class Verdict(Frozen):
     escalate: str = ""  # "" | "class" | "disagreement"
     reasoning: str = ""
     findings: tuple[Finding, ...] = ()
-    earlier: tuple[EarlierAnswer, ...] = ()
+    # None when the reply has no `earlier` key: the earlier prose shape, which
+    # answers nothing by id, so nothing is required of it.
+    earlier: tuple[EarlierAnswer, ...] | None = None
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:
@@ -240,6 +284,34 @@ class Verdict(Frozen):
     @property
     def deferrable(self) -> tuple[FollowUp, ...]:
         return tuple(f for f in self.follow_ups if f.kind == DEFERRABLE_KIND)
+
+
+def _parse_findings(raw: object) -> tuple[Finding, ...]:
+    if not raw:
+        return ()
+    items = raw if isinstance(raw, list) else [raw]
+    out = []
+    for item in items:
+        try:
+            out.append(Finding.model_validate(item))
+        except ValueError:
+            # As with an unreadable follow-up: one the pipeline cannot read
+            # cannot be trusted to be optional, so it blocks.
+            out.append(Finding(file="(unreadable)", summary=json.dumps(item), required=True))
+    return tuple(out)
+
+
+def _parse_answers(raw: object) -> tuple[EarlierAnswer, ...] | None:
+    if raw is None:
+        return None
+    items = raw if isinstance(raw, list) else [raw]
+    out = []
+    for item in items:
+        try:
+            out.append(EarlierAnswer.model_validate(item))
+        except ValueError:
+            continue
+    return tuple(out)
 
 
 def parse_verdict(output: str) -> Verdict:
@@ -273,6 +345,8 @@ def parse_verdict(output: str) -> Verdict:
             follow_ups.append(FollowUp(kind="unreadable", point=text))
     escalate = str(payload.get("escalate") or "").strip()
     return Verdict(
+        findings=_parse_findings(payload.get("findings")),
+        earlier=_parse_answers(payload.get("earlier")),
         approved=bool(payload.get("approved")),
         feedback=str(payload.get("feedback") or "").strip(),
         needs_human=bool(payload.get("needs_human")),
@@ -465,9 +539,13 @@ earlier rounds asked for, and what the builder said it did about each:
 {rounds}
 
 Check first that each point was done, or that the builder's reason for not
-doing it holds. Do not re-open points that are settled. Raise new problems
-only in what the reworks changed, or ones genuinely missed before — and for
-those, say why they were not visible earlier.
+doing it holds. Answer every earlier required finding by id in `earlier`, as
+`fixed`, `open`, or `declined` when the builder's reason holds; you cannot
+approve while one is open or left unanswered.
+
+Do not re-open points that are settled. Raise new problems only in what the
+reworks changed, or ones genuinely missed before — and for those, say why they
+were not visible earlier.
 """
 
 # Given to the reviewer of a branch that was moved onto a changed predecessor.
@@ -519,15 +597,103 @@ def _round_budget_note(round_number: int, total: int) -> str:
 ROUND_CHARS = 4000
 
 
+RESOLVED = ("fixed", "declined")
+
+
+def _recorded(entry: dict) -> Finding:
+    return Finding.model_validate({k: v for k, v in entry.items() if k in Finding.model_fields})
+
+
+def _unresolved(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[str]:
+    """Ids of earlier required findings this verdict leaves open or unanswered."""
+    if earlier is None:
+        return []
+    answers = {a.id: a.status for a in earlier}
+    return [
+        str(f["id"])
+        for entry in rounds
+        for f in entry.get("findings") or []
+        if f.get("required")
+        and f.get("status") not in RESOLVED
+        and answers.get(str(f["id"])) not in RESOLVED
+    ]
+
+
+def _apply_answers(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[dict]:
+    answers = {a.id: a.status for a in earlier or ()}
+    return [
+        {
+            **entry,
+            "findings": [
+                {**f, "status": answers.get(str(f.get("id")), f.get("status", ""))}
+                for f in entry.get("findings") or []
+            ],
+        }
+        if entry.get("findings")
+        else entry
+        for entry in rounds
+    ]
+
+
+def _fit(carried: list[tuple[str, str]]) -> set[int]:
+    """Which of the (status, rendered) findings to leave out to fit ROUND_CHARS.
+
+    Whole findings only, reported-fixed first, then declined, then the rest,
+    each oldest first; a finding is never truncated.
+    """
+    order = {"fixed": 0, "declined": 1}
+    dropped: set[int] = set()
+    total = sum(len(text) for _, text in carried)
+    for index, (_, text) in sorted(
+        enumerate(carried), key=lambda item: (order.get(item[1][0], 2), item[0])
+    ):
+        if total <= ROUND_CHARS:
+            break
+        dropped.add(index)
+        total -= len(text)
+    return dropped
+
+
 def _earlier_rounds(rounds: Sequence[dict]) -> str:
     if not rounds:
         return ""
+    carried = [
+        (str(f.get("status") or ""), _render_one(_recorded(f), str(f.get("status") or "")))
+        for entry in rounds
+        for f in entry.get("findings") or []
+        if f.get("required")
+    ]
+    dropped = _fit(carried)
     parts = []
+    index = 0
     for number, entry in enumerate(rounds, start=1):
-        asked = str(entry.get("asked", "")).strip()[:ROUND_CHARS]
         response = str(entry.get("response", "")).strip()[:ROUND_CHARS] or "(no account given)"
-        parts.append(f"Round {number} asked:\n{asked}\n\nThe builder's response:\n{response}")
-    return EARLIER_ROUNDS_NOTE.format(round=len(rounds) + 1, rounds="\n\n---\n\n".join(parts))
+        if not (entry.get("findings") or entry.get("judged")):
+            asked = str(entry.get("asked", "")).strip()[:ROUND_CHARS]
+            parts.append(f"Round {number} asked:\n{asked}\n\nThe builder's response:\n{response}")
+            continue
+        judged = str(entry.get("judged") or "")
+        head = f"Round {number} judged commit {judged}"
+        if judged:
+            head += f"; what changed since is `git diff {judged}..HEAD`"
+        lines = [head + "."]
+        prose = str(entry.get("prose", "")).strip()[:ROUND_CHARS]
+        if prose:
+            lines.append(prose)
+        for f in entry.get("findings") or []:
+            if f.get("required"):
+                if index not in dropped:
+                    lines.append(carried[index][1])
+                index += 1
+        lines.append(f"The builder's response:\n{response}")
+        parts.append("\n".join(lines))
+    body = "\n\n---\n\n".join(parts)
+    if dropped:
+        body += (
+            f"\n\n{len(dropped)} earlier required finding(s) left out to keep this "
+            "short, those reported fixed first."
+        )
+    return EARLIER_ROUNDS_NOTE.format(round=len(rounds) + 1, rounds=body)
 
 
 def _no_reset() -> None:
@@ -1164,6 +1330,7 @@ class UnitRunner(BaseModel):
             # used to be committed after approval, as "leftovers", which put an
             # unreviewed commit on top of the reviewed ones.
             self.commit(f"chore: {unit.title} (uncommitted work)", cwd=tree)
+            judged = self.head(tree)
             model = models().review if first else models().rework_review
             self.log(f"step: review round {round_number + 1} ({model})")
             # A branch moved onto a changed predecessor tells its reviewer so,
@@ -1184,11 +1351,34 @@ class UnitRunner(BaseModel):
             # regardless, a missing test the task asked for, anything the
             # command policy forbids — overrides `approved`: deferral is for
             # work that can wait, not for work that is inconvenient.
-            why = verdict.feedback
+            prose = verdict.feedback
             if verdict.blocking:
                 points = "\n".join(f"- {f.point}" for f in verdict.blocking)
-                why = f"{why}\n\n{points}".strip() if why else points
-            approved = verdict.approved and not verdict.blocking
+                prose = f"{prose}\n\n{points}".strip() if prose else points
+            earlier_rounds = self.store.get(unit.id).review_rounds
+            open_ids = _unresolved(earlier_rounds, verdict.earlier)
+            if open_ids:
+                listed = ", ".join(open_ids)
+                prose = "\n\n".join(
+                    p for p in (prose, f"Earlier required findings still open: {listed}.") if p
+                )
+            shown, cut = cap_optional(verdict.findings)
+            if cut:
+                self.log(f"{cut} optional finding(s) left out, over the {MAX_OPTIONAL} shown")
+            bare = sum(1 for f in shown if f.required and not f.consequence)
+            if bare:
+                self.log(f"{bare} required finding(s) returned with no consequence stated")
+            kept = [
+                f.model_copy(update={"id": f"{round_number + 1}.{n}"})
+                for n, f in enumerate(shown, start=1)
+            ]
+            why = "\n\n".join(p for p in (prose, render_findings(kept)) if p)
+            approved = (
+                verdict.approved
+                and not verdict.blocking
+                and not open_ids
+                and not any(f.required for f in verdict.findings)
+            )
 
             if approved:
                 sha = self.head(tree)
@@ -1204,8 +1394,15 @@ class UnitRunner(BaseModel):
                 return True, ""
 
             self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
-            rounds = self.store.get(unit.id).review_rounds
-            self.store.set_review_rounds(unit.id, (*rounds, {"asked": why, "response": ""}))
+            rounds = tuple(_apply_answers(earlier_rounds, verdict.earlier))
+            recorded = {
+                "asked": why,
+                "prose": prose,
+                "response": "",
+                "judged": judged,
+                "findings": [{**f.model_dump(), "status": ""} for f in kept],
+            }
+            self.store.set_review_rounds(unit.id, (*rounds, recorded))
             if verdict.needs_human:
                 # What is left is something the builder's environment refuses
                 # (an edit to a file Claude Code protects). Asking again spends
