@@ -7,6 +7,7 @@ low, and must not build anything while paused.
 """
 
 import json
+import re
 import subprocess
 import threading
 from datetime import UTC, datetime, timedelta
@@ -1102,3 +1103,120 @@ def test_tags_over_an_empty_store_says_so_rather_than_printing_nothing(
 
     assert cli.cmd_tags(argv_namespace(change=None, all=True), empty) == 0
     assert "no changes in" in capsys.readouterr().out
+
+
+# --- a run log per unit ------------------------------------------------------------------
+
+
+class Speaking:
+    """A runner that says something through the `log` the tick gave it."""
+
+    def __init__(self, log, outcome: RunOutcome | Exception) -> None:
+        self.log = log
+        self.outcome = outcome
+
+    def run(self, unit, *, base, graph):
+        self.log(f"said by {unit.id}")
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return self.outcome
+
+
+def speaking(monkeypatch: pytest.MonkeyPatch, outcomes: dict[str, RunOutcome | Exception]) -> None:
+    monkeypatch.setattr(
+        cli, "build_runner", lambda unit, **kwargs: Speaking(kwargs["log"], outcomes[unit.id])
+    )
+
+
+def opened(number: int) -> RunOutcome:
+    return RunOutcome(status="open", detail=f"opened #{number}", pr=number)
+
+
+def run_logs() -> list[Path]:
+    from agent_build_kit.pipeline.run_log import run_log_dir
+
+    directory = run_log_dir(inst.state_dir)
+    return sorted(directory.iterdir()) if directory.exists() else []
+
+
+def test_a_units_run_is_written_to_a_file_named_for_it(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    (path,) = run_logs()
+    assert re.fullmatch(r"add-marker-01-\d{8}-\d{6}-[a-z_]+\.log", path.name)
+
+
+def test_the_file_holds_only_its_units_lines_between_a_header_and_the_outcome(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored(), stored("add-marker/2")])
+    speaking(monkeypatch, {"add-marker/1": opened(1), "add-marker/2": opened(2)})
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    first, second = run_logs()
+    before, after = first.read_text().split("said by add-marker/1")
+    assert "add-marker/1" in before
+    assert "opened #1" in after
+    assert "add-marker/2" not in first.read_text()
+    assert "said by add-marker/2" in second.read_text()
+
+
+def test_the_units_record_names_its_run_log(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    speaking(monkeypatch, {"add-marker/1": opened(1)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    (path,) = run_logs()
+    assert store.get("add-marker/1").run_log == path.name
+
+
+def test_a_failed_units_record_names_its_run_log(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored(), stored("add-marker/2")])
+    speaking(
+        monkeypatch,
+        {
+            "add-marker/1": RuntimeError("git exploded"),
+            "add-marker/2": RunOutcome(status="failed", detail="tier 1 failed"),
+        },
+    )
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    first, second = run_logs()
+    assert store.get("add-marker/1").state == "failed"
+    assert store.get("add-marker/1").run_log == first.name
+    assert "git exploded" in first.read_text()
+    assert store.get("add-marker/2").run_log == second.name
+    assert "tier 1 failed" in second.read_text()
+
+
+def test_the_pass_still_prints_every_line_as_before(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored(), stored("add-marker/2")])
+    speaking(monkeypatch, {"add-marker/1": opened(1), "add-marker/2": opened(2)})
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    printed = capsys.readouterr().out.splitlines()
+    for uid in ("add-marker/1", "add-marker/2"):
+        assert any(
+            re.fullmatch(rf"\[\d\d:\d\d:\d\d\] {uid}: said by {uid}", line) for line in printed
+        )
+    assert run_logs(), "and each unit's lines are also in its file"
+    assert not any(line.startswith("model") or line.startswith("base") for line in printed), (
+        "the file's header is not printed"
+    )

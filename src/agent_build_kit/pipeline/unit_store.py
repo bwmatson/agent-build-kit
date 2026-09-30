@@ -73,6 +73,9 @@ class StoredUnit(Unit):
     # later rounds to check against instead of starting over. Kept here so a
     # loop that pauses or is killed resumes with it. Cleared once in review.
     review_rounds: tuple[dict, ...] = ()
+    # The file name of this unit's most recent run log (see `run_log`); empty
+    # until it has run.
+    run_log: str = ""
     history: tuple[dict, ...] = ()
 
 
@@ -264,6 +267,9 @@ class UnitStore:
         """The step a running unit is starting, so a run killed inside it
         resumes there. Not a state change, so no history entry."""
         self._update(unit_id, resume_from=step)
+
+    def set_run_log(self, unit_id: str, name: str) -> None:
+        raise NotImplementedError
 
     def set_pending_replies(self, unit_id: str, replies: Sequence[str]) -> None:
         self._update(unit_id, pending_replies=tuple(replies))
