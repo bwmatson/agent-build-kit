@@ -1296,6 +1296,9 @@ class UnitRunner(BaseModel):
             problems = check_test_decisions(required, decisions, present, changed)
         if problems:
             why = "the adapt step did not account for its tests: " + "; ".join(problems)
+            outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
+            if outstanding:
+                why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
             waiting = self.store.get(unit.id).feedback
             self.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
             return self._fail(unit, why)
