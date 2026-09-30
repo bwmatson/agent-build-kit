@@ -53,6 +53,7 @@ def deep_store(tmp_path: Path) -> UnitStore:
 def merge(store: UnitStore, pr: int, *, cap: int, recorder: Recorder, deleted: list[str]) -> None:
     events.on_merged(
         pr,
+        repo="app",
         store=store,
         restack=recorder,
         delete_branch=lambda repo, branch: deleted.append(branch),
@@ -190,6 +191,7 @@ def test_a_child_being_built_is_retargeted_not_held_for_depth(tmp_path: Path) ->
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         delete_branch=lambda repo, branch: deleted.append(branch),
@@ -209,6 +211,7 @@ def test_a_child_held_for_depth_has_its_pr_retargeted(tmp_path: Path) -> None:
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         retarget=lambda u, base: retargeted.append((u.id, base)),
@@ -231,6 +234,7 @@ def test_a_failing_retarget_still_leaves_the_unit_held_with_its_branch_kept(
 
     events.on_merged(
         1,
+        repo="app",
         store=store,
         restack=Recorder(),
         delete_branch=lambda repo, branch: deleted.append(branch),
@@ -246,7 +250,7 @@ def test_a_failing_retarget_still_leaves_the_unit_held_with_its_branch_kept(
 
 def test_a_hold_from_a_reviewer_is_left_alone(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
-    events.on_hold(4, store=store)
+    events.on_hold(4, repo="app", store=store)
     store.set_state("c/2", MERGED)
     recorder = Recorder()
 
@@ -270,7 +274,7 @@ def test_a_hold_that_needs_a_human_is_left_alone(tmp_path: Path) -> None:
 def test_a_depth_hold_a_reviewer_then_also_holds_is_left_alone(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
-    events.on_hold(4, store=store)
+    events.on_hold(4, repo="app", store=store)
     store.set_state("c/2", MERGED)
     recorder = Recorder()
 
@@ -297,7 +301,7 @@ def test_a_restack_that_raises_leaves_the_unit_in_review_and_the_others_reconsid
         if kwargs["branch"] == "spec/c/4":
             raise RuntimeError("checks fail")
 
-    events.on_merged(9, store=store, restack=restack, rebase_cap=2, log=logged.append)
+    events.on_merged(9, repo="app", store=store, restack=restack, rebase_cap=2, log=logged.append)
 
     assert seen == ["spec/c/4", "spec/c/5"]
     assert store.get("c/4").state == IN_REVIEW
@@ -311,14 +315,16 @@ def test_a_busy_held_unit_stays_held_with_its_record_unchanged(tmp_path: Path) -
     before = len(store.get("c/4").history)
     recorder = Recorder()
 
-    events.on_merged(9, store=store, restack=recorder, claim=busy_on("c/4"), rebase_cap=2)
+    events.on_merged(
+        9, repo="app", store=store, restack=recorder, claim=busy_on("c/4"), rebase_cap=2
+    )
 
     assert recorder.restacked == []
     assert store.get("c/4").state == HELD
     assert len(store.get("c/4").history) == before
 
     # Found again by the next merge, once the build is done.
-    events.on_merged(9, store=store, restack=recorder, rebase_cap=2)
+    events.on_merged(9, repo="app", store=store, restack=recorder, rebase_cap=2)
     assert recorder.branches == ["spec/c/4"]
 
 
