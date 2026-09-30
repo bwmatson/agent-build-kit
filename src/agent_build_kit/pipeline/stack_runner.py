@@ -531,9 +531,13 @@ class UnitRunner(BaseModel):
                 existing = self.branch_commits(tree, ref)
 
         resume = self.store.get(unit.id).resume_from
-        # Set only on the fresh-build path below, when neither step added a
-        # commit: the branch is exactly as it was, so there is nothing to
-        # review or push, only tier 1 to judge it by.
+        # Whether this unit's own work is on the branch at all, judged once
+        # below after whichever path ran — a fresh build, a rework, or a
+        # resume — rather than from what that path reports about itself. A
+        # run can finish cleanly having written nothing, and a restack can
+        # drop a rework's only commit when the predecessor already carries
+        # the same change. Either way there is nothing here to review or
+        # push, only tier 1 to judge it by.
         produced_nothing = False
 
         def pause(next_step: str, why: str) -> RunOutcome:
@@ -685,11 +689,19 @@ class UnitRunner(BaseModel):
                 allowed, why = self.may_start()
                 if not allowed:
                     return pause(IMPLEMENT, why)
-                # Empty for any other reason is not judged by counting commits
-                # here: what is on the branch is reviewed, and tier 1 below
+                # Empty for any other reason is not judged here: the unified
+                # check below judges the branch itself, and tier 1 after it
                 # judges a branch with nothing on it at all.
-            needs_review = after > 0
-            produced_nothing = not needs_review
+            needs_review = True
+
+        # Judged once, on the branch itself, after whichever path above ran:
+        # a restack can drop a rework's only commit when the predecessor now
+        # carries the same change, and a fresh run can finish cleanly having
+        # written nothing — neither is visible from what that path reports
+        # about itself.
+        if self.branch_commits(tree, ref) == 0:
+            produced_nothing = True
+            needs_review = False
 
         if (
             not needs_review
@@ -784,7 +796,17 @@ class UnitRunner(BaseModel):
                     # The unit stays satisfied regardless: a stale pull
                     # request is a nuisance, not a reason to revisit a
                     # judgement the branch and the checks already settled.
+                    # But the failure is recorded on the unit itself, not only
+                    # in a tick log someone would have to find — otherwise it
+                    # looks identical to a unit whose close worked, and the PR
+                    # sits open with no one told.
                     self.log(f"{unit.id}: pull request #{stored.pr} not closed — {error}")
+                    self.store.set_state(
+                        unit.id,
+                        SATISFIED,
+                        note=f"already implemented; tier 1 passed; PR #{stored.pr} not closed "
+                        f"— {error}",
+                    )
             mark_groups(self._tasks(unit), unit.groups, done=True)
             return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
 

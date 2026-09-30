@@ -29,7 +29,7 @@ from agent_build_kit.config import RepoConfig, active, active_root, models
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.pr_replies import build_post_replies
+from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies
 from agent_build_kit.pipeline.restack import (
     Moved,
     RestackConflict,
@@ -501,12 +501,25 @@ def build_close_pr(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[Unit, int, str], None]:
     """Post the reason a satisfied unit's stale pull request is closing, then
-    close it — in that order, so the explanation is never missing."""
+    close it — in that order, so the explanation is never missing.
+
+    Marked, like every other pipeline post, so `events.review_lines` and
+    `_latest_comment` leave it out: an unmarked reason that outlives a failed
+    close would come back on the next poll as a reviewer's "new comment" and
+    send the unit to rework over its own explanation.
+
+    A post that fails is not followed by a close: `post_comment` returns `[]`
+    when the host call failed (both `GitHubForge` and the Azure forge do
+    this), and closing anyway would leave the PR shut with no reason on it —
+    the one outcome the ordering here exists to prevent.
+    """
     for_repo = for_repo or forges.for_repo
 
     def close_pr(unit: Unit, pr: int, reason: str) -> None:
         forge, repo = for_repo(unit.repo)
-        forge.post_comment(repo, pr, body=reason)
+        posted = forge.post_comment(repo, pr, body=f"{reason}\n{MARKER}")
+        if not posted:
+            raise RuntimeError(f"reason not posted on #{pr}; left open")
         forge.close_pr(repo, pr)
 
     return close_pr

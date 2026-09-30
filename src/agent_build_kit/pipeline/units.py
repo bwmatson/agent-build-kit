@@ -302,12 +302,18 @@ def later_groups(unit: Unit, graph: Sequence[Unit]) -> tuple[int, ...]:
     Group numbers only increase through `tasks.md`, so anything above this
     unit's own highest group is later work — whichever unit the plan gave it
     to, and whether or not that unit has run yet.
+
+    Not a unit the plan has since dropped: "unplanned" (`unit_store.UNPLANNED`,
+    named here as a literal to avoid importing the store into this module —
+    `archive.py` does the same) is not going to build its groups, so naming
+    them as belonging to a later unit would leave them looking spoken for when
+    nothing is going to touch them.
     """
     ceiling = max(unit.groups, default=0)
     others = {
         group
         for other in graph
-        if other.id != unit.id and other.change == unit.change
+        if other.id != unit.id and other.change == unit.change and other.state != "unplanned"
         for group in other.groups
         if group > ceiling
     }

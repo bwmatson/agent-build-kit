@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.diagram import render_mermaid
-from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
+from agent_build_kit.pipeline.stack_runner import IMPLEMENT, REWORK, Restacked, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name, waiting_on
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
@@ -500,14 +500,19 @@ def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path
 def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     tmp_path: Path,
 ) -> None:
-    """A rework that finds the work has landed elsewhere in the meantime
-    leaves an open pull request with no diff and no future. The explanation
-    must never be missing, so it is posted before the close is even
-    attempted — one call does both, in that order."""
+    """A rework that finds the work has landed elsewhere in the meantime — the
+    restack having dropped its commits as empty because the predecessor now
+    carries the same change — leaves an open pull request with no diff and no
+    future. The explanation must never be missing, so it is posted before the
+    close is even attempted — one call does both, in that order.
+
+    Reached from feedback waiting on an open PR, the real path: nothing here
+    goes through the tests or implementation prompts at all."""
     _tasks_file(tmp_path)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    store.set_feedback(unit().id, "please double-check the edge case")
     recorder = Recorder(commits_from_impl=0, tier1_ok=True)
     runner = make_runner(store, recorder, tmp_path)
     runner.branch_commits = lambda cwd, base: 0
@@ -515,11 +520,36 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
 
     assert outcome.status == "satisfied"
+    assert recorder.events.count("claude:rework") == 1
+    assert "claude:tests" not in recorder.events
+    assert "claude:impl" not in recorder.events
+    assert "review" not in recorder.events
     assert recorder.events.count("close") == 1
     (unit_id, pr, reason) = recorder.closed[0]
     assert unit_id == unit().id
     assert pr == 4
     assert "1" in reason and "implemented elsewhere" in reason.lower()
+
+
+def test_a_satisfied_unit_resuming_before_its_rework_is_also_reached(tmp_path: Path) -> None:
+    """The same empty-branch-after-restack outcome, reached from a unit that
+    stopped between a review and its rework rather than one freshly picked up
+    with feedback waiting."""
+    _tasks_file(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()), resume_from=REWORK)
+    store.set_feedback(unit().id, "please double-check the edge case")
+    recorder = Recorder(commits_from_impl=0, tier1_ok=True)
+    runner = make_runner(store, recorder, tmp_path)
+    runner.branch_commits = lambda cwd, base: 0
+
+    outcome = runner.run(unit(), base="main", graph=[store.get(unit().id)])
+
+    assert outcome.status == "satisfied"
+    assert recorder.events.count("claude:rework") == 1
+    assert recorder.events.count("close") == 1
+    assert recorder.closed[0][1] == 4
 
 
 def test_a_satisfied_unit_with_no_pull_request_posts_and_closes_nothing(tmp_path: Path) -> None:
@@ -553,16 +583,19 @@ def test_a_failure_to_close_a_satisfied_units_pull_request_is_recorded_and_leave
     assert outcome.status == "satisfied"
     assert store.get(unit().id).state == "satisfied"
     assert any("404 gone" in message for message in recorder.logged)
+    note = store.get(unit().id).history[-1]["note"]
+    assert "404 gone" in note
 
 
 def test_no_model_call_decides_or_writes_the_satisfied_close(tmp_path: Path) -> None:
     """The judgement that gets a unit here (no commits of its own, tier 1
     green) is already mechanical, and so is the text posted on its pull
-    request — nothing on this path may ask an agent anything."""
+    request — nothing after the checks may ask an agent anything."""
     _tasks_file(tmp_path)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    store.set_feedback(unit().id, "please double-check the edge case")
     recorder = Recorder(commits_from_impl=0, tier1_ok=True)
     runner = make_runner(store, recorder, tmp_path)
     runner.branch_commits = lambda cwd, base: 0
@@ -570,8 +603,9 @@ def test_no_model_call_decides_or_writes_the_satisfied_close(tmp_path: Path) -> 
     runner.run(unit(), base="main", graph=[store.get(unit().id)])
 
     assert "review" not in recorder.events, "no review round runs for an empty branch"
-    assert recorder.events.count("claude:tests") + recorder.events.count("claude:impl") == 2, (
-        "only the two build-step prompts ran — nothing extra for the close"
+    after_checks = recorder.events[recorder.events.index("tier1:whole_repo") + 1 :]
+    assert not any(event.startswith("claude") or event == "review" for event in after_checks), (
+        "nothing asks an agent anything once the checks have judged the branch"
     )
 
 
@@ -1381,6 +1415,7 @@ def test_a_unit_resumed_before_a_rework_review_gets_the_rework_reviewer(tmp_path
     used: list[str] = []
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
+            "branch_commits": lambda cwd, base: 2,
             "run_review": lambda *, cwd: used.append("standard") or recorder.review(cwd=cwd),
             "run_rework_review": lambda *, cwd: used.append("rework") or recorder.review(cwd=cwd),
         }
@@ -1834,18 +1869,22 @@ def test_the_pause_check_costs_no_more_than_the_one_read_it_takes(tmp_path: Path
     assert gate.calls == 3
 
 
-def test_an_empty_step_still_fails_when_usage_is_healthy(tmp_path: Path) -> None:
-    """Not every empty step is a quiet refusal. With usage to spare this is
-    just a run that produced nothing, and it stays a failure — judged
-    elsewhere, by the companion change about a unit with nothing left to do."""
+def test_an_empty_step_is_not_a_pause_when_usage_is_healthy(tmp_path: Path) -> None:
+    """Not every empty implementation step is a pause or a failure. The tests
+    step still committed, so the branch carries this unit's own work even
+    though the implementation added nothing on top of it — reviewed and
+    pushed like any other unit, not judged as if nothing were there at all."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder(commits_from_impl=0)
 
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
-    assert outcome.status == "failed"
-    assert store.get(unit().id).state == "failed"
+    assert outcome.status == "open"
+    assert "review" in recorder.events
+    stored = store.get(unit().id)
+    assert stored.resume_from != IMPLEMENT
+    assert stored.state != PLANNED
 
 
 def test_a_usage_paused_empty_step_is_drawn_as_paused_and_resumes_with_its_commits_intact(

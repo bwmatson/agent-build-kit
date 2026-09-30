@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import models
+from agent_build_kit.pipeline.pr_replies import MARKER
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.wiring import (
@@ -191,13 +192,39 @@ def test_the_pr_targets_the_units_base_branch(tmp_path: Path) -> None:
 
 def test_closing_posts_the_reason_before_closing(tmp_path: Path) -> None:
     """The explanation must never be missing, so it is posted before the
-    close is even attempted."""
+    close is even attempted.
+
+    Checked against one ordered call log, not two separate lists: those would
+    still pass even if the close came first.
+    """
     forge = StandInForge(existing=7)
 
     build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
 
-    assert forge.comments == ["implemented elsewhere"]
-    assert forge.closed == [7]
+    assert forge.calls == [("comment", 7), ("close", 7)]
+    assert forge.comments == ["implemented elsewhere\n" + MARKER]
+
+
+def test_the_posted_reason_is_marked_as_the_pipelines_own(tmp_path: Path) -> None:
+    """Unmarked, the reason would read back as a reviewer's new comment on the
+    next poll and send a satisfied unit to rework over its own explanation —
+    see `events.review_lines` and `_latest_comment`."""
+    forge = StandInForge(existing=7)
+
+    build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
+
+    assert MARKER in forge.comments[0]
+
+
+def test_a_failed_reason_post_leaves_the_pull_request_open(tmp_path: Path) -> None:
+    """A post that fails must not be followed by a close: that would leave
+    the PR shut with no reason ever posted on it."""
+    forge = StandInForge(existing=7, comment_error=True)
+
+    with pytest.raises(RuntimeError, match="not posted"):
+        build_close_pr(for_repo=lookup(forge))(unit(), 7, "implemented elsewhere")
+
+    assert forge.closed == []
 
 
 def test_a_rejected_commit_is_not_reported_as_nothing_to_commit(tmp_path: Path) -> None:

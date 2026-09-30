@@ -160,6 +160,18 @@ def test_the_satisfied_reason_names_its_groups_and_says_elsewhere() -> None:
     assert "implemented elsewhere" in reason.lower()
 
 
+def test_the_satisfied_reason_says_its_tasks_are_ticked() -> None:
+    """The pull request is closing with nothing merged from it, so the
+    reason has to say the change's tasks are done some other way — otherwise
+    a reader sees a closed PR and ticked boxes with nothing tying them
+    together."""
+    satisfied = unit("scope/1", groups=(1,), state="satisfied")
+
+    reason = satisfied_reason(satisfied, graph=[satisfied])
+
+    assert "ticked" in reason.lower()
+
+
 def test_the_satisfied_reason_names_where_the_graph_can_say() -> None:
     """The predecessor this unit stacked on is where the work landed — found
     through the same same-repo dependency the base and the stack line use."""

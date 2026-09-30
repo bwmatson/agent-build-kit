@@ -19,7 +19,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
@@ -175,6 +175,35 @@ def test_a_held_unit_is_recorded_so_nothing_reworks_it(store: UnitStore) -> None
     events.on_hold(1, store=store)
 
     assert store.get("add-marker/1").state == events.HELD
+
+
+def test_a_satisfied_units_own_close_is_not_read_back_as_a_real_one(store: UnitStore) -> None:
+    """`wiring.build_close_pr` posts the reason and closes a satisfied unit's
+    stale pull request itself — the same OPEN→CLOSED transition a human's
+    close would make. Recording that here would turn SATISFIED into CLOSED,
+    which blocks archiving, leaves dependents waiting forever (CLOSED is not
+    in `REVIEWED`) and stops `through_satisfied` looking through it."""
+    store.set_state("add-marker/1", SATISFIED, pr=4)
+
+    events.on_closed(4, store=store)
+
+    assert store.get("add-marker/1").state == SATISFIED
+
+
+def test_a_satisfied_unit_is_not_reworked_by_a_late_comment(store: UnitStore) -> None:
+    store.set_state("add-marker/1", SATISFIED, pr=4)
+
+    events.on_rework(4, reason="new comment", store=store)
+
+    assert store.get("add-marker/1").state == SATISFIED
+
+
+def test_a_satisfied_unit_is_not_held_by_a_late_review(store: UnitStore) -> None:
+    store.set_state("add-marker/1", SATISFIED, pr=4)
+
+    events.on_hold(4, store=store)
+
+    assert store.get("add-marker/1").state == SATISFIED
 
 
 def test_a_restack_reruns_the_checks_before_it_pushes(tmp_path: Path) -> None:

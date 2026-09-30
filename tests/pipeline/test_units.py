@@ -375,6 +375,17 @@ def test_later_groups_is_empty_for_the_last_unit() -> None:
     assert later_groups(graph[1], graph) == ()
 
 
+def test_later_groups_ignores_a_unit_the_plan_dropped() -> None:
+    """A group the plan no longer assigns to anyone is not later work — naming
+    it as belonging to a later unit would leave it looking spoken for."""
+    graph = [
+        unit("add-marker/1", groups=(1,)),
+        unit("add-marker/2", groups=(2,), state="unplanned"),
+    ]
+
+    assert later_groups(graph[0], graph) == ()
+
+
 def test_the_trunk_is_built_on_from_the_remote_and_unit_branches_locally() -> None:
     """The checkout's `main` is the user's and nothing updates it: building
     on it puts a unit on a main from before its predecessor merged."""
