@@ -118,12 +118,35 @@ command's.
 ### `abk gate [--repo DIR] [--base BRANCH] [--cache FILE] [--profile NAME]`
 
 The tests-first gate for a branch in a checkout (default: the current
-directory, against `main`): commits read as tests-then-implementation, lint
+directory, against the remote's copy of the repo's `default_branch`, e.g.
+`origin/dev` — the local branch of that name is yours, and nothing updates it;
+`main` outside an installation): commits read as tests-then-implementation, lint
 and format pass at each tests commit with type checking skipped, and the new
 tests there fail for an accepted reason. `--cache` keeps results by patch-id
 across restacks. `--profile` defaults to the profile `abk.yaml` gives the repo
 containing `--repo`, else `python-uv`. Prints each problem prefixed `✗`; exit
 1 if any, else 0 with `✓ tests-first: ...`.
+
+### `abk requeue UNIT [--restart]`
+
+Gives a `failed` or `held` unit another go. Two different things, and the
+command says which:
+
+- **Default: resume where it stopped.** Right when the failure was the
+  environment's — a missing tool, a flaky check. A failed unit remembers the
+  step it stopped at (say, before `verify`), its agent's work is on the branch,
+  and redoing it would only spend the usage window to arrive at the same place.
+- **`--restart`: start over from the agent's step and forget the failure.**
+  Right when the failure was the attempt's own, such as a build on the wrong
+  base branch, where resuming would judge work that was never valid. It clears
+  the remembered step and the failure the unit was handed.
+
+Any other state is refused: a running unit would be built twice, an in-review
+one has a pull request that would be orphaned, and a planned or merged one has
+nothing to retry. `--restart` does not touch the unit's branch or worktree; if
+those came from a wrong base, remove them first (`git worktree remove`, then
+`git branch -D`, after checking nothing on it is unpushed). Exit 2 for an
+unknown unit, 1 when the unit is not stuck, else 0.
 
 ## Setting up
 

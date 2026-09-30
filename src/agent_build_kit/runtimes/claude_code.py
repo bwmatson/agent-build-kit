@@ -115,6 +115,21 @@ def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
     )
 
 
+def integration_branches() -> tuple[str, ...]:
+    """The branches this workspace's repos integrate on, beyond `main` and
+    `master`, which a direct push is always refused.
+
+    The hook is its own process and loads no workspace, so what it should
+    protect has to be handed to it. Only the extras are listed: a workspace on
+    `main` adds nothing, and its hook settings stay as they always were.
+    """
+    return tuple(
+        sorted(
+            {repo.default_branch for repo in config.active().repos.values()} - {"main", "master"}
+        )
+    )
+
+
 def build_argv(request: AgentRequest) -> list[str]:
     argv = [*command(), "-p", request.prompt]
     if request.worktree:
@@ -126,6 +141,7 @@ def build_argv(request: AgentRequest) -> list[str]:
         "planning_repo": request.planning_repo,
         "planning_state_dir": request.planning_state_dir,
         "planning_change_dir": request.planning_change_dir,
+        "protected_branches": integration_branches(),
     }
     if request.policy is not None:
         settings = hook_settings(

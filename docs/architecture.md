@@ -414,7 +414,10 @@ merge`, `az repos pr update`, `az repos pr set-vote`, `az repos policy` and the
 raw `az rest`/`az devops invoke` escapes, the union rather than this repo's
 host; `git commit --amend` (it would fold
 the implementation into the tests commit); `git reset --hard`, `git clean`,
-`git branch -D`, recursive `rm`; pushes to `main`/`master`; bare `--force`;
+`git branch -D`, recursive `rm`; a push that lands on `main`, `master` or any
+branch a repo's `default_branch` names — judged by where it lands, so `HEAD:dev`
+and a delete (`:dev`) count — since those are reached through pull requests;
+bare `--force`;
 any force-with-lease on a branch without the agent prefix; a bare
 `--force-with-lease` without an explicit `<branch>:<sha>` or
 `--force-if-includes` — a bare lease compares against a remote-tracking ref a

@@ -356,3 +356,31 @@ def test_a_policed_run_denies_every_forge_s_merge_commands() -> None:
     forge added to the registry has to reach both."""
     for prefix in forges.denied_prefixes():
         assert f"Bash({prefix}*)" in DENIED, f"{prefix} is denied by the hook but not by a flag"
+
+
+def test_a_policed_run_is_told_which_branches_repos_integrate_on() -> None:
+    """The hook is its own process and loads no workspace, so the branches a
+    direct push is refused to have to arrive as an argument. A repo on `dev`
+    is otherwise one `git push origin dev` from skipping review."""
+    current = config.active()
+    repos = {
+        name: entry.model_copy(update={"default_branch": "dev" if name == "app" else "main"})
+        for name, entry in current.repos.items()
+    }
+    config.activate(current.model_copy(update={"repos": repos}), config.active_root())
+
+    argv = claude_code.build_argv(AgentRequest(prompt="p", policy=ToolPolicy()))
+
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert "--protected-branches dev" in command
+    assert "main" not in command.split("--protected-branches")[1], (
+        "main is always protected, so it is not repeated"
+    )
+
+
+def test_a_workspace_on_main_adds_no_flag() -> None:
+    argv = claude_code.build_argv(AgentRequest(prompt="p", policy=ToolPolicy()))
+
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    assert "--protected-branches" not in settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
