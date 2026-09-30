@@ -357,11 +357,10 @@ Port this unit's work onto the new base. The predecessor as it is now is
 authoritative: adapt to its current shape rather than restoring what it
 replaced, and do not re-implement anything it already provides.
 
-These are the tests the previous work added or changed:
+These are the tests the previous work added or changed. Carry over every one
+of them:
 
 {tests}
-
-Decide each one before carrying it over:
 
 - **keep** — still meaningful against the new base; carried over unchanged.
 - **adapt** — still meaningful, but changed to fit the predecessor's new shape.
@@ -370,6 +369,9 @@ Decide each one before carrying it over:
   predecessor. Name the change. "It fails" or "it was hard to port" is not a
   reason: a test that still describes behaviour this unit's tasks require is
   kept or adapted, whatever it takes.
+
+Only a test you do not carry over unchanged needs an entry in the JSON below —
+one carried over unchanged is counted as kept automatically.
 
 Write any test the tasks require that the previous work did not have. Run
 linting, formatting, types and the tests before you finish.
@@ -382,6 +384,24 @@ Finish with JSON and nothing after it:
 {{"tests": [{{"name": "<test name>", "decision": "keep|adapt|retire",
              "reason": "..."}}],
  "summary": "what changed in porting, for the reviewer"}}
+"""
+
+# Given when the adapt step's accounting is incomplete: the checker's own
+# problems, and nothing else, so the agent finishes what it was one line from
+# rather than redoing the port.
+ADAPT_FOLLOWUP_PROMPT = """Your accounting of this unit's tests is not complete:
+
+{problems}
+
+Decide each one — keep, adapt or retire, with a reason naming what in the
+predecessor made a retirement necessary. The code is already ported; only the
+accounting is outstanding. Do not change any files.
+
+Finish with JSON and nothing after it, covering every decision made so far,
+not only what was missing:
+
+{{"tests": [{{"name": "<test name>", "decision": "keep|adapt|retire",
+             "reason": "..."}}]}}
 """
 
 # Given to a review that follows a rework in the same loop.
@@ -472,6 +492,18 @@ def parse_test_decisions(answer: str) -> list[PortedTest]:
     return out
 
 
+def tests_needing_decision(
+    old_tests: Sequence[str], present: set[str], changed: set[str]
+) -> list[str]:
+    """Which of the unit's previous tests the adapt step must account for.
+
+    A test present and not in `changed` survived the replay untouched, so it
+    counts as kept without being asked about. Missing from `present`, or
+    present but in `changed`, is exactly where a silent drop could hide.
+    """
+    return [name for name in old_tests if name not in present or name in changed]
+
+
 def check_test_decisions(
     old_tests: Sequence[str], decisions: Sequence[PortedTest], present: set[str]
 ) -> list[str]:
@@ -555,6 +587,10 @@ class UnitRunner(BaseModel):
     # under a ref, and list the tests the worktree has.
     reset_to: Callable[[Path, str, str], None] = lambda tree, onto, keep: _no_reset()
     tests_in: Callable[[Path], set[str]] = lambda tree: set()
+    # Tests present in the tree whose content differs from the given ref —
+    # the adapt step's old-work ref — so a test that survived the replay by
+    # name only is not mistaken for one the replay left alone.
+    tests_changed: Callable[[Path, str], set[str]] = lambda tree, ref: set()
     # Each step as it starts and how it ended, so the tick log says where a
     # unit has got to rather than going quiet for the length of a build.
     log: Callable[[str], None] = lambda message: None
@@ -1204,14 +1240,38 @@ class UnitRunner(BaseModel):
                 conflict=restacked.conflict[:2000],
                 old_ref=keep,
                 old_base=restacked.old_base,
-                tests="\n".join(f"- `{name}`" for name in restacked.old_tests) or "- (none found)",
+                tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
             ),
             cwd=tree,
         )
         self.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
 
+        # Only now, after the port, does the tree hold what the agent actually
+        # carried over — reading it before the commit would see none of the
+        # unit's own tests and narrow `required` to everything, every time.
+        present = self.tests_in(tree)
+        required = tests_needing_decision(
+            restacked.old_tests, present, self.tests_changed(tree, keep)
+        )
         decisions = parse_test_decisions(answer)
-        problems = check_test_decisions(restacked.old_tests, decisions, self.tests_in(tree))
+        problems = check_test_decisions(required, decisions, present)
+        # A checker that is unhappy is put back to the agent, bounded: the
+        # code already landed with the commit above, so a second miss costs
+        # one short prompt rather than a re-port.
+        for _ in range(active().limits.max_adapt_rounds - 1):
+            if not problems:
+                break
+            answer = self.run_rework(
+                ADAPT_FOLLOWUP_PROMPT.format(problems="\n".join(f"- {p}" for p in problems)),
+                cwd=tree,
+            )
+            # Merged over the first answer's, not replacing it: an agent that
+            # reads "decide each one" as only the ones just named would
+            # otherwise drop decisions it already got right.
+            by_name = {d.name: d for d in decisions}
+            by_name.update({d.name: d for d in parse_test_decisions(answer)})
+            decisions = list(by_name.values())
+            problems = check_test_decisions(required, decisions, present)
         if problems:
             why = "the adapt step did not account for its tests: " + "; ".join(problems)
             waiting = self.store.get(unit.id).feedback
@@ -1222,6 +1282,13 @@ class UnitRunner(BaseModel):
             f"\n- `{d.name}`: {d.decision}" + (f" — {d.reason}" if d.reason else "")
             for d in decisions
         )
+        auto_kept = [name for name in restacked.old_tests if name not in required]
+        kept_note = (
+            "\n\nCarried over unchanged, so counted as kept without being asked about: "
+            + ", ".join(f"`{name}`" for name in auto_kept)
+            if auto_kept
+            else ""
+        )
         self.store.set_predecessor_note(
             unit.id,
             PREDECESSOR_NOTE.format(
@@ -1229,10 +1296,10 @@ class UnitRunner(BaseModel):
                 how="replaying this unit onto it conflicted, so its work was ported onto the "
                 "new version by hand",
                 decisions=(
-                    f"The port decided, for its previous tests:{rendered}\n\nJudge each "
-                    "decision, retirements especially. "
+                    f"The port decided, for its previous tests:{rendered}{kept_note}\n\nJudge "
+                    "each decision, retirements especially. "
                 )
-                if decisions
+                if decisions or auto_kept
                 else "",
             ),
         )

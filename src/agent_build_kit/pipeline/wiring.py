@@ -18,6 +18,7 @@ Two guarantees are enforced here rather than trusted to the prompt:
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 from collections.abc import Callable
@@ -896,6 +897,49 @@ def _tests_in(tree: Path) -> set[str]:
     return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
 
 
+def _test_bodies(source: str) -> dict[str, str]:
+    """Each `test_*` function's own source text, by name.
+
+    Body against body, not the file's diff: a test moved, reindented or
+    resurrounded by unrelated edits should not read as changed, but one whose
+    assertions actually shifted must — even kept under its old name.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}
+    bodies: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+            "test_"
+        ):
+            segment = ast.get_source_segment(source, node)
+            if segment is not None:
+                bodies[node.name] = segment
+    return bodies
+
+
+def _tests_changed(tree: Path, ref: str) -> set[str]:
+    """Test functions present in the tree whose body differs from `ref`.
+
+    A test that only survived the replay by name — kept, but silently
+    weakened — must still be asked about; comparing function bodies rather
+    than names is what catches that.
+    """
+    changed: set[str] = set()
+    for path in git(tree, "ls-files", "*.py", check=False).stdout.splitlines():
+        file = tree / path
+        if not file.exists():
+            continue
+        current = _test_bodies(file.read_text())
+        if not current:
+            continue
+        old_source = git(tree, "show", f"{ref}:{path}", check=False)
+        old = _test_bodies(old_source.stdout) if old_source.returncode == 0 else {}
+        changed |= {name for name, body in current.items() if old.get(name) != body}
+    return changed
+
+
 def _reset_to(tree: Path, onto: str, keep: str) -> None:
     """Keep the current work under `keep`, then put the branch on `onto`.
 
@@ -1034,6 +1078,7 @@ def build_runner(
         worktree=worktree_in_turn,
         reset_to=_reset_to,
         tests_in=_tests_in,
+        tests_changed=_tests_changed,
         may_start=build_may_start(),
         run_claude=run_claude,
         run_rework=build_run_claude(

@@ -73,6 +73,8 @@ limits:
   max_unit_lines: 1000        # estimated lines one unit may carry; above
                               # min_unit_lines. Plans only, not branches
   max_review_rounds: 3        # review rounds before a unit fails
+  max_adapt_rounds: 2         # adapt-step accounting asks, first included,
+                              # before a unit fails
   usage_pause_pct: 70         # % of a usage window at which no unit starts
   usage_ceiling_pct: 90       # what that rises to at that window's reset
   usage_relief_fraction: 0.25 # trailing part of a window the rise spans

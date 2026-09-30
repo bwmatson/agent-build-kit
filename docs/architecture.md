@@ -146,9 +146,13 @@ binds each step to git, gh and `claude`:
    worktree is refused, never cleaned. A resuming unit whose base moved is
    restacked first; a conflict the resolver cannot settle goes to the
    **adapt** step, which resets the branch, keeps the old work under a ref,
-   and has the rework model port it while deciding keep/adapt/retire for every
-   test the old work had — decisions the pipeline checks and the reviewer
-   judges.
+   and has the rework model port it while deciding keep/adapt/retire for each
+   test the old work had that the replay left uncertain — missing from the
+   tree, or present but changed; a test the replay left alone counts as kept
+   without being asked about. The pipeline checks that accounting and the
+   reviewer judges it; an incomplete one is put back to the agent, naming what
+   is still outstanding, for a small fixed number of attempts before the unit
+   fails with those problems on its record.
 3. **Tests, commit.** One scoped `claude -p` writes the group's tests (stubs
    allowed: signatures raising `NotImplementedError`, model fields), runs lint
    and format, and stops. The pipeline commits `test: <title>`. Both this

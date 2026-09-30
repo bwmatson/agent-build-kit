@@ -683,6 +683,29 @@ def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path
     assert git(repo, "rev-parse", "refs/spec-driven/pre-adapt/c-3") == head, "old work kept"
 
 
+def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Path) -> None:
+    """A test kept under its old name but quietly weakened — an assertion
+    relaxed, a case deleted — must not read as untouched just because its
+    name still matches. Comparing bodies, not names, is what catches it."""
+    from agent_build_kit.pipeline.wiring import _tests_changed
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    (repo / "test_mod.py").write_text(
+        "def test_a():\n    assert 1 == 1\n\n\ndef test_b():\n    assert 1 == 1\n"
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    keep = "refs/spec-driven/pre-adapt/c-3"
+    git(repo, "update-ref", keep, "HEAD")
+
+    (repo / "test_mod.py").write_text(
+        "def test_a():\n    assert 1 == 1\n\n\ndef test_b():\n    assert 1 == 2\n"
+    )
+
+    assert _tests_changed(repo, keep) == {"test_b"}
+
+
 def test_a_review_can_be_told_what_happened_to_the_branch(tmp_path: Path) -> None:
     """The runner passes the reviewer a note when the branch was moved onto a
     changed predecessor. The real review function has to take it: fakes that
