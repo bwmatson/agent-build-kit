@@ -37,8 +37,8 @@ Dispatch = Callable[..., bool | None]
 FAILURES_BEFORE_BACKOFF = 2
 BACKOFF = timedelta(minutes=30)
 
-HOLD_LABEL = "agent:hold"
-REWORK_LABEL = "agent:rework"
+HOLD_LABEL = "agent-hold"
+REWORK_LABEL = "agent-rework"
 # The `rework` reason for a branch that does not merge into its base.
 # `events.on_rework` recognises it by this value.
 CONFLICT_REASON = "merge conflict with its base"
@@ -275,7 +275,7 @@ class Poller(BaseModel):
             return self.dispatch("hold", number, pull=pull)
 
         if REWORK_LABEL in labels_added:
-            return self.dispatch("rework", number, pull=pull, reason="agent:rework label")
+            return self.dispatch("rework", number, pull=pull, reason="agent-rework label")
 
         # Before the comment check: a review carrying both a decision and a
         # note should report the decision, which is the actionable half.

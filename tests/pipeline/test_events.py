@@ -1225,7 +1225,7 @@ def test_a_hold_that_arrives_mid_build_survives_the_build_finishing(
 ) -> None:
     """The build ends by recording `in_review`. A hold written before that is
     overwritten by it; a hold reported again after it stands."""
-    held = _pull(labels=("agent:hold",))
+    held = _pull(labels=("agent-hold",))
     poller = _poller(tmp_path, store, locks, [[_pull()], [held], [held]])
     poller.poll()
     store.set_state("add-marker/1", RUNNING)

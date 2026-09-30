@@ -75,7 +75,7 @@ most important thing a new forge has to get right.
 `pipeline/units.py` (`merged`, `closed`, or `open`), so nothing downstream
 learns a second set of words for the same three outcomes. `conversation` is
 opaque comment ids, `comment_bodies` the words behind them, `labels` drives
-`agent:hold` and `agent:rework`, and `review_decision` is `""` or
+`agent-hold` and `agent-rework`, and `review_decision` is `""` or
 `"changes_requested"`.
 
 `ReviewNote` carries `live`: whether the note is still worth replaying to a

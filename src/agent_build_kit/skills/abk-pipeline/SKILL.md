@@ -66,7 +66,7 @@ more task groups of a change.
 
 ### `held`
 
-Four ways in: a reviewer put the `agent:hold` label on the PR, the review loop
+Four ways in: a reviewer put the `agent-hold` label on the PR, the review loop
 itself held it, a merge left it deeper than `limits.stack_depth_rebase_cap`
 (the history note names the depth and the cap, and the branch it is still on),
 or the tick found it cannot build the unit (the unit's `history` entry says

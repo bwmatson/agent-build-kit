@@ -82,8 +82,8 @@ def _effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
 
 
 def _label(state: str) -> str:
-    """How a state reads in a node. Mermaid class names cannot hold the colon."""
-    return state.replace("paused_", "paused: ")
+    """How a state reads in a node: the state name with dashes, like the PR labels."""
+    return state.replace("_", "-")
 
 
 # States that are still going somewhere, or stuck until someone looks.
@@ -196,10 +196,10 @@ edit by hand.
   edge) must *merge* first; a same-repo one must be through its build/review
   loop, so there is a reviewed branch to stack on.
 - **running** — in the build/review loop: an agent is working in a worktree.
-- **paused: rework** — stopped between steps because a unit it depends on
+- **paused-rework** — stopped between steps because a unit it depends on
   went back for rework; it restacks and resumes once that unit is through
   review again.
-- **paused: usage** — stopped between steps because the usage window passed
+- **paused-usage** — stopped between steps because the usage window passed
   its threshold; it resumes at that step on the first tick after the window
   resets.
 - **in_review** — through the build/review loop; its PR is waiting for human

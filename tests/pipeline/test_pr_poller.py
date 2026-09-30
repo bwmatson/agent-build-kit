@@ -173,7 +173,7 @@ def test_a_passing_check_is_not_an_event(poller) -> None:
 
 
 def test_the_hold_label_stops_a_stack_advancing(poller) -> None:
-    instance, seen = poller([[pr()], [pr(labels=("agent:hold",))]])
+    instance, seen = poller([[pr()], [pr(labels=("agent-hold",))]])
     instance.poll()
 
     instance.poll()
@@ -182,7 +182,7 @@ def test_the_hold_label_stops_a_stack_advancing(poller) -> None:
 
 
 def test_the_rework_label_is_feedback_given_elsewhere(poller) -> None:
-    instance, seen = poller([[pr()], [pr(labels=("agent:rework",))]])
+    instance, seen = poller([[pr()], [pr(labels=("agent-rework",))]])
     instance.poll()
 
     instance.poll()
@@ -457,7 +457,7 @@ def test_a_pr_first_seen_with_ci_already_red_is_reworked(tmp_path: Path) -> None
 def test_a_deferred_event_is_reported_again_until_it_is_handled(tmp_path: Path) -> None:
     """A handler defers an event for a unit still being built. Recording the
     change anyway would make that the only time it is ever seen."""
-    held = pr(labels=("agent:hold",))
+    held = pr(labels=("agent-hold",))
     pages = iter([[pr()], [held], [held], [held]])
     answers = iter([False, True])
     seen: list[str] = []

@@ -143,7 +143,7 @@ def test_a_unit_stopped_mid_loop_is_paused_not_merely_blocked() -> None:
     diagram = render_mermaid([unit("c/1", state="running"), paused])
 
     assert "class c_2 paused_rework" in diagram
-    assert "paused: rework" in diagram
+    assert "paused-rework" in diagram
 
 
 def test_a_unit_a_reviewer_took_over_has_its_own_colour() -> None:
@@ -218,7 +218,7 @@ def test_a_unit_stopped_by_the_usage_window_says_so() -> None:
     diagram = render_mermaid([paused])
 
     assert "class c_1 paused_usage" in diagram
-    assert "paused: usage" in diagram
+    assert "paused-usage" in diagram
 
 
 def test_a_failed_unit_stays_in_view_with_the_merged_unit_it_builds_on() -> None:
