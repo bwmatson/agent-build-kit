@@ -112,7 +112,8 @@ without a fix: it will fail the same way and cost a run.
    progress across all repos are at `limits.max_units_in_progress`, and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    the tick log and `abk status` say "queue is full: N units in progress,
-   limit M" with the count in each state. The way out is to merge or close a PR. Free slots go to
+   limit M" with the count in each state. A place frees when a unit's PR is merged or closed, or when a
+   failed or held unit is requeued (`abk requeue`) and finishes, or is closed. Free slots go to
    open-PR work first (reworks, restacks), then resuming builds, then new
    units. Each builds only its own task groups, never a later unit's, even
    when the tasks for one are visible right there in `tasks.md`, and ends

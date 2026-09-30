@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from tests.conftest import make_installation
@@ -1741,6 +1741,27 @@ def test_status_names_a_failed_unit_holding_a_place(
     out = capsys.readouterr().out
     assert "2 units in progress, limit 2" in out
     assert "1 failed" in out
+
+
+def test_status_names_reworks_and_resumes_by_why_they_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace_inst = make_installation(
+        tmp_path,
+        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
+        limits=dict(max_units_in_progress=2),
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
+    store.set_state("one/1", PLANNED, pr=11)
+    store.set_state("two/1", PLANNED, resume_from="verify")
+    monkeypatch.setattr(cli, "current_usage", lambda: reading())
+
+    assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
+
+    out = capsys.readouterr().out
+    assert "1 paused, 1 reworking" in out
+    assert "planned)" not in out
 
 
 def test_status_is_silent_about_the_queue_below_the_limit(

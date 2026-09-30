@@ -75,8 +75,10 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     in_progress,
+    in_progress_label,
     local_ref,
     ready_units,
+    start_room,
     trunk_of,
 )
 from agent_build_kit.pipeline.usage_guard import (
@@ -424,14 +426,13 @@ def _evaluate(
 
 def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     held = [unit for unit in units if in_progress(unit)]
-    if len(held) < inst.max_units_in_progress:
+    if start_room(units, inst.max_units_in_progress):
         return None
-    by_state: dict[str, int] = {}
+    by_label: dict[str, int] = {}
     for unit in held:
-        by_state[unit.state] = by_state.get(unit.state, 0) + 1
-    states = ", ".join(
-        f"{count} {state.replace('_', ' ')}" for state, count in sorted(by_state.items())
-    )
+        label = in_progress_label(unit)
+        by_label[label] = by_label.get(label, 0) + 1
+    states = ", ".join(f"{count} {label}" for label, count in sorted(by_label.items()))
     return (
         f"queue is full: {len(held)} units in progress, limit {inst.max_units_in_progress} "
         f"({states})"
@@ -447,7 +448,7 @@ def _nothing_started_reason(
     if full and _evaluate(
         inst, units, started=set(), building=set(), only=only, enforce_limit=False
     ):
-        return f"{full}; no new unit starts until one merges"
+        return f"{full}; no new unit starts until one finishes or is closed"
     return "nothing ready to build"
 
 

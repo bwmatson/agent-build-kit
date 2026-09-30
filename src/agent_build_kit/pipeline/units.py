@@ -9,9 +9,9 @@ Everything here is pure. The planner that produces the estimates, and the
 parts that talk to git and GitHub, live elsewhere — so these rules can be
 argued with directly, in tests, rather than through a subprocess.
 
-`ready_units` and `in_progress` expect stored units: `pr` and `resume_from` exist only on those, and
-`unit_store` imports this module, so it cannot be named here. Given plain
-`Unit`s they would see no pull request and no resume point.
+`ready_units`, `in_progress`, `in_progress_label` and `start_room` expect stored units: `pr` and
+`resume_from` exist only on those, and `unit_store` imports this module, so it cannot be named
+here. Given plain `Unit`s they would see no pull request and no resume point.
 """
 
 from __future__ import annotations
@@ -364,9 +364,26 @@ def in_progress(unit: Unit) -> bool:
     """
     if unit.state in (MERGED, CLOSED, SATISFIED):
         return False
-    if unit.state in (RUNNING, IN_REVIEW, HELD, "failed"):
+    if unit.state in (RUNNING, IN_REVIEW, HELD, FAILED):
         return True
     return getattr(unit, "pr", None) is not None or bool(getattr(unit, "resume_from", ""))
+
+
+def in_progress_label(unit: Unit) -> str:
+    """Why an in-progress unit counts, for the report of a full queue.
+
+    A planned or unplanned unit is in progress only because something was
+    already done to it, so it is named for that, not `planned`: "reworking"
+    with a pull request, "paused" with only a step to resume from.
+    """
+    if unit.state in (PLANNED, "unplanned"):
+        return "reworking" if getattr(unit, "pr", None) is not None else "paused"
+    return unit.state.replace("_", " ")
+
+
+def start_room(graph: Sequence[Unit], limit: int) -> int:
+    """How many never-started units may begin before `limit` is reached."""
+    return max(0, limit - sum(1 for unit in graph if in_progress(unit)))
 
 
 def _start_rank(unit: Unit) -> int:
@@ -407,11 +424,7 @@ def ready_units(
     if not slots:
         return []
 
-    room = (
-        None
-        if max_units_in_progress is None
-        else max(0, max_units_in_progress - sum(1 for unit in graph if in_progress(unit)))
-    )
+    room = None if max_units_in_progress is None else start_room(graph, max_units_in_progress)
 
     ready: list[Unit] = []
     for unit in graph:
