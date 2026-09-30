@@ -193,3 +193,31 @@ def test_the_installation_reads_the_limit_on_units_in_progress(tmp_path: Path) -
     assert make_installation(tmp_path / "default").max_units_in_progress == 5
     inst = make_installation(tmp_path / "set", limits={"max_units_in_progress": 2})
     assert inst.max_units_in_progress == 2
+
+
+# --- the git: section -----------------------------------------------------------
+
+
+def test_the_git_section_loads(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("git:\n  branch_prefix: work/\n  push_host: alias\n")
+
+    loaded = load(path)
+
+    assert loaded.git.branch_prefix == "work/"
+    assert loaded.git.push_host == "alias"
+
+
+def test_the_old_github_section_loads_as_git(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("github:\n  branch_prefix: work/\n")
+
+    assert load(path).git.branch_prefix == "work/"
+
+
+def test_a_file_with_neither_section_keeps_the_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("repos: {}\n")
+
+    assert load(path).git.branch_prefix == "spec/"
+    assert load(path).git.push_host == ""

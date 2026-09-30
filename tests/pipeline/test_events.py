@@ -1017,14 +1017,11 @@ def test_a_conflict_is_reworked_as_a_conflict_not_the_old_review(tmp_path: Path)
     assert store.get("c/1").state == PLANNED
 
 
-def test_the_failed_run_is_found_from_the_check_s_link() -> None:
-    from agent_build_kit.pipeline.events import LOG_PREFIX, RUN_URL
+def test_the_github_log_constants_are_not_defined_here() -> None:
+    from agent_build_kit.pipeline import events
 
-    url = "https://github.com/o/r/actions/runs/36247510537/job/108419332762"
-    match = RUN_URL.search(url)
-    assert match is not None and match["run"] == "36247510537"
-    line = "config-check\tRun pytest\t2026-01-01T14:09:07.0730165Z 1 failed, 14 passed"
-    assert LOG_PREFIX.sub("", line) == "1 failed, 14 passed"
+    for name in ("RUN_URL", "LOG_PREFIX", "CHECK_LOG_CHARS"):
+        assert not hasattr(events, name), f"{name} belongs to the GitHub forge, if anywhere"
 
 
 # --- a unit being built is left alone ----------------------------------------------

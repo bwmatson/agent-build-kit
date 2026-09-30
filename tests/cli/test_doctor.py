@@ -702,3 +702,26 @@ def test_systemd_that_cannot_be_asked_is_said_not_assumed(workspace: Path, tmp_p
 
     assert checks["timers"].status == "info"
     assert "cannot ask systemd" in checks["timers"].detail
+
+
+# --- the git: section -----------------------------------------------------------
+
+
+def _with_section(workspace: Path, section: str) -> list[Check]:
+    path = workspace / "abk.yaml"
+    path.write_text(f"{section}:\n  branch_prefix: work/\n" + path.read_text())
+    return run_doctor(path, run=Answers(), which=which_all)
+
+
+def test_the_old_github_section_is_reported_with_the_fix(workspace: Path) -> None:
+    checks = _with_section(workspace, "github")
+
+    renamed = [c for c in checks if c.status == "warn" and "git:" in c.fix]
+    assert renamed, "doctor did not ask for the section to be renamed"
+    assert "github" in renamed[0].detail
+
+
+def test_the_git_section_draws_no_rename_warning(workspace: Path) -> None:
+    checks = _with_section(workspace, "git")
+
+    assert not [c for c in checks if "git:" in c.fix]
