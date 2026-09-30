@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A unit fetches its repo before it restacks and again before it pushes, asks
+  the forge whether its parent merged (recording a merge the store missed) and
+  moves onto the base as it now is. The move before a push never runs the
+  conflict resolver: a conflict, or a tier 1 or tier 2 failure on the moved
+  commit, holds the unit to resume at its restack, where resolution runs under
+  the usage gate and review is told of it. A pull request refused for a missing
+  base holds the unit instead of failing it; each forge recognises its own
+  error for that.
+
 - A pull request event is matched to its unit by repo and number, not by number
   alone. Once two repos in a workspace had reached the same number, a merge,
   comment, hold or close in one was applied to the other's unit: the merge went

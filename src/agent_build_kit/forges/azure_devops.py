@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
 from agent_build_kit.forges.base import (
+    BaseMissing,
     PermittedCommand,
     PullRequest,
     RepoId,
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
 # The REST version the pull request PATCH is made against; `az devops invoke`
 # defaults to 5.0, which predates fields this relies on.
 _API = "7.1"
+# What `az repos pr create` says when a branch it was given is not on the host:
+# TF401028 a missing reference, TF401398 a source or target that no longer exists.
+_BASE_MISSING = ("TF401028", "TF401398")
 
 # `pending` and `notSet` are waiting, not failing: read as failures they would
 # send a unit back for rework while its build was still running.
@@ -321,27 +325,32 @@ class AzureDevOpsForge:
         body: str,
         run: Run | None = None,
     ) -> int:
-        made = az.json_out(
-            [
-                "repos",
-                "pr",
-                "create",
-                "--project",
-                repo.project,
-                "--repository",
-                repo.name,
-                "--source-branch",
-                head,
-                "--target-branch",
-                base,
-                "--title",
-                title,
-                "--description",
-                body,
-            ],
-            org=az.org_url(repo.account),
-            run=run,
-        )
+        try:
+            made = az.json_out(
+                [
+                    "repos",
+                    "pr",
+                    "create",
+                    "--project",
+                    repo.project,
+                    "--repository",
+                    repo.name,
+                    "--source-branch",
+                    head,
+                    "--target-branch",
+                    base,
+                    "--title",
+                    title,
+                    "--description",
+                    body,
+                ],
+                org=az.org_url(repo.account),
+                run=run,
+            )
+        except az.AzError as error:
+            if any(code in str(error) for code in _BASE_MISSING):
+                raise BaseMissing(str(error)) from error
+            raise
         if not isinstance(made, dict) or "pullRequestId" not in made:
             raise az.AzError(f"creating a pull request for {head} answered without an id")
         return int(made["pullRequestId"])

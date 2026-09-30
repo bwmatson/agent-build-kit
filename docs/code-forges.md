@@ -46,7 +46,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `merge_guard(repo, branch, run)` | `doctor` | what stops a merge on the server, "" when nothing does |
 | `list_prs(repo, head_prefix)` | the poller | every pull request, as `PullRequest` values |
 | `find_pr(repo, head)` | the PR step | the number open for a branch, or None |
-| `create_pr(repo, ...)` | the PR step | the new pull request's number |
+| `create_pr(repo, ...)` | the PR step | the new pull request's number; raises `BaseMissing` when the base branch is not on the host |
 | `update_pr(repo, pr, base, body)` | the PR step, restack | retarget or re-describe |
 | `pr_files(repo, pr)` | `abk verify` | the paths a change touched |
 | `review_notes(repo, pr)` | rework | the reviewer's words, and whether each is still live |
@@ -135,6 +135,12 @@ prefixes and stay whole, so an agent is still refused these commands there.
 
 These are the mistakes the two shipped forges were written against. A third
 will have its own, and finding them is most of the work.
+
+**A missing base.** A parent merging deletes its branch, so a pull request
+opened against it is refused. Each forge recognises its own message (GitHub's
+"Base ref must be a branch", Azure DevOps's TF401028 and TF401398) and raises
+`BaseMissing`, which the runner turns into a hold to resume at its restack; any
+other refusal is a failure.
 
 **GitHub.** `state: MERGED` is not the same question as `mergedAt`; a PENDING
 review is a draft the reviewer has not submitted, and counting it sends the

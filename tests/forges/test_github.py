@@ -338,3 +338,34 @@ def test_only_a_failing_conclusion_is_a_failing_check() -> None:
 def test_changes_requested_is_the_only_decision_that_reworks() -> None:
     assert view(reviewDecision="CHANGES_REQUESTED").review_decision == "changes_requested"
     assert view(reviewDecision="APPROVED").review_decision == ""
+
+
+def test_a_pr_refused_for_a_missing_base_is_its_own_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`gh pr create` against a base the host has deleted: a parent's branch
+    removed on merge. Another refusal is still a plain failure."""
+    import subprocess
+
+    from agent_build_kit.forges.base import BaseMissing
+
+    missing = (
+        "pull request create failed: GraphQL: Base sha can't be blank, "
+        "Base ref must be a branch (createPullRequest)\n"
+    )
+    other = "a pull request for branch spec/x/1 into branch main already exists\n"
+    answer = [missing]
+
+    def gh(args: list[str], *, slug: str = "") -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args, 1, "", answer[0])
+
+    monkeypatch.setattr("agent_build_kit.pipeline.shell.gh", gh)
+    repo = RepoId(forge="github", account="o", name="r")
+
+    with pytest.raises(BaseMissing):
+        FORGE.create_pr(repo, head="spec/x/1", base="spec/x/0", title="t", body="b")
+
+    answer[0] = other
+    with pytest.raises(RuntimeError) as refused:
+        FORGE.create_pr(repo, head="spec/x/1", base="main", title="t", body="b")
+    assert not isinstance(refused.value, BaseMissing)

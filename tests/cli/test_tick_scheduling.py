@@ -687,7 +687,7 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
         # `git rev-list --count <deleted>..HEAD`, run with check=False.
         return 0 if ref in deleted else commits.get(unit_id, 0)
 
-    def runner(unit, *, store: UnitStore, installation, log) -> UnitRunner:
+    def runner(unit, *, store: UnitStore, installation, log, **kwargs) -> UnitRunner:
         def claude(prompt: str, *, cwd: Path) -> str:
             if unit.id == "chain/2" and step in prompt:
                 # Still at this step when the merge is heard.
@@ -716,7 +716,9 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
             head=lambda tree: f"{unit.id}@{commits.get(unit.id, 0)}",
             upstream_incomplete=build_upstream_incomplete(store),
             base_moved=build_base_moved(store),
-            restack_onto=lambda *, tree, branch, base, unit: moved_onto.append((unit.id, base)),
+            restack_onto=lambda *, tree, branch, base, unit, resolve=True: moved_onto.append(
+                (unit.id, base)
+            ),
             run_tier1=lambda *, cwd, base, whole_repo=False: (True, ""),
             run_tier2=lambda *, cwd: (True, ""),
             push=lambda branch, *, cwd: "pushed",
@@ -737,7 +739,9 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
 
     assert tick(inst) == 0
 
-    assert moved_onto == [("chain/2", local_ref("main"))]
+    # Each unit is also asked to move before its push; what matters is that the
+    # child only ever moved onto the trunk, never onto the merged branch.
+    assert {base for unit_id, base in moved_onto if unit_id == "chain/2"} == {local_ref("main")}
     assert ("chain/2", "main") in opened
     assert store.get("chain/2").state == IN_REVIEW
 

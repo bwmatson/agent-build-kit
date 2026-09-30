@@ -33,6 +33,14 @@ if TYPE_CHECKING:
 Run = Callable[..., subprocess.CompletedProcess]
 
 
+class BaseMissing(RuntimeError):
+    """A pull request refused because its base branch is not on the host.
+
+    Distinct from any other refusal: the base was deleted — a parent merged —
+    and the unit moves onto its current base rather than failing.
+    """
+
+
 class RepoId(Frozen):
     """A repo, named the way its host names it, decoded.
 

@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from agent_build_kit.forges.base import (
+    BaseMissing,
     PermittedCommand,
     PullRequest,
     RepoId,
@@ -30,6 +31,9 @@ from agent_build_kit.pipeline.shell import gh, gh_json, gh_out
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
+
+# What `gh pr create` says when the base branch is not on the host.
+_BASE_MISSING = ("Base ref must be a branch", "Base sha can't be blank")
 
 # What `gh pr list` must return for a PullRequest to be built. `reviewDecision`
 # and `reviews` are here because `comments` alone misses a normal review
@@ -155,23 +159,28 @@ class GitHubForge:
             return None
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
-        url = gh_out(
-            [
-                "gh",
-                "pr",
-                "create",
-                "--repo",
-                key(repo),
-                "--base",
-                base,
-                "--head",
-                head,
-                "--title",
-                title,
-                "--body",
-                body,
-            ]
-        )
+        try:
+            url = gh_out(
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "--repo",
+                    key(repo),
+                    "--base",
+                    base,
+                    "--head",
+                    head,
+                    "--title",
+                    title,
+                    "--body",
+                    body,
+                ]
+            )
+        except RuntimeError as error:
+            if any(text in str(error) for text in _BASE_MISSING):
+                raise BaseMissing(str(error)) from error
+            raise
         # gh prints the PR's URL; its last segment is the number.
         return int(url.strip().rstrip("/").rsplit("/", 1)[-1])
 

@@ -697,3 +697,34 @@ def test_the_forge_is_now_complete() -> None:
     """Every method answers, so units in an Azure DevOps repo build rather
     than being held."""
     assert FORGE.implemented is True
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "ERROR: TF401028: The reference 'refs/heads/spec/x/0' does not exist. "
+        "Check the name and try again.",
+        "ERROR: TF401398: The pull request cannot be activated because the source "
+        "and/or the target branch no longer exists, or the object id is not valid.",
+    ],
+)
+def test_a_pr_refused_for_a_missing_base_is_its_own_error(stderr: str) -> None:
+    from agent_build_kit.forges.base import BaseMissing
+
+    def refuse(message: str):
+        def run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 1, "", message)
+
+        return run
+
+    with pytest.raises(BaseMissing):
+        FORGE.create_pr(
+            REPO, head="spec/x/1", base="spec/x/0", title="t", body="b", run=refuse(stderr)
+        )
+
+    duplicate = "ERROR: TF401179: An active pull request for the source and target already exists."
+    with pytest.raises(AzError) as refused:
+        FORGE.create_pr(
+            REPO, head="spec/x/1", base="main", title="t", body="b", run=refuse(duplicate)
+        )
+    assert not isinstance(refused.value, BaseMissing)

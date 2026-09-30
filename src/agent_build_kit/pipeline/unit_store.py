@@ -82,6 +82,11 @@ class StoredUnit(Unit):
     stack_refusal: str = ""
     history: tuple[dict, ...] = ()
 
+    @property
+    def note(self) -> str:
+        """Why the unit is in its present state, as its latest history entry says."""
+        return str(self.history[-1].get("note", "")) if self.history else ""
+
 
 def _exclusive(method):
     """One change to the store at a time.
