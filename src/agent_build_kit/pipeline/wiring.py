@@ -26,7 +26,7 @@ from functools import partial
 from pathlib import Path
 
 from agent_build_kit import forges, profiles, runtimes
-from agent_build_kit.config import RepoConfig, active, active_root, models
+from agent_build_kit.config import ProjectConfig, RepoConfig, active, active_root, models
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -404,6 +404,7 @@ def build_tier1(
     changed: Callable[..., list[str]] | None = None,
     profile: ToolchainProfile | None = None,
     root_extras: list[str] | None = None,
+    projects: list[ProjectConfig] | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
@@ -414,6 +415,15 @@ def build_tier1(
     problems in files it never touched: the pilot's first unit died on a
     pre-existing type error elsewhere while its own three files were clean.
     The profile's lint command takes the base ref for that reason.
+
+    **Scoped to the project, not the checkout.** A repo's projects need not sit
+    at its root - a Python service two directories down, a web app below that -
+    and a toolchain command run at the root of such a repo finds no project at
+    all: `uv run pre-commit` there cannot even resolve pre-commit, so a unit
+    dies on tooling rather than on its own work. Each project's checks run
+    inside it, under its own profile, and a file belongs to the deepest project
+    that holds it. A repo declaring no projects is checked at its root under
+    the repo's profile, exactly as before.
 
     **`whole_repo` switches to judging the tip instead of the diff.** A unit
     that produced no commits of its own has no diff to scope to: the diff-
@@ -430,25 +440,71 @@ def build_tier1(
 
     def tier1(*, cwd: Path, base: str, whole_repo: bool = False) -> tuple[bool, str]:
         """(passed, what failed) — the output is what makes a retry useful."""
-        if whole_repo:
-            lint_command = profile.lint_command_all_files()
-            test_commands = profile.test_commands_all(cwd, root_extras=root_extras or [])
-        else:
-            files = changed(cwd, base)
-            lint_command = profile.lint_command(base)
-            test_commands = profile.test_commands(cwd, files, root_extras=root_extras or [])
+        for where, toolchain, files in _work(cwd, base, whole_repo, projects, profile, changed):
+            if whole_repo:
+                lint_command = toolchain.lint_command_all_files()
+                test_commands = toolchain.test_commands_all(where, root_extras=root_extras or [])
+            else:
+                lint_command = toolchain.lint_command(base)
+                test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
 
-        result = run(lint_command, cwd=cwd)
-        if result.returncode:
-            return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
-
-        for command in test_commands:
-            result = run(command, cwd=cwd)
+            result = run(lint_command, cwd=where)
             if result.returncode:
                 return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
+
+            for command in test_commands:
+                result = run(command, cwd=where)
+                if result.returncode:
+                    return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
         return True, ""
 
     return tier1
+
+
+def _work(
+    cwd: Path,
+    base: str,
+    whole_repo: bool,
+    projects: list[ProjectConfig] | None,
+    profile: ToolchainProfile,
+    changed: Callable[..., list[str]],
+) -> list[tuple[Path, ToolchainProfile, list[str]]]:
+    """Where to run tier 1, under which toolchain, over which files.
+
+    One entry per project the unit touched, its files relative to that project
+    - a profile's test commands name paths from the directory they run in.
+    A repo with no projects declared is one entry at its root, which is what
+    every installation written before projects existed still gets.
+    """
+    if not projects:
+        return [(cwd, profile, [] if whole_repo else changed(cwd, base))]
+    if whole_repo:
+        return [(cwd / p.path, profiles.get(p.profile), []) for p in projects]
+
+    # Deepest first, so the web app claims its own files rather than the
+    # service it sits inside.
+    ordered = sorted(projects, key=lambda p: len(Path(p.path).parts), reverse=True)
+    owned: dict[str, tuple[ProjectConfig, list[str]]] = {}
+    orphans: list[str] = []
+    for name in changed(cwd, base):
+        for project in ordered:
+            prefix = "" if project.path in (".", "") else f"{project.path}/"
+            if not prefix or name.startswith(prefix):
+                entry = owned.setdefault(project.path, (project, []))
+                entry[1].append(name[len(prefix) :])
+                break
+        else:
+            orphans.append(name)
+
+    work = [
+        (cwd / project.path, profiles.get(project.profile), files)
+        for project, files in owned.values()
+    ]
+    # A file under no project - a README at the root - is still the unit's, and
+    # a unit that touched only such files must not pass with nothing run.
+    if orphans or not work:
+        work.append((cwd, profile, orphans))
+    return work
 
 
 def _default_push(repo: Path, branch: str, last_pushed: str | None) -> str:
@@ -1174,7 +1230,9 @@ def build_runner(
         base_moved=build_base_moved(store),
         base_tip=_tip,
         restack_onto=build_restack_onto(store),
-        run_tier1=build_tier1(profile=profile, root_extras=repo.tests.root_extras),
+        run_tier1=build_tier1(
+            profile=profile, root_extras=repo.tests.root_extras, projects=repo.projects
+        ),
         run_tier2=tier2.run,
         push=push_in_turn,
         open_pr=build_open_pr(),

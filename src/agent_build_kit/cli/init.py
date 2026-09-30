@@ -71,12 +71,27 @@ def _prompt_for_repos() -> list[Path]:
         paths.append(Path(answer))
 
 
+def pr_bases(identity) -> list[str]:
+    """Which branch this repo's pull requests target, asked of its own host.
+
+    `origin/HEAD` is a pointer somebody set once, so a repo that moved its
+    integration branch still answers the old one — and every unit would be
+    built where the work is not. What the host says about real pull requests
+    is the evidence; a host that cannot be reached simply says nothing, and
+    `origin/HEAD` stands.
+    """
+    from agent_build_kit import forges
+
+    forge = forges.get(identity.forge)
+    return [pull.base for pull in forge.list_prs(identity)]
+
+
 def _detect_all(paths: list[Path]) -> dict[str, RepoDetection]:
     detections: dict[str, RepoDetection] = {}
     for path in paths:
         if not path.expanduser().is_dir():
             raise InitError(f"{path} is not a directory")
-        detection = detect_repo(path)
+        detection = detect_repo(path, pr_bases=pr_bases)
         if detection.name in detections:
             raise InitError(
                 f"two repos are both named {detection.name!r} "

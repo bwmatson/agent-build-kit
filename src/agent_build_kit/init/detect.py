@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import tomllib
+from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -267,7 +268,41 @@ def _service_dirs(path: Path) -> list[str]:
     return found
 
 
-def detect_repo(path: Path, *, run: Run | None = None) -> RepoDetection:
+PrBases = Callable[[RepoId], list[str]]
+
+
+def _integration_branch(
+    identity: RepoId | None,
+    pr_bases: PrBases | None,
+    on_remote: list[str],
+) -> str | None:
+    """The branch this repo's pull requests actually target, if its host says.
+
+    `origin/HEAD` is a pointer somebody set once and nobody updates, so a repo
+    that moved its integration to `dev` still answers `main` - and every unit
+    would then be built on a branch the work is not on, where the files a
+    change names are simply absent.
+
+    Only a branch that exists on the remote counts: stacked work targets its
+    parent branch, which is a common target and never the repo's default.
+    """
+    if identity is None or pr_bases is None:
+        return None
+    try:
+        bases = pr_bases(identity)
+    except Exception:  # noqa: BLE001 - init runs before credentials need to be in place
+        return None
+    counted = Counter(base for base in bases if base and (not on_remote or base in on_remote))
+    return counted.most_common(1)[0][0] if counted else None
+
+
+def detect_repo(
+    path: Path,
+    *,
+    run: Run | None = None,
+    pr_bases: PrBases | None = None,
+    remote_branches: list[str] | None = None,
+) -> RepoDetection:
     run = run or subprocess.run
     path = path.expanduser().resolve()
     is_git = (path / ".git").exists()
@@ -283,6 +318,15 @@ def detect_repo(path: Path, *, run: Run | None = None) -> RepoDetection:
         head = _git(run, path, "symbolic-ref", "refs/remotes/origin/HEAD")
         if head:
             default_branch = head.rsplit("/", 1)[-1]
+        on_remote = remote_branches
+        if on_remote is None:
+            listed = _git(run, path, "branch", "-r", "--format=%(refname:short)") or ""
+            on_remote = [
+                line.removeprefix("origin/").strip()
+                for line in listed.splitlines()
+                if line.strip().startswith("origin/") and "->" not in line
+            ]
+        default_branch = _integration_branch(identity, pr_bases, on_remote) or default_branch
         commits = _git(run, path, "rev-list", "--count", "HEAD")
         tracked = _git(run, path, "ls-files") or ""
         has_code = bool(commits and commits != "0") and any(

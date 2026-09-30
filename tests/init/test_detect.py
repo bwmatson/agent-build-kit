@@ -396,3 +396,53 @@ def test_a_remote_no_forge_recognises_leaves_the_repo_unidentified(tmp_path: Pat
 
     assert detection.identity is None
     assert detection.slug is None
+
+
+# --- which branch work actually lands on -------------------------------------------
+
+
+def test_the_branch_most_pull_requests_target_wins_over_origin_head(tmp_path: Path) -> None:
+    """`origin/HEAD` is a pointer somebody set once and nobody updated. A repo
+    that integrates on `dev` while HEAD still says `main` builds every unit on a
+    branch the work is not on — the files the change names are simply absent."""
+    repo = init_repo(tmp_path / "app")
+    git(repo, "remote", "add", "origin", "git@github.com:example/app.git")
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+    detection = detect_repo(repo, pr_bases=lambda identity: ["dev"] * 44 + ["main"] * 7)
+
+    assert detection.default_branch == "dev"
+
+
+def test_origin_head_stands_when_the_host_has_nothing_to_say(tmp_path: Path) -> None:
+    """A new repo with no pull requests yet, or a host that cannot be reached."""
+    repo = init_repo(tmp_path / "app")
+    git(repo, "remote", "add", "origin", "git@github.com:example/app.git")
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+
+    assert detect_repo(repo, pr_bases=lambda identity: []).default_branch == "develop"
+
+
+def test_a_host_that_will_not_answer_does_not_fail_detection(tmp_path: Path) -> None:
+    """Init runs before credentials are necessarily in place; a repo that cannot
+    be asked is still detected."""
+    repo = init_repo(tmp_path / "app")
+    git(repo, "remote", "add", "origin", "git@github.com:example/app.git")
+
+    def refuses(identity):
+        raise RuntimeError("not authenticated")
+
+    assert detect_repo(repo, pr_bases=refuses).default_branch == "main"
+
+
+def test_feature_branches_do_not_win_a_popularity_contest(tmp_path: Path) -> None:
+    """Stacked work targets its parent branch, which is a target but never the
+    repo's default. Only a branch that exists on the remote is considered."""
+    repo = init_repo(tmp_path / "app")
+    git(repo, "remote", "add", "origin", "git@github.com:example/app.git")
+
+    detection = detect_repo(
+        repo, pr_bases=lambda identity: ["feature/x"] * 9 + ["dev"] * 2, remote_branches=["dev"]
+    )
+
+    assert detection.default_branch == "dev"
