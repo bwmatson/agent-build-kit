@@ -107,7 +107,7 @@ without a fix: it will fail the same way and cost a run.
 Two families. The `agent-` labels are instructions a person sets:
 `agent-hold` (the unit is taken over; it stays until a person removes it) and
 `agent-rework` (send it back; the pipeline **removes it once acted on**, so it
-can be given again — where the host cannot remove it, it is left and acted on
+can be given again — on a host with no labels — Azure DevOps today — it is left and acted on
 once). The other family is the pipeline's own: one **state label** per pull
 request, replaced whenever the unit's state changes, and a **change label**
 naming its change. State names and colours (the outline) are the graph's, so

@@ -147,15 +147,24 @@ def test_a_hold_label_is_left_in_place(
     assert HOLD in forge.on_pr[PR]
 
 
+@pytest.mark.parametrize("cause", ["review", "comment"])
 def test_a_rework_a_review_asked_for_leaves_other_labels_alone(
-    store: UnitStore, forge: StandInForge, labels: StateLabels
+    poller: Poller, forge: StandInForge, store: UnitStore, cause: str
 ) -> None:
-    forge.on_pr[PR] = {HOLD}
-    dispatch = events.build_dispatch(store, restack=lambda **_: None, log=lambda m: None)
+    forge.on_pr[PR] = {"bug", REWORK}
+    poller.poll()  # both already there: seen, nothing new
+    pull = forge.prs[0]
+    if cause == "review":
+        forge.prs[0] = pull.model_copy(update={"review_decision": "changes_requested"})
+    else:
+        forge.prs[0] = pull.model_copy(
+            update={"conversation": ("c1",), "comment_bodies": ("please fix",)}
+        )
 
-    dispatch("rework", PR, repo="app", reason="new comment")
+    poller.poll()
 
-    assert HOLD in forge.on_pr[PR]
+    assert store.get("add-marker/1").state == PLANNED
+    assert forge.on_pr[PR] == {"bug", REWORK}
 
 
 @pytest.mark.parametrize("wired", [False, True], ids=["cannot remove", "removal refused"])

@@ -111,6 +111,19 @@ def test_a_label_call_that_fails_is_logged_once_and_raises_nothing(
     assert len(logged) == 1, logged
 
 
+class NoLabelsForge(StandInForge):
+    """A host that has no labels at all: every label call is unimplemented."""
+
+    def add_label(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+
+    def set_exclusive_label(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+
+    def remove_label(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+
+
 def wired(tmp_path: Path, forge: StandInForge, logged: list[str]) -> UnitStore:
     """A store whose state changes reach the forge, as `cli.store_for` builds it."""
     labels = StateLabels(lookup(forge), log=logged.append)
@@ -132,6 +145,30 @@ def test_a_failed_label_leaves_the_unit_where_the_rework_put_it(tmp_path: Path) 
     assert handled is True
     assert len(logged) >= 1, "the failures are logged, not swallowed silently"
     assert store.get("add-marker/1").state == PLANNED
+
+
+def test_a_host_that_keeps_no_labels_is_said_once_and_changes_nothing(tmp_path: Path) -> None:
+    logged: list[str] = []
+    store = wired(tmp_path, NoLabelsForge(), logged)
+    store.upsert([unit("add-marker/1")])
+
+    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", IN_REVIEW, pr=PR)
+    store.set_state("add-marker/1", "running")
+    store.set_state("add-marker/1", "held")
+
+    assert store.get("add-marker/1").state == "held"
+    assert len(logged) == 1, logged
+    assert "no labels" in logged[0]
+    assert not any("failed" in line for line in logged)
+
+
+def test_a_host_that_keeps_no_labels_leaves_an_instruction_label_unconsumed(
+    logged: list[str],
+) -> None:
+    labels = StateLabels(lookup(NoLabelsForge()), log=logged.append)
+
+    assert labels.consume("app", PR, "agent-rework") is False
 
 
 def test_the_store_decides_not_the_label_on_the_pull_request(tmp_path: Path) -> None:
@@ -192,8 +229,8 @@ def test_the_change_label_goes_on_when_the_pull_request_opens_and_stays(tmp_path
     store.set_state("add-marker/1", IN_REVIEW)
 
     assert {"bug", change_label("add-marker").name, "in-review"} == on_pr(forge)
-    tagged = [label for label in forge.label_creations if label == change_label("add-marker")]
-    assert len(tagged) == 1
+    tagged = [label for _, label in forge.added if label == change_label("add-marker")]
+    assert len(tagged) == 1, "put on when the pull request opened, not at each state change"
 
 
 def test_a_state_change_reaches_the_forge_after_the_store_is_written(tmp_path: Path) -> None:

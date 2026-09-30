@@ -70,6 +70,9 @@ class StandInForge:
         # can tell "created once" from "created each time".
         self.repo_labels: dict[str, Label] = {}
         self.label_creations: list[Label] = []
+        # Every `add_label` call, creation or not, so a test can tell "added
+        # once" from "added each time".
+        self.added: list[tuple[int, Label]] = []
         # The labels on each pull request, by number.
         self.on_pr: dict[int, set[str]] = {}
         self.created: list[dict] = []
@@ -192,6 +195,7 @@ class StandInForge:
         if "add" in self.label_errors:
             raise RuntimeError("403 Forbidden")
         self._create(label)
+        self.added.append((pr, label))
         self.on_pr.setdefault(pr, set()).add(label.name)
 
     def set_exclusive_label(

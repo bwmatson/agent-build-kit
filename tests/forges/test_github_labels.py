@@ -14,20 +14,20 @@ from agent_build_kit.forges.github import FORGE
 
 REPO = RepoId(forge="github", account="example", name="app")
 RUNNING = Label(name="running", color="d97706", description="An agent is building this unit")
-STATE_FAMILY = ("planned", "running", "in_review", "held")
+STATE_FAMILY = ("planned", "running", "in-review", "held")
 
 
 class Recorder:
     """Every gh call, answering as a repo whose pull request 7 carries
-    `in_review` and `bug`, and which has no `running` label yet."""
+    `in-review` and `bug`, and which has no `running` label yet."""
 
     def __init__(self) -> None:
         self.commands: list[list[str]] = []
 
     def _answer(self, args: list[str]) -> object:
         if args[:3] == ["gh", "label", "list"]:
-            return [{"name": "in_review", "color": "2563eb", "description": ""}]
-        return {"labels": [{"name": "in_review"}, {"name": "bug"}]}
+            return [{"name": "in-review", "color": "2563eb", "description": ""}]
+        return {"labels": [{"name": "in-review"}, {"name": "bug"}]}
 
     def gh(self, args: list[str], *, slug: str = "", **_) -> subprocess.CompletedProcess:
         self.commands.append(args)
@@ -66,7 +66,7 @@ def test_a_label_the_repo_lacks_is_created_with_its_colour_and_description(gh: R
 
 
 def test_a_label_the_repo_has_is_not_created_again(gh: Recorder) -> None:
-    FORGE.add_label(REPO, 7, Label(name="in_review", color="2563eb", description="In review"))
+    FORGE.add_label(REPO, 7, Label(name="in-review", color="2563eb", description="In review"))
 
     assert not [c for c in gh.commands if c[:3] == ["gh", "label", "create"]]
 
@@ -84,7 +84,7 @@ def test_setting_an_exclusive_label_removes_the_rest_of_its_family_only(gh: Reco
 
     edits = [c for c in gh.commands if c[:3] == ["gh", "pr", "edit"]]
     assert flag_values(edits, "--add-label") == ["running"]
-    assert flag_values(edits, "--remove-label") == ["in_review"], "`bug` is not the pipeline's"
+    assert flag_values(edits, "--remove-label") == ["in-review"], "`bug` is not the pipeline's"
 
 
 def test_removing_a_label_takes_it_off_the_pull_request(gh: Recorder) -> None:
@@ -96,6 +96,6 @@ def test_removing_a_label_takes_it_off_the_pull_request(gh: Recorder) -> None:
 
 
 def test_a_label_the_repo_has_under_another_case_is_not_created_again(gh: Recorder) -> None:
-    FORGE.add_label(REPO, 7, Label(name="In_Review", color="2563eb", description="In review"))
+    FORGE.add_label(REPO, 7, Label(name="In-Review", color="2563eb", description="In review"))
 
     assert not [c for c in gh.commands if c[:3] == ["gh", "label", "create"]]

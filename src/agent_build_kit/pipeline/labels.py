@@ -23,11 +23,19 @@ class StateLabels:
     def __init__(self, for_repo: ForRepo, *, log: Callable[[str], None] = print) -> None:
         self.for_repo = for_repo
         self.log = log
+        self._said_no_labels = False
 
     def _try(self, what: str, act: Callable[[Forge, RepoId], None], repo: str) -> bool:
         try:
             forge, repo_id = self.for_repo(repo)
             act(forge, repo_id)
+        except NotImplementedError:
+            # A host with no label support is not a fault, and saying so on
+            # every state change would read as one.
+            if not self._said_no_labels:
+                self._said_no_labels = True
+                self.log("label: this host keeps no labels, so none are written")
+            return False
         except Exception as error:
             self.log(f"label: {what} failed - {type(error).__name__}: {error}")
             return False
