@@ -50,8 +50,8 @@ def test_the_units_land_pointing_at_this_installation(
     code = main(["install-timers"])
 
     assert code == 0
-    assert timers.installed_root(units) == inst.root.resolve()
-    assert sorted(p.name for p in units.iterdir()) == sorted(timers.UNITS)
+    assert timers.installed_root(units, inst.root) == inst.root.resolve()
+    assert sorted(p.name for p in units.iterdir()) == sorted(timers.unit_names(inst.root))
     assert "wrote" in capsys.readouterr().out
 
 
@@ -76,7 +76,7 @@ def test_a_unit_somebody_else_wrote_is_refused(
     inst = planning(tmp_path)
     monkeypatch.chdir(inst.root)
     units.mkdir(parents=True)
-    mine = units / "abk-tick.timer"
+    mine = units / timers.unit_names(inst.root)[1]
     mine.write_text("[Unit]\nDescription=mine\n")
     monkeypatch.setattr(timers, "subprocess", _Recorder([]))
 
@@ -85,7 +85,7 @@ def test_a_unit_somebody_else_wrote_is_refused(
     assert code == 1
     assert mine.read_text() == "[Unit]\nDescription=mine\n"
     assert "refused" in capsys.readouterr().out
-    assert (units / "abk-tick.service").exists(), "the rest still land"
+    assert (units / timers.unit_names(inst.root)[0]).exists(), "the rest still land"
 
 
 def test_enable_starts_the_timers_and_not_the_services(
@@ -102,7 +102,7 @@ def test_enable_starts_the_timers_and_not_the_services(
 
     assert code == 0
     enabled = [c[-1] for c in calls if "enable" in c]
-    assert enabled == [name for name in timers.UNITS if name.endswith(".timer")]
+    assert enabled == [n for n in timers.unit_names(inst.root) if n.endswith(".timer")]
     assert not any(name.endswith(".service") for name in enabled)
     assert ["systemctl", "--user", "daemon-reload"] in calls
 
@@ -134,3 +134,50 @@ class _Recorder:
             stderr = ""
 
         return Done()
+
+
+def test_running_it_again_reports_that_nothing_changed(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Safe in a setup script: the second run says so rather than reporting
+    eight writes that did not happen."""
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    main(["install-timers"])
+    capsys.readouterr()
+
+    code = main(["install-timers"])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "wrote" not in out
+    assert out.count("unchanged") == len(timers.BASE_UNITS)
+
+
+def test_remove_takes_this_installation_s_units_off(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    main(["install-timers"])
+    capsys.readouterr()
+
+    code = main(["install-timers", "--remove"])
+
+    assert code == 0
+    assert "removed" in capsys.readouterr().out
+    assert not list(units.iterdir())
+
+
+def test_removing_when_none_are_installed_says_so(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+
+    code = main(["install-timers", "--remove"])
+
+    assert code == 0
+    assert "nothing installed" in capsys.readouterr().out

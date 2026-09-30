@@ -66,7 +66,6 @@ changes nothing else:
 | `.gitignore` | `.env`, `.last-runs/`, `runs/*.lock`, `runs/locks/`, local tooling |
 | `.env.example` | every machine-level variable, commented out |
 | `CLAUDE.md` | what lives where in a planning repo, and the three skills |
-| `systemd/` | 8 units: `abk-tick`, `abk-track-health`, `abk-track-improve`, `abk-track-recommend`, each a `.service` and a `.timer`, with the planning directory filled in |
 | `.claude/skills/*/SKILL.md` | the three skills, version-stamped |
 
 Whether or not `abk.yaml` was written is printed (`kept abk.yaml (use
@@ -126,7 +125,7 @@ is, and the reason is printed. Finally the next steps: review `abk.yaml`
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
-the timers from `systemd/`.
+the timers with `abk install-timers --enable`.
 
 ## Idempotence and `--force`
 

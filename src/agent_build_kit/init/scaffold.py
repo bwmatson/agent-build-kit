@@ -6,7 +6,7 @@ directory, the dev stack and its credentials array when the script is there,
 `consumes` from the dependency refs unless the caller says otherwise.
 
 `write_planning_repo` lays out everything the pipeline expects to find —
-the git repo, the OpenSpec project, the state directory, the systemd units,
+the git repo, the OpenSpec project, the state directory,
 the skills — and is idempotent: a second run writes only what is missing.
 The two files a person edits, `abk.yaml` and `openspec/config.yaml`, are
 never overwritten without `force`. The one exception is the stock
@@ -307,8 +307,10 @@ def write_planning_repo(
         overwrite=False,
         written=written,
     )
-    for name, text in render_systemd(planning).items():
-        _write(planning / "systemd" / name, text, overwrite=False, written=written)
+    # No systemd units here. One carries an absolute `WorkingDirectory`, so a
+    # unit written at init time names whoever ran init and is wrong for everyone
+    # who clones the repo afterwards. `abk install-timers` renders them on the
+    # machine that will run them, named for this installation.
 
     installed, _refused = skills.install(planning / ".claude" / "skills")
     written.extend(installed)

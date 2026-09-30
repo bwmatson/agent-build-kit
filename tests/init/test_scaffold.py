@@ -250,7 +250,10 @@ def test_the_planning_repo_is_laid_out(tmp_path: Path) -> None:
     assert "runs/unit-logs/" in (planning / ".gitignore").read_text()
     assert "GH_TOKEN" in (planning / ".env.example").read_text()
     assert "abk-pipeline" in (planning / "CLAUDE.md").read_text()
-    assert len(list((planning / "systemd").iterdir())) == 8
+    assert not (planning / "systemd").exists(), (
+        "units are rendered by `abk install-timers` on the machine that runs "
+        "them; one written here names whoever ran init"
+    )
     for name in ("abk-pipeline", "abk-authoring", "abk-config"):
         assert (planning / ".claude" / "skills" / name / "SKILL.md").exists()
     openspec_config = (planning / "openspec" / "config.yaml").read_text()

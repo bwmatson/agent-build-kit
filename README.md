@@ -54,14 +54,14 @@ uv run abk init . --repo ../app --repo ../platform
 ```
 
 `abk init` detects each repo, drafts `abk.yaml`, lays out the planning repo
-(OpenSpec store, state directory, systemd units, skills), researches a
+(OpenSpec store, state directory, skills), researches a
 tooling-recommendations document per language and asks a model to write each
 repo's first changes. Then:
 
 ```bash
 uv run abk doctor                        # is this installation runnable?
 uv run abk tick --dry-run                # what would build now
-cp systemd/abk-tick.* ~/.config/systemd/user/ && systemctl --user enable --now abk-tick.timer
+abk install-timers --enable
 ```
 
 Requirements: Python 3.12+, `uv`, `git`, and a client for each host a repo

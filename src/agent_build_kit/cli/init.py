@@ -133,7 +133,7 @@ def _planned_work(
     lines = [f"planning repo: {planning}"]
     lines += [
         "  git init, openspec init, abk.yaml, openspec/config.yaml, runs/, .gitignore,",
-        "  .env.example, CLAUDE.md, systemd/ (8 units), .claude/skills/ (3 skills)",
+        "  .env.example, CLAUDE.md, .claude/skills/ (3 skills)",
     ]
     if args.skip_research:
         lines.append("research: skipped")
@@ -326,7 +326,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         "`git config user.email <email>` (and user.name).\n"
         "  3. Log `gh` in for every GitHub owner in abk.yaml: `gh auth login`.\n"
         "  4. Copy .env.example to .env and fill what this machine needs.\n"
-        "  5. Run `abk doctor`, then install the timers from systemd/."
+        "  5. Run `abk doctor`, then `abk install-timers --enable`."
     )
     if failures:
         print(f"\n{len(failures)} change(s) need finishing by hand: {', '.join(failures)}")
@@ -366,7 +366,7 @@ def cmd_install_skills(args: argparse.Namespace, inst: Installation | None) -> i
 
 
 def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> int:
-    """Render this installation's systemd units onto this machine.
+    """Put this installation's systemd units on this machine, or take them off.
 
     Not written at init time: a unit carries an absolute `WorkingDirectory`, so
     one rendered into the planning repo names whoever ran init, and everyone who
@@ -381,19 +381,29 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         )
         return 2
 
-    written, refused = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run)
-    for path in written:
+    if args.remove:
+        change = timers.remove(inst.root, dry_run=args.dry_run)
+        for path in change.removed:
+            print(f"{'would remove' if args.dry_run else 'removed'} {path}")
+        if not change.removed:
+            print(f"nothing installed for {inst.root}")
+        return 0
+
+    change = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run)
+    for path in change.written:
         print(f"{'would write' if args.dry_run else 'wrote'} {path}")
-    for path in refused:
+    for path in change.unchanged:
+        print(f"unchanged {path}")
+    for path in change.refused:
         print(f"refused {path}: not written by agent-build-kit (no marker)")
 
-    if written and not args.dry_run:
+    if not args.dry_run and (change.written or change.unchanged):
         print(f"\nunits point at {inst.root}")
         if args.enable:
             print("timers enabled; `systemctl --user list-timers` shows when each next runs")
         else:
             print("nothing is scheduled yet: re-run with --enable, or enable them by hand")
-    return 1 if refused else 0
+    return 1 if change.refused else 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -427,5 +437,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     units.add_argument(
         "--enable", action="store_true", help="enable and start the timers once written"
     )
-    units.add_argument("--dry-run", action="store_true", help="print what would be written")
+    units.add_argument(
+        "--remove", action="store_true", help="stop, disable and delete this installation's units"
+    )
+    units.add_argument("--dry-run", action="store_true", help="print what would change")
     units.set_defaults(func=cmd_install_timers, needs_installation="optional")
