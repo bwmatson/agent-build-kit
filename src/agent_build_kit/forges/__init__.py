@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agent_build_kit.forges.base import (
     Forge,
+    PermittedCommand,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -66,12 +67,17 @@ def denies(tokens: list[str]) -> str:
 
     The union over every registered forge, not the current repo's: an agent in
     a GitHub checkout has no business completing an Azure pull request either,
-    and a union cannot be weakened by a wrong `forge:` field.
+    and a union cannot be weakened by a wrong `forge:` field. A command under a
+    denied prefix is allowed only when it matches a forge's `permitted_commands`
+    entry completely.
     """
     _load_builtin()
+    permitted = [command for forge in _REGISTRY.values() for command in forge.permitted_commands]
     for forge in _REGISTRY.values():
         for denied in forge.denied_commands:
             if tuple(tokens[: len(denied)]) == denied:
+                if any(command.matches(tokens) for command in permitted):
+                    continue
                 return f"{' '.join(denied)} is not the agent's to run"
     return ""
 
@@ -106,6 +112,7 @@ def _load_builtin() -> None:
 
 __all__ = [
     "Forge",
+    "PermittedCommand",
     "PullRequest",
     "RepoId",
     "ReviewNote",

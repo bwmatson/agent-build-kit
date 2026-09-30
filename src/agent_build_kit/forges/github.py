@@ -13,7 +13,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from agent_build_kit.forges.base import PullRequest, RepoId, ReviewNote, Run, key
+from agent_build_kit.forges.base import PermittedCommand, PullRequest, RepoId, ReviewNote, Run, key
 from agent_build_kit.pipeline import units
 from agent_build_kit.pipeline.shell import gh, gh_json, gh_out
 
@@ -51,6 +51,8 @@ class GitHubForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
+    # `gh pr close` and `gh pr ready` are not denied, so nothing needs an exception.
+    permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ("slug",)
 
     def parse_remote(self, url: str) -> RepoId | None:

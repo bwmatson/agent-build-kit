@@ -35,6 +35,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `implemented` | `cli/pipeline._build` | false holds a unit rather than failing it |
 | `deletes_head_branch_on_merge` | `events` | whether the remote branch is ours to clean up |
 | `denied_commands` | `command_policy`, the deny flags | command prefixes no agent may run, on any repo |
+| `permitted_commands` | `forges.denies` | exact command shapes allowed although a denied prefix covers them |
 | `requires` | `config.load` | the abk.yaml keys this forge cannot name a repo without |
 | `parse_remote(url)` | `abk init` | the repo an origin URL names, or None |
 | `identity(repo)` | everything | a `RepoId` from the repo's abk.yaml entry |
@@ -59,7 +60,8 @@ parts are free functions beside it rather than inherited behaviour.
 Two free functions sit beside the Protocol rather than on it: `forges.key(repo)`
 is the canonical identity string (`owner/name`, or `org/project/repo`) that
 `own-posts.json` and the poller's state files are keyed on, and
-`forges.denies(tokens)` folds every registered forge's `denied_commands`.
+`forges.denies(tokens)` folds every registered forge's `denied_commands`, less
+their `permitted_commands`.
 
 `post_reply` and `post_comment` return ids because only the forge knows what an
 id looks like, and what they return must be what the next poll's
@@ -94,6 +96,19 @@ have to fail before an agent can merge its own pull request.
 
 A forge that adds a command here must add it to `denied_commands` only; both
 layers read from there.
+
+`permitted_commands` carves out the calls the pipeline itself makes under a
+denied prefix. Azure DevOps permits `az repos pr update` only when every flag is
+spelled in full and on its list, with a permitted value: `--id` (an integer),
+`--status` (`abandoned` or `active`), `--draft` (`true` or `false`), `--org`,
+`--organization` and `--detect` (any), and `--output json`, which `az.call`
+appends. A match is of the whole shape, not a prefix: any other flag
+(`--auto-complete`, `--bypass-policy`, `--title`, ...), an abbreviation, a
+repeated flag, a missing value or a stray positional keeps the command denied.
+`--flag=value` and `--flag value` are both read. `az rest` and `az devops
+invoke` have no exception, and GitHub's list is empty (`gh pr close` is not
+denied). Only the `denies` layer reads the list: the runtime's deny flags are
+prefixes and stay whole, so an agent is still refused these commands there.
 
 ## Adding a forge
 

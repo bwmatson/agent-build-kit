@@ -17,6 +17,7 @@ functions here rather than inherited behaviour.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
@@ -88,6 +89,39 @@ class ReviewNote(Frozen):
     live: bool = True
 
 
+class PermittedCommand(Frozen):
+    """One exact command shape allowed under a denied prefix.
+
+    `flags` maps each permitted flag, spelled in full, to a regex its value
+    must match completely. Anything else about the command - another flag, an
+    abbreviation, a repeat, a missing value, a positional - is a different
+    shape and stays denied.
+    """
+
+    prefix: tuple[str, ...]
+    flags: tuple[tuple[str, str], ...]
+
+    def matches(self, tokens: list[str]) -> bool:
+        n = len(self.prefix)
+        if tuple(tokens[:n]) != self.prefix:
+            return False
+        allowed = dict(self.flags)
+        seen: set[str] = set()
+        rest = iter(tokens[n:])
+        for token in rest:
+            flag, joined, value = token.partition("=")
+            if flag not in allowed or flag in seen:
+                return False
+            seen.add(flag)
+            if not joined:
+                value = next(rest, "")
+                if value.startswith("--"):
+                    return False
+            if not re.fullmatch(allowed[flag], value):
+                return False
+        return True
+
+
 class Forge(Protocol):
     """The host a repo lives on."""
 
@@ -100,6 +134,9 @@ class Forge(Protocol):
     # Command prefixes no agent may run on any repo - merging, voting, and the
     # raw API escapes that reach both. Folded together by `denies`.
     denied_commands: tuple[tuple[str, ...], ...]
+    # The exact command shapes allowed although a denied prefix covers them,
+    # for the calls the pipeline itself makes. Empty when nothing needs one.
+    permitted_commands: tuple[PermittedCommand, ...]
     # The facts this forge cannot name a repo without, by their key in that
     # repo's abk.yaml entry (dotted for a nested block). A repo declaring this
     # forge and leaving one out fails at load, as a runtime selection does.

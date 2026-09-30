@@ -17,7 +17,7 @@ from collections.abc import Collection
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
-from agent_build_kit.forges.base import Run
+from agent_build_kit.forges.base import PermittedCommand, Run
 
 
 class StandInForge:
@@ -25,6 +25,7 @@ class StandInForge:
     implemented: bool = True
     deletes_head_branch_on_merge: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
+    permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ()
 
     def __init__(

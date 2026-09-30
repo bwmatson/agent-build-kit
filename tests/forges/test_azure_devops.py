@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import urllib.error
 from pathlib import Path
 
 import pytest
@@ -308,39 +307,77 @@ def test_retargeting_goes_through_the_rest_api() -> None:
     assert request.get_header("Authorization") == "Bearer a-token"
 
 
-def test_closing_abandons_through_the_rest_api() -> None:
-    """No CLI command reaches this either: `az repos pr update --status` is
-    in `denied_commands`, so this codebase has no business running it, and the
-    REST PATCH is the only way left."""
-    seen: list = []
+def test_closing_abandons_through_the_cli_with_a_shape_the_deny_list_accepts() -> None:
+    """The pipeline's own argv and the exception list cannot drift apart: the
+    command `close_pr` runs is one `forges.denies` lets through."""
+    calls: list[list[str]] = []
 
-    def open_url(request, timeout=None):
-        seen.append(request)
-        return _Answer("{}")
+    FORGE.close_pr(REPO, 41, run=answering({}, calls=calls))
 
-    def token(args, **kwargs):
-        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
-
-    FORGE.close_pr(REPO, 41, run=token, open_url=open_url)
-
-    [request] = seen
-    assert request.get_method() == "PATCH"
-    assert json.loads(request.data.decode()) == {"status": "abandoned"}
-    assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
+    [argv] = calls
+    assert argv[:4] == ["az", "repos", "pr", "update"]
+    assert argv[argv.index("--id") + 1] == "41"
+    assert argv[argv.index("--status") + 1] == "abandoned"
+    assert forges.denies(argv) == ""
 
 
 def test_a_close_that_fails_raises() -> None:
     """The caller records the failure and leaves the unit satisfied either
     way, but it has to be told the close did not happen."""
 
-    def open_url(request, timeout=None):
-        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
-
-    def token(args, **kwargs):
-        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
+    def run(args, **kwargs):
+        return subprocess.CompletedProcess(args, 1, "", "TF401019: not found")
 
     with pytest.raises(AzError):
-        FORGE.close_pr(REPO, 41, run=token, open_url=open_url)
+        FORGE.close_pr(REPO, 41, run=run)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "az repos pr update --id 5 --status abandoned",
+        "az repos pr update --id=5 --status=abandoned",
+        "az repos pr update --id 5 --status active",
+        "az repos pr update --id 5 --status=active",
+        "az repos pr update --id 5 --draft true",
+        "az repos pr update --id 5 --draft false",
+        "az repos pr update --id=5 --draft=true",
+        "az repos pr update --id=5 --draft=false",
+        "az repos pr update --id 5 --status abandoned --org https://dev.azure.com/acme",
+        "az repos pr update --id 5 --status abandoned --organization=x --detect true",
+    ],
+)
+def test_the_permitted_update_shapes_are_allowed(command: str) -> None:
+    assert forges.denies(command.split()) == ""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "az repos pr update --id 5 --status completed",
+        "az repos pr update --id 5 --status abandoned --auto-complete true",
+        "az repos pr update --id 5 --status abandoned --bypass-policy true",
+        "az repos pr update --id 5 --status abandoned --squash true",
+        "az repos pr update --id 5 --status abandoned --delete-source-branch true",
+        "az repos pr update --id 5 --status abandoned --merge-commit-message x",
+        "az repos pr update --id 5 --title x",
+        "az repos pr update --id 5 --stat abandoned",
+        "az repos pr update --id 5 --status abandoned --auto-c true",
+        "az repos pr update --id 5 --description x",
+        "az repos pr update --id five --status abandoned",
+        "az repos pr update --id 5 --status abandoned --status active",
+        "az repos pr update --id 5 --status",
+        "az repos pr update --id 5 --status --draft true",
+        "az repos pr update --id 5 --status abandoned extra",
+        "az repos pr update --id 5 --draft maybe",
+        "az repos pr set-vote --id 5 --vote approve",
+        "az repos policy create",
+        "az rest --method patch --url https://x --body {status:abandoned}",
+        "az devops invoke --area git --resource pullRequests",
+    ],
+)
+def test_anything_else_under_a_denied_prefix_stays_denied(command: str) -> None:
+    assert forges.denies(command.split()), command
 
 
 class _Answer:
