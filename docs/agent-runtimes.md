@@ -7,11 +7,15 @@ every call site going through `AgentRuntime.run()`, choosing a runtime in
 `abk.yaml` or the environment, per-runtime model names, and the `doctor` and
 `init` runtime checks are in place. The `acp` adapter (`runtimes/acp.py`, behind
 the `acp` extra) runs a prompt, maps each end-of-turn reason, selects a model
-and streams progress; a request for a named `worktree` it refuses as a failed
-result rather than run in `cwd`. Its client capabilities, permission
-answering and `check_policy` are not yet implemented, so it stays
-unregistered and Claude Code is still the only registered runtime. This
-document specifies the whole shape, so that adding a second runtime is
+and streams progress; a request for a named `worktree` it refuses as a
+failed result rather than run in `cwd`. Its client capabilities, permission
+answering and `check_policy` are now implemented too (see "Policy enforcement
+without a hook contract" and "Proving the constraint: `check_policy`" below),
+but it still stays unregistered — `runtimes/__init__.py`'s `_load_builtin`
+registers only `claude_code`, since importing `runtimes.acp` unconditionally
+would fail every installation that has not opted into the `acp` extra — so
+Claude Code remains the only runtime a workspace can actually select today.
+This document specifies the whole shape, so that adding a second runtime is
 writing an adapter against a fixed Protocol, not another round of the same
 subprocess plumbing.
 
@@ -442,12 +446,16 @@ this machine. `check_policy` establishes the fact.
   passed as flags.
 - **A probe run, otherwise.** In a throwaway worktree with no remote, the
   adapter asks the agent to attempt one representative command per forbidden
-  class — a force push, an amend, a merge of a pull request, a write into the
-  specs directory. A class passes when abk either receives a permission
-  request it can reject or the agent reports the attempt blocked; it fails
-  when the command ran. The command shapes come from abk's own
-  `command_policy` and `forges.denies()`, so this names no product, and every
-  attempt is harmless in that worktree even if it does run.
+  class — a bare force push, an amend, a skipped commit gate, a merge of a
+  pull request, and so on. A class passes only when the attempt reached abk
+  and was refused there: a terminal request the rules refused, or a permission
+  request answered with a refusing option. Every other class — never
+  attempted, run without asking, allowed by the rules, or cut off because no
+  refusing option was on offer — is reported unenforced. A probe run that
+  itself fails (the agent does not start, or errors) is an error, not a
+  report. The command shapes come from abk's own `command_policy` (a test
+  holds the list to it), so this names no product, and every attempt is
+  harmless in that worktree even if it does run.
 - **`abk init` asks before changing anything.** It runs the check for the
   configured runtime, prints each unenforced class in abk's own words, and
   offers to run `runtimes.<name>.policy_fix` — a command the installation
@@ -513,7 +521,7 @@ packaging detail inside `skills/`, not a Protocol method.
 
 ## Migration steps
 
-Steps 1 to 4 are done; 5 is not.
+Steps 1 to 5 are done; registering `acp` as a selectable runtime is not.
 
 1. Add `runtimes/base.py` — the Protocol and value objects above — and
    `runtimes/__init__.py` with the registry (`get`, `register`,
@@ -544,7 +552,8 @@ Steps 1 to 4 are done; 5 is not.
    "Selecting a runtime"; add a `_runtime` check to `abk doctor` and the
    `check_policy` ask to `abk init`.
 5. Add `runtimes/acp.py` behind an `acp` extra, with the permission handling
-   and client capabilities described above.
+   and client capabilities described above. Done, but not registered — see
+   the status paragraph above.
 
 Unlike an unimplemented `ToolchainProfile` — which affects one repo's commands
 and simply holds that repo's units — an unimplemented or misconfigured
@@ -558,7 +567,7 @@ message.
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
 |---|---|---|---|---|---|---|
 | `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
-| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **partly implemented**, as `runtimes/acp.py`: runs, outcomes, models and progress; not yet enforcement or `check_policy` |
+| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **implemented**, as `runtimes/acp.py`: runs, outcomes, models, progress, enforcement and `check_policy`; not yet registered (see the status paragraph at the top) |
 
 ## Open questions
 
