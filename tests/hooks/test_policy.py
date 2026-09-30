@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.hooks.policy import decide
+from agent_build_kit.pipeline.command_policy import check_command
 
 # tests/ mirrors the source layout, so the repo root is two levels up.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -257,3 +258,53 @@ def test_the_settings_are_passed_per_run_not_written_globally() -> None:
     from agent_build_kit.hooks.policy import hook_settings
 
     assert "python" in hook_settings(Path("/repo"))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+
+# --- the planning repo is the pipeline's to commit to ---------------------------
+
+PLANNING = "/srv/planning"
+BRANCH_CHANGES = (
+    "checkout -b feature",
+    "switch -c feature",
+    "branch -f main HEAD~1",
+    "reset HEAD~1",
+    "cherry-pick abc123",
+    "checkout feature",
+    "checkout main",
+    "worktree add -b feature ../wt",
+)
+
+
+@pytest.mark.parametrize("change", BRANCH_CHANGES)
+def test_a_track_agent_cannot_change_the_planning_repo_s_branches(change: str) -> None:
+    for command in (f"git -C {PLANNING} {change}", f"cd {PLANNING} && git {change}"):
+        verdict = check_command(command, branch="main", planning_repo=Path(PLANNING))
+
+        assert not verdict.allowed, command
+        assert "pipeline commits" in verdict.reason
+
+
+@pytest.mark.parametrize("change", BRANCH_CHANGES)
+def test_the_same_commands_are_allowed_in_the_code_repo(change: str) -> None:
+    for command in (f"git -C /srv/app-worktree {change}", f"cd /srv/app-worktree && git {change}"):
+        verdict = check_command(command, branch="main", planning_repo=Path(PLANNING))
+
+        assert verdict.allowed, command
+
+
+def test_reading_the_planning_repo_is_still_allowed() -> None:
+    verdict = check_command(
+        f"git -C {PLANNING} log --oneline", branch="main", planning_repo=Path(PLANNING)
+    )
+
+    assert verdict.allowed
+
+
+def test_the_hook_carries_the_planning_repo_to_the_policy(repo: Path) -> None:
+    answer = decide(
+        payload(f"git -C {PLANNING} checkout -b feature", cwd=str(repo)),
+        planning_repo=Path(PLANNING),
+    )
+
+    assert answer is not None
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"

@@ -38,8 +38,7 @@ with empty "Pending resolution" and "Rejected" sections if it doesn't
 exist yet), same as `health.md`/`improve.md` do — for each "Pending
 resolution" entry (every project's), check `gh pr view <url> --json
 state -q .state`: `MERGED` → remove it; `CLOSED` (without merging) → move
-to "Rejected." Commit these edits together with everything else at the
-end (step 5).
+to "Rejected." The pipeline commits these edits with everything else you write in the planning repo.
 
 ## 2. Check whether last run's open candidates have already been resolved
 
@@ -121,8 +120,4 @@ into a one-liner>
 often than not for this phase)
 ```
 
-Commit and push both this file and your `tracked-issues.md` edits from
-steps 1 and 2 together, directly to the planning repo's default branch
-(the branch it's checked out on) — bookkeeping, not application code, so
-neither needs its own PR. Stage only those files by path — never
-`git add -A` in the planning repo.
+The pipeline commits and pushes what you write in the planning repo (this file and your `tracked-issues.md` edits) — don't run git there, and leave its branch as it is.

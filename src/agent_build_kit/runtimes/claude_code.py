@@ -122,12 +122,21 @@ def build_argv(request: AgentRequest) -> list[str]:
     for directory in request.add_dirs:
         argv += ["--add-dir", str(directory)]
     denied = request.denied_tools
+    planning = {
+        "planning_repo": request.planning_repo,
+        "planning_state_dir": request.planning_state_dir,
+    }
     if request.policy is not None:
         settings = hook_settings(
-            request.policy.specs_dir, branch_prefix=request.policy.branch_prefix
+            request.policy.specs_dir, branch_prefix=request.policy.branch_prefix, **planning
         )
         argv += ["--settings", json.dumps(settings)]
         denied = f"{disallowed()} {denied}".strip()
+    elif request.planning_repo is not None:
+        settings = hook_settings(
+            None, branch_prefix=config.active().github.branch_prefix, **planning
+        )
+        argv += ["--settings", json.dumps(settings)]
     if request.allowed_tools:
         argv += ["--allowedTools", request.allowed_tools]
     if denied:

@@ -48,6 +48,11 @@ from agent_build_kit.pipeline.events import (
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
+from agent_build_kit.pipeline.planning_repo import (
+    default_branch_of,
+    is_repo,
+    restore_default_branch,
+)
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
@@ -281,6 +286,11 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     Ordering matters in one place: the usage check comes first, so a low
     window stops the tick before it spends anything on planning.
     """
+    if is_repo(inst.root) and not restore_default_branch(
+        inst.root, default_branch_of(inst.root), log
+    ):
+        return 1
+
     # First, and silently: the timer fires every few minutes whether or not
     # there is anything to do, and an idle tick should cost nothing — not a
     # usage read, not a GitHub call, not a log line each time.

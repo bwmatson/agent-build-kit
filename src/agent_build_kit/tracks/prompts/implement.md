@@ -40,7 +40,7 @@ check its PR's real state: `gh pr view <url> --json state -q .state`.
 - `CLOSED` (without merging) → move it to the "Rejected" section instead.
 - `OPEN` → leave it as-is.
 
-Commit these edits together with everything else at the end (step 5).
+The pipeline commits these edits with everything else you write in the planning repo.
 
 ## 1. Find something to act on
 
@@ -180,10 +180,4 @@ exact path, not a timestamp you generate yourself — covering: the issues
 you identified and which candidate you picked for each (and why it beat
 other candidates on the same issue, if any), what you did, the PR
 link(s) (or why you stopped without one), and any candidate you skipped
-because it belongs to another repo or needs a multi-repo change. Commit
-and push this file together with your `tracked-issues.md` edits from
-steps 0 and 3, and any source run-log marker edits from steps 1 and 3,
-all in one commit, directly to the planning repo's default branch (the
-branch it's checked out on) — bookkeeping, not application code, so
-none of it needs its own PR. Stage only those files by path — never
-`git add -A` in the planning repo.
+because it belongs to another repo or needs a multi-repo change. The pipeline commits and pushes what you write in the planning repo (this file, your `tracked-issues.md` edits and any source run-log marker edits) — don't run git there, and leave its branch as it is.

@@ -23,8 +23,10 @@ agent owns.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
+from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.config import active
@@ -227,14 +229,76 @@ def _check_push(tokens: list[str], branch: str) -> Verdict:
     return Verdict(allowed=True)
 
 
-def check_command(command: str, *, branch: str) -> Verdict:
+PLANNING_REASON = (
+    "the pipeline commits the planning repo itself and keeps it on its default branch — "
+    "write the files and leave the branches, resets and cherry-picks to it"
+)
+
+BRANCH_LISTING = {"-l", "--list", "-a", "--all", "-r", "--remotes", "-v", "-vv", "--show-current"}
+
+
+def _git_target(tokens: list[str], current: str | None) -> tuple[str | None, list[str]]:
+    """The directory a git command acts on (its `-C`, else the directory last
+    `cd`ed to) and its arguments from the subcommand on."""
+    target = current
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] == "-C" and index + 1 < len(tokens):
+            target = tokens[index + 1]
+        index += 2 if tokens[index] in ("-C", "-c") else 1
+    return target, tokens[index:]
+
+
+def _moves_branches(args: list[str]) -> bool:
+    """A git subcommand that creates, switches or moves a branch, or rewrites history."""
+    if not args:
+        return False
+    sub, rest = args[0], args[1:]
+    if sub in ("switch", "reset", "cherry-pick"):
+        return True
+    if sub == "checkout":
+        # Only a path restore (`checkout -- <paths>`) leaves the branch alone.
+        return "--" not in rest or any(arg in ("-b", "-B", "--orphan") for arg in rest)
+    if sub == "worktree":
+        return rest[:1] == ["add"] and any(arg in ("-b", "-B") for arg in rest)
+    if sub == "branch":
+        return any(arg not in BRANCH_LISTING for arg in rest)
+    return False
+
+
+def _inside(path: str, root: Path) -> bool:
+    return Path(os.path.normpath(path)).is_relative_to(os.path.normpath(root))
+
+
+def _check_planning(segment: str, planning_repo: Path, current: str | None) -> Verdict:
+    tokens = _strip_wrappers(_tokens(segment))
+    if not tokens or tokens[0] != "git":
+        return Verdict(allowed=True)
+    target, args = _git_target(tokens, current)
+    if target is not None and _inside(target, planning_repo) and _moves_branches(args):
+        return Verdict(allowed=False, reason=PLANNING_REASON)
+    return Verdict(allowed=True)
+
+
+def _cd_target(segment: str) -> str | None:
+    tokens = _tokens(segment)
+    return tokens[1] if len(tokens) == 2 and tokens[0] == "cd" else None
+
+
+def check_command(command: str, *, branch: str, planning_repo: Path | None = None) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 
     Every segment is checked, so a denied command behind `&&`, `;` or a pipe
-    is still denied.
+    is still denied. With `planning_repo` set (a track run), commands that move
+    that repo's branches are refused too: the pipeline commits there.
     """
+    current: str | None = None
     for segment in SEGMENT_SPLIT.split(command):
-        verdict = _check_segment(segment.strip(), branch)
+        segment = segment.strip()
+        verdict = _check_segment(segment, branch)
+        if verdict.allowed and planning_repo is not None:
+            verdict = _check_planning(segment, planning_repo, current)
         if not verdict.allowed:
             return verdict
+        current = _cd_target(segment) or current
     return Verdict(allowed=True)

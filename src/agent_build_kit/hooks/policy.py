@@ -96,7 +96,9 @@ def _checkout_of(path: Path) -> Path | None:
     return Path(top).resolve() if top else None
 
 
-def _check_file_write(payload: dict, specs: Path | None) -> dict | None:
+def _check_file_write(
+    payload: dict, specs: Path | None, planning_state_dir: Path | None = None
+) -> dict | None:
     target = (payload.get("tool_input") or {}).get("file_path") or (
         payload.get("tool_input") or {}
     ).get("notebook_path")
@@ -130,6 +132,15 @@ def _check_file_write(payload: dict, specs: Path | None) -> dict | None:
         )
     if path.is_relative_to(worktree):
         return None
+    # A track run's own bookkeeping: the Markdown run logs and tracker the
+    # runner commits. The rest of the planning repo, including the tick's live
+    # JSON state in the same directory, stays out of reach.
+    if (
+        planning_state_dir is not None
+        and path.suffix == ".md"
+        and path.is_relative_to(planning_state_dir.resolve())
+    ):
+        return None
     if path.is_relative_to(Path(tempfile.gettempdir()).resolve()) and _checkout_of(path) is None:
         return None
     return _deny(
@@ -140,11 +151,17 @@ def _check_file_write(payload: dict, specs: Path | None) -> dict | None:
     )
 
 
-def decide(payload: dict, *, specs: Path | None = None) -> dict | None:
+def decide(
+    payload: dict,
+    *,
+    specs: Path | None = None,
+    planning_repo: Path | None = None,
+    planning_state_dir: Path | None = None,
+) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
         if payload.get("tool_name") in FILE_TOOLS:
-            return _check_file_write(payload, specs)
+            return _check_file_write(payload, specs, planning_state_dir)
         if payload.get("tool_name") != "Bash":
             return None
 
@@ -166,7 +183,7 @@ def decide(payload: dict, *, specs: Path | None = None) -> dict | None:
                 "so it cannot tell whether this command is allowed there"
             )
 
-        verdict = check_command(command, branch=branch)
+        verdict = check_command(command, branch=branch, planning_repo=planning_repo)
         if verdict.allowed:
             return None
         return _deny(verdict.reason)
@@ -178,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--specs", type=Path, default=None)
     parser.add_argument("--branch-prefix", default=None)
+    parser.add_argument("--planning-repo", type=Path, default=None)
+    parser.add_argument("--planning-state-dir", type=Path, default=None)
     try:
         args = parser.parse_args(argv)
         if args.branch_prefix:
@@ -197,13 +216,24 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(_deny(f"the policy hook could not read its input ({error!r})")))
         return 0
 
-    answer = decide(payload, specs=args.specs)
+    answer = decide(
+        payload,
+        specs=args.specs,
+        planning_repo=args.planning_repo,
+        planning_state_dir=args.planning_state_dir,
+    )
     if answer is not None:
         print(json.dumps(answer))
     return 0
 
 
-def hook_settings(specs: Path | None, *, branch_prefix: str = "spec/") -> dict:
+def hook_settings(
+    specs: Path | None,
+    *,
+    branch_prefix: str = "spec/",
+    planning_repo: Path | None = None,
+    planning_state_dir: Path | None = None,
+) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
     Passed per run rather than written into the user's global settings: the
@@ -213,10 +243,16 @@ def hook_settings(specs: Path | None, *, branch_prefix: str = "spec/") -> dict:
 
     `specs` is the directory a build agent may read but not write; None for a
     run whose job is to write there (a proposal into the planning repo).
+    `planning_repo` is set for a track run: its branches are the pipeline's.
+    `planning_state_dir` is where in it that run may write its run log.
     """
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
         command += f" --specs {specs}"
+    if planning_repo is not None:
+        command += f" --planning-repo {planning_repo}"
+    if planning_state_dir is not None:
+        command += f" --planning-state-dir {planning_state_dir}"
     return {
         "hooks": {
             "PreToolUse": [

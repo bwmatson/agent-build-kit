@@ -9,10 +9,12 @@ and, under Claude Code, the very command the runner sent before.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
@@ -83,6 +85,9 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
         "--disallowedTools": runner.denied_tools_value("Bash(rm *)"),
         "--model": "haiku",
         "--output-format": "json",
+        "--settings": json.dumps(
+            hook_settings(None, planning_repo=inst.root, planning_state_dir=inst.state_dir)
+        ),
     }
     assert fake.calls[0][1] == app.path
     output = runner.raw_output_dir(inst) / f"{runner.RUN_ID}-app-implement.json"
