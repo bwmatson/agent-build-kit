@@ -315,22 +315,26 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     if not has_work(inst, store_for(inst)):
         return 0
 
+    # A pause is not a lock: the guard is asked again on every tick, so a
+    # threshold raised by hand, or the ramp offering room before the reset,
+    # ends it at the next tick. Only the model's own refusal is kept to its
+    # deadline. See `pause`.
     paused = is_paused(_paused_marker(inst))
-    if paused:
+    if paused and paused.kind == "rate_limit":
         log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
         return 0
 
     reading = current_usage()
     decision = may_start_unit(reading)
     if not decision.may_start:
-        state = pause_until(
-            reading.resets_at if reading else None,
-            reason=decision.reason,
-            marker=_paused_marker(inst),
+        state = pause_until(decision.resume_at, reason=decision.reason, marker=_paused_marker(inst))
+        log(
+            f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC} — {decision.reason}"
         )
-        log(f"pausing until {state.until:%H:%M UTC} — {decision.reason}")
         return 0
 
+    if paused:
+        log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
     clear_pause(_paused_marker(inst))
     log(decision.reason)
 
@@ -1033,7 +1037,10 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 when = reading.resets_at if reading else None
 
             state = pause_until(
-                when, reason=f"rate limited during {unit.id}", marker=_paused_marker(inst)
+                when,
+                reason=f"rate limited during {unit.id}",
+                marker=_paused_marker(inst),
+                kind="rate_limit",
             )
             end(f"rate limited — pausing until {state.until:%H:%M UTC}")
             return False
@@ -1058,12 +1065,15 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
             # Re-read rather than reuse the tick's reading: the guard said no
             # after the units before this one ran, so the window has moved, and a
             # resume scheduled from the stale figure wakes up into a full window.
+            # The guard's own answer to when, which counts the ramp towards
+            # the reset — not the reset itself, which it can be well before.
             reading = current_usage()
-            state = pause_until(
-                reading.resets_at if reading else None,
-                reason=outcome.detail,
-                marker=_paused_marker(inst),
-            )
+            decision = may_start_unit(reading)
+            if not decision.may_start and decision.resume_at:
+                until = decision.resume_at
+            else:
+                until = reading.resets_at if reading else None
+            state = pause_until(until, reason=outcome.detail, marker=_paused_marker(inst))
             log(f"pausing until {state.until:%H:%M UTC}")
             return False
         return True

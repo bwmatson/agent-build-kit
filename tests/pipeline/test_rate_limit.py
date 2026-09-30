@@ -153,7 +153,6 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
     from tests.conftest import make_installation
 
     inst = make_installation(tmp_path, planning={"state_dir": "."})
-    monkeypatch.setattr(pause, "systemd_resume", lambda seconds, command, **k: None)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([Unit(id="c/1", change="c", title="A", repo="app", tier="tier1", groups=(1,))])
 
@@ -169,7 +168,8 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
 
     assert keep_going is False, "no retry loop: the rest of the round is abandoned"
     assert store.get("c/1").state != "failed"
-    assert (tmp_path / "paused.json").exists()
+    held = pause.is_paused(tmp_path / "paused.json")
+    assert held is not None and held.kind == "rate_limit"
 
 
 def test_a_claude_killed_by_a_signal_is_interrupted(tmp_path: Path) -> None:

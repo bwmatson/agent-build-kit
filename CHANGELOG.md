@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A usage pause lasts until the guard's own answer — the moment the ramp towards
+  a window's reset offers room — instead of until the reset, and it ends on the
+  first tick the guard allows: a paused tick asks again rather than sleeping to
+  its deadline, so a threshold raised by hand takes effect at once. A pause no
+  longer schedules a transient systemd resume; the tick timer is the resume. A
+  rate-limit refusal from the model is still kept to its deadline.
+
 - A unit fetches its repo before it restacks and again before it pushes, asks
   the forge whether its parent merged (recording a merge the store missed) and
   moves onto the base as it now is. The move before a push never runs the

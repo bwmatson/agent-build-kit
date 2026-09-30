@@ -454,13 +454,16 @@ when a window resets is lost, so each window's threshold ramps from
 five-hour reset, the week against the seven-day one. The ceiling is validated
 below 100, so relief never reaches the point where credits pay.
 
-A pause writes `runs/paused.json` with a deadline and reason and schedules its
-own resume — a `systemd-run --user` transient unit running `uv run abk tick`
-at the moment the ramp would clear the current usage plus
+A pause writes `runs/paused.json` with a deadline, a reason and a kind. The
+deadline is the moment the ramp would clear the current usage plus
 `limits.usage_resume_buffer_pct`, else just after the window resets, else
-thirty minutes later when nothing says when. No resume is scheduled more than
-six hours out, so a weekly window resetting days away re-reads rather than
-sleeping through everything. A `claude` call refused
+thirty minutes later when nothing says when, and never more than six hours out.
+It schedules nothing: the tick timer already runs every few minutes, and a
+paused tick asks the guard again, so the first tick the guard allows clears the
+marker — whether the ramp got there, the window reset, or someone raised the
+threshold. The one exception is a pause the model itself caused (a rate-limit
+refusal): the usage endpoint can show room it has just refused, so that pause
+is kept to its deadline without asking. A `claude` call refused
 mid-unit with a rate-limit message pauses too; a `claude` killed by a signal
 leaves the unit `running` for the next tick's `reclaim_stale`, which commits
 whatever the run left and requeues it at the step it was in.

@@ -18,7 +18,7 @@ import fcntl
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -62,7 +62,6 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     """Everything around building stubbed: GitHub, the network, planning,
     live verification and the usage window. Tests about those replace the
     stub they need."""
-    monkeypatch.setattr(pause, "systemd_resume", lambda seconds, command, **k: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
@@ -328,6 +327,29 @@ def test_a_build_that_says_stop_ends_scheduling(
     assert builder.started == ["feature/1", "feature/2"]
     assert builder.store.get("feature/3").state == PLANNED
     assert not (tmp_path / "paused.json").exists()
+
+
+def test_a_build_that_pauses_waits_for_the_ramp_not_the_reset(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A unit that stops between steps records the guard's own answer to when,
+    which counts the ramp towards the reset."""
+    inst = workspace(tmp_path, max_concurrent=1)
+    builder.store.upsert([stored("feature/1")])
+    builder.scripts["feature/1"] = lambda: "paused"
+    ramp = datetime.now(UTC) + timedelta(minutes=35)
+    answers = iter([Decision(may_start=True, reason="room")])
+    monkeypatch.setattr(
+        cli,
+        "may_start_unit",
+        lambda r: next(answers, Decision(may_start=False, reason="session", resume_at=ramp)),
+    )
+
+    assert tick(inst) == 0
+
+    state = pause.is_paused(tmp_path / "paused.json")
+    assert state is not None
+    assert state.until == ramp + pause.RESUME_GRACE
 
 
 def test_a_pause_recorded_by_a_build_still_running_ends_scheduling(
