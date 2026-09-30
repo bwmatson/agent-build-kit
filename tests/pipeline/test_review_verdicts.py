@@ -17,9 +17,9 @@ import pytest
 
 from agent_build_kit.config import active
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests.factories import unit
-from tests.pipeline.test_stack_runner import Recorder, make_runner
+from tests.pipeline.test_stack_runner import Recorder, approving, make_runner
 
 FOLLOW_UPS = Path("openspec") / "changes" / "add-marker" / "follow-ups.md"
 
@@ -62,6 +62,9 @@ def test_every_round_is_told_its_number_what_is_left_and_what_running_out_costs(
         assert f"round {number} of {total}" in note, "the first round is told too"
         assert f"{total - number} remaining" in note
         assert "not merged" in note, "what ending without approval costs"
+        assert "starts from nothing" not in note, (
+            "the work is pushed and held, not discarded — every round should say so"
+        )
 
 
 def test_the_final_round_says_it_is_final(tmp_path: Path) -> None:
@@ -121,6 +124,10 @@ def test_an_approval_with_follow_ups_approves_and_records_them_against_the_chang
     assert "Name the lock after what it guards" in later.prompts[0], (
         "the change's next unit is built knowing what was left"
     )
+    assert "Name the lock after what it guards" in later.prompts[1], (
+        "a unit resumed at IMPLEMENT skips the tests prompt, so the "
+        "implementation prompt needs the same note"
+    )
 
 
 def test_the_reviewer_is_told_what_it_may_defer_and_when_to_escalate() -> None:
@@ -133,6 +140,130 @@ def test_the_reviewer_is_told_what_it_may_defer_and_when_to_escalate() -> None:
         assert kind in review, f"{kind} is named as never deferrable"
     assert '"class"' in review
     assert '"disagreement"' in review
+
+
+def test_an_unreadable_follow_up_item_blocks_rather_than_being_dropped(tmp_path: Path) -> None:
+    """`FollowUp` is `Frozen` (`extra=\"forbid\"`): an item with an extra key,
+    or missing `point`, fails validation. Dropping it silently would let
+    `approved: true` through over whatever it was trying to say."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [
+        json.dumps(
+            {
+                "approved": True,
+                "feedback": "",
+                "follow_ups": [{"kind": "correctness", "point": "the lock leaks", "file": "a.py"}],
+            }
+        ),
+        approving(),
+    ]
+
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert recorder.events.count("review") == 2, "not approved on the strength of the bad item"
+    rework_prompt = next(p for p in recorder.prompts if "review of this branch" in p)
+    assert "the lock leaks" in rework_prompt, "the point survives, even though the shape did not"
+    assert outcome.status == "open"
+
+
+def test_a_bare_string_follow_up_also_blocks_rather_than_being_dropped(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [
+        json.dumps({"approved": True, "feedback": "", "follow_ups": ["fix the lock"]}),
+        approving(),
+    ]
+
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert recorder.events.count("review") == 2
+    rework_prompt = next(p for p in recorder.prompts if "review of this branch" in p)
+    assert "fix the lock" in rework_prompt
+    assert outcome.status == "open"
+
+
+def test_a_follow_up_survives_a_later_push_that_does_not_repeat_it(tmp_path: Path) -> None:
+    """A follow-up is deferred once, not repeated on every later verdict — so
+    the PR reviewer must still see it after a resume, a PR-comment rework, or
+    a plain approval that carries none of its own."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [
+        json.dumps(
+            {
+                "approved": True,
+                "feedback": "",
+                "follow_ups": [{"kind": "optional", "point": "Name the lock after what it guards"}],
+            }
+        )
+    ]
+    bodies: list[str] = []
+    _capturing_prs(make_runner(store, recorder, tmp_path), bodies).run(
+        unit(), base="main", graph=[]
+    )
+    assert "Name the lock after what it guards" in bodies[0]
+
+    store.set_feedback(unit().id, "tidy the error message")
+    later = Recorder()
+    later.verdicts = [approving()]
+    _capturing_prs(make_runner(store, later, tmp_path), bodies).run(
+        store.get(unit().id), base="main", graph=[]
+    )
+
+    assert "Name the lock after what it guards" in bodies[1], (
+        "a later push must not lose an earlier round's follow-up"
+    )
+
+
+def test_repeating_the_same_follow_up_does_not_duplicate_its_record(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    verdict = json.dumps(
+        {
+            "approved": True,
+            "feedback": "",
+            "follow_ups": [{"kind": "optional", "point": "Name the lock after what it guards"}],
+        }
+    )
+    recorder = Recorder()
+    recorder.verdicts = [verdict]
+    make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    store.set_feedback(unit().id, "tidy something else")
+    later = Recorder()
+    later.verdicts = [verdict]
+    make_runner(store, later, tmp_path).run(store.get(unit().id), base="main", graph=[])
+
+    recorded = (tmp_path / "meta" / FOLLOW_UPS).read_text()
+    assert recorded.count("Name the lock after what it guards") == 1
+    assert recorded.count(f"## From `{unit().id}`") == 1
+
+
+def test_a_tier_1_failure_after_approval_leaves_no_follow_up_block(tmp_path: Path) -> None:
+    """Recorded only after the push succeeds: a follow-up for work that never
+    left the machine would describe nothing real."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(tier1_ok=False)
+    recorder.verdicts = [
+        json.dumps(
+            {
+                "approved": True,
+                "feedback": "",
+                "follow_ups": [{"kind": "optional", "point": "Name the lock after what it guards"}],
+            }
+        )
+    ]
+
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    path = tmp_path / "meta" / FOLLOW_UPS
+    assert not path.exists() or f"## From `{unit().id}`" not in path.read_text()
 
 
 # 1.3 — what may not be deferred
@@ -268,6 +399,31 @@ def test_a_point_raised_again_after_the_builder_declined_it_holds_the_unit(
     assert stored.approved == ""
 
 
+def test_an_escalation_with_no_earlier_round_is_an_ordinary_rejection(tmp_path: Path) -> None:
+    """A class escalation needs an earlier round to be another instance of; a
+    disagreement needs a declined point already on the record. Round one has
+    neither, so the verdict is treated as a rejection and goes to rework
+    instead of holding the unit with nothing behind it."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [
+        _verdict(
+            feedback="this pattern cannot be enumerated",
+            escalate="class",
+            reasoning="a list of spellings for this cannot be complete",
+        ),
+        _verdict(approved=True),
+    ]
+
+    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert recorder.events.count("review") == 2, "round one did not hold the unit"
+    assert "claude:rework" in recorder.events
+    assert outcome.status == "open"
+    assert store.get(unit().id).state != HELD
+
+
 # 1.5 — spent rounds
 
 
@@ -307,3 +463,29 @@ def test_spent_rounds_push_the_branch_report_the_points_and_hold_the_unit(
     assert stored.approved == "", "nothing is marked approved"
     assert True not in statuses, "no passing status for unapproved work"
     assert "- [x]" not in tasks.read_text(), "no task is recorded as done"
+
+
+def test_spending_the_rounds_still_checks_the_last_gate_before_a_push(tmp_path: Path) -> None:
+    """The normal path checks `upstream_incomplete`/`base_moved` right before
+    it pushes, because a base that moved underneath the build would otherwise
+    put the parent's old commits in this unit's diff. Running out of rounds
+    must not skip that gate just because it takes a different path to the
+    push."""
+    total = active().limits.max_review_rounds
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    recorder.verdicts = [_verdict(feedback="still no")] * total
+    runner = make_runner(store, recorder, tmp_path)
+    runner.upstream_incomplete = lambda u: (
+        "its base moved while the rounds ran" if recorder.events.count("review") >= total else ""
+    )
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "held"
+    assert "push" not in recorder.events
+    assert "pr" not in recorder.events
+    stored = store.get(unit().id)
+    assert stored.state == PLANNED
+    assert "still no" in stored.feedback, "the last round's points survive the hold"

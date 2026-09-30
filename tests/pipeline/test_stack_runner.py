@@ -888,7 +888,9 @@ def test_what_the_reviewer_last_said_survives_the_failure(tmp_path: Path) -> Non
 
 def test_an_unreadable_verdict_does_not_pass_the_branch(tmp_path: Path) -> None:
     """A reviewer whose answer cannot be parsed has not approved anything.
-    Reading it as approval would make a broken reviewer invisible."""
+    Reading it as approval would make a broken reviewer invisible. The rounds
+    run out with the branch never approved, which is a hold, not a failure:
+    the branch is pushed and a person inherits it."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder()
@@ -896,8 +898,9 @@ def test_an_unreadable_verdict_does_not_pass_the_branch(tmp_path: Path) -> None:
 
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
-    assert outcome.status != "open"
+    assert outcome.status == "held"
     assert store.get(unit().id).approved == ""
+    assert "not readable as a verdict" in store.get(unit().id).feedback
 
 
 def test_a_unit_stops_when_its_upstream_goes_back_for_rework(tmp_path: Path) -> None:
@@ -1811,11 +1814,11 @@ def test_a_change_only_a_person_can_make_holds_the_unit_instead_of_spending_roun
 
 
 def test_needs_human_only_counts_alongside_a_rejection() -> None:
-    from agent_build_kit.pipeline.stack_runner import needs_human
+    from agent_build_kit.pipeline.stack_runner import parse_verdict
 
-    assert needs_human('{"approved": false, "feedback": "x", "needs_human": true}')
-    assert not needs_human('{"approved": false, "feedback": "x"}')
-    assert not needs_human("not json")
+    assert parse_verdict('{"approved": false, "feedback": "x", "needs_human": true}').needs_human
+    assert not parse_verdict('{"approved": false, "feedback": "x"}').needs_human
+    assert not parse_verdict("not json").needs_human
 
 
 class CountingGate(Gate):

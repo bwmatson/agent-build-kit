@@ -82,6 +82,17 @@ FOLLOW_UPS_NOTE = """\
 {items}
 """
 
+
+def _follow_ups_marker(unit_id: str) -> str:
+    return f"## From `{unit_id}`\n\n"
+
+
+def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
+    """Where this unit's block ends in `content`: the next unit's marker, or the end."""
+    next_marker = content.find("## From `", start + len(marker))
+    return next_marker if next_marker != -1 else len(content)
+
+
 TESTS_PROMPT = """\
 The change you are implementing is specified in {change_dir} — read its
 tasks.md, proposal.md, design.md and specs/ before you start.
@@ -136,21 +147,6 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
-
-
-def needs_human(output: str) -> bool:
-    """Whether a rejecting reviewer says only a person can make what is left.
-
-    Read apart from `parse_verdict`, and only ever acted on alongside a
-    rejection: an unreadable reply is still just an unreadable reply.
-    """
-    match = re.search(r"\{.*\}", output, re.DOTALL)
-    if not match:
-        return False
-    try:
-        return bool(json.loads(match.group(0)).get("needs_human"))
-    except (ValueError, AttributeError):
-        return False
 
 
 # The only follow-up kind that does not block approval. Anything else — a
@@ -213,7 +209,13 @@ def parse_verdict(output: str) -> Verdict:
         try:
             follow_ups.append(FollowUp.model_validate(item))
         except ValueError:
-            continue
+            # Not skipped: a follow-up the pipeline cannot read is not one it
+            # can trust to be optional, so it blocks the approval same as a
+            # correctness point would.
+            point = item.get("point") if isinstance(item, dict) else None
+            follow_ups.append(
+                FollowUp(kind="unreadable", point=str(point) if point else json.dumps(item))
+            )
     escalate = str(payload.get("escalate") or "").strip()
     return Verdict(
         approved=bool(payload.get("approved")),
@@ -414,15 +416,15 @@ after this one. {stake} Weigh a residual observation against losing correct \
 work — hold this to the bar you would approve, not to perfection.
 """
 
-_SPENT_LAST = (
-    "This is the final round: if it does not end in approval, the work is not "
-    "merged and not kept — the branch is pushed and held for a person instead "
-    "of discarded."
-)
 _SPENT_MORE = (
     "If the budget runs out without an approval, the work is not merged and "
-    "not kept: the branch is held for a person and the next attempt starts "
-    "from nothing."
+    "nothing is approved: the branch is pushed and held for a person, with "
+    "the open points on its PR."
+)
+_SPENT_LAST = (
+    "This is the final round: if it does not end in approval, the work is not "
+    "merged and nothing is approved — the branch is pushed and held for a "
+    "person, with the open points on its PR."
 )
 
 
@@ -748,13 +750,17 @@ class UnitRunner(BaseModel):
             # approved exactly this commit.
             needs_review = False
         else:
+            # Given to both build prompts: a unit resumed at IMPLEMENT skips
+            # the tests prompt entirely, and would otherwise never see what an
+            # earlier unit left for this one to act on.
+            follow_ups_note = self._follow_ups_note(unit)
             if resume != IMPLEMENT:
                 self.store.record_step(unit.id, TESTS)
                 self.log(f"step: write the tests ({models().implement})")
                 tests_prompt = TESTS_PROMPT.format(
                     groups=groups, change_dir=change_dir, boundary=build_boundary
                 )
-                if follow_ups_note := self._follow_ups_note(unit):
+                if follow_ups_note:
                     tests_prompt = f"{follow_ups_note}\n\n{tests_prompt}"
                 self.run_claude(tests_prompt, cwd=tree)
                 self.commit(f"test: {unit.title}", cwd=tree)
@@ -763,12 +769,12 @@ class UnitRunner(BaseModel):
 
             self.log(f"step: implement ({models().implement})")
             before = self.branch_commits(tree, ref)
-            self.run_claude(
-                IMPLEMENTATION_PROMPT.format(
-                    groups=groups, change_dir=change_dir, boundary=build_boundary
-                ),
-                cwd=tree,
+            implementation_prompt = IMPLEMENTATION_PROMPT.format(
+                groups=groups, change_dir=change_dir, boundary=build_boundary
             )
+            if follow_ups_note:
+                implementation_prompt = f"{follow_ups_note}\n\n{implementation_prompt}"
+            self.run_claude(implementation_prompt, cwd=tree)
             self.commit(f"feat: {unit.title}", cwd=tree)
             # Counted on the branch, not taken from the commit step: an agent
             # that commits its own work leaves the pipeline nothing to commit,
@@ -841,11 +847,15 @@ class UnitRunner(BaseModel):
             if not approved:
                 # The budget ran out with blocking work still outstanding —
                 # not a bad run, so not a discard. `why` already carries every
-                # outstanding point.
+                # outstanding point. Set before the checkpoint, so the points
+                # survive the hold even if the checkpoint stops the push.
                 self.store.set_feedback(unit.id, why)
+                # The same gate the normal path clears before pushing: a base
+                # that moved while the rounds ran would otherwise put the
+                # parent's old commits in this unit's diff.
+                if outcome := checkpoint(VERIFY, usage=False):
+                    return outcome
                 return self._spend_rounds(unit, tree, branch, graph, base, why)
-            if deferred:
-                self._record_follow_ups(unit, deferred)
 
         # Tier 1 is not a Claude run, so only upstream can stop it here.
         if outcome := checkpoint(VERIFY, usage=False):
@@ -942,6 +952,12 @@ class UnitRunner(BaseModel):
         sha = self.push(branch, cwd=tree)
         self.log(f"pushed {branch} at {sha[:9]}")
 
+        # Only now, with the push confirmed: a follow-up recorded ahead of a
+        # tier 1 or tier 2 failure would describe work that never left the
+        # machine.
+        if deferred:
+            self._record_follow_ups(unit, deferred)
+
         stored = self.store.get(unit.id)
         pr = self.open_pr(
             unit,
@@ -950,7 +966,11 @@ class UnitRunner(BaseModel):
                 graph=graph or [stored],
                 base=base,
                 tier2_snapshot=snapshot,
-                follow_ups=[item.point for item in deferred] or None,
+                # From the change's own record of this unit's follow-ups, not
+                # this run's local `deferred`: a unit resumed at VERIFY skips
+                # review and has none, a rework re-pushes without repeating
+                # them, and a later approval must not lose an earlier one's.
+                follow_ups=self._follow_ups_for(unit) or None,
             ),
             base=base,
             cwd=tree,
@@ -1068,13 +1088,23 @@ class UnitRunner(BaseModel):
                 self.store.set_state(unit.id, HELD, note=f"needs a human: {why[:300]}")
                 self.log(f"needs a human — held: {' '.join(why.split())[:300]}")
                 return RunOutcome(status="held", detail=f"needs a human: {why[:200]}"), why, ()
-            if verdict.escalate:
+            # A class escalation needs an earlier round to be another instance
+            # of; a disagreement needs the builder to have declined a point on
+            # an earlier round, so both positions can go on the record. With
+            # no earlier round — `rounds` here is what preceded this one —
+            # neither holds, so an escalation on round one is an ordinary
+            # rejection instead.
+            declined = rounds and str(rounds[-1].get("response", "")).strip()
+            escalate_now = bool(rounds) and (
+                verdict.escalate == "class" or (verdict.escalate == "disagreement" and declined)
+            )
+            if escalate_now:
                 # Another instance of a kind that cannot be enumerated, or a
                 # point raised again after the builder already declined it: a
                 # third exchange of prose is the least likely thing to settle
                 # either, so this is a person's call, not another round.
                 parts = [why]
-                if verdict.escalate == "disagreement" and rounds:
+                if verdict.escalate == "disagreement":
                     parts.append(str(rounds[-1].get("response", "")).strip())
                 parts.append(verdict.reasoning)
                 combined = "\n\n".join(p for p in parts if p).strip()
@@ -1215,6 +1245,25 @@ class UnitRunner(BaseModel):
         content = path.read_text().strip() if path.exists() else ""
         return FOLLOW_UPS_NOTE.format(items=content) if content else ""
 
+    def _follow_ups_for(self, unit: Unit) -> list[str]:
+        """This unit's own follow-ups, as last recorded — for its PR body.
+
+        Read from the file rather than a run's local `deferred`: a unit
+        resumed at VERIFY skips review and has none locally, a rework
+        re-pushes without repeating them, and a later plain approval must not
+        make an earlier one's follow-ups disappear from the PR.
+        """
+        path = self._follow_ups_path(unit)
+        if not path.exists():
+            return []
+        content = path.read_text()
+        marker = _follow_ups_marker(unit.id)
+        start = content.find(marker)
+        if start == -1:
+            return []
+        block = content[start + len(marker) : _follow_ups_block_end(content, start, marker)]
+        return [line[2:].strip() for line in block.splitlines() if line.startswith("- ")]
+
     def _record_follow_ups(self, unit: Unit, items: Sequence[FollowUp]) -> None:
         if not items:
             return
@@ -1222,8 +1271,18 @@ class UnitRunner(BaseModel):
         path.parent.mkdir(parents=True, exist_ok=True)
         with file_lock(path.with_name(f"{path.name}.lock")):
             existing = path.read_text() if path.exists() else ""
-            block = f"## From `{unit.id}`\n\n" + "\n".join(f"- {i.point}" for i in items) + "\n\n"
-            path.write_text(existing + block)
+            marker = _follow_ups_marker(unit.id)
+            block = marker + "\n".join(f"- {i.point}" for i in items) + "\n\n"
+            start = existing.find(marker)
+            if start == -1:
+                # First time this unit has deferred anything.
+                path.write_text(existing + block)
+                return
+            # Replace its existing block in place rather than appending
+            # another one: a retry, a PR-comment rework, or a restack
+            # re-review must not leave a duplicate for the same unit.
+            end = _follow_ups_block_end(existing, start, marker)
+            path.write_text(existing[:start] + block + existing[end:])
 
     def _spend_rounds(
         self, unit: Unit, tree: Path, branch: str, graph: list[StoredUnit], base: str, why: str
