@@ -1700,6 +1700,29 @@ def test_a_port_that_silently_drops_a_test_fails(tmp_path: Path) -> None:
     assert "push" not in recorder.events
 
 
+def test_a_failed_accounting_names_the_outstanding_tests(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    answer = json.dumps({"tests": [{"name": "test_click", "decision": "keep"}]})
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={
+            "branch_commits": lambda cwd, base: 2,
+            "restack_onto": lambda **kw: _restacked(
+                conflict="x", old_tests=("test_click", "test_console", "test_drag")
+            ),
+            "reset_to": lambda tree, onto, keep: None,
+            "tests_in": lambda tree: {"test_click"},
+            "run_rework": lambda prompt, *, cwd: answer,
+        }
+    )
+
+    outcome = runner.run(unit(), base="spec/c/2", graph=[])
+
+    assert outcome.status == "failed"
+    assert "outstanding: `test_console`, `test_drag`" in store.get(unit().id).feedback
+
+
 def test_what_counts_as_accounting_for_a_test() -> None:
     from agent_build_kit.pipeline.stack_runner import PortedTest, check_test_decisions
 

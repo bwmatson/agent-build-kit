@@ -149,7 +149,10 @@ binds each step to git, gh and `claude`:
    and has the rework model port it while deciding keep/adapt/retire for each
    test the old work had that the replay left uncertain — missing from the
    tree, or present but changed; a test the replay left alone counts as kept
-   without being asked about. The pipeline checks that accounting and the
+   without being asked about. The old work's tests are those the unit defined,
+   deleted or edited inside — found from which lines its changes added or
+   removed and which test each falls in — not those its diff merely passes by
+   as context. The pipeline checks that accounting and the
    reviewer judges it; an incomplete one is put back to the agent, naming what
    is still outstanding, for a small fixed number of attempts before the unit
    fails with those problems on its record.

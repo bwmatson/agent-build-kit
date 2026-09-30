@@ -684,6 +684,61 @@ def test_the_adapt_step_is_told_the_tests_the_previous_work_added(tmp_path: Path
     assert git(repo, "rev-parse", "refs/spec-driven/pre-adapt/c-3") == head, "old work kept"
 
 
+def _spaced_tests() -> str:
+    """A test module with tests spaced so that a one-line edit's diff context
+    (three lines either side) reaches a neighbouring definition."""
+    return (
+        "def test_above():\n    assert True\n\n\n"
+        "def test_edited():\n    x = 1\n    y = 2\n    assert x == y - 1\n\n\n"
+        "def test_below():\n    assert True\n\n\n"
+        "def test_far():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    assert a\n\n\n"
+        "def test_removed():\n    assert True\n"
+    )
+
+
+def _commit_over(tmp_path: Path, before: str, after: str) -> tuple[Path, str, str]:
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    (repo / "test_mod.py").write_text(before)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    base = git(repo, "rev-parse", "HEAD")
+    (repo / "test_mod.py").write_text(after)
+    git(repo, "commit", "-qam", "unit")
+    return repo, base, git(repo, "rev-parse", "HEAD")
+
+
+def test_a_test_only_on_a_context_line_is_not_the_units(tmp_path: Path) -> None:
+    """The unit added one test and deleted another. Its edit sits within three
+    lines of `test_above` and `test_below`, so both appear in the diff as
+    context — and neither is the unit's."""
+    from agent_build_kit.pipeline.wiring import _tests_added
+
+    before = _spaced_tests()
+    after = before.replace("    assert x == y - 1\n", "    assert x == y - 1\n    assert x\n")
+    after = after.replace("def test_removed():\n    assert True\n", "")
+    after += "\n\ndef test_added():\n    assert True\n"
+    repo, base, head = _commit_over(tmp_path, before, after)
+
+    counted = _tests_added(repo, base, head)
+
+    assert "test_added" in counted, "a definition the range adds"
+    assert "test_removed" in counted, "a definition the range removes"
+    assert "test_above" not in counted
+    assert "test_below" not in counted
+
+
+def test_a_test_edited_inside_counts_and_one_left_alone_does_not(tmp_path: Path) -> None:
+    from agent_build_kit.pipeline.wiring import _tests_added
+
+    before = _spaced_tests()
+    after = before.replace("    assert x == y - 1\n", "    assert x\n")
+    repo, base, head = _commit_over(tmp_path, before, after)
+
+    assert _tests_added(repo, base, head) == ["test_edited"]
+
+
 def test_a_test_weakened_in_place_is_told_apart_from_one_left_alone(tmp_path: Path) -> None:
     """A test kept under its old name but quietly weakened — an assertion
     relaxed, a case deleted — must not read as untouched just because its
