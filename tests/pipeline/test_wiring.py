@@ -1446,3 +1446,28 @@ def test_a_failing_project_stops_the_unit(tmp_path: Path) -> None:
 
     assert not passed
     assert "a real failure" in output
+
+
+def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) -> None:
+    """The live-stack tests need what `verify.env` provides in a unit's tier 2
+    as much as after its merge; without it an acceptance test failed at setup
+    however the unit was built."""
+    seen: list[dict] = []
+
+    def run(command, **kwargs):
+        seen.append(kwargs.get("env") or {})
+        return subprocess.CompletedProcess([], 0, "1 passed in 1.00s", "")
+
+    session = Tier2Session(
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        run=run,
+        sha=lambda cwd: "abc1234",
+        env={"ACCEPTANCE_AGENT": "agent acp"},
+    )
+
+    ok, _ = session.run(cwd=_workspace(tmp_path))
+
+    assert ok
+    assert seen and all(env.get("ACCEPTANCE_AGENT") == "agent acp" for env in seen)
+    assert all("PATH" in env for env in seen)

@@ -238,9 +238,10 @@ verify:                         # post-merge verification (docs/architecture.md)
                                 # reviewer can see what the stack was; one
                                 # `name<TAB>image` per line. null = record
                                 # nothing.
-  env: {}                       # environment handed to the live-stack tests,
-                                # each value resolved by a provider at verify
-                                # time (below)
+  env: {}                       # environment handed to the live-stack tests —
+                                # a unit's tier 2 and the check after a merge
+                                # alike — each value resolved by a provider
+                                # when the run starts (below)
 ```
 
 ### Env providers

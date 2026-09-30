@@ -19,10 +19,11 @@ Two guarantees are enforced here rather than trusted to the prompt:
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
 from pathlib import Path
 from typing import Protocol
@@ -849,8 +850,13 @@ class Tier2Session:
         marker: str = "local_stack",
         dev_stack: str | None = "scripts/dev-stack.sh",
         stack_versions_command: list[str] | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
         self.unit = unit
+        # `verify.env`: what the live-stack tests need, the same here as after
+        # a merge. Without it a unit's tier 2 ran them with none of it, and a
+        # test needing it failed at setup however the unit was built.
+        self._test_env = {"env": {**os.environ, **env}} if env else {}
         # The checkout whose dev stack this one's attaches to, if any
         # (dev_stack_underneath).
         self._under = under
@@ -881,7 +887,7 @@ class Tier2Session:
         # perfectly valid, there is simply one local stack to run them on.
         with stack_lock(self.lock, self._timeout):
             for command in commands:
-                completed = self._run(command, cwd=cwd)
+                completed = self._run(command, cwd=cwd, **self._test_env)
                 out = f"{completed.stdout or ''}{completed.stderr or ''}"
                 p, f, s, d = self._profile.parse_test_summary(out)
                 # A zero exit code with no counts parsed is still a pass, and so
@@ -941,7 +947,7 @@ class Tier2Session:
                         if started.returncode:
                             completed, command = started, up
                         else:
-                            completed, command = self._run(test, cwd=cwd), test
+                            completed, command = self._run(test, cwd=cwd, **self._test_env), test
                     finally:
                         self._run(down, cwd=cwd)
             finally:
@@ -1367,6 +1373,7 @@ def build_runner(
         marker=repo.tests.tier2_marker,
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
         stack_versions_command=installation.config.verify.stack_versions_command,
+        env=installation.verify_env(),
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a
