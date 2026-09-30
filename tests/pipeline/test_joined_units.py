@@ -23,9 +23,9 @@ from tests.pipeline.test_stack_runner import Recorder, make_runner
 CARRIED = Member(change="sample-change", groups=(7, 8))
 
 
-def carrying(uid: str = "add-marker/1", **overrides):
+def carrying(uid: str = "add-marker/1", **overrides) -> StoredUnit:
     """A unit of add-marker that also carries groups 7 and 8 of sample-change."""
-    return unit(uid, joined=(CARRIED,), **overrides)
+    return stored_unit(uid, joined=(CARRIED,), **overrides)
 
 
 # --- 1.1 the model ---------------------------------------------------------
