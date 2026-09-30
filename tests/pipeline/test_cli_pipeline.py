@@ -961,6 +961,45 @@ def test_a_change_not_yet_planned_is_work(tmp_path: Path) -> None:
     assert cli.has_work(inst, UnitStore(tmp_path / "units.json"))
 
 
+def test_a_change_ended_satisfied_is_work_until_verified_and_archived(tmp_path: Path) -> None:
+    """A unit ends satisfied inside scheduling, after the tick's verify and
+    archive step; the next tick must still come, and must be the last."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [stored("c/1", change="c"), stored("c/2", change="c", depends_on=("c/1",))], change="c"
+    )
+    store.set_state("c/1", "merged", pr=1)
+    store.set_state("c/2", "satisfied")
+    calls: list[str] = []
+
+    assert cli.has_work(inst, store)
+    may_archive = real_verify_ready(inst, store.all(), verify=_verifier([True], calls))
+    assert calls == ["c"]
+    assert may_archive("c")
+    assert not cli.has_work(inst, store), "verified: nothing left for a tick"
+
+
+def test_a_failed_verification_of_a_satisfied_change_does_not_keep_ticks_busy(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("c/1", change="c")], change="c")
+    store.set_state("c/1", "satisfied")
+
+    real_verify_ready(inst, store.all(), verify=_verifier([False], []))
+
+    assert not cli.has_work(inst, store)
+
+
+def test_an_archived_satisfied_change_has_no_work(tmp_path: Path) -> None:
+    (tmp_path / "openspec" / "changes" / "archive" / "2026-09-01-c").mkdir(parents=True)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("c/1", change="c")], change="c")
+    store.set_state("c/1", "satisfied")
+
+    assert not cli.has_work(inst, store)
+
+
 # --- verifying a merged change live before archive ---------------------------
 
 real_verify_ready = cli.verify_ready

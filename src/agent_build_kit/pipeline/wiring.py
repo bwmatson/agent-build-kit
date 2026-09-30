@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     resolved_move,
 )
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
@@ -362,10 +362,11 @@ def _branch_commits(repo: Path, base: str) -> int:
     """How many commits the branch carries beyond its base.
 
     The question a resumed unit asks: not "did this run write anything" but
-    "is the work there".
+    "is the work there". A git failure raises rather than counting as none:
+    "no commits of its own" can end a unit as satisfied, so an unresolvable
+    base must not read as that.
     """
-    result = git(repo, "rev-list", "--count", f"{base}..HEAD", check=False)
-    return int(result.stdout.strip() or 0)
+    return int(git_out(repo, "rev-list", "--count", f"{base}..HEAD"))
 
 
 def _changed_files(repo: Path, base: str) -> list[str]:

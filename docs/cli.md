@@ -53,7 +53,10 @@ A build that pauses (the usage window spent, or rate limited) stops new
 builds from starting; builds already in flight are still awaited before the
 pass ends.
 
-Exit 0, including when paused or idle. Exit 1 when a repo about to be built
+Exit 0, including when paused or idle. A tick is idle unless a unit is
+planned, running or in review, a change's tasks are unplanned, or a change with
+a satisfied unit is ready to archive and not yet verified (a failed
+verification is kept, so it does not keep ticks busy). Exit 1 when a repo about to be built
 has no repo-local `user.email` (agent commits would fall back to the machine's
 global identity) — which can come mid-pass, after other units have already
 been built, since each readiness check can reach a new repo. A unit that fails

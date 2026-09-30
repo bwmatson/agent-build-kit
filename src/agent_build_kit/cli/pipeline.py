@@ -190,6 +190,27 @@ def verify_one(inst: Installation, change: str, units: list) -> Verification:
         )
 
 
+def _merged_ids(change: str, units: list) -> list[str]:
+    return sorted(u.id for u in units if u.change == change and u.state == MERGED)
+
+
+def _unverified(inst: Installation, units: list, record: VerifyRecord) -> list[str]:
+    """Changes ready to archive, not archived, and with no verification on
+    record over their current merged units."""
+    specs_dir = inst.config.planning.specs_dir
+    changes = {
+        u.change
+        for u in units
+        if is_ready_to_archive(u.change, units)
+        and not _already_archived(u.change, inst.root, specs_dir)
+    }
+    return sorted(
+        change
+        for change in changes
+        if (last := record.get(change)) is None or last.units != _merged_ids(change, units)
+    )
+
+
 def verify_ready(
     inst: Installation, units: list, *, verify: Callable | None = None
 ) -> Callable[[str], bool]:
@@ -201,18 +222,8 @@ def verify_ready(
     """
     verify = verify or (lambda change, units: verify_one(inst, change, units))
     record = VerifyRecord(inst.state_dir / "verified.json")
-    specs_dir = inst.config.planning.specs_dir
-    changes = {
-        u.change
-        for u in units
-        if is_ready_to_archive(u.change, units)
-        and not _already_archived(u.change, inst.root, specs_dir)
-    }
-    for change in sorted(changes):
-        merged = sorted(u.id for u in units if u.change == change and u.state == MERGED)
-        last = record.get(change)
-        if last is not None and last.units == merged:
-            continue
+    for change in _unverified(inst, units, record):
+        merged = _merged_ids(change, units)
         log(f"verifying {change} live: deploy, then its live-stack tests")
         try:
             outcome = verify(change, units)
@@ -698,10 +709,24 @@ NEEDS_TICKS = (PLANNED, RUNNING, IN_REVIEW)
 
 
 def has_work(inst: Installation, store: UnitStore) -> bool:
-    """Whether a tick has anything to do: a unit in progress, or a change
-    whose tasks.md has not been planned in its current form."""
-    if any(unit.state in NEEDS_TICKS for unit in store.all()):
+    """Whether a tick has anything to do: a unit in progress, a change
+    whose tasks.md has not been planned in its current form, or a change with
+    a satisfied unit that is ready to archive and not yet verified.
+
+    The last is the one a poll cannot notice: a merge is found at the top of a
+    tick and archived in it, but a unit ends satisfied inside the scheduling
+    step, after that. A failed verification is on record, so it does not keep
+    ticks busy.
+    """
+    units = store.all()
+    if any(unit.state in NEEDS_TICKS for unit in units):
         return True
+    satisfied = [u for u in units if u.state == SATISFIED]
+    if satisfied:
+        record = VerifyRecord(inst.state_dir / "verified.json")
+        waiting = set(_unverified(inst, units, record))
+        if any(u.change in waiting for u in satisfied):
+            return True
     planned = _planned_hashes(inst)
     for tasks in inst.tasks_files():
         record = planned.get(tasks.parent.name) or {}

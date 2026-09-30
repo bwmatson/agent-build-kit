@@ -92,7 +92,7 @@ without a fix: it will fail the same way and cost a run.
    ends `in_review` with a PR — or `satisfied`, with no PR, if a predecessor
    already did the work.
 4. Humans review and merge. A merge restacks whatever was on the branch.
-5. When every unit is merged, the tick deploys the change (`deploy.rules`),
+5. When every unit is merged or satisfied, the tick deploys the change (`deploy.rules`),
    runs its tier 2 tests and — if it passes — archives it: the delta specs
    are folded into `openspec/specs/` and the change moves to
    `openspec/changes/archive/`.

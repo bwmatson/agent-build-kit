@@ -780,6 +780,12 @@ class UnitRunner(BaseModel):
                 self.store.set_predecessor_note(unit.id, "")
             if self.store.get(unit.id).review_rounds:
                 self.store.set_review_rounds(unit.id, ())
+            # The review feedback and its replies belong to a build this unit
+            # is no longer doing; the PR is closed below with the reason.
+            if self.store.get(unit.id).feedback:
+                self.store.set_feedback(unit.id, "")
+            if self.store.get(unit.id).pending_replies:
+                self.store.set_pending_replies(unit.id, ())
             stored = self.store.get(unit.id)
             if stored.pr:
                 # A rework that finds the work has landed elsewhere in the

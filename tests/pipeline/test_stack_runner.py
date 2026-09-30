@@ -528,7 +528,7 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     (unit_id, pr, reason) = recorder.closed[0]
     assert unit_id == unit().id
     assert pr == 4
-    assert "1" in reason and "implemented elsewhere" in reason.lower()
+    assert "Task group(s) 1" in reason and "implemented elsewhere" in reason.lower()
 
 
 def test_a_satisfied_unit_resuming_before_its_rework_is_also_reached(tmp_path: Path) -> None:

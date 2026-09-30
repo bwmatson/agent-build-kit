@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A unit whose groups already landed in its predecessor and whose tier 1 passes
+  on the whole repo ends `satisfied` instead of failing: its PR is closed with
+  the reason, its groups are ticked and its dependents look through it. A
+  change archives once its satisfied units' work has merged. **Breaking for
+  third-party integrations:** `Forge` gains `close_pr` and `permitted_commands`,
+  and toolchain profiles gain `lint_command_all_files()` and
+  `test_commands_all(repo, root_extras)`.
+
 - The usage threshold ramps instead of being flat: each window (five-hour
   session, seven-day week) may be run from `limits.usage_pause_pct` up to
   `limits.usage_ceiling_pct` (90) over the last `limits.usage_relief_fraction`

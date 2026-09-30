@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
+    _branch_commits,
     _tip,
     build_base_moved,
     build_close_pr,
@@ -1047,3 +1048,22 @@ def test_upstream_incomplete_looks_through_a_satisfied_unit(tmp_path: Path) -> N
     reason = build_upstream_incomplete(store)(store.get("add-marker/3"))
 
     assert "add-marker/1" in reason
+
+
+def test_branch_commits_raises_on_an_unresolvable_base(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "repo")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "root")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _branch_commits(repo, "no-such-ref")
+
+
+def test_branch_commits_counts_what_the_branch_adds(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "repo")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "root")
+    assert _branch_commits(repo, "main") == 0
+
+    git(repo, "checkout", "-q", "-b", "work")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "one")
+
+    assert _branch_commits(repo, "main") == 1

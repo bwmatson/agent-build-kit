@@ -27,9 +27,12 @@ implemented.
 | `prompt_words` | the build prompts | `verify` ("what the checks pass means") and `stub` ("what a permitted stub looks like") |
 | `no_tests_collected_exit` | tier 2, verify | the runner's exit status when nothing was selected — a pass, not a failure |
 | `lint_command(base)` | tier 1 | lint scoped to the diff since `base` |
+| `lint_command_all_files()` | tier 1 | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |
 | `test_commands(repo, changed, root_extras)` | tier 1 | the test runs a set of changed paths calls for |
+| `test_commands_all(repo, root_extras)` | tier 1 | every test run the repo has, regardless of a diff — used only for a unit with no commits of its own |
 | `tier2_commands(repo, marker)` | tier 2 without a dev stack | every member's live-stack tests |
 | `acceptance_commands(checkout, paths, marker, exclude_marker, root_extras)` | post-merge verify | the live tests among a change's paths |
+| `lint_command_all_files()` | `uv run pre-commit run --all-files` — tier 1 uses it only for a unit with no commits of its own |
 | `clean_command()` | the push gate | lint and format at the tests commit, types skipped |
 | `red_command(files)` | the push gate | run these test files at the tests commit |
 | `interpret_red(output, exit_code)` | the push gate | was that run honestly red, and why not |
@@ -63,6 +66,7 @@ What it runs, exactly:
 | `red_command(files)` | `uv run pytest <files> -p no:cacheprovider --tb=line -q` |
 | `test_commands`, single-package repo | `uv run pytest -q` if `tests/` exists, else nothing |
 | `test_commands`, workspace | per chosen member with a `tests/` dir: `uv run --package <name> --isolated pytest <member> -q`. Chosen: the members a changed path is under — or **every** member when a non-`.md` path outside all members changed (the root `pyproject.toml` is where a marker gets registered). Plus, when such an outside path or `tests/` changed and a repo-root `tests/` exists: `uv run --no-project --isolated --with pytest [--with <root_extras>...] pytest tests -q` |
+| `test_commands_all(repo, root_extras)` | every testable member plus the root `tests/`, whatever changed — tier 1 uses it only for a unit with no commits of its own |
 | `tier2_commands(marker)`, single-package | `uv run pytest -m <marker> -v` |
 | `tier2_commands(marker)`, workspace | per member with `tests/`: `uv run --package <name> --isolated pytest <member> -m <marker> -v` |
 | `acceptance_commands(...)` | the existing `.py` paths under `tests/integration/` among the changed paths, grouped by member: `uv run --package <name> --isolated pytest -m "<marker> and not <exclude_marker>" <files...>`; root files with the `--no-project --isolated --with ...` head instead |

@@ -93,7 +93,10 @@ plan dropped becomes `unplanned` only if it never started.
 
 `ready_units` picks planned units whose dependencies allow: a same-repo
 dependency may be `in_review` (the unit stacks on its branch), a cross-repo one
-must be `merged` (stacks cannot span repos). `limits.stack_depth_cap` holds
+must be `merged` (stacks cannot span repos). A `satisfied` dependency is
+looked through to what it was built on: same-repo, the dependent waits on and
+stacks on that predecessor; cross-repo, it counts once that predecessor has
+merged. `limits.stack_depth_cap` holds
 back chains of open PRs; `limits.max_concurrent_stacks` bounds units being
 built, not PRs awaiting review. Ready units build in parallel threads, each
 under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is

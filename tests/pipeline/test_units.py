@@ -359,6 +359,35 @@ def test_a_cross_repo_dependent_of_a_satisfied_unit_still_waits_for_its_own_work
     assert waiting_on(graph[2], graph) == [graph[1]]
 
 
+@pytest.mark.parametrize("state", ["planned", "running", "failed", "held", "closed"])
+def test_a_dependent_waits_through_a_satisfied_unit_for_its_predecessor(state: str) -> None:
+    """Unit 2 worked ahead of unit 1, which is back to being built (or stuck).
+    Unit 3, depending on 2, has nothing to stack on: it waits on unit 1, not
+    on a satisfied unit that is transparent."""
+    graph = [
+        unit("c/1", state=state),
+        unit("c/2", depends_on=("c/1",), state="satisfied"),
+        unit("c/3", depends_on=("c/2",)),
+    ]
+
+    assert waiting_on(graph[2], graph) == [graph[0]]
+    assert graph[2] not in ready_units(graph, max_concurrent=5, depth_cap=5)
+
+
+@pytest.mark.parametrize("state", ["in_review", "merged"])
+def test_a_dependent_of_a_satisfied_unit_starts_once_its_predecessor_is_reviewed(
+    state: str,
+) -> None:
+    graph = [
+        unit("c/1", state=state),
+        unit("c/2", depends_on=("c/1",), state="satisfied"),
+        unit("c/3", depends_on=("c/2",)),
+    ]
+
+    assert waiting_on(graph[2], graph) == []
+    assert graph[2] in ready_units(graph, max_concurrent=5, depth_cap=5)
+
+
 def test_later_groups_excludes_this_unit_and_other_changes() -> None:
     graph = [
         unit("add-marker/1", groups=(1,)),
