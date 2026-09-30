@@ -43,6 +43,21 @@ def no_real_timers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_real_unit_directory(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The systemd user directory is the developer's machine, not the suite's.
+
+    `abk doctor` looks at the units installed there, and an install writes to
+    it, so a test that does either without being pointed elsewhere would pass
+    or fail depending on whose machine it runs on — or rewrite the real timers.
+    """
+    from agent_build_kit.settings import settings
+
+    monkeypatch.setattr(settings, "config_home", tmp_path_factory.mktemp("config-home"))
+
+
+@pytest.fixture(autouse=True)
 def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refreshing the login is a real `claude` call. A test that means to
     exercise it injects `refresh=`; anything else reaching it fails. Patched

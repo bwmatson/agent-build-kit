@@ -19,6 +19,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit import timers
 
 
@@ -244,3 +246,220 @@ def test_a_dry_run_touches_nothing(tmp_path: Path) -> None:
     assert len(change.written) == len(timers.BASE_UNITS)
     assert not dest.exists()
     assert calls == []
+
+
+# --- healing: units that are no longer meant to exist -------------------------------
+#
+# Reinstalling is how a machine is brought up to date, so it has to clean up
+# after a version that named or composed the units differently. Ownership is
+# decided by where a unit *points* (its `WorkingDirectory`), never by matching
+# its name against a prefix: installation `meta`'s units start `abk-meta-`, and
+# so do installation `meta-agent`'s.
+
+
+def legacy_units(dest: Path, root: Path) -> list[Path]:
+    """The unnamed units an earlier version wrote: `abk-tick.service`, with no
+    installation in the name, stamped and pointing at `root`."""
+    dest.mkdir(parents=True, exist_ok=True)
+    written = []
+    for base in ("tick", "track-health", "track-improve", "track-recommend"):
+        for suffix in (".service", ".timer"):
+            path = dest / f"abk-{base}{suffix}"
+            body = f"WorkingDirectory={root.resolve()}\n" if suffix == ".service" else ""
+            path.write_text(f"{timers.MARKER}\n[Unit]\n{body}")
+            written.append(path)
+    return written
+
+
+def test_reinstalling_removes_the_unnamed_units_an_earlier_version_wrote(tmp_path: Path) -> None:
+    """They were rendered before units carried their installation's name, so
+    they sit beside the new ones running the same tick twice."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    old = legacy_units(dest, planning)
+    calls: list[list[str]] = []
+
+    change = timers.install(planning, dest=dest, run=fake_run(calls))
+
+    assert {p.name for p in change.removed} == {p.name for p in old}
+    assert not any(p.exists() for p in old)
+    assert {p.name for p in dest.iterdir()} == set(timers.unit_names(planning))
+
+
+def test_an_outdated_timer_is_stopped_before_its_file_goes(tmp_path: Path) -> None:
+    """A unit file deleted from under a running timer leaves the manager holding
+    a job it can no longer describe."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    legacy_units(dest, planning)
+    calls: list[list[str]] = []
+
+    timers.install(planning, dest=dest, run=fake_run(calls))
+
+    disabled = [argv[-1] for argv in calls if "disable" in argv]
+    assert sorted(disabled) == sorted(
+        f"abk-{base}.timer" for base in ("tick", "track-health", "track-improve", "track-recommend")
+    )
+    assert calls.index(["systemctl", "--user", "daemon-reload"]) > max(
+        calls.index(argv) for argv in calls if "disable" in argv
+    )
+
+
+def test_another_installation_s_unnamed_units_are_left_alone(tmp_path: Path) -> None:
+    """Removing them would stop a workspace that has not reinstalled yet. They
+    are that workspace's to heal, when it runs this command."""
+    mine = planning_at(tmp_path, "mine")
+    theirs = planning_at(tmp_path, "theirs")
+    dest = tmp_path / "units"
+    theirs_old = legacy_units(dest, theirs)
+
+    change = timers.install(mine, dest=dest, run=fake_run([]))
+
+    assert change.removed == ()
+    assert all(p.exists() for p in theirs_old)
+
+
+def test_a_unit_dropped_from_the_set_is_removed_on_the_next_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The general case the legacy names are one instance of: a later version
+    that installs fewer units must not leave the old one running."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    timers.install(planning, dest=dest, run=fake_run([]))
+    kept = tuple(base for base in timers.BASE_UNITS if not base.startswith("track-recommend"))
+    monkeypatch.setattr(timers, "BASE_UNITS", kept)
+
+    change = timers.install(planning, dest=dest, run=fake_run([]))
+
+    assert {p.name for p in change.removed} == {
+        "abk-meta-agent-track-recommend.service",
+        "abk-meta-agent-track-recommend.timer",
+    }
+    assert {p.name for p in dest.iterdir()} == set(timers.unit_names(planning))
+
+
+def test_an_installation_whose_name_is_a_prefix_of_another_s_leaves_it_alone(
+    tmp_path: Path,
+) -> None:
+    """`meta` and `meta-agent` both produce units starting `abk-meta-`. Matching
+    by prefix would call the second's units outdated and delete them."""
+    short = planning_at(tmp_path, "meta")
+    long = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    timers.install(long, dest=dest, run=fake_run([]))
+
+    change = timers.install(short, dest=dest, run=fake_run([]))
+
+    assert change.removed == ()
+    assert timers.installed_root(dest, long) == long.resolve()
+    assert timers.installed_root(dest, short) == short.resolve()
+
+
+def test_healing_is_reported_by_a_dry_run_and_not_done(tmp_path: Path) -> None:
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    old = legacy_units(dest, planning)
+    calls: list[list[str]] = []
+
+    change = timers.install(planning, dest=dest, run=fake_run(calls), dry_run=True)
+
+    assert {p.name for p in change.removed} == {p.name for p in old}
+    assert all(p.exists() for p in old)
+    assert calls == []
+
+
+def test_removing_takes_the_outdated_units_too(tmp_path: Path) -> None:
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    legacy_units(dest, planning)
+    timers.install(planning, dest=dest, run=fake_run([]))
+
+    timers.remove(planning, dest=dest, run=fake_run([]))
+
+    assert not list(dest.iterdir())
+
+
+# --- two installations that share a directory name ----------------------------------
+
+
+def test_a_live_installation_with_the_same_name_is_not_taken_over(tmp_path: Path) -> None:
+    """`/a/planning` and `/b/planning` both name their units `abk-planning-…`.
+    The second install would overwrite the first's, both stamped with this
+    module's marker — the silent displacement the naming exists to prevent."""
+    first = planning_at(tmp_path / "a", "planning")
+    second = planning_at(tmp_path / "b", "planning")
+    dest = tmp_path / "units"
+    timers.install(first, dest=dest, run=fake_run([]))
+
+    change = timers.install(second, dest=dest, run=fake_run([]))
+
+    assert change.written == ()
+    assert {p.name for p in change.taken} == set(timers.unit_names(second))
+    assert timers.installed_root(dest, first) == first.resolve(), "the first is untouched"
+
+
+def test_a_moved_installation_takes_its_own_units_back(tmp_path: Path) -> None:
+    """The repair reinstalling is for: the planning repo moved, so its units
+    point at a directory that is no longer there and nothing else owns them."""
+    old = planning_at(tmp_path / "a", "planning")
+    new = planning_at(tmp_path / "b", "planning")
+    dest = tmp_path / "units"
+    timers.install(old, dest=dest, run=fake_run([]))
+    old.rmdir()
+
+    change = timers.install(new, dest=dest, run=fake_run([]))
+
+    assert change.taken == ()
+    # The services name the directory, so they are what is rewritten; a timer
+    # names none, so its content is the same and it is left as it was.
+    assert {p.name for p in change.written} == {
+        n for n in timers.unit_names(new) if n.endswith(".service")
+    }
+    assert timers.installed_root(dest, new) == new.resolve()
+
+
+# --- looking without touching ------------------------------------------------------
+
+
+def test_the_report_says_what_is_missing_drifted_and_outdated(tmp_path: Path) -> None:
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "units"
+    timers.install(planning, dest=dest, run=fake_run([]))
+    names = timers.unit_names(planning)
+    (dest / names[0]).write_text(f"{timers.MARKER}\nWorkingDirectory={planning.resolve()}\nstale\n")
+    (dest / names[1]).unlink()
+    old = legacy_units(dest, planning)
+
+    report = timers.report(planning, dest=dest)
+
+    assert [p.name for p in report.drifted] == [names[0]]
+    assert report.missing == (names[1],)
+    assert {p.name for p in report.outdated} == {p.name for p in old}
+    assert report.installed
+
+
+def test_nothing_installed_is_reported_as_such(tmp_path: Path) -> None:
+    report = timers.report(planning_at(tmp_path, "meta-agent"), dest=tmp_path / "none")
+
+    assert not report.installed
+    assert len(report.missing) == len(timers.BASE_UNITS)
+
+
+def test_a_unit_pointing_at_a_directory_that_is_gone_is_found(tmp_path: Path) -> None:
+    """A unit naming a directory that is not there is still a valid unit, and
+    `systemctl --user enable` accepts it without complaint — which is how a
+    pipeline fails every five minutes with nothing to see."""
+    gone = tmp_path / "moved-away"
+    dest = tmp_path / "units"
+    legacy_units(dest, gone)
+    (dest / "abk-someone-elses.service").write_text("[Unit]\nWorkingDirectory=/nope\n")
+
+    found = timers.dangling_units(dest)
+
+    assert {p.name for p in found} == {
+        "abk-tick.service",
+        "abk-track-health.service",
+        "abk-track-improve.service",
+        "abk-track-recommend.service",
+    }, "service units only, and only ones this framework wrote"

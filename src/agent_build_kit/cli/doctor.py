@@ -17,7 +17,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import __version__, config, forges, openspec, profiles, runtimes, skills
+from agent_build_kit import (
+    __version__,
+    config,
+    forges,
+    openspec,
+    profiles,
+    runtimes,
+    skills,
+    timers,
+)
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
@@ -142,6 +151,94 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
             )
         else:
             checks.append(_ok(title, f"{branch} is protected"))
+    return checks
+
+
+def _timers(inst: Installation, run: Run, units: Path | None) -> list[Check]:
+    """Whether the pipeline is actually scheduled on this machine.
+
+    Installed-but-not-enabled is the failure that looks most like success: the
+    units are there, `abk status` answers perfectly, and no tick has happened
+    in a week. So this asks systemd, not just the filesystem.
+
+    No units at all is only worth knowing: cron, a CI job or a person may be
+    running `abk tick`. Anything half-installed is a warning, because it means
+    somebody did try to schedule it and it is not working.
+    """
+    where = units or timers.user_unit_dir()
+    state = timers.report(inst.root, dest=where)
+    checks: list[Check] = []
+
+    if not state.installed:
+        checks.append(
+            _info(
+                "timers",
+                f"no systemd units installed for {inst.root}",
+                "`abk install-timers` schedules the pipeline; skip it if something else "
+                "runs `abk tick`",
+            )
+        )
+    else:
+        problems = [f"missing {name}" for name in state.missing]
+        problems += [f"out of date: {path.name}" for path in state.drifted]
+        problems += [f"outdated (no longer installed): {path.name}" for path in state.outdated]
+        unasked = False
+        for name in timers.unit_names(inst.root):
+            if not name.endswith(".timer") or name in state.missing:
+                continue
+            try:
+                answer = run(
+                    ["systemctl", "--user", "is-enabled", name],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except OSError:
+                unasked = True
+                break
+            if answer.returncode:
+                problems.append(f"not enabled: {name}")
+        if problems:
+            checks.append(
+                _warn(
+                    "timers",
+                    "\n".join(problems),
+                    "`abk install-timers` rewrites what moved on, enables the timers, and "
+                    "removes the outdated units"
+                    if state.outdated
+                    else "`abk install-timers` rewrites what moved on and enables the timers",
+                )
+            )
+        elif unasked:
+            checks.append(
+                _info(
+                    "timers",
+                    "units are installed, but cannot ask systemd whether they are enabled "
+                    "(no `systemctl` here)",
+                )
+            )
+        else:
+            count = len(timers.unit_names(inst.root))
+            checks.append(_ok("timers", f"{count} units, enabled, pointing at {inst.root}"))
+
+    # Units of any installation whose directory is gone. Nobody is left to
+    # remove them: the repo they served moved away, and `systemctl enable`
+    # accepted them without complaint because a unit naming a directory that is
+    # not there is still a valid unit. This installation's own are covered above.
+    ours = set(timers.unit_names(inst.root))
+    gone = [path for path in timers.dangling_units(where) if path.name not in ours]
+    if gone:
+        names = ", ".join(f"{path.name} (-> {timers.owner_of(path)})" for path in gone)
+        stops = "; ".join(
+            f"systemctl --user disable --now {path.with_suffix('.timer').name}" for path in gone
+        )
+        checks.append(
+            _warn(
+                "stale timer units",
+                f"point at a directory that no longer exists: {names}",
+                f"{stops}; then delete the files in {where}",
+            )
+        )
     return checks
 
 
@@ -391,6 +488,7 @@ def run_doctor(
     cwd: Path | None = None,
     run: Run | None = None,
     which: Which | None = None,
+    units: Path | None = None,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which
@@ -412,6 +510,7 @@ def run_doctor(
     checks += _repos(inst, run)
     checks += _forge_access(inst, run)
     checks += _merge_guards(inst, run)
+    checks += _timers(inst, run, units)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which)
     checks += _ssh_keys(inst)
