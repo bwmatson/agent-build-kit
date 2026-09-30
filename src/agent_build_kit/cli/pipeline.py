@@ -27,7 +27,7 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_build_kit import forges
+from agent_build_kit import config, forges
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import diagram
 from agent_build_kit.pipeline.archive import (
@@ -51,7 +51,9 @@ from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
+from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.stack_runner import IMPLEMENT
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -261,6 +263,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
     ):
+        remove_change_logs(run_log_dir(inst.state_dir), change)
         print(f"archived {change}")
     return 0
 
@@ -319,6 +322,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         planning_repo=inst.root,
         may_archive=may_archive,
         specs_dir=inst.config.planning.specs_dir,
+        run_logs=run_log_dir(inst.state_dir),
     )
     for change in archived:
         log(f"archived {change}")
@@ -875,84 +879,108 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
     log line saying which one.
     """
     branch = branch_name(unit)
+    run_log: RunLog | None = None
+    ended = "interrupted"
+
+    def say(message: str) -> None:
+        log(f"{unit.id}: {message}")
+        if run_log is not None:
+            run_log.emit(message)
+
+    def end(message: str) -> None:
+        nonlocal ended
+        ended = message
+        say(message)
+
     try:
-        with branch_lock(branch, root=inst.state_dir / "locks"):
-            # Re-read under the lock. `ready` comes from the pass's latest
-            # evaluation, and ticks overlap to build in parallel: by the time
-            # this one reaches a unit, another may have built it and opened its
-            # PR. Building it again would re-verify, re-push and re-open that
-            # PR. A poll may also have held or closed it since.
-            current = store.get(unit.id).state
-            if current != PLANNED:
-                log(f"{unit.id}: skipped, it is now {current}")
-                return True
-            # The base too, from the store rather than that evaluation: a
-            # parent may have merged since, and `base_moved` compares against
-            # this.
-            graph = store.all()
-            runner = build_runner(
-                unit,
-                store=store,
-                installation=inst,
-                log=lambda message: log(f"{unit.id}: {message}"),
-            )
-            outcome = runner.run(unit, base=base_of(unit, graph), graph=graph)
-    except NotImplementedError as error:
-        # A toolchain profile the framework does not implement yet: not the
-        # unit's fault, and nothing a retry changes. Held for a person.
-        log(f"{unit.id}: held — {error}")
-        store.set_state(unit.id, "held", note=str(error))
-        return True
-    except Interrupted as error:
-        # Left `running`, with the lock released as the `with` exits: the next
-        # tick's `reclaim_stale` commits what the run left and requeues it at
-        # the step it was in. Not failed — nothing is known to be wrong.
-        log(f"{unit.id}: interrupted ({error}); the next tick reclaims it")
-        return True
-    except RateLimited as error:
-        # Not the unit's fault and not retried: the account is out of room, so
-        # marking it failed would drop real work from the plan, and trying the
-        # next unit would spend a call to be told the same thing.
-        when = error.resets_at
-        if when is None:
-            reading = current_usage()
-            when = reading.resets_at if reading else None
-
-        state = pause_until(
-            when, reason=f"rate limited during {unit.id}", marker=_paused_marker(inst)
-        )
-        log(f"{unit.id}: rate limited — pausing until {state.until:%H:%M UTC}")
-        return False
-    except BranchBusy as error:
-        # Another tick is already on it. Not a failure — marking it one would
-        # drop a unit that is going fine out of the plan.
-        log(f"{unit.id}: skipped, {error}")
-        return True
-    except Exception as error:  # noqa: BLE001 — see the docstring.
-        log(f"{unit.id}: failed, {type(error).__name__}: {error}")
-        # A rejected commit's reason is the gate's own output: on the unit's
-        # record, not only in a tick log someone would have to find.
-        note = str(error) if isinstance(error, CommitRejected) else ""
         try:
-            store.set_state(unit.id, "failed", note=note)
-        except Exception as second:  # noqa: BLE001
-            log(f"{unit.id}: could not be recorded as failed — {second}")
-        return True
+            with branch_lock(branch, root=inst.state_dir / "locks"):
+                # Re-read under the lock. `ready` comes from the pass's latest
+                # evaluation, and ticks overlap to build in parallel: by the time
+                # this one reaches a unit, another may have built it and opened its
+                # PR. Building it again would re-verify, re-push and re-open that
+                # PR. A poll may also have held or closed it since.
+                current = store.get(unit.id).state
+                if current != PLANNED:
+                    end(f"skipped, it is now {current}")
+                    return True
+                # The base too, from the store rather than that evaluation: a
+                # parent may have merged since, and `base_moved` compares against
+                # this.
+                graph = store.all()
+                base = base_of(unit, graph)
+                step = store.get(unit.id).resume_from or IMPLEMENT
+                models = config.models()
+                run_log = RunLog(
+                    run_log_dir(inst.state_dir),
+                    unit,
+                    step=step,
+                    model=getattr(models, step, "") or models.implement,
+                    base=base,
+                    started=datetime.now(UTC),
+                )
+                store.set_run_log(unit.id, run_log.name)
+                runner = build_runner(unit, store=store, installation=inst, log=say)
+                outcome = runner.run(unit, base=base, graph=graph)
+        except NotImplementedError as error:
+            # A toolchain profile the framework does not implement yet: not the
+            # unit's fault, and nothing a retry changes. Held for a person.
+            end(f"held — {error}")
+            store.set_state(unit.id, "held", note=str(error))
+            return True
+        except Interrupted as error:
+            # Left `running`, with the lock released as the `with` exits: the next
+            # tick's `reclaim_stale` commits what the run left and requeues it at
+            # the step it was in. Not failed — nothing is known to be wrong.
+            end(f"interrupted ({error}); the next tick reclaims it")
+            return True
+        except RateLimited as error:
+            # Not the unit's fault and not retried: the account is out of room, so
+            # marking it failed would drop real work from the plan, and trying the
+            # next unit would spend a call to be told the same thing.
+            when = error.resets_at
+            if when is None:
+                reading = current_usage()
+                when = reading.resets_at if reading else None
 
-    log(f"{unit.id}: {outcome.status} — {outcome.detail}")
-    if outcome.status == "paused":
-        # Re-read rather than reuse the tick's reading: the guard said no
-        # after the units before this one ran, so the window has moved, and a
-        # resume scheduled from the stale figure wakes up into a full window.
-        reading = current_usage()
-        state = pause_until(
-            reading.resets_at if reading else None,
-            reason=outcome.detail,
-            marker=_paused_marker(inst),
-        )
-        log(f"pausing until {state.until:%H:%M UTC}")
-        return False
-    return True
+            state = pause_until(
+                when, reason=f"rate limited during {unit.id}", marker=_paused_marker(inst)
+            )
+            end(f"rate limited — pausing until {state.until:%H:%M UTC}")
+            return False
+        except BranchBusy as error:
+            # Another tick is already on it. Not a failure — marking it one would
+            # drop a unit that is going fine out of the plan.
+            end(f"skipped, {error}")
+            return True
+        except Exception as error:  # noqa: BLE001 — see the docstring.
+            end(f"failed, {type(error).__name__}: {error}")
+            # A rejected commit's reason is the gate's own output: on the unit's
+            # record, not only in a tick log someone would have to find.
+            note = str(error) if isinstance(error, CommitRejected) else ""
+            try:
+                store.set_state(unit.id, "failed", note=note)
+            except Exception as second:  # noqa: BLE001
+                end(f"could not be recorded as failed — {second}")
+            return True
+
+        end(f"{outcome.status} — {outcome.detail}")
+        if outcome.status == "paused":
+            # Re-read rather than reuse the tick's reading: the guard said no
+            # after the units before this one ran, so the window has moved, and a
+            # resume scheduled from the stale figure wakes up into a full window.
+            reading = current_usage()
+            state = pause_until(
+                reading.resets_at if reading else None,
+                reason=outcome.detail,
+                marker=_paused_marker(inst),
+            )
+            log(f"pausing until {state.until:%H:%M UTC}")
+            return False
+        return True
+    finally:
+        if run_log is not None:
+            run_log.close(ended)
 
 
 # --- tags / gate / check / archive / openspec ----------------------------------------

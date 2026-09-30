@@ -269,7 +269,8 @@ class UnitStore:
         self._update(unit_id, resume_from=step)
 
     def set_run_log(self, unit_id: str, name: str) -> None:
-        raise NotImplementedError
+        """Name the unit's most recent run log. Not a state change."""
+        self._update(unit_id, run_log=name)
 
     def set_pending_replies(self, unit_id: str, replies: Sequence[str]) -> None:
         self._update(unit_id, pending_replies=tuple(replies))

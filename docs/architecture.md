@@ -453,6 +453,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-cache.json` | the live usage reading, three-minute TTL. | one endpoint call. |
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
+| `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; archiving a change removes its files. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
 | `<run id>-<repo>-<track>.md`, `tracked-issues.md` | the tracks' run logs and issue tracker. | history the tracks read. |
 
 The tick commits nothing. The template `.gitignore` excludes only the locks,

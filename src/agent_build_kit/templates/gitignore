@@ -8,6 +8,8 @@
 # run logs beside it are committed; the locks are not.
 runs/*.lock
 runs/locks/
+# A file per unit run, named for the unit; the unit's record names the latest.
+runs/unit-logs/
 # The runtime's last policy check, reused by `abk doctor` and `abk init`
 # (in the state directory; move this line if planning.state_dir is changed).
 runs/policy-check.json

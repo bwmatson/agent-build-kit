@@ -25,6 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import openspec
+from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
 
@@ -108,5 +109,7 @@ def archive_ready_changes(
         # A conflict raises rather than being auto-resolved.
         openspec.archive(change, cwd=planning_repo, run=run)
         archived.append(change)
+        if run_logs is not None:
+            remove_change_logs(run_logs, change)
 
     return archived
