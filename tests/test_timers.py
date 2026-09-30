@@ -123,7 +123,9 @@ def test_installing_what_is_already_there_changes_nothing(tmp_path: Path) -> Non
     assert change.written == ()
     assert {path.name for path in change.unchanged} == set(timers.unit_names(planning))
     assert {p.name: p.stat().st_mtime_ns for p in dest.iterdir()} == stamps
-    assert calls == [], "nothing changed, so the manager is not asked to reload"
+    assert ["systemctl", "--user", "daemon-reload"] not in calls, (
+        "nothing changed, so the manager is not asked to reload"
+    )
 
 
 def test_a_unit_whose_content_moved_on_is_rewritten(tmp_path: Path) -> None:
@@ -159,25 +161,54 @@ def test_a_unit_somebody_else_wrote_is_refused(tmp_path: Path) -> None:
 # --- enabling and removing ----------------------------------------------------------
 
 
-def test_installing_alone_schedules_nothing(tmp_path: Path) -> None:
-    """Writing the files is not the decision to start building unattended."""
+def test_installing_schedules_them(tmp_path: Path) -> None:
+    """What installing a timer is for. Written but not enabled is the failure
+    that looks most like success: `abk status` answers perfectly while no tick
+    has happened in a week."""
+    planning = planning_at(tmp_path, "meta-agent")
     calls: list[list[str]] = []
 
-    timers.install(planning_at(tmp_path, "meta-agent"), dest=tmp_path / "d", run=fake_run(calls))
+    timers.install(planning, dest=tmp_path / "d", run=fake_run(calls))
 
-    assert calls == [["systemctl", "--user", "daemon-reload"]]
+    enabled = [argv[-1] for argv in calls if "enable" in argv]
+    assert enabled == [n for n in timers.unit_names(planning) if n.endswith(".timer")]
 
 
-def test_enable_starts_the_timers_and_never_the_services(tmp_path: Path) -> None:
+def test_the_services_beside_them_are_never_enabled(tmp_path: Path) -> None:
     """Enabling a `.service` would run it at boot, outside the schedule that is
     the whole point of the timer beside it."""
     planning = planning_at(tmp_path, "meta-agent")
     calls: list[list[str]] = []
 
-    timers.install(planning, dest=tmp_path / "d", run=fake_run(calls), enable=True)
+    timers.install(planning, dest=tmp_path / "d", run=fake_run(calls))
 
-    enabled = [argv[-1] for argv in calls if "enable" in argv]
-    assert enabled == [n for n in timers.unit_names(planning) if n.endswith(".timer")]
+    assert not any(argv[-1].endswith(".service") for argv in calls if "enable" in argv)
+
+
+def test_a_caller_that_will_schedule_them_itself_can_say_so(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    timers.install(
+        planning_at(tmp_path, "meta-agent"), dest=tmp_path / "d", run=fake_run(calls), enable=False
+    )
+
+    assert calls == [["systemctl", "--user", "daemon-reload"]]
+
+
+def test_enabling_again_is_harmless(tmp_path: Path) -> None:
+    """`enable --now` is idempotent, so it runs whether or not a file changed —
+    which is what repairs a unit that was written but never scheduled."""
+    planning = planning_at(tmp_path, "meta-agent")
+    dest = tmp_path / "d"
+    timers.install(planning, dest=dest, run=fake_run([]))
+    calls: list[list[str]] = []
+
+    change = timers.install(planning, dest=dest, run=fake_run(calls))
+
+    assert change.written == ()
+    assert [argv[-1] for argv in calls if "enable" in argv] == [
+        n for n in timers.unit_names(planning) if n.endswith(".timer")
+    ]
 
 
 def test_removing_stops_the_timers_before_deleting_them(tmp_path: Path) -> None:

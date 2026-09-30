@@ -61,7 +61,7 @@ repo's first changes. Then:
 ```bash
 uv run abk doctor                        # is this installation runnable?
 uv run abk tick --dry-run                # what would build now
-abk install-timers --enable
+abk install-timers
 ```
 
 Requirements: Python 3.12+, `uv`, `git`, and a client for each host a repo

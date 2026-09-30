@@ -112,10 +112,16 @@ def install(
     *,
     dest: Path | None = None,
     run: Run | None = None,
-    enable: bool = False,
+    enable: bool = True,
     dry_run: bool = False,
 ) -> UnitChange:
-    """Render this installation's units into `dest`, and report what changed.
+    """Render this installation's units into `dest`, enable them, and report
+    what changed.
+
+    Enabled by default because that is what installing a timer is for. Written
+    but not enabled is the failure that looks most like success: `abk status`
+    answers perfectly while no tick has happened in a week. `enable=False` is
+    for a caller that wants the files and will schedule them itself.
 
     A unit already there without the marker is refused rather than overwritten.
     One this framework wrote is replaced only when its content has moved on,
@@ -152,7 +158,8 @@ def install(
         run(["systemctl", "--user", "daemon-reload"], check=False)
     if enable:
         # Timers only: enabling a .service would run it at boot, outside the
-        # schedule that is the whole point of the timer beside it.
+        # schedule that is the whole point of the timer beside it. `enable
+        # --now` is idempotent, so it runs whether or not anything was written.
         for name in unit_names(root):
             if name.endswith(".timer"):
                 run(["systemctl", "--user", "enable", "--now", name], check=False)

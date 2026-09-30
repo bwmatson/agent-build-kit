@@ -326,7 +326,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         "`git config user.email <email>` (and user.name).\n"
         "  3. Log `gh` in for every GitHub owner in abk.yaml: `gh auth login`.\n"
         "  4. Copy .env.example to .env and fill what this machine needs.\n"
-        "  5. Run `abk doctor`, then `abk install-timers --enable`."
+        "  5. Run `abk doctor`, then `abk install-timers`."
     )
     if failures:
         print(f"\n{len(failures)} change(s) need finishing by hand: {', '.join(failures)}")
@@ -402,7 +402,7 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
         if args.enable:
             print("timers enabled; `systemctl --user list-timers` shows when each next runs")
         else:
-            print("nothing is scheduled yet: re-run with --enable, or enable them by hand")
+            print("nothing is scheduled: --no-enable was given, so enable them by hand")
     return 1 if change.refused else 0
 
 
@@ -435,7 +435,10 @@ def register(sub: argparse._SubParsersAction) -> None:
         "install-timers", help="render this installation's systemd units for the user manager"
     )
     units.add_argument(
-        "--enable", action="store_true", help="enable and start the timers once written"
+        "--no-enable",
+        dest="enable",
+        action="store_false",
+        help="write the units without scheduling them",
     )
     units.add_argument(
         "--remove", action="store_true", help="stop, disable and delete this installation's units"

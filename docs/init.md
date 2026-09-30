@@ -125,7 +125,7 @@ is, and the reason is printed. Finally the next steps: review `abk.yaml`
 (fill each `deploy.rules[].run`, `description`, `relationships`; replace any
 `todo-owner/` slug), set a repo-local git identity in each checkout, log `gh`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
-the timers with `abk install-timers --enable`.
+the timers with `abk install-timers`.
 
 ## Idempotence and `--force`
 

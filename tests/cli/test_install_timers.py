@@ -36,6 +36,21 @@ def units(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return dest
 
 
+def test_no_enable_writes_without_scheduling(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(timers, "subprocess", _Recorder(calls))
+
+    code = main(["install-timers", "--no-enable"])
+
+    assert code == 0
+    assert not any("enable" in argv for argv in calls)
+    assert "nothing is scheduled" in capsys.readouterr().out
+
+
 def test_the_units_land_pointing_at_this_installation(
     tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
@@ -88,7 +103,7 @@ def test_a_unit_somebody_else_wrote_is_refused(
     assert (units / timers.unit_names(inst.root)[0]).exists(), "the rest still land"
 
 
-def test_enable_starts_the_timers_and_not_the_services(
+def test_installing_enables_the_timers_and_not_the_services(
     tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Enabling a `.service` would run it at boot, outside the schedule that is
@@ -98,7 +113,7 @@ def test_enable_starts_the_timers_and_not_the_services(
     calls: list[list[str]] = []
     monkeypatch.setattr(timers, "subprocess", _Recorder(calls))
 
-    code = main(["install-timers", "--enable"])
+    code = main(["install-timers"])
 
     assert code == 0
     enabled = [c[-1] for c in calls if "enable" in c]

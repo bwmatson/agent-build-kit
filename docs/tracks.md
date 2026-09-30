@@ -160,7 +160,7 @@ skipping it; the two weekly tracks are on different days so they never
 compete for the usage window. Install for the user manager:
 
 ```bash
-abk install-timers --enable
+abk install-timers
 ```
 
 and the same for each `abk-track-*` pair.
