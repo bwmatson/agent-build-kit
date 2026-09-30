@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
 from agent_build_kit.forges.base import (
+    BaseMissing,
     PermittedCommand,
     PullRequest,
     RepoId,
@@ -44,6 +45,24 @@ if TYPE_CHECKING:
 # The REST version the pull request PATCH is made against; `az devops invoke`
 # defaults to 5.0, which predates fields this relies on.
 _API = "7.1"
+# What `az repos pr create` says when a branch it was given is not on the host:
+# TF401028 a missing reference, TF401398 a source or target that no longer exists.
+_MISSING_REFERENCE = "TF401028"
+_MISSING_BRANCH = "TF401398"
+
+
+def _base_missing(stderr: str, base: str) -> bool:
+    """Whether the host's refusal says the *target* branch is gone.
+
+    TF401028 names the reference it could not find, and is a base problem only
+    when that is the base: a missing source would be a different failure.
+    TF401398 says "source and/or target" without telling which, and the source
+    was pushed moments before, so it is read as the target.
+    """
+    return _MISSING_BRANCH in stderr or (
+        _MISSING_REFERENCE in stderr and f"refs/heads/{base}" in stderr
+    )
+
 
 # `pending` and `notSet` are waiting, not failing: read as failures they would
 # send a unit back for rework while its build was still running.
@@ -321,27 +340,33 @@ class AzureDevOpsForge:
         body: str,
         run: Run | None = None,
     ) -> int:
-        made = az.json_out(
-            [
-                "repos",
-                "pr",
-                "create",
-                "--project",
-                repo.project,
-                "--repository",
-                repo.name,
-                "--source-branch",
-                head,
-                "--target-branch",
-                base,
-                "--title",
-                title,
-                "--description",
-                body,
-            ],
-            org=az.org_url(repo.account),
-            run=run,
-        )
+        try:
+            made = az.json_out(
+                [
+                    "repos",
+                    "pr",
+                    "create",
+                    "--project",
+                    repo.project,
+                    "--repository",
+                    repo.name,
+                    "--source-branch",
+                    head,
+                    "--target-branch",
+                    base,
+                    "--title",
+                    title,
+                    "--description",
+                    body,
+                ],
+                org=az.org_url(repo.account),
+                run=run,
+            )
+        except az.AzError as error:
+            # The host's words only: the message also holds the title and body.
+            if _base_missing(error.stderr, base):
+                raise BaseMissing(str(error)) from error
+            raise
         if not isinstance(made, dict) or "pullRequestId" not in made:
             raise az.AzError(f"creating a pull request for {head} answered without an id")
         return int(made["pullRequestId"])

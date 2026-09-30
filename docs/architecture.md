@@ -240,7 +240,25 @@ binds each step to git, gh and `claude`:
    under the one `runs/tier2.lock` queue, and the result is recorded with the
    commit, the command, counts and `verify.stack_versions_command`'s output
    for the PR body.
-8. **Push, with a lease.** The head must be the exact commit review
+   A run that starts with commits on its branch fetches its repo first (a
+   failed fetch is logged, not fatal), then restacks.
+8. **Check the base, then push.** Just before the push the repo is fetched
+   again and the base is worked out afresh: a parent whose pull request the
+   forge reports merged, which the store has not heard of, is recorded through
+   the merge handler and the unit takes its new base (a forge that cannot be
+   asked is logged, and the run goes on with the base it has). The branch is
+   moved onto it with the restack a run starts with, but without the conflict
+   resolver: a conflict is aborted and the branch left as it was. A clean move
+   re-runs tier 1 (and tier 2, for a tier 2 unit) and carries the approval to
+   the moved commit; a conflict, or a tier 1 or tier 2 failure on the new base,
+   pushes nothing and resumes the unit at its restack in the same run (a
+   check's failure leaves its output as feedback). That restack is what
+   resolves, under the usage gate, and review is told of it. It happens once:
+   a second hold in the run leaves the unit `planned` to resume at its restack
+   on a later tick, so a base that keeps moving cannot loop. A pull request
+   refused because its base is gone asks the forge for the base again (a parent
+   merged meanwhile gives its merged-to branch) and resumes the same way.
+9. **Push, with a lease.** The head must be the exact commit review
    approved, or the push is refused. The push carries
    `--force-with-lease=<branch>:<sha last pushed>` (the store remembers the
    SHA across processes) or no force at all for a first push. Then the PR is

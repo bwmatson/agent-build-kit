@@ -46,7 +46,15 @@ _TIMEOUT = 30
 
 
 class AzError(RuntimeError):
-    """An `az` call that did not answer. Never a quiet empty result."""
+    """An `az` call that did not answer. Never a quiet empty result.
+
+    `stderr` is the host's answer alone, when there was one: the message also
+    carries the command line, which can hold a title or description.
+    """
+
+    def __init__(self, message: str, *, stderr: str = "") -> None:
+        super().__init__(message)
+        self.stderr = stderr
 
 
 def org_url(account: str) -> str:
@@ -99,7 +107,7 @@ def json_out(args: list[str], *, org: str, run: Run | None = None) -> object:
     result = call(args, org=org, run=run)
     if result.returncode:
         detail = (result.stderr or result.stdout or "").strip() or f"exit {result.returncode}"
-        raise AzError(f"az {' '.join(args)}: {detail}")
+        raise AzError(f"az {' '.join(args)}: {detail}", stderr=detail)
     text = (result.stdout or "").strip()
     if not text:
         return None

@@ -100,11 +100,21 @@ def gh(args: list[str], *, slug: str = "", **kwargs) -> subprocess.CompletedProc
     )
 
 
+class GhError(RuntimeError):
+    """A gh command that failed. `stderr` is the host's answer alone: the
+    message also carries the command line, which can hold a title or body."""
+
+    def __init__(self, message: str, *, stderr: str = "") -> None:
+        super().__init__(message)
+        self.stderr = stderr
+
+
 def gh_out(args: list[str], *, slug: str = "") -> str:
-    """stdout of a gh command that must succeed, or RuntimeError naming why."""
+    """stdout of a gh command that must succeed, or GhError naming why."""
     result = gh(args, slug=slug)
     if result.returncode:
-        raise RuntimeError(f"{' '.join(args)} failed: {result.stderr.strip()}")
+        detail = result.stderr.strip()
+        raise GhError(f"{' '.join(args)} failed: {detail}", stderr=detail)
     return result.stdout
 
 

@@ -34,6 +34,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.config import active, models
+from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
@@ -66,6 +67,9 @@ REVIEW = "review"
 REWORK_REVIEW = "rework_review"
 REWORK = "rework"
 VERIFY = "verify"
+# A unit whose base moved before its push, or was gone when its pull request was
+# opened: its next run moves the branch onto the base as it now is.
+RESTACK = "restack"
 
 
 def starting_step(unit: StoredUnit) -> tuple[str, str]:
@@ -852,6 +856,8 @@ class UnitRunner(BaseModel):
     # `wiring.build_base_moved`.
     base_moved: Callable[..., str] = lambda unit, base, **kwargs: ""
     base_tip: Callable[[Path, str], str] = lambda tree, ref: ""
+    # Called with `resolve=False` before a push: then a conflict is reported as
+    # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
     run_tier1: Callable[..., tuple[bool, str]]
     run_tier2: Callable[..., tuple[bool, str]]
@@ -880,11 +886,20 @@ class UnitRunner(BaseModel):
     # so a test that survived the replay by name only is not mistaken for one
     # the replay left alone.
     tests_changed: Callable[[Path, str], set[str]] = lambda tree, ref: set()
+    # Brings the repo's remote refs up to date, in the repo's turn. Raises when
+    # the remote cannot be reached; the runner logs that and carries on.
+    fetch: Callable[[Unit], None] = lambda unit: None
+    # The unit's base as it is now: the parent's pull request asked of the
+    # forge, a merge the store has not heard of recorded, the branch to build
+    # on named. Given the base the run started on.
+    fresh_base: Callable[[Unit, str], str] = lambda unit, base: base
     # Each step as it starts and how it ended, so the tick log says where a
     # unit has got to rather than going quiet for the length of a build.
     log: Callable[[str], None] = lambda message: None
 
-    def run(self, unit: Unit, *, base: str, graph: list[StoredUnit]) -> RunOutcome:
+    def run(
+        self, unit: Unit, *, base: str, graph: list[StoredUnit], rebased: bool = False
+    ) -> RunOutcome:
         allowed, why = self.may_start()
         if not allowed:
             # Before anything else: pausing here costs nothing, while pausing
@@ -922,6 +937,7 @@ class UnitRunner(BaseModel):
             # its parent was reworked comes back to a base that was force-pushed
             # underneath it, so its branch no longer contains the commits it sits
             # on. Judging it against that base would judge work it does not have.
+            self._fetch(unit)
             try:
                 restacked = self.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
             except (AgentRateLimited, AgentInterrupted):
@@ -1273,6 +1289,53 @@ class UnitRunner(BaseModel):
         if outcome := checkpoint(VERIFY, usage=False):
             return outcome
 
+        # The base may have moved on the remote since this run began: a parent
+        # merged, or the trunk advanced. Checked once, here, so what is pushed
+        # sits on the base as it now is.
+        self._fetch(unit)
+        try:
+            fresh = self.fresh_base(unit, base)
+        except Exception as error:  # noqa: BLE001
+            # Asking the forge is the network too: a unit that passed review
+            # and tier 1 is not failed because the host did not answer.
+            self.log(f"could not ask the forge for the base, going on with {base}: {error}")
+            fresh = base
+        if fresh != base:
+            self.log(f"base is now {fresh}, not {base}")
+            base, ref = fresh, local_ref(fresh)
+        try:
+            # Without the resolver: a resolution here would run outside the
+            # usage gate and leave the branch rewritten with nothing telling
+            # review it was. A conflict is aborted, and the resumed run's
+            # restack resolves it the usual way.
+            moved = self.restack_onto(tree=tree, branch=branch, base=ref, unit=unit, resolve=False)
+        except (AgentRateLimited, AgentInterrupted):
+            raise
+        except Exception as error:  # noqa: BLE001
+            return self._resume_for_base(
+                unit, f"moving onto {base} needed resolution: {error}", base, graph, rebased
+            )
+        if moved is not None:
+            if moved.conflict or moved.resolved:
+                return self._resume_for_base(
+                    unit, f"moving onto {base} needed resolution", base, graph, rebased
+                )
+            self.log(f"moved onto {base} cleanly before the push; tier 1 again")
+            tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
+            if not tier1_ok:
+                self.store.set_feedback(unit.id, f"tier 1 failed:\n{tier1_output}".strip())
+                return self._resume_for_base(unit, f"tier 1 failed on {base}", base, graph, rebased)
+            if unit.tier == "tier2":
+                # The moved commit is what gets pushed and what the status is
+                # posted for, and it has not been through tier 2.
+                self.log("tier 2 again on the moved commit")
+                tier2_ok, snapshot = self.run_tier2(cwd=tree)
+                if not tier2_ok:
+                    self.store.set_feedback(unit.id, f"tier 2 failed:\n{snapshot}".strip())
+                    return self._resume_for_base(
+                        unit, f"tier 2 failed on {base}", base, graph, rebased
+                    )
+
         # The rule, checked where it matters rather than inferred from the path
         # taken: the PR only ever receives the commit the review loop approved.
         head, approved_sha = self.head(tree), self.store.get(unit.id).approved
@@ -1318,9 +1381,29 @@ class UnitRunner(BaseModel):
             follow_ups=self._follow_ups_for(unit) or None,
             linear=self.linear(tree, ref),
         )
-        pr = self.open_pr(
-            unit, body=body(stacks=False), stacked_body=body(stacks=True), base=base, cwd=tree
-        )
+        try:
+            pr = self.open_pr(
+                unit,
+                body=body(stacks=False),
+                stacked_body=body(stacks=True),
+                base=base,
+                cwd=tree,
+            )
+        except BaseMissing as error:
+            # The base was deleted between the check and the call, most often
+            # by its merge: ask again, and go on from whatever it is now.
+            try:
+                base = self.fresh_base(unit, base)
+            except Exception as asked:  # noqa: BLE001
+                self.log(f"could not ask the forge for the base: {asked}")
+            return self._resume_for_base(
+                unit,
+                str(error),
+                base,
+                graph,
+                rebased,
+                lead="base gone before its pull request",
+            )
 
         # After the push, never before: a status for a commit GitHub has not
         # seen is rejected.
@@ -1749,6 +1832,39 @@ class UnitRunner(BaseModel):
         )
         self.log(f"held: rounds spent — #{pr}")
         return RunOutcome(status="held", detail=f"rounds spent, held as #{pr}")
+
+    def _fetch(self, unit: Unit) -> None:
+        """Bring the repo's remote refs up to date; a failure is logged, not fatal."""
+        try:
+            self.fetch(unit)
+        except Exception as error:  # noqa: BLE001
+            self.log(f"fetch failed, going on with the refs it has: {error}")
+
+    def _resume_for_base(
+        self,
+        unit: Unit,
+        why: str,
+        base: str,
+        graph: list[StoredUnit],
+        rebased: bool,
+        *,
+        lead: str = "base moved before its push",
+    ) -> RunOutcome:
+        """Resume at the restack now, once, rather than queue.
+
+        Usually nothing is pushed yet; when the pull request was refused for a
+        missing base the branch is, and `lead` says so in the note. The resumed
+        run resolves under the usage gate and tells review of it. A second hold
+        in the same run is left planned for the next tick, so a base that keeps
+        moving cannot loop.
+        """
+        note = f"{lead}: {why}"
+        self.log(f"held: {note}")
+        self.store.set_state(unit.id, PLANNED, note=note, resume_from=RESTACK)
+        if rebased:
+            return RunOutcome(status="held", detail=note)
+        self.log(f"resuming at its restack on {base}")
+        return self.run(unit, base=base, graph=graph, rebased=True)
 
     def _fail(self, unit: Unit, detail: str) -> RunOutcome:
         # Recorded rather than left at "planned": the next round would

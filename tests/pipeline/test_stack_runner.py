@@ -16,6 +16,7 @@ of the run rather than shelling out to Claude, git and gh.
 """
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -1104,7 +1105,7 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
         update={
             "branch_commits": lambda cwd, base: 2,
             "base_tip": lambda tree, ref: tip[0],
-            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "restack_onto": _once(_restacked(conflict="x", old_tests=("test_click",))),
             "reset_to": lambda tree, onto, keep: None,
             "tests_in": lambda tree: {"test_click"},
             "run_rework": adapt,
@@ -1230,7 +1231,8 @@ def test_a_fresh_unit_has_nothing_to_restack(tmp_path: Path) -> None:
 
     runner.run(unit(), base="main", graph=[])
 
-    assert "restack" not in recorder.events, "no commits yet, so no base to have moved"
+    build = recorder.events.index("claude:impl")
+    assert "restack" not in recorder.events[:build], "no commits yet, so no base to have moved"
 
 
 def test_the_log_says_which_step_a_unit_is_on(tmp_path: Path) -> None:
@@ -1684,6 +1686,13 @@ def test_a_failed_restack_keeps_the_review_feedback_already_waiting(tmp_path: Pa
     assert "dropped a test" in feedback
 
 
+def _once(result: Restacked) -> Callable[..., Restacked | None]:
+    """A restack that moves the branch at the start of the run and finds it
+    already on its base when asked again before the push."""
+    answers = iter([result])
+    return lambda **kw: next(answers, None)
+
+
 def _restacked(**overrides) -> Restacked:
     fields: dict = {
         "onto_unit": "c/2",
@@ -1726,7 +1735,7 @@ def test_a_restack_that_needed_resolving_is_reviewed_for_whether_its_tests_still
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(resolved=("src/mcp.py",)),
+            "restack_onto": _once(_restacked(resolved=("src/mcp.py",))),
             "run_review": recorder.standard_review,  # type: ignore[attr-defined]
             "run_rework_review": recorder.rework_review,  # type: ignore[attr-defined]
         }
@@ -1765,8 +1774,10 @@ def test_a_restack_that_could_not_be_merged_is_ported_and_its_tests_accounted_fo
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(
-                conflict="dropped test_console", old_tests=("test_click", "test_console")
+            "restack_onto": _once(
+                _restacked(
+                    conflict="dropped test_console", old_tests=("test_click", "test_console")
+                )
             ),
             "reset_to": lambda tree, onto, keep: resets.append((onto, keep)),
             "tests_in": lambda tree: {"test_click"},
@@ -1961,8 +1972,8 @@ def test_a_test_the_replay_left_alone_is_not_required_in_the_accounting(
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(
-                conflict="x", old_tests=("test_click", "test_console")
+            "restack_onto": _once(
+                _restacked(conflict="x", old_tests=("test_click", "test_console"))
             ),
             "reset_to": lambda tree, onto, keep: None,
             # test_console dropped; test_click stayed
@@ -2000,7 +2011,7 @@ def test_a_kept_test_ported_after_the_reset_passes_the_keep_check(tmp_path: Path
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "restack_onto": _once(_restacked(conflict="x", old_tests=("test_click",))),
             "reset_to": lambda tree, onto, keep: None,
             "tests_in": lambda tree: {"test_click"} if ported else set(),
             "tests_changed": lambda tree, ref: set(),
@@ -2031,7 +2042,7 @@ def test_a_changed_test_still_requires_a_decision(tmp_path: Path) -> None:
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "restack_onto": _once(_restacked(conflict="x", old_tests=("test_click",))),
             "reset_to": lambda tree, onto, keep: None,
             "tests_in": lambda tree: {"test_click"},
             "tests_changed": tests_changed,
@@ -2079,8 +2090,8 @@ def test_an_incomplete_accounting_is_asked_again_before_the_unit_fails(
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(
-                conflict="x", old_tests=("test_click", "test_console")
+            "restack_onto": _once(
+                _restacked(conflict="x", old_tests=("test_click", "test_console"))
             ),
             "reset_to": lambda tree, onto, keep: None,
             "tests_in": lambda tree: {"test_click"} if ported else set(),
@@ -2160,7 +2171,7 @@ def test_a_changed_test_answered_keep_is_asked_again(tmp_path: Path) -> None:
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(conflict="x", old_tests=("test_click",)),
+            "restack_onto": _once(_restacked(conflict="x", old_tests=("test_click",))),
             "reset_to": lambda tree, onto, keep: None,
             "tests_in": lambda tree: {"test_click"},
             "tests_changed": lambda tree, ref: {"test_click"},
@@ -2204,8 +2215,8 @@ def test_follow_up_decisions_are_merged_over_the_first_answers(tmp_path: Path) -
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={
             "branch_commits": lambda cwd, base: 2,
-            "restack_onto": lambda **kw: _restacked(
-                conflict="x", old_tests=("test_click", "test_console")
+            "restack_onto": _once(
+                _restacked(conflict="x", old_tests=("test_click", "test_console"))
             ),
             "reset_to": lambda tree, onto, keep: None,
             "tests_in": lambda tree: set(),

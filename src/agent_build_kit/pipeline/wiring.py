@@ -24,6 +24,7 @@ import re
 import subprocess
 import time
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from functools import partial
 from pathlib import Path
 from typing import Protocol
@@ -40,6 +41,7 @@ from agent_build_kit.pipeline.restack import (
     RestackConflict,
     adopt_host_head,
     diff_id,
+    move_branch_onto,
     push_with_lease,
     remote_head,
     resolved_move,
@@ -57,6 +59,8 @@ from agent_build_kit.pipeline.tier2 import (
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
+    IN_REVIEW,
+    MERGED,
     REVIEWED,
     Unit,
     base_of,
@@ -756,6 +760,65 @@ def build_open_pr(
     return open_pr
 
 
+def build_fetch(
+    checkouts: Mapping[str, Path], *, turn: Callable[[str], AbstractContextManager[object]]
+) -> Callable[[Unit], None]:
+    """Fetch one unit's repo, in that repo's turn. Raises when the fetch fails."""
+
+    def fetch(unit: Unit) -> None:
+        with turn(unit.repo):
+            result = git(checkouts[unit.repo], "fetch", "-q", "--prune", "origin", check=False)
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or f"git fetch exited {result.returncode}")
+
+    return fetch
+
+
+def build_fresh_base(
+    store: UnitStore,
+    *,
+    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
+    record_merge: Callable[[str, int], object],
+) -> Callable[[Unit, str], str]:
+    """A unit's base as the forge has it, recording a merge the store missed.
+
+    `record_merge` is given the repo and the pull request number: a number
+    names a unit only together with its repo.
+
+    The parent's state comes from the forge's listing, not a lookup of the one
+    pull request: no forge method answers a single pull request's state, and
+    adding one for this is not worth it. A parent that has dropped off the
+    listing's newest 100 goes unseen, which leaves the unit on the base it has
+    - the behaviour before this check - and a base the host has deleted is
+    caught again when the pull request opens.
+    """
+
+    for_repo = for_repo or forges.for_repo
+
+    def fresh_base(unit: Unit, base: str) -> str:
+        parent = next(
+            (
+                other
+                for other in store.all()
+                if other.state == IN_REVIEW and other.pr and branch_name(other) == base
+            ),
+            None,
+        )
+        if parent is None or parent.pr is None:
+            return base
+        forge, repo = for_repo(unit.repo)
+        merged = any(
+            pull.number == parent.pr and pull.state == MERGED
+            for pull in forge.list_prs(repo, head_prefix=base)
+        )
+        if not merged:
+            return base
+        record_merge(unit.repo, parent.pr)
+        return base_of(unit, store.all())
+
+    return fresh_base
+
+
 def build_close_pr(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[Unit, int, str], None]:
@@ -1042,6 +1105,13 @@ def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -
     return start
 
 
+def _move_without_resolver(
+    repo: Path, branch: str, *, new_base: str, old_base: str, **_intent: str
+) -> Moved:
+    """`move_branch_onto` with no resolver: a conflict is aborted and raised."""
+    return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base)
+
+
 def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = None):
     """Move a resuming unit's branch onto its base, if the base has moved.
 
@@ -1054,10 +1124,18 @@ def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = 
     "Has the base moved" is whether the base's tip is still an ancestor of this
     branch. If it is, nothing to do — and a rebase would be actively harmful,
     since it rewrites every commit and invalidates any check already run.
-    """
-    move = move or resolved_move
 
-    def restack_onto(*, tree: Path, branch: str, base: str, unit: Unit) -> Restacked | None:
+    `resolve=False` moves without the conflict resolver, for the check before a
+    push: a conflict is aborted, the branch left at its head, and reported as
+    `Restacked.conflict`, so the unit is held and the resolution happens at the
+    start of its next run, under the usage gate and with review told of it.
+    """
+    resolving = move or resolved_move
+
+    def restack_onto(
+        *, tree: Path, branch: str, base: str, unit: Unit, resolve: bool = True
+    ) -> Restacked | None:
+        move = resolving if resolve else _move_without_resolver
         if _is_ancestor(tree, base):
             return None
 
@@ -1355,6 +1433,7 @@ def build_runner(
     *,
     store: UnitStore,
     installation: Installation,
+    record_merge: Callable[[str, int], object] = lambda repo, pr: None,
     log: Callable[[str], None] = print,
 ) -> UnitRunner:
     """Assemble the runner for one unit, with every step bound to reality.
@@ -1381,6 +1460,10 @@ def build_runner(
     # than wait — so those two steps take turns per repo. Everything else
     # happens inside the unit's own worktree and needs no turn-taking.
     repo_turn = partial(file_lock, root / "locks" / f"repo-{unit.repo}.lock")
+
+    def repo_turn_of(name: str) -> AbstractContextManager[object]:
+        return file_lock(root / "locks" / f"repo-{name}.lock")
+
     worktree = build_worktree(installation.checkouts, root=installation.worktree_root)
     push = build_push(store)
 
@@ -1435,5 +1518,7 @@ def build_runner(
         close_pr=build_close_pr(),
         reply=build_post_replies(root=root, log=log),
         head=_head_sha,
+        fetch=build_fetch(installation.checkouts, turn=lambda repo: repo_turn_of(repo)),
+        fresh_base=build_fresh_base(store, record_merge=record_merge),
         log=log,
     )

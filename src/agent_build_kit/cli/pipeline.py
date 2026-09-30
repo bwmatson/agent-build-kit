@@ -861,26 +861,9 @@ def _repo_turn(inst: Installation, repo: str) -> AbstractContextManager[None]:
     return file_lock(inst.state_dir / "locks" / f"repo-{repo}.lock")
 
 
-def poll_all(inst: Installation, *, store: UnitStore) -> None:
-    """Ask GitHub what changed in each repo, and act on it.
-
-    One poller per repo, each with its own recorded state, so a failure in one
-    doesn't replay the other's history. The first poll of a repo records
-    without dispatching — a fresh state file must not look like a hundred
-    simultaneous merges.
-
-    A pass polls while builds run, so every step here that writes to a repo's
-    `.git` — deleting a branch, removing a worktree, a restack's rebase and
-    push — takes the repo's turn, as the builds' own writes do. A restack's
-    move holds the turn from start to finish, including the conflict
-    resolver's model run when the rebase conflicts. The rebase is in progress
-    in the repo's own checkout, and a build's worktree add or push must not
-    land in the middle of it. So a conflicted restack keeps that repo's builds
-    waiting at worktree add or push until its resolver finishes. Only the
-    restack's tier 1 run happens outside the turn: it writes nothing to
-    `.git`, and holding the turn through it would keep every build in the
-    repo waiting on a test run as well.
-    """
+def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
+    """What each poller event is handed to, every write to a repo's `.git` in
+    that repo's turn. Also how a merge the poll has not reported yet is recorded."""
     checkouts = inst.checkouts
     names = {path: repo for repo, path in checkouts.items()}
 
@@ -919,6 +902,32 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         rebase_cap=inst.stack_depth_rebase_cap,
         log=log,
     )
+    return dispatch
+
+
+def poll_all(inst: Installation, *, store: UnitStore) -> None:
+    """Ask GitHub what changed in each repo, and act on it.
+
+    One poller per repo, each with its own recorded state, so a failure in one
+    doesn't replay the other's history. The first poll of a repo records
+    without dispatching — a fresh state file must not look like a hundred
+    simultaneous merges.
+
+    A pass polls while builds run, so every step here that writes to a repo's
+    `.git` — deleting a branch, removing a worktree, a restack's rebase and
+    push — takes the repo's turn, as the builds' own writes do. A restack's
+    move holds the turn from start to finish, including the conflict
+    resolver's model run when the rebase conflicts. The rebase is in progress
+    in the repo's own checkout, and a build's worktree add or push must not
+    land in the middle of it. So a conflicted restack keeps that repo's builds
+    waiting at worktree add or push until its resolver finishes. Only the
+    restack's tier 1 run happens outside the turn: it writes nothing to
+    `.git`, and holding the turn through it would keep every build in the
+    repo waiting on a test run as well.
+    """
+    checkouts = inst.checkouts
+
+    dispatch = _dispatch(inst, store)
 
     for repo in checkouts:
         forge, repo_id = inst.forge_of(repo)
@@ -990,7 +999,13 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 )
                 if run_log.writing:
                     store.set_run_log(unit.id, run_log.name)
-                runner = build_runner(unit, store=store, installation=inst, log=say)
+                runner = build_runner(
+                    unit,
+                    store=store,
+                    installation=inst,
+                    record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+                    log=say,
+                )
                 outcome = runner.run(unit, base=base, graph=graph)
         except NotImplementedError as error:
             # A toolchain profile the framework does not implement yet: not the
