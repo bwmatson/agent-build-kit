@@ -88,7 +88,7 @@ tracks:                       # the scheduled health/improve/recommend tracks
                               # no dollar budget — every phase is bounded by
                               # the same session/weekly usage windows, and
                               # the same ramped thresholds, as limits above
-  implement_max_prs: 3
+  propose_max_issues: 3       # issues one propose pass writes up as task groups
   allowed_tools: "..."        # Claude Code --allowedTools syntax
   disallowed_tools: "..."     # both have no effect under the acp runtime
   prompts_dir: null           # a directory overriding the built-in prompts

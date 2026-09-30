@@ -161,6 +161,39 @@ with the current version; one written by hand under the same name is refused
 and left alone. Exit 2 with no target and no installation; 1 if any file was
 refused; else 0.
 
+### `abk install-timers [--no-enable] [--remove] [--dry-run]`
+
+Puts this installation's systemd units on this machine: the tick every five
+minutes and the three scheduled tracks, each a `.service` and a `.timer` in the
+user manager's directory (`$XDG_CONFIG_HOME/systemd/user`). Rendered here
+rather than at `abk init`, because a unit carries an absolute
+`WorkingDirectory`: one written into the planning repo names whoever ran init,
+and everyone who cloned it afterwards got units aimed at someone else's home.
+
+- **Named for the installation.** `abk-<planning dir>-tick.service`, so several
+  installations on one machine do not replace each other's units. Two planning
+  repos *both* called `planning` would collide, so the second install refuses
+  and names where the first lives; give one of them a different directory name.
+- **Enabled by default.** Written-but-not-enabled is the failure that looks most
+  like success: the units are there, `abk status` answers, and no tick has
+  happened in a week. Only the timers are enabled, never the services beside
+  them, which would run at boot outside the schedule. `--no-enable` writes the
+  files and leaves scheduling to you.
+- **Repeatable.** A unit that already holds the right content is left alone,
+  down to its modification time, and systemd is told nothing when nothing
+  changed. Safe in a setup script that runs on every boot.
+- **Self-healing.** Units of *this* installation that the current version no
+  longer installs are stopped and removed: the unnamed `abk-tick.service` an
+  earlier version wrote, or a unit a later version dropped. Ownership is where a
+  unit *points* (its `WorkingDirectory`), never what its name starts with, so
+  installation `meta` cannot remove `meta-agent`'s. Another installation's
+  units are never touched, however out of date.
+- `--remove` stops, disables and deletes this installation's units, outdated
+  ones included. `--dry-run` prints what would be written or removed.
+
+A file with the same name that this framework did not write is refused, not
+overwritten. Exit 1 if anything was refused; else 0; 2 with no installation.
+
 ### `abk doctor`
 
 Is this installation in a state the pipeline can run in? Each check prints
@@ -170,8 +203,11 @@ Is this installation in a state the pipeline can run in? Each check prints
 |---|---|---|
 | config | `abk.yaml` is missing, malformed or has an unknown key; or the runtime selected (`ABK_RUNTIME`, from the environment or the planning repo's `.env`, else `runtime:`) is unknown, or is missing a fact it requires under `runtimes.<name>` | |
 | worktree root | `planning.worktree_root` is inside the planning repo | |
-| repo `<name>` | the path is missing, not a git checkout, or has no repo-local `user.email` | |
-| gh `<owner>` | `gh auth token --user <owner>` yields nothing for an owner in `repos` | |
+| repo `<name>` | the path is missing, not a git checkout, or git has no `user.email`/`user.name` for it (repo-local or global — the line says which scope signs, so a workspace whose repos belong to different accounts can see one identity covering them all) | |
+| forge `<name>` | the repo's host will not answer for it: the forge's `check_access` fails (GitHub: `gh` holds no token for the owner; Azure DevOps: the repo cannot be read with the PAT or `az` session) | |
+| merge guard `<name>` | | *note, not a warning:* nothing server-side refuses a merge on the default branch (no branch protection or policy), so the command policy hook is the only guard. A free private repo cannot have one, and a warning there would be permanent and unfixable |
+| timers | | the units are installed but a timer is not enabled, or one is missing, out of date, or left over from an earlier version (each named). A note when none are installed — something else may run `abk tick` — or when `systemctl` cannot be asked |
+| stale timer units | | a unit this framework wrote, for any installation, points at a directory that no longer exists. Nobody is left to remove it, and `systemctl enable` accepted it without complaint |
 | node, openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run | |
 | runtime | the selected runtime is not implemented, or its agent command (`runtimes.<name>.command`, else the adapter's own, `claude` for `claude_code`; the one every run spawns) is not on PATH | |
 | runtime coverage | | the runtime's `policy_coverage` is short of `all_calls` |
@@ -205,9 +241,10 @@ list. Exit 2 if `DIR` is not a directory, 1 with hits, 0 when clean.
 
 Runs a scheduled track now, for every eligible repo or just `--project`.
 `PHASE` is `health` (daily read-only pulse check), `improve` (weekly discovery
-then an implement pass), `recommend` (weekly bigger-picture discovery then an
-implement pass) or `implement` (work down the existing backlog; `--focus`
-says which run-log entries to read first). `--dry-run` prints each rendered
+then a propose pass), `recommend` (weekly bigger-picture discovery then a
+propose pass) or `propose` (turn the existing backlog into an OpenSpec
+change for the pipeline to build; `--focus` says which run-log entries to
+read first). A track never edits a repo or opens a pull request. `--dry-run` prints each rendered
 prompt's opening lines and the `claude` command without the usage check, the
 pulls, or running anything. Details in [tracks.md](tracks.md). Exit 1 if any
 repo's phase exited non-zero or could not be pulled, else 0 — including when
