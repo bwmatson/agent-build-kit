@@ -71,6 +71,9 @@ class AgentRequest(Frozen):
     # A named checkout the runtime makes for this run itself, off cwd's repo —
     # a track phase's; Claude Code's --worktree. None: the run works in cwd.
     worktree: str | None = None
+    # A track run's: the planning repo's branches are the pipeline's to keep,
+    # so the runtime refuses branch-changing git aimed at it.
+    planning_repo: Path | None = None
     # The caller keeps the run's whole machine-readable record (`AgentResult.raw`),
     # not only its answer — a track phase writes it to its raw output file.
     # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.

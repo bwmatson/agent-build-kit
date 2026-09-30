@@ -477,8 +477,10 @@ The tick commits nothing. The template `.gitignore` excludes only the locks,
 `.env`, `.last-runs/` (the tracks' raw output) and `unit-logs/` (the unit run
 logs); `units.json`, the tracks' run logs
 and the graph page (`planning.graph_page`, rewritten on every store write) are
-meant to be committed by the operator, and the tracks commit their own run
-logs and `tracked-issues.md` by path. Unit worktrees live under the worktree
+meant to be committed by the operator, and the pipeline commits the tracks' run
+logs and `tracked-issues.md` by path after each phase, and keeps the planning repo on its
+default branch (a stray branch is kept and reported; a rewritten default branch stops the run;
+a tick checks the default branch out before reading state). Unit worktrees live under the worktree
 root — `~/.local/share/<planning dir>/worktrees` unless configured — and the
 planning repo's `.env` holds machine-local settings.
 

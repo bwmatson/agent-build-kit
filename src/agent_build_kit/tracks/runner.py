@@ -56,6 +56,10 @@ RUN_ID = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 TRACKS = ("health", "improve", "recommend")
 PHASES = (*TRACKS, "implement")
 
+# What a phase returns when the planning repo's default branch was rewritten:
+# not a failed phase the next one can follow, but a reason to stop the run.
+STOPPED = 2
+
 # Every token a prompt file may use. The prompt test holds the shipped files
 # to this set, and `placeholders()` fills every one of them for every phase.
 PLACEHOLDERS = frozenset(
@@ -350,9 +354,110 @@ def phase_request(
         allowed_tools=tracks.allowed_tools,
         denied_tools=denied_tools_value(tracks.disallowed_tools),
         permission_mode="edit",
+        planning_repo=inst.root,
         worktree=worktree,
         keep_record=True,
     )
+
+
+# --- the planning repo --------------------------------------------------------------
+
+
+class PlanningHead(Frozen):
+    """The planning repo's default branch and where it pointed before a phase."""
+
+    branch: str
+    head: str
+
+
+def _is_repo(path: Path) -> bool:
+    return _git(["rev-parse", "--git-dir"], path).returncode == 0
+
+
+def _keep_raw_output_untracked(inst: Installation) -> None:
+    """Excludes the raw output directory in this clone, so a planning repo whose
+    `.gitignore` does not name it still reads clean after a phase."""
+    exclude = _git(["rev-parse", "--git-path", "info/exclude"], inst.root).stdout.strip()
+    if not exclude:
+        return
+    path = inst.root / exclude
+    entry = f"/{inst.config.tracks.raw_output_dir.strip('/')}/"
+    existing = path.read_text() if path.exists() else ""
+    if entry not in existing.splitlines():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            existing + ("" if existing.endswith("\n") or not existing else "\n") + entry + "\n"
+        )
+
+
+def record_planning(inst: Installation) -> PlanningHead | None:
+    """The default branch and its head, taken before a phase; None when the
+    planning root is not a git repo (nothing to keep or commit)."""
+    if not _is_repo(inst.root):
+        return None
+    _keep_raw_output_untracked(inst)
+    branch = default_branch_of(inst.root)
+    head = _git(["rev-parse", "--verify", "-q", branch], inst.root)
+    return PlanningHead(branch=branch, head=head.stdout.strip()) if head.returncode == 0 else None
+
+
+def restore_default_branch(inst: Installation, branch: str) -> bool:
+    """Puts the planning repo back on `branch`, keeping any stray branch the
+    phase left it on. False when it cannot be put back."""
+    found = _git(["symbolic-ref", "--short", "-q", "HEAD"], inst.root).stdout.strip()
+    if found == branch:
+        return True
+    left = found or "a detached HEAD"
+    log(f"the planning repo was left on {left}, not {branch} — putting it back")
+    if found:
+        log(f"the branch {found} is kept")
+    result = _git(["checkout", branch], inst.root)
+    if result.returncode != 0:
+        log(f"FATAL: cannot check out {branch} in {inst.root}:\n{result.stderr}")
+    return result.returncode == 0
+
+
+def settle_planning(inst: Installation, before: PlanningHead, project: Project, name: str) -> bool:
+    """After a phase: the planning repo back on its default branch, which must
+    not have been rewritten, then the phase's files committed and pushed.
+    False stops the run."""
+    if not restore_default_branch(inst, before.branch):
+        return False
+    ancestor = _git(["merge-base", "--is-ancestor", before.head, before.branch], inst.root)
+    if ancestor.returncode != 0:
+        log(
+            f"FATAL: {before.branch} in the planning repo was rewritten during the {name} "
+            f"phase (it was {before.head[:10]}) — committing nothing; stopping the run"
+        )
+        return False
+    commit_bookkeeping(inst, before.branch, project, name)
+    return True
+
+
+def commit_bookkeeping(inst: Installation, branch: str, project: Project, name: str) -> None:
+    """Commits and pushes what the phase wrote under the state directory. A
+    rejected push is retried once after a fast-forward; a second rejection
+    is reported and the commit stays."""
+    state = str(inst.state_dir)
+    _git(["add", "-A", "--", state], inst.root)
+    if _git(["diff", "--cached", "--quiet", "--", state], inst.root).returncode == 0:
+        return
+    message = f"track: {RUN_ID} {project.name} {name}"
+    committed = _git(["commit", "-q", "-m", message, "--", state], inst.root)
+    if committed.returncode != 0:
+        log(f"[{project.name}] committing the {name} bookkeeping failed:\n{committed.stderr}")
+        return
+    if _git(["remote", "get-url", "origin"], inst.root).returncode != 0:
+        return
+    push = _git(["push", "origin", branch], inst.root)
+    if push.returncode != 0:
+        _git(["pull", "--rebase", "origin", branch], inst.root)
+        push = _git(["push", "origin", branch], inst.root)
+    if push.returncode != 0:
+        log(
+            f"[{project.name}] push of the {name} bookkeeping was rejected twice — the commit "
+            f"is kept in {inst.root}:\n{push.stderr}"
+        )
 
 
 def _print_dry_run(
@@ -406,12 +511,15 @@ def claude_phase(
     output_file = output_dir / f"{RUN_ID}-{project.name}-{name}.json"
 
     log(f"[{project.name}] phase: {name} (session window only)")
+    before = record_planning(inst)
     try:
         result = agent.run(request)
     except (AgentRateLimited, AgentInterrupted) as error:
         log(f"[{project.name}] {name} phase stopped — {error}. Continuing regardless.")
         return 1
     output_file.write_text(result.raw)
+    if before is not None and not settle_planning(inst, before, project, name):
+        return STOPPED
 
     if not result.ok:
         log(
@@ -488,7 +596,7 @@ def health(
         dry_run=dry_run,
         runtime=runtime,
     )
-    if dry_run:
+    if dry_run or health_rc == STOPPED:
         return health_rc
     path = run_log(inst, project, "health")
     status = read_status(path)
@@ -532,6 +640,8 @@ def discover_then_implement(track: str):
             dry_run=dry_run,
             runtime=runtime,
         )
+        if discover_rc == STOPPED:
+            return STOPPED
         # Always runs, even if discovery exited nonzero — implement falls
         # back to whatever candidates already exist in the run log.
         implement_rc = implement(inst, project, dry_run=dry_run, runtime=runtime)
@@ -579,8 +689,12 @@ def run_track(
             log(f"[{project.name}] couldn't update to latest {project.default_branch} — skipping")
             failed.append(project.name)
             continue
-        if DISPATCH[phase](inst, project, focus, dry_run=dry_run, runtime=runtime) != 0:
+        rc = DISPATCH[phase](inst, project, focus, dry_run=dry_run, runtime=runtime)
+        if rc != 0:
             failed.append(project.name)
+        if rc == STOPPED:
+            log("the planning repo's default branch was rewritten — stopping the run")
+            break
     log(
         f"{phase} run complete for {[p.name for p in projects]} — check "
         f"{inst.state_dir}/{RUN_ID}-<project>-*.md were written and pushed."

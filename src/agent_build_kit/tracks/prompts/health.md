@@ -47,8 +47,7 @@ check its PR's real state: `gh pr view <url> --json state -q .state`.
 - `CLOSED` (without merging) → move it to the "Rejected" section instead.
 - `OPEN` → leave it as-is.
 
-You'll commit these edits together with everything else at the end
-(step 5) — don't commit twice.
+The pipeline commits these edits with everything else you write in the planning repo.
 
 ## 2. Check whether last run's open candidates have already been resolved
 
@@ -161,8 +160,4 @@ genuinely new findings when you pick either of those, not something
 already pending (that would just cost budget re-discovering something
 that already has a PR out).
 
-Commit and push both this file and your `tracked-issues.md` edits from
-steps 1 and 2 together, directly to the planning repo's default branch
-(the branch it's checked out on) — bookkeeping, not application code, so
-neither needs its own PR. Stage only those files by path — never
-`git add -A` in the planning repo.
+The pipeline commits and pushes what you write in the planning repo (this file and your `tracked-issues.md` edits) — don't run git there, and leave its branch as it is.
