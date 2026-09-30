@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+from collections.abc import Collection
 from pathlib import Path
 
 from agent_build_kit import forges
@@ -144,7 +145,7 @@ def _skips_commit_hooks(tokens: list[str]) -> bool:
     return False
 
 
-def _check_segment(segment: str, branch: str) -> Verdict:
+def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -> Verdict:
     raw = _tokens(segment)
     tokens = _strip_wrappers(raw)
     if _switches_gate_off(raw) or _skips_commit_hooks(tokens):
@@ -186,19 +187,33 @@ def _check_segment(segment: str, branch: str) -> Verdict:
         return Verdict(allowed=False, reason="recursive delete is denied")
 
     if _is_git(tokens, "push"):
-        return _check_push(tokens, branch)
+        return _check_push(tokens, branch, protected)
 
     return Verdict(allowed=True)
 
 
-def _check_push(tokens: list[str], branch: str) -> Verdict:
+def _landing(target: str) -> str:
+    """The branch a push argument lands on: a refspec `src:dst` lands on `dst`,
+    and `+` (force) and `refs/heads/` are spelling, not meaning."""
+    return target.rsplit(":", 1)[-1].removeprefix("+").removeprefix("refs/heads/")
+
+
+def _check_push(tokens: list[str], branch: str, protected: Collection[str] = ()) -> Verdict:
     owns_branch = branch.startswith(active().github.branch_prefix)
     targets = [token for token in tokens[2:] if not token.startswith("-")]
 
-    if "main" in targets or "master" in targets:
+    # The branches units land on through a pull request, so a direct push to
+    # one bypasses review. `main` and `master` are always among them; the rest
+    # are whatever abk.yaml says a repo integrates on, because a repo on `dev`
+    # is one `git push origin dev` from skipping review with nothing on the
+    # server to notice. A refspec is judged by where it lands: `HEAD:dev` is a
+    # push to dev, which an exact match on the argument let through.
+    trunks = {"main", "master", *protected}
+    landing = next((_landing(t) for t in targets if _landing(t) in trunks), None)
+    if landing is not None:
         return Verdict(
             allowed=False,
-            reason="pushing to main directly would bypass review — units land through PRs",
+            reason=f"pushing to {landing} directly would bypass review — units land through PRs",
         )
 
     bare_force = "--force" in tokens or "-f" in tokens
@@ -285,8 +300,17 @@ def _cd_target(segment: str) -> str | None:
     return tokens[1] if len(tokens) == 2 and tokens[0] == "cd" else None
 
 
-def check_command(command: str, *, branch: str, planning_repo: Path | None = None) -> Verdict:
+def check_command(
+    command: str,
+    *,
+    branch: str,
+    planning_repo: Path | None = None,
+    protected: Collection[str] = (),
+) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
+
+    `protected` names the branches repos integrate on, beyond the `main` and
+    `master` that are always refused a direct push.
 
     Every segment is checked, so a denied command behind `&&`, `;` or a pipe
     is still denied. With `planning_repo` set (a track run), commands that move
@@ -295,7 +319,7 @@ def check_command(command: str, *, branch: str, planning_repo: Path | None = Non
     current: str | None = None
     for segment in SEGMENT_SPLIT.split(command):
         segment = segment.strip()
-        verdict = _check_segment(segment, branch)
+        verdict = _check_segment(segment, branch, protected)
         if verdict.allowed and planning_repo is not None:
             verdict = _check_planning(segment, planning_repo, current)
         if not verdict.allowed:

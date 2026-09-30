@@ -186,3 +186,64 @@ def test_reading_an_azure_pull_request_is_not_denied() -> None:
     assert allowed("az repos pr show --id 4")
     assert allowed("az repos pr list --status active")
     assert allowed("az repos pr create --source-branch spec/x/1 --target-branch main")
+
+
+# --- the branch a repo integrates on -------------------------------------------------
+#
+# Units land through pull requests, so a direct push to the trunk bypasses
+# review. The rule named `main` and `master` and nothing else, which stopped
+# being true the moment a repo's integration branch was `dev`: its review was
+# one `git push origin dev` from being skipped, with no branch policy on the
+# server to notice.
+
+
+def pushes(command: str, *, protected: tuple[str, ...] = ("dev",)) -> bool:
+    return check_command(command, branch=SPEC, protected=protected).allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin dev",
+        "git push --set-upstream origin dev",
+        "git push origin HEAD:dev",
+        "git push origin spec/add-marker/1-unit:dev",
+        "git push origin +spec/add-marker/1-unit:dev",
+        "git push origin HEAD:refs/heads/dev",
+        "git push origin :dev",
+    ],
+)
+def test_pushing_to_the_repo_s_integration_branch_is_denied(command: str) -> None:
+    assert not pushes(command)
+
+
+def test_the_reason_names_the_branch() -> None:
+    verdict = check_command("git push origin dev", branch=SPEC, protected=("dev",))
+
+    assert "dev" in verdict.reason
+    assert "review" in verdict.reason
+
+
+def test_the_unit_s_own_branch_may_still_be_pushed() -> None:
+    assert pushes("git push origin spec/add-marker/1-unit", protected=("dev",))
+    assert pushes(
+        "git push --force-with-lease=spec/add-marker/1-unit:abc origin spec/add-marker/1-unit",
+        protected=("dev",),
+    )
+
+
+def test_a_branch_nobody_named_protected_is_not() -> None:
+    """Nothing is guessed: only what abk.yaml says a repo integrates on."""
+    assert check_command("git push origin dev", branch=SPEC).allowed
+
+
+def test_a_refspec_to_main_is_caught_too() -> None:
+    """The exact-token rule let `HEAD:main` through; it was never only about
+    `dev`."""
+    assert not check_command("git push origin HEAD:main", branch=SPEC).allowed
+    assert not check_command("git push origin spec/x:master", branch=SPEC).allowed
+
+
+def test_a_branch_merely_containing_the_name_is_not_the_trunk() -> None:
+    assert pushes("git push origin spec/developer-docs/1", protected=("dev",))
+    assert pushes("git push origin spec/add-marker/1-unit:spec/dev-tools/1", protected=("dev",))

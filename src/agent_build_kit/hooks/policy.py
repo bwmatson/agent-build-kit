@@ -198,6 +198,7 @@ def decide(
     planning_repo: Path | None = None,
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
+    protected_branches: tuple[str, ...] = (),
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
@@ -226,7 +227,9 @@ def decide(
                 "so it cannot tell whether this command is allowed there"
             )
 
-        verdict = check_command(command, branch=branch, planning_repo=planning_repo)
+        verdict = check_command(
+            command, branch=branch, planning_repo=planning_repo, protected=protected_branches
+        )
         if verdict.allowed:
             return None
         return _deny(verdict.reason)
@@ -241,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planning-repo", type=Path, default=None)
     parser.add_argument("--planning-state-dir", type=Path, default=None)
     parser.add_argument("--planning-change-dir", type=Path, default=None)
+    parser.add_argument("--protected-branches", default="")
     try:
         args = parser.parse_args(argv)
         if args.branch_prefix:
@@ -266,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         planning_repo=args.planning_repo,
         planning_state_dir=args.planning_state_dir,
         planning_change_dir=args.planning_change_dir,
+        protected_branches=tuple(b for b in args.protected_branches.split(",") if b),
     )
     if answer is not None:
         print(json.dumps(answer))
@@ -279,6 +284,7 @@ def hook_settings(
     planning_repo: Path | None = None,
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
+    protected_branches: tuple[str, ...] = (),
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
@@ -292,6 +298,9 @@ def hook_settings(
     `planning_repo` is set for a track run: its branches are the pipeline's.
     `planning_state_dir` is where in it that run may write its run log.
     `planning_change_dir` is the one change a propose run may write there.
+    `protected_branches` are the branches repos integrate on beyond `main` and
+    `master`, which a direct push is refused to; the hook is its own process and
+    knows no workspace, so it has to be told.
     """
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
@@ -302,6 +311,8 @@ def hook_settings(
         command += f" --planning-state-dir {planning_state_dir}"
     if planning_change_dir is not None:
         command += f" --planning-change-dir {planning_change_dir}"
+    if protected_branches:
+        command += f" --protected-branches {','.join(protected_branches)}"
     return {
         "hooks": {
             "PreToolUse": [

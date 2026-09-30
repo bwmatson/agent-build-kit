@@ -180,3 +180,50 @@ def test_the_hook_is_told_which_change_it_may_write() -> None:
 
     command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert "--planning-change-dir /srv/planning/openspec/changes/app-track-1" in command
+
+
+# --- the integration branches the hook is told about --------------------------------
+
+
+def test_the_hook_is_told_which_branches_repos_integrate_on() -> None:
+    from agent_build_kit.hooks.policy import hook_settings
+
+    settings = hook_settings(None, protected_branches=("dev", "release"))
+
+    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert "--protected-branches dev,release" in command
+
+
+def test_no_extra_branches_means_no_flag() -> None:
+    """`main` and `master` are always protected, so a repo that uses them adds
+    nothing to say — and existing settings stay as they were."""
+    from agent_build_kit.hooks.policy import hook_settings
+
+    command = hook_settings(None)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+    assert "--protected-branches" not in command
+
+
+def test_the_hook_refuses_a_push_to_a_branch_it_was_told_about(tmp_path: Path) -> None:
+    """End to end through `decide`, in a real checkout on a unit's branch: the
+    same command is allowed until the hook is told `dev` is an integration
+    branch, and refused after."""
+    work = tmp_path / "work"
+    work.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "spec/x/1"], cwd=work, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty",
+         "-m", "x"],
+        cwd=work,
+        check=True,
+    )  # fmt: skip
+    payload = {
+        "tool_name": "Bash",
+        "cwd": str(work),
+        "tool_input": {"command": "git push origin dev"},
+    }
+
+    assert decide(payload) is None
+    denied = decide(payload, protected_branches=("dev",))
+    assert denied is not None
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
