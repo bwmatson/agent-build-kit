@@ -64,7 +64,7 @@ more task groups of a change.
 
 ### `held`
 
-Four ways in: a reviewer put the `agent:hold` label on the PR, the review loop
+Three ways in: a reviewer put the `agent:hold` label on the PR, the review loop
 itself held it, or the tick found it cannot build the unit (the unit's
 `history` entry says which — a toolchain profile the framework does not
 implement yet, for instance).
