@@ -157,7 +157,9 @@ repos:                          # ordered: deploy order is derived from
     path: /srv/src/platform     # the checkout (~ is expanded)
     slug: example/platform      # GitHub owner/name. The owner decides which
                                 # `gh` account's token is used.
-    default_branch: main        # the branch units are built on. `abk init`
+    default_branch: main        # the branch units are built on and their pull
+                                # requests target when they stack on nothing,
+                                # and one a direct push is refused to. `abk init`
                                 # learns it from where the host says pull
                                 # requests actually target, falling back to
                                 # `origin/HEAD` — which is a pointer nobody
