@@ -61,6 +61,7 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     local_ref,
+    through_satisfied,
 )
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
@@ -248,6 +249,13 @@ def _record_merge(
 def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
     """The still-open units stacked on `parent`, in the same repo.
 
+    Not only its direct dependents: a unit whose real dependency is `parent`
+    but whose own `depends_on` names a satisfied unit in between is stacked on
+    `parent` all the same, since the satisfied unit between them added no
+    commits of its own — `through_satisfied` looks past it the same way
+    `base_of` does, so a grandchild through one is restacked (or held) here
+    exactly as a direct child would be.
+
     A cross-repo dependent is never stacked on it — stacks can't span repos —
     so it has nothing to move; `ready_units` makes it wait for the merge
     instead.
@@ -255,7 +263,7 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
     return [
         unit
         for unit in graph
-        if parent.id in unit.depends_on
+        if parent.id in through_satisfied(unit, graph)
         and unit.repo == parent.repo
         and unit.state in IN_FLIGHT
         and unit.branch
@@ -266,12 +274,13 @@ def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUn
     """Every same-repo unit on `parent` that may yet build, whatever its state.
 
     Wider than `_children_of`: a build may already have taken `parent`'s
-    branch as its base before it has a branch or reads `running`.
+    branch as its base before it has a branch or reads `running`. Reaches
+    through a satisfied intermediate unit the same way `_children_of` does.
     """
     return [
         unit
         for unit in graph
-        if parent.id in unit.depends_on
+        if parent.id in through_satisfied(unit, graph)
         and unit.repo == parent.repo
         and unit.state not in (MERGED, CLOSED)
     ]

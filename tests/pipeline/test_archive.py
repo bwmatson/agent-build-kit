@@ -53,6 +53,15 @@ def test_a_dropped_unit_does_not_block_forever() -> None:
     assert is_ready_to_archive("add-marker", units)
 
 
+def test_a_satisfied_unit_does_not_block_archiving() -> None:
+    """A satisfied unit added nothing of its own, so it never opens a PR and
+    never merges; waiting for one to merge would strand the change forever,
+    the same as waiting for a dropped unit would."""
+    units = [unit("add-marker/1"), unit("add-marker/2", state="satisfied")]
+
+    assert is_ready_to_archive("add-marker", units)
+
+
 def test_a_closed_unit_blocks_archiving() -> None:
     """Closed means someone rejected that work, so the change is not done —
     it needs a human, not an archive."""

@@ -61,6 +61,7 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     PLANNED,
     RUNNING,
+    SATISFIED,
     Unit,
     base_of,
     branch_name,
@@ -615,11 +616,12 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         # Merged units included, not just in-flight ones: a re-plan after some
         # units merged has to know they exist, or it either re-plans work that
         # is already in main or drops those groups — which the graph check then
-        # rejects, leaving the change unplannable.
+        # rejects, leaving the change unplannable. Satisfied units too: they
+        # never merge, but their groups are as done as a merged unit's.
         context = [
             {"id": u.id, "repo": u.repo, "branch": u.branch, "state": u.state}
             for u in store.all()
-            if u.state in (*IN_FLIGHT, MERGED)
+            if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
         ]
         try:
             # The groups go in so the plan is checked against the tags, which
@@ -633,7 +635,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             built = {
                 number
                 for u in store.all()
-                if u.change == change and u.state in (*IN_FLIGHT, MERGED)
+                if u.change == change and u.state in (*IN_FLIGHT, MERGED, SATISFIED)
                 for number in u.groups
             }
             units = plan_round(

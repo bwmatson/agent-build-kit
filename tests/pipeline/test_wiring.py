@@ -293,6 +293,45 @@ def test_a_plain_repo_still_runs_pytest_at_the_root(tmp_path: Path) -> None:
     assert [c for c, _ in calls if "pytest" in c] == [["uv", "run", "pytest", "-q"]]
 
 
+def test_whole_repo_mode_lints_and_tests_everything_regardless_of_the_diff(
+    tmp_path: Path,
+) -> None:
+    """A unit that produced no commits of its own has no diff to scope tier 1
+    to: `changed` returning `[]` would otherwise lint an empty range and test
+    no member at all, which is an empty-scope pass rather than proof anything
+    actually works. `whole_repo=True` has to run a real lint and one test
+    command per testable member instead, whatever `changed` says."""
+    calls: list[tuple] = []
+    repo = workspace(tmp_path, ["shared", "svc-a", "svc-b"], with_tests=["shared", "svc-b"])
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs.get("cwd")))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    build_tier1(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
+
+    lint = [c for c, _ in calls if "pre-commit" in c][0]
+    assert "--all-files" in lint
+    assert "--from-ref" not in lint
+
+    tested = sorted(c[c.index("--package") + 1] for c, _ in calls if "pytest" in c)
+    assert tested == ["shared", "svc-b"]
+
+
+def test_whole_repo_mode_still_fails_on_a_failing_member(tmp_path: Path) -> None:
+    """The lint passes — only `shared`'s tests fail — so whole-repo mode has
+    to be judged the same way `test_commands` is: any one member failing
+    fails the unit, not just a failing lint."""
+    repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
+
+    def run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1 if "pytest" in command else 0, "", "")
+
+    passed, _ = build_tier1(run=run, changed=lambda *a: [])(cwd=repo, base="main", whole_repo=True)
+
+    assert passed is False
+
+
 def test_a_failing_member_fails_the_unit(tmp_path: Path) -> None:
     repo = workspace(tmp_path, ["shared"], with_tests=["shared"])
     failing = Recorder(returncode=1)

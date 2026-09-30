@@ -688,6 +688,22 @@ def test_the_planner_is_told_about_merged_units(tmp_path: Path, monkeypatch) -> 
     assert "merged" in states
 
 
+def test_the_planner_is_told_about_satisfied_units(tmp_path: Path, monkeypatch) -> None:
+    """A satisfied unit's groups are as done as a merged unit's — it added
+    nothing because the work was already there — so a re-plan has to count
+    them as built too, or it either re-plans them or the graph check rejects
+    the plan for dropping them."""
+    write_change(tmp_path, "add-marker", TASKS)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("add-marker/1", state="satisfied")])
+    seen: list[dict] = []
+    monkeypatch.setattr(cli, "plan_round", lambda **k: seen.append(k) or [stored("add-marker/1")])
+
+    real_plan_all(inst, store=store)
+
+    assert 1 in seen[0]["built"]
+
+
 def test_a_unit_whose_process_died_is_reclaimed(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -77,8 +77,8 @@ class Recorder:
         """Moves with every commit, as a real HEAD does."""
         return f"sha-{self.made}"
 
-    def tier1(self, *, cwd: Path, base: str = "main") -> tuple[bool, str]:
-        self.events.append("tier1")
+    def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
+        self.events.append("tier1:whole_repo" if whole_repo else "tier1")
         return self.tier1_ok, self.tier1_output
 
     def tier2(self, *, cwd: Path) -> tuple[bool, str]:
@@ -199,6 +199,20 @@ def test_the_review_is_told_the_same_boundary(runner) -> None:
     # its reach over the unit's own groups keeps its current force
     assert "Find everything in one pass" in REVIEW_PROMPT
     assert "Sweep the domain" in REVIEW_PROMPT
+
+
+def test_no_boundary_is_given_when_there_is_no_later_unit(runner) -> None:
+    """A change with only this unit left has nothing to protect a boundary
+    from — naming an empty later group would just be noise in every prompt."""
+    recorder = Recorder()
+    graph = [stored_unit("add-marker/1", groups=(1,))]
+
+    runner(recorder).run(unit(groups=(1,)), base="main", graph=graph)
+
+    for prompt in recorder.prompts:
+        assert "belong" not in prompt.lower()
+    for context in getattr(recorder, "contexts", []):
+        assert "belong" not in context.lower()
 
 
 def test_nothing_happens_when_the_usage_window_is_low(runner) -> None:
@@ -427,7 +441,9 @@ def test_a_unit_with_nothing_anywhere_still_fails(tmp_path: Path) -> None:
     outcome = runner.run(unit(), base="main", graph=[])
 
     assert outcome.status == "failed"
-    assert "tier1" in recorder.events, "judged on the checks, not skipped because nothing landed"
+    assert "tier1:whole_repo" in recorder.events, (
+        "judged on the whole-repo checks, not skipped because nothing landed"
+    )
 
 
 def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path: Path) -> None:
@@ -445,9 +461,12 @@ def test_a_unit_with_nothing_of_its_own_and_passing_checks_is_satisfied(tmp_path
     outcome = runner.run(unit(), base="main", graph=[])
 
     assert outcome.status == "satisfied"
-    assert "tier1" in recorder.events, "judged on the checks, not the run's own report"
+    assert "tier1:whole_repo" in recorder.events, (
+        "judged on the whole-repo checks, not the run's own report"
+    )
     assert "pr" not in recorder.events, "nothing to open a pull request for"
-    assert store.get(unit().id).state != "failed"
+    assert "push" not in recorder.events, "nothing to push either"
+    assert store.get(unit().id).state == "satisfied"
     assert tasks.read_text().count("- [x]") == 2, "its groups are ticked all the same"
 
     dependent = unit(uid="add-marker/2", depends_on=(unit().id,))
@@ -491,9 +510,11 @@ def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> Non
     recorder = Recorder()
     original_tier1 = recorder.tier1
 
-    def tier1_that_commits(*, cwd: Path, base: str = "main") -> tuple[bool, str]:
+    def tier1_that_commits(
+        *, cwd: Path, base: str = "main", whole_repo: bool = False
+    ) -> tuple[bool, str]:
         recorder.made += 1
-        return original_tier1(cwd=cwd, base=base)
+        return original_tier1(cwd=cwd, base=base, whole_repo=whole_repo)
 
     runner = make_runner(store, recorder, tmp_path).model_copy(
         update={"run_tier1": tier1_that_commits}
@@ -675,6 +696,28 @@ def test_a_rejected_build_is_sent_back_and_reviewed_again(tmp_path: Path) -> Non
     assert recorder.events.count("review") == 2
     assert "claude:rework" in recorder.events
     assert "leaks" in " ".join(recorder.prompts)
+
+
+def test_the_rework_prompt_carries_the_same_boundary_as_the_build(tmp_path: Path) -> None:
+    """The rework is a build run too: if the reviewer's rejection points at
+    something the plan gave to a later unit, the boundary has to travel with
+    it, or a capable agent just implements what was only supposed to be
+    reported."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(groups=(1,))])
+    recorder = Recorder()
+    recorder.verdicts = [rejecting("consider handling group 2's case too"), approving()]
+    graph = [
+        stored_unit("add-marker/1", groups=(1,)),
+        stored_unit("add-marker/2", groups=(2, 3), depends_on=("add-marker/1",)),
+    ]
+
+    make_runner(store, recorder, tmp_path).run(unit(groups=(1,)), base="main", graph=graph)
+
+    rework_prompts = [p for p in recorder.prompts if "review of this branch" in p.lower()]
+    assert rework_prompts, "the rework prompt ran"
+    assert "2, 3" in rework_prompts[0], "the later unit's groups are named"
+    assert "leave" in rework_prompts[0].lower(), "and left alone, not implemented"
 
 
 def test_the_loop_is_bounded(tmp_path: Path) -> None:

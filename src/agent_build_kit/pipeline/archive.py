@@ -26,6 +26,7 @@ from pathlib import Path
 
 from agent_build_kit import openspec
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import SATISFIED
 
 # A subprocess.run-like callable, for tests to record the OpenSpec CLI call
 # instead of making it.
@@ -33,8 +34,9 @@ Runner = Callable[..., subprocess.CompletedProcess]
 
 # States that mean a unit will never merge, and so must not hold its change
 # back: "unplanned" is work the plan dropped, which would otherwise strand the
-# change permanently.
-FINISHED_WITHOUT_MERGING = ("unplanned",)
+# change permanently; "satisfied" is a unit whose groups landed through a
+# predecessor and so never opens a PR of its own to merge.
+FINISHED_WITHOUT_MERGING = ("unplanned", SATISFIED)
 
 
 def is_ready_to_archive(change: str, units: list[StoredUnit]) -> bool:

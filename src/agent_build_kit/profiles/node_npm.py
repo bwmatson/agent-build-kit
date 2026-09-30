@@ -35,10 +35,16 @@ class NodeNpmProfile:
     def lint_command(self, base: str) -> list[str]:
         return self._todo("lint_command")
 
+    def lint_command_all_files(self) -> list[str]:
+        return self._todo("lint_command_all_files")
+
     def test_commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
     ) -> list[list[str]]:
         return self._todo("test_commands")
+
+    def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
+        return self._todo("test_commands_all")
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         return self._todo("tier2_commands")

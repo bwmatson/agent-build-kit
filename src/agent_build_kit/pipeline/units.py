@@ -146,6 +146,45 @@ def _by_id(graph: Sequence[Unit]) -> dict[str, Unit]:
     return {unit.id: unit for unit in graph}
 
 
+def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
+    """`unit.depends_on`, with a same-repo `SATISFIED` dependency replaced by
+    its own — recursively.
+
+    A satisfied unit added no commits of its own: its branch, if it has one at
+    all, is identical to whatever it was built on, and it never opened a PR.
+    There is nothing there for a dependent to stack on, or for a merge or a
+    restack to move — so anything that asks "what is this really built on"
+    has to look straight through it to what *it* depended on. Used by
+    `base_of` and `depth_of` here, and by `events._children_of` and
+    `_dependents_of` to find a dependent stacked past a satisfied unit.
+    """
+    index = _by_id(graph)
+
+    def expand(dep_id: str, seen: frozenset[str]) -> tuple[str, ...]:
+        if dep_id in seen:
+            return ()
+        parent = index.get(dep_id)
+        if parent is None or parent.state != SATISFIED:
+            return (dep_id,)
+        seen = seen | {dep_id}
+        out: list[str] = []
+        for other in parent.depends_on:
+            if other in index and index[other].repo == parent.repo:
+                out.extend(expand(other, seen))
+            else:
+                out.append(other)
+        return tuple(out)
+
+    out: list[str] = []
+    for dep in unit.depends_on:
+        parent = index.get(dep)
+        if parent is not None and parent.repo == unit.repo:
+            out.extend(expand(dep, frozenset()))
+        else:
+            out.append(dep)
+    return tuple(out)
+
+
 def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     """The branch this unit builds on.
 
@@ -154,6 +193,11 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     needs is in flight, stacking on it is what keeps the two from duplicating
     or conflicting.
 
+    A same-repo dependency that is satisfied is transparent (see
+    `through_satisfied`): it has no branch of its own, so its dependent stacks
+    on whatever it depended on instead — its still-open predecessor, or `main`
+    once that predecessor has also merged.
+
     A cross-repo dependency is never a base — stacks can't span repos, so that
     edge is an ordering constraint instead, and `ready_units` makes the
     dependent wait for a merge.
@@ -161,7 +205,7 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     index = _by_id(graph)
     candidates = [
         index[dep]
-        for dep in unit.depends_on
+        for dep in through_satisfied(unit, graph)
         if dep in index and index[dep].repo == unit.repo and index[dep].state == IN_REVIEW
     ]
     if not candidates:
@@ -174,14 +218,16 @@ def depth_of(unit: Unit, graph: Sequence[Unit]) -> int:
 
     Merged ancestors drop out, which is what makes merging the bottom PR free
     a layer for everything above it. Siblings on a shared base share a depth
-    rather than adding to it: a stack is a tree, not a line.
+    rather than adding to it: a stack is a tree, not a line. A satisfied
+    ancestor is transparent, the same as in `base_of`: it adds no layer of its
+    own, so the chain is counted through it to its own open ancestors.
     """
     index = _by_id(graph)
 
     def walk(current: Unit, seen: frozenset[str]) -> int:
         open_parents = [
             index[dep]
-            for dep in current.depends_on
+            for dep in through_satisfied(current, graph)
             if dep in index
             and dep not in seen
             and index[dep].repo == current.repo
@@ -194,14 +240,38 @@ def depth_of(unit: Unit, graph: Sequence[Unit]) -> int:
     return walk(unit, frozenset())
 
 
+def _satisfied_landed(unit: Unit, index: dict[str, Unit]) -> bool:
+    """Whether a satisfied unit's own work has actually reached the trunk.
+
+    A satisfied unit never merges — it added nothing, so it never opened a
+    PR — so a cross-repo dependent, which cannot stack on it and must
+    otherwise wait for an actual merge, is released once the same-repo
+    predecessor whose branch already carried the work has itself merged. No
+    same-repo dependency at all means there was never anywhere else for the
+    work to land, so it counts as landed already.
+    """
+    same_repo = [
+        index[dep] for dep in unit.depends_on if dep in index and index[dep].repo == unit.repo
+    ]
+    if not same_repo:
+        return True
+    return all(
+        dep.state == MERGED or (dep.state == SATISFIED and _satisfied_landed(dep, index))
+        for dep in same_repo
+    )
+
+
 def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     """The dependencies that stop `unit` starting now.
 
     Same-repo ones must be complete — through the build/review loop, so there
-    is a reviewed branch to stack on. Cross-repo ones must have merged: the
-    dependent can't stack on them, so it waits rather than building against a
-    moving target. The scheduler and the diagram both ask this, so the graph
-    never shows a unit as startable that the tick would hold back.
+    is a reviewed branch to stack on; a satisfied one already counts, since
+    `REVIEWED` includes it. Cross-repo ones must have merged: the dependent
+    can't stack on them, so it waits rather than building against a moving
+    target — except a satisfied cross-repo dependency, which never merges
+    itself; it is done once its own same-repo work has (`_satisfied_landed`).
+    The scheduler and the diagram both ask this, so the graph never shows a
+    unit as startable that the tick would hold back.
     """
     index = _by_id(graph)
     waiting: list[Unit] = []
@@ -209,9 +279,15 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         parent = index.get(dep)
         if parent is None:
             continue
-        done = REVIEWED if parent.repo == unit.repo else (MERGED,)
-        if parent.state not in done:
-            waiting.append(parent)
+        if parent.repo == unit.repo:
+            if parent.state not in REVIEWED:
+                waiting.append(parent)
+            continue
+        if parent.state == MERGED or (
+            parent.state == SATISFIED and _satisfied_landed(parent, index)
+        ):
+            continue
+        waiting.append(parent)
     return waiting
 
 

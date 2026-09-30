@@ -111,6 +111,11 @@ class PythonUvProfile:
         # problems in files it never touched.
         return ["uv", "run", "pre-commit", "run", "--from-ref", base, "--to-ref", "HEAD"]
 
+    def lint_command_all_files(self) -> list[str]:
+        # For a unit that produced no diff of its own to scope to: judging it
+        # then means judging the whole repo at its tip, not an empty range.
+        return ["uv", "run", "pre-commit", "run", "--all-files"]
+
     def clean_command(self) -> str:
         # Type checking is skipped at the tests commit: a test importing a
         # function that doesn't exist yet is the expected state there.
@@ -175,6 +180,34 @@ class PythonUvProfile:
                 "-q",
             ]
             for member in chosen
+        ] + root
+
+    def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
+        """Every testable member plus the root tests/, unconditionally.
+
+        The whole-repo counterpart to `test_commands`: for a unit that
+        produced no diff of its own, there is no "touched" or "outside" to
+        scope to, so this runs everything `test_commands` would run for a
+        change that reached outside every member.
+        """
+        members = self.members(repo)
+        if not members:
+            return [["uv", "run", "pytest", "-q"]] if (repo / "tests").is_dir() else []
+
+        testable = [member for member in members if (repo / member / "tests").is_dir()]
+        root = [self._root_tests(root_extras)] if (repo / "tests").is_dir() else []
+        return [
+            [
+                "uv",
+                "run",
+                "--package",
+                package_name(repo / member),
+                "--isolated",
+                "pytest",
+                member,
+                "-q",
+            ]
+            for member in testable
         ] + root
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:

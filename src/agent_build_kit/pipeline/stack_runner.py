@@ -104,7 +104,7 @@ group(s) {groups}:
 ---
 {feedback}
 ---
-
+{boundary}
 Address it. The reviewer reads the branch but does not edit it, so nothing here
 is fixed unless you fix it. Fix every instance it names, and look for others of
 the same kind — the same pattern in sibling tools, callers or code paths — so
@@ -166,7 +166,7 @@ Review asked for a change to the work already on this branch, specified at
 ---
 {feedback}
 ---
-
+{boundary}
 Address what was **meant**, not only what was written. Review comments are
 written quickly against a diff, and a reviewer can be wrong in a way the code
 cannot be: a suggestion may name the wrong mechanism, assume a default that
@@ -218,14 +218,18 @@ or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
 
-# Given to the build prompts above, only when this change has units after this
-# one: naming what belongs to them is what stops a capable agent finishing
-# that work too, once it notices the next group is one edit away.
+# Given to every build-side prompt above, only when this change has units
+# after this one: naming what belongs to them is what stops a capable agent
+# finishing that work too, once it notices the next group is one edit away —
+# or a review comment names it, which is just as much an invitation.
 BUILD_BOUNDARY_NOTE = """
-Task group(s) {later} belong to later units of this change, each its own pull
-request. Leave them alone even where their code looks one edit away: pulling
-that work forward makes this pull request bigger than the plan intended, and
-leaves the change's record of what is done crediting the wrong unit.
+Task group(s) {later} belong to later units of this change, each its own pull request.
+Leave them alone even where their code looks one edit away, or where review
+feedback names one of them: pulling that work forward makes this pull request
+bigger than the plan intended, and leaves the change's record of what is done
+crediting the wrong unit. Where feedback names something that belongs to a
+later group, answer that in your account instead of implementing it — the
+unit that owns the group is where it gets addressed.
 """
 
 # Given to the reviewer alongside the build boundary above: the same groups,
@@ -593,7 +597,7 @@ class UnitRunner(BaseModel):
             self.log(f"step: address the review it stopped before ({models().rework})")
             response = self.run_rework(
                 REVIEW_FEEDBACK_PROMPT.format(
-                    change_dir=change_dir, groups=groups, feedback=feedback
+                    change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
                 ),
                 cwd=tree,
             )
@@ -615,6 +619,7 @@ class UnitRunner(BaseModel):
                     change_dir=change_dir,
                     feedback=feedback,
                     pr=self.store.get(unit.id).pr or "(not yet opened)",
+                    boundary=build_boundary,
                 ),
                 cwd=tree,
             )
@@ -714,6 +719,7 @@ class UnitRunner(BaseModel):
                 or resume in (REWORK, REWORK_REVIEW)
                 or bool(self.store.get(unit.id).predecessor_note),
                 checkpoint,
+                build_boundary,
                 review_boundary,
             )
             if isinstance(approved, RunOutcome):
@@ -727,7 +733,10 @@ class UnitRunner(BaseModel):
             return outcome
 
         self.log("step: tier 1")
-        tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref)
+        # Whole-repo when the unit produced nothing: a diff-scoped tier 1
+        # would lint an empty range and test nothing, which is not proof that
+        # anything actually passes. See `wiring.build_tier1`.
+        tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=produced_nothing)
         self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
         if not tier1_ok:
             # Kept, not thrown away. Both pilot units failed here and a retry
@@ -745,7 +754,16 @@ class UnitRunner(BaseModel):
             # build step's own report: that is the same sentence a run that
             # wrote nothing and should have failed would also produce.
             self.log("nothing to add and tier 1 passes — satisfied")
-            self.store.set_state(unit.id, SATISFIED, note="already implemented; tier 1 passed")
+            self.store.set_state(
+                unit.id, SATISFIED, note="already implemented; tier 1 passed", resume_from=""
+            )
+            # Cleared the same as the in_review path below clears them: a
+            # satisfied unit is done, and nothing here should look like a
+            # build still in progress if it is ever inspected or resumed.
+            if self.store.get(unit.id).predecessor_note:
+                self.store.set_predecessor_note(unit.id, "")
+            if self.store.get(unit.id).review_rounds:
+                self.store.set_review_rounds(unit.id, ())
             mark_groups(self._tasks(unit), unit.groups, done=True)
             return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
 
@@ -824,6 +842,7 @@ class UnitRunner(BaseModel):
         groups: str,
         reworking: bool,
         checkpoint: Callable[[str], RunOutcome | None],
+        build_boundary: str = "",
         review_boundary: str = "",
     ) -> tuple[bool | RunOutcome, str]:
         """Alternate review and rework until the reviewer approves, or give up.
@@ -888,7 +907,9 @@ class UnitRunner(BaseModel):
                 return outcome, why
             self.log(f"step: address review round {round_number + 1} ({models().rework})")
             response = self.run_rework(
-                REVIEW_FEEDBACK_PROMPT.format(change_dir=change_dir, groups=groups, feedback=why),
+                REVIEW_FEEDBACK_PROMPT.format(
+                    change_dir=change_dir, groups=groups, feedback=why, boundary=build_boundary
+                ),
                 cwd=tree,
             )
             self._record_response(unit, response)

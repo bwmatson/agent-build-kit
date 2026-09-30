@@ -679,7 +679,7 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
             upstream_incomplete=build_upstream_incomplete(store),
             base_moved=build_base_moved(store),
             restack_onto=lambda *, tree, branch, base, unit: moved_onto.append((unit.id, base)),
-            run_tier1=lambda *, cwd, base: (True, ""),
+            run_tier1=lambda *, cwd, base, whole_repo=False: (True, ""),
             run_tier2=lambda *, cwd: (True, ""),
             push=lambda branch, *, cwd: "pushed",
             open_pr=open_pr,

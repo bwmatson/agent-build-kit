@@ -17,8 +17,10 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     depth_of,
+    later_groups,
     plan_units,
     ready_units,
+    waiting_on,
 )
 from tests.factories import unit
 
@@ -313,6 +315,64 @@ def test_a_running_parent_is_never_used_as_a_base() -> None:
     graph = [unit("c/1", state=RUNNING), unit("c/2", depends_on=("c/1",))]
 
     assert base_of(graph[1], graph) == "main"
+
+
+def test_a_satisfied_unit_is_transparent_to_base_of() -> None:
+    """Unit 2 added nothing of its own and was judged satisfied on unit 1's
+    branch — it has no branch of its own to stack on, so unit 3 stacks
+    straight through it onto unit 1, and onto main once unit 1 has merged."""
+    graph = [
+        unit("c/1", state="in_review"),
+        unit("c/2", depends_on=("c/1",), state="satisfied"),
+        unit("c/3", depends_on=("c/2",)),
+    ]
+
+    assert base_of(graph[2], graph) == branch_name(graph[0])
+
+    merged = [u.model_copy(update={"state": "merged"}) if u.id == "c/1" else u for u in graph]
+    assert base_of(merged[2], merged) == "main"
+
+
+def test_a_cross_repo_dependent_of_a_satisfied_unit_stops_waiting() -> None:
+    """A satisfied unit never merges — it added nothing, so it never opened a
+    PR — but its work already landed wherever its own same-repo dependency
+    did, or nowhere in particular if it had none. Either way a cross-repo
+    dependent, which cannot stack on it, is released rather than waiting for
+    a merge that will never come."""
+    graph = [
+        unit("a", repo="platform", state="satisfied"),
+        unit("b", repo="app", depends_on=("a",)),
+    ]
+
+    assert waiting_on(graph[1], graph) == []
+
+
+def test_a_cross_repo_dependent_of_a_satisfied_unit_still_waits_for_its_own_work() -> None:
+    """A satisfied unit's own same-repo dependency has not merged yet, so its
+    work has not actually landed anywhere a cross-repo dependent could see."""
+    graph = [
+        unit("a1", repo="platform", state="in_review"),
+        unit("a2", repo="platform", depends_on=("a1",), state="satisfied"),
+        unit("b", repo="app", depends_on=("a2",)),
+    ]
+
+    assert waiting_on(graph[2], graph) == [graph[1]]
+
+
+def test_later_groups_excludes_this_unit_and_other_changes() -> None:
+    graph = [
+        unit("add-marker/1", groups=(1,)),
+        unit("add-marker/2", groups=(3, 2), depends_on=("add-marker/1",)),
+        unit("other/1", change="other", groups=(9,)),
+    ]
+
+    assert later_groups(graph[0], graph) == (2, 3)
+
+
+def test_later_groups_is_empty_for_the_last_unit() -> None:
+    graph = [unit("add-marker/1", groups=(1,)), unit("add-marker/2", groups=(2,))]
+
+    assert later_groups(graph[1], graph) == ()
 
 
 def test_the_trunk_is_built_on_from_the_remote_and_unit_branches_locally() -> None:

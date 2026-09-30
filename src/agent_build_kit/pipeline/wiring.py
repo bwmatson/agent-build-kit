@@ -382,20 +382,35 @@ def build_tier1(
     problems in files it never touched: the pilot's first unit died on a
     pre-existing type error elsewhere while its own three files were clean.
     The profile's lint command takes the base ref for that reason.
+
+    **`whole_repo` switches to judging the tip instead of the diff.** A unit
+    that produced no commits of its own has no diff to scope to: the diff-
+    scoped lint command runs over an empty range and the diff-scoped test
+    commands touch nothing, so both pass without checking anything at all.
+    Judging such a unit "satisfied" on that basis would let any run that wrote
+    nothing through. `whole_repo` runs the profile's whole-repo lint and every
+    testable member's tests (plus the root `tests/`) instead, so the checks
+    that make a unit satisfied are the repo's real tier 1, not an empty scope.
     """
     run = run or _run
     changed = changed or _changed_files
     profile = profile or profiles.get("python-uv")
 
-    def tier1(*, cwd: Path, base: str) -> tuple[bool, str]:
+    def tier1(*, cwd: Path, base: str, whole_repo: bool = False) -> tuple[bool, str]:
         """(passed, what failed) — the output is what makes a retry useful."""
-        files = changed(cwd, base)
+        if whole_repo:
+            lint_command = profile.lint_command_all_files()
+            test_commands = profile.test_commands_all(cwd, root_extras=root_extras or [])
+        else:
+            files = changed(cwd, base)
+            lint_command = profile.lint_command(base)
+            test_commands = profile.test_commands(cwd, files, root_extras=root_extras or [])
 
-        result = run(profile.lint_command(base), cwd=cwd)
+        result = run(lint_command, cwd=cwd)
         if result.returncode:
             return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
 
-        for command in profile.test_commands(cwd, files, root_extras=root_extras or []):
+        for command in test_commands:
             result = run(command, cwd=cwd)
             if result.returncode:
                 return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]

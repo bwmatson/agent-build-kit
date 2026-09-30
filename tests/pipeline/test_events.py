@@ -86,6 +86,38 @@ def test_a_child_moves_onto_its_next_open_parent_not_main(tmp_path: Path) -> Non
     assert moved["spec/c/3"] == "spec/c/2", "still stacked on the open middle"
 
 
+def test_a_grandchild_through_a_satisfied_unit_is_restacked_like_a_direct_child(
+    tmp_path: Path,
+) -> None:
+    """Unit 2 added nothing of its own and was judged satisfied on unit 1's
+    branch, so unit 3 — which depends on unit 2 — was actually built directly
+    on unit 1's branch (`base_of` looks straight through a satisfied unit).
+    When unit 1 merges, unit 3 is a grandchild through unit 2 and has to move
+    exactly as a direct child would; finding only unit 2 as the child would
+    leave unit 3 sitting on a branch about to be deleted."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            unit("c/1"),
+            unit("c/2", depends_on=("c/1",)),
+            unit("c/3", depends_on=("c/2",)),
+        ]
+    )
+    store.set_state("c/1", IN_REVIEW, pr=1, branch="spec/c/1")
+    store.set_state("c/2", "satisfied")
+    store.set_state("c/3", IN_REVIEW, pr=3, branch="spec/c/3")
+    recorder = Recorder()
+
+    events.on_merged(1, store=store, restack=recorder)
+
+    assert len(recorder.restacked) == 1
+    moved = recorder.restacked[0]
+    assert moved["branch"] == "spec/c/3"
+    assert moved["old_base"] == "spec/c/1"
+    assert moved["new_base"] == "main"
+    assert moved["parent"].id == "c/1"
+
+
 def test_a_merge_we_have_no_unit_for_is_ignored(store: UnitStore) -> None:
     """Someone else's PR on a spec/ branch, or a unit removed from the store.
     Restacking against a unit we don't know is how the wrong branch moves."""
