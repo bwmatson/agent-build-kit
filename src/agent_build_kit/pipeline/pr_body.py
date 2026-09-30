@@ -48,7 +48,9 @@ def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
     )
 
 
-def _assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
+def assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
+    """The PR body's statement of what the unit assumes about the units beneath it:
+    which are still unmerged, or that nothing is."""
     index = {item.id: item for item in graph}
     unmerged = [
         index[dep]
@@ -118,7 +120,7 @@ Spec: `openspec/changes/{unit.change}/` in the planning repo.
 
 ## Assumptions
 
-{_assumptions(unit, graph)}
+{assumptions(unit, graph)}
 
 {verification}
 {restack}{open_points_block}{follow_ups_block}

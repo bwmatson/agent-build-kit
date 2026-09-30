@@ -65,6 +65,16 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   name. Tests needing node or the network go under `tests/integration/`,
   marked `integration` (excluded by default). Test directories carry no
   `__init__.py`, so test file basenames must be unique.
+- **The habitat test.** `tests/integration/test_worktree_gate.py` commits a
+  trivially correct file in a real git worktree of a fixture repository
+  through the repository's own gate. It protects the worktree, the real
+  gate, and the workspace layout a build depends on, and fails naming the
+  hook when a checker matches no files or the linter rejects what the
+  formatter produces. It is marked `integration`, so the default suite does
+  not run it.
+- **Tests reach a public surface.** A test imports no private name. Behaviour
+  worth pinning is either given a name and a documented contract, or
+  exercised through its caller.
 - **Tests first.** A behaviour change lands with its failing test in the
   same change; the fixture repos are the tests' only installation.
 - **Installation facts come from `Installation`/`config.active()`**, never

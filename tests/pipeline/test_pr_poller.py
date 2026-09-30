@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges import PullRequest
-from agent_build_kit.pipeline.pr_poller import Poller, PrState, _snapshot
+from agent_build_kit.pipeline.pr_poller import Poller, PrState, snapshot
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 
 
@@ -282,7 +282,7 @@ def test_a_pr_created_and_merged_between_polls_is_not_lost(tmp_path: Path) -> No
     recorded as merged without anyone being told, and since the poller only
     reports changes, no later poll would ever report it."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"9": _snapshot(pr(9))}))
+    state.write_text(json.dumps({"9": snapshot(pr(9))}))
     seen: list[tuple] = []
 
     Poller(
@@ -299,7 +299,7 @@ def test_a_pr_first_seen_still_open_is_only_recorded(tmp_path: Path) -> None:
     """Nothing has happened to it yet. Only a terminal state is worth
     reporting for a PR we are meeting for the first time."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"9": _snapshot(pr(9))}))
+    state.write_text(json.dumps({"9": snapshot(pr(9))}))
     seen: list[tuple] = []
 
     Poller(
@@ -318,7 +318,7 @@ def test_changes_requested_asks_for_rework(tmp_path: Path) -> None:
     comment is invisible to a poller reading `gh pr list --json comments`,
     which returns issue-level comments only."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"16": _snapshot(pr(16))}))
+    state.write_text(json.dumps({"16": snapshot(pr(16))}))
     seen: list[tuple] = []
 
     Poller(
@@ -336,7 +336,7 @@ def test_an_approval_is_not_rework(tmp_path: Path) -> None:
     """Approved is the opposite instruction. Reworking on it would rewrite a
     branch somebody just signed off."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"16": _snapshot(pr(16))}))
+    state.write_text(json.dumps({"16": snapshot(pr(16))}))
     seen: list[tuple] = []
 
     Poller(
@@ -353,7 +353,7 @@ def test_changes_requested_only_fires_once(tmp_path: Path) -> None:
     """It stays CHANGES_REQUESTED until a new review supersedes it, so a poll
     every five minutes would otherwise rework the unit all night."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"16": _snapshot(pr(16, review_decision="changes_requested"))}))
+    state.write_text(json.dumps({"16": snapshot(pr(16, review_decision="changes_requested"))}))
     seen: list[tuple] = []
 
     Poller(
@@ -370,7 +370,7 @@ def test_the_pipeline_s_own_replies_are_not_a_new_comment(tmp_path: Path) -> Non
     """Posting its answer to a review would otherwise send the unit straight
     back for rework, in response to itself."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"17": _snapshot(pr(17))}))
+    state.write_text(json.dumps({"17": snapshot(pr(17))}))
     seen: list[tuple] = []
 
     Poller(
@@ -390,7 +390,7 @@ def test_a_plain_comment_after_a_review_is_still_a_new_comment(tmp_path: Path) -
     plain comment was never last, and a reviewer's follow-up went unseen. The
     whole set is compared instead, whatever order the host lists it in."""
     state = tmp_path / "prs.json"
-    state.write_text(json.dumps({"17": _snapshot(pr(17, **said("PRR_1")))}))
+    state.write_text(json.dumps({"17": snapshot(pr(17, **said("PRR_1")))}))
     seen: list[tuple] = []
 
     Poller(

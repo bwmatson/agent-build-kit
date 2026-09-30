@@ -18,7 +18,7 @@ import pytest
 
 from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.cli.pipeline import _has_identity as real_has_identity
+from agent_build_kit.cli.pipeline import has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
@@ -73,7 +73,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # test that forgets to stub it would spend real money. The tests that are
     # about planning call `real_plan_all`, bound above.
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
-    monkeypatch.setattr(cli, "_has_identity", lambda inst, repo: True)
+    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     # Deploys to the live stack and tests against it. Stubbed to "verified"
     # for every test; the ones about it call `real_verify_ready`.
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
@@ -322,7 +322,7 @@ def test_nothing_is_built_in_a_repo_with_no_configured_identity(
     """The agent commits as whoever the repo is configured for. With nothing
     configured that is the machine's global identity — a personal address
     belonging to neither account — and every unit would be misattributed."""
-    monkeypatch.setattr(cli, "_has_identity", lambda inst, repo: False)
+    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: False)
     UnitStore(tmp_path / "units.json").upsert([stored()])
     built: list[str] = []
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: FakeRunner(built))
@@ -336,7 +336,7 @@ def test_the_refusal_names_what_to_fix(
 ) -> None:
     """An unattended pipeline that stops has to say what to do about it, or
     the next thing anyone sees is a timer that has done nothing for a day."""
-    monkeypatch.setattr(cli, "_has_identity", lambda inst, repo: False)
+    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: False)
     UnitStore(tmp_path / "units.json").upsert([stored()])
 
     cli.cmd_tick(argv_namespace(dry_run=False), inst)
@@ -349,7 +349,7 @@ def test_the_check_runs_before_anything_is_spent(
 ) -> None:
     """Catching it at the commit step would mean paying for two Claude runs
     first, and doing that again every five minutes."""
-    monkeypatch.setattr(cli, "_has_identity", lambda inst, repo: False)
+    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: False)
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: pytest.fail("built anyway"))
     UnitStore(tmp_path / "units.json").upsert([stored()])
 
@@ -361,7 +361,7 @@ def test_a_dry_run_still_reports_without_a_configured_identity(
 ) -> None:
     """--dry-run is what you run to see what is pending before configuring
     anything, so the guard must not be what stops you looking."""
-    monkeypatch.setattr(cli, "_has_identity", lambda inst, repo: False)
+    monkeypatch.setattr(cli, "has_identity", lambda inst, repo: False)
     UnitStore(tmp_path / "units.json").upsert([stored()])
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
@@ -769,7 +769,7 @@ def test_a_unit_a_live_process_holds_is_left_alone(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    monkeypatch.setattr(cli, "_branch_is_held", lambda inst, branch: True)
+    monkeypatch.setattr(cli, "branch_is_held", lambda inst, branch: True)
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
@@ -788,7 +788,7 @@ def test_reclaiming_keeps_work_the_killed_run_had_not_committed(
     store.upsert([stored()])
     store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
     committed: list[tuple] = []
-    monkeypatch.setattr(cli, "_commit_leftovers", lambda inst, unit: committed.append(unit.id))
+    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: committed.append(unit.id))
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
@@ -806,7 +806,7 @@ def test_reclaiming_says_the_run_was_interrupted(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    monkeypatch.setattr(cli, "_commit_leftovers", lambda inst, unit: 1)
+    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: 1)
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
@@ -821,7 +821,7 @@ def test_reclaiming_a_unit_that_wrote_nothing_adds_no_feedback(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    monkeypatch.setattr(cli, "_commit_leftovers", lambda inst, unit: 0)
+    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: 0)
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
@@ -894,7 +894,7 @@ def test_reclaiming_keeps_the_review_a_killed_rework_was_addressing(
     store.upsert([stored()])
     store.set_state("add-marker/1", "running", branch="spec/add-marker/1", resume_from="rework")
     store.set_feedback("add-marker/1", "make it a StrEnum")
-    monkeypatch.setattr(cli, "_commit_leftovers", lambda inst, unit: 1)
+    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: 1)
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
@@ -961,11 +961,11 @@ def test_adding_a_needs_line_does_not_re_plan_the_change(tmp_path: Path) -> None
     Needs: line only adds a dependency, which link_needs applies itself."""
     tasks = tmp_path / "tasks.md"
     tasks.write_text("## 1. [app] [tier1] G\n- [ ] 1.1 Do it\n")
-    before = cli._specification(tasks)
+    before = cli.specification(tasks)
 
     tasks.write_text("## 1. [app] [tier1] G\nNeeds: sample-change group 2 — why\n- [ ] 1.1 Do it\n")
 
-    assert cli._specification(tasks) == before
+    assert cli.specification(tasks) == before
 
 
 def test_a_tick_with_nothing_in_progress_does_nothing_at_all(

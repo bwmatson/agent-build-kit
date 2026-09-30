@@ -33,7 +33,7 @@ from pathlib import Path
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.shell import git as _shell_git
+from agent_build_kit.pipeline import shell
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
@@ -75,7 +75,7 @@ def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
     what makes git read and write it on the pipeline's own invocations rather
     than nowhere.
     """
-    return _shell_git(repo, *RERERE, *args, **kwargs)
+    return shell.git(repo, *RERERE, *args, **kwargs)
 
 
 class RestackConflict(RuntimeError):
@@ -208,7 +208,8 @@ def diff_id(repo: Path, base: str, branch: str) -> str:
     return out[0] if out else ""
 
 
-def _conflicted_files(repo: Path) -> list[str]:
+def conflicted_files(repo: Path) -> list[str]:
+    """The paths git lists as unmerged in `repo`, empty when none or when the listing fails."""
     out = git(repo, "diff", "--name-only", "--diff-filter=U", check=False).stdout
     return [line for line in out.splitlines() if line]
 
@@ -285,7 +286,7 @@ def move_branch_onto(
             "Left unmoved for a human to resolve.",
         )
 
-    files = _conflicted_files(repo)
+    files = conflicted_files(repo)
     if must_keep is None:
         must_keep = derive_must_keep(repo, branch, old_base=old_base, files=files)
 
