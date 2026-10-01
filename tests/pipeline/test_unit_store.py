@@ -10,8 +10,6 @@ has to be written honestly by the runner — which makes "does a reload see what
 the last process wrote" the property that matters most here.
 """
 
-import json
-
 import pytest
 
 from agent_build_kit.pipeline.unit_store import UNPLANNED, UnitStore, corrupt_store_message
@@ -259,25 +257,6 @@ def test_every_write_is_seen_by_the_listener(tmp_path) -> None:
     store.set_state("add-marker/1", "running")
 
     assert seen == [["planned"], ["running"]]
-
-
-def test_a_store_written_before_the_rename_reads_as_in_review(tmp_path) -> None:
-    """`open` became `in_review`. Existing stores — and a tick still running
-    the old code while the new one is deployed — write the old name; reading
-    translates it, history included, and the next write persists the new one."""
-    path = tmp_path / "units.json"
-    legacy = unit().model_dump(mode="json") | {
-        "state": "open",
-        "history": [{"state": "planned", "at": "t"}, {"state": "open", "at": "t"}],
-    }
-    path.write_text(json.dumps({"units": [legacy]}))
-    store = UnitStore(path)
-
-    assert store.get("add-marker/1").state == IN_REVIEW
-    assert [e["state"] for e in store.history("add-marker/1")] == ["planned", IN_REVIEW]
-
-    store.set_feedback("add-marker/1", "")
-    assert '"open"' not in path.read_text()
 
 
 def test_changes_made_at_the_same_time_are_all_kept(tmp_path) -> None:

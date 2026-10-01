@@ -17,8 +17,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-import yaml
-
 from agent_build_kit import (
     __version__,
     config,
@@ -68,20 +66,6 @@ def _fail(name: str, detail: str, fix: str) -> Check:
 
 
 # --- checks ------------------------------------------------------------------------
-
-
-def _renamed_sections(path: Path) -> list[Check]:
-    """The old `github:` section, still read as `git:` for one release."""
-    raw = yaml.safe_load(path.read_text())
-    if not isinstance(raw, dict) or "github" not in raw:
-        return []
-    return [
-        _warn(
-            "config section",
-            f"{path} still names its git settings `github:`",
-            "rename the `github:` section to `git:`",
-        )
-    ]
 
 
 def _repos(inst: Installation, run: Run) -> list[Check]:
@@ -528,7 +512,6 @@ def run_doctor(
     except ConfigError as error:
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]
-    checks += _renamed_sections(path)
 
     try:
         inst = Installation(loaded, path.parent)

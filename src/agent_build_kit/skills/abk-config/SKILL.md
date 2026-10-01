@@ -41,7 +41,7 @@ openspec:
   command: null               # argv for the OpenSpec CLI; null = npx with
                               # the framework's pinned version
 
-git:                          # was `github:`; the old name is read for one release
+git:
   push_host: ""               # ssh host alias carrying the key to push agent
                               # branches as; "" = origin
   branch_prefix: spec/        # marks a branch and its PR as agent-owned
@@ -80,7 +80,7 @@ models:                       # bare aliases, not pinned ids; ABK_*_MODEL
   rework_review: fable        # a different model reviews a rework
 
 limits:
-  stack_depth_build_cap: 3    # longest chain of in-review PRs from main (was stack_depth_cap)
+  stack_depth_build_cap: 3    # longest chain of in-review PRs from main
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_concurrent_stacks: 4    # units implemented at once, across repos
   max_units_in_progress: 5    # started, unfinished units (>= 1); at it no never-started unit starts

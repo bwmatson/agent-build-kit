@@ -123,25 +123,6 @@ def test_the_adapt_rounds_must_allow_at_least_one_answer() -> None:
         LimitsConfig(max_adapt_rounds=0)
 
 
-def test_the_old_depth_cap_name_fails_to_load_naming_the_new_one(tmp_path: Path) -> None:
-    path = tmp_path / "abk.yaml"
-    path.write_text("limits:\n  stack_depth_cap: 3\n")
-
-    with pytest.raises(ConfigError) as refused:
-        load(path)
-
-    message = str(refused.value)
-    assert "stack_depth_cap" in message
-    assert "stack_depth_build_cap" in message
-
-
-def test_the_old_depth_cap_name_is_refused_by_the_schema() -> None:
-    with pytest.raises(ValidationError) as refused:
-        LimitsConfig.model_validate({"stack_depth_cap": 3})
-
-    assert "stack_depth_build_cap" in str(refused.value)
-
-
 def test_the_build_cap_keeps_the_depth_cap_s_default() -> None:
     assert LimitsConfig().stack_depth_build_cap == 3
 
@@ -206,35 +187,6 @@ def test_the_git_section_loads(tmp_path: Path) -> None:
 
     assert loaded.git.branch_prefix == "work/"
     assert loaded.git.push_host == "alias"
-
-
-def test_the_old_github_section_loads_as_git(tmp_path: Path) -> None:
-    path = tmp_path / "abk.yaml"
-    path.write_text("github:\n  branch_prefix: work/\n")
-
-    assert load(path).git.branch_prefix == "work/"
-
-
-def test_the_old_github_section_warns_naming_both_keys(tmp_path: Path, capsys) -> None:
-    path = tmp_path / "abk.yaml"
-    path.write_text("github:\n  branch_prefix: work/\n")
-
-    load(path)
-
-    warning = capsys.readouterr().err
-    assert "`github:`" in warning
-    assert "`git:`" in warning
-
-
-def test_a_file_setting_both_git_and_github_is_refused_naming_both(tmp_path: Path) -> None:
-    path = tmp_path / "abk.yaml"
-    path.write_text("git:\n  branch_prefix: a/\ngithub:\n  branch_prefix: b/\n")
-
-    with pytest.raises(ConfigError) as refused:
-        load(path)
-
-    assert "`git:`" in str(refused.value)
-    assert "`github:`" in str(refused.value)
 
 
 def test_a_file_with_neither_section_keeps_the_defaults(tmp_path: Path) -> None:
