@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -50,6 +51,7 @@ class Recorder:
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
         self.pr_calls = 0
+        self.contexts: list[str] = []  # what each review was given
 
     def _after(self, event: str) -> None:
         """Record `event`, then die once if the test asked for that."""
@@ -70,6 +72,7 @@ class Recorder:
         return "done"
 
     def review(self, *, cwd: Path, context: str = "") -> str:
+        self.contexts.append(context)
         self.events.append("review")
         return self.verdicts.pop(0) if self.verdicts else approving()
 
@@ -86,7 +89,7 @@ class Recorder:
         return f"sha-{self.made}"
 
     def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
-        self.events.append("tier1")
+        self.events.append("tier1:whole_repo" if whole_repo else "tier1")
         if self.tier1_results:
             return self.tier1_results.pop(0)
         return self.tier1_ok, self.tier1_output
@@ -127,8 +130,11 @@ def rejecting(reason: str) -> str:
     return json.dumps({"approved": False, "feedback": reason})
 
 
-def make_runner(store: UnitStore, recorder: Recorder, tmp_path: Path) -> UnitRunner:
-    return UnitRunner(
+def make_runner(
+    store: UnitStore, recorder: Recorder, tmp_path: Path, **overrides: Any
+) -> UnitRunner:
+    """A runner over the recorder's fakes; `overrides` replace any callable."""
+    wired: dict[str, Any] = dict(
         store=store,
         planning_repo=tmp_path / "meta",
         worktree=lambda u, base: tmp_path / "tree",
@@ -149,3 +155,4 @@ def make_runner(store: UnitStore, recorder: Recorder, tmp_path: Path) -> UnitRun
         post_status=recorder.post_status,
         log=recorder.log,
     )
+    return UnitRunner(**{**wired, **overrides})

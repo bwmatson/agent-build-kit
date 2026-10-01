@@ -273,11 +273,19 @@ poller already replays a deferred event.
   - the pushed commit;
   - an open pull request.
   It does nothing twice: an agent node compares the branch's tip with the one
-  its predecessor recorded, `push` compares the pushed commit with the tip, and
+  its predecessor recorded, `push` always goes through the push wiring, where a branch the host moved is
+  caught (pushing a commit the remote already has changes nothing), and
   `open_pr` runs again whole: the real call finds the branch's pull request and
   updates it instead of opening a second. A killed agent process leaves uncommitted work, which the node's
   re-run is to commit as `wip:` before continuing, as `reclaim_stale` does now;
   that is not built yet.
+- **Known gap: `review`.** `weigh_review` records a rejected round in the unit
+  store before the node's checkpoint is written, so a kill between the two
+  makes the re-run ask the reviewer again and record a second round. The
+  window is short, and a legitimate re-review of an unchanged head (a rework
+  that pushed back and committed nothing) looks the same in the store, so it
+  cannot be skipped on that evidence alone. Closing it needs the round count in
+  the thread's own state; that belongs to group 4.
 - **Timeouts kill the process group.** A node's `TimeoutPolicy` cancels its
   task, and cancelling a task does not stop a child process. The runtime call
   inside a node owns the agent's process group and kills it on cancellation.

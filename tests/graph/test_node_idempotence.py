@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.factories import unit
-from tests.runner_fakes import Killed, Recorder, make_runner
+from tests.runner_fakes import Killed, Recorder, make_runner, rejecting
 
 
 def drive(tmp_path: Path, recorder: Recorder) -> RunOutcome:
@@ -51,10 +51,42 @@ def test_a_node_killed_after_its_effect_does_not_repeat_it_when_resumed(
     assert recorder.made == 2, "one tests commit and one implementation commit, no more"
     assert recorder.events.count("claude:tests") == 1
     assert recorder.events.count("claude:impl") == 1
-    assert recorder.events.count("push") == 1
     assert recorder.remote == ["sha-2"]
-    assert len(recorder.prs) == 1
     assert outcome.pr == 7
     assert recorder.store.get(unit().id).pr == 7
     assert recorder.store.get(unit().id).state == IN_REVIEW
     assert len(recorder.prs) == 1, "the pull request is found, not opened again"
+
+
+def test_a_rework_killed_after_its_commit_is_not_made_again_when_resumed(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(store, kill_after="commit:fix")
+    recorder.verdicts = [rejecting("rename it")]
+
+    with pytest.raises(Killed):
+        drive(tmp_path, recorder)
+    outcome = drive(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    assert recorder.events.count("claude:rework") == 1
+    assert recorder.events.count("commit:fix") == 1
+
+
+def test_a_check_fix_killed_after_its_commit_is_not_made_again_when_resumed(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(store, kill_after="commit:fix")
+    recorder.tier1_results = [(False, "ERROR implicit-any"), (True, "")]
+
+    with pytest.raises(Killed):
+        drive(tmp_path, recorder)
+    outcome = drive(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    assert recorder.events.count("claude:fix_checks") == 1
+    assert recorder.made == 3, "tests, implementation and the one fix"
