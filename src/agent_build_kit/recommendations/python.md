@@ -106,6 +106,18 @@ check that a repo follows it.
   serialization and copy semantics.
   **Verify:** no `@dataclass` on a type that is parsed or serialized.
 
+- **Rule:** on Python 3.11 and later, a value drawn from a closed set of
+  strings (a state, a kind, a node or topic name, a status) is an
+  `enum.StrEnum`, not a string literal repeated at each use; open strings
+  (free text, ids, URLs) stay `str`.
+  **Tool:** `enum.StrEnum` (Python ≥ 3.11); ruff's `UP042` flags the older
+  `class X(str, Enum)` spelling.
+  **Why:** members compare equal to their string, so wire formats and stored
+  values are unchanged, while a typo becomes an `AttributeError` or a
+  type-check failure instead of a silent mismatch.
+  **Verify:** no `(str, Enum)` base remains; a state or kind compared against
+  a bare literal in `src/` is a finding.
+
 - **Rule:** tool configuration lives in `pyproject.toml` under `[tool.*]` for
   every tool that reads it (ruff, pytest, pyrefly, uv, poe); a tool that
   cannot keeps its own file at the repo root, named in the pre-commit hook

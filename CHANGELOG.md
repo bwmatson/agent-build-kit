@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Python recommendations seed prefers `enum.StrEnum` over repeated string literals for
+  closed sets of strings on Python 3.11 and later, so `abk init`'s research proposes it.
+
 - A unit's approval now carries across a clean rebase when the base had edited lines near
   its change. The change's id was taken over its context lines too, so a parent that touched a
   line three lines away gave the same change a new id; the approval did not carry, and the unit
