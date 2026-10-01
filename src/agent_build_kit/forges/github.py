@@ -412,14 +412,32 @@ class GitHubForge:
         return "\n\n".join(parts)
 
     def _ensure_label(self, slug: str, label: Label) -> None:
+        """Make the repo's label what `label` says: created when missing, and
+        recoloured or re-described when the repo's copy has drifted, so a
+        change to the vocabulary reaches a repo that already has the label."""
         known = gh_json(
-            ["gh", "label", "list", "--repo", slug, "--json", "name", "--limit", "1000"],
+            [
+                "gh", "label", "list", "--repo", slug,
+                "--json", "name,color,description", "--limit", "1000",
+            ],
             slug=slug,
-        )
+        )  # fmt: skip
         # The host matches names without regard to case, so `Running` already
         # there means creating `running` would fail every time.
         wanted = label.name.casefold()
-        if any(str(item.get("name", "")).casefold() == wanted for item in known):  # type: ignore[union-attr]
+        for item in known:  # type: ignore[union-attr]
+            name = str(item.get("name", ""))
+            if name.casefold() != wanted:
+                continue
+            same_colour = str(item.get("color", "")).casefold() == label.color.casefold()
+            if not same_colour or (item.get("description") or "") != label.description:
+                gh_out(
+                    [
+                        "gh", "label", "edit", name, "--repo", slug,
+                        "--color", label.color, "--description", label.description,
+                    ],
+                    slug=slug,
+                )  # fmt: skip
             return
         gh_out(
             [

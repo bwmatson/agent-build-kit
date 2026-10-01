@@ -19,14 +19,17 @@ STATE_FAMILY = ("planned", "running", "in-review", "held")
 
 class Recorder:
     """Every gh call, answering as a repo whose pull request 7 carries
-    `in-review` and `bug`, and which has no `running` label yet."""
+    `in-review` and `bug`, and which has no `running` label yet. Its own
+    `in-review` label has the colour and description set on the recorder."""
 
     def __init__(self) -> None:
         self.commands: list[list[str]] = []
+        self.colour = "2563eb"
+        self.description = "In review"
 
     def _answer(self, args: list[str]) -> object:
         if args[:3] == ["gh", "label", "list"]:
-            return [{"name": "in-review"}]
+            return [{"name": "in-review", "color": self.colour, "description": self.description}]
         return {
             "labels": [
                 {
@@ -111,6 +114,46 @@ def test_removing_a_label_takes_it_off_the_pull_request(gh: Recorder) -> None:
 
 
 def test_a_label_the_repo_has_under_another_case_is_not_created_again(gh: Recorder) -> None:
+    gh.colour = "2563eb"
     FORGE.add_label(REPO, 7, Label(name="In-Review", color="2563eb", description="In review"))
 
     assert not [c for c in gh.commands if c[:3] == ["gh", "label", "create"]]
+
+
+def test_a_label_the_repo_has_in_another_colour_is_recoloured_not_created(gh: Recorder) -> None:
+    gh.colour = "111111"
+
+    FORGE.add_label(REPO, 7, Label(name="in-review", color="2563eb", description="In review"))
+
+    (edit,) = [c for c in gh.commands if c[:3] == ["gh", "label", "edit"]]
+    assert "in-review" in edit
+    assert flag_values([edit], "--color") == ["2563eb"]
+    assert flag_values([edit], "--description") == ["In review"]
+    assert flag_values([edit], "--repo") == ["example/app"]
+    assert not [c for c in gh.commands if c[:3] == ["gh", "label", "create"]]
+
+
+def test_a_label_the_repo_has_with_another_description_is_re_described(gh: Recorder) -> None:
+    gh.description = "Something older"
+
+    FORGE.add_label(REPO, 7, Label(name="in-review", color="2563eb", description="In review"))
+
+    (edit,) = [c for c in gh.commands if c[:3] == ["gh", "label", "edit"]]
+    assert flag_values([edit], "--description") == ["In review"]
+
+
+def test_a_label_the_repo_has_as_it_is_sends_no_edit(gh: Recorder) -> None:
+    FORGE.add_label(REPO, 7, Label(name="in-review", color="2563EB", description="In review"))
+
+    assert not [
+        c for c in gh.commands if c[:3] in (["gh", "label", "edit"], ["gh", "label", "create"])
+    ]
+
+
+def test_a_label_under_another_case_is_edited_by_the_name_the_repo_has(gh: Recorder) -> None:
+    gh.colour = "111111"
+
+    FORGE.add_label(REPO, 7, Label(name="In-Review", color="2563eb", description="In review"))
+
+    (edit,) = [c for c in gh.commands if c[:3] == ["gh", "label", "edit"]]
+    assert edit[3] == "in-review"

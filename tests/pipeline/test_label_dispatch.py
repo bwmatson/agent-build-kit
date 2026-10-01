@@ -13,7 +13,7 @@ from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
-from agent_build_kit.pipeline.vocabulary import state_label_names
+from agent_build_kit.pipeline.vocabulary import STATES, state_label, state_label_names
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
 
@@ -71,14 +71,15 @@ def poller(
 
 
 def test_a_label_the_pipeline_writes_dispatches_nothing(
-    poller: Poller, labels: StateLabels, events_seen: list
+    poller: Poller, forge: StandInForge, labels: StateLabels, events_seen: list
 ) -> None:
     poller.poll()
 
-    names = state_label_names()
-    assert names
-    for name in sorted(names):
-        labels.set_state("app", PR, name)
+    keys = sorted(key for key in STATES if state_label(key))
+    assert len(keys) == len(state_label_names())
+    for key in keys:
+        labels.set_state("app", PR, key)
+        assert STATES[key].name in forge.on_pr[PR], f"{key} was not written"
         poller.poll()
 
     assert events_seen == []
