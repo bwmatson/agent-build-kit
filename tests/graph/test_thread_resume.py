@@ -20,10 +20,12 @@ import asyncio, json, pathlib, sys
 
 from agent_build_kit.graph.build import compile_graph
 from agent_build_kit.graph.checkpointer import open_checkpointer
+from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import Node, UnitRun
 
 db, mode, running, ran = sys.argv[1:5]
-config = {"configurable": {"thread_id": "feature/1"}}
+tid = "feature/1"
+config = {"configurable": {"thread_id": tid}}
 unit = UnitRun(unit_id="feature/1", change="feature", groups=(1,))
 
 
@@ -42,17 +44,15 @@ async def main():
     async with open_checkpointer(pathlib.Path(db)) as saver:
         if mode == "interrupt":
             graph = compile_graph(saver)
-            await graph.ainvoke(
-                unit, config, durability="sync", interrupt_before=[Node.PREPARE]
-            )
+            await run_thread(graph, unit, tid, interrupt_before=[Node.PREPARE])
         elif mode == "block":
             graph = compile_graph(saver, work={Node.PREPARE: block})
-            await graph.ainvoke(unit, config, durability="sync")
+            await run_thread(graph, unit, tid)
         else:
             graph = compile_graph(saver, work={Node.PREPARE: record})
             before = list((await graph.aget_state(config)).next)
             print(json.dumps({"next_before_resume": before}), flush=True)
-            await graph.ainvoke(None, config, durability="sync")
+            await run_thread(graph, None, tid)
 
 
 asyncio.run(main())

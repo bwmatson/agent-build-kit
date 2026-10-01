@@ -10,6 +10,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import unit_engine
@@ -106,3 +107,35 @@ def test_on_the_graph_engine_a_unit_gets_a_thread_named_by_its_id(
     cli.build_unit(inst, store.get(UNIT), store=store)
 
     assert threads(inst.state_dir / "unit-graphs.sqlite") == {UNIT}
+
+
+def test_an_unknown_engine_is_refused_when_settings_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ABK_ENGINE", "grpah")
+
+    with pytest.raises(ValidationError, match="(?i)engine"):
+        Settings(_env_file=None)
+
+
+def test_a_graph_build_that_errors_is_logged_and_does_not_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = make_installation(tmp_path, planning={"state_dir": "."})
+    store = a_store(tmp_path)
+    (inst.state_dir / "unit-graphs.sqlite").write_text("not a database")
+    monkeypatch.setattr(settings, "engine", "graph")
+
+    assert cli.build_unit(inst, store.get(UNIT), store=store) is True
+
+    assert UNIT + ": the graph engine failed" in capsys.readouterr().out
+
+
+def test_a_graph_build_says_it_ran_no_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = make_installation(tmp_path, planning={"state_dir": "."})
+    store = a_store(tmp_path)
+    monkeypatch.setattr(settings, "engine", "graph")
+
+    cli.build_unit(inst, store.get(UNIT), store=store)
+
+    assert UNIT + ": the graph engine ran no step" in capsys.readouterr().out

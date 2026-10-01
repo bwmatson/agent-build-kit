@@ -7,7 +7,9 @@ name = "agent-build-kit"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "langgraph" },
+    { name = "langgraph-checkpoint" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -32,8 +34,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "agent-client-protocol", marker = "extra == 'acp'", specifier = "==0.12.1" },
+    { name = "aiosqlite", specifier = ">=0.20" },
     { name = "langgraph", specifier = "==1.2.*" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
+    { name = "langgraph-checkpoint", specifier = ">=4.1.1,<5" },
+    { name = "langgraph-checkpoint-sqlite", specifier = "==3.1.*" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },

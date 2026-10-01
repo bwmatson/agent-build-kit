@@ -14,7 +14,12 @@ class UnitEngine(Protocol):
     name: str
 
     def build(self, inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-        """Build one unit; False only when the tick should stop entirely."""
+        """Build one unit; False only when the tick should stop entirely.
+
+        Nothing in here may raise: the tick loop reads the result with
+        `future.result()`, so an error that escapes ends the whole tick, not
+        one unit. Log it and return True.
+        """
         ...
 
 
@@ -33,24 +38,34 @@ class ClassicEngine:
 class GraphEngine:
     """One LangGraph thread per unit, named by its id.
 
-    The nodes do no step's work yet: a build only starts the thread.
+    The nodes do no step's work yet: a build only starts the thread and the
+    unit stays `planned`.
     """
 
     name = "graph"
 
     def build(self, inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-        asyncio.run(self._run(inst, unit))
+        # Late: the CLI module imports this one.
+        from agent_build_kit.cli.pipeline import log
+
+        try:
+            asyncio.run(self._run(inst, unit))
+        except Exception as error:
+            log(f"{unit.id}: the graph engine failed: {type(error).__name__}: {error}")
+            return True
+        log(f"{unit.id}: the graph engine ran no step; the unit stays {unit.state}")
         return True
 
     async def _run(self, inst: Installation, unit: Unit) -> None:
         from agent_build_kit.graph.build import compile_graph
         from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+        from agent_build_kit.graph.run import run_thread
         from agent_build_kit.graph.state import UnitRun
 
         run = UnitRun(unit_id=unit.id, change=unit.change, groups=tuple(unit.groups))
         async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
             graph = compile_graph(saver)
-            await graph.ainvoke(run, {"configurable": {"thread_id": unit.id}}, durability="sync")
+            await run_thread(graph, run, unit.id)
 
 
 ENGINES: dict[str, UnitEngine] = {e.name: e for e in (ClassicEngine(), GraphEngine())}

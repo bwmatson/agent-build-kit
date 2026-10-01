@@ -14,6 +14,7 @@ and reviewed.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
     runtime: str | None = None
 
     # Which engine runs a unit: "classic" or "graph" (ABK_ENGINE).
-    engine: str = "classic"
+    engine: Literal["classic", "graph"] = "classic"
 
     # Per-machine overrides of abk.yaml's `models`. None = use the file's.
     implement_model: str | None = None

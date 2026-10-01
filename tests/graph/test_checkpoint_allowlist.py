@@ -7,16 +7,21 @@ production.
 
 from __future__ import annotations
 
+import asyncio
 import types
 import typing
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import empty_checkpoint
 from pydantic import BaseModel
 
-from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES
+from agent_build_kit.graph.build import compile_graph
+from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, open_checkpointer
+from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import UnitRun
 
 
@@ -65,10 +70,49 @@ def test_every_type_the_state_uses_is_on_the_allowlist() -> None:
     assert not missing, f"add to ALLOWED_MSGPACK_MODULES: {sorted(missing)}"
 
 
-def test_a_checkpoint_holding_every_state_type_loads_with_the_allowlist_in_force() -> None:
+def a_config(thread_id: str) -> RunnableConfig:
+    return {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+
+
+def test_a_checkpoint_holding_every_state_type_loads_through_the_real_checkpointer(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "unit-graphs.sqlite"
     state = populated(UnitRun)
-    serde = JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
 
-    loaded = serde.loads_typed(serde.dumps_typed(state))
+    async def write() -> None:
+        async with open_checkpointer(db) as saver:
+            await run_thread(compile_graph(saver), state, "feature/1")
 
-    assert loaded == state
+    async def read() -> Any:
+        async with open_checkpointer(db) as saver:
+            return await compile_graph(saver).aget_state(a_config("feature/1"))
+
+    asyncio.run(write())
+    snapshot = asyncio.run(read())
+
+    assert UnitRun.model_validate(snapshot.values) == state
+
+
+class Unlisted(BaseModel):
+    secret: str
+
+
+def test_a_type_off_the_allowlist_does_not_load_as_that_type(tmp_path: Path) -> None:
+    db = tmp_path / "unit-graphs.sqlite"
+    checkpoint = empty_checkpoint()
+    checkpoint["channel_values"] = {"held": Unlisted(secret="x")}
+
+    async def write() -> None:
+        async with open_checkpointer(db) as saver:
+            await saver.aput(a_config("feature/1"), checkpoint, {"source": "input", "step": 0}, {})
+
+    async def read() -> Any:
+        async with open_checkpointer(db) as saver:
+            return await saver.aget_tuple(a_config("feature/1"))
+
+    asyncio.run(write())
+    loaded = asyncio.run(read())
+
+    assert loaded is not None
+    assert not isinstance(loaded.checkpoint["channel_values"].get("held"), Unlisted)
