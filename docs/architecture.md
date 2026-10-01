@@ -518,9 +518,7 @@ one to the other over the last `usage_relief_fraction` of *that* window — the 
 against the five-hour reset, the week against the seven-day one. A ceiling left
 out is the pause percent, and a window whose two are equal does not ramp: the
 ramp is skipped, not computed flat. The ceiling is validated below 100, so
-relief never reaches the point where credits pay. The old
-`limits.usage_pause_pct` and friends are still read, for both windows, until
-`abk doctor`'s warning has been acted on.
+relief never reaches the point where credits pay.
 
 A pause writes `runs/paused.json` with a deadline, a reason and a kind. The
 deadline is the moment the ramp would clear the current usage plus

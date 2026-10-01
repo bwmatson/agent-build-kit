@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** the `limits.usage_pause_pct`, `usage_ceiling_pct`,
+  `usage_relief_fraction` and `usage_resume_buffer_pct` keys are no longer read
+  as the Claude runtime's thresholds, and `abk doctor` no longer warns about
+  them. Set them per window under `runtimes.claude_code.limits` (`session` and
+  `weekly`, with `usage_pause_ceiling_pct` for the ceiling); a file that still
+  has them is refused at load.
+
 - A held unit no longer counts against `limits.max_units_in_progress`: holding sets
   a unit aside until a person releases it, and it should not keep new work from
   starting. It counts again once requeued and started.
