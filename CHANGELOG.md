@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A rework sent back for a failing check now gets the failure even when the run
+  is still going. The poller reports a check the moment it fails, usually
+  while the run's other jobs are running, and `gh run view --log-failed` has no
+  log for such a run, so the rework was handed an empty block. The failed job's
+  own log is fetched instead, up to its `##[error]` line; with no log at all the
+  rework is told that, and to run `pre-commit run --all-files`.
+
 - `abk init --update-rules` brings `openspec/config.yaml` up to the framework's rules
   version without rewriting it: each newer version's paragraph goes at the end of the
   `context:`, the `# abk-rules:` stamp is raised, and nothing else changes. `abk doctor`
