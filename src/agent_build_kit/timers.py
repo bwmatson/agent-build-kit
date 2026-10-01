@@ -463,7 +463,10 @@ def unreachable(
     PATH and not on the unit's, every command they run by hand works, and the
     scheduled poll fails on every tick. A tool is reachable when the directory
     the shell finds it in is on the unit's PATH — the same test `tool_dirs`
-    installs by — or when the unit's own PATH finds it.
+    installs by, so what an install adds is exactly what stops being reported.
+    A tool the shell cannot find is reported too, as not fixable by reinstalling.
+    Nothing here searches the real filesystem beyond `which`, so it answers the
+    same way on every machine.
     """
     path = service_path(inst.root, dest)
     if path is None:
@@ -472,8 +475,6 @@ def unreachable(
     for tool in needed_tools(inst):
         found = which(tool)
         if found is not None and str(Path(found).parent) in path:
-            continue
-        if shutil.which(tool, path=":".join(path)) is not None:
             continue
         missing.append((tool, found is not None))
     return missing
