@@ -63,6 +63,7 @@ from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import starting_step
 from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.unit_engine import select_engine
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     FAILED,
@@ -102,6 +103,7 @@ from agent_build_kit.pipeline.work_graph import (
     validate_tasks,
 )
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
+from agent_build_kit.settings import settings
 
 
 def stamp() -> str:
@@ -1149,7 +1151,15 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
 
 
 def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-    """Build one unit. Returns False only when the tick should stop entirely.
+    """Build one unit on the engine `ABK_ENGINE` names (the classic one by default).
+
+    Returns False only when the tick should stop entirely.
+    """
+    return select_engine(settings.engine).build(inst, unit, store=store)
+
+
+def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
+    """Build one unit through `UnitRunner`. Returns False only when the tick should stop.
 
     Nothing in here may raise. A tick runs unattended on a timer, so a
     traceback is not a report — it is a unit left in `running` forever and no

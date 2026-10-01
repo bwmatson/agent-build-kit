@@ -13,7 +13,8 @@ should know about how they relate — lives in `abk.yaml` in the planning
 repo and nowhere else. The framework knows nothing about any particular
 installation; a fact that belongs to one goes here, not in a prompt, a skill
 or a script. Machine-local values (tokens, a worktree root override, model
-overrides, `ABK_RUNTIME`) go in the planning repo's `.env`, which is not
+overrides, `ABK_RUNTIME`, `ABK_ENGINE` — `classic` by default; `graph` is
+not usable yet: it starts a thread but runs no step, so units stay `planned`) go in the planning repo's `.env`, which is not
 committed.
 
 The schema is strict: an unknown key fails at load. `abk config --show`
