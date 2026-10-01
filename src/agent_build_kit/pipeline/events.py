@@ -738,7 +738,7 @@ def build_restack(
     comment: Callable[..., None] | None = None,
     diff_id: Callable[[Path, str, str], str] | None = None,
     head_of: Callable[[Path, str], str] | None = None,
-    remote_head_of: Callable[[Path, str], str] | None = None,
+    remote_head_of: Callable[[Path, str], str | None] | None = None,
     adopt: Callable[..., str] | None = None,
     posts_root: Path | None = None,
 ) -> Restack:

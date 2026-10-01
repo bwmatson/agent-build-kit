@@ -280,38 +280,14 @@ def test_a_step_that_passes_tool_lists_runs_and_the_lists_are_ignored(
     assert len(told) == 1, lines
 
 
-def test_a_read_only_shaped_request_is_refused_before_the_agent_is_spawned(
-    tmp_path: Path, worktree: Path, specs: Path
-) -> None:
-    """`wiring.build_run_review` sends an `edit`-mode request whose
-    `allowed_tools` names no edit tool: on this runtime, ignoring that would
-    let the reviewer edit the worktree it is judging, breaking the guarantee
-    docs/architecture.md states as a property of the pipeline. Refused, and
-    the agent never starts."""
-    record = tmp_path / "agent.jsonl"
-    use_agent(record)
-    request = _request(
-        worktree,
-        specs,
-        allowed_tools="Read Grep Glob Bash(git diff*) Bash(git log*) Bash(git show*)",
-    ).model_copy(update={"role": "review"})
-
-    result = AcpRuntime().run(request)
-
-    assert result.ok is False
-    assert "allowed_tools" in result.error
-    assert "reviewer" in result.error and "edit" in result.error
-    assert not record.exists()
-
-
-def test_a_research_shaped_request_is_refused_before_the_agent_is_spawned(
+def test_a_read_only_list_naming_a_web_tool_is_refused_before_the_agent_is_spawned(
     tmp_path: Path, worktree: Path, specs: Path
 ) -> None:
     """`init.research.research` sends an `allowed_tools_only`-mode request
-    whose `allowed_tools` names no edit tool — the same shape as a review
-    run, just under a different `permission_mode`. On this runtime, ignoring
-    that would let a run meant to be read-only edit the repo it is
-    researching. Refused, and the agent never starts, same as review."""
+    whose `allowed_tools` names no edit tool, and web tools besides. The
+    permission broker holds a run read-only only for reads and commands, so a
+    list naming a web tool is one this runtime cannot honour: refused, and the
+    agent never starts."""
     record = tmp_path / "agent.jsonl"
     use_agent(record)
     request = _request(

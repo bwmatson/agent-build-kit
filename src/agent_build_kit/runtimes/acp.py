@@ -16,14 +16,17 @@ inert here — the protocol has no per-session tool list
 once-per-run notice that tool scope comes from the agent's own configuration,
 *unless* `allowed_tools` is set and names no edit tool — the shape of a
 review run (`permission_mode="edit"`) or a read-only research run
-(`permission_mode="allowed_tools_only"`), each relying on that list, not on
-its own configuration, to keep from editing something it only means to read,
-a guarantee (docs/architecture.md, docs/agent-runtimes.md) this runtime
-cannot keep, so that request is refused before the agent is spawned. A run
-whose `allowed_tools` is empty (the planner's graph call) is let through
-regardless of mode: nothing here was ever relying on a list to stop it from
-editing, so there is no promise to break. A named `worktree` is refused too,
-not ignored.
+(`permission_mode="allowed_tools_only"`), each relying on that list to keep
+from editing something it only means to read. That run is held read-only by
+the permission broker instead: every edit approval is refused, and a command
+is allowed only when it matches one of the list's `Bash(...)` patterns. This
+holds only for what the agent asks permission for, which the run's log says
+once at its start; so the worktree's HEAD, status and diff are compared
+before and after, and a run that changed any of them fails, naming what. A
+read-only list naming something the broker cannot honour (a web tool, say) is
+refused before the agent is spawned. A run whose
+`allowed_tools` is empty (the planner's graph call) is let through regardless
+of mode. A named `worktree` is refused too, not ignored.
 
 For a policed run (`AgentRequest.policy` set), the client advertises the file
 and terminal capabilities and does the work itself — applying
@@ -40,6 +43,7 @@ import asyncio
 import itertools
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -81,7 +85,7 @@ from acp.schema import (
 from agent_build_kit import __version__, config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.command_policy import Verdict, check_command
+from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -156,14 +160,102 @@ def _command_of(raw_input: Any) -> str | None:
     return None
 
 
+# An agent that sends no raw input for a terminal call still shows the
+# command: as `$ <command>` lines in the call's content, or in its title,
+# which may name a prefix (`terminal: `) and, for a batch, ` + N commands`.
+SHELL_LINE = re.compile(r"^\$ (?P<command>\S.*?)\s*$", re.MULTILINE)
+TITLE_BATCH = re.compile(r"\s+\+\s*\d+\s+commands?\s*$", re.IGNORECASE)
+TITLE_PREFIX = re.compile(r"^terminal:\s+", re.IGNORECASE)
+
+
+def _text_of(content: Any) -> str:
+    """The text blocks of a tool call's content, joined."""
+    parts: list[str] = []
+    for item in content or []:
+        block = getattr(item, "content", None)
+        if isinstance(block, TextContentBlock):
+            parts.append(block.text)
+    return "\n".join(parts)
+
+
+def _commands_of(raw_input: Any, content: Any, title: str | None) -> tuple[str, ...]:
+    """Every command a tool call names, from the best place that names any:
+    its raw input, else the `$ <command>` lines of its content, else its
+    title without a ` + N commands` tail."""
+    named = _command_of(raw_input)
+    if named:
+        return (named,)
+    shown = tuple(match["command"] for match in SHELL_LINE.finditer(_text_of(content)))
+    if shown:
+        return shown
+    if title:
+        bare = TITLE_PREFIX.sub("", TITLE_BATCH.sub("", title)).strip()
+        return (bare,) if bare else ()
+    return ()
+
+
+# The raw-input fields an agent's file tools name their target in, for an
+# agent whose tool calls carry no `locations`.
+PATH_FIELDS = ("path", "file_path", "filePath", "file")
+
+
+def _paths_of(raw_input: Any) -> tuple[str, ...]:
+    """The paths a tool call's raw input names: `path` and its common
+    spellings, or a `paths` list."""
+    if not isinstance(raw_input, dict):
+        return ()
+    found = [raw_input[field] for field in PATH_FIELDS if isinstance(raw_input.get(field), str)]
+    listed = raw_input.get("paths")
+    if isinstance(listed, list):
+        found += [item for item in listed if isinstance(item, str)]
+    return tuple(found)
+
+
 class _ToolCall(Frozen):
     """What is known of one tool call: from its start, and from each update
     that names a field anew — a permission request's own `toolCall` may omit
     everything but the id."""
 
     kind: str | None = None
+    title: str | None = None
     raw_input: Any = None
     paths: tuple[str, ...] = ()
+    commands: tuple[str, ...] = ()
+    batched: bool = False
+
+
+# How an agent titles the permission request for one of its own edits when it
+# does not mark the call's kind: the path follows the colon. No real agent
+# has been observed sending this title shape; it is a defensive reading for
+# an agent that omits `kind`, and only the test agent sends it.
+EDIT_TITLE = re.compile(r"^\s*approve edit:\s*(?P<path>\S.*?)\s*$", re.IGNORECASE)
+
+# How an agent's own refusal of a command words it, anchored to where a line
+# opens: a rule's verdict (`Blocked by the user-defined deny rule ...`,
+# `BLOCKED: this command matches the user-defined deny rule ...`) or a
+# permission verdict (`Permission to use Bash with command ... has been
+# denied`), after at most a short wrapper of the agent's own (`terminal
+# failed: `). Never a bare word and never mid-line, so a command that ran and
+# failed for its own reasons — the shell's `ls: cannot open directory '/root':
+# Permission denied`, a test named for "forbidden", a test's own `E
+# AssertionError: Permission for guest was denied`, an HTTP 403 — is not taken
+# for a refusal. These are the shapes this was written from; another agent's
+# wording is not covered.
+BLOCKED_OUTPUT = re.compile(
+    r"^\s*(?:[A-Za-z ]{1,30} failed:\s*)?"
+    r"(?:blocked(?: by\b|:)[^\n]*?\bdeny rule|permission (?:to|for)\b[^\n]*\bdenied\b)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _output_of(update: ToolCallProgress) -> str:
+    """What a tool call update says its command produced: its content's text,
+    or failing that its raw output, whichever shape the agent sends."""
+    text = _text_of(update.content)
+    raw = update.raw_output
+    if not text and raw is not None:
+        return raw if isinstance(raw, str) else json.dumps(raw, default=str)
+    return text
 
 
 def _capabilities(policy: ToolPolicy | None) -> ClientCapabilities:
@@ -279,18 +371,144 @@ class _Terminal:
 EDIT_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
 
 
+# The tools a read-only run's list may name besides `Bash`: reading is not
+# something the broker has to hold back.
+READ_TOOLS = frozenset({"Read", "Grep", "Glob"})
+
+# Shell syntax that chains or redirects a command: a read-only pattern vouches
+# for one command, so a line that strings another after it is not covered.
+SHELL_OPERATORS = (";", "&", "|", "`", "$(", ">", "<", "\n")
+
+
+def _tokens(tool_list: str) -> list[str]:
+    """The list's entries, `Name` or `Name(pattern)`, a pattern's own spaces
+    kept."""
+    return re.findall(r"[^\s(]+(?:\([^)]*\))?", tool_list)
+
+
+def _name_of(token: str) -> str:
+    return token.split("(", 1)[0]
+
+
 def _names_edit_tool(tool_list: str) -> bool:
-    return any(token.split("(", 1)[0] in EDIT_TOOLS for token in tool_list.split())
+    return any(_name_of(token) in EDIT_TOOLS for token in _tokens(tool_list))
+
+
+def _is_read_only(request: AgentRequest) -> bool:
+    """`allowed_tools` is set and names no edit tool: the shape of a run that
+    relies on that list, not on the agent's own configuration, to keep from
+    editing something it only means to read. `wiring.build_run_review` sends
+    it under `permission_mode="edit"`, for the guarantee docs/architecture.md
+    states as a property of the pipeline: "The reviewer cannot edit".
+    `init.research.research` sends it under `permission_mode="allowed_tools_only"`.
+    The planner's graph call, whose `allowed_tools` is empty, is not this
+    shape: under `claude_code` it is kept from editing by headless permission
+    denial, not by a list."""
+    return bool(request.allowed_tools) and not _names_edit_tool(request.allowed_tools)
+
+
+def _command_patterns(tool_list: str) -> tuple[str, ...]:
+    """The `Bash(...)` patterns a list grants; a bare `Bash` grants any."""
+    return tuple(
+        token[len("Bash(") : -1] if "(" in token else "*"
+        for token in _tokens(tool_list)
+        if _name_of(token) == "Bash"
+    )
+
+
+def _matches(command: str, patterns: tuple[str, ...]) -> bool:
+    """Claude Code's `Bash(...)` matching: `*` stands for anything and the
+    pattern covers the whole line, which may not chain a second command."""
+    line = command.strip()
+    if any(operator in line for operator in SHELL_OPERATORS):
+        return False
+    return any(
+        re.fullmatch(".*".join(re.escape(part) for part in pattern.split("*")), line, re.DOTALL)
+        for pattern in patterns
+    )
+
+
+READ_ONLY_WARNING = (
+    "read-only run: edits, and commands outside allowed_tools, are refused when the "
+    "agent asks permission for them; an agent that runs a tool without asking is "
+    "not stopped by this, but the run fails if the worktree is changed"
+)
+
+
+class _Worktree(Frozen):
+    """What a read-only run must leave as it found it: the commit checked
+    out, which paths `git status` lists and what `git diff HEAD` says of the
+    tracked ones."""
+
+    head: str
+    status: tuple[str, ...]
+    diff: str
+
+
+def _snapshot(cwd: Path | None) -> _Worktree | None:
+    """The worktree as it stands, or None when `cwd` is not a git worktree
+    (there is nothing to compare then)."""
+    if cwd is None:
+        return None
+    try:
+        head = git(cwd, "rev-parse", "HEAD", check=False, timeout=30)
+        status = git(cwd, "status", "--porcelain", check=False, timeout=30)
+        diff = git(cwd, "diff", "HEAD", check=False, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if head.returncode or status.returncode:
+        return None
+    return _Worktree(
+        head=head.stdout.strip(), status=tuple(status.stdout.splitlines()), diff=diff.stdout
+    )
+
+
+def _changed(before: _Worktree, after: _Worktree) -> str | None:
+    """What a read-only run changed in its worktree, named; None if nothing."""
+    found: list[str] = []
+    if before.head != after.head:
+        found.append(f"HEAD moved from {before.head[:12]} to {after.head[:12]}")
+    paths = sorted(set(after.status) ^ set(before.status))
+    if paths:
+        found.append("git status changed: " + "; ".join(line.strip() for line in paths))
+    if not found and before.diff != after.diff:
+        found.append("the contents of files already modified changed")
+    if not found:
+        return None
+    return (
+        "a read-only run changed the worktree it was only to read — "
+        + ", ".join(found)
+        + ". The agent edited without asking, which the permission broker cannot stop"
+    )
+
+
+def _cannot_honour(request: AgentRequest) -> str | None:
+    """For a read-only run, an error naming what its list asks for that the
+    permission broker cannot keep: only edits and commands can be held back."""
+    unsupported = [
+        token
+        for token in _tokens(request.allowed_tools)
+        if _name_of(token) not in READ_TOOLS and _name_of(token) != "Bash"
+    ]
+    if not unsupported:
+        return None
+    return (
+        f"runtimes.acp cannot enforce allowed_tools={request.allowed_tools!r}: the "
+        "protocol has no per-session tool list, and the permission broker holds a run "
+        f"read-only only for {', '.join(sorted(READ_TOOLS))} and Bash(...), not for "
+        f"{', '.join(unsupported)}. Refusing rather than running under a broken promise."
+    )
 
 
 def _scope_warning(request: AgentRequest) -> str | None:
     """Once per run: neither field reaches the agent, so a caller relying on
     either to narrow what it does is not told by this runtime — only by the
-    log."""
+    log. A read-only run's `allowed_tools` is applied by the broker, and
+    `READ_ONLY_WARNING` says to what extent."""
     named = [
         field
         for field, value in (
-            ("allowed_tools", request.allowed_tools),
+            ("allowed_tools", request.allowed_tools and not _is_read_only(request)),
             ("denied_tools", request.denied_tools),
         )
         if value
@@ -300,36 +518,6 @@ def _scope_warning(request: AgentRequest) -> str | None:
     return (
         f"{' and '.join(named)} ignored: runtimes.acp has no per-session tool "
         "list to apply them to; tool scope comes from the agent's own configuration"
-    )
-
-
-def _read_only_guarantee_broken(request: AgentRequest) -> str | None:
-    """None unless `allowed_tools` is set and names no edit tool — the shape
-    of a run that is relying on that list, not on the agent's own
-    configuration, to keep from editing something it only means to read.
-    `wiring.build_run_review` sends this shape under `permission_mode="edit"`,
-    for the guarantee docs/architecture.md states as a property of the
-    pipeline: "The reviewer cannot edit". `init.research.research` sends the
-    same shape under `permission_mode="allowed_tools_only"`, for a run that
-    has no business editing the repo it is researching. Either way this
-    runtime has no per-session tool list to enforce it with, so it refuses
-    rather than running under a promise it cannot keep.
-
-    A run whose `allowed_tools` is empty — the planner's graph call, also
-    sent with `permission_mode="allowed_tools_only"` — is not this shape:
-    under `claude_code` that run is kept from editing by headless permission
-    denial, not by a list, so there is no list here to fail to enforce."""
-    if not request.allowed_tools:
-        return None
-    if _names_edit_tool(request.allowed_tools):
-        return None
-    return (
-        f"runtimes.acp cannot enforce allowed_tools={request.allowed_tools!r}: the "
-        "protocol has no per-session tool list, and this list names no edit tool, "
-        "so this run is relying on it to keep from editing — the reviewer's version "
-        'of that promise is "The reviewer cannot edit" (docs/architecture.md), but '
-        "any read-only-shaped run makes the same one. This runtime cannot keep it. "
-        "Refusing rather than running under a broken promise."
     )
 
 
@@ -346,8 +534,12 @@ class _Session:
         roots: tuple[Path, ...] = (),
         grants_nothing: bool = False,
         probe: _ProbeTracking | None = None,
+        read_only: tuple[str, ...] | None = None,
     ) -> None:
         self._report = report
+        # A read-only run (`_is_read_only`): the command patterns it may run,
+        # and no edit at all. None for any other run.
+        self._read_only = read_only
         # The message since the last tool call: the one that closes the turn.
         self._message: list[str] = []
         # The message not yet reported: it streams in token-sized chunks, and
@@ -389,6 +581,14 @@ class _Session:
         # the one call is not enough to stop the agent's turn, and the
         # protocol has no other way to ask it to.
         self._conn: Any = None
+        # Tool calls abk refused or answered itself, and tool calls that have
+        # ended: a forbidden command whose call fails and is not in the first
+        # was stopped by the agent's own configuration. A terminal refusal is
+        # tied to the execute calls open when it happens, not to a command
+        # string, so an agent that describes a command one way and runs it
+        # another is still attributed once.
+        self._answered: set[str] = set()
+        self._ended: set[str] = set()
 
     @property
     def answer(self) -> str:
@@ -410,16 +610,35 @@ class _Session:
         kind: str | None,
         raw_input: Any,
         locations: list[ToolCallLocation] | None,
+        title: str | None = None,
+        content: Any = None,
     ) -> _ToolCall:
         """The tool call as now known: the fields given, over what its start
         and earlier updates said."""
         known = self._calls.get(call_id, _ToolCall())
+        merged_input = raw_input if raw_input is not None else known.raw_input
+        merged_title = title or known.title
+        merged_kind = kind or known.kind
+        edit_title = EDIT_TITLE.match(merged_title) if merged_title else None
+        # Locations when the agent sends them; otherwise the paths its raw
+        # input names, and failing that its title, so an agent that sends none
+        # is weighed on what it says it is editing rather than refused for
+        # naming nothing.
+        paths = (
+            (tuple(location.path for location in locations) if locations else known.paths)
+            or _paths_of(merged_input)
+            or ((edit_title["path"],) if edit_title else ())
+        )
+        if edit_title and merged_kind in (None, "other"):
+            # An edit by its title, though the call's kind does not say so.
+            merged_kind = "edit"
         merged = _ToolCall(
-            kind=kind or known.kind,
-            raw_input=raw_input if raw_input is not None else known.raw_input,
-            paths=tuple(location.path for location in locations)
-            if locations is not None
-            else known.paths,
+            kind=merged_kind,
+            title=merged_title,
+            raw_input=merged_input,
+            paths=paths,
+            commands=_commands_of(merged_input, content, merged_title) or known.commands,
+            batched=known.batched or bool(merged_title and TITLE_BATCH.search(merged_title)),
         )
         self._calls[call_id] = merged
         return merged
@@ -434,14 +653,68 @@ class _Session:
             self._message = []
             self._titles[update.tool_call_id] = update.title
             self._tell(update.title)
-            self._remember(update.tool_call_id, update.kind, update.raw_input, update.locations)
+            self._remember(
+                update.tool_call_id,
+                update.kind,
+                update.raw_input,
+                update.locations,
+                update.title,
+                update.content,
+            )
         elif isinstance(update, ToolCallProgress):
             self.said()
             self._message = []
             title = update.title or self._titles.get(update.tool_call_id, update.tool_call_id)
-            self._remember(update.tool_call_id, update.kind, update.raw_input, update.locations)
+            self._remember(
+                update.tool_call_id,
+                update.kind,
+                update.raw_input,
+                update.locations,
+                update.title,
+                update.content,
+            )
             if update.status:
                 self._tell(f"{title}: {update.status}")
+            if update.status == "failed":
+                self._attribute_own_refusal(update.tool_call_id, _output_of(update))
+            if update.status in ("completed", "failed"):
+                self._ended.add(update.tool_call_id)
+
+    def _refused(self, line: str, reason: str, layer: str) -> None:
+        """The one progress line an operator reads to learn what refused a
+        command, and so which rules to tighten."""
+        self._tell(f"refused `{line}` by {layer}: {reason}")
+
+    def _attribute_own_refusal(self, call_id: str, output: str) -> None:
+        """A failed call abk never ran or answered. When its output says the
+        command was blocked or denied, the agent's own policy refused it —
+        whatever abk's rules think of the command; failing that, a command the
+        rules forbid is taken as the agent's own configuration refusing it.
+        Loose by nature: the protocol does not say why a call failed, so a
+        forbidden command failing for another reason is attributed the same
+        way."""
+        if call_id in self._answered:
+            return
+        known = self._calls.get(call_id, _ToolCall())
+        commands = known.commands
+        if not commands:
+            return
+        branch = self._current_branch(self._worktree)
+        forbidden = next((c for c in commands if not check_command(c, branch=branch).allowed), None)
+        command = forbidden or commands[0]
+        batched = known.batched or len(commands) > 1
+        subject = f"{command} (part of a batch)" if batched and not forbidden else command
+        match = BLOCKED_OUTPUT.search(output)
+        if match:
+            self._answered.add(call_id)
+            # From the start of the line the denial sits in.
+            said = output[output.rfind("\n", 0, match.start()) + 1 :]
+            self._refused(subject, " ".join(said.split())[:200], "the agent's own policy")
+            return
+        if forbidden:
+            verdict = check_command(forbidden, branch=branch)
+            self._answered.add(call_id)
+            self._refused(forbidden, verdict.reason, "the agent's own configuration")
 
     async def request_permission(
         self, session_id: str, tool_call: ToolCallUpdate, options: list[PermissionOption], **kwargs
@@ -456,9 +729,20 @@ class _Session:
         permitting one would invert the guarantee, so the turn is cancelled
         instead."""
         known = self._remember(
-            tool_call.tool_call_id, tool_call.kind, tool_call.raw_input, tool_call.locations
+            tool_call.tool_call_id,
+            tool_call.kind,
+            tool_call.raw_input,
+            tool_call.locations,
+            tool_call.title,
         )
         verdict = self._verdict(known)
+        self._answered.add(tool_call.tool_call_id)
+        if not verdict.allowed:
+            self._refused(
+                _command_of(known.raw_input) or tool_call.title or tool_call.tool_call_id,
+                verdict.reason,
+                "abk's command rules",
+            )
         if verdict.allowed:
             chosen = next((o for o in options if o.kind == "allow_once"), None)
         else:
@@ -483,12 +767,20 @@ class _Session:
         command = _command_of(call.raw_input)
         if call.kind == "execute" and not command:
             return Verdict(allowed=False, reason="no command was given to weigh")
+        if self._read_only is not None and call.kind in ("edit", "delete", "move"):
+            return Verdict(allowed=False, reason="this run is read-only: it may not edit")
         if command:
             # Whatever the kind says: a request that names a command is
             # weighed on it.
             verdict = check_command(command, branch=self._current_branch(self._worktree))
-            if not verdict.allowed or call.kind == "execute":
+            if verdict.allowed:
+                verdict = check_no_push(command)
+            if verdict.allowed:
+                verdict = self._read_only_verdict(command)
+            if not verdict.allowed or call.kind == "execute" or self._read_only is not None:
                 return verdict
+        if self._read_only is not None and call.kind not in ("read", "search"):
+            return Verdict(allowed=False, reason="this run is read-only")
         if not call.paths:
             return Verdict(allowed=False, reason="no path was named to vouch for")
         reading = call.kind in ("read", "search")
@@ -502,6 +794,24 @@ class _Session:
                 )
         return Verdict(allowed=True)
 
+    def _read_only_verdict(self, command: str) -> Verdict:
+        """Allowed in a run that is not read-only; in one that is, only a
+        command one of its `Bash(...)` patterns covers."""
+        if self._read_only is None or _matches(command, self._read_only):
+            return Verdict(allowed=True)
+        return Verdict(
+            allowed=False,
+            reason="this run is read-only: allowed_tools does not cover this command",
+        )
+
+    def _absolute(self, raw: str) -> Path:
+        """`raw` as an absolute path: a relative one is relative to the
+        session's `cwd` — the worktree — never to abk's own directory."""
+        path = Path(raw).expanduser()
+        if not path.is_absolute() and self._worktree is not None:
+            path = self._worktree / path
+        return path
+
     def _resolve_target(self, raw: str) -> Path | None:
         """`raw`, resolved against the worktree it must stay inside — past a
         `..` or a symlink — and out of the read-only specs subtree; None for
@@ -509,7 +819,7 @@ class _Session:
         if self._worktree is None:
             return None
         try:
-            candidate = Path(raw).resolve()
+            candidate = self._absolute(raw).resolve()
         except OSError:
             return None
         if not candidate.is_relative_to(self._worktree):
@@ -522,7 +832,7 @@ class _Session:
         """`raw`, resolved, when it is inside the worktree, the specs or one
         of the run's extra directories."""
         try:
-            candidate = Path(raw).resolve()
+            candidate = self._absolute(raw).resolve()
         except OSError:
             return None
         roots = (*([self._worktree] if self._worktree else []), *self._readable)
@@ -568,9 +878,19 @@ class _Session:
         verdict = check_command(
             line, branch=self._current_branch(Path(where) if where is not None else None)
         )
+        if verdict.allowed:
+            verdict = check_no_push(line)
+        if verdict.allowed:
+            verdict = self._read_only_verdict(line)
         if not verdict.allowed:
             if self._probe is not None:
                 self._probe.note_refused(line)
+            self._answered.update(
+                call_id
+                for call_id, call in self._calls.items()
+                if call.kind == "execute" and call_id not in self._ended
+            )
+            self._refused(line, verdict.reason, "abk's command rules")
             raise RequestError.invalid_params({"reason": verdict.reason})
         # A line with no arguments is a shell line — the rules have read all
         # of it — and runs as one; a program with arguments runs as itself.
@@ -588,6 +908,13 @@ class _Session:
             raise RequestError.invalid_params(
                 {"reason": f"could not start {command}: {exc}"}
             ) from exc
+        # abk ran it: whatever it ends with is the command's own, never the
+        # agent's policy refusing it.
+        self._answered.update(
+            call_id
+            for call_id, call in self._calls.items()
+            if call.kind == "execute" and call_id not in self._ended
+        )
         terminal_id = f"term_{next(self._terminal_ids)}"
         self._terminals[terminal_id] = _Terminal(process, output_byte_limit)
         return CreateTerminalResponse(terminal_id=terminal_id)
@@ -644,6 +971,8 @@ class _Session:
         """Resolved against the worktree before anything is written — never
         the specs directory, which build agents read from but never change."""
         self._require_policed("fs/write_text_file")
+        if self._read_only is not None:
+            raise RequestError.invalid_params({"reason": "this run is read-only: it may not write"})
         target = self._resolve_target(path)
         if target is None:
             raise RequestError.invalid_params(
@@ -666,7 +995,7 @@ class _Session:
         `line` (1-based) and `limit` page through the file."""
         self._require_policed("fs/read_text_file")
         try:
-            content = Path(path).read_text()
+            content = self._absolute(path).read_text()
         except OSError as exc:
             raise RequestError.resource_not_found(path) from exc
         if line is not None or limit is not None:
@@ -718,7 +1047,7 @@ def _model_option(options: list[Any] | None) -> SessionConfigOptionSelect | None
 
 class AcpRuntime:
     name: str = NAME
-    implemented: bool = False
+    implemented: bool = True
     policy_coverage: PolicyCoverage = "agent_flagged"
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
@@ -750,12 +1079,19 @@ class AcpRuntime:
                 error=f"runtimes.{NAME} does not create a named worktree; "
                 f"{request.worktree!r} needs a runtime that does",
             )
-        if broken := _read_only_guarantee_broken(request):
-            return AgentResult(ok=False, text="", error=broken)
+        if _is_read_only(request) and (unsupported := _cannot_honour(request)):
+            return AgentResult(ok=False, text="", error=unsupported)
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)
         if not command:
             return AgentResult(ok=False, text="", error=f"runtimes.{NAME}.command is not set")
-        return asyncio.run(self._run(command, request))
+        before = _snapshot(request.cwd) if _is_read_only(request) else None
+        result = asyncio.run(self._run(command, request))
+        if before is None or (after := _snapshot(request.cwd)) is None:
+            return result
+        if (changed := _changed(before, after)) is None:
+            return result
+        error = f"{result.error}; {changed}" if result.error else changed
+        return result.model_copy(update={"ok": False, "error": error})
 
     async def _run(self, command: list[str], request: AgentRequest) -> AgentResult:
         session = _Session(
@@ -765,12 +1101,15 @@ class AcpRuntime:
             roots=request.add_dirs,
             grants_nothing=request.permission_mode == "allowed_tools_only"
             and not request.allowed_tools,
+            read_only=_command_patterns(request.allowed_tools) if _is_read_only(request) else None,
         )
         return await self._drive(command, request, session)
 
     async def _drive(
         self, command: list[str], request: AgentRequest, session: _Session
     ) -> AgentResult:
+        if _is_read_only(request):
+            session.notice(READ_ONLY_WARNING)
         if warning := _scope_warning(request):
             session.notice(warning)
         try:

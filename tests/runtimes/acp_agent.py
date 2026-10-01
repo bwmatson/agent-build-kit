@@ -50,10 +50,17 @@ reports. What it did, and what the client answered, is appended to RECORD as
   and records the output and exit status, or the error the client answered.
   `"kill_after": SECONDS` gives up waiting for it after that long and kills it
   first, as an agent with a timeout of its own does; `"limit": BYTES` is the
-  output byte limit it asks for.
+  output byte limit it asks for; `"raw_input": {...}` is what its tool call
+  says it is running, when that differs from the terminal it creates.
 - `{"write": PATH, "content": TEXT}` and `{"read": PATH, "line": N, "limit": N}`
   go through the client's file capability, recording the error for one that
   is refused.
+- `{"unasked": COMMAND, "status": STATUS, "output": TEXT}` runs a command of its
+  own without asking, ending its tool call with STATUS (`completed` unless said)
+  and TEXT as what it produced (`done` unless said).
+- `{"edit": PATH, "content": TEXT}` writes the file itself, on disk, without
+  asking and without the client's file capability: an agent that edits with a
+  tool of its own. `"output"` of the tool call is `done`.
 - `{"ask": KIND, "command": ..., "paths": [...], "options": [KIND, ...]}` runs a
   tool of the agent's own the way an agent that executes its own tools does:
   it asks permission, naming the command in its raw input and the paths as
@@ -63,6 +70,10 @@ reports. What it did, and what the client answered, is appended to RECORD as
   the client's `session/cancel` and ends the turn `cancelled`, unless
   `"carry_on": true`. `"sparse": true` sends a permission request naming
   nothing but the tool call's id, the tool call's start having said the rest.
+  `"locations": false` sends an edit's target as `path` in its raw input
+  instead, with no locations at all. `"title": TEXT` is the request's title
+  in place of the command or `Edit <paths>`; with no paths and no command the
+  raw input names no target either, so the title is all there is.
 
 `--probe` has it attempt what the prompt names, one attempt per inline code
 span: an absolute path is a write to it, anything else a command — through
@@ -88,7 +99,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, cast, get_args
+from typing import Any, Literal, cast, get_args
 
 from acp import (
     PROTOCOL_VERSION,
@@ -375,13 +386,22 @@ class FakeAgent:
                     act.get("args", []),
                     kill_after=act.get("kill_after"),
                     limit=act.get("limit", OUTPUT_LIMIT),
+                    raw_input=act.get("raw_input"),
                 )
             elif "write" in act:
                 await self._write_file(session_id, act["write"], act.get("content", ""))
             elif "read" in act:
                 await self._read(session_id, act["read"], act.get("line"), act.get("limit"))
+            elif "edit" in act:
+                await self._edit_unasked(session_id, act["edit"], act.get("content", ""))
+            elif "titled_terminal" in act:
+                await self._run_titled_terminal(
+                    session_id, act["titled_terminal"], act.get("also", 0), act.get("output")
+                )
             elif "unasked" in act:
-                await self._run_unasked(session_id, act["unasked"])
+                await self._run_unasked(
+                    session_id, act["unasked"], act.get("status", "completed"), act.get("output")
+                )
             elif not await self._ask(session_id, act):
                 return False
         return True
@@ -418,6 +438,7 @@ class FakeAgent:
         *,
         kill_after: float | None = None,
         limit: int = OUTPUT_LIMIT,
+        raw_input: dict[str, Any] | None = None,
     ) -> None:
         client = self._client
         assert client is not None
@@ -430,7 +451,7 @@ class FakeAgent:
                 " ".join([command, *args]),
                 kind="execute",
                 status="in_progress",
-                raw_input={"command": command, "args": args},
+                raw_input=raw_input or {"command": command, "args": args},
             ),
         )
         try:
@@ -473,7 +494,15 @@ class FakeAgent:
             entry["error"] = {"message": "the client's answer was not a terminal", "data": str(exc)}
             status = "failed"
         self._write("did/terminal", entry)
-        await self._send(session_id, update_tool_call(call, status=status))
+        shown = entry.get("output")
+        await self._send(
+            session_id,
+            update_tool_call(
+                call,
+                status=status,
+                content=[tool_content(text_block(shown))] if shown else None,
+            ),
+        )
 
     async def _write_file(self, session_id: str, path: str, content: str) -> None:
         client = self._client
@@ -508,11 +537,16 @@ class FakeAgent:
         paths = act.get("paths", [])
         offered = act.get("options", list(OPTIONS))
         call = self._call_id()
-        title = command if command is not None else f"Edit {' '.join(paths)}"
+        title = act.get("title") or (command if command is not None else f"Edit {' '.join(paths)}")
         raw_input: dict[str, Any] = (
             {"command": command} if command is not None else {"paths": paths, "new": "probe\n"}
         )
-        locations = [ToolCallLocation(path=path, line=None) for path in paths]
+        sends_locations = act.get("locations", True)
+        if command is None and not sends_locations:
+            raw_input = {"path": paths[0], "new": "probe\n"} if paths else {"new": "probe\n"}
+        locations = (
+            [ToolCallLocation(path=path, line=None) for path in paths] if sends_locations else []
+        )
         await self._send(
             session_id,
             start_tool_call(
@@ -567,9 +601,35 @@ class FakeAgent:
             await self._send(session_id, update_tool_call(call, status="failed"))
         return True
 
-    async def _run_unasked(self, session_id: str, command: str) -> None:
+    async def _edit_unasked(self, session_id: str, path: str, content: str) -> None:
+        """Edit a file with a tool of its own, never asking the client."""
+        call = self._call_id()
+        await self._send(
+            session_id,
+            start_tool_call(
+                call,
+                f"Edit {path}",
+                kind="edit",
+                status="in_progress",
+                locations=[ToolCallLocation(path=path, line=None)],
+                raw_input={"path": path, "new": content},
+            ),
+        )
+        Path(path).write_text(content)
+        self._write("did/edit", {"path": path})
+        await self._send(session_id, update_tool_call(call, status="completed"))
+
+    async def _run_unasked(
+        self,
+        session_id: str,
+        command: str,
+        status: Literal["completed", "failed", "in_progress", "pending"] = "completed",
+        output: str | None = None,
+    ) -> None:
         """Run a command of its own without asking: the client sees only the
-        tool call's updates."""
+        tool call's updates. `output` is what the call's update says it
+        produced, in place of the usual `done`."""
+        text = "done" if output is None else output
         call = self._call_id()
         await self._send(
             session_id,
@@ -582,9 +642,39 @@ class FakeAgent:
             session_id,
             update_tool_call(
                 call,
-                status="completed",
-                content=[tool_content(text_block("done"))],
-                raw_output={"exit_code": 0, "stdout": "done\n", "stderr": ""},
+                status=status,
+                content=[tool_content(text_block(text))],
+                raw_output={"exit_code": 0, "stdout": f"{text}\n", "stderr": ""},
+            ),
+        )
+
+    async def _run_titled_terminal(
+        self, session_id: str, command: str, also: int, output: str | None
+    ) -> None:
+        """A terminal call that sends no raw input: the command in
+        the title (` + N commands` when batched) and as a `$ ` line of the
+        start's content, and a failed end with text and no raw output."""
+        call = self._call_id()
+        title = f"terminal: {command}"
+        if also:
+            title += f" + {also} command" + ("s" if also > 1 else "")
+        await self._send(
+            session_id,
+            start_tool_call(
+                call,
+                title,
+                kind="execute",
+                status="in_progress",
+                content=[tool_content(text_block(f"$ {command}"))],
+            ),
+        )
+        self._write("did/run", {"kind": "execute", "command": command, "paths": []})
+        await self._send(
+            session_id,
+            update_tool_call(
+                call,
+                status="failed",
+                content=[tool_content(text_block(f"terminal failed: {output}"))],
             ),
         )
 

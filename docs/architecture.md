@@ -480,8 +480,11 @@ archives), and never twice. A conflict raises rather than being auto-resolved.
 ## The guards
 
 None of these rely on the prompt being followed. All three read as they do
-because Claude Code is the only runtime today; the hook contract and the usage
-window are its own, and what generalizing them would mean is
+because Claude Code is the default runtime; the hook contract and the usage
+window are its own. The `acp` runtime, when selected, is not held by the usage
+window (`cmd_tick` in `cli/pipeline.py` and `wiring.build_may_start` skip it),
+and it enforces the command rules through client capabilities and permission
+answers instead of the hook. The details are in
 [agent-runtimes.md](agent-runtimes.md).
 
 **The policy hook** (`hooks/policy.py`, `pipeline/command_policy.py`). Every
@@ -582,7 +585,9 @@ unchanged carries the approval over, and any other rewrite — a resolved
 conflict, work from a run that stopped before its verdict, a rework's own
 commit — is reviewed again first. Uncommitted work is committed *before* the
 reviewer looks, never after approval. The reviewer cannot edit: judging and
-authoring are separate processes with separate tools. A unit whose rounds ran
+authoring are separate processes with separate tools. (On the `acp` runtime
+that is kept by refusing what the agent asks permission for, plus failing the
+run on any change to the worktree — docs/agent-runtimes.md.) A unit whose rounds ran
 out is pushed too, but never past this gate: it is the commit the last round
 reviewed, not one exempted from review — it is just not the commit that round
 approved.

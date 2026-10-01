@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import os
 import re
+import shlex
 import subprocess
 import time
 from collections.abc import Callable, Mapping
@@ -111,6 +112,34 @@ def _run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, check=False, **kwargs)
 
 
+class AgentPushed(RuntimeError):
+    """The unit's branch on the remote changed while an agent step ran."""
+
+
+def _unit_branch(cwd: Path) -> str:
+    """The unit branch `cwd` has checked out, or "" for any other work."""
+    if not cwd.is_dir():
+        return ""
+    here = git(cwd, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
+    return here if here.startswith(active().git.branch_prefix) else ""
+
+
+def _agent_pushed(cwd: Path, branch: str, before: str | None) -> str | None:
+    """The head the agent pushed during the step, or None when nothing says it did.
+
+    Only a head this worktree's own branch contains counts: one it has no
+    commit for was pushed from elsewhere (a person, the host's update-branch),
+    and one the agent merely fetched into the object store is not on its
+    branch. Neither is the agent's push. An unreadable remote, on either side,
+    says nothing.
+    """
+    after = remote_head(cwd, branch)
+    if before is None or not after or after == before:
+        return None
+    ancestor = git(cwd, "merge-base", "--is-ancestor", after, "HEAD", check=False)
+    return None if ancestor.returncode else after
+
+
 def build_run_claude(
     *,
     run: Run | None = None,
@@ -141,6 +170,8 @@ def build_run_claude(
 
     def run_claude(prompt: str, *, cwd: Path) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
+        branch = _unit_branch(cwd)
+        before = remote_head(cwd, branch) if branch else None
         result = agent.run(
             AgentRequest(
                 prompt=prompt,
@@ -162,6 +193,16 @@ def build_run_claude(
                 on_event=log or print,
             )
         )
+        if branch and (after := _agent_pushed(cwd, branch, before)):
+            # Only the pipeline pushes. A commit made in this worktree that
+            # reached the remote during an agent step was pushed by the
+            # agent, and would fail the pipeline's own push later, far from
+            # the cause.
+            raise AgentPushed(
+                f"{branch} on the remote moved from {(before or 'nothing')[:9]} to {after[:9]} "
+                "during an agent step, to a commit made in this worktree; the pipeline is "
+                "the only pusher, so the agent pushed it"
+            )
         if not result.ok:
             # Half-finished edits are on disk: carrying on would commit them.
             raise RuntimeError(result.error)
@@ -178,11 +219,11 @@ REVIEW_PROMPT = """\
 Review the changes on this branch against the repo's conventions in its
 CLAUDE.md and against the change this unit implements.
 
-You cannot edit anything. Report what should change and someone else will make
-it, so describe each problem precisely enough to act on: what is wrong, where,
-and what it should be instead. Raise what you can only observe as well as what
-could be rewritten — a concern about behaviour under load, a test asserting the
-wrong thing, a name that will mislead the next reader.
+You cannot edit anything, and you never push — the pipeline does. Report what
+should change and someone else will make it, so describe each problem precisely
+enough to act on: what is wrong, where, and what it should be instead. Raise
+what you can only observe as well as what could be rewritten — a concern about
+behaviour under load, a test asserting the wrong thing, a name that will mislead the next reader.
 
 Hold it to the bar of work you would approve, not perfection. Style already
 enforced by the linter is not worth a round trip, and nor is a preference you
@@ -491,17 +532,20 @@ def build_tier1(
                 lint_command = toolchain.lint_command(base)
                 test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
 
-            result = run(lint_command, cwd=where)
-            if result.returncode:
-                return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
-
-            for command in test_commands:
+            for command in [lint_command, *test_commands]:
                 result = run(command, cwd=where)
                 if result.returncode:
-                    return False, f"{result.stdout}\n{result.stderr}".strip()[-4000:]
+                    return False, _failure(command, result)
         return True, ""
 
     return tier1
+
+
+def _failure(command: list[str], result: subprocess.CompletedProcess) -> str:
+    """The command that failed, then the tail of what it printed: a bare
+    "tier 1 failed" says nothing about which check or why."""
+    printed = f"{result.stdout}\n{result.stderr}".strip()[-4000:]
+    return f"$ {shlex.join(command)} (exit {result.returncode})\n{printed}".strip()
 
 
 def _work(
@@ -563,7 +607,7 @@ def build_push(
     store: UnitStore,
     *,
     push: Callable[..., str] | None = None,
-    remote_head_of: Callable[[Path, str], str] | None = None,
+    remote_head_of: Callable[[Path, str], str | None] | None = None,
     adopt: Callable[..., str] | None = None,
 ) -> Callable[..., str]:
     """Push a unit's branch with the lease its own history justifies.
@@ -900,6 +944,11 @@ def build_may_start(*, usage: Callable[[], object] | None = None) -> Callable[[]
     usage = usage or current_usage
 
     def may_start() -> tuple[bool, str]:
+        # No window to read for a runtime that has none; its own rate-limit
+        # refusal is what stops it.
+        runtime = runtimes.active()
+        if not runtime.supports_usage_tracking:
+            return True, f"runtime {runtime.name} has no usage window"
         decision = may_start_unit(usage())  # pyrefly: ignore[bad-argument-type]
         return decision.may_start, decision.reason
 

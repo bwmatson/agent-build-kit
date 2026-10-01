@@ -131,7 +131,22 @@ def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
     return next_marker + 1 if next_marker != -1 else len(content)
 
 
-TESTS_PROMPT = """\
+# Said in every prompt that gives an agent a worktree. The pipeline's push
+# carries a lease on the commit it last published, so a push from anywhere
+# else makes it fail as a stale remote.
+PIPELINE_PUSHES_NOTE = """\
+The pipeline pushes this branch, after review and tier 1; you never do. Run no
+`git push`, to any remote or branch, however it is spelled.
+"""
+
+NO_REWRITE_NOTE = """\
+Do not rewrite history either: no amend, rebase, squash, reset or force. Your
+work is new commits on top of what is already here, and the commits that exist
+stay as they are.
+"""
+
+TESTS_PROMPT = (
+    """\
 The change you are implementing is specified in {change_dir} — read its
 tasks.md, proposal.md, design.md and specs/ before you start.
 
@@ -157,8 +172,11 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + PIPELINE_PUSHES_NOTE
+)
 
-REVIEW_FEEDBACK_PROMPT = """\
+REVIEW_FEEDBACK_PROMPT = (
+    """\
 A review of this branch asked for changes, for change {change_dir}, task
 group(s) {groups}:
 
@@ -185,6 +203,9 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + PIPELINE_PUSHES_NOTE
+    + NO_REWRITE_NOTE
+)
 
 # What tier 1's output is saved under, whichever step it stopped: it is how
 # every later step tells a failed check from a reviewer's comment.
@@ -414,7 +435,8 @@ def parse_verdict(output: str) -> Verdict:
     )
 
 
-REWORK_PROMPT = """\
+REWORK_PROMPT = (
+    """\
 Review asked for a change to the work already on this branch, specified at
 {change_dir}, task group(s) {groups}. This is PR #{pr}.
 
@@ -460,8 +482,12 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + PIPELINE_PUSHES_NOTE
+    + NO_REWRITE_NOTE
+)
 
-IMPLEMENTATION_PROMPT = """\
+IMPLEMENTATION_PROMPT = (
+    """\
 Work the remaining tasks of task group(s) {groups} in the change specified at
 {change_dir}, and stop before any later group.
 {boundary}
@@ -472,6 +498,8 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + PIPELINE_PUSHES_NOTE
+)
 
 # Given to every build-side prompt above, only when this change has units
 # after this one: naming what belongs to them is what stops a capable agent
@@ -542,7 +570,8 @@ class PortedTest(Frozen):
         return "" if value is None else value
 
 
-ADAPT_PROMPT = """This unit — change {change_dir}, task group(s) {groups} — was built on an
+ADAPT_PROMPT = (
+    """This unit — change {change_dir}, task group(s) {groups} — was built on an
 earlier version of `{onto_unit}` ({onto_intent}). That predecessor has changed
 since, and replaying this unit's commits onto its new version conflicted beyond
 what could be merged mechanically:
@@ -580,12 +609,16 @@ linting, formatting, types and the tests before you finish.
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}.
 
+"""
+    + PIPELINE_PUSHES_NOTE
+    + """
 Finish with JSON and nothing after it:
 
 {{"tests": [{{"name": "<test name>", "decision": "keep|adapt|retire",
              "reason": "..."}}],
  "summary": "what changed in porting, for the reviewer"}}
 """
+)
 
 # Given when the adapt step's accounting is incomplete: the checker's own
 # problems, and nothing else, so the agent finishes what it was one line from
@@ -1274,6 +1307,7 @@ class UnitRunner(BaseModel):
             tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=True)
             self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
             if not tier1_ok:
+                self.log(tier1_output)
                 # Kept, not thrown away. Both pilot units failed here and a
                 # retry knew nothing about why, so it re-ran both expensive
                 # prompts and rebuilt the same branch. Recorded as feedback, a
@@ -1384,6 +1418,7 @@ class UnitRunner(BaseModel):
             self.log(f"moved onto {base} cleanly before the push; tier 1 again")
             tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
             if not tier1_ok:
+                self.log(tier1_output)
                 self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
                 return self._resume_for_base(unit, f"tier 1 failed on {base}", base, graph, rebased)
             if unit.tier == "tier2":
@@ -1736,6 +1771,7 @@ class UnitRunner(BaseModel):
                     # resume into the same fix and redo work already on the branch.
                     self.store.set_feedback(unit.id, "")
                 return None
+            self.log(output)
             # Kept before anything can stop the run, so the retry addresses
             # this output rather than running the checks to discover it.
             feedback = f"{TIER1_FAILED}\n{output}".strip()

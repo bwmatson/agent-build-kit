@@ -8,6 +8,7 @@ imports these, rather than in a tenth near-copy.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,37 @@ def init_repo(path: Path) -> Path:
     return path
 
 
+def scratch_app(path: Path) -> Path:
+    """A python-uv app whose tier 1 can run: pytest and pre-commit in the dev
+    group, and a pre-commit config that needs no network. One initial commit
+    on `main`, which ignores bytecode and the virtualenv so a unit's commits
+    hold only the unit's work."""
+    init_repo(path)
+    (path / ".gitignore").write_text("__pycache__/\n*.pyc\n.venv/\n")
+    (path / "pyproject.toml").write_text(
+        '[project]\nname = "app"\nversion = "0"\nrequires-python = ">=3.12"\n'
+        '[dependency-groups]\ndev = ["pytest", "pre-commit"]\n'
+        '[tool.pytest.ini_options]\npythonpath = ["src"]\n'
+    )
+    (path / ".pre-commit-config.yaml").write_text(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: no-conflict-markers\n"
+        "        name: no conflict markers\n"
+        "        language: system\n"
+        "        entry: 'true'\n"
+        "        pass_filenames: false\n"
+    )
+    (path / "src" / "app").mkdir(parents=True)
+    (path / "src" / "app" / "__init__.py").write_text("")
+    (path / "tests").mkdir()
+    (path / "tests" / ".gitkeep").write_text("")
+    git(path, "add", "-A")
+    git(path, "commit", "-q", "-m", "start")
+    return path
+
+
 def activate_with(**sections):
     """Activate a copy of the active workspace with these top-level sections
     replaced (e.g. git={"push_host": "github-example"})."""
@@ -61,3 +93,20 @@ def activate_with(**sections):
     )
     config_module.activate(updated, config_module.active_root())
     return updated
+
+
+def who_pushed(remote: Path, branch: str, pushes: list[str]) -> str:
+    """A diagnostic: the branch's reflog on a remote, then the pushes a run log
+    records. It never raises: a branch with no reflog, or none at all, is a
+    normal case and is shown as what git said."""
+    shown = subprocess.run(
+        ["git", "reflog", "show", f"refs/heads/{branch}"],
+        cwd=remote,
+        capture_output=True,
+        text=True,
+    )
+    reflog = shown.stdout if shown.returncode == 0 else shown.stderr
+    return (
+        f"--- remote reflog of {branch} ---\n{reflog.strip()}\n"
+        "--- every `git push` the run log records ---\n" + "\n".join(pushes)
+    )

@@ -28,7 +28,7 @@ from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_build_kit import forges
+from agent_build_kit import config, forges, runtimes
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import diagram
 from agent_build_kit.pipeline.archive import (
@@ -158,11 +158,18 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if paused:
         log(f"paused until {paused.until:%Y-%m-%d %H:%M UTC} — {paused.reason}")
 
-    reading = current_usage()
-    if reading:
-        log(f"usage: {_usage_line(reading)} ({reading.source})")
+    try:
+        runtime = runtimes.active()
+    except KeyError as exc:
+        log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
-        log("usage: unknown")
+        reading = current_usage() if runtime.supports_usage_tracking else None
+        if not runtime.supports_usage_tracking:
+            log(f"usage: runtime {runtime.name} has no usage window")
+        elif reading:
+            log(f"usage: {_usage_line(reading)} ({reading.source})")
+        else:
+            log("usage: unknown")
 
     units = store_for(inst).all()
     if not units:
@@ -334,19 +341,30 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
         return 0
 
-    reading = current_usage()
-    decision = may_start_unit(reading)
-    if not decision.may_start:
-        state = pause_until(decision.resume_at, reason=decision.reason, marker=_paused_marker(inst))
-        log(
-            f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC} — {decision.reason}"
-        )
-        return 0
+    # The usage window is Claude Code's. A runtime without one is not held by it:
+    # the account's window says nothing about an on-demand agent. Its own
+    # rate-limit refusal still pauses, above and in `_run_unit`.
+    runtime = runtimes.active()
+    if runtime.supports_usage_tracking:
+        reading = current_usage()
+        decision = may_start_unit(reading)
+        if not decision.may_start:
+            state = pause_until(
+                decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
+            )
+            log(
+                f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
+                f" — {decision.reason}"
+            )
+            return 0
+        reason = decision.reason
+    else:
+        reason = f"runtime {runtime.name} has no usage window; not checking one"
 
     if paused:
         log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
     clear_pause(_paused_marker(inst))
-    log(decision.reason)
+    log(reason)
 
     store = store_for(inst)
 
@@ -1191,7 +1209,7 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
             # marking it failed would drop real work from the plan, and trying the
             # next unit would spend a call to be told the same thing.
             when = error.resets_at
-            if when is None:
+            if when is None and runtimes.active().supports_usage_tracking:
                 reading = current_usage()
                 when = reading.resets_at if reading else None
 

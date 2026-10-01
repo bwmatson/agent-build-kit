@@ -450,6 +450,29 @@ def test_a_runtime_that_is_not_implemented_fails(
     assert "not implemented" in checks["runtime"].detail
 
 
+def test_the_acp_runtime_is_checked_rather_than_called_not_implemented(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_build_kit.cli import doctor
+    from agent_build_kit.runtimes import acp
+
+    probed: list[object] = []
+
+    def checked(runtime, root, *, cache):
+        probed.append(runtime)
+        return PolicyReport(ok=True)
+
+    monkeypatch.setattr(doctor.policy_check, "checked", checked)
+    select_runtime(workspace, "acp", "    command: [some-agent, acp]\n")
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["runtime"].status == "ok"
+    assert "not implemented" not in checks["runtime"].detail
+    assert probed == [acp.RUNTIME]
+    assert checks["runtime policy"].status == "ok"
+
+
 def test_coverage_short_of_every_call_is_called_out(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

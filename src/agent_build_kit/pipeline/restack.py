@@ -402,14 +402,30 @@ def push_target(repo: Path) -> str:
     return f"git@{active().git.push_host}:{match.group('path')}"
 
 
-def remote_head(repo: Path, branch: str) -> str:
-    """The branch's head where it is pushed, or "" when it cannot be read.
+REMOTE_READ_TIMEOUT_SECONDS = 60
+
+
+def remote_head(repo: Path, branch: str) -> str | None:
+    """The branch's head where it is pushed, "" when the remote answers that it
+    has no such branch, None when it could not be asked (failed or timed out).
 
     Read from `push_target`, not `origin`: that is what every lease is
     checked against, and where the two differ `origin` may not even answer.
     """
-    found = git(repo, "ls-remote", push_target(repo), f"refs/heads/{branch}", check=False).stdout
-    return found.split()[0] if found.strip() else ""
+    try:
+        found = git(
+            repo,
+            "ls-remote",
+            push_target(repo),
+            f"refs/heads/{branch}",
+            check=False,
+            timeout=REMOTE_READ_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if found.returncode:
+        return None
+    return found.stdout.split()[0] if found.stdout.strip() else ""
 
 
 def adopt_host_head(

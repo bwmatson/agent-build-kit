@@ -244,6 +244,29 @@ def _check_push(tokens: list[str], branch: str, protected: Collection[str] = ())
     return Verdict(allowed=True)
 
 
+PUSH_REASON = (
+    "the pipeline pushes a unit's branch once review, tier 1 and the approved-commit check "
+    "have passed — the agent never pushes, so leave it to the pipeline"
+)
+
+
+def check_no_push(command: str) -> Verdict:
+    """Refuse a command in which any segment is a `git push`, to anywhere.
+
+    For a runtime whose broker decides every command itself: unlike
+    `check_command`, which allows a push to a branch the agent owns, this
+    allows none, because the pipeline's own push is the only one a unit's
+    branch may receive.
+    """
+    for segment in SEGMENT_SPLIT.split(command):
+        tokens = _strip_wrappers(_tokens(segment.strip()))
+        if tokens and tokens[0] == "git":
+            _, args = _git_target(tokens, None)
+            if args[:1] == ["push"]:
+                return Verdict(allowed=False, reason=PUSH_REASON)
+    return Verdict(allowed=True)
+
+
 PLANNING_REASON = (
     "the pipeline commits the planning repo itself and keeps it on its default branch — "
     "write the files and leave the branches, resets and cherry-picks to it"

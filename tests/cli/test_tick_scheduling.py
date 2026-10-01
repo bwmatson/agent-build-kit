@@ -36,9 +36,15 @@ from agent_build_kit.pipeline.units import (
     local_ref,
     ready_units,
 )
-from agent_build_kit.pipeline.usage_guard import Decision
-from agent_build_kit.pipeline.wiring import build_base_moved, build_upstream_incomplete
+from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
+from agent_build_kit.pipeline.wiring import (
+    build_base_moved,
+    build_may_start,
+    build_upstream_incomplete,
+)
+from agent_build_kit.settings import reload
 from tests.conftest import make_installation
+from tests.runtimes.selectable import SelectableRuntime, select
 
 # How long a build waits for something the pass should make happen meanwhile.
 # Long enough never to trip when the pass does it; against a pass that fixes
@@ -1043,3 +1049,100 @@ def test_the_limit_is_handed_to_the_readiness_rules(
     assert tick(inst) == 0
 
     assert seen and set(seen) == {3}
+
+
+# --- a runtime with no usage window is not held by one ----------------------------
+
+
+@pytest.fixture
+def on_demand(monkeypatch: pytest.MonkeyPatch):
+    """`ABK_RUNTIME` names a runtime that has no usage window."""
+    select(monkeypatch, SelectableRuntime("on-demand"))
+    monkeypatch.setenv("ABK_RUNTIME", "on-demand")
+    reload(None)
+    yield
+    monkeypatch.delenv("ABK_RUNTIME")
+    reload(None)
+
+
+def refusing_usage(monkeypatch: pytest.MonkeyPatch, asked: list[str]) -> None:
+    """A reading and a guard that would refuse, noting that they were asked."""
+    monkeypatch.setattr(cli, "current_usage", lambda: asked.append("usage"))
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session at 88%")
+    )
+
+
+def test_a_runtime_without_a_usage_window_builds_past_a_refusing_guard(
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    on_demand,
+) -> None:
+    asked: list[str] = []
+    refusing_usage(monkeypatch, asked)
+    builder.store.upsert([stored("feature/1")])
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.started == ["feature/1"]
+    assert asked == []
+    assert capsys.readouterr().out.count("has no usage window") == 1
+
+
+def test_a_runtime_with_a_usage_window_still_pauses_on_a_refusing_guard(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refusing_usage(monkeypatch, [])
+    builder.store.upsert([stored("feature/1")])
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.started == []
+
+
+def test_the_step_checkpoint_skips_the_usage_read_for_a_runtime_without_a_window(
+    on_demand,
+) -> None:
+    allowed, _ = build_may_start(usage=lambda: pytest.fail("read the usage window"))()
+
+    assert allowed
+
+
+def test_status_reads_no_usage_window_for_a_runtime_without_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    on_demand,
+) -> None:
+    monkeypatch.setattr(cli, "current_usage", lambda: pytest.fail("read the usage window"))
+
+    assert cli.cmd_status(argparse.Namespace(), workspace(tmp_path)) == 0
+
+    assert "usage: runtime on-demand has no usage window" in capsys.readouterr().out
+
+
+def test_a_rate_limit_without_a_reset_pauses_the_default_length_without_a_usage_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, on_demand
+) -> None:
+    """No window to ask: the pause is the default length, not one taken from
+    a reading of another runtime's window."""
+    inst = workspace(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("feature/1")])
+    monkeypatch.setattr(
+        cli, "current_usage", lambda: pytest.fail("read a usage window the runtime lacks")
+    )
+
+    class Refusing:
+        def run(self, unit, *, base, graph):
+            raise RateLimited("out of room", resets_at=None)
+
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kw: Refusing())
+
+    assert cli.build_unit(inst, store.get("feature/1"), store=store) is False
+
+    state = pause.is_paused(tmp_path / "paused.json")
+    assert state is not None
+    assert state.until <= datetime.now(UTC) + pause.UNKNOWN_RETRY

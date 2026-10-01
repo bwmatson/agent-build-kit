@@ -51,6 +51,17 @@ def _load_builtin() -> None:
     from agent_build_kit.runtimes import claude_code
 
     register(claude_code.RUNTIME)
+    # Only with the `acp` extra installed: an installation without it imports
+    # cleanly and does not see the runtime.
+    try:
+        from agent_build_kit.runtimes import acp
+    except ModuleNotFoundError as exc:
+        # Only the library's absence; a failure of acp.py's own imports is a
+        # defect to surface, not a runtime to hide.
+        if exc.name is None or not (exc.name == "acp" or exc.name.startswith("acp.")):
+            raise
+    else:
+        register(acp.RUNTIME)
 
 
 __all__ = [

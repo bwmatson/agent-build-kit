@@ -7,6 +7,7 @@ resolved for its role — and nothing it sends can be a `claude` flag.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,11 +16,13 @@ from agent_build_kit.config import models
 from agent_build_kit.pipeline.wiring import (
     REVIEW_PROMPT,
     REVIEW_TOOLS,
+    AgentPushed,
     build_run_claude,
     build_run_review,
 )
 from agent_build_kit.runtimes import ToolPolicy
 from tests.conftest import make_installation
+from tests.factories import git, init_repo
 from tests.runtimes.stand_in import StandInRuntime
 
 
@@ -95,3 +98,110 @@ def test_a_rework_s_review_is_asked_for_as_one(tmp_path: Path) -> None:
 
     assert runtime.request.role == "rework_review"
     assert runtime.request.model == models().rework_review
+
+
+def test_a_branch_that_moves_on_the_remote_during_an_agent_step_fails_the_step(
+    tmp_path: Path,
+) -> None:
+    """Only the pipeline pushes, so a branch that moved under the agent was
+    pushed by it — said at the step, not as a stale remote at the push."""
+    make_installation(tmp_path / "planning")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    tree = init_repo(tmp_path / "tree")
+    git(tree, "remote", "add", "origin", str(remote))
+    git(tree, "commit", "-q", "--allow-empty", "-m", "base")
+    git(tree, "push", "-q", "origin", "main")
+    branch = "spec/add-marker/1"
+    git(tree, "checkout", "-q", "-b", branch)
+
+    def push(request) -> None:
+        git(tree, "commit", "-q", "--allow-empty", "-m", "work")
+        git(tree, "push", "-q", "origin", branch)
+
+    with pytest.raises(AgentPushed, match=branch):
+        build_run_claude(runtime=StandInRuntime(act=push))("Implement it.", cwd=tree)
+
+
+def _pushed_unit(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A worktree on a unit branch that is already pushed (a rework's state)."""
+    make_installation(tmp_path / "planning")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    tree = init_repo(tmp_path / "tree")
+    git(tree, "remote", "add", "origin", str(remote))
+    git(tree, "commit", "-q", "--allow-empty", "-m", "base")
+    branch = "spec/add-marker/1"
+    git(tree, "checkout", "-q", "-b", branch)
+    git(tree, "push", "-q", "origin", "main", branch)
+    return tree, remote, branch
+
+
+def test_a_remote_that_cannot_be_read_after_the_step_does_not_fail_it(tmp_path: Path) -> None:
+    tree, remote, _ = _pushed_unit(tmp_path)
+
+    def lose_the_remote(request) -> None:
+        remote.rename(tmp_path / "gone.git")
+
+    runtime = StandInRuntime(answer="ok", act=lose_the_remote)
+
+    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+
+
+def test_a_remote_that_cannot_be_read_before_the_step_does_not_fail_it(tmp_path: Path) -> None:
+    tree, remote, _ = _pushed_unit(tmp_path)
+    gone = tmp_path / "gone.git"
+    remote.rename(gone)
+
+    def bring_it_back(request) -> None:
+        gone.rename(remote)
+
+    runtime = StandInRuntime(answer="ok", act=bring_it_back)
+
+    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+
+
+def test_a_push_from_elsewhere_during_the_step_is_not_the_agents(tmp_path: Path) -> None:
+    tree, remote, branch = _pushed_unit(tmp_path)
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", "-b", branch, str(remote), str(other)], check=True)
+    git(other, "config", "user.email", "person@example.com")
+    git(other, "config", "user.name", "Person")
+
+    def a_person_pushes(request) -> None:
+        git(other, "commit", "-q", "--allow-empty", "-m", "a fix from the host")
+        git(other, "push", "-q", "origin", branch)
+
+    runtime = StandInRuntime(answer="ok", act=a_person_pushes)
+
+    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+
+
+def test_a_head_the_agent_only_fetched_is_not_the_agents_push(tmp_path: Path) -> None:
+    """A person's newer head brought into the object store by a fetch is a
+    commit this worktree has, but not one its own branch contains."""
+    tree, remote, branch = _pushed_unit(tmp_path)
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", "-b", branch, str(remote), str(other)], check=True)
+    git(other, "config", "user.email", "person@example.com")
+    git(other, "config", "user.name", "Person")
+
+    def a_person_pushes_and_the_agent_fetches(request) -> None:
+        git(other, "commit", "-q", "--allow-empty", "-m", "a fix from the host")
+        git(other, "push", "-q", "origin", branch)
+        git(tree, "fetch", "-q", "origin")
+
+    runtime = StandInRuntime(answer="ok", act=a_person_pushes_and_the_agent_fetches)
+
+    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+
+
+def test_a_step_that_leaves_the_remote_alone_is_not_failed(tmp_path: Path) -> None:
+    make_installation(tmp_path / "planning")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    tree = init_repo(tmp_path / "tree")
+    git(tree, "remote", "add", "origin", str(remote))
+    git(tree, "checkout", "-q", "-b", "spec/add-marker/1")
+
+    assert build_run_claude(runtime=StandInRuntime(answer="ok"))("Go.", cwd=tree) == "ok"
