@@ -87,13 +87,18 @@ def test_under_claude_code_a_phase_sends_the_command_it_sent_before(inst: Instal
         "--model": "haiku",
         "--output-format": "json",
         "--settings": json.dumps(
-            hook_settings(
-                None,
-                planning_repo=inst.root,
-                planning_state_dir=inst.state_dir,
-                # A propose run is granted the one change it writes, and only that.
-                planning_change_dir=inst.changes_dir / runner.proposed_change(app),
-            )
+            {
+                **hook_settings(
+                    None,
+                    planning_repo=inst.root,
+                    planning_state_dir=inst.state_dir,
+                    # A propose run is granted the one change it writes, and only that.
+                    planning_change_dir=inst.changes_dir / runner.proposed_change(app),
+                ),
+                # Kept out of the commits it makes: a repo may forbid the trailer.
+                "attribution": {"commit": "", "pr": ""},
+                "includeCoAuthoredBy": False,
+            }
         ),
     }
     assert fake.calls[0][1] == inst.root, "a propose run writes where the change lives"

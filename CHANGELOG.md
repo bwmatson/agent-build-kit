@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Runs on the Claude Code runtime no longer add its `Co-Authored-By` trailer to commits or its
+  "Generated with" line to pull requests. Every run passes `attribution` empty in its
+  `--settings` (and `includeCoAuthoredBy: false` for an older CLI). A repo that forbids the
+  trailer used to hold the unit for a person to rewrite the commits, since an agent cannot.
+
 - The Python recommendations seed prefers `enum.StrEnum` over repeated string literals for
   closed sets of strings on Python 3.11 and later, so `abk init`'s research proposes it.
 

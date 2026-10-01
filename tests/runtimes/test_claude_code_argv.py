@@ -78,8 +78,13 @@ def hook(specs: Path | None, *, branch_prefix: str = "spec/", no_push: bool = Tr
                     "hooks": [{"type": "command", "command": command, "args": []}],
                 }
             ]
-        }
+        },
+        **NO_ATTRIBUTION,
     }
+
+
+# Written out, not imported: it is what keeps a trailer out of a repo's history.
+NO_ATTRIBUTION = {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
 
 
 def _specs(root: Path) -> Path:
@@ -229,20 +234,39 @@ def test_a_track_phase_carries_the_flags_it_carries_today(tmp_path: Path) -> Non
         "--disallowedTools": "Bash(rm *)",
         "--model": "haiku",
         "--output-format": "json",
+        "--settings": json.dumps(NO_ATTRIBUTION),
     }
     assert fake.calls[0][1] == checkout
 
 
 def test_a_run_with_no_policy_carries_no_hook_and_no_added_denies(tmp_path: Path) -> None:
     """The hook and the pipeline's deny list come with a policy, and only then:
-    a track phase has never carried either."""
+    a track phase has never carried either. Its settings are only the switch
+    that keeps Claude Code's attribution out of commits."""
     fake = FakeClaude(stdout=stream({"type": "result", "result": "ok"}))
     request = AgentRequest(prompt="Say ok.", cwd=tmp_path, allowed_tools="Read")
 
     carried = flags(_run(request, fake), request.prompt)
 
-    assert "--settings" not in carried
+    assert json.loads(carried["--settings"] or "") == NO_ATTRIBUTION
     assert "--disallowedTools" not in carried
+
+
+def test_every_run_turns_off_claude_codes_commit_and_pr_attribution(tmp_path: Path) -> None:
+    """A repo may forbid the `Co-Authored-By` trailer, and an agent cannot
+    rewrite a commit it already made, so no run adds one: not a policed build,
+    a track run in the planning repo, nor a bare call."""
+    for request in (
+        AgentRequest(prompt="p", cwd=tmp_path, policy=ToolPolicy()),
+        AgentRequest(prompt="p", cwd=tmp_path, planning_repo=tmp_path),
+        AgentRequest(prompt="p", cwd=tmp_path),
+    ):
+        settings = json.loads(
+            flags(_run(request, FakeClaude(stdout="{}")), "p")["--settings"] or ""
+        )
+
+        assert settings["attribution"] == {"commit": "", "pr": ""}
+        assert settings["includeCoAuthoredBy"] is False
 
 
 def test_a_configured_command_starts_every_run_and_the_login_refresh() -> None:
@@ -273,7 +297,11 @@ def test_the_planner_s_graph_call_carries_only_what_it_carries_today() -> None:
 
     argv = _run(request, fake)
 
-    assert flags(argv, request.prompt) == {"-p": None, "--output-format": "text"}
+    assert flags(argv, request.prompt) == {
+        "-p": None,
+        "--output-format": "text",
+        "--settings": json.dumps(NO_ATTRIBUTION),
+    }
     assert fake.calls[0][1] is None
 
 
@@ -292,6 +320,7 @@ def test_research_carries_the_flags_it_carries_today() -> None:
         "-p": None,
         "--allowedTools": RESEARCH_TOOLS,
         "--output-format": "text",
+        "--settings": json.dumps(NO_ATTRIBUTION),
     }
 
 
@@ -348,6 +377,7 @@ def test_the_restack_resolver_carries_the_flags_it_carries_today(tmp_path: Path)
         "-p": None,
         "--allowedTools": RESOLVER_TOOLS,
         "--output-format": "text",
+        "--settings": json.dumps(NO_ATTRIBUTION),
     }
     assert fake.calls[0][1] == tmp_path
 

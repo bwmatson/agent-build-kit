@@ -10,6 +10,7 @@ saying the resolver failed.
 
 from __future__ import annotations
 
+import json
 from functools import partial
 from pathlib import Path
 
@@ -90,6 +91,9 @@ def test_under_claude_code_the_resolver_sends_the_command_it_sent_before(tmp_pat
         "-p": None,
         "--allowedTools": RESOLVER_TOOLS,
         "--output-format": "text",
+        "--settings": json.dumps(
+            {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
+        ),
     }
     assert fake.calls[0][1] == tmp_path
 
