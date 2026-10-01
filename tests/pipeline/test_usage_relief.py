@@ -499,62 +499,18 @@ def test_the_sections_load_from_a_mapping() -> None:
     )
 
 
-# --- the old keys --------------------------------------------------------------
+# --- the old keys ---------------------------------------------------------------
 
 
-def test_the_old_limits_keys_are_read_into_both_windows() -> None:
-    """One number served both windows then, so both get it now."""
-    config = WorkspaceConfig.model_validate(
-        {"limits": {"usage_pause_pct": 85, "usage_ceiling_pct": 92, "max_review_rounds": 2}}
-    )
-
-    claude = config.runtimes[CLAUDE_CODE].limits
-    for window in (claude.session, claude.weekly):
-        assert (window.usage_pause_pct, window.usage_ceiling_pct) == (85, 92)
-    assert config.limits.max_review_rounds == 2, "the rest of limits is untouched"
-
-
-def test_a_file_with_only_the_old_pause_percent_keeps_its_old_ramp() -> None:
-    """The old ceiling defaulted to 90, so a ramp was on unless turned off.
-    A file written then must behave as it did, not quietly stop ramping."""
-    claude = (
-        WorkspaceConfig.model_validate({"limits": {"usage_pause_pct": 60}})
-        .runtimes[CLAUDE_CODE]
-        .limits
-    )
-
-    assert claude.session.usage_pause_pct == 60
-    assert claude.session.usage_ceiling_pct == claude.weekly.usage_ceiling_pct == 90
-
-
-def test_the_old_relief_and_buffer_keys_move_too_to_both_windows() -> None:
-    claude = (
-        WorkspaceConfig.model_validate(
-            {"limits": {"usage_relief_fraction": 0.5, "usage_resume_buffer_pct": 8}}
-        )
-        .runtimes[CLAUDE_CODE]
-        .limits
-    )
-
-    for window in (claude.session, claude.weekly):
-        assert (window.usage_relief_fraction, window.usage_resume_buffer_pct) == (0.5, 8)
-
-
-def test_old_and_new_keys_together_are_refused() -> None:
-    """Two places saying how full a window may get, with no rule for which
-    wins, is how a limit gets raised by the one nobody looked at."""
-    with pytest.raises(ValidationError, match="both set the usage"):
-        WorkspaceConfig.model_validate(
-            {
-                "limits": {"usage_pause_pct": 80},
-                "runtimes": {CLAUDE_CODE: {"limits": {"weekly": {"usage_pause_pct": 85}}}},
-            }
-        )
-
-
-def test_the_old_keys_still_refuse_a_ceiling_below_the_pause_percent() -> None:
-    with pytest.raises(ValidationError):
-        WorkspaceConfig.model_validate({"limits": {"usage_pause_pct": 80, "usage_ceiling_pct": 70}})
+@pytest.mark.parametrize(
+    "key",
+    ["usage_pause_pct", "usage_ceiling_pct", "usage_relief_fraction", "usage_resume_buffer_pct"],
+)
+def test_the_old_limits_keys_are_no_longer_read(key: str) -> None:
+    """They moved under `runtimes.claude_code.limits`, one section per window.
+    Read as the old keys they would set the same number for both windows."""
+    with pytest.raises(ValidationError, match=key):
+        WorkspaceConfig.model_validate({"limits": {key: 80}})
 
 
 def test_a_file_with_neither_gets_the_new_defaults() -> None:
