@@ -18,6 +18,7 @@ from agent_build_kit import forges
 from agent_build_kit.config import AzureDevOpsConfig, RepoConfig
 from agent_build_kit.forges.azure_devops import FORGE
 from agent_build_kit.forges.base import PullRequest, RepoId
+from agent_build_kit.pipeline import az
 from agent_build_kit.pipeline.az import AzError
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 from tests.forges import azure_answers
@@ -287,6 +288,8 @@ def test_retargeting_goes_through_the_rest_api() -> None:
 
     def open_url(request, timeout=None):
         seen.append(request)
+        if request.get_method() == "GET":
+            return _Answer(json.dumps({"targetRefName": "refs/heads/dev"}))
         return _Answer("{}")
 
     def token(args, **kwargs):
@@ -298,13 +301,58 @@ def test_retargeting_goes_through_the_rest_api() -> None:
     # be signed in and fails everywhere else.
     FORGE.update_pr(REPO, 41, base="main", run=token, open_url=open_url)
 
-    [request] = seen
+    request = seen[-1]
     assert request.get_method() == "PATCH"
     assert json.loads(request.data.decode()) == {"targetRefName": "refs/heads/main"}
     assert "/AI%20Accelerators" not in request.full_url, "this repo names no installation"
     assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
     assert "/Some%20Project/_apis/git/repositories/Some%20Repo" in request.full_url
     assert request.get_header("Authorization") == "Bearer a-token"
+
+
+def test_a_pull_request_already_on_the_branch_is_not_retargeted() -> None:
+    """Azure refuses it with a 400, "This pull request already targets ...", and
+    the push step retargets on every rework of a PR it already opened."""
+    seen: list = []
+
+    def open_url(request, timeout=None):
+        seen.append(request.get_method())
+        return _Answer(json.dumps({"targetRefName": "refs/heads/dev"}))
+
+    def token(args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
+
+    FORGE.update_pr(REPO, 41, base="dev", run=token, open_url=open_url)
+
+    assert seen == ["GET"], "read, found it already there, wrote nothing"
+
+
+def test_a_refusal_from_azure_says_what_azure_said() -> None:
+    import io
+    import urllib.error
+
+    body = json.dumps({"message": "This pull request already targets refs/heads/dev"})
+
+    def open_url(request, timeout=None):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(body.encode()),  # type: ignore[arg-type]
+        )
+
+    def token(args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
+
+    with pytest.raises(az.AzError) as raised:
+        az.rest(
+            "PATCH", "https://dev.azure.com/o/p/_apis/x", payload={}, run=token, open_url=open_url
+        )
+
+    assert "400 Bad Request" in str(raised.value)
+    assert "already targets refs/heads/dev" in str(raised.value)
+    assert raised.value.stderr == "This pull request already targets refs/heads/dev"
 
 
 def test_closing_abandons_through_the_cli_with_a_shape_the_deny_list_accepts() -> None:

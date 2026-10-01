@@ -95,6 +95,7 @@ READ_POOL = 4
 class AzureDevOpsForge:
     name: str = "azure_devops"
     implemented: bool = True
+    client: str = "az"
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
     # so the remote branch is ours to delete.
     deletes_head_branch_on_merge: bool = False
@@ -411,13 +412,16 @@ class AzureDevOpsForge:
             # the organisation-level location, which answers GET and refuses
             # PATCH. There is no CLI command for this either - `az repos pr
             # update` has no `--target-branch` - so the API is the only way.
-            az.rest(
-                "PATCH",
-                f"{self._api(repo)}/pullRequests/{pr}?api-version={_API}",
-                payload={"targetRefName": f"refs/heads/{base}"},
-                run=run,
-                open_url=open_url,
-            )
+            #
+            # Only when it differs. GitHub takes a retarget to the branch a PR
+            # already has; Azure answers 400 "This pull request already
+            # targets ...", which failed every rework of a PR the pipeline had
+            # already opened on the right branch.
+            url = f"{self._api(repo)}/pullRequests/{pr}?api-version={_API}"
+            target = f"refs/heads/{base}"
+            current = az.rest("GET", url, run=run, open_url=open_url)
+            if not isinstance(current, dict) or current.get("targetRefName") != target:
+                az.rest("PATCH", url, payload={"targetRefName": target}, run=run, open_url=open_url)
         if body:
             az.json_out(
                 ["repos", "pr", "update", "--id", str(pr), "--description", body],

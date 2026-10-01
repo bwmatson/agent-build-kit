@@ -63,6 +63,7 @@ _ORIGIN = re.compile(
 class GitHubForge:
     name: str = "github"
     implemented: bool = True
+    client: str = "gh"
     # GitHub deletes the head branch on merge, so only the local one is ours.
     deletes_head_branch_on_merge: bool = True
     supports_stacks: bool = True

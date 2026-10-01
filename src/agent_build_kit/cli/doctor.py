@@ -170,7 +170,7 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
-def _timers(inst: Installation, run: Run, units: Path | None) -> list[Check]:
+def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> list[Check]:
     """Whether the pipeline is actually scheduled on this machine.
 
     Installed-but-not-enabled is the failure that looks most like success: the
@@ -182,7 +182,7 @@ def _timers(inst: Installation, run: Run, units: Path | None) -> list[Check]:
     somebody did try to schedule it and it is not working.
     """
     where = units or timers.user_unit_dir()
-    state = timers.report(inst.root, dest=where)
+    state = timers.report(inst.root, dest=where, tool_dirs=timers.tool_dirs(inst, which=which))
     checks: list[Check] = []
 
     if not state.installed:
@@ -236,6 +236,20 @@ def _timers(inst: Installation, run: Run, units: Path | None) -> list[Check]:
         else:
             count = len(timers.unit_names(inst.root))
             checks.append(_ok("timers", f"{count} units, enabled, pointing at {inst.root}"))
+
+    # What the installed service can find. A person's terminal has `az` on its
+    # PATH; the unit does not inherit it, so every command a person runs works
+    # while the scheduled poll fails on each tick.
+    for tool, reachable in timers.unreachable(inst, where, which=which):
+        checks.append(
+            _fail(
+                "timer PATH",
+                f"the tick service cannot find {tool}",
+                "`abk install-timers` puts its directory on the unit's PATH"
+                if reachable
+                else f"install {tool}, then run `abk install-timers`",
+            )
+        )
 
     # Units of any installation whose directory is gone. Nobody is left to
     # remove them: the repo they served moved away, and `systemctl enable`
@@ -527,7 +541,7 @@ def run_doctor(
     checks += _repos(inst, run)
     checks += _forge_access(inst, run)
     checks += _merge_guards(inst, run)
-    checks += _timers(inst, run, units)
+    checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which)
     checks += _ssh_keys(inst)

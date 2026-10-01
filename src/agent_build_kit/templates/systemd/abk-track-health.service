@@ -6,13 +6,16 @@
 #
 # PATH carries uv and node: the OpenSpec CLI runs through npx, so a node
 # install (here volta's, alongside the usual system directories) must be
-# reachable from a unit that starts with no login environment.
+# reachable from a unit that starts with no login environment. The end of
+# PATH is the directory of every other tool the installation needs (the
+# forge's client, the agent's command), found where `abk install-timers` ran:
+# a unit does not inherit the login shell's PATH, which on WSL carries `az`.
 [Unit]
 Description=abk: health track
 
 [Service]
 Type=oneshot
 WorkingDirectory={planning_dir}
-Environment="PATH=%h/.local/bin:%h/.volta/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=%h/.local/bin:%h/.volta/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin{tool_path}"
 Environment="VOLTA_HOME=%h/.volta"
 ExecStart=/usr/bin/env uv run abk track health

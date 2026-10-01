@@ -31,6 +31,7 @@ from agent_build_kit.forges.base import PermittedCommand, Run
 class StandInForge:
     name: str = "stand_in"
     implemented: bool = True
+    client: str = ""
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()

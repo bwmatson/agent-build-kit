@@ -162,6 +162,9 @@ class Poller(BaseModel):
     # default removes nothing: the label then stays as seen, and is acted on
     # once until a person takes it off and adds it again.
     consume: Callable[[int, str], bool] = lambda number, name: False
+    # Where a failed poll is reported. Silent by default so a caller that does
+    # not care is unchanged; the pipeline passes its own log.
+    log: Callable[[str], None] = lambda message: None
     failures: int = 0
     quiet_until: datetime | None = None
 
@@ -171,9 +174,13 @@ class Poller(BaseModel):
 
         try:
             pulls = self.list_prs()
-        except Exception:
+        except Exception as error:
             # A bad poll costs one cycle. The recorded state is left untouched,
-            # so nothing is re-dispatched when the endpoint recovers.
+            # so nothing is re-dispatched when the endpoint recovers. It is
+            # said, though: a forge client missing from a timer's PATH failed
+            # every tick for hours, and the only trace was a snapshot that
+            # stopped changing.
+            self.log(f"poll of {self.repo} failed: {type(error).__name__}: {error}")
             self.failures += 1
             if self.failures >= FAILURES_BEFORE_BACKOFF:
                 self.quiet_until = datetime.now(UTC) + BACKOFF
