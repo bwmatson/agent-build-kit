@@ -49,8 +49,21 @@ git:                          # was `github:`; the old name is read for one rele
 runtime: claude_code          # the agent runtime every step runs on;
                               # ABK_RUNTIME overrides it on one machine. An
                               # unknown one fails at load.
-runtimes: {}                  # only for a runtime needing a fact abk cannot
+runtimes:                     # only for a runtime needing a fact abk cannot
                               # default; only the selected one is checked
+  claude_code:                # the subscription's two usage windows, each a section
+    limits:                   # with the same settings
+      session:                # the 5-hour window
+        usage_pause_pct: 70            # % at which no unit starts
+        usage_pause_ceiling_pct:       # what that rises to at the reset; unset =
+                                       # usage_pause_pct, which means no ramp
+        usage_relief_fraction: 0.25    # trailing part of the window a ramp spans
+        usage_resume_buffer_pct: 5     # room above usage a resume waits for
+      weekly:                 # the 7-day window: the same four
+        usage_pause_pct: 70
+        usage_pause_ceiling_pct:
+        usage_relief_fraction: 0.25
+        usage_resume_buffer_pct: 5
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor
@@ -77,10 +90,6 @@ limits:
   max_review_rounds: 3        # review rounds before a unit fails
   max_adapt_rounds: 2         # adapt-step accounting asks, first included,
                               # before a unit fails
-  usage_pause_pct: 70         # % of a usage window at which no unit starts
-  usage_ceiling_pct: 90       # what that rises to at that window's reset
-  usage_relief_fraction: 0.25 # trailing part of a window the rise spans
-  usage_resume_buffer_pct: 5  # room above current usage a resume waits for
   max_plan_attempts: 3        # times one tasks.md is sent to the planner
 
 tracks:                       # the scheduled health/improve/recommend tracks

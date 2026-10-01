@@ -73,13 +73,31 @@ runtime: claude_code            # what executes every build/review/rework step,
                                 # it per machine, for trying one out without
                                 # moving every repo at once.
 
-runtimes: {}                    # one entry per runtime that needs a fact abk
+runtimes:                       # one entry per runtime that needs a fact abk
                                 # cannot default, and only for the runtimes
-                                # this workspace uses. `claude_code` needs
-                                # none, so a workspace on it leaves this out.
-                                # An unknown `runtime`, or one missing a fact
-                                # its adapter requires, fails at load; only
-                                # the selected runtime's entry is checked.
+                                # this workspace uses. An unknown `runtime`, or
+                                # one missing a fact its adapter requires,
+                                # fails at load; only the selected runtime's
+                                # entry is checked.
+  claude_code:                  # the Claude subscription: a five-hour session
+    limits:                     # and a seven-day week fill independently, so
+      session:                  # each has its own section, with the same names
+        usage_pause_pct: 70     # % of the window at which no new unit starts,
+                                # for most of it
+        usage_pause_ceiling_pct:  # what that rises to at the window's reset.
+                                  # Unset = usage_pause_pct: no ramp. Below 100,
+                                  # where credits start paying
+        usage_relief_fraction: 0.25  # the trailing part of the window the rise
+                                     # is spread over (a session's last ~75
+                                     # minutes, a week's last ~42 hours).
+                                     # Unused when there is no ramp
+        usage_resume_buffer_pct: 5   # room above current usage the threshold
+                                     # must offer before a pause lifts
+      weekly:                   # the same four settings, for the week
+        usage_pause_pct: 70
+        usage_pause_ceiling_pct:
+        usage_relief_fraction: 0.25
+        usage_resume_buffer_pct: 5
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when
@@ -118,14 +136,6 @@ limits:
   max_review_rounds: 3          # review rounds before a unit fails
   max_adapt_rounds: 2           # adapt-step accounting asks, first included,
                                 # before a unit fails
-  usage_pause_pct: 70           # % of a usage window at which no new unit
-                                # starts, for most of that window
-  usage_ceiling_pct: 90         # what that rises to at the window's reset;
-                                # below 100, where credits start paying
-  usage_relief_fraction: 0.25   # the trailing part of a window the rise is
-                                # spread over (a session's last ~75 minutes)
-  usage_resume_buffer_pct: 5    # room above current usage the rising
-                                # threshold must offer before a pause lifts
   max_plan_attempts: 3          # planner attempts per version of a tasks.md
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their

@@ -96,6 +96,54 @@ class RuntimeModelsConfig(Frozen):
     rework_review: str | None = None
 
 
+class UsageWindowConfig(Frozen):
+    """How full one usage window may get before the pipeline stops starting
+    units. The session and the week are both this, with the same names."""
+
+    # Percent of the window at which no NEW unit starts, for most of that window.
+    usage_pause_pct: Annotated[int, Field(ge=0, lt=100)] = 70
+    # The most the window may ever be run to: the threshold at the moment it
+    # resets. Quota not used before a reset is lost, and the headroom the pause
+    # protects matters less the closer the reset is. Below 100 because credits
+    # pay past the plan limit. Unset, it is the pause percent: the threshold
+    # then never moves, and the ramp is skipped.
+    usage_pause_ceiling_pct: Annotated[int, Field(ge=0, lt=100)] | None = None
+    # The trailing fraction of the window, counted back from its reset, over
+    # which the threshold ramps from the pause percent to the ceiling: 0.25 is
+    # the last ~75 minutes of a session, the last ~42 hours of a week. Before it
+    # the threshold is the pause percent. Meaningless with no ramp.
+    usage_relief_fraction: Annotated[float, Field(gt=0, le=1)] = 0.25
+    # How much room above current usage the threshold must offer before a
+    # paused pipeline is woken: enough that a unit which starts can finish,
+    # rather than being admitted exactly at the margin.
+    usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
+
+    @property
+    def usage_ceiling_pct(self) -> int:
+        """The ceiling as it applies: the pause percent when unset."""
+        ceiling = self.usage_pause_ceiling_pct
+        return self.usage_pause_pct if ceiling is None else ceiling
+
+    @model_validator(mode="after")
+    def _ceiling_not_below_pause(self) -> UsageWindowConfig:
+        """A ceiling under the pause percent would make the threshold *fall* as
+        a reset approaches, which is the opposite of what it is for."""
+        if self.usage_ceiling_pct < self.usage_pause_pct:
+            raise ValueError(
+                f"usage_pause_ceiling_pct ({self.usage_ceiling_pct}) is below "
+                f"usage_pause_pct ({self.usage_pause_pct})"
+            )
+        return self
+
+
+class ClaudeLimitsConfig(Frozen):
+    """The Claude subscription's two usage windows (`runtimes.claude_code.limits`).
+    They fill independently, so each has its own section."""
+
+    session: UsageWindowConfig = UsageWindowConfig()
+    weekly: UsageWindowConfig = UsageWindowConfig()
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -106,6 +154,9 @@ class RuntimeConfig(Frozen):
     # asked to, and never interprets it.
     policy_fix: list[str] | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
+
+    # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
+    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
 
 
 class LimitsConfig(Frozen):
@@ -131,22 +182,6 @@ class LimitsConfig(Frozen):
     # How many times, the first included, the adapt step's test accounting is
     # asked for before the unit fails, when it is incomplete rather than wrong.
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2
-    # Percent of the Claude usage window at which no NEW unit starts, for
-    # most of a window. Near the reset this rises — see `usage_ceiling_pct`.
-    usage_pause_pct: int = 70
-    # The most a window may ever be run to: the threshold at the moment it
-    # resets. Quota not used before a reset is lost, and the headroom the
-    # pause protects matters less the closer the reset is. Below 100 because
-    # credits pay past the plan limit.
-    usage_ceiling_pct: Annotated[int, Field(ge=0, lt=100)] = 90
-    # The trailing fraction of a window over which the threshold ramps from
-    # `usage_pause_pct` to `usage_ceiling_pct`. 0.25 is the last ~75 minutes
-    # of a five-hour session, the last ~42 hours of the week.
-    usage_relief_fraction: Annotated[float, Field(gt=0, le=1)] = 0.25
-    # How much room above the current usage the ramp must offer before a
-    # paused pipeline is woken: enough that a unit which starts can finish,
-    # rather than being admitted exactly at the margin.
-    usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
 
@@ -156,17 +191,6 @@ class LimitsConfig(Frozen):
         if isinstance(data, dict) and "stack_depth_cap" in data:
             raise ValueError("stack_depth_cap was renamed to stack_depth_build_cap")
         return data
-
-    @model_validator(mode="after")
-    def _ceiling_above_pause(self) -> LimitsConfig:
-        """A ceiling under the pause percent would make the threshold *fall*
-        as a reset approaches, which is the opposite of what it is for."""
-        if self.usage_ceiling_pct < self.usage_pause_pct:
-            raise ValueError(
-                f"usage_ceiling_pct ({self.usage_ceiling_pct}) is below "
-                f"usage_pause_pct ({self.usage_pause_pct})"
-            )
-        return self
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:
@@ -360,6 +384,31 @@ class VerifyConfig(Frozen):
     env: dict[str, Provider] = {}
 
 
+# The runtime whose usage windows the pause thresholds describe.
+CLAUDE_CODE = "claude_code"
+
+# Where these lived before they moved under `runtimes.claude_code`, and what
+# each stood for. One pause percent and one ceiling then served both windows, and
+# the ceiling defaulted to 90 against a pause of 70, so a ramp was on unless
+# turned off. A file that still uses them keeps exactly that behaviour.
+LEGACY_USAGE_KEYS = (
+    "usage_pause_pct",
+    "usage_ceiling_pct",
+    "usage_relief_fraction",
+    "usage_resume_buffer_pct",
+)
+_LEGACY_PAUSE = 70
+_LEGACY_CEILING = 90
+
+
+def legacy_usage_keys(data: object) -> list[str]:
+    """The old `limits.usage_*` keys in a raw config mapping, in file order."""
+    limits = data.get("limits") if isinstance(data, dict) else None
+    if not isinstance(limits, dict):
+        return []
+    return [key for key in limits if key in LEGACY_USAGE_KEYS]
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -375,6 +424,54 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _usage_limits_moved(cls, data: object) -> object:
+        """Accept the old `limits.usage_*` keys, as the settings of the Claude runtime.
+
+        They moved under `runtimes.claude_code`, split per window. Refusing the
+        old names would break a machine the moment the framework updated before
+        its abk.yaml did (or the reverse), and the timers run whichever
+        checkout is there. So a file that still has them is read as it always
+        was, and `abk doctor` says to move them.
+        """
+        found = legacy_usage_keys(data)
+        if not found:
+            return data
+        assert isinstance(data, dict)
+        runtimes_block = data.get("runtimes") or {}
+        if not isinstance(runtimes_block, dict):
+            return data
+        claude = dict(runtimes_block.get(CLAUDE_CODE) or {})
+        if claude.get("limits"):
+            raise ValueError(
+                f"limits.{found[0]} and runtimes.{CLAUDE_CODE}.limits both set the usage "
+                f"thresholds; keep the runtimes.{CLAUDE_CODE}.limits ones and delete limits.usage_*"
+            )
+        limits = dict(data["limits"])
+        # One value then served both windows; both get it now.
+        moved: dict[str, object] = {
+            "usage_pause_pct": limits.pop("usage_pause_pct", _LEGACY_PAUSE),
+            "usage_pause_ceiling_pct": limits.pop("usage_ceiling_pct", _LEGACY_CEILING),
+        }
+        for key in ("usage_relief_fraction", "usage_resume_buffer_pct"):
+            if key in limits:
+                moved[key] = limits.pop(key)
+        claude["limits"] = {"session": dict(moved), "weekly": dict(moved)}
+        return {**data, "limits": limits, "runtimes": {**runtimes_block, CLAUDE_CODE: claude}}
+
+    @model_validator(mode="after")
+    def _usage_limits_only_on_claude(self) -> WorkspaceConfig:
+        """The usage windows are Claude's. Set on another runtime they would be
+        read by nothing, which looks like a limit and is not one."""
+        for name, entry in self.runtimes.items():
+            if name != CLAUDE_CODE and "limits" in entry.model_fields_set:
+                raise ValueError(
+                    f"runtimes.{name}.limits: the usage thresholds belong to "
+                    f"runtimes.{CLAUDE_CODE}, the only runtime with usage windows"
+                )
+        return self
 
 
 # --- locating and loading ------------------------------------------------------
