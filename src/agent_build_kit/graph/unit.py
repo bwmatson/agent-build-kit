@@ -6,8 +6,13 @@ from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from typing import Protocol
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from agent_build_kit.graph.build import compile_build_path
+from agent_build_kit.graph.nodes import BuildPath
+from agent_build_kit.graph.run import run_thread
+from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitRunner
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -34,4 +39,14 @@ async def run_unit(
 ) -> RunOutcome:
     """Start the unit's thread, or resume it where a killed run left it, over
     the callables `runner` carries, and return what `UnitRunner.run` would."""
-    raise NotImplementedError
+    path = BuildPath(runner, unit, base=base, graph=graph, run_log=run_log, tracer=tracer)
+    compiled = compile_build_path(saver, path.work())
+    config: RunnableConfig = {"configurable": {"thread_id": unit.id}}
+    # A thread with a node still to run was interrupted: it carries on from
+    # there, with no new input. Anything else is a new run of the unit.
+    interrupted = bool((await compiled.aget_state(config)).next)
+    start = (
+        None if interrupted else UnitRun(unit_id=unit.id, change=unit.change, groups=unit.groups)
+    )
+    state = UnitRun.model_validate(await run_thread(compiled, start, unit.id))
+    return RunOutcome(status=state.status, detail=state.detail, pr=state.pr)

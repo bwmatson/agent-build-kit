@@ -9,6 +9,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from agent_build_kit.graph.nodes import ROUTES
 from agent_build_kit.graph.state import Node, UnitRun
 
 NodeWork = Callable[[UnitRun], Awaitable[dict[str, Any]]]
@@ -45,4 +46,26 @@ def compile_graph(
     for node, after in zip(ORDER, ORDER[1:], strict=False):
         builder.add_edge(node.value, after.value)
     builder.add_edge(ORDER[-1].value, END)
+    return builder.compile(checkpointer=saver)
+
+
+def compile_build_path(
+    saver: BaseCheckpointSaver, work: Mapping[Node, NodeWork]
+) -> CompiledStateGraph:
+    """The build path: the nodes in `work`, joined by the edges of docs/unit-graph.md.
+
+    A router's return value is checked against the nodes it may name when the
+    graph compiles, so a misspelled edge fails here and not in the middle of a run.
+    """
+    builder = StateGraph(UnitRun)
+    for node, body in work.items():
+        builder.add_node(node.value, cast("Any", body))
+    builder.add_edge(START, Node.PREPARE.value)
+    for node, (router, targets) in ROUTES.items():
+        builder.add_conditional_edges(
+            node.value, router, {target.value: target.value for target in targets}
+        )
+    builder.add_edge(Node.TESTS.value, Node.IMPLEMENT.value)
+    builder.add_edge(Node.OPEN_PR.value, END)
+    builder.add_edge(Node.FAILED.value, END)
     return builder.compile(checkpointer=saver)

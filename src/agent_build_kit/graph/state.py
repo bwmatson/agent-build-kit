@@ -68,3 +68,17 @@ class UnitRun(Frozen):
     verdict: Verdict | None = None
     stopped: str = ""
     event: ResumeEvent | None = None
+    # What the build path routes on and what a re-run checks against git.
+    base: str = ""  # the base the unit is on, once `verify_base` found it moved
+    base_commits: int = 0  # commits on the branch when `prepare` finished
+    head: str = ""  # the branch's tip when the last node finished, which a re-run compares with
+    had_feedback: bool = False  # feedback was waiting when the run began
+    fix_rounds: int = 0  # fixes of failing checks in this round of review
+    review_round: int = 0
+    checks_ok: bool = False
+    produced_nothing: bool = False
+    moved: bool = False  # `verify_base` moved the branch onto a new base
+    # How the run ended, as `RunOutcome` reports it.
+    status: str = ""
+    detail: str = ""
+    pr: int | None = None
