@@ -17,6 +17,7 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.factories import unit
 from tests.runner_fakes import Killed, Recorder, make_runner
 
@@ -53,4 +54,7 @@ def test_a_node_killed_after_its_effect_does_not_repeat_it_when_resumed(
     assert recorder.events.count("push") == 1
     assert recorder.remote == ["sha-2"]
     assert len(recorder.prs) == 1
-    assert recorder.pr_calls == 1, "the pull request is found, not opened again"
+    assert outcome.pr == 7
+    assert recorder.store.get(unit().id).pr == 7
+    assert recorder.store.get(unit().id).state == IN_REVIEW
+    assert len(recorder.prs) == 1, "the pull request is found, not opened again"

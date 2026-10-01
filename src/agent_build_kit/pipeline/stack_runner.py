@@ -1137,7 +1137,7 @@ class UnitRunner(BaseModel):
             if not failed_check:
                 # A failed check has no reviewer to answer; recording this
                 # would overwrite the last review round's answer.
-                self._record_response(unit, response)
+                self.record_response(unit, response)
             self.commit(
                 f"fix: {unit.title} ({'checks' if failed_check else 'review'}, resumed)",
                 cwd=tree,
@@ -1623,11 +1623,7 @@ class UnitRunner(BaseModel):
             # no earlier round — `rounds` here is what preceded this one —
             # neither holds, so an escalation on round one is an ordinary
             # rejection instead.
-            declined = rounds and str(rounds[-1].get("response", "")).strip()
-            escalate_now = bool(rounds) and (
-                verdict.escalate == "class" or (verdict.escalate == "disagreement" and declined)
-            )
-            if escalate_now:
+            if self.escalates(verdict, rounds):
                 # Another instance of a kind that cannot be enumerated, or a
                 # point raised again after the builder already declined it: a
                 # third exchange of prose is the least likely thing to settle
@@ -1674,7 +1670,7 @@ class UnitRunner(BaseModel):
                 ),
                 cwd=tree,
             )
-            self._record_response(unit, response)
+            self.record_response(unit, response)
             self.commit(f"fix: {unit.title} (review round {round_number + 1})", cwd=tree)
         return False, why
 
@@ -1846,7 +1842,20 @@ class UnitRunner(BaseModel):
                     unit, f"checks failing and fix round {attempt} changed nothing, before review"
                 )
 
-    def _record_response(self, unit: Unit, response: str) -> None:
+    def escalates(self, verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
+        """Whether a rejection is a person's call instead of another round.
+
+        A class escalation needs an earlier round to be another instance of; a
+        disagreement needs the builder to have declined a point on the last one.
+        """
+        if not earlier_rounds:
+            return False
+        declined = str(earlier_rounds[-1].get("response", "")).strip()
+        return verdict.escalate == "class" or (
+            verdict.escalate == "disagreement" and bool(declined)
+        )
+
+    def record_response(self, unit: Unit, response: str) -> None:
         """The builder's account of the last round's ask, for the next review."""
         rounds = list(self.store.get(unit.id).review_rounds)
         if rounds:

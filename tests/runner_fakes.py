@@ -31,6 +31,8 @@ class Recorder:
         commits_from_impl: int = 1,
         tier1_ok: bool = True,
         kill_after: str = "",
+        push_raises: Exception | None = None,
+        rework_answer: str = "done",
     ):
         self.store = store
         self.events: list[str] = []
@@ -40,6 +42,10 @@ class Recorder:
         self.commits_from_impl = commits_from_impl
         self.tier1_ok = tier1_ok
         self.kill_after = kill_after
+        self.push_raises = push_raises
+        self.rework_answer = rework_answer  # what the builder says of a review's ask
+        # Answers for successive tier 1 runs, in order; once spent, `tier1_ok`.
+        self.tier1_results: list[tuple[bool, str]] = []
         self.made = 0
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
@@ -54,8 +60,11 @@ class Recorder:
 
     def claude(self, prompt: str, *, cwd: Path) -> str:
         self.prompts.append(prompt)
-        if "Review asked for" in prompt or "review of this branch" in prompt:
+        if "checks (lint" in prompt:
+            self.events.append("claude:fix_checks")
+        elif "Review asked for" in prompt or "review of this branch" in prompt:
             self.events.append("claude:rework")
+            return self.rework_answer
         else:
             self.events.append("claude:tests" if "test tasks" in prompt else "claude:impl")
         return "done"
@@ -78,6 +87,8 @@ class Recorder:
 
     def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
         self.events.append("tier1")
+        if self.tier1_results:
+            return self.tier1_results.pop(0)
         return self.tier1_ok, self.tier1_output
 
     def tier2(self, *, cwd: Path) -> tuple[bool, str]:
@@ -85,6 +96,8 @@ class Recorder:
         return True, ""
 
     def push(self, branch: str, *, cwd: Path) -> str:
+        if self.push_raises:
+            raise self.push_raises
         sha = self.head(cwd)
         if sha not in self.remote:
             self.remote.append(sha)

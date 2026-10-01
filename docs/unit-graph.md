@@ -7,14 +7,15 @@ enum, the SQLite checkpointer with its allowlist and a compiled graph in
 callables `wiring.build_runner` binds: `prepare`, `tests`, `implement`,
 `checks`, `fix_checks`, `review`, `rework`, `tier1`, `verify_base`, `push`,
 `open_pr` and `failed`, joined by the edges below, ending at the pull request.
+Two built edges are not in the diagram: `prepare → verify_base`, for a branch
+with work, no feedback and a tip review already approved, and `rework → tier1`,
+for a rework that left nothing new.
 What follows a pull request, and every path off the build path, is not built:
 where the classic runner would adapt, run tier 2, mark a unit satisfied, hold
 it, or stop for a base that moved, the graph ends the run as `failed` and says
 which of these it is. Two more differences from the classic runner: the
 `chore:` commit of uncommitted work before each review round is not made, as
-every step already ends in its own commit; and `open_pr` posts the commit
-status for every unit, not only a tier 2 one, noting where there is none to
-post. `ABK_ENGINE=graph` still does not drive a unit through
+every step already ends in its own commit. `ABK_ENGINE=graph` still does not drive a unit through
 `run_unit`: a tick starts a thread whose nodes do no work, and the classic
 engine is the default and the only one that builds. This document is what the
 implementation is specified against: it says which part of the pipeline moves
@@ -273,10 +274,8 @@ poller already replays a deferred event.
   - an open pull request.
   It does nothing twice: an agent node compares the branch's tip with the one
   its predecessor recorded, `push` compares the pushed commit with the tip, and
-  `open_pr` leaves a note on the unit when it is interrupted inside the call, so
-  the run that resumes does not open the pull request again. (The runner has no
-  way to ask the forge for a unit's pull request, so that note stands in for the
-  look.) A killed agent process leaves uncommitted work, which the node's
+  `open_pr` runs again whole: the real call finds the branch's pull request and
+  updates it instead of opening a second. A killed agent process leaves uncommitted work, which the node's
   re-run is to commit as `wip:` before continuing, as `reclaim_stale` does now;
   that is not built yet.
 - **Timeouts kill the process group.** A node's `TimeoutPolicy` cancels its
@@ -313,9 +312,9 @@ interrupts happen only at node boundaries.
 
 - **A span per node,** with the unit id, change and step as attributes. Agent
   spans nest under it.
-- **Stream events** from a node (`get_stream_writer`) carry the agent's
-  progress lines into the unit's run log (`runs/unit-logs/`), as `on_event`
-  does now.
+- **Progress lines** reach the unit's run log (`runs/unit-logs/`) through
+  `RunLog.emit`, called by the nodes. Stream events (`get_stream_writer`) are
+  not built yet.
 - **The graph itself** is drawn from the compiled graph into this document and
   the docs, so the diagram cannot drift from the code.
 - **LangSmith tracing** is supported by the framework, optional, and off by
