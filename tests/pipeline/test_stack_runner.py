@@ -2688,7 +2688,7 @@ def test_a_unit_resumed_into_a_failed_check_is_given_the_check_prompt(
     and not a record of an answer to a reviewer that was never asked."""
     recorded: list[str] = []
     monkeypatch.setattr(
-        UnitRunner, "_record_response", lambda self, unit, response: recorded.append(response)
+        UnitRunner, "record_response", lambda self, unit, response: recorded.append(response)
     )
     recorder = Recorder()
     runner, store = checked_runner(tmp_path, recorder)
