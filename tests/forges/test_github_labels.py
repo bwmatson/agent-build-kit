@@ -26,8 +26,23 @@ class Recorder:
 
     def _answer(self, args: list[str]) -> object:
         if args[:3] == ["gh", "label", "list"]:
-            return [{"name": "in-review", "color": "2563eb", "description": ""}]
-        return {"labels": [{"name": "in-review"}, {"name": "bug"}]}
+            return [{"name": "in-review"}]
+        return {
+            "labels": [
+                {
+                    "id": "LA_kwDOAAAAAc8AAAABAAAAAQ",
+                    "name": "in-review",
+                    "description": "Built and waiting for human review",
+                    "color": "2563eb",
+                },
+                {
+                    "id": "LA_kwDOAAAAAc8AAAABAAAAAg",
+                    "name": "bug",
+                    "description": "Something isn't working",
+                    "color": "d73a4a",
+                },
+            ]
+        }
 
     def gh(self, args: list[str], *, slug: str = "", **_) -> subprocess.CompletedProcess:
         self.commands.append(args)

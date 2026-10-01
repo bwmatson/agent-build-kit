@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member
 from agent_build_kit.pipeline.vocabulary import STATES, change_label, state_label_names
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -231,6 +231,22 @@ def test_the_change_label_goes_on_when_the_pull_request_opens_and_stays(tmp_path
     assert {"bug", change_label("add-marker").name, "in-review"} == on_pr(forge)
     tagged = [label for _, label in forge.added if label == change_label("add-marker")]
     assert len(tagged) == 1, "put on when the pull request opened, not at each state change"
+
+
+def test_a_unit_that_joined_another_changes_groups_carries_a_label_for_each(
+    tmp_path: Path,
+) -> None:
+    forge = StandInForge()
+    store = wired(tmp_path, forge, [])
+    store.upsert([unit("add-marker/1", joined=(Member(change="feature", groups=(1,)),))])
+
+    store.set_state("add-marker/1", IN_REVIEW, pr=PR, branch="spec/add-marker/1")
+    store.set_state("add-marker/1", "running")
+
+    own, other = change_label("add-marker"), change_label("feature")
+    assert {own.name, other.name} <= on_pr(forge)
+    for label in (own, other):
+        assert [added for _, added in forge.added].count(label) == 1, label.name
 
 
 def test_a_state_change_reaches_the_forge_after_the_store_is_written(tmp_path: Path) -> None:

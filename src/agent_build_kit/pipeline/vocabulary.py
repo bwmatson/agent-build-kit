@@ -10,8 +10,18 @@ from collections.abc import Mapping
 
 from agent_build_kit.forges import Label
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import PLANNED, waiting_on
+from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit
+from agent_build_kit.pipeline.units import (
+    CLOSED,
+    FAILED,
+    HELD,
+    IN_REVIEW,
+    MERGED,
+    PLANNED,
+    RUNNING,
+    SATISFIED,
+    waiting_on,
+)
 
 # A label a person adds to instruct the pipeline starts with this; one the
 # pipeline maintains never does.
@@ -36,26 +46,26 @@ def _style(name: str, fill: str, stroke: str, text: str, extra: str = "") -> Sta
 # Keyed by the state as the graph classes it, which is wider than the unit
 # store's own: the derived states are here too.
 STATES: Mapping[str, StateStyle] = {
-    "planned": _style("planned", "#eef2ff", "#6366f1", "#1e1b4b"),
+    PLANNED: _style("planned", "#eef2ff", "#6366f1", "#1e1b4b"),
     "blocked": _style("blocked", "#f5f5f4", "#a8a29e", "#44403c", "stroke-dasharray:3 3"),
-    "running": _style("running", "#fef3c7", "#d97706", "#451a03"),
+    RUNNING: _style("running", "#fef3c7", "#d97706", "#451a03"),
     "paused_rework": _style(
         "paused-rework", "#ffedd5", "#ea580c", "#431407", "stroke-dasharray:3 3"
     ),
     "paused_usage": _style("paused-usage", "#fef9c3", "#ca8a04", "#422006", "stroke-dasharray:3 3"),
-    "held": _style("held", "#fae8ff", "#a21caf", "#4a044e"),
-    "in_review": _style("in-review", "#dbeafe", "#2563eb", "#172554"),
-    "merged": _style("merged", "#dcfce7", "#16a34a", "#052e16"),
-    "satisfied": _style("satisfied", "#d1fae5", "#059669", "#022c22"),
-    "closed": _style("closed", "#fee2e2", "#dc2626", "#450a0a"),
-    "failed": _style("failed", "#fecaca", "#b91c1c", "#450a0a", "stroke-width:3px"),
-    "unplanned": _style("unplanned", "#f5f5f4", "#a8a29e", "#44403c"),
+    HELD: _style("held", "#fae8ff", "#a21caf", "#4a044e"),
+    IN_REVIEW: _style("in-review", "#dbeafe", "#2563eb", "#172554"),
+    MERGED: _style("merged", "#dcfce7", "#16a34a", "#052e16"),
+    SATISFIED: _style("satisfied", "#d1fae5", "#059669", "#022c22"),
+    CLOSED: _style("closed", "#fee2e2", "#dc2626", "#450a0a"),
+    FAILED: _style("failed", "#fecaca", "#b91c1c", "#450a0a", "stroke-width:3px"),
+    UNPLANNED: _style("unplanned", "#f5f5f4", "#a8a29e", "#44403c"),
 }
 
 # Drawn by the graph and deliberately given no label: the host shows merged and
 # closed itself, and an unplanned or satisfied unit has no pull request of its
 # own to carry one.
-UNLABELLED: frozenset[str] = frozenset({"merged", "closed", "unplanned", "satisfied"})
+UNLABELLED: frozenset[str] = frozenset({MERGED, CLOSED, UNPLANNED, SATISFIED})
 
 _DESCRIPTIONS = {
     "planned": "Ready to start when a slot allows",

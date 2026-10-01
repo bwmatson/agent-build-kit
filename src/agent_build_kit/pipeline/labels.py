@@ -79,11 +79,12 @@ class StateLabels:
         """Bring a unit's pull request in line with its recorded state.
 
         What `UnitStore` calls after a state change: the state label always,
-        the change's own label once, when the pull request is first recorded.
-        A unit with no pull request has nothing to carry a label.
+        a label for each change the unit builds (its own first) once, when the
+        pull request is first recorded. A unit with no pull request has nothing to carry a label.
         """
         if unit.pr is None:
             return
         if opened:
-            self.tag_change(unit.repo, unit.pr, unit.change)
+            for member in unit.members():
+                self.tag_change(unit.repo, unit.pr, member.change)
         self.set_state(unit.repo, unit.pr, effective_state(unit, units))

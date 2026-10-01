@@ -353,8 +353,9 @@ standing state, not a one-off request, and stays until a person removes it.
 The other family is the pipeline's own record of a unit: a **state label**
 (one at a time, replaced whenever the unit's state changes, written by
 `UnitStore.set_state` so no call site has to remember) and a **change label**
-naming the change, put on once when the pull request is first recorded and
-left alone after. The state names and colours are the unit graph's — one
+for each change the unit carries (one, unless it joined groups of other
+changes), put on once when the pull request is first recorded and left alone
+after. The state names and colours are the unit graph's — one
 vocabulary (`vocabulary.py`) that both read, the colour being the node's
 outline — so renaming or recolouring a state changes both. `merged`, `closed`,
 `unplanned` and `satisfied` carry no label: the host shows the first two
@@ -365,7 +366,7 @@ label that cannot be written is logged and changes nothing about the unit.
 Azure DevOps carries no pipeline labels today: its forge cannot add or remove
 one, so no state label and no change label appears there, and `agent-rework`
 stays on the pull request after it is acted on and is not acted on again until
-a person removes it and adds it back. That is said once per process ("this host
+a person removes it and adds it back. That is said once per store and once per poll ("this host
 keeps no labels"), not as a failure on each state change. A state label is
 written when the unit's own state changes, so a dependent's derived state
 (`blocked`, `paused-rework`) is refreshed on its own next transition, not when
