@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import active, models
+from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import Node, UnitRun, Verdict
 from agent_build_kit.pipeline.pr_body import build_pr_body
+from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
     CHECKS_PROMPT,
@@ -31,10 +33,6 @@ from agent_build_kit.pipeline.stack_runner import (
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, Unit, branch_name, local_ref
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
-
-# Left on the unit when a run is interrupted inside `open_pr`: the forge may
-# already hold the pull request, and the run that resumes does not open it again.
-OPENING = "interrupted while opening its pull request"
 
 Update = dict[str, Any]
 
@@ -159,10 +157,12 @@ class BuildPath:
                 else:
                     self.say(f"restacked onto {self.base} cleanly")
                 existing = r.branch_commits(tree, ref)
+        head = r.head(tree)
         return {
             "base_commits": existing,
             "had_feedback": bool(feedback),
-            "head": r.head(tree),
+            "head": head,
+            "head_approved": bool(existing) and head == r.store.get(unit.id).approved,
         }
 
     def tests(self, state: UnitRun) -> Update:
@@ -278,7 +278,7 @@ class BuildPath:
             if unit.tier == "tier2":
                 return {**update, **self.not_yet("tier 2 after approval")}
             return {**update, "verdict": Verdict.APPROVED, "approved": judged, "fix_rounds": 0}
-        if weighed.verdict.needs_human or (weighed.verdict.escalate and weighed.earlier_rounds):
+        if weighed.verdict.needs_human or r.escalates(weighed.verdict, weighed.earlier_rounds):
             return {**update, **self.not_yet("holding a unit for a person")}
         if round_number == total - 1:
             return {**update, **self.not_yet("a unit whose review rounds are spent")}
@@ -305,10 +305,7 @@ class BuildPath:
                 ),
                 cwd=tree,
             )
-            rounds = list(r.store.get(unit.id).review_rounds)
-            if rounds:
-                rounds[-1] = {**rounds[-1], "response": response}
-                r.store.set_review_rounds(unit.id, rounds)
+            r.record_response(unit, response)
             r.commit(f"fix: {unit.title} (review round {state.review_round})", cwd=tree)
         else:
             # One run on the review model, not the tests-then-implementation
@@ -357,6 +354,8 @@ class BuildPath:
             return self.stop(
                 "tier 1 failed" if state.produced_nothing else f"tier 1 failed on {base}"
             )
+        if state.moved and r.head(self.tree()) != r.store.get(unit.id).approved:
+            return self.not_yet("a move that changed what review approved")
         if state.produced_nothing:
             return self.not_yet("a unit with nothing to add")
         return {}
@@ -410,7 +409,10 @@ class BuildPath:
         if r.store.get(unit.id).pushed == head:
             self.say(f"{branch} is already pushed at {head[:9]}")
         else:
-            sha = r.push(branch, cwd=tree)
+            try:
+                sha = r.push(branch, cwd=tree)
+            except HostMoved as error:
+                return self.not_yet(f"a host branch that moved under the push ({error})")
             self.say(f"pushed {branch} at {sha[:9]}")
         # Only now, with the push confirmed: a follow-up recorded ahead of it
         # would describe work that never left the machine.
@@ -424,44 +426,35 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, base = self.tree(), state.base or self.base
         stored = r.store.get(unit.id)
-        if stored.note == OPENING:
-            self.say("its pull request was being opened when the last run stopped")
-            pr = stored.pr
-        else:
-            body = partial(
-                build_pr_body,
-                stored,
-                graph=self.graph or [stored],
+        # A re-run asks again: `open_pr` finds the branch's pull request and updates it.
+        body = partial(
+            build_pr_body,
+            stored,
+            graph=self.graph or [stored],
+            base=base,
+            follow_ups=r.follow_ups_for(unit) or None,
+            linear=r.linear(tree, local_ref(base)),
+        )
+        try:
+            pr = r.open_pr(
+                unit,
+                body=body(stacks=False),
+                stacked_body=body(stacks=True),
                 base=base,
-                follow_ups=r.follow_ups_for(unit) or None,
-                linear=r.linear(tree, local_ref(base)),
+                cwd=tree,
             )
-            try:
-                pr = r.open_pr(
-                    unit,
-                    body=body(stacks=False),
-                    stacked_body=body(stacks=True),
-                    base=base,
-                    cwd=tree,
-                )
-            except BaseException:
-                # A process stopped inside the call (not a refusal, which is an
-                # Exception): the forge may hold the pull request already.
-                r.store.set_state(unit.id, "running", note=OPENING)
-                raise
+        except BaseMissing:
+            return self.not_yet("a base gone before its pull request")
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
         # a comment it has already answered.
         sha = r.head(tree)
         # After the push, never before: a status for a commit the host has not
-        # seen is rejected. A unit that never ran tier 2 has none to post.
-        try:
+        # seen is rejected.
+        if unit.tier == "tier2":
             r.post_status(sha, True)
-        except ValueError as error:
-            self.say(f"no status posted: {error}")
-        if pr is not None:
-            for answer in stored.pending_replies:
-                r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha)
+        for answer in stored.pending_replies:
+            r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha)
         if stored.pending_replies:
             r.store.set_pending_replies(unit.id, ())
         if state.had_feedback:
@@ -486,7 +479,10 @@ def after_prepare(state: UnitRun) -> Node:
         return Node.FAILED
     if state.had_feedback:
         return Node.REWORK
-    return Node.CHECKS if state.base_commits else Node.TESTS
+    if not state.base_commits:
+        return Node.TESTS
+    # Review approved exactly this commit: nothing was written since.
+    return Node.VERIFY_BASE if state.head_approved else Node.CHECKS
 
 
 def after_implement(state: UnitRun) -> Node:
@@ -529,7 +525,10 @@ def after_push(state: UnitRun) -> Node:
 
 # Each node's router and the nodes it may name, which compiling checks.
 ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Node], tuple[Node, ...]]] = {
-    Node.PREPARE: (after_prepare, (Node.FAILED, Node.REWORK, Node.CHECKS, Node.TESTS)),
+    Node.PREPARE: (
+        after_prepare,
+        (Node.FAILED, Node.REWORK, Node.CHECKS, Node.TESTS, Node.VERIFY_BASE),
+    ),
     Node.IMPLEMENT: (after_implement, (Node.TIER1, Node.CHECKS)),
     Node.CHECKS: (after_checks, (Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
     Node.FIX_CHECKS: (after_fix_checks, (Node.FAILED, Node.CHECKS)),

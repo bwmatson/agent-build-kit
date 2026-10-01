@@ -72,6 +72,7 @@ class UnitRun(Frozen):
     base: str = ""  # the base the unit is on, once `verify_base` found it moved
     base_commits: int = 0  # commits on the branch when `prepare` finished
     head: str = ""  # the branch's tip when the last node finished, which a re-run compares with
+    head_approved: bool = False  # the branch has work and review approved exactly its tip
     had_feedback: bool = False  # feedback was waiting when the run began
     fix_rounds: int = 0  # fixes of failing checks in this round of review
     review_round: int = 0
