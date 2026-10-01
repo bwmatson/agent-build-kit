@@ -348,8 +348,36 @@ add or push until its resolver finishes. Its tier 1 run happens outside the turn
 |---|---|---|
 | `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; a merge only cascades within `limits.stack_depth_rebase_cap`: a child deeper than it is `held` with its depth and the cap on its record and the merged branch is kept, and a later merge in the same repo restacks it once its depth falls within the cap (the branch kept for it is left behind afterwards, like any other leftover local branch); a child being built is not held: it is retargeted as above; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
 | closed without merging | `closed` | unit `closed`; nothing cascades to what was stacked on it. Deferred while the unit is being built. |
-| label `agent-hold` added | `hold` | unit `held`; nothing automatic touches it again. Deferred while the unit is being built. |
-| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new). A PR first seen already red or already unmergeable is dispatched too. | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit ignores it. Deferred while the unit is being built. |
+| label `agent-hold` added | `hold` | unit `held`; nothing automatic touches it again, and the label stays until a person removes it. Deferred while the unit is being built. |
+| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new). A PR first seen already red or already unmergeable is dispatched too. | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit ignores it. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
+
+**Labels on a pull request** are two families. The `agent-` labels are
+instructions a person sets (`agent-hold`, `agent-rework`); the pipeline reads
+them and never writes them, except to take `agent-rework` off once it has
+acted on it — so the same rework can be asked for again. `agent-hold` is a
+standing state, not a one-off request, and stays until a person removes it.
+The other family is the pipeline's own record of a unit: a **state label**
+(one at a time, replaced whenever the unit's state changes, written by
+`UnitStore.set_state` so no call site has to remember) and a **change label**
+for each change the unit carries (one, unless it joined groups of other
+changes), put on once when the pull request is first recorded and left alone
+after. The state names and colours are the unit graph's — one
+vocabulary (`vocabulary.py`) that both read, the colour being the node's
+outline — so renaming or recolouring a state changes both. `merged`, `closed`,
+`unplanned` and `satisfied` carry no label: the host shows the first two
+itself, and the last two have no pull request of their own to carry one.
+Labels are cosmetic and are never read back: the unit store is the source of
+truth, a pull request wearing a stale label does not change its unit, and a
+label that cannot be written is logged and changes nothing about the unit.
+Azure DevOps carries no pipeline labels today: its forge cannot add or remove
+one, so no state label and no change label appears there, and `agent-rework`
+stays on the pull request after it is acted on and is not acted on again until
+a person removes it and adds it back. That is said once per store and once per poll ("this host
+keeps no labels"), not as a failure on each state change. A state label is
+written when the unit's own state changes, so a dependent's derived state
+(`blocked`, `paused-rework`) is refreshed on its own next transition, not when
+its parent's changes. `agent-rework` added to a held unit's pull request is
+ignored and removed all the same.
 
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does

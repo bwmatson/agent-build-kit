@@ -16,7 +16,15 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote, Stack, StackRefused
+from agent_build_kit.forges import (
+    Forge,
+    Label,
+    PullRequest,
+    RepoId,
+    ReviewNote,
+    Stack,
+    StackRefused,
+)
 from agent_build_kit.forges.base import PermittedCommand, Run
 
 
@@ -43,6 +51,7 @@ class StandInForge:
         failing_replies: Collection[str] = (),
         close_error: str = "",
         comment_error: bool = False,
+        label_errors: Collection[str] = (),
     ) -> None:
         self.existing = existing
         self.number = number
@@ -55,6 +64,17 @@ class StandInForge:
         self.failing_replies = failing_replies
         self.close_error = close_error
         self.comment_error = comment_error
+        # Which label calls fail: any of "add", "set", "remove".
+        self.label_errors = label_errors
+        # What the repo knows as a label, and every creation of one, so a test
+        # can tell "created once" from "created each time".
+        self.repo_labels: dict[str, Label] = {}
+        self.label_creations: list[Label] = []
+        # Every `add_label` call, creation or not, so a test can tell "added
+        # once" from "added each time".
+        self.added: list[tuple[int, Label]] = []
+        # The labels on each pull request, by number.
+        self.on_pr: dict[int, set[str]] = {}
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.replies: list[tuple[str, str]] = []
@@ -97,7 +117,13 @@ class StandInForge:
     # --- pull requests ------------------------------------------------------
 
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
-        return [pr for pr in self.prs if pr.head.startswith(head_prefix)]
+        return [
+            pr.model_copy(
+                update={"labels": tuple(sorted({*pr.labels, *self.on_pr.get(pr.number, ())}))}
+            )
+            for pr in self.prs
+            if pr.head.startswith(head_prefix)
+        ]
 
     def find_pr(self, repo: RepoId, *, head: str) -> int | None:
         return self.existing
@@ -157,6 +183,35 @@ class StandInForge:
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         self.deleted.append(branch)
+
+    # --- labels -------------------------------------------------------------
+
+    def _create(self, label: Label) -> None:
+        if label.name not in self.repo_labels:
+            self.repo_labels[label.name] = label
+            self.label_creations.append(label)
+
+    def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
+        if "add" in self.label_errors:
+            raise RuntimeError("403 Forbidden")
+        self._create(label)
+        self.added.append((pr, label))
+        self.on_pr.setdefault(pr, set()).add(label.name)
+
+    def set_exclusive_label(
+        self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
+    ) -> None:
+        if "set" in self.label_errors:
+            raise RuntimeError("403 Forbidden")
+        self._create(label)
+        present = self.on_pr.setdefault(pr, set())
+        present.difference_update(family)
+        present.add(label.name)
+
+    def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
+        if "remove" in self.label_errors:
+            raise RuntimeError("403 Forbidden")
+        self.on_pr.setdefault(pr, set()).discard(name)
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         if self.close_error:

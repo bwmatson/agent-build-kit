@@ -158,6 +158,10 @@ class Poller(BaseModel):
     list_prs: ListPrs
     # Comment and review ids the pipeline posted on a PR itself, by number.
     ignore: Callable[[int], set[str]] = lambda number: set()
+    # Takes an instruction label off a PR, answering whether it came off. The
+    # default removes nothing: the label then stays as seen, and is acted on
+    # once until a person takes it off and adds it again.
+    consume: Callable[[int, str], bool] = lambda number, name: False
     failures: int = 0
     quiet_until: datetime | None = None
 
@@ -275,7 +279,15 @@ class Poller(BaseModel):
             return self.dispatch("hold", number, pull=pull)
 
         if REWORK_LABEL in labels_added:
-            return self.dispatch("rework", number, pull=pull, reason="agent-rework label")
+            handled = self.dispatch("rework", number, pull=pull, reason="agent-rework label")
+            if handled is not False and self.consume(number, REWORK_LABEL):
+                # Acted on, so the label comes off - and the snapshot is what
+                # was listed before that. Recorded as seen, a person adding it
+                # again would find it already there and dispatch nothing. A
+                # label that would not come off stays recorded: dropped, the
+                # next poll would see it as new and rework the unit again.
+                after["labels"] = [name for name in after["labels"] if name != REWORK_LABEL]
+            return handled
 
         # Before the comment check: a review carrying both a decision and a
         # note should report the decision, which is the actionable half.

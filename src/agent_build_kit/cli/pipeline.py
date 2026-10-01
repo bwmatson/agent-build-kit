@@ -48,6 +48,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.joins import JoinContext
+from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
 from agent_build_kit.pipeline.planning_repo import (
@@ -114,7 +115,12 @@ def store_for(inst: Installation) -> UnitStore:
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
 
-    return UnitStore(inst.state_dir / "units.json", on_write=refresh_graph)
+    labels = StateLabels(inst.forge_of, log=log)
+    return UnitStore(
+        inst.state_dir / "units.json",
+        on_write=refresh_graph,
+        on_state=lambda unit, units, opened: labels.follow(unit, units, opened=opened),
+    )
 
 
 def _paused_marker(inst: Installation) -> Path:
@@ -1065,6 +1071,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
 
     dispatch = _dispatch(inst, store)
 
+    labels = StateLabels(inst.forge_of, log=log)
     for repo in checkouts:
         forge, repo_id = inst.forge_of(repo)
         # The identity as one string: what `own-posts.json` has always been
@@ -1080,6 +1087,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
             ),
             list_prs=lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
             ignore=lambda number, slug=slug: own_posts(inst.state_dir, slug, number),
+            consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
         ).poll()
 
 

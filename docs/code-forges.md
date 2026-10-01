@@ -56,6 +56,13 @@ parts are free functions beside it rather than inherited behaviour.
 | `failed_check_logs(repo, pull)` | rework | what the failing checks said |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
 | `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |
+| `add_label(repo, pr, label)` | state labels | put the label on, creating it in the repo first if missing; raises if the host refuses |
+| `set_exclusive_label(repo, pr, label, family)` | state labels | put the label on and take off the rest of `family` only |
+| `remove_label(repo, pr, name)` | the poller | take `agent-rework` off once acted on |
+
+A host without labels raises `NotImplementedError` from all three. That is said
+once ("this host keeps no labels") rather than logged as a failure on every
+call; any other error is logged as one (Azure DevOps keeps no labels today).
 
 Two free functions sit beside the Protocol rather than on it: `forges.key(repo)`
 is the canonical identity string (`owner/name`, or `org/project/repo`) that
@@ -70,6 +77,8 @@ review and reworks the unit in answer to itself. That identity is the single
 most important thing a new forge has to get right.
 
 ## The values
+
+`Label` is a name, a six-hex-digit colour without the `#`, and a description.
 
 `PullRequest` is what the poller diffs. `state` uses the vocabulary in
 `pipeline/units.py` (`merged`, `closed`, or `open`), so nothing downstream

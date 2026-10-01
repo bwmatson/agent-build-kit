@@ -96,6 +96,9 @@ class StoredUnit(Unit):
         return str(self.history[-1].get("note", "")) if self.history else ""
 
 
+StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
+
+
 def _exclusive(method):
     """One change to the store at a time.
 
@@ -116,12 +119,22 @@ class UnitStore:
     """The planning repo's record of every unit, across all repos."""
 
     def __init__(
-        self, path: Path, *, on_write: Callable[[list[StoredUnit]], None] | None = None
+        self,
+        path: Path,
+        *,
+        on_write: Callable[[list[StoredUnit]], None] | None = None,
+        on_state: StateChanged | None = None,
     ) -> None:
         """`on_write` sees every unit after each change — how the diagram stays
-        current without every call site that changes a state remembering it."""
+        current without every call site that changes a state remembering it.
+
+        `on_state` hears each `set_state` once the change is written and the
+        store unlocked, with the unit, every unit, and whether this call is
+        what first recorded its pull request. How a pull request's labels
+        follow its unit, again without each call site remembering."""
         self.path = path
         self.on_write = on_write
+        self.on_state = on_state
 
     def _read(self) -> dict[str, StoredUnit]:
         if not self.path.exists():
@@ -289,7 +302,6 @@ class UnitStore:
         self._write(stored)
         return before, before + added
 
-    @_exclusive
     def set_state(
         self,
         unit_id: str,
@@ -306,8 +318,26 @@ class UnitStore:
         rework leaves a unit open — because without it the entry says only
         that something happened.
         """
+        unit, everything, opened = self._record_state(
+            unit_id, state, pr=pr, branch=branch, note=note, resume_from=resume_from
+        )
+        if self.on_state:
+            self.on_state(unit, everything, opened)
+
+    @_exclusive
+    def _record_state(
+        self,
+        unit_id: str,
+        state: str,
+        *,
+        pr: int | None,
+        branch: str | None,
+        note: str,
+        resume_from: str | None,
+    ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         stored = self._read()
         unit = stored[unit_id]
+        opened = pr is not None and pr != unit.pr
         stored[unit_id] = unit.model_copy(
             update={
                 "state": state,
@@ -321,6 +351,7 @@ class UnitStore:
             }
         )
         self._write(stored)
+        return stored[unit_id], list(stored.values()), opened
 
     @_exclusive
     def _update(self, unit_id: str, **fields: object) -> None:

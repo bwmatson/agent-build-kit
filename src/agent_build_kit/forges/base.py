@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 from agent_build_kit.model import Frozen
@@ -82,6 +82,17 @@ class PullRequest(Frozen):
     # Whether the host says the branch merges into its base; None while the
     # host has not worked it out, which is not a conflict.
     mergeable: bool | None = None
+
+
+class Label(Frozen):
+    """A label as a host keeps it: a name, a colour and what it means.
+
+    `color` is six hex digits without the hash, which is how both hosts take it.
+    """
+
+    name: str
+    color: str
+    description: str = ""
 
 
 class ReviewNote(Frozen):
@@ -252,6 +263,23 @@ class Forge(RegistersStacks, Protocol):
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str: ...
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None: ...
+
+    def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
+        """Put `label` on a pull request, creating it in the repo first when the
+        repo lacks it. Raises where the host refuses."""
+        ...
+
+    def set_exclusive_label(
+        self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
+    ) -> None:
+        """Put `label` on, and take off every other label named in `family`,
+        so one member of the family is present at a time. Labels outside the
+        family are left as they are. Raises where the host refuses."""
+        ...
+
+    def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
+        """Take a label off a pull request. Raises where the host refuses."""
+        ...
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request,
