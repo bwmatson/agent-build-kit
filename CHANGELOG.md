@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A pass refreshes from the code host every five minutes while builds run, not
+  only when one finishes, and starts again a unit it already built that a poll
+  sent back (a conflict, a failing check, a review comment), at most twice per
+  pass. A pass with one long build used to hear nothing until it ended, and the
+  timer cannot start another tick while one is running.
+
 - A usage pause lasts until the guard's own answer — the moment the ramp towards
   a window's reset offers room — instead of until the reset, and it ends on the
   first tick the guard allows: a paused tick asks again rather than sleeping to

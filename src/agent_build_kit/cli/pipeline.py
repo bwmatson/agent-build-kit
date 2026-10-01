@@ -467,6 +467,39 @@ def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
     return bool(unconfigured)
 
 
+# How often a pass looks at GitHub while builds are running, matching the tick
+# timer's cadence. Waiting for a completion alone left a pass with one long
+# build — a tier 2 run, a slow review — blind for its whole length, and the
+# timer cannot start a second tick while this one is running.
+REFRESH_SECONDS = 300.0
+
+# How many times a pass may start a unit that it already built and that a poll
+# then sent back (a conflict, a failing check, a review comment). Bounded so a
+# pass still ends.
+REBUILDS_PER_PASS = 2
+
+
+def _sent_back(
+    units: list[StoredUnit], started: dict[str, datetime], building: set[str]
+) -> set[str]:
+    """Units this pass already built that a poll has since sent back for rework."""
+    out: set[str] = set()
+    for unit in units:
+        at = started.get(unit.id)
+        if at is None or unit.id in building or unit.state != PLANNED or not unit.history:
+            continue
+        last = unit.history[-1]
+        if not str(last.get("note", "")).startswith("rework requested"):
+            continue
+        try:
+            when = datetime.fromisoformat(str(last.get("at", "")))
+        except ValueError:
+            continue
+        if when > at:
+            out.add(unit.id)
+    return out
+
+
 def _schedule(
     inst: Installation,
     ready: list[Unit],
@@ -496,7 +529,8 @@ def _schedule(
     are still awaited and the pass exits 1, as it does when the check fails
     at the start.
     """
-    started: set[str] = set()
+    started: dict[str, datetime] = {}
+    rebuilt: dict[str, int] = {}
     building: dict[Future[bool], Unit] = {}
     stopping = False
     refused = False
@@ -506,14 +540,15 @@ def _schedule(
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
-                started.add(unit.id)
+                started[unit.id] = datetime.now(UTC)
                 building[pool.submit(build_unit, inst, unit, store=store)] = unit
 
         submit(ready)
-        # Driven by completions, not a timer: each round blocks until a build
-        # finishes, and the pass ends once none is in flight.
+        # Each round waits for a build to finish or for REFRESH_SECONDS,
+        # whichever is first, then refreshes and fills free slots. The pass
+        # ends once none is in flight.
         while building:
-            done, _ = wait(building, return_when=FIRST_COMPLETED)
+            done, _ = wait(building, timeout=REFRESH_SECONDS, return_when=FIRST_COMPLETED)
             for future in done:
                 building.pop(future)
                 if not future.result():
@@ -525,11 +560,19 @@ def _schedule(
                 continue
 
             _refresh(inst, store=store)
+            units = store.all()
+            in_flight = {unit.id for unit in building.values()}
+            # A unit this pass built and a poll sent back is due again now,
+            # not in the next pass — which cannot start until this one ends.
+            for unit_id in _sent_back(units, started, in_flight):
+                if rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
+                    rebuilt[unit_id] = rebuilt.get(unit_id, 0) + 1
+                    started.pop(unit_id)
             ready = _evaluate(
                 inst,
-                store.all(),
-                started=started,
-                building={unit.id for unit in building.values()},
+                units,
+                started=set(started),
+                building=in_flight,
                 only=only,
             )
             if ready:
