@@ -1,8 +1,8 @@
 """Guards and fixtures that apply to every test in the suite.
 
 Nothing a test runs may touch the host: refreshing the Claude login, spawning a
-real agent and the adapter's reading of the real usage window each fail loudly
-here unless a test injects its own.
+real agent, the adapter's reading of the real usage window and any `gh` call
+each fail loudly here unless a test injects its own.
 
 Every test also runs against a workspace: the leaf modules read the branch
 prefix, the repo set and the limits from `config.active()`, so a default
@@ -101,6 +101,27 @@ def no_direct_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     `claude` argv, instead of going through the runtime, fails rather than
     starting a real agent on the machine running the suite."""
     monkeypatch.setattr(subprocess, "Popen", _NoClaudePopen)
+
+
+@pytest.fixture(autouse=True)
+def no_real_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `gh` call from a test reaches GitHub, over the network and as whoever
+    is logged in. One such call — creating a label on a repo the fixtures name
+    `example/platform` — answered in three seconds, long enough for a test that
+    waits on a timer to give up on a different event and fail one run in three.
+    A test that means to run `gh` replaces `subprocess.run` itself, as
+    `test_shell.py` does; anything else reaching it fails and names the
+    command."""
+    real = subprocess.run
+
+    def run(args, *rest, **kwargs):
+        if isinstance(args, (list, tuple)) and args and str(args[0]) == "gh":
+            raise AssertionError(
+                f"a test tried to run a real gh command: {' '.join(map(str, args))}"
+            )
+        return real(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
