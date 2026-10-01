@@ -93,6 +93,18 @@ The planner orders groups within a change on its own; across changes it only
 sees what is already in flight, so a dependency that must hold is written
 down and applied as code.
 
+```
+Needs: <other-change> group <n> merged — why
+```
+
+The `merged` qualifier makes the dependent wait for that group's pull request
+to merge, or for a satisfied dependency's work to land, even when both are in
+the same repo, and then start on the trunk instead of stacked on the
+dependency's branch. Use it when the dependency is still reshaping what this
+group builds on, so stacking would build against a moving target. It is
+refused on a group of the change's own (`abk tags` rejects it): groups within
+a change are already ordered.
+
 ## `Separate:` lines
 
 The planner may join a small group onto an unstarted unit of a related change,

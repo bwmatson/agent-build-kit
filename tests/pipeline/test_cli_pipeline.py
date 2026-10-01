@@ -1121,6 +1121,40 @@ def test_a_merged_needs_line_is_recorded_as_merge_before(
     assert store.get("sample-change/2").merge_before == ()
 
 
+def test_merge_before_is_recomputed_across_every_group_a_unit_carries(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two groups on one unit each gate on a different dependency: both are
+    held after one pass, and dropping `merged` releases them."""
+    change = tmp_path / "openspec" / "changes" / "feature"
+    change.mkdir(parents=True)
+    tasks = change / "tasks.md"
+    tasks.write_text(
+        "# Tasks\n\n## 5. [platform] [tier1] A\n\n"
+        "Needs: x group 1 merged — reshapes it\n\n- [ ] 5.1 Test: a\n\n"
+        "## 6. [platform] [tier1] B\n\n"
+        "Needs: y group 2 merged — reshapes it\n\n- [ ] 6.1 Test: b\n"
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored("x/1", change="x", groups=(1,)),
+            stored("y/2", change="y", groups=(2,)),
+            stored("feature/5", change="feature", groups=(5, 6)),
+        ]
+    )
+
+    cli.link_needs(inst, store=store)
+
+    assert store.get("feature/5").merge_before == ("x/1", "y/2")
+
+    tasks.write_text(tasks.read_text().replace(" merged ", " "))
+    cli.link_needs(inst, store=store)
+
+    assert store.get("feature/5").merge_before == ()
+    assert store.get("feature/5").depends_on == ("x/1", "y/2")
+
+
 def test_adding_a_needs_line_does_not_re_plan_the_change(tmp_path: Path) -> None:
     """A re-plan is a model call that can reshuffle units already built; a
     Needs: line only adds a dependency, which link_needs applies itself."""

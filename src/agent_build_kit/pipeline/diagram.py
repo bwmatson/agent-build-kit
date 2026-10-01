@@ -106,10 +106,11 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
             parent = index.get(dependency)
             if parent is None:
                 continue
-            # Dashed across repos: that edge cannot be stacked, only waited on.
             if dependency in unit.merge_before:
+                # Thick: the dependent waits for this one to merge, even in one repo.
                 arrow = "==>|merged|"
             else:
+                # Dashed across repos: that edge cannot be stacked, only waited on.
                 arrow = "-->" if parent.repo == unit.repo else "-.->"
             lines.append(f"    {_node_id(dependency)} {arrow} {_node_id(unit.id)}")
 

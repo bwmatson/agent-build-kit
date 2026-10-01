@@ -364,18 +364,6 @@ def _acceptance_errors(groups: list[TaskGroup], lines: list[str]) -> list[Valida
     return errors
 
 
-def cross_change_needs(path: Path) -> dict[int, list[tuple[str, int]]]:
-    """Each group's `Needs:` lines: {group: [(other change, its group), ...]}."""
-    needs: dict[int, list[tuple[str, int]]] = {}
-    current: int | None = None
-    for line in path.read_text().splitlines():
-        if heading := GROUP_HEADING.match(line):
-            current = int(heading["number"])
-        elif current is not None and (found := NEEDS_LINE.match(line.strip())):
-            needs.setdefault(current, []).append((found["change"].lower(), int(found["group"])))
-    return needs
-
-
 class Need(Frozen):
     """One `Needs:` line: another change's group, and whether it must merge first."""
 

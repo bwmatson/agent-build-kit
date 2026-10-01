@@ -364,19 +364,31 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     """
     index = _by_id(graph)
     waiting: list[Unit] = []
-    for dep in through_satisfied(unit, graph):
+
+    def landed(parent: Unit) -> bool:
+        return parent.state == MERGED or (
+            parent.state == SATISFIED and satisfied_landed(parent, graph)
+        )
+
+    # A gated dependency is judged as itself, before any look-through: a
+    # satisfied one is not replaced by its predecessor, since what the unit
+    # wants is that dependency's work on the trunk.
+    for dep in unit.depends_on:
+        parent = index.get(dep)
+        if dep in unit.merge_before and parent is not None and not landed(parent):
+            waiting.append(parent)
+    ungated = unit.model_copy(
+        update={"depends_on": tuple(d for d in unit.depends_on if d not in unit.merge_before)}
+    )
+    for dep in through_satisfied(ungated, graph):
         parent = index.get(dep)
         if parent is None:
             continue
-        if parent.repo == unit.repo and parent.id not in unit.merge_before:
+        if parent.repo == unit.repo:
             if parent.state not in REVIEWED:
                 waiting.append(parent)
-            continue
-        if parent.state == MERGED or (
-            parent.state == SATISFIED and satisfied_landed(parent, graph)
-        ):
-            continue
-        waiting.append(parent)
+        elif not landed(parent):
+            waiting.append(parent)
     return waiting
 
 

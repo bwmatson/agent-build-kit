@@ -469,7 +469,32 @@ def test_a_satisfied_merge_gated_dependency_with_its_work_landed_releases_the_de
     assert waiting_on(graph[1], graph) == []
 
 
-def test_a_merge_gated_dependency_is_waited_on_even_when_it_has_no_review_branch_yet() -> None:
+def test_a_satisfied_merge_gated_dependency_is_not_looked_through_to_an_open_predecessor() -> None:
+    """The gate asks for the dependency's work on the trunk; c/1 is satisfied by
+    c/0's branch, so that work has not landed while c/0 is in review."""
+    graph = [
+        unit("c/0", state="in_review"),
+        unit("c/1", depends_on=("c/0",), state="satisfied"),
+        unit("d/1", change="d", depends_on=("c/1",), merge_before=("c/1",)),
+    ]
+
+    assert waiting_on(graph[2], graph) != []
+    assert graph[2] not in ready_units(graph, max_concurrent=5, depth_cap=5)
+
+
+def test_a_satisfied_gated_dependency_releases_the_dependent_once_its_predecessor_merged() -> None:
+    graph = [
+        unit("c/0", state="merged"),
+        unit("c/1", depends_on=("c/0",), state="satisfied"),
+        unit("d/1", change="d", depends_on=("c/1",), merge_before=("c/1",)),
+    ]
+
+    assert waiting_on(graph[2], graph) == []
+    assert graph[2] in ready_units(graph, max_concurrent=5, depth_cap=5)
+    assert base_of(graph[2], graph) == "main"
+
+
+def test_only_the_merge_gated_dependency_holds_the_dependent() -> None:
     """Only the gated dependency holds the dependent; an ordinary one in review
     still lets it start."""
     graph = [

@@ -55,6 +55,12 @@ refuses a change with tag errors before spending a model call on it:
   for a group of another change. The planner orders groups within a change;
   across changes it only sees what is in flight, so a dependency that must
   hold is written down and applied as code (`link_needs`, every tick).
+  `Needs: <other-change> group <n> merged — why` also makes the dependent
+  wait for the merge (or for a satisfied dependency's work to land) even in the
+  same repo, then start on the trunk rather than stacked; use it when the
+  dependency is still reshaping what this group builds on. `abk tags` rejects
+  it on the change's own group. `link_needs` records it as `merge_before`,
+  recomputed from `tasks.md` every tick;
 
 ### 2. Planning into units
 

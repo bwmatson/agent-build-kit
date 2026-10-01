@@ -68,6 +68,7 @@ line falls where a unit ends:
 | Moves into the unit graph | Stays abk code |
 |---|---|
 | Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, `max_units_in_progress`, slot order, `max_concurrent_stacks` |
+|  | Merge-gated dependencies (`merge_before`, from `Needs: … merged`), applied by `waiting_on`/`ready_units`: the dependent waits for the merge even in one repo and starts on the trunk |
 | `checkpoint()`, `record_step`, `resume_from`, `starting_step` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
 | In-run state: review rounds, the approved commit, deferred follow-ups, pending replies, the predecessor note | Polling the forge (`pr_poller.py`): the source of events |
 | Requeue after a kill (`reclaim_stale`) | Branch locks, repo turns, the tier 2 lock |

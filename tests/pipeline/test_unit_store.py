@@ -10,6 +10,8 @@ has to be written honestly by the runner — which makes "does a reload see what
 the last process wrote" the property that matters most here.
 """
 
+import json
+
 import pytest
 
 from agent_build_kit.pipeline.unit_store import UNPLANNED, UnitStore, corrupt_store_message
@@ -97,6 +99,26 @@ def test_a_corrupt_store_refuses_rather_than_starting_over(tmp_path) -> None:
 def test_an_absent_store_is_simply_empty(tmp_path) -> None:
     """First run: nothing planned yet is not an error."""
     assert UnitStore(tmp_path / "units.json").all() == []
+
+
+def test_a_stored_unit_without_merge_before_loads_unchanged(tmp_path) -> None:
+    """Records written before the field existed are still on disk in every
+    installation; the field is optional so they keep loading."""
+    path = tmp_path / "units.json"
+    UnitStore(path).upsert([unit("add-marker/2", depends_on=("add-marker/1",), groups=(2,))])
+    raw = json.loads(path.read_text())
+    for record in raw["units"].values() if isinstance(raw["units"], dict) else raw["units"]:
+        record.pop("merge_before", None)
+    path.write_text(json.dumps(raw))
+    assert "merge_before" not in path.read_text()
+
+    store = UnitStore(path)
+
+    for loaded in (store.get("add-marker/2"), store.all()[0]):
+        assert loaded.merge_before == ()
+        assert loaded.depends_on == ("add-marker/1",)
+        assert loaded.groups == (2,)
+        assert loaded.repo == "platform"
 
 
 def test_the_file_is_readable_by_a_human(tmp_path) -> None:

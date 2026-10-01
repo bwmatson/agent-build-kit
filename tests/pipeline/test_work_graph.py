@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.work_graph import TaskGroup, ValidationError, validate_tasks
+from agent_build_kit.pipeline.work_graph import (
+    Need,
+    TaskGroup,
+    ValidationError,
+    group_needs,
+    validate_tasks,
+)
 
 # tests/ mirrors src/, so the repo root is two levels up from this file.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -225,8 +231,6 @@ def test_an_unknown_flag_is_rejected(flag: str, tmp_path: Path) -> None:
 
 
 def test_needs_lines_are_read_per_group(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.work_graph import cross_change_needs
-
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
         "## 5. [platform] [tier1] A\n- [ ] 5.1 x\n\n"
@@ -235,12 +239,13 @@ def test_needs_lines_are_read_per_group(tmp_path: Path) -> None:
         "Needs: other-change group 1\n- [ ] 6.1 y\n"
     )
 
-    assert cross_change_needs(tasks) == {6: [("sample-change", 2), ("other-change", 1)]}
+    assert {
+        group: [(need.change, need.group) for need in found]
+        for group, found in group_needs(tasks).items()
+    } == {6: [("sample-change", 2), ("other-change", 1)]}
 
 
 def test_a_merged_qualifier_is_read_with_its_reason(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.work_graph import Need, group_needs
-
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
         "## 3. [app] [tier1] A\n"
@@ -262,8 +267,6 @@ def test_a_merged_qualifier_is_read_with_its_reason(tmp_path: Path) -> None:
 
 
 def test_merged_after_the_dash_is_part_of_the_reason(tmp_path: Path) -> None:
-    from agent_build_kit.pipeline.work_graph import group_needs
-
     tasks = tmp_path / "tasks.md"
     tasks.write_text(
         "## 1. [app] [tier1] A\nNeeds: sample-change group 2 — merged later\n- [ ] 1.1 x\n"
