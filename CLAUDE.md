@@ -54,7 +54,7 @@ src/agent_build_kit/
   skills/          the Claude Code skills abk installs into planning and code repos
 tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
                    tests/integration/ holds what needs node or the network (marked `integration`)
-docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes,
+docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,
                    init, tracks
 ```
 
