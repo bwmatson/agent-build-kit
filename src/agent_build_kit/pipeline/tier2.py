@@ -144,7 +144,7 @@ on the developer host.
 """
 
 
-def post_status(forge: Forge, repo: RepoId, result: Tier2Result) -> None:
+def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "") -> None:
     """Publish the tier 2 result as a commit status on the tested SHA.
 
     Called after the push: a host rejects a status for a commit it has not
@@ -160,4 +160,5 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result) -> None:
         description=(
             f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
         ),
+        head=head,
     )

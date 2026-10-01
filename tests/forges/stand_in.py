@@ -38,6 +38,7 @@ class StandInForge:
     read_commands: tuple[tuple[str, ...], ...] = ()
     permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ()
+    ci_name: str = "the stand-in CI"
 
     def __init__(
         self,
@@ -174,9 +175,11 @@ class StandInForge:
         return ["comment-1"]
 
     def post_status(
-        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
+        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
     ) -> None:
-        self.statuses.append({"sha": sha, "ok": ok, "context": context, "description": description})
+        self.statuses.append(
+            {"sha": sha, "ok": ok, "context": context, "description": description, "head": head}
+        )
 
     # --- cleanup ------------------------------------------------------------
 

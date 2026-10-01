@@ -131,6 +131,17 @@ def test_the_status_is_posted_for_the_sha_that_was_tested() -> None:
     assert "0 failed" in posted["description"]
 
 
+def test_the_head_is_handed_to_the_forge_so_it_can_find_the_pull_request() -> None:
+    """A host that shows statuses on the pull request, not the commit, needs
+    to know which branch the result belongs to."""
+    forge = StandInForge()
+
+    post_status(forge, forge.repo_id(), result(), head="spec/add-marker/1")
+
+    assert forge.statuses[0]["head"] == "spec/add-marker/1"
+    assert forge.statuses[0]["sha"] == "abc1234def", "still the tested commit, not the branch"
+
+
 def test_a_failed_run_posts_a_failure_status_when_asked() -> None:
     """Only reachable for a re-run of an already-pushed commit — the usual
     path never pushes a failing unit at all."""

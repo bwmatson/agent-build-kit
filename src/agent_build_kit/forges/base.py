@@ -210,6 +210,9 @@ class Forge(RegistersStacks, Protocol):
     # repo's abk.yaml entry (dotted for a nested block). A repo declaring this
     # forge and leaving one out fails at load, as a runtime selection does.
     requires: tuple[str, ...]
+    # What this host's CI is called, for a pull request body that says who runs
+    # the checks.
+    ci_name: str
 
     def parse_remote(self, url: str) -> RepoId | None: ...
 
@@ -259,7 +262,7 @@ class Forge(RegistersStacks, Protocol):
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]: ...
 
     def post_status(
-        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
+        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
     ) -> None:
         """Publish one result against one commit.
 

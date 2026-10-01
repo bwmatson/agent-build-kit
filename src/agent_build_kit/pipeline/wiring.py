@@ -614,14 +614,17 @@ def build_push(
 
 
 def build_post_status(
-    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None, head: str = ""
 ) -> Callable[[str, Tier2Result], None]:
-    """Post a tier 2 result as a commit status on whichever host the repo lives on."""
+    """Post a tier 2 result as a commit status on whichever host the repo lives on.
+
+    `head` is the branch it belongs to, for a host that also shows it on the
+    open pull request."""
     for_repo = for_repo or forges.for_repo
 
     def post(repo_name: str, result: Tier2Result) -> None:
         forge, repo = for_repo(repo_name)
-        tier2_post_status(forge, repo, result)
+        tier2_post_status(forge, repo, result, head=head)
 
     return post
 
@@ -944,7 +947,7 @@ class Tier2Session:
         self.lock = lock
         self._run = run or _run
         self._sha = sha or _head_sha
-        self._status = status or build_post_status()
+        self._status = status or build_post_status(head=branch_name(unit))
         self._timeout = timeout
         self.result: Tier2Result | None = None
 

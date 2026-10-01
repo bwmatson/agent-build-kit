@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from agent_build_kit import forges
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED, through_satisfied
+from agent_build_kit.pipeline.units import MERGED, through_satisfied, trunk_of
 
 
 def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
@@ -54,13 +55,15 @@ def stack_line(unit: StoredUnit, graph: list[StoredUnit], *, base: str) -> str:
     )
 
 
-def assumptions(unit: StoredUnit, graph: list[StoredUnit]) -> str:
+def assumptions(unit: StoredUnit, graph: list[StoredUnit], trunk: str = "main") -> str:
     """The PR body's statement of what the unit assumes about the units beneath it:
     which are still unmerged, or that nothing is."""
     unmerged = _unmerged(unit, graph)
 
     if not unmerged:
-        return "This unit assumes nothing unmerged: everything it builds on is already in `main`."
+        return (
+            f"This unit assumes nothing unmerged: everything it builds on is already in `{trunk}`."
+        )
 
     lines = []
     for parent in unmerged:
@@ -108,11 +111,11 @@ def build_pr_body(
             or "## Tier 2 results\n\n_Not recorded — this PR should not have been pushed._"
         )
     else:
+        ci = forges.for_repo(unit.repo)[0].ci_name
         verification = (
             "## Verification\n\n"
             "This is a **tier 1** unit: everything it needs is fakes, fixtures or "
-            "throwaway containers, so GitHub Actions runs the whole of it. No tier 2 "
-            "run was required."
+            f"throwaway containers, so {ci} runs the whole of it. No tier 2 run was required."
         )
 
     restack = f"\n## What moved underneath this\n\n{restack_note}\n" if restack_note else ""
@@ -161,7 +164,7 @@ def build_pr_body(
 
 ## Assumptions
 
-{assumptions(unit, graph)}
+{assumptions(unit, graph, trunk_of(unit.repo))}
 
 {verification}
 {restack}{open_points_block}{follow_ups_block}

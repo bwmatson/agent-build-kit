@@ -53,7 +53,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `review_notes(repo, pr)` | rework | the reviewer's words, and whether each is still live |
 | `post_reply(repo, pr, note_id, body)` | rework | the ids of what was posted |
 | `post_comment(repo, pr, body)` | rework, restack | ditto, for a note about the PR itself |
-| `post_status(repo, sha, ok, ...)` | the tier 2 gate | publish a result against the tested commit |
+| `post_status(repo, sha, ok, ..., head)` | the tier 2 gate | publish a result against the tested commit; a host that shows statuses on the pull request also gets it there, found from `head` |
 | `failed_check_logs(repo, pull)` | rework | what the failing checks said |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
 | `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |
@@ -178,6 +178,22 @@ of its own, whose id must be recorded or the poller reads it as feedback.
   exactly as a merged one does — verified against six real pull requests,
   three of each. Reading either as proof marks every open PR merged, which
   restacks its children and deletes their branches.
+- **`mergeStatus` is the conflict signal, and only two of its values are
+  definite.** `succeeded` is mergeable and `conflicts` is not; `queued` and
+  `notSet` are the host working it out, and `rejectedByPolicy` and `failure`
+  say nothing about conflicts, so all four leave `mergeable` undetermined and
+  the poller keeps its last definite answer. `status` still alone says merged.
+- **A branch policy's build is a policy evaluation, not a status.** Open pull
+  requests are asked for theirs (`az repos pr policy list`); `rejected` and
+  `broken` are failing checks, while `running`, `queued`, `approved` and
+  `notApplicable` are not. A completed or abandoned pull request makes no
+  policy call.
+- **Tier 2's result is posted twice.** The commit status stays the record of
+  the commit measured; the open pull request for the unit's branch also gets
+  the same status, because Azure shows only a pull request's own. A completed
+  or abandoned pull request takes none, and a refusal is a logged warning, not
+  a failed unit. The newest status of a context replaces the last, so a rework
+  that passes clears the failing `local/tier2`.
 - **The server comments on its own.** "The reference refs/heads/… was updated"
   is written on the thread list on *every push*, and the pipeline pushes on
   every rework and every restack. Counted as a comment, each push reworks the
@@ -198,6 +214,10 @@ of its own, whose id must be recorded or the poller reads it as feedback.
 - Branch names arrive as `refs/heads/x`; `labels` is `null`, not `[]`;
   `az repos pr update` has no `--target-branch`, so retargeting is a REST
   PATCH; and the source branch survives a merge, so it is ours to delete.
+
+The pull request body names the repo's `default_branch` where it says what a
+unit assumes is already merged, and the CI that runs a tier 1 unit's checks is
+the forge's `ci_name` ("GitHub Actions" on GitHub, "Azure Pipelines" here).
 
 ## Authentication
 
