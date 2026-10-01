@@ -93,6 +93,24 @@ The planner orders groups within a change on its own; across changes it only
 sees what is already in flight, so a dependency that must hold is written
 down and applied as code.
 
+## `Separate:` lines
+
+The planner may join a small group onto an unstarted unit of a related change,
+or join two such units, so one pull request carries both. A group that must be
+reviewed and reverted on its own says so on a line inside the group:
+
+```
+Separate: <reason>
+```
+
+Such a group is never carried by another change's unit, and nothing is added to
+its unit. The reason is required; `abk tags` rejects the line without one. Use
+it sparingly: a small requirement that is related to another change does not
+need it, and may simply be its own change, since it no longer costs its own
+pull request when it is small and in line with unstarted work in the same repo
+and tier. `[acceptance]`, `[contract]` and `[narrow]` groups are never joined
+and need no `Separate:` line.
+
 ## Before committing a change
 
 ```

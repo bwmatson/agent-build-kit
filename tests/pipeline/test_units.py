@@ -464,6 +464,25 @@ def test_later_groups_ignores_a_unit_the_plan_dropped() -> None:
     assert later_groups(graph[0], graph) == ()
 
 
+def test_later_groups_counts_from_a_changes_highest_group_across_every_member() -> None:
+    """A chain of joins gives members [a:1, b:1, a:3]: group 2 of `a` sits
+    before the 3 this unit builds, so it is not later work."""
+    from agent_build_kit.pipeline.units import Member
+
+    graph = [
+        unit(
+            "a/1",
+            change="a",
+            groups=(1,),
+            joined=(Member(change="b", groups=(1,)), Member(change="a", groups=(3,))),
+        ),
+        unit("a/2", change="a", groups=(2,)),
+        unit("a/3", change="a", groups=(4,)),
+    ]
+
+    assert later_groups(graph[0], graph) == (4,)
+
+
 def test_the_trunk_is_built_on_from_the_remote_and_unit_branches_locally() -> None:
     """The checkout's `main` is the user's and nothing updates it: building
     on it puts a unit on a main from before its predecessor merged."""

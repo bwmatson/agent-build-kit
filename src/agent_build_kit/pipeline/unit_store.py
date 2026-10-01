@@ -29,7 +29,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Unit
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Join, Member, Unit
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
@@ -81,6 +81,14 @@ class StoredUnit(Unit):
     # to decide anything.
     stack_refusal: str = ""
     history: tuple[dict, ...] = ()
+
+    @property
+    def unstarted(self) -> bool:
+        """Planned, with no branch, commit, pull request or step to resume at:
+        nothing exists that removing or extending this unit could disturb."""
+        return self.state == PLANNED and not (
+            self.branch or self.pr is not None or self.pushed or self.resume_from or self.approved
+        )
 
     @property
     def note(self) -> str:
@@ -199,6 +207,17 @@ class UnitStore:
                 stack_refusal=existing.stack_refusal if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
+            if existing and existing.joined and not fresh.joined:
+                # Groups of other changes it took in are not in the plan the
+                # planner re-derives for this change, and are not its to drop.
+                # Its estimate too: the plan sizes only the unit's own groups,
+                # and a later join is checked against what the unit now holds.
+                fresh = fresh.model_copy(
+                    update={
+                        "joined": existing.joined,
+                        "estimated_lines": existing.estimated_lines,
+                    }
+                )
             if existing:
                 # Carry progress over — a running, open or merged unit is not
                 # rebuilt just because the graph was re-derived. The exception
@@ -230,6 +249,45 @@ class UnitStore:
                     stored[unit_id] = _with_state(unit, UNPLANNED)
 
         self._write(stored)
+
+    @_exclusive
+    def join(self, join: Join) -> tuple[int, int] | None:
+        """Apply a planned join, or return `None` and change nothing.
+
+        Both units are read again here, because either may have started since
+        the plan was made. On success the units' estimates before and after
+        are returned, `onto` carries the work, a unit joined in is removed and
+        whatever depended on it depends on `onto`.
+        """
+        stored = self._read()
+        onto = stored.get(join.onto)
+        taken = stored.get(join.unit) if join.unit else None
+        if onto is None or not onto.unstarted:
+            return None
+        if join.unit and (taken is None or not taken.unstarted):
+            return None
+
+        if taken is not None:
+            members, added = taken.members(), taken.estimated_lines
+        else:
+            members, added = (Member(change=join.change, groups=join.groups),), join.estimated_lines
+        before = onto.estimated_lines
+        grown = onto.taking(members, estimated_lines=added)
+        stored[onto.id] = grown.model_copy(
+            update={
+                "history": (*onto.history, {"state": onto.state, "at": _now(), "note": "joined"})
+            }
+        )
+        if taken is not None:
+            del stored[taken.id]
+            for unit_id, unit in stored.items():
+                if taken.id in unit.depends_on:
+                    repointed = (onto.id if dep == taken.id else dep for dep in unit.depends_on)
+                    stored[unit_id] = unit.model_copy(
+                        update={"depends_on": tuple(dict.fromkeys(repointed))}
+                    )
+        self._write(stored)
+        return before, before + added
 
     @_exclusive
     def set_state(

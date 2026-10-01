@@ -17,6 +17,7 @@ here. Given plain `Unit`s they would see no pull request and no resume point.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Self
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
@@ -66,6 +67,18 @@ class Member(Frozen):
     groups: tuple[int, ...]
 
 
+class Join(Frozen):
+    """The planner's proposal that `onto` take in more work: an existing unit
+    (`unit`), or a new change's groups (`change`, `groups`, and their
+    estimate)."""
+
+    onto: str
+    unit: str = ""
+    change: str = ""
+    groups: tuple[int, ...] = ()
+    estimated_lines: int = 0
+
+
 class Unit(Frozen):
     id: str
     change: str
@@ -82,6 +95,25 @@ class Unit(Frozen):
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
         return (Member(change=self.change, groups=self.groups), *self.joined)
+
+    def taking(self, taken: Sequence[Member], *, estimated_lines: int) -> Self:
+        """This unit with `taken` built after its own members, and its estimate
+        grown by `estimated_lines`. Work of the change the unit already ends
+        on extends that member rather than starting another."""
+        members = list(self.members())
+        for member in taken:
+            if members[-1].change == member.change:
+                groups = (*members[-1].groups, *member.groups)
+                members[-1] = Member(change=member.change, groups=groups)
+            else:
+                members.append(member)
+        return self.model_copy(
+            update={
+                "groups": members[0].groups,
+                "joined": tuple(members[1:]),
+                "estimated_lines": self.estimated_lines + estimated_lines,
+            }
+        )
 
     def carries(self, change: str) -> bool:
         """Does this unit build any of `change`'s groups, its own or carried?"""
@@ -367,21 +399,25 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
     A group the unit carries is its own work, not later work, so only groups
     above each change's highest one this unit builds, in other units, count.
     """
-    later: dict[str, tuple[int, ...]] = {}
+    # A chain of joins can give one change several members, so the ceiling is
+    # taken across all of them, not per member.
+    mine: dict[str, set[int]] = {}
     for member in unit.members():
-        ceiling = max(member.groups, default=0)
-        mine = {g for m in unit.members() if m.change == member.change for g in m.groups}
+        mine.setdefault(member.change, set()).update(member.groups)
+    later: dict[str, tuple[int, ...]] = {}
+    for change, own in mine.items():
+        ceiling = max(own, default=0)
         others = {
             group
             for other in graph
             if other.id != unit.id and other.state != "unplanned"
             for carried in other.members()
-            if carried.change == member.change
+            if carried.change == change
             for group in carried.groups
-            if group > ceiling and group not in mine
+            if group > ceiling and group not in own
         }
         if others:
-            later[member.change] = tuple(sorted(others | set(later.get(member.change, ()))))
+            later[change] = tuple(sorted(others))
     return later
 
 

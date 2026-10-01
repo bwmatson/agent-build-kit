@@ -313,3 +313,27 @@ def test_a_widening_change_accepts_then_narrows(tmp_path: Path) -> None:
 
     assert errors == []
     assert [g.flag for g in groups] == ["contract", "acceptance", "narrow"]
+
+
+# --- keeping a group separate ---------------------------------------------
+
+
+def test_a_separate_line_marks_only_its_own_group(tmp_path: Path) -> None:
+    groups, errors = parse(
+        "## 1. [app] [tier1] A\n"
+        "Separate: reviewed and reverted on its own\n"
+        "- [ ] 1.1 x\n\n"
+        "## 2. [app] [tier1] B\n- [ ] 2.1 y\n",
+        tmp_path,
+    )
+
+    assert errors == []
+    assert [g.separate for g in groups] == [True, False]
+
+
+def test_a_separate_line_without_a_reason_is_rejected(tmp_path: Path) -> None:
+    _, errors = parse("## 1. [app] [tier1] A\nSeparate:\n- [ ] 1.1 x\n", tmp_path)
+
+    assert len(errors) == 1
+    assert "Separate" in errors[0].message
+    assert errors[0].line == 2

@@ -27,7 +27,9 @@ from collections.abc import Callable
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import Join, Unit
 from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -56,6 +58,13 @@ class InFlight(Frozen):
     state: str
 
 
+class Plan(Frozen):
+    """A verified answer: the change's own units, and the joins to apply."""
+
+    units: tuple[Unit, ...]
+    joins: tuple[Join, ...] = ()
+
+
 def parse_graph(
     output: str,
     *,
@@ -64,6 +73,22 @@ def parse_graph(
     known: set[str] | None = None,
 ) -> list[Unit]:
     """Read and verify a proposed graph, or raise `PlannerError`."""
+    return list(parse_plan(output, groups=groups, built=built, known=known).units)
+
+
+def parse_plan(
+    output: str,
+    *,
+    groups: list[TaskGroup] | None = None,
+    built: set[int] | None = None,
+    known: set[str] | None = None,
+    change: str | None = None,
+    context: JoinContext | None = None,
+) -> Plan:
+    """Read and verify a proposed graph and its joins, or raise `PlannerError`.
+
+    Joins are checked against `context`; without one, none may be proposed.
+    """
     match = JSON_BLOCK.search(output)
     if not match:
         raise PlannerError("no JSON object in the planner's output")
@@ -116,12 +141,57 @@ def parse_graph(
             )
         )
 
+    joins = _read_joins(payload.get("joins"))
     _check_dependencies(units, known or set())
     if groups is not None:
-        _check_groups(units, groups, built or set())
+        carried = {number for join in joins if not join.unit for number in join.groups}
+        _check_groups(units, groups, built or set(), carried)
         _check_acceptance(units, groups)
     _check_ceiling(units)
-    return units
+    if joins:
+        if context is None:
+            raise PlannerError("the planner proposed a join, and none is expected here")
+        try:
+            check_joins(
+                joins,
+                context=context,
+                plan=units,
+                change=change,
+                groups=groups or [],
+                built=built or set(),
+                ceiling=active().limits.max_unit_lines,
+            )
+        except JoinRefused as error:
+            raise PlannerError(str(error)) from error
+    return Plan(units=tuple(units), joins=tuple(joins))
+
+
+def _read_joins(raw_joins: object) -> list[Join]:
+    if raw_joins is None:
+        return []
+    if not isinstance(raw_joins, list):
+        raise PlannerError("planner output has a `joins` that is not a list")
+    joins: list[Join] = []
+    for index, raw in enumerate(raw_joins):
+        if not isinstance(raw, dict) or not isinstance(raw.get("onto"), str):
+            raise PlannerError(f"join {index} is not an object naming the unit it goes `onto`")
+        try:
+            if "unit" in raw:
+                joins.append(Join(onto=raw["onto"], unit=raw["unit"]))
+            else:
+                joins.append(
+                    Join(
+                        onto=raw["onto"],
+                        change=raw["change"],
+                        groups=tuple(int(n) for n in raw["groups"]),
+                        estimated_lines=int(raw["estimated_lines"]),
+                    )
+                )
+        except (KeyError, TypeError, ValueError) as error:
+            raise PlannerError(
+                f"join {index} onto {raw['onto']} is malformed: {error!r}"
+            ) from error
+    return joins
 
 
 def _check_ceiling(units: list[Unit]) -> None:
@@ -149,7 +219,9 @@ def _check_ceiling(units: list[Unit]) -> None:
         )
 
 
-def _check_groups(units: list[Unit], groups: list[TaskGroup], built: set[int]) -> None:
+def _check_groups(
+    units: list[Unit], groups: list[TaskGroup], built: set[int], carried: set[int]
+) -> None:
     """Every task group is built exactly once, by a unit in its own repo.
 
     The planner is a model, and can hand a group tagged for one repo to a
@@ -184,11 +256,16 @@ def _check_groups(units: list[Unit], groups: list[TaskGroup], built: set[int]) -
                     f"group {number} is claimed by both {claimed[number]} and {unit.id} — "
                     "it would be built twice, on two branches that then conflict"
                 )
+            if number in carried:
+                raise PlannerError(
+                    f"group {number} is claimed by unit {unit.id} and carried by a join — "
+                    "it would be built twice"
+                )
             claimed[number] = unit.id
 
     # `built` is what merged units already landed: after part of a change
     # merges, a re-plan legitimately covers only the rest.
-    unbuilt = sorted(set(by_number) - set(claimed) - built)
+    unbuilt = sorted(set(by_number) - set(claimed) - built - carried)
     if unbuilt:
         raise PlannerError(
             f"no unit builds group(s) {', '.join(str(n) for n in unbuilt)} — "
@@ -330,24 +407,73 @@ Changes ready to plan (their tasks.md):
 Units already in flight:
 {in_flight}
 
-Respond with exactly this shape and nothing else:
+Joining: a unit marked *unstarted* has no branch, commits or pull request yet,
+so it can take in more work. Those units, and the change above, are all
+candidates: any two unstarted units may be joined as well as a group of the
+change above onto one. Put a join in `joins` instead of a unit of its own when
+you would otherwise have made the later work depend on the earlier *because
+they overlap* — the same files or modules — and the pair is small. Do not join
+two units merely because both are small. The unit that stays is the earlier.
+Every join must satisfy all of these, and a plan with one that does not is
+rejected:
+- same repo and same tier;
+- a straight line: the later depends on the earlier (or would, for a group of
+  the change above), nothing else depends on the earlier, and the later waits
+  on nothing else unfinished;
+- neither has started — never name a unit not marked unstarted;
+- no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
+  has a `Separate:` line;
+- the two estimates together stay at or under {max_lines} changed lines.
+A unit joined to may be joined to again, in order along the line, while it
+stays under that ceiling.
+
+Respond with exactly this shape and nothing else (`joins` may be empty):
 {{"units": [{{"id": "<change>/<n>", "change": "...", "title": "...",
   "repo": "...", "tier": "tier1|tier2", "depends_on": ["<unit id>"],
-  "estimated_lines": 0, "groups": [1]}}]}}
+  "estimated_lines": 0, "groups": [1]}}],
+  "joins": [{{"onto": "<unit id>", "change": "<the change above>",
+  "groups": [1], "estimated_lines": 0}}, {{"onto": "<unit id>", "unit": "<unit id>"}}]}}
 """
+
+
+def in_flight_item(unit: StoredUnit) -> dict:
+    """A unit as the planner is shown it, and whether it may be joined."""
+    return {
+        "id": unit.id,
+        "repo": unit.repo,
+        "branch": unit.branch,
+        "state": unit.state,
+        "unstarted": unit.unstarted,
+        "tier": unit.tier,
+        "estimated_lines": unit.estimated_lines,
+        "depends_on": list(unit.depends_on),
+        "builds": "; ".join(
+            f"{member.change} group(s) {', '.join(str(n) for n in member.groups)}"
+            for member in unit.members()
+        ),
+    }
+
+
+def _in_flight_line(item: dict) -> str:
+    line = f"- {item['id']} [{item['repo']}] {item.get('branch', '')} ({item.get('state', '?')})"
+    if item.get("unstarted"):
+        line += (
+            f" unstarted, {item.get('tier', '?')}, est {item.get('estimated_lines', 0)} lines, "
+            f"builds {item.get('builds', '?')}, depends on "
+            f"{', '.join(item.get('depends_on') or []) or 'nothing'}"
+        )
+    elif item.get("builds"):
+        # Started units too: the groups one carries are taken, and the planner
+        # has to see that to leave them out.
+        line += f" builds {item['builds']}"
+    return line
 
 
 def build_prompt(changes: dict[str, str], in_flight: list[dict]) -> str:
     changes_text = (
         "\n\n".join(f"### {name}\n{tasks}" for name, tasks in changes.items()) or "(none)"
     )
-    in_flight_text = (
-        "\n".join(
-            f"- {item['id']} [{item['repo']}] {item.get('branch', '')} ({item.get('state', '?')})"
-            for item in in_flight
-        )
-        or "(none)"
-    )
+    in_flight_text = "\n".join(_in_flight_line(item) for item in in_flight) or "(none)"
 
     workspace = active()
     repos = list(workspace.repos)
@@ -390,13 +516,23 @@ def plan_round(
     groups: list[TaskGroup] | None = None,
     built: set[int] | None = None,
     known: set[str] | None = None,
+    context: JoinContext | None = None,
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
-) -> list[Unit]:
+) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
     An empty plan is a normal answer: every change may be waiting on review.
+    Joins the planner proposes are checked against `context` and returned with
+    the units; a caller that passes no `context` accepts none.
     """
     prompt = build_prompt(changes, in_flight)
     answer = run_claude(prompt) if run_claude else _ask(prompt, runtime)
-    return parse_graph(answer, groups=groups, built=built, known=known)
+    return parse_plan(
+        answer,
+        groups=groups,
+        built=built,
+        known=known,
+        change=next(iter(changes), None),
+        context=context,
+    )

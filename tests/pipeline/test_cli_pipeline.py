@@ -24,6 +24,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
 from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
+from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -573,7 +574,9 @@ def test_a_change_with_no_units_is_planned(tmp_path: Path, monkeypatch) -> None:
     write_change(tmp_path, "add-marker", TASKS)
     asked: list[dict] = []
     monkeypatch.setattr(
-        cli, "plan_round", lambda **kwargs: asked.append(kwargs) or [stored("add-marker/1")]
+        cli,
+        "plan_round",
+        lambda **kwargs: asked.append(kwargs) or Plan(units=(stored("add-marker/1"),)),
     )
 
     real_plan_all(inst, store=UnitStore(tmp_path / "units.json"))
@@ -587,7 +590,9 @@ def test_an_unchanged_change_is_not_planned_again(tmp_path: Path, monkeypatch) -
     a change nobody has touched would spend all day producing the same graph."""
     write_change(tmp_path, "add-marker", TASKS)
     calls: list[int] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: calls.append(1) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: calls.append(1) or Plan(units=(stored("add-marker/1"),))
+    )
     store = UnitStore(tmp_path / "units.json")
 
     real_plan_all(inst, store=store)
@@ -601,7 +606,9 @@ def test_an_edited_change_is_planned_again(tmp_path: Path, monkeypatch) -> None:
     re-plans leaves the graph describing work that no longer exists."""
     path = write_change(tmp_path, "add-marker", TASKS)
     calls: list[int] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: calls.append(1) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: calls.append(1) or Plan(units=(stored("add-marker/1"),))
+    )
     store = UnitStore(tmp_path / "units.json")
 
     real_plan_all(inst, store=store)
@@ -645,7 +652,9 @@ def test_a_planner_failure_is_retried(tmp_path: Path, monkeypatch) -> None:
     real_plan_all(inst, store=store)
 
     calls: list[int] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: calls.append(1) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: calls.append(1) or Plan(units=(stored("add-marker/1"),))
+    )
     real_plan_all(inst, store=store)
 
     assert calls == [1]
@@ -803,7 +812,9 @@ def test_ticking_a_checkbox_does_not_trigger_a_replan(tmp_path: Path, monkeypatc
     not specification."""
     path = write_change(tmp_path, "add-marker", TASKS)
     calls: list[int] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: calls.append(1) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: calls.append(1) or Plan(units=(stored("add-marker/1"),))
+    )
     store = UnitStore(tmp_path / "units.json")
 
     real_plan_all(inst, store=store)
@@ -818,7 +829,9 @@ def test_changing_what_a_task_says_does_trigger_a_replan(tmp_path: Path, monkeyp
     one, is a specification change and has to be re-planned."""
     path = write_change(tmp_path, "add-marker", TASKS)
     calls: list[int] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: calls.append(1) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: calls.append(1) or Plan(units=(stored("add-marker/1"),))
+    )
     store = UnitStore(tmp_path / "units.json")
 
     real_plan_all(inst, store=store)
@@ -837,7 +850,9 @@ def test_the_planner_is_told_about_merged_units(tmp_path: Path, monkeypatch) -> 
     store.upsert([stored("add-marker/1")])
     store.set_state("add-marker/1", "merged", pr=1, branch="spec/add-marker/1")
     seen: list[dict] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: seen.append(k) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: seen.append(k) or Plan(units=(stored("add-marker/1"),))
+    )
 
     real_plan_all(inst, store=store)
 
@@ -854,7 +869,9 @@ def test_the_planner_is_told_about_satisfied_units(tmp_path: Path, monkeypatch) 
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("add-marker/1", state="satisfied")])
     seen: list[dict] = []
-    monkeypatch.setattr(cli, "plan_round", lambda **k: seen.append(k) or [stored("add-marker/1")])
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: seen.append(k) or Plan(units=(stored("add-marker/1"),))
+    )
 
     real_plan_all(inst, store=store)
 

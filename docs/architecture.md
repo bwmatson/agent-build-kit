@@ -90,6 +90,24 @@ must be split, and no further attempts are spent on that version of the file.
 The ceiling shapes plans only. An estimate is not checked against the branch,
 so a unit can still land larger than the ceiling.
 
+**Joining.** The planner is also shown, for every unit of another change, whether
+it is *unstarted* (`StoredUnit.unstarted`: planned, with no branch, commit, pull
+request or step to resume at) and may return `joins` beside its units: a new
+change's groups onto an unstarted unit, or one unstarted unit onto another.
+The earlier unit stays, carrying the later's groups (`Unit.joined`); the later is
+removed and what depended on it depends on the earlier. A join is accepted only
+when `pipeline/joins.py` finds every rule held, else the round is refused: same
+repo and tier; a straight line (the later depends on the earlier, nothing else
+does, the later waits on nothing else unfinished); both unstarted; no
+`[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:`;
+the estimates together at or under `limits.max_unit_lines`. Joins are checked in
+order against a copy of the store, so three units in a line can become one in a
+round. On the write each join is applied under both units' branch locks with
+"unstarted" read again; a unit that has started since drops that join alone, the
+rest of the plan is written, and the change is planned again next round. A group
+another unit carries counts as built when its change is planned again. Each join
+is logged with its groups, the unit and the combined estimate.
+
 `UnitStore.upsert` merges the plan into `runs/units.json` by id: shape from
 the plan, state/branch/PR/feedback from what is already recorded. A unit the
 plan dropped becomes `unplanned` only if it never started.

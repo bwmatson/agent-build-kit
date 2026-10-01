@@ -24,7 +24,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -47,8 +47,9 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
-from agent_build_kit.pipeline.planner import GroupTooLarge, plan_round
+from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
 from agent_build_kit.pipeline.planning_repo import (
     default_branch_of,
     is_repo,
@@ -71,6 +72,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    Join,
     Unit,
     base_of,
     branch_name,
@@ -706,10 +708,13 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         # is already in main or drops those groups — which the graph check then
         # rejects, leaving the change unplannable. Satisfied units too: they
         # never merge, but their groups are as done as a merged unit's.
+        # Planned units of other changes too: the unstarted ones are what the
+        # planner may join this change's groups to, or join to each other.
         context = [
-            {"id": u.id, "repo": u.repo, "branch": u.branch, "state": u.state}
+            in_flight_item(u)
             for u in store.all()
             if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
+            or (u.state == PLANNED and u.change != change)
         ]
         try:
             # The groups go in so the plan is checked against the tags, which
@@ -720,13 +725,17 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             # without them the check demands every group appear in the new
             # plan, which makes a change unplannable the moment any part of
             # it starts.
+            # Groups another change's planned unit carries are as claimed.
             built = {
                 number
                 for u in store.all()
-                if u.change == change and u.state in (*IN_FLIGHT, MERGED, SATISFIED)
-                for number in u.groups
+                if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
+                or (u.state == PLANNED and u.change != change)
+                for member in u.members()
+                if member.change == change
+                for number in member.groups
             }
-            units = plan_round(
+            plan = plan_round(
                 changes={change: tasks.read_text()},
                 in_flight=context,
                 groups=task_groups,
@@ -734,6 +743,16 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
                 # Units the store already has: a dependency naming one of
                 # them is not a dependency on nothing.
                 known={u.id for u in store.all()},
+                context=JoinContext(
+                    stored=tuple(store.all()),
+                    catalog={
+                        path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
+                        for path in inst.tasks_files()
+                    },
+                    needs={
+                        group: tuple(found) for group, found in cross_change_needs(tasks).items()
+                    },
+                ),
             )
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at
@@ -753,10 +772,66 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             )
             continue
 
+        units = list(plan.units)
+        before = {u.id: u for u in store.all()}
         store.upsert(units, change=change)
+        dropped = [join for join in plan.joins if not _write_join(inst, store, join)]
+        log(f"planned {change}: {len(units)} unit(s)")
+        orphaned = _orphaned_changes(store, before)
+        for other in sorted(orphaned):
+            # The unit that carried this change's groups is gone, and nothing
+            # else builds them: plan it again rather than leave them held by an
+            # `unplanned` unit.
+            log(f"{change}: {other} is planned again, the unit carrying its groups was dropped")
+            planned.pop(other, None)
+        if orphaned:
+            _write_planned(inst, planned)
+        if dropped:
+            # A unit started while the plan was made. What was to be carried
+            # is planned again next round, so this change is not recorded as
+            # planned.
+            log(f"{change}: {len(dropped)} join(s) dropped, a unit started since the plan")
+            continue
         planned[change] = {"hash": digest, "attempts": 0, "ok": True}
         _write_planned(inst, planned)
-        log(f"planned {change}: {len(units)} unit(s)")
+
+
+def _orphaned_changes(store: UnitStore, before: dict[str, StoredUnit]) -> set[str]:
+    """Changes whose groups a unit just demoted to `unplanned` was carrying."""
+    return {
+        member.change
+        for unit in store.all()
+        if unit.state == UNPLANNED and before.get(unit.id) and before[unit.id].state != UNPLANNED
+        for member in unit.joined
+    }
+
+
+def _write_join(inst: Installation, store: UnitStore, join: Join) -> bool:
+    """Apply one planned join with both branches held and both units read again.
+
+    A branch a live process holds is a unit that has started, as one that has
+    recorded a branch is: either way the join is dropped and nothing changes.
+    """
+    ids = [join.onto, *([join.unit] if join.unit else [])]
+    try:
+        branches = [branch_name(store.get(uid)) for uid in ids]
+        with ExitStack() as held:
+            for branch in branches:
+                held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
+            estimates = store.join(join)
+    except (BranchBusy, KeyError):
+        return False
+    if estimates is None:
+        return False
+    before, after = estimates
+    added = after - before
+    if join.unit:
+        log(f"joined {join.unit} onto {join.onto} — est {before}+{added}={after}; it is removed")
+    else:
+        groups = ", ".join(str(n) for n in join.groups)
+        taken = f"{join.change} group(s) {groups}"
+        log(f"joined {taken} onto {join.onto} — est {before}+{added}={after}")
+    return True
 
 
 # "- [x] 1.1 ..." and "- [ ] 1.1 ..." are the same specification at different
@@ -996,16 +1071,23 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 # this one reaches a unit, another may have built it and opened its
                 # PR. Building it again would re-verify, re-push and re-open that
                 # PR. A poll may also have held or closed it since.
-                current = store.get(unit.id).state
-                if current != PLANNED:
-                    end(f"skipped, it is now {current}")
+                #
+                # The whole unit, not only its state: a join may have changed
+                # its members since, or removed it into another unit.
+                try:
+                    unit = store.get(unit.id)
+                except KeyError:
+                    end("skipped, it was joined into another unit")
+                    return True
+                if unit.state != PLANNED:
+                    end(f"skipped, it is now {unit.state}")
                     return True
                 # The base too, from the store rather than that evaluation: a
                 # parent may have merged since, and `base_moved` compares against
                 # this.
                 graph = store.all()
                 base = base_of(unit, graph)
-                step, model = starting_step(store.get(unit.id))
+                step, model = starting_step(unit)
                 run_log = RunLog(
                     run_log_dir(inst.state_dir),
                     unit,

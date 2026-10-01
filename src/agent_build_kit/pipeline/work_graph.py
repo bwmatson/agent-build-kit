@@ -84,6 +84,11 @@ NEEDS_LINE = re.compile(
     r"^Needs:\s*(?P<change>[a-z0-9][a-z0-9-]*)\s+group\s+(?P<group>\d+)\b", re.I
 )
 
+# "Separate: reviewed and reverted on its own", inside a group: no other change's
+# groups are joined to its unit and it is never joined to another. The reason is
+# what review agrees to, as with `Acceptance: none`.
+SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
+
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
@@ -100,6 +105,9 @@ class TaskGroup(Frozen):
     task_count: int
     # "contract", "narrow", "acceptance", or "" — see FLAGS.
     flag: str = ""
+    # A `Separate: <reason>` line in the group: never carried by another
+    # change's unit, and no other change's groups are added to its unit.
+    separate: bool = False
 
 
 class ValidationError(Frozen):
@@ -128,6 +136,8 @@ def validate_tasks(
     errors: list[ValidationError] = []
     tasks_seen: list[int] = []
     heading_lines: list[int] = []
+    separate: set[int] = set()
+    current: int | None = None
 
     for index, text in enumerate(lines, start=1):
         if TASK_LINE.match(text):
@@ -137,8 +147,20 @@ def validate_tasks(
 
         heading = ANY_GROUP_HEADING.match(text)
         if heading is None:
+            if current is not None and (kept := SEPARATE_LINE.match(text.strip())):
+                if kept["reason"]:
+                    separate.add(current)
+                else:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Separate:` needs a reason after it — the reason is "
+                            "what review agrees to",
+                        )
+                    )
             continue
 
+        current = index
         heading_lines.append(index)
         tasks_seen.append(0)
 
@@ -213,6 +235,7 @@ def validate_tasks(
             line=g.line,
             task_count=counts[g.line],
             flag=g.flag,
+            separate=g.line in separate,
         )
         for g in groups
     ]
