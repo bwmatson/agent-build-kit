@@ -146,7 +146,8 @@ class Builder:
         if status == "open":
             self.store.set_state(unit.id, IN_REVIEW, pr=pr)
         else:
-            self.store.set_state(unit.id, PLANNED, note=f"{status} before implement")
+            note = status if ":" in status else f"{status} before implement"
+            self.store.set_state(unit.id, PLANNED, note=note)
         with self._lock:
             self.finished.append(unit.id)
         return RunOutcome(status=status, detail=f"{status} {unit.id}", pr=pr)
@@ -246,6 +247,58 @@ def test_a_unit_a_poll_sends_back_is_rebuilt_in_the_same_pass(
 
     assert builder.started.count("conflicted/1") == 2
     assert builder.store.get("conflicted/1").state == IN_REVIEW
+
+
+def test_a_unit_that_held_itself_during_the_pass_is_started_again_in_it(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build stops itself, "held before ...", when its base moved — which is
+    what a parent's merge does to a child built on it. Left to the next pass,
+    it waited out every build still running, and one slow build kept a ready
+    unit idle for as long as it took."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("moved/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    runs: list[int] = []
+
+    def holds_once() -> str | None:
+        runs.append(1)
+        return (
+            "held before implement: its base moved from spec/a/1 to main while it built"
+            if len(runs) == 1
+            else None
+        )
+
+    builder.scripts["moved/1"] = holds_once
+    builder.scripts["slow/1"] = lambda: (
+        None if eventually(lambda: builder.finished.count("moved/1") == 2) else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert builder.started.count("moved/1") == 2
+    assert builder.store.get("moved/1").state == IN_REVIEW
+
+
+def test_a_unit_that_keeps_holding_itself_is_started_a_bounded_number_of_times(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pass must still end."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("moved/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    builder.scripts["moved/1"] = lambda: (
+        "held before implement: its base moved from spec/a/1 to main while it built"
+    )
+    builder.scripts["slow/1"] = lambda: (
+        None
+        if eventually(lambda: builder.started.count("moved/1") > cli.REBUILDS_PER_PASS)
+        else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert builder.started.count("moved/1") == 1 + cli.REBUILDS_PER_PASS
 
 
 def test_a_unit_sent_back_again_and_again_is_rebuilt_a_bounded_number_of_times(
@@ -736,8 +789,8 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
     merged while its same-repo child is still building. It records the merge
     but leaves the child's branch alone — restacking would rebase the tree the
     agent is writing to. The child's build sees its base moved and stops
-    before pushing; the next pass restacks it onto the trunk and opens its PR
-    there, not against the merged branch.
+    before pushing; the same pass starts it again, restacks it onto the trunk and
+    opens its PR there, not against the merged branch.
 
     Git is faked as git behaves: a deleted branch counts no commits after it.
     The child's build started on the parent's local branch, so a merge heard
@@ -835,14 +888,9 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
     assert store.get("chain/1").state == MERGED
     assert restacked_by_merge == [], "the merge rebased the tree a build was using"
     assert ("chain/2", "spec/chain/1") not in opened, "its PR was opened on the merged branch"
-    child = store.get("chain/2")
-    assert child.state == PLANNED, child.history
-    assert child.resume_from, "held at a checkpoint, not failed"
-
-    assert tick(inst) == 0
-
-    # Each unit is also asked to move before its push; what matters is that the
-    # child only ever moved onto the trunk, never onto the merged branch.
+    # Held once, when its base moved, then started again in the same pass: the
+    # restack on resume puts it on the trunk, so its PR opens there.
+    assert [base for unit_id, base in opened if unit_id == "chain/2"] == ["main"], opened
     assert {base for unit_id, base in moved_onto if unit_id == "chain/2"} == {local_ref("main")}
     assert ("chain/2", "main") in opened
     assert store.get("chain/2").state == IN_REVIEW
