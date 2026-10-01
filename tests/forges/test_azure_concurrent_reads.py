@@ -11,11 +11,9 @@ from copy import deepcopy
 import pytest
 
 from agent_build_kit.config import AzureDevOpsConfig, RepoConfig
-from agent_build_kit.forges.azure_devops import FORGE
+from agent_build_kit.forges.azure_devops import FORGE, READ_POOL
 from agent_build_kit.pipeline.az import AzError
 from tests.forges import azure_answers
-
-POOL = 4  # the design's default bound
 
 REPO = FORGE.identity(
     RepoConfig(
@@ -35,6 +33,17 @@ def open_prs(count: int) -> list[dict]:
         }
         for n in range(count)
     ]
+
+
+def _thread_of(pr: int) -> dict:
+    """A conversation only this PR has: its number is in the thread and the note."""
+    note = {**azure_answers.REVIEW_THREAD["comments"][0], "content": f"note on {pr}"}
+    return azure_answers.thread(id=pr, comments=[note])
+
+
+def _failed_status_of(pr: int) -> dict:
+    """A failing check named after this PR."""
+    return {**azure_answers.FAILED_STATUS, "context": {"genre": "ci", "name": f"build-{pr}"}}
 
 
 class Az:
@@ -63,9 +72,9 @@ class Az:
             if pr == self.fail_on:
                 return subprocess.CompletedProcess(args, 1, "", "TF400898: boom")
             if "pullRequestThreads" in args:
-                body = azure_answers.threads(azure_answers.REVIEW_THREAD)
+                body = azure_answers.threads(_thread_of(pr))
             else:
-                body = {"value": [azure_answers.FAILED_STATUS]}
+                body = {"value": [_failed_status_of(pr)]}
             return subprocess.CompletedProcess(args, 0, json.dumps(body), "")
         finally:
             with self.lock:
@@ -81,6 +90,11 @@ def test_five_open_prs_list_as_they_would_one_at_a_time() -> None:
     serial = [FORGE.list_prs(REPO, run=Az([pull]))[0] for pull in listing]
     assert [p.number for p in found] == [100, 101, 102, 103, 104], "in listing order"
     assert found == serial
+    for pull in found:
+        assert pull.comment_bodies == (f"note on {pull.number}",), "another PR's conversation"
+        assert [str(pull.number) in note for note in pull.conversation] == [True]
+        assert all(str(pull.number) in check for check in pull.failing_checks)
+        assert len(pull.failing_checks) == 1, "another PR's checks"
 
 
 def test_the_per_pr_reads_overlap() -> None:
@@ -97,7 +111,7 @@ def test_twenty_open_prs_never_exceed_the_pool() -> None:
     found = FORGE.list_prs(REPO, run=az)
 
     assert len(found) == 20
-    assert 1 < az.peak <= POOL
+    assert 1 < az.peak <= READ_POOL
 
 
 def test_one_failed_read_fails_the_poll_with_no_partial_list() -> None:

@@ -14,11 +14,10 @@ GITHUB_BEFORE = (
 
 
 def test_an_azure_agent_can_read_its_pr_and_not_through_gh() -> None:
-    tools = allowed_tools(PROFILE, forges.get("azure_devops")).split()
+    tools = allowed_tools(PROFILE, forges.get("azure_devops"))
 
     assert "Bash(az repos pr show*)" in tools
-    assert "Bash(gh pr view*)" not in tools
-    assert "Bash(gh pr diff*)" not in tools
+    assert "gh pr" not in tools
 
 
 def test_an_azure_agent_is_given_no_way_to_complete_a_pr() -> None:

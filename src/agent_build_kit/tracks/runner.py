@@ -118,6 +118,8 @@ class Project(Frozen):
         return f"https://github.com/{self.repo}"
 
 
+# `gh repo view` stays in the base rather than in the GitHub forge's reads: it is
+# not a PR read, and the forge's list is also what a unit's agents are given.
 TRACK_TOOLS = (
     "Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch "
     "Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh repo view*) "

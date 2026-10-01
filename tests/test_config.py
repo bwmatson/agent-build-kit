@@ -215,6 +215,28 @@ def test_the_old_github_section_loads_as_git(tmp_path: Path) -> None:
     assert load(path).git.branch_prefix == "work/"
 
 
+def test_the_old_github_section_warns_naming_both_keys(tmp_path: Path, capsys) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("github:\n  branch_prefix: work/\n")
+
+    load(path)
+
+    warning = capsys.readouterr().err
+    assert "`github:`" in warning
+    assert "`git:`" in warning
+
+
+def test_a_file_setting_both_git_and_github_is_refused_naming_both(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("git:\n  branch_prefix: a/\ngithub:\n  branch_prefix: b/\n")
+
+    with pytest.raises(ConfigError) as refused:
+        load(path)
+
+    assert "`git:`" in str(refused.value)
+    assert "`github:`" in str(refused.value)
+
+
 def test_a_file_with_neither_section_keeps_the_defaults(tmp_path: Path) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text("repos: {}\n")
