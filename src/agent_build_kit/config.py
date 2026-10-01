@@ -20,7 +20,6 @@ Two ways to reach it:
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -192,13 +191,6 @@ class LimitsConfig(Frozen):
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
-
-    @model_validator(mode="before")
-    @classmethod
-    def _renamed_depth_cap(cls, data: object) -> object:
-        if isinstance(data, dict) and "stack_depth_cap" in data:
-            raise ValueError("stack_depth_cap was renamed to stack_depth_build_cap")
-        return data
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:
@@ -395,27 +387,6 @@ class VerifyConfig(Frozen):
 # The runtime whose usage windows the pause thresholds describe.
 CLAUDE_CODE = "claude_code"
 
-# Where these lived before they moved under `runtimes.claude_code`, and what
-# each stood for. One pause percent and one ceiling then served both windows, and
-# the ceiling defaulted to 90 against a pause of 70, so a ramp was on unless
-# turned off. A file that still uses them keeps exactly that behaviour.
-LEGACY_USAGE_KEYS = (
-    "usage_pause_pct",
-    "usage_ceiling_pct",
-    "usage_relief_fraction",
-    "usage_resume_buffer_pct",
-)
-_LEGACY_PAUSE = 70
-_LEGACY_CEILING = 90
-
-
-def legacy_usage_keys(data: object) -> list[str]:
-    """The old `limits.usage_*` keys in a raw config mapping, in file order."""
-    limits = data.get("limits") if isinstance(data, dict) else None
-    if not isinstance(limits, dict):
-        return []
-    return [key for key in limits if key in LEGACY_USAGE_KEYS]
-
 
 class WorkspaceConfig(Frozen):
     version: int = 1
@@ -432,42 +403,6 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
-
-    @model_validator(mode="before")
-    @classmethod
-    def _usage_limits_moved(cls, data: object) -> object:
-        """Accept the old `limits.usage_*` keys, as the settings of the Claude runtime.
-
-        They moved under `runtimes.claude_code`, split per window. Refusing the
-        old names would break a machine the moment the framework updated before
-        its abk.yaml did (or the reverse), and the timers run whichever
-        checkout is there. So a file that still has them is read as it always
-        was, and `abk doctor` says to move them.
-        """
-        found = legacy_usage_keys(data)
-        if not found:
-            return data
-        assert isinstance(data, dict)
-        runtimes_block = data.get("runtimes") or {}
-        if not isinstance(runtimes_block, dict):
-            return data
-        claude = dict(runtimes_block.get(CLAUDE_CODE) or {})
-        if claude.get("limits"):
-            raise ValueError(
-                f"limits.{found[0]} and runtimes.{CLAUDE_CODE}.limits both set the usage "
-                f"thresholds; keep the runtimes.{CLAUDE_CODE}.limits ones and delete limits.usage_*"
-            )
-        limits = dict(data["limits"])
-        # One value then served both windows; both get it now.
-        moved: dict[str, object] = {
-            "usage_pause_pct": limits.pop("usage_pause_pct", _LEGACY_PAUSE),
-            "usage_pause_ceiling_pct": limits.pop("usage_ceiling_pct", _LEGACY_CEILING),
-        }
-        for key in ("usage_relief_fraction", "usage_resume_buffer_pct"):
-            if key in limits:
-                moved[key] = limits.pop(key)
-        claude["limits"] = {"session": dict(moved), "weekly": dict(moved)}
-        return {**data, "limits": limits, "runtimes": {**runtimes_block, CLAUDE_CODE: claude}}
 
     @model_validator(mode="after")
     def _usage_limits_only_on_claude(self) -> WorkspaceConfig:
@@ -512,7 +447,6 @@ def load(path: Path) -> WorkspaceConfig:
         raise ConfigError(f"{path} is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
-    raw = _rename_github_section(raw, path)
     try:
         loaded = WorkspaceConfig.model_validate(raw)
     except ValidationError as error:
@@ -520,20 +454,6 @@ def load(path: Path) -> WorkspaceConfig:
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     return loaded
-
-
-def _rename_github_section(raw: dict, path: Path) -> dict:
-    """Read the old `github:` section as `git:`; refuse a file that sets both.
-
-    The section was never about GitHub alone. The alias goes in a later release
-    (CHANGELOG); `abk doctor` asks for the rename.
-    """
-    if "github" not in raw:
-        return raw
-    if "git" in raw:
-        raise ConfigError(f"{path} sets both `git:` and its old name `github:`; keep `git:`")
-    print(f"warning: {path}: `github:` is now `git:`; rename it", file=sys.stderr)
-    return {("git" if key == "github" else key): value for key, value in raw.items()}
 
 
 def _check_forges(config: WorkspaceConfig, path: Path) -> None:

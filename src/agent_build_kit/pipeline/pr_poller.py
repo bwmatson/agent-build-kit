@@ -118,30 +118,6 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
     }
 
 
-def _migrate(before: dict) -> dict:
-    """An older snapshot, in the words the GitHub API used to hand over.
-
-    These files are machine-local and survive an upgrade, so a snapshot
-    written before the forges existed has `merged: true` and `CHANGES_REQUESTED`
-    where this one has a `units` state. Read as is, every in-flight PR would
-    look changed on the first poll after the upgrade and be reworked once for
-    nothing.
-    """
-    if "merged" not in before:
-        return before
-    return {
-        **before,
-        "state": MERGED
-        if before.get("merged")
-        else CLOSED
-        if before.get("state") == "CLOSED"
-        else "open",
-        "review_decision": (
-            "changes_requested" if before.get("review_decision") == "CHANGES_REQUESTED" else ""
-        ),
-    }
-
-
 class Poller(BaseModel):
     """One repo's worth of watching.
 
@@ -230,7 +206,7 @@ class Poller(BaseModel):
                     del updated[number]
                 continue
 
-            if self._dispatch_changes(int(number), _migrate(known[number]), current, pull) is False:
+            if self._dispatch_changes(int(number), known[number], current, pull) is False:
                 # Deferred: its unit is being built (see `events`). Recording
                 # the new snapshot would make this the last time the change is
                 # seen, so the old one stays and the next poll reports it again.

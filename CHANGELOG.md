@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Breaking:** three more compatibility shims are removed.
+  - The `github:` section of `abk.yaml` is no longer read as `git:`, and
+    `abk doctor` no longer asks for the rename; a file that still has it is
+    refused at load like any unknown key.
+  - `limits.stack_depth_cap` is refused with the schema's usual unknown-key
+    error instead of one naming `stack_depth_build_cap`.
+  - A units store or PR poll snapshot written by an older version is no longer
+    translated on read: the `open` unit state (now `in_review`) and the poll
+    snapshot's earlier shape (`merged: true`, `CHANGES_REQUESTED`). Both are
+    state files that older code wrote; let the old version finish its work
+    first if one might still hold either.
+
+- **Breaking:** the `limits.usage_pause_pct`, `usage_ceiling_pct`,
+  `usage_relief_fraction` and `usage_resume_buffer_pct` keys are no longer read
+  as the Claude runtime's thresholds, and `abk doctor` no longer warns about
+  them. Set them per window under `runtimes.claude_code.limits` (`session` and
+  `weekly`, with `usage_pause_ceiling_pct` for the ceiling); a file that still
+  has them is refused at load.
+
 - A held unit no longer counts against `limits.max_units_in_progress`: holding sets
   a unit aside until a person releases it, and it should not keep new work from
   starting. It counts again once requeued and started.

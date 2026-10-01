@@ -496,77 +496,6 @@ def test_a_deferred_event_on_a_pr_seen_for_the_first_time_is_kept(tmp_path: Path
     assert seen == ["merged", "merged"]
 
 
-def test_a_snapshot_written_before_the_forges_existed_dispatches_nothing(tmp_path: Path) -> None:
-    """These files survive an upgrade. One written when the snapshot held
-    GitHub's own words — `merged: true`, `CHANGES_REQUESTED` — must not read as
-    "everything changed": every in-flight PR would be reworked once for
-    nothing, and a merged one restacked a second time."""
-    state = tmp_path / "prs.json"
-    state.write_text(
-        json.dumps(
-            {
-                "16": {
-                    "state": "OPEN",
-                    "merged": False,
-                    "last_comment": "c1",
-                    "comment_ids": ["c1"],
-                    "review_decision": "CHANGES_REQUESTED",
-                    "labels": [],
-                    "failing_checks": [],
-                    "head": "spec/add-marker/1",
-                }
-            }
-        )
-    )
-    seen: list[tuple] = []
-
-    Poller(
-        repo="o/r",
-        state_path=state,
-        dispatch=lambda event, number, **k: seen.append((event, number)),
-        list_prs=lambda: [pr(16, review_decision="changes_requested", **said("c1"))],
-    ).poll()
-
-    assert seen == []
-    assert PrState.load(state)["16"]["state"] == "open", "and it is rewritten in the new words"
-
-
-def test_a_merge_recorded_in_the_old_words_is_not_reported_twice(tmp_path: Path) -> None:
-    state = tmp_path / "prs.json"
-    state.write_text(
-        json.dumps({"16": {"state": "OPEN", "merged": True, "comment_ids": [], "labels": []}})
-    )
-    seen: list[tuple] = []
-
-    Poller(
-        repo="o/r",
-        state_path=state,
-        dispatch=lambda event, number, **k: seen.append((event, number)),
-        list_prs=lambda: [pr(16, state=MERGED)],
-    ).poll()
-
-    assert seen == []
-
-
-@pytest.fixture
-def conflicts(tmp_path: Path):
-    """A poller over successive answers, recording each dispatch's reason."""
-
-    def build(pages: list[list[PullRequest]]) -> tuple[Poller, list[tuple[str, int, str]]]:
-        seen: list[tuple[str, int, str]] = []
-        instance = Poller(
-            repo="app",
-            state_path=tmp_path / "poll.json",
-            list_prs=FakePrs(pages),
-            dispatch=lambda action, pr_number, **k: seen.append(
-                (action, pr_number, k.get("reason", ""))
-            ),
-        )
-        return instance, seen
-
-    return build
-
-
 def test_mergeability_is_kept_in_the_snapshot() -> None:
     assert snapshot(pr(mergeable=False))["mergeable"] is False
     assert snapshot(pr(mergeable=True))["mergeable"] is True
@@ -642,6 +571,25 @@ def test_a_conflict_the_host_forgets_for_a_poll_is_not_sent_back_again(conflicts
         instance.poll()
 
     assert len(seen) == 1
+
+
+@pytest.fixture
+def conflicts(tmp_path: Path):
+    """A poller over successive answers, recording each dispatch's reason."""
+
+    def build(pages: list[list[PullRequest]]) -> tuple[Poller, list[tuple[str, int, str]]]:
+        seen: list[tuple[str, int, str]] = []
+        instance = Poller(
+            repo="app",
+            state_path=tmp_path / "poll.json",
+            list_prs=FakePrs(pages),
+            dispatch=lambda action, pr_number, **k: seen.append(
+                (action, pr_number, k.get("reason", ""))
+            ),
+        )
+        return instance, seen
+
+    return build
 
 
 def test_a_pull_request_conflicted_on_first_sight_is_sent_back(conflicts) -> None:

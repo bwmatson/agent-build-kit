@@ -17,8 +17,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-import yaml
-
 from agent_build_kit import (
     __version__,
     config,
@@ -68,46 +66,6 @@ def _fail(name: str, detail: str, fix: str) -> Check:
 
 
 # --- checks ------------------------------------------------------------------------
-
-
-def _renamed_sections(path: Path) -> list[Check]:
-    """The old `github:` section, still read as `git:` for one release."""
-    raw = yaml.safe_load(path.read_text())
-    if not isinstance(raw, dict) or "github" not in raw:
-        return []
-    return [
-        _warn(
-            "config section",
-            f"{path} still names its git settings `github:`",
-            "rename the `github:` section to `git:`",
-        )
-    ]
-
-
-def _legacy_usage_keys(path: Path, loaded: WorkspaceConfig) -> list[Check]:
-    """The old `limits.usage_*` keys, still read as the Claude runtime's settings.
-
-    The fix is spelled out from what the file means today, per window, so
-    pasting it changes nothing about how the pipeline behaves.
-    """
-    old = config.legacy_usage_keys(yaml.safe_load(path.read_text()))
-    if not old:
-        return []
-    claude = loaded.runtimes[config.CLAUDE_CODE].limits
-    spelled = "; ".join(
-        f"{name}: usage_pause_pct: {window.usage_pause_pct}, "
-        f"usage_pause_ceiling_pct: {window.usage_ceiling_pct}"
-        for name, window in (("session", claude.session), ("weekly", claude.weekly))
-    )
-    return [
-        _warn(
-            "usage limits",
-            f"{path} still sets {', '.join('limits.' + key for key in old)}",
-            f"move them under runtimes.{config.CLAUDE_CODE}.limits, one section per window "
-            f"({spelled}). A ceiling equal to its pause percent, or left out, "
-            "turns the ramp off for that window",
-        )
-    ]
 
 
 def _repos(inst: Installation, run: Run) -> list[Check]:
@@ -554,8 +512,6 @@ def run_doctor(
     except ConfigError as error:
         return [_fail("config", str(error), "run `abk init`, or fix abk.yaml")]
     checks = [_ok("config", str(path))]
-    checks += _renamed_sections(path)
-    checks += _legacy_usage_keys(path, loaded)
 
     try:
         inst = Installation(loaded, path.parent)
