@@ -423,8 +423,7 @@ class GitHubForge:
             if not text.strip():
                 parts.append(
                     f"CI run {run} ({names}) failed, but its log could not be fetched "
-                    "(the run may still be in progress). Run the command CI runs "
-                    "(`pre-commit run --all-files` for a lint failure) and fix what it reports."
+                    "(the run may still be in progress)."
                 )
                 continue
             parts.append(

@@ -1351,3 +1351,40 @@ def test_the_review_is_fetched_from_the_repo_the_event_was_reported_for(
     )("rework", 5, repo="app", reason="new comment")
 
     assert asked == [("app", 5)]
+
+
+# --- what a rework is told about a failing check ----------------------------------
+
+
+def checks_pull(*names: str) -> PullRequest:
+    return PullRequest(
+        number=1, head="spec/add-marker/1", base="main", state="open", failing_checks=names
+    )
+
+
+@pytest.mark.parametrize("host_says", ["pre-commit failed: see the link", ""])
+def test_a_failing_check_report_always_says_how_to_reproduce_it_here(host_says: str) -> None:
+    """GitHub has no log for a run still going, and Azure DevOps has only a
+    status and a link: whatever the host gives, the rework is also told to run
+    what CI runs, from the repo's own toolchain."""
+    from tests.forges.stand_in import StandInForge, lookup
+
+    class Host(StandInForge):
+        def failed_check_logs(self, repo, pull) -> str:
+            return host_says
+
+    fetch = events.build_fetch_check_logs(for_repo=lookup(Host()))
+
+    report = fetch("app", checks_pull("pre-commit"))
+
+    assert "uv run pre-commit run --all-files" in report
+    assert report.startswith(host_says)
+
+
+def test_a_pull_request_with_no_failing_check_gets_no_reproduction_note() -> None:
+    from tests.forges.stand_in import StandInForge, lookup
+
+    fetch = events.build_fetch_check_logs(for_repo=lookup(StandInForge()))
+
+    assert fetch("app", checks_pull()) == ""
+    assert fetch("app", None) == ""

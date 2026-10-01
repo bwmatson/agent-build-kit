@@ -103,13 +103,12 @@ def test_a_job_log_stops_at_the_error_not_in_the_runners_clean_up(host: Host) ->
     assert "2026-10-01T" not in report, "timestamps are noise to the reader"
 
 
-def test_a_failure_with_no_log_at_all_says_so_and_names_what_to_run(host: Host) -> None:
+def test_a_failure_with_no_log_at_all_says_so(host: Host) -> None:
     host.run_log, host.job_log = "", ""
 
     report = FORGE.failed_check_logs(REPO, pull())
 
     assert "could not be fetched" in report
-    assert "pre-commit run --all-files" in report
     assert "```" not in report, "an empty block reads as an empty log"
 
 

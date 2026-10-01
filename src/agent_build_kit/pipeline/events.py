@@ -38,7 +38,7 @@ from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
 
-from agent_build_kit import forges
+from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
@@ -509,9 +509,35 @@ def build_fetch_check_logs(
         if pull is None:
             return ""
         forge, repo_id = for_repo(repo)
-        return forge.failed_check_logs(repo_id, pull)
+        text = forge.failed_check_logs(repo_id, pull)
+        if not pull.failing_checks:
+            return text
+        # Whatever the host could say, a rework is also told to run what CI
+        # runs. A host may have no log to give (GitHub for a run still going,
+        # Azure DevOps always: it reports a status and a link), and a log, when
+        # there is one, is the end of a failed step, not a reproduction.
+        return "\n\n".join(part for part in (text, _reproduce_note(repo)) if part)
 
     return fetch
+
+
+def _reproduce_note(repo: str) -> str:
+    """How to see locally what CI saw, from the repo's own toolchain profile.
+
+    Said here, not by each forge: the command is the toolchain's, not the
+    host's, and every host's rework needs it.
+    """
+    from agent_build_kit.config import active
+
+    entry = active().repos.get(repo)
+    if entry is None:
+        return ""
+    lint = " ".join(profiles.get(entry.profile).lint_command_all_files())
+    return (
+        "CI runs the repository's own checks over the whole repo. Before you change "
+        f"anything, run them here to see what it saw: `{lint}`, then the tests. Fix what "
+        "they report; the push is judged by that same run."
+    )
 
 
 def build_remove_worktree(repos: dict[str, Path], *, root: Path) -> Callable[..., None]:
