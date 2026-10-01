@@ -5,6 +5,8 @@ description = "Spec-driven, unattended build pipeline for Claude Code across a w
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "langgraph==1.2.*",
+    "langgraph-checkpoint-sqlite>=3.1.1",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "pyyaml>=6.0",
