@@ -424,15 +424,20 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
 def in_progress(unit: Unit) -> bool:
     """Whether the unit has been started and not finished (docs/architecture.md).
 
-    Running, in review, held and failed units are; so is a planned or unplanned
-    one that has a pull request or a step to resume from, since something was
+    Running, in review and failed units are; so is a planned or unplanned one
+    that has a pull request or a step to resume from, since something was
     already done to it. Merged, closed and satisfied units are finished, and a
     unit with neither a pull request nor a resume point has never started,
     blocked on a dependency or not.
+
+    A held unit is not: holding takes a unit out of the automatic flow until a
+    person releases it, whether a reviewer, the review loop or the operator
+    held it, and a unit set aside that way should not keep new work from
+    starting. Requeued, it counts again from its next start.
     """
-    if unit.state in (MERGED, CLOSED, SATISFIED):
+    if unit.state in (MERGED, CLOSED, SATISFIED, HELD):
         return False
-    if unit.state in (RUNNING, IN_REVIEW, HELD, FAILED):
+    if unit.state in (RUNNING, IN_REVIEW, FAILED):
         return True
     return getattr(unit, "pr", None) is not None or bool(getattr(unit, "resume_from", ""))
 

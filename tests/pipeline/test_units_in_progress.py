@@ -58,7 +58,6 @@ def test_started_work_counts_as_in_progress() -> None:
     started = [
         stored_unit("a/1", change="a", state=RUNNING),
         at_review("b/1", 2),
-        stored_unit("c/1", change="c", state=HELD),
         failed("d/1"),
         rework("e/1", 5),
         resuming("f/1"),
@@ -67,6 +66,30 @@ def test_started_work_counts_as_in_progress() -> None:
     ]
 
     assert [in_progress(unit) for unit in started] == [True] * len(started)
+
+
+def test_a_held_unit_does_not_count_whatever_it_holds() -> None:
+    """Held is set aside until a person releases it — by a reviewer, the review
+    loop or the operator — and should not keep new work from starting."""
+    held = [
+        stored_unit("a/1", change="a", state=HELD),
+        stored_unit("b/1", change="b", state=HELD, pr=4),
+        stored_unit("c/1", change="c", state=HELD, resume_from="review"),
+    ]
+
+    assert [in_progress(unit) for unit in held] == [False] * len(held)
+
+
+def test_a_held_unit_leaves_room_for_a_new_one() -> None:
+    graph = [
+        stored_unit("a/1", change="a", state=HELD, pr=4),
+        at_review("b/1", 2),
+        new("c/1"),
+    ]
+
+    started = ready_units(graph, max_concurrent=3, depth_cap=3, max_units_in_progress=2)
+
+    assert [unit.id for unit in started] == ["c/1"]
 
 
 def test_a_planned_unit_with_a_pull_request_but_no_resume_step_counts() -> None:
@@ -214,9 +237,10 @@ def test_a_failed_unit_holds_a_place() -> None:
 
 
 def test_a_paused_unit_with_no_pull_request_holds_a_place() -> None:
-    graph = [at_review("a/1", 1), stored_unit("b/1", change="b", state=HELD), new("c/1")]
+    graph = [at_review("a/1", 1), resuming("b/1"), new("c/1")]
 
-    assert ready(graph, limit=2) == []
+    # b/1 holds the second place, so c/1 waits; b/1 itself may resume.
+    assert ready(graph, limit=2) == ["b/1"]
 
 
 # --- existing work first -----------------------------------------------------------

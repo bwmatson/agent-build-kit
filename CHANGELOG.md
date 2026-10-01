@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A held unit no longer counts against `limits.max_units_in_progress`: holding sets
+  a unit aside until a person releases it, and it should not keep new work from
+  starting. It counts again once requeued and started.
+
 - What an agent may run to read its PR comes from its repo's forge
   (`read_commands`), so an Azure DevOps agent can read its PR with `az repos pr
   show` and is no longer offered `gh`. The tracks' default allow-list carries

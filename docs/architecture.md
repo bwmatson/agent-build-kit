@@ -122,9 +122,10 @@ stacks on that predecessor; cross-repo, it counts once that predecessor has
 merged. `limits.stack_depth_build_cap` holds
 back chains of open PRs; `limits.max_concurrent_stacks` bounds units being
 built. `limits.max_units_in_progress` bounds the units started and not finished
-across repos: running, in review, held or failed, and any planned or unplanned
-unit that has a pull request or a step to resume from. Merged, closed and
-satisfied units, and units that never started, do not count. Only a unit that
+across repos: running, in review or failed, and any planned or unplanned unit
+that has a pull request or a step to resume from. Merged, closed and satisfied
+units, held units (set aside until a person releases them), and units that
+never started, do not count. Only a unit that
 has never started is stopped by it, and no more of them start than leave room;
 a rework, resume, restack, review round or push still runs, so the count can
 pass it. Free slots go to
