@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A rework sent back for a failing check is told how to reproduce it, from the repo's own
+  toolchain (`uv run pre-commit run --all-files` for a Python repo, then the tests), on every
+  host. It used to depend on the host's log: GitHub had none for a run still going and Azure
+  DevOps only ever gives a status and a link. The unit's run log also records each command
+  tier 1 ran, where, and how it ended, so a pass that CI then contradicts can be explained.
+
 - A rework sent back for a failing check now gets the failure even when the run
   is still going. The poller reports a check the moment it fails, usually
   while the run's other jobs are running, and `gh run view --log-failed` has no

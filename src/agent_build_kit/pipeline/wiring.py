@@ -488,8 +488,13 @@ def build_tier1(
     profile: ToolchainProfile | None = None,
     root_extras: list[str] | None = None,
     projects: list[ProjectConfig] | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
+
+    Each command it runs is logged with where it ran and how it ended, so a
+    pass can be checked against CI afterwards: a tier 1 that passed on a branch
+    CI then failed is only explicable from what it actually ran.
 
     Everything CI will run anyway, run locally first so a failure costs
     seconds rather than a push, a CI round trip and a red PR.
@@ -533,10 +538,19 @@ def build_tier1(
                 test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
 
             for command in [lint_command, *test_commands]:
-                result = run(command, cwd=where)
+                result = ran(command, where)
                 if result.returncode:
                     return False, _failure(command, result)
         return True, ""
+
+    def ran(command: list[str], where: Path) -> subprocess.CompletedProcess:
+        started = time.monotonic()
+        result = run(command, cwd=where)
+        if log is not None:
+            outcome = "passed" if result.returncode == 0 else f"exit {result.returncode}"
+            seconds = time.monotonic() - started
+            log(f"  tier 1: {' '.join(command)} (in {where}) {outcome}, {seconds:.0f}s")
+        return result
 
     return tier1
 
@@ -1572,7 +1586,7 @@ def build_runner(
         base_tip=tip,
         restack_onto=build_restack_onto(store),
         run_tier1=build_tier1(
-            profile=profile, root_extras=repo.tests.root_extras, projects=repo.projects
+            profile=profile, root_extras=repo.tests.root_extras, projects=repo.projects, log=log
         ),
         run_tier2=tier2.run,
         push=push_in_turn,

@@ -1520,3 +1520,30 @@ def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) 
     assert ok
     assert seen and all(env.get("ACCEPTANCE_AGENT") == "agent acp" for env in seen)
     assert all("PATH" in env for env in seen)
+
+
+def test_tier_one_logs_each_command_it_ran_and_how_it_ended(tmp_path: Path) -> None:
+    """A tier 1 that passed on a branch CI then failed can only be explained
+    from what it ran: which commands, where, with what result."""
+    seen: list[str] = []
+    repo = tmp_path / "plain"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+
+    build_tier1(run=Recorder(), changed=lambda *a: ["tests/test_x.py"], log=seen.append)(
+        cwd=repo, base="main"
+    )
+
+    assert any("pre-commit" in line and "passed" in line and str(repo) in line for line in seen)
+    assert any("pytest" in line and "passed" in line for line in seen)
+
+
+def test_tier_one_logs_the_command_that_failed_and_stops_there(tmp_path: Path) -> None:
+    seen: list[str] = []
+
+    build_tier1(run=Recorder(returncode=2), changed=lambda *a: [], log=seen.append)(
+        cwd=tmp_path, base="main"
+    )
+
+    assert len(seen) == 1, "the first failure ends the run, so only it is logged"
+    assert "pre-commit" in seen[0] and "exit 2" in seen[0]
