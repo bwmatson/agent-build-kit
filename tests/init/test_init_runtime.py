@@ -89,6 +89,9 @@ def test_under_claude_code_research_sends_the_command_it_sent_before(tmp_path: P
         "-p": None,
         "--allowedTools": RESEARCH_TOOLS,
         "--output-format": "text",
+        "--settings": json.dumps(
+            {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
+        ),
     }
     assert path.read_text().endswith(DOCUMENT)
 

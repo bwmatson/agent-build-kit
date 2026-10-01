@@ -130,6 +130,16 @@ def integration_branches() -> tuple[str, ...]:
     )
 
 
+# Claude Code adds a `Co-Authored-By` trailer to the commits it makes and a
+# "Generated with" line to the pull requests, unless the setting is empty. The
+# pipeline's commits are its own, and a repo may forbid the trailer outright
+# (a squash merge copies it into history, and removing it later means
+# rewriting commits the agent cannot rewrite), so every run turns it off
+# instead of each repo having to ask. `includeCoAuthoredBy` is the older
+# spelling of the same switch, kept for a CLI that predates `attribution`.
+NO_ATTRIBUTION: dict = {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
+
+
 def build_argv(request: AgentRequest) -> list[str]:
     argv = [*command(), "-p", request.prompt]
     if request.worktree:
@@ -150,11 +160,12 @@ def build_argv(request: AgentRequest) -> list[str]:
             no_push=True,
             **planning,
         )
-        argv += ["--settings", json.dumps(settings)]
         denied = f"{disallowed()} {denied}".strip()
     elif request.planning_repo is not None:
         settings = hook_settings(None, branch_prefix=config.active().git.branch_prefix, **planning)
-        argv += ["--settings", json.dumps(settings)]
+    else:
+        settings = {}
+    argv += ["--settings", json.dumps({**settings, **NO_ATTRIBUTION})]
     if request.allowed_tools:
         argv += ["--allowedTools", request.allowed_tools]
     if denied:
