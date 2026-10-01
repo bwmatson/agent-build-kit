@@ -1,6 +1,11 @@
 # The unit graph
 
-**Status: design.** Nothing here is built yet. This document is what the
+**Status: design, skeleton built.** Behind `ABK_ENGINE=graph` there is a
+`UnitEngine` seam (`pipeline/unit_engine.py`), the `UnitRun` state, the node
+enum, the SQLite checkpointer with its allowlist and a compiled graph in
+`graph/`. The graph's nodes do no work yet and are joined in one straight line
+rather than by the edges below; the classic engine is still the default and
+the only one that builds. This document is what the
 implementation is specified against: it says which part of the pipeline moves
 onto [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview),
 which part stays as it is, and how the two meet.
