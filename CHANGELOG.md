@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A unit's approval now carries across a clean rebase when the base had edited lines near
+  its change. The change's id was taken over its context lines too, so a parent that touched a
+  line three lines away gave the same change a new id; the approval did not carry, and the unit
+  was failed at the push ("refusing to push … review approved …") for a branch review had in
+  effect read. The id covers only the changed lines. And a clean move whose approval does not
+  carry is read again by review instead of refused.
+
 - A rework sent back for a failing check is told how to reproduce it, from the repo's own
   toolchain (`uv run pre-commit run --all-files` for a Python repo, then the tests), on every
   host. It used to depend on the host's log: GitHub had none for a run still going and Azure

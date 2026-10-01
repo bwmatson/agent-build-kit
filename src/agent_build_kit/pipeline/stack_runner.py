@@ -1421,6 +1421,17 @@ class UnitRunner(BaseModel):
                 self.log(tier1_output)
                 self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
                 return self._resume_for_base(unit, f"tier 1 failed on {base}", base, graph, rebased)
+            if self.head(tree) != self.store.get(unit.id).approved:
+                # Moved cleanly, but not as the same change: the approval did
+                # not carry (the diff differs), so review has not read this
+                # commit. Read again, rather than refused at the push.
+                return self._resume_for_base(
+                    unit,
+                    f"moving onto {base} changed what review approved, so it is read again",
+                    base,
+                    graph,
+                    rebased,
+                )
             if unit.tier == "tier2":
                 # The moved commit is what gets pushed and what the status is
                 # posted for, and it has not been through tier 2.

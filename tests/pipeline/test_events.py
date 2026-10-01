@@ -1388,3 +1388,35 @@ def test_a_pull_request_with_no_failing_check_gets_no_reproduction_note() -> Non
 
     assert fetch("app", checks_pull()) == ""
     assert fetch("app", None) == ""
+
+
+def test_a_base_that_edited_the_lines_beside_the_change_leaves_the_diff_id_alone(
+    tmp_path: Path,
+) -> None:
+    """`git patch-id` hashes the context lines. A parent that merely edited the
+    line near the unit's own change gave the same change a new id, so the
+    approval did not carry across a clean rebase and the push was refused."""
+    from agent_build_kit.pipeline import restack
+    from tests.factories import git, init_repo
+
+    repo = init_repo(tmp_path / "r")
+    (repo / "m.py").write_text("".join(f"line {n}\n" for n in range(1, 9)))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    git(repo, "checkout", "-q", "-b", "unit")
+    (repo / "m.py").write_text(
+        "".join(f"line {n}\n" if n != 6 else "line six, the unit's change\n" for n in range(1, 9))
+    )
+    git(repo, "commit", "-qam", "unit")
+    before = restack.diff_id(repo, "main", "unit")
+
+    git(repo, "checkout", "-q", "main")
+    (repo / "m.py").write_text(
+        "".join(
+            f"line {n}\n" if n != 3 else "line three, edited by the parent\n" for n in range(1, 9)
+        )
+    )
+    git(repo, "commit", "-qam", "parent")
+    git(repo, "rebase", "-q", "main", "unit")
+
+    assert restack.diff_id(repo, "main", "unit") == before

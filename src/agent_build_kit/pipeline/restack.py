@@ -208,10 +208,14 @@ def derive_must_keep(repo: Path, branch: str, *, old_base: str, files: list[str]
 def diff_id(repo: Path, base: str, branch: str) -> str:
     """One id for the whole of what `branch` changes over `base`.
 
-    Stable across a clean rebase — `git patch-id` ignores line numbers and
-    whitespace context — and different the moment the change itself does.
+    Stable across a clean rebase and different the moment the change itself
+    does. Taken over the changed lines alone (`-U0`): `git patch-id` ignores
+    line numbers and whitespace but hashes the context lines too, so a base
+    that had merely edited the lines next to the unit's change gave the same
+    change a new id, the approval did not carry, and the unit was refused at
+    the push for a branch review had in effect read.
     """
-    diff = git(repo, "diff", f"{base}...{branch}", check=False).stdout
+    diff = git(repo, "diff", "-U0", f"{base}...{branch}", check=False).stdout
     if not diff.strip():
         return ""
     out = git(repo, "patch-id", "--stable", input=diff, check=False).stdout.split()
