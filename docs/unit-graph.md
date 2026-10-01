@@ -101,19 +101,23 @@ flowchart TD
     prepare -->|resume at a step| resume{{resume point}}
     prepare -->|restack conflicted| adapt
     prepare -->|feedback waiting| rework
-    adapt --> review
-    resume --> implement & review & tier1
+    adapt --> checks
+    resume --> implement & checks & verify_base
     tests --> implement
-    implement -->|commits| review
+    implement -->|commits| checks
     implement -->|nothing new| tier1
-    review -->|approved| tier1
+    checks -->|passed| review
+    checks -->|failed, fix rounds left| fix_checks
+    checks -->|failed, fix rounds spent| failed
+    fix_checks --> checks
+    review -->|approved, tier 2 unit| tier2
+    review -->|approved| verify_base
     review -->|changes asked| rework
     review -->|needs a person| held
     review -->|rounds spent| open_pr
-    rework --> review
+    rework --> checks
     tier1 -->|passed, no commits of its own| satisfied
-    tier1 -->|passed, tier 2 unit| tier2
-    tier1 -->|passed| verify_base
+    tier1 -->|passed, after a clean move| verify_base
     tier1 -->|failed| failed
     tier2 -->|passed| verify_base
     tier2 -->|failed| failed
@@ -140,16 +144,49 @@ reference for each condition until this replaces them. The nodes:
 | `prepare` | Worktree, fetch, move the branch onto its base; picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
 | `tests` | The tests-first commit | `run_claude`, `commit` |
 | `implement` | The implementation commit; nothing new against an exhausted window is a pause, not a failure | `run_claude`, `commit`, `may_start` |
+| `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
+| `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run_rework`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run_rework`, `commit` |
 | `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
-| `tier1`, `tier2` | The test tiers | `tier1`, `run_tier2` |
+| `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `push` | Pushes only the approved commit | the push gate, `push` |
 | `open_pr` | Opens or updates the pull request, posts replies and the PR body | `open_pr`, replies, labels |
 | `await_review` | **Interrupt.** Waits for the forge: rework, a merge, a close, a hold, a moved base | — |
 | `held` | **Interrupt.** Waits for a person: requeue, merge, close | — |
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue | `close_pr` for satisfied |
+
+### Checks before review
+
+Tier 1 used to run once, after the reviewer approved, so a branch that did not
+lint or type-check was reviewed twice over: once to approve it, and again after
+the failure came back. The reviewer is also the more expensive model. Now every
+route into `review` goes through `checks` first, including a rework: the
+builder's fix for a reviewer's point can break the build as easily as the first
+draft could.
+
+A failure is saved on the unit as feedback (`tier 1 failed:` and the output) and
+goes to `fix_checks`, up to `limits.max_check_rounds` times (3 by default;
+`null` is no limit; 0 means no fix attempt, not no check: it is the only gate
+before a review and a push). The count is per round of review: `checks` runs at
+the top of each round and the budget starts again, so a rework that breaks the
+build gets its own attempts. A fix that leaves the branch unchanged ends the
+run whatever the limit, as asking again would be the same question of the same
+tree. Only when the budget is spent does the unit go to `failed`, with the
+output still saved, and `abk requeue --rework` is how it
+gets another go with that output in front of the agent. A pause during a fix
+keeps the saved failure, so the resume fixes what was found rather than finding
+it again; a successful fix clears it, so a run stopped before its review does
+not redo a fix that is already on the branch.
+
+Nothing runs tier 1 after the review. A reviewer reports and the builder fixes,
+so approval leaves the branch exactly as `checks` judged it. The branch is
+checked again only when it changes: a clean move onto a new base
+(`verify_base` → `tier1` → push) is checked before it is pushed, and a move with
+conflicts goes through `adapt`, which accounts for its own tests and then back
+through `checks` and `review`, since the resolution rewrote the commit that was
+approved.
 
 The nodes wrap the callables `wiring.build_runner` already builds. None of the
 agent, git or forge logic is rewritten; what changes is who decides what runs
@@ -187,7 +224,7 @@ unit's thread with a command:
 | `agent-hold` | `hold` | → `held` |
 | Merged | `merged` | → end; `units.json` records the merge and the scheduler restacks children by resuming their threads |
 | Closed unmerged | `closed` | → end |
-| `abk requeue` | `requeue{restart}` | `held` / `failed` → `prepare`; `restart` starts a fresh thread |
+| `abk requeue` | `requeue{mode}` | `held` / `failed` → `prepare`. `resume` (the default) goes back where it stopped; `restart` starts a fresh thread and drops the saved failure; `rework` keeps the work and the saved failure, clears the resume point, and so enters at the agent with the failure in hand (`fix_checks` for a failed check) |
 
 An event for a unit whose thread is mid-node is kept and delivered when that
 node returns. This is what the branch-lock deferral does today, and the
@@ -276,8 +313,9 @@ fields. The callables in `wiring.py` and everything they reach stay.
   tests use today.
 - **Paths** are tested through the compiled graph. The stack runner's
   scenarios are ported one for one (build, review rounds, rework, adapt,
-  satisfied, holds, spent rounds, moved bases), so the migration is checked
-  against the behaviour it replaces.
+  satisfied, holds, spent rounds, moved bases, and the check before review:
+  passing, fixed and re-checked, budget spent, no fix attempts, re-checked after a
+  review rework, a clean and a conflicted move after approval), so the migration is checked against the behaviour it replaces.
 - **Resume** tests:
   - kill the process mid-node and resume the thread in a new process, so that
     node re-runs and does nothing twice;

@@ -102,3 +102,63 @@ def test_an_unknown_unit_says_so_and_lists_the_known_ones(store: UnitStore, caps
     out = capsys.readouterr()
     assert code == 2
     assert "nope/9" in out.err and "add-marker/1" in out.err
+
+
+# --- --rework ------------------------------------------------------------------
+#
+# A unit that failed tier 1 on real errors (a type check, a lint rule, a test)
+# saved the output, but resuming at `verify` runs the check again and meets the
+# same errors with the agent never having seen them. --rework keeps the work and
+# hands the agent what failed.
+
+
+def test_rework_hands_the_agent_the_saved_failure(store: UnitStore, capsys) -> None:
+    failed_at_verify(store)
+    store.set_feedback("add-marker/1", "tier 1 failed:\nERROR implicit-any in test_x.py")
+
+    assert main(["requeue", "add-marker/1", "--rework"]) == 0
+
+    after = store.get("add-marker/1")
+    assert after.state == "planned"
+    assert after.resume_from == "", "not past the agent, to a check that fails the same way"
+    assert after.feedback == "tier 1 failed:\nERROR implicit-any in test_x.py", "and it keeps it"
+    assert after.branch == "spec/add-marker/1", "the work stays"
+    assert "rework it from the failure it saved" in capsys.readouterr().out
+
+
+def test_rework_with_nothing_saved_changes_nothing(store: UnitStore, capsys) -> None:
+    """There is nothing to hand the agent, and guessing would redo the build."""
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", "failed", resume_from="verify")
+
+    assert main(["requeue", "add-marker/1", "--rework"]) == 1
+
+    after = store.get("add-marker/1")
+    assert after.state == "failed" and after.resume_from == "verify"
+    assert "no saved failure" in capsys.readouterr().out
+
+
+def test_rework_and_restart_are_exclusive(store: UnitStore) -> None:
+    failed_at_verify(store)
+
+    with pytest.raises(SystemExit) as raised:
+        main(["requeue", "add-marker/1", "--rework", "--restart"])
+
+    assert raised.value.code == 2
+    assert store.get("add-marker/1").state == "failed"
+
+
+def test_rework_is_recorded_in_the_unit_s_history(store: UnitStore) -> None:
+    failed_at_verify(store)
+
+    main(["requeue", "add-marker/1", "--rework"])
+
+    assert "reworking from the saved failure" in str(store.get("add-marker/1").history[-1])
+
+
+def test_rework_still_refuses_a_unit_that_is_not_failed_or_held(store: UnitStore) -> None:
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", "in_review", pr=4)
+
+    assert main(["requeue", "add-marker/1", "--rework"]) == 1
+    assert store.get("add-marker/1").state == "in_review"

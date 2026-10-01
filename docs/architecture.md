@@ -208,7 +208,17 @@ binds each step to git, gh and `claude`:
    than nothing to do, and pauses (see the usage guard, below). A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after tier 1, below.
-5. **Review rounds.** A read-only reviewer (`Read Grep Glob`, `git diff/log/
+5. **Checks, then review rounds.** Before each review round the branch has to
+   pass tier 1 (lint, formatting, types and the tests; see step 6): a reviewer's
+   time goes on a branch that already builds. A failure is saved as feedback and
+   handed to the builder with the check prompt, then tier 1 runs again, up to
+   `limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
+   attempt, not no check), before the unit is `failed` with the output kept. A
+   fix that changes nothing ends it too, whatever the limit. It runs again
+   before every later review round with the budget started over, since a
+   rework can break the build as easily as the first draft. Nothing runs tier 1 after the review: a reviewer reports and the
+   builder fixes, so approval leaves the branch as the checks judged it.
+   A read-only reviewer (`Read Grep Glob`, `git diff/log/
    show`) judges the branch against the repo's `CLAUDE.md` and the change,
    told which round this is, how many remain and what running out costs, and
    answers JSON: `approved`, `feedback`, `findings`, `earlier`, `needs_human`,
@@ -250,7 +260,12 @@ binds each step to git, gh and `claude`:
 6. **Tier 1.** Lint scoped to the unit's diff, then the tests of the members
    it touched (see [toolchain-profiles.md](toolchain-profiles.md)). A failure
    is kept as feedback, so the retry is one scoped rework rather than a
-   rebuild. A unit that reaches here with no commits of its own — its groups
+   rebuild (`abk requeue --rework`; a plain requeue resumes at this check and
+   meets the same failure). It runs before review (step 5) and not after it.
+   It runs only where the branch is judged on it alone or has changed since:
+   for a unit that produced nothing, and on a branch moved cleanly onto a new
+   base, before the push. A move with conflicts goes through the adapt step,
+   which accounts for its own tests, and back through the checks and a review. A unit that reaches here with no commits of its own — its groups
    were already implemented, by a predecessor that worked ahead — is judged on
    this check alone: tier 1 passing makes it `satisfied` rather than `failed`,
    its groups ticked and its dependents released, with no PR opened; tier 1

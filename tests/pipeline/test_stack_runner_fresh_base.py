@@ -241,8 +241,10 @@ def test_tier_one_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_
     assert stored.state == IN_REVIEW
     rework = [p for p in harness.recorder.prompts if "trunk renamed the helper" in p]
     assert len(rework) == 1, "the rework was given the tier 1 output"
-    after = harness.events[harness.events.index("claude:rework") :]
-    assert after.index("review") < after.index("tier1") < after.index("push") < after.index("pr")
+    after = harness.events[harness.events.index("claude:fix_checks") :]
+    # Fixed, checked again, reviewed, then pushed: the tier 1 after approval is
+    # the run that already passed on this commit, so it is not repeated.
+    assert after.index("tier1") < after.index("review") < after.index("push") < after.index("pr")
     assert harness.events.count("push") == 1, "nothing was pushed before the rework"
     assert stored.feedback == ""
 
@@ -270,6 +272,41 @@ def test_a_branch_moved_with_resolution_is_not_passed_on_the_old_approval(
     approved = harness.store.get(unit().id).approved
     assert approved and approved != MOVED, "still the commit the review read"
     assert "push" not in harness.events
+
+
+def test_a_clean_move_after_the_review_is_checked_before_it_is_pushed(tmp_path: Path) -> None:
+    """The one tier 1 that follows an approval: the branch changed, so the
+    checks that judged it no longer do. Nothing else re-runs them."""
+    harness = Harness(tmp_path)
+    harness.move_result = CLEAN
+
+    harness.run()
+
+    events = [e for e in harness.events if e in ("tier1", "review", "restack", "push")]
+    # Checked and reviewed on its old base; then moved, checked on the new one, pushed.
+    assert events.count("tier1") == 2
+    assert events.index("tier1") < events.index("review")
+    assert events.index("review") < len(events) - 1 - events[::-1].index("tier1")
+    assert events[-1] == "push"
+    assert harness.events.count("review") == 1, "approval carried to the moved commit"
+
+
+def test_a_move_with_conflicts_is_checked_again_before_it_is_reviewed_again(
+    tmp_path: Path,
+) -> None:
+    """The resolution rewrote the branch, so the commit review approved is not
+    the commit that would be pushed. It is reviewed again — and, as before every
+    review, checked first, so a resolution that broke the build never reaches a
+    reviewer."""
+    harness = Harness(tmp_path)
+    harness.move_result = RESOLVED
+    harness.close_window_after_one_run()
+
+    harness.run()
+
+    events = [e for e in harness.events if e in ("tier1", "review", "push")]
+    assert "push" not in events, "not pushed on the old approval"
+    assert events[:2] == ["tier1", "review"]
 
 
 def test_a_base_gone_at_open_is_asked_for_again_and_the_unit_goes_on_from_the_new_one(

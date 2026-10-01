@@ -243,3 +243,19 @@ def test_a_file_with_neither_section_keeps_the_defaults(tmp_path: Path) -> None:
 
     assert load(path).git.branch_prefix == "spec/"
     assert load(path).git.push_host == ""
+
+
+def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited() -> None:
+    from agent_build_kit.config import LimitsConfig, WorkspaceConfig
+
+    assert LimitsConfig().max_check_rounds == 3
+    assert LimitsConfig(max_check_rounds=0).max_check_rounds == 0
+    assert LimitsConfig(max_check_rounds=None).max_check_rounds is None, "null: no limit"
+    assert (
+        WorkspaceConfig.model_validate(
+            {"limits": {"max_check_rounds": None}}
+        ).limits.max_check_rounds
+        is None
+    )
+    with pytest.raises(ValidationError):
+        LimitsConfig(max_check_rounds=-1)

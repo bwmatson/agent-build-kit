@@ -186,6 +186,33 @@ or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
 
+# What tier 1's output is saved under, whichever step it stopped: it is how
+# every later step tells a failed check from a reviewer's comment.
+TIER1_FAILED = "tier 1 failed:"
+
+CHECKS_PROMPT = """\
+The pipeline's checks (lint, formatting, types and the tests) failed on this
+branch, for change {change_dir}, task group(s) {groups}. Nothing has been
+reviewed yet: a reviewer is only asked once these pass.
+
+---
+{feedback}
+---
+{boundary}
+Fix every failure above, and look for others of the same kind, so the next run
+of the checks does not find them. The output may be cut short; run the checks
+yourself to see all of it. Fix the cause, not the report: do not suppress a
+rule, loosen a type to `Any`, or skip a test to make a check pass unless the
+rule itself is wrong for this code, and then say so.
+
+Run linting, formatting, types and the tests before you finish, and finish only
+when all of them pass. Beyond fixing the checks, keep the change to what the
+task groups ask for.
+The change's files are read-only for you: do not tick boxes in its tasks.md
+or edit anything under {change_dir}. The pipeline records a task as done once
+the unit has passed review, tier 1 and been pushed.
+"""
+
 
 # The only follow-up kind that does not block approval. Anything else — a
 # correctness problem, a test that would pass regardless, a missing test the
@@ -1054,15 +1081,25 @@ class UnitRunner(BaseModel):
             # PR's. So the review-feedback prompt, and nothing is posted — a
             # reply meant for the loop's own reviewer, posted to the PR,
             # addressed the human as "you asked" for things they never did.
-            self.log(f"step: address the review it stopped before ({models().rework})")
+            failed_check = feedback.startswith(TIER1_FAILED)
+            self.log(
+                f"step: {'fix the failing checks' if failed_check else 'address the review'} "
+                f"it stopped before ({models().rework})"
+            )
             response = self.run_rework(
-                REVIEW_FEEDBACK_PROMPT.format(
+                (CHECKS_PROMPT if failed_check else REVIEW_FEEDBACK_PROMPT).format(
                     change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
                 ),
                 cwd=tree,
             )
-            self._record_response(unit, response)
-            self.commit(f"fix: {unit.title} (review, resumed)", cwd=tree)
+            if not failed_check:
+                # A failed check has no reviewer to answer; recording this
+                # would overwrite the last review round's answer.
+                self._record_response(unit, response)
+            self.commit(
+                f"fix: {unit.title} ({'checks' if failed_check else 'review'}, resumed)",
+                cwd=tree,
+            )
             needs_review = True
         elif feedback:
             # One run, not the usual pair. The tests and implementation are
@@ -1072,9 +1109,17 @@ class UnitRunner(BaseModel):
             # Its own call, on the review model: deciding what a reviewer
             # meant is judgement work, and it only ran on the implementation
             # model because it shared `run_claude`'s plumbing.
+            failed_check = feedback.startswith(TIER1_FAILED)
             self.log(f"step: rework from feedback ({models().rework})")
             answer = self.run_rework(
-                REWORK_PROMPT.format(
+                CHECKS_PROMPT.format(
+                    groups=groups,
+                    change_dir=change_dir,
+                    feedback=feedback,
+                    boundary=build_boundary,
+                )
+                if failed_check
+                else REWORK_PROMPT.format(
                     groups=groups,
                     change_dir=change_dir,
                     feedback=feedback,
@@ -1084,7 +1129,7 @@ class UnitRunner(BaseModel):
                 cwd=tree,
             )
             self.commit(f"fix: {unit.title}", cwd=tree)
-            if answer and self.store.get(unit.id).pr:
+            if answer and self.store.get(unit.id).pr and not failed_check:
                 # Only an existing PR has a reviewer waiting in its threads.
                 pending = self.store.get(unit.id).pending_replies
                 self.store.set_pending_replies(unit.id, (*pending, answer))
@@ -1191,6 +1236,7 @@ class UnitRunner(BaseModel):
                 or resume in (REWORK, REWORK_REVIEW)
                 or bool(self.store.get(unit.id).predecessor_note),
                 checkpoint,
+                ref,
                 build_boundary,
                 review_boundary,
             )
@@ -1209,26 +1255,32 @@ class UnitRunner(BaseModel):
                     return outcome
                 return self._spend_rounds(unit, tree, branch, graph, base, why)
 
-        # Tier 1 is not a Claude run, so only upstream can stop it here.
+        # Past this point nothing is a Claude run, so only upstream can stop it.
         if outcome := checkpoint(VERIFY, usage=False):
             return outcome
 
-        self.log("step: tier 1")
-        # Whole-repo when the unit produced nothing: a diff-scoped tier 1
-        # would lint an empty range and test nothing, which is not proof that
-        # anything actually passes. See `wiring.build_tier1`.
-        tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=produced_nothing)
-        self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
-        if not tier1_ok:
-            # Kept, not thrown away. Both pilot units failed here and a retry
-            # knew nothing about why, so it re-ran both expensive prompts and
-            # rebuilt the same branch. Recorded as feedback, a retry is one
-            # scoped run against the actual failure — the same path review
-            # comments take.
-            self.store.set_feedback(unit.id, f"tier 1 failed:\n{tier1_output}".strip())
-            return self._fail(unit, "tier 1 failed")
-
+        # Tier 1 does not run again after a review. A reviewer reports and the
+        # builder fixes, so approval leaves the branch as the checks before it
+        # judged it; a second run would prove nothing new. The branch is
+        # checked again only when it changes: a clean move onto a new base below,
+        # and a conflicted one is resolved by the adapt step, which accounts for
+        # its own tests. A unit that produced nothing has no review and no
+        # earlier check, so tier 1 is the whole judgement of it.
         if produced_nothing:
+            # Whole-repo: a diff-scoped tier 1 would lint an empty range and
+            # test nothing, which is not proof that anything actually passes.
+            # See `wiring.build_tier1`.
+            self.log("step: tier 1")
+            tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=True)
+            self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
+            if not tier1_ok:
+                # Kept, not thrown away. Both pilot units failed here and a
+                # retry knew nothing about why, so it re-ran both expensive
+                # prompts and rebuilt the same branch. Recorded as feedback, a
+                # retry is one scoped run against the actual failure.
+                self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
+                return self._fail(unit, "tier 1 failed")
+
             # Nothing of this unit's own on the branch, and what is already at
             # the tip passes — the work its groups called for arrived another
             # way. Judged here, on the branch and the checks, never on the
@@ -1332,7 +1384,7 @@ class UnitRunner(BaseModel):
             self.log(f"moved onto {base} cleanly before the push; tier 1 again")
             tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
             if not tier1_ok:
-                self.store.set_feedback(unit.id, f"tier 1 failed:\n{tier1_output}".strip())
+                self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
                 return self._resume_for_base(unit, f"tier 1 failed on {base}", base, graph, rebased)
             if unit.tier == "tier2":
                 # The moved commit is what gets pushed and what the status is
@@ -1452,6 +1504,7 @@ class UnitRunner(BaseModel):
         groups: str,
         reworking: bool,
         checkpoint: Callable[[str], RunOutcome | None],
+        ref: str,
         build_boundary: str = "",
         review_boundary: str = "",
     ) -> tuple[bool | RunOutcome, str]:
@@ -1482,6 +1535,14 @@ class UnitRunner(BaseModel):
             # used to be committed after approval, as "leftovers", which put an
             # unreviewed commit on top of the reviewed ones.
             self.commit(f"chore: {unit.title} (uncommitted work)", cwd=tree)
+            # Before the reviewer is asked, not after it approves: a reviewer's
+            # time goes on a branch that passes its checks. A failure goes
+            # back to the builder, and only then is a review requested.
+            stopped = self._fix_until_checks_pass(
+                unit, tree, ref, change_dir, groups, checkpoint, build_boundary
+            )
+            if stopped is not None:
+                return stopped, why
             judged = self.head(tree)
             model = models().review if first else models().rework_review
             self.log(f"step: review round {round_number + 1} ({model})")
@@ -1632,6 +1693,73 @@ class UnitRunner(BaseModel):
             self._record_response(unit, response)
             self.commit(f"fix: {unit.title} (review round {round_number + 1})", cwd=tree)
         return False, why
+
+    def _fix_until_checks_pass(
+        self,
+        unit: Unit,
+        tree: Path,
+        ref: str,
+        change_dir: str,
+        groups: str,
+        checkpoint: Callable[[str], RunOutcome | None],
+        build_boundary: str,
+    ) -> RunOutcome | None:
+        """Run tier 1 before a review, and hand its failures back to the builder.
+
+        Tier 1 used to run only after the reviewer approved, so a branch that
+        did not lint or type-check was reviewed twice over: once to approve it,
+        and again after the failure came back. The reviewer is also the more
+        expensive model. Now the branch has to pass its own checks first, and a
+        failure is a rework step on the saved output, up to
+        `limits.max_check_rounds` of them, before it is failed.
+
+        The budget is per round of review, not per unit: this runs at the top of
+        each round and counts from zero every time, so a rework that breaks the
+        build again gets its own fix attempts. `None` is no limit.
+
+        Returns None when the checks pass, else the outcome that ends the run:
+        failed, or stopped by a pause. A budget of 0 is not "off": the branch is
+        still checked, and a failure fails the unit with no fix attempt, since
+        this is the only gate before a push. A fix that leaves the branch as it
+        was ends the run whatever the budget: asking again would be the same
+        question of the same tree, and with no limit it would never stop.
+        """
+        budget = active().limits.max_check_rounds
+        attempt = 0
+        while True:
+            self.log("step: checks before review")
+            ok, output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
+            self.log(f"checks {'passed' if ok else 'failed'}")
+            if ok:
+                if self.store.get(unit.id).feedback.startswith(TIER1_FAILED):
+                    # Fixed. Left saved, a run stopped before its review would
+                    # resume into the same fix and redo work already on the branch.
+                    self.store.set_feedback(unit.id, "")
+                return None
+            # Kept before anything can stop the run, so the retry addresses
+            # this output rather than running the checks to discover it.
+            feedback = f"{TIER1_FAILED}\n{output}".strip()
+            self.store.set_feedback(unit.id, feedback)
+            if budget is not None and attempt >= budget:
+                return self._fail(
+                    unit, f"checks still failing after {budget} fix round(s), before review"
+                )
+            if outcome := checkpoint(REWORK):
+                return outcome
+            attempt += 1
+            self.log(f"step: fix the failing checks ({models().rework}), round {attempt}")
+            before = self.head(tree)
+            self.run_rework(
+                CHECKS_PROMPT.format(
+                    change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
+                ),
+                cwd=tree,
+            )
+            self.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
+            if self.head(tree) == before:
+                return self._fail(
+                    unit, f"checks failing and fix round {attempt} changed nothing, before review"
+                )
 
     def _record_response(self, unit: Unit, response: str) -> None:
         """The builder's account of the last round's ask, for the next review."""

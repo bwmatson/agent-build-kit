@@ -127,15 +127,21 @@ across restacks. `--profile` defaults to the profile `abk.yaml` gives the repo
 containing `--repo`, else `python-uv`. Prints each problem prefixed `✗`; exit
 1 if any, else 0 with `✓ tests-first: ...`.
 
-### `abk requeue UNIT [--restart]`
+### `abk requeue UNIT [--restart | --rework]`
 
-Gives a `failed` or `held` unit another go. Two different things, and the
+Gives a `failed` or `held` unit another go. Three different things, and the
 command says which:
 
 - **Default: resume where it stopped.** Right when the failure was the
   environment's — a missing tool, a flaky check. A failed unit remembers the
   step it stopped at (say, before `verify`), its agent's work is on the branch,
   and redoing it would only spend the usage window to arrive at the same place.
+- **`--rework`: keep the work and hand the agent the failure.** Right when the
+  unit failed a check on real errors (a type error, a lint rule, a test), where
+  resuming runs the same check on the same branch and fails the same way with
+  the agent none the wiser. It clears the remembered step and keeps the saved
+  output, so the next run is a rework from that output, then checks, then
+  review. Refused (exit 1, nothing changed) when no failure was saved.
 - **`--restart`: start over from the agent's step and forget the failure.**
   Right when the failure was the attempt's own, such as a build on the wrong
   base branch, where resuming would judge work that was never valid. It clears
@@ -143,7 +149,7 @@ command says which:
 
 Any other state is refused: a running unit would be built twice, an in-review
 one has a pull request that would be orphaned, and a planned or merged one has
-nothing to retry. `--restart` does not touch the unit's branch or worktree; if
+nothing to retry. `--rework` and `--restart` cannot be combined. `--restart` does not touch the unit's branch or worktree; if
 those came from a wrong base, remove them first (`git worktree remove`, then
 `git branch -D`, after checking nothing on it is unpushed). Exit 2 for an
 unknown unit, 1 when the unit is not stuck, else 0.
