@@ -741,17 +741,18 @@ def test_the_old_usage_keys_are_a_warning_that_spells_out_the_replacement(
     [warned] = [c for c in checks if c.name == "usage limits"]
     assert warned.status == "warn"
     assert "limits.usage_pause_pct" in warned.detail and "limits.usage_ceiling_pct" in warned.detail
-    assert "runtimes.claude_code" in warned.fix
-    assert "session_usage_pause_pct: 85" in warned.fix
-    assert "weekly_usage_pause_ceiling_pct: 92" in warned.fix
+    assert "runtimes.claude_code.limits" in warned.fix
+    assert "session: usage_pause_pct: 85, usage_pause_ceiling_pct: 92" in warned.fix
+    assert "weekly: usage_pause_pct: 85, usage_pause_ceiling_pct: 92" in warned.fix
 
 
 def test_the_new_usage_keys_are_not_warned_about(workspace: Path) -> None:
     path = workspace / "abk.yaml"
     path.write_text(
         path.read_text()
-        + "runtimes:\n  claude_code:\n"
-        + "    session_usage_pause_pct: 85\n    weekly_usage_pause_pct: 90\n"
+        + "runtimes:\n  claude_code:\n    limits:\n"
+        + "      session:\n        usage_pause_pct: 85\n"
+        + "      weekly:\n        usage_pause_pct: 90\n"
     )
 
     checks = run_doctor(path, run=Answers(), which=which_all)

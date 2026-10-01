@@ -96,6 +96,54 @@ class RuntimeModelsConfig(Frozen):
     rework_review: str | None = None
 
 
+class UsageWindowConfig(Frozen):
+    """How full one usage window may get before the pipeline stops starting
+    units. The session and the week are both this, with the same names."""
+
+    # Percent of the window at which no NEW unit starts, for most of that window.
+    usage_pause_pct: Annotated[int, Field(ge=0, lt=100)] = 70
+    # The most the window may ever be run to: the threshold at the moment it
+    # resets. Quota not used before a reset is lost, and the headroom the pause
+    # protects matters less the closer the reset is. Below 100 because credits
+    # pay past the plan limit. Unset, it is the pause percent: the threshold
+    # then never moves, and the ramp is skipped.
+    usage_pause_ceiling_pct: Annotated[int, Field(ge=0, lt=100)] | None = None
+    # The trailing fraction of the window, counted back from its reset, over
+    # which the threshold ramps from the pause percent to the ceiling: 0.25 is
+    # the last ~75 minutes of a session, the last ~42 hours of a week. Before it
+    # the threshold is the pause percent. Meaningless with no ramp.
+    usage_relief_fraction: Annotated[float, Field(gt=0, le=1)] = 0.25
+    # How much room above current usage the threshold must offer before a
+    # paused pipeline is woken: enough that a unit which starts can finish,
+    # rather than being admitted exactly at the margin.
+    usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
+
+    @property
+    def usage_ceiling_pct(self) -> int:
+        """The ceiling as it applies: the pause percent when unset."""
+        ceiling = self.usage_pause_ceiling_pct
+        return self.usage_pause_pct if ceiling is None else ceiling
+
+    @model_validator(mode="after")
+    def _ceiling_not_below_pause(self) -> UsageWindowConfig:
+        """A ceiling under the pause percent would make the threshold *fall* as
+        a reset approaches, which is the opposite of what it is for."""
+        if self.usage_ceiling_pct < self.usage_pause_pct:
+            raise ValueError(
+                f"usage_pause_ceiling_pct ({self.usage_ceiling_pct}) is below "
+                f"usage_pause_pct ({self.usage_pause_pct})"
+            )
+        return self
+
+
+class ClaudeLimitsConfig(Frozen):
+    """The Claude subscription's two usage windows (`runtimes.claude_code.limits`).
+    They fill independently, so each has its own section."""
+
+    session: UsageWindowConfig = UsageWindowConfig()
+    weekly: UsageWindowConfig = UsageWindowConfig()
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -107,55 +155,8 @@ class RuntimeConfig(Frozen):
     policy_fix: list[str] | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
 
-    # --- Claude's usage windows (`runtimes.claude_code` only) ----------------
-    #
-    # The subscription has two windows, a five-hour session and a seven-day
-    # week, that fill independently, so each has its own threshold. Percent of
-    # a window at which no NEW unit starts, for most of that window:
-    session_usage_pause_pct: Annotated[int, Field(ge=0, lt=100)] = 70
-    weekly_usage_pause_pct: Annotated[int, Field(ge=0, lt=100)] = 70
-    # The most a window may ever be run to: the threshold at the moment it
-    # resets. Quota not used before a reset is lost, and the headroom the pause
-    # protects matters less the closer the reset is. Below 100 because credits
-    # pay past the plan limit. Unset, it is the pause percent: the threshold
-    # then never moves, and the ramp is skipped.
-    session_usage_pause_ceiling_pct: Annotated[int, Field(ge=0, lt=100)] | None = None
-    weekly_usage_pause_ceiling_pct: Annotated[int, Field(ge=0, lt=100)] | None = None
-    # The trailing fraction of a window over which the threshold ramps from its
-    # pause percent to its ceiling. 0.25 is the last ~75 minutes of a five-hour
-    # session, the last ~42 hours of the week. Shared by both windows, and
-    # meaningless for a window whose ceiling equals its pause percent.
-    usage_relief_fraction: Annotated[float, Field(gt=0, le=1)] = 0.25
-    # How much room above the current usage the ramp must offer before a
-    # paused pipeline is woken: enough that a unit which starts can finish,
-    # rather than being admitted exactly at the margin.
-    usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
-
-    @property
-    def session_usage_ceiling_pct(self) -> int:
-        """The session's ceiling as it applies: the pause percent when unset."""
-        ceiling = self.session_usage_pause_ceiling_pct
-        return self.session_usage_pause_pct if ceiling is None else ceiling
-
-    @property
-    def weekly_usage_ceiling_pct(self) -> int:
-        """The week's ceiling as it applies: the pause percent when unset."""
-        ceiling = self.weekly_usage_pause_ceiling_pct
-        return self.weekly_usage_pause_pct if ceiling is None else ceiling
-
-    @model_validator(mode="after")
-    def _ceilings_not_below_pauses(self) -> RuntimeConfig:
-        """A ceiling under its pause percent would make the threshold *fall* as
-        a reset approaches, which is the opposite of what it is for."""
-        for window in ("session", "weekly"):
-            pause = getattr(self, f"{window}_usage_pause_pct")
-            ceiling = getattr(self, f"{window}_usage_ceiling_pct")
-            if ceiling < pause:
-                raise ValueError(
-                    f"{window}_usage_pause_ceiling_pct ({ceiling}) is below "
-                    f"{window}_usage_pause_pct ({pause})"
-                )
-        return self
+    # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
+    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
 
 
 class LimitsConfig(Frozen):
@@ -386,18 +387,6 @@ class VerifyConfig(Frozen):
 # The runtime whose usage windows the pause thresholds describe.
 CLAUDE_CODE = "claude_code"
 
-# The settings that only mean something on `runtimes.claude_code`.
-_CLAUDE_USAGE_FIELDS = frozenset(
-    {
-        "session_usage_pause_pct",
-        "session_usage_pause_ceiling_pct",
-        "weekly_usage_pause_pct",
-        "weekly_usage_pause_ceiling_pct",
-        "usage_relief_fraction",
-        "usage_resume_buffer_pct",
-    }
-)
-
 # Where these lived before they moved under `runtimes.claude_code`, and what
 # each stood for. One pause percent and one ceiling then served both windows, and
 # the ceiling defaulted to 90 against a pause of 70, so a ramp was on unless
@@ -455,20 +444,21 @@ class WorkspaceConfig(Frozen):
         if not isinstance(runtimes_block, dict):
             return data
         claude = dict(runtimes_block.get(CLAUDE_CODE) or {})
-        if any(key in claude for key in _CLAUDE_USAGE_FIELDS):
+        if claude.get("limits"):
             raise ValueError(
-                f"limits.{found[0]} and runtimes.{CLAUDE_CODE}.* both set the usage "
-                f"thresholds; keep the runtimes.{CLAUDE_CODE} ones and delete limits.usage_*"
+                f"limits.{found[0]} and runtimes.{CLAUDE_CODE}.limits both set the usage "
+                f"thresholds; keep the runtimes.{CLAUDE_CODE}.limits ones and delete limits.usage_*"
             )
         limits = dict(data["limits"])
-        pause = limits.pop("usage_pause_pct", _LEGACY_PAUSE)
-        ceiling = limits.pop("usage_ceiling_pct", _LEGACY_CEILING)
-        for window in ("session", "weekly"):
-            claude[f"{window}_usage_pause_pct"] = pause
-            claude[f"{window}_usage_pause_ceiling_pct"] = ceiling
+        # One value then served both windows; both get it now.
+        moved: dict[str, object] = {
+            "usage_pause_pct": limits.pop("usage_pause_pct", _LEGACY_PAUSE),
+            "usage_pause_ceiling_pct": limits.pop("usage_ceiling_pct", _LEGACY_CEILING),
+        }
         for key in ("usage_relief_fraction", "usage_resume_buffer_pct"):
             if key in limits:
-                claude[key] = limits.pop(key)
+                moved[key] = limits.pop(key)
+        claude["limits"] = {"session": dict(moved), "weekly": dict(moved)}
         return {**data, "limits": limits, "runtimes": {**runtimes_block, CLAUDE_CODE: claude}}
 
     @model_validator(mode="after")
@@ -476,10 +466,9 @@ class WorkspaceConfig(Frozen):
         """The usage windows are Claude's. Set on another runtime they would be
         read by nothing, which looks like a limit and is not one."""
         for name, entry in self.runtimes.items():
-            stray = sorted(entry.model_fields_set & _CLAUDE_USAGE_FIELDS)
-            if name != CLAUDE_CODE and stray:
+            if name != CLAUDE_CODE and "limits" in entry.model_fields_set:
                 raise ValueError(
-                    f"runtimes.{name}.{stray[0]}: the usage thresholds belong to "
+                    f"runtimes.{name}.limits: the usage thresholds belong to "
                     f"runtimes.{CLAUDE_CODE}, the only runtime with usage windows"
                 )
         return self

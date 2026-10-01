@@ -79,23 +79,25 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # one missing a fact its adapter requires,
                                 # fails at load; only the selected runtime's
                                 # entry is checked.
-  claude_code:                  # the Claude subscription's usage windows: a
-                                # five-hour session and a seven-day week, each
-                                # with its own thresholds. Nothing else about
-                                # this runtime needs a fact from the file.
-    session_usage_pause_pct: 70         # % of the session at which no new
-                                        # unit starts, for most of the window
-    session_usage_pause_ceiling_pct:    # what that rises to at the session's
-                                        # reset. Unset = the pause percent:
-                                        # no ramp. Below 100, where credits
-                                        # start paying
-    weekly_usage_pause_pct: 70          # the same, for the week
-    weekly_usage_pause_ceiling_pct:     # unset = the pause percent: no ramp
-    usage_relief_fraction: 0.25         # the trailing part of a window a ramp
-                                        # is spread over (a session's last ~75
-                                        # minutes); ignored by a window with no ramp
-    usage_resume_buffer_pct: 5          # room above current usage the rising
-                                        # threshold must offer before a pause lifts
+  claude_code:                  # the Claude subscription: a five-hour session
+    limits:                     # and a seven-day week fill independently, so
+      session:                  # each has its own section, with the same names
+        usage_pause_pct: 70     # % of the window at which no new unit starts,
+                                # for most of it
+        usage_pause_ceiling_pct:  # what that rises to at the window's reset.
+                                  # Unset = usage_pause_pct: no ramp. Below 100,
+                                  # where credits start paying
+        usage_relief_fraction: 0.25  # the trailing part of the window the rise
+                                     # is spread over (a session's last ~75
+                                     # minutes, a week's last ~42 hours).
+                                     # Unused when there is no ramp
+        usage_resume_buffer_pct: 5   # room above current usage the threshold
+                                     # must offer before a pause lifts
+      weekly:                   # the same four settings, for the week
+        usage_pause_pct: 70
+        usage_pause_ceiling_pct:
+        usage_relief_fraction: 0.25
+        usage_resume_buffer_pct: 5
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when

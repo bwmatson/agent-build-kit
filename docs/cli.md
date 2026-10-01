@@ -26,8 +26,8 @@ One pass of the loop, the command the timer runs every few minutes. In
 order: exit silently if nothing needs a tick (no unit `planned`/`running`/
 `in_review` and every change planned in its current form); stop if paused;
 read the usage windows and pause if either is past the threshold that applies
-to it now (`session_usage_pause_pct` / `weekly_usage_pause_pct` under
-`runtimes.claude_code`, rising towards the `..._pause_ceiling_pct` as that
+to it now (`usage_pause_pct` in the `session` / `weekly` section of
+`runtimes.claude_code.limits`, rising towards its `usage_pause_ceiling_pct` as that
 window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; reclaim units
 left `running` by a dead process; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then build the ready

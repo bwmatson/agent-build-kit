@@ -19,7 +19,13 @@ import pytest
 from pydantic import ValidationError
 
 from agent_build_kit import config as config_module
-from agent_build_kit.config import CLAUDE_CODE, RuntimeConfig, WorkspaceConfig
+from agent_build_kit.config import (
+    CLAUDE_CODE,
+    ClaudeLimitsConfig,
+    RuntimeConfig,
+    UsageWindowConfig,
+    WorkspaceConfig,
+)
 from agent_build_kit.pipeline.usage_guard import (
     MAX_SCHEDULED_PAUSE,
     RESUME_GRACE,
@@ -37,40 +43,56 @@ from agent_build_kit.pipeline.usage_guard import (
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
 
 
-def limits(*, session: tuple[int, int] = (70, 90), weekly: tuple[int, int] = (70, 90)) -> Limits:
-    """(pause, ceiling) for each window."""
+def limits(
+    *,
+    session: tuple[int, int] = (70, 90),
+    weekly: tuple[int, int] = (70, 90),
+    relief: tuple[float, float] = (0.25, 0.25),
+    buffer: tuple[int, int] = (5, 5),
+) -> Limits:
+    """(pause, ceiling) for each window, and each window's relief fraction and
+    resume buffer."""
     return Limits(
-        session=Band(pause_pct=session[0], ceiling_pct=session[1]),
-        weekly=Band(pause_pct=weekly[0], ceiling_pct=weekly[1]),
-        relief_fraction=0.25,
-        resume_buffer_pct=5,
+        session=Band(
+            pause_pct=session[0],
+            ceiling_pct=session[1],
+            relief_fraction=relief[0],
+            resume_buffer_pct=buffer[0],
+        ),
+        weekly=Band(
+            pause_pct=weekly[0],
+            ceiling_pct=weekly[1],
+            relief_fraction=relief[1],
+            resume_buffer_pct=buffer[1],
+        ),
     )
 
 
 LIMITS = limits()
 
 
-def configure(**claude: object) -> None:
-    """Make these the Claude runtime's settings for `may_start_unit`, which
-    reads the active config. The suite's autouse fixture resets it afterwards."""
+def configure(
+    session: dict[str, object] | None = None, weekly: dict[str, object] | None = None
+) -> None:
+    """Make these the Claude runtime's limits for `may_start_unit`, which reads
+    the active config. Each argument is one window's section. The suite's
+    autouse fixture resets the config afterwards."""
+    limits_block = {"session": session or {}, "weekly": weekly or {}}
     config_module.activate(
-        WorkspaceConfig(runtimes={CLAUDE_CODE: RuntimeConfig.model_validate(claude)}), None
+        WorkspaceConfig.model_validate({"runtimes": {CLAUDE_CODE: {"limits": limits_block}}}),
+        None,
     )
 
 
 @pytest.fixture(autouse=True)
 def ramp_70_to_90() -> None:
     """The ramp these tests are about, spelled out: it is not the default."""
-    configure(
-        session_usage_pause_pct=70,
-        session_usage_pause_ceiling_pct=90,
-        weekly_usage_pause_pct=70,
-        weekly_usage_pause_ceiling_pct=90,
-    )
+    ramp: dict[str, object] = {"usage_pause_pct": 70, "usage_pause_ceiling_pct": 90}
+    configure(session=ramp, weekly=ramp)
 
 
 # A quarter of five hours: the ramp covers the last 75 minutes of a session.
-SESSION_SPAN = SESSION_WINDOW * LIMITS.relief_fraction
+SESSION_SPAN = SESSION_WINDOW * LIMITS.session.relief_fraction
 
 
 def session(*, used: int = 10, resets_in: timedelta | None = SESSION_SPAN * 2) -> Window:
@@ -270,7 +292,7 @@ def test_a_flat_window_offers_no_relief_before_its_reset() -> None:
 
 
 def test_a_flat_window_does_not_claim_to_be_ramping() -> None:
-    configure(session_usage_pause_pct=80, weekly_usage_pause_pct=80)
+    configure(session={"usage_pause_pct": 80}, weekly={"usage_pause_pct": 80})
 
     decision = may_start_unit(reading(session_pct=82, resets_in=timedelta(minutes=30)))
 
@@ -283,7 +305,7 @@ def test_a_flat_window_does_not_claim_to_be_ramping() -> None:
 def test_a_flat_window_stays_flat_next_to_its_reset() -> None:
     """The case the ramp exists for: 78% twenty minutes from a reset. Flat at
     75, it still refuses."""
-    configure(session_usage_pause_pct=75, weekly_usage_pause_pct=75)
+    configure(session={"usage_pause_pct": 75}, weekly={"usage_pause_pct": 75})
 
     assert not may_start_unit(reading(session_pct=78, resets_in=timedelta(minutes=20))).may_start
 
@@ -301,7 +323,7 @@ def test_the_session_can_ramp_while_the_week_does_not() -> None:
 
 
 def test_each_window_has_its_own_pause_percent() -> None:
-    configure(session_usage_pause_pct=60, weekly_usage_pause_pct=90)
+    configure(session={"usage_pause_pct": 60}, weekly={"usage_pause_pct": 90})
 
     assert not may_start_unit(reading(session_pct=65, weekly_pct=10)).may_start
     assert may_start_unit(reading(session_pct=10, weekly_pct=85)).may_start
@@ -309,11 +331,7 @@ def test_each_window_has_its_own_pause_percent() -> None:
 
 
 def test_a_ceiling_on_one_window_does_not_move_the_other() -> None:
-    configure(
-        session_usage_pause_pct=70,
-        session_usage_pause_ceiling_pct=90,
-        weekly_usage_pause_pct=70,
-    )
+    configure(session={"usage_pause_pct": 70, "usage_pause_ceiling_pct": 90})
 
     session_late = reading(session_pct=78, resets_in=timedelta(minutes=20))
     week_late = reading(weekly_pct=78, weekly_resets_in=timedelta(minutes=20))
@@ -331,50 +349,122 @@ def test_the_defaults_pause_both_windows_at_seventy_with_no_ramp() -> None:
     assert "threshold 70%" in decision.reason and "ramping" not in decision.reason
 
 
+# --- relief fraction and resume buffer are per window --------------------------
+
+
+def test_each_window_ramps_over_its_own_trailing_fraction() -> None:
+    """A quarter of a week is ~42 hours; a quarter of a session is ~75 minutes.
+    A caller who wants the week to ramp over its last 6 hours says so."""
+    short_week = limits(relief=(0.25, 6 / 168))
+
+    assert threshold_at(weekly(resets_in=timedelta(hours=6)), now=NOW, limits=short_week) == 70
+    assert threshold_at(weekly(resets_in=timedelta(hours=6)), now=NOW, limits=LIMITS) > 85
+
+
+def test_the_session_fraction_does_not_move_the_week() -> None:
+    wide_session = limits(relief=(1.0, 0.25))
+
+    assert threshold_at(session(resets_in=SESSION_WINDOW / 2), now=NOW, limits=wide_session) == 80
+    assert threshold_at(weekly(resets_in=timedelta(days=3)), now=NOW, limits=wide_session) == 70
+
+
+def test_each_window_waits_for_its_own_resume_buffer() -> None:
+    """At 66% used the base (70%) already leaves room for a buffer of 0, but a
+    buffer of 5 wants 71% and must wait for the ramp to offer it."""
+    roomy = limits(buffer=(0, 5))
+
+    no_wait = relief_at(session(used=66, resets_in=SESSION_SPAN), now=NOW, limits=roomy)
+    waits = relief_at(weekly(used=66, resets_in=timedelta(days=3)), now=NOW, limits=roomy)
+
+    assert no_wait == NOW
+    assert waits is not None and waits > NOW
+
+
+def test_configured_limits_carry_each_windows_own_numbers() -> None:
+    configure(
+        session={"usage_relief_fraction": 0.5, "usage_resume_buffer_pct": 2},
+        weekly={"usage_relief_fraction": 0.1, "usage_resume_buffer_pct": 9},
+    )
+
+    configured = Limits.configured()
+
+    assert (configured.session.relief_fraction, configured.session.resume_buffer_pct) == (0.5, 2)
+    assert (configured.weekly.relief_fraction, configured.weekly.resume_buffer_pct) == (0.1, 9)
+
+
 # --- configuration -------------------------------------------------------------
 
 
-def test_a_ceiling_left_out_is_the_pause_percent() -> None:
-    claude = RuntimeConfig(session_usage_pause_pct=82, weekly_usage_pause_pct=64)
+def test_the_two_windows_have_the_same_settings_under_the_same_names() -> None:
+    claude = ClaudeLimitsConfig()
 
-    assert claude.session_usage_ceiling_pct == 82
-    assert claude.weekly_usage_ceiling_pct == 64
-    assert claude.session_usage_pause_ceiling_pct is None
+    assert type(claude.session) is type(claude.weekly) is UsageWindowConfig
+    assert set(UsageWindowConfig.model_fields) == {
+        "usage_pause_pct",
+        "usage_pause_ceiling_pct",
+        "usage_relief_fraction",
+        "usage_resume_buffer_pct",
+    }
+
+
+def test_a_ceiling_left_out_is_the_pause_percent() -> None:
+    window = UsageWindowConfig(usage_pause_pct=82)
+
+    assert window.usage_ceiling_pct == 82
+    assert window.usage_pause_ceiling_pct is None
 
 
 def test_a_ceiling_below_the_pause_percent_is_refused() -> None:
     """It would make the threshold *fall* towards a reset, which no caller
     would ever be able to explain. Each window is checked on its own."""
-    with pytest.raises(ValidationError, match="session_usage_pause_ceiling_pct"):
-        RuntimeConfig(session_usage_pause_pct=80, session_usage_pause_ceiling_pct=70)
-    with pytest.raises(ValidationError, match="weekly_usage_pause_ceiling_pct"):
-        RuntimeConfig(weekly_usage_pause_pct=80, weekly_usage_pause_ceiling_pct=70)
+    with pytest.raises(ValidationError, match="usage_pause_ceiling_pct"):
+        UsageWindowConfig(usage_pause_pct=80, usage_pause_ceiling_pct=70)
+    with pytest.raises(ValidationError, match=r"limits\.weekly"):
+        WorkspaceConfig.model_validate(
+            {
+                "runtimes": {
+                    CLAUDE_CODE: {
+                        "limits": {"weekly": {"usage_pause_pct": 80, "usage_pause_ceiling_pct": 70}}
+                    }
+                }
+            }
+        )
 
 
 def test_a_ceiling_with_no_pause_percent_is_checked_against_the_default() -> None:
     with pytest.raises(ValidationError):
-        RuntimeConfig(session_usage_pause_ceiling_pct=60)
+        UsageWindowConfig(usage_pause_ceiling_pct=60)
 
 
-@pytest.mark.parametrize(
-    "field",
-    [
-        "session_usage_pause_pct",
-        "weekly_usage_pause_pct",
-        "session_usage_pause_ceiling_pct",
-        "weekly_usage_pause_ceiling_pct",
-    ],
-)
+@pytest.mark.parametrize("field", ["usage_pause_pct", "usage_pause_ceiling_pct"])
 def test_the_credits_line_is_never_reached(field: str) -> None:
     with pytest.raises(ValidationError):
-        RuntimeConfig.model_validate({field: 100})
+        UsageWindowConfig.model_validate({field: 100})
+
+
+@pytest.mark.parametrize("fraction", [0, -0.1, 1.5])
+def test_a_relief_fraction_outside_zero_to_one_is_refused(fraction: float) -> None:
+    with pytest.raises(ValidationError):
+        UsageWindowConfig(usage_relief_fraction=fraction)
+
+
+def test_an_unknown_setting_in_a_window_is_refused() -> None:
+    """A misspelling must not read as a limit that is not there."""
+    with pytest.raises(ValidationError):
+        UsageWindowConfig.model_validate({"usage_pause_percent": 80})
 
 
 def test_the_usage_settings_belong_to_the_claude_runtime() -> None:
     """Set on another runtime they would be read by nothing, which looks like a
     limit and is not one."""
-    with pytest.raises(ValidationError, match="runtimes.acp"):
-        WorkspaceConfig(runtimes={"acp": RuntimeConfig(session_usage_pause_pct=80)})
+    with pytest.raises(ValidationError, match=r"runtimes\.acp\.limits"):
+        WorkspaceConfig(
+            runtimes={
+                "acp": RuntimeConfig(
+                    limits=ClaudeLimitsConfig(session=UsageWindowConfig(usage_pause_pct=80))
+                )
+            }
+        )
 
 
 def test_other_runtime_settings_are_unaffected() -> None:
@@ -383,49 +473,81 @@ def test_other_runtime_settings_are_unaffected() -> None:
     assert config.runtimes["acp"].command == ["agent", "acp"]
 
 
+def test_the_sections_load_from_a_mapping() -> None:
+    claude = (
+        WorkspaceConfig.model_validate(
+            {
+                "runtimes": {
+                    CLAUDE_CODE: {
+                        "limits": {
+                            "session": {"usage_pause_pct": 85, "usage_pause_ceiling_pct": 92},
+                            "weekly": {"usage_pause_pct": 90, "usage_relief_fraction": 0.1},
+                        }
+                    }
+                }
+            }
+        )
+        .runtimes[CLAUDE_CODE]
+        .limits
+    )
+
+    assert (claude.session.usage_pause_pct, claude.session.usage_ceiling_pct) == (85, 92)
+    assert (claude.weekly.usage_pause_pct, claude.weekly.usage_ceiling_pct) == (90, 90)
+    assert (claude.session.usage_relief_fraction, claude.weekly.usage_relief_fraction) == (
+        0.25,
+        0.1,
+    )
+
+
 # --- the old keys --------------------------------------------------------------
 
 
-def test_the_old_limits_keys_are_read_as_the_claude_runtimes_settings() -> None:
-    """Both windows took the one number then, so both get it now."""
+def test_the_old_limits_keys_are_read_into_both_windows() -> None:
+    """One number served both windows then, so both get it now."""
     config = WorkspaceConfig.model_validate(
         {"limits": {"usage_pause_pct": 85, "usage_ceiling_pct": 92, "max_review_rounds": 2}}
     )
 
-    claude = config.runtimes[CLAUDE_CODE]
-    assert (claude.session_usage_pause_pct, claude.session_usage_ceiling_pct) == (85, 92)
-    assert (claude.weekly_usage_pause_pct, claude.weekly_usage_ceiling_pct) == (85, 92)
+    claude = config.runtimes[CLAUDE_CODE].limits
+    for window in (claude.session, claude.weekly):
+        assert (window.usage_pause_pct, window.usage_ceiling_pct) == (85, 92)
     assert config.limits.max_review_rounds == 2, "the rest of limits is untouched"
 
 
 def test_a_file_with_only_the_old_pause_percent_keeps_its_old_ramp() -> None:
     """The old ceiling defaulted to 90, so a ramp was on unless turned off.
     A file written then must behave as it did, not quietly stop ramping."""
-    claude = WorkspaceConfig.model_validate({"limits": {"usage_pause_pct": 60}}).runtimes[
-        CLAUDE_CODE
-    ]
+    claude = (
+        WorkspaceConfig.model_validate({"limits": {"usage_pause_pct": 60}})
+        .runtimes[CLAUDE_CODE]
+        .limits
+    )
 
-    assert claude.session_usage_pause_pct == 60
-    assert claude.session_usage_ceiling_pct == 90
-    assert claude.weekly_usage_ceiling_pct == 90
+    assert claude.session.usage_pause_pct == 60
+    assert claude.session.usage_ceiling_pct == claude.weekly.usage_ceiling_pct == 90
 
 
-def test_the_old_relief_and_buffer_keys_move_too() -> None:
-    claude = WorkspaceConfig.model_validate(
-        {"limits": {"usage_relief_fraction": 0.5, "usage_resume_buffer_pct": 8}}
-    ).runtimes[CLAUDE_CODE]
+def test_the_old_relief_and_buffer_keys_move_too_to_both_windows() -> None:
+    claude = (
+        WorkspaceConfig.model_validate(
+            {"limits": {"usage_relief_fraction": 0.5, "usage_resume_buffer_pct": 8}}
+        )
+        .runtimes[CLAUDE_CODE]
+        .limits
+    )
 
-    assert (claude.usage_relief_fraction, claude.usage_resume_buffer_pct) == (0.5, 8)
+    for window in (claude.session, claude.weekly):
+        assert (window.usage_relief_fraction, window.usage_resume_buffer_pct) == (0.5, 8)
 
 
 def test_old_and_new_keys_together_are_refused() -> None:
     """Two places saying how full a window may get, with no rule for which
     wins, is how a limit gets raised by the one nobody looked at."""
-    with pytest.raises(ValidationError, match="both set the usage thresholds"):
+    with pytest.raises(ValidationError, match="both set the usage"):
         WorkspaceConfig.model_validate(
             {
                 "limits": {"usage_pause_pct": 80},
-                "runtimes": {CLAUDE_CODE: {"weekly_usage_pause_pct": 85}},
+                "runtimes": {CLAUDE_CODE: {"limits": {"weekly": {"usage_pause_pct": 85}}}},
             }
         )
 

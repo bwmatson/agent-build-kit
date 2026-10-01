@@ -51,14 +51,19 @@ runtime: claude_code          # the agent runtime every step runs on;
                               # unknown one fails at load.
 runtimes:                     # only for a runtime needing a fact abk cannot
                               # default; only the selected one is checked
-  claude_code:                # the subscription's usage windows, each its own
-    session_usage_pause_pct: 70         # % of the 5-hour session at which no unit starts
-    session_usage_pause_ceiling_pct:    # what that rises to at the reset; unset =
-                                        # the pause %, which means no ramp
-    weekly_usage_pause_pct: 70          # the same for the 7-day week
-    weekly_usage_pause_ceiling_pct:     # unset = no ramp
-    usage_relief_fraction: 0.25         # trailing part of a window a ramp spans
-    usage_resume_buffer_pct: 5          # room above usage a resume waits for
+  claude_code:                # the subscription's two usage windows, each a section
+    limits:                   # with the same settings
+      session:                # the 5-hour window
+        usage_pause_pct: 70            # % at which no unit starts
+        usage_pause_ceiling_pct:       # what that rises to at the reset; unset =
+                                       # usage_pause_pct, which means no ramp
+        usage_relief_fraction: 0.25    # trailing part of the window a ramp spans
+        usage_resume_buffer_pct: 5     # room above usage a resume waits for
+      weekly:                 # the 7-day window: the same four
+        usage_pause_pct: 70
+        usage_pause_ceiling_pct:
+        usage_relief_fraction: 0.25
+        usage_resume_buffer_pct: 5
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor

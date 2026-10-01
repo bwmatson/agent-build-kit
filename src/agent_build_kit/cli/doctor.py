@@ -93,18 +93,18 @@ def _legacy_usage_keys(path: Path, loaded: WorkspaceConfig) -> list[Check]:
     old = config.legacy_usage_keys(yaml.safe_load(path.read_text()))
     if not old:
         return []
-    claude = loaded.runtimes[config.CLAUDE_CODE]
-    spelled = [
-        f"{window}_usage_pause_pct: {getattr(claude, f'{window}_usage_pause_pct')}"
-        f"  # {window}_usage_pause_ceiling_pct: {getattr(claude, f'{window}_usage_ceiling_pct')}"
-        for window in ("session", "weekly")
-    ]
+    claude = loaded.runtimes[config.CLAUDE_CODE].limits
+    spelled = "; ".join(
+        f"{name}: usage_pause_pct: {window.usage_pause_pct}, "
+        f"usage_pause_ceiling_pct: {window.usage_ceiling_pct}"
+        for name, window in (("session", claude.session), ("weekly", claude.weekly))
+    )
     return [
         _warn(
             "usage limits",
             f"{path} still sets {', '.join('limits.' + key for key in old)}",
-            f"move them under runtimes.{config.CLAUDE_CODE}, one pair per window "
-            f"({'; '.join(spelled)}). A ceiling equal to its pause percent, or left out, "
+            f"move them under runtimes.{config.CLAUDE_CODE}.limits, one section per window "
+            f"({spelled}). A ceiling equal to its pause percent, or left out, "
             "turns the ramp off for that window",
         )
     ]

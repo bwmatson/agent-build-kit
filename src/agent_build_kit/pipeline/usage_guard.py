@@ -4,17 +4,18 @@ The account is on a subscription, so the constraint isn't dollars — it's the
 plan's usage window, shared with the user's own interactive sessions. Credits
 are enabled past the plan limit, which means running to 100% spends real money
 instead of stopping. So unattended work stops starting new units at
-the pause percent of the window that is full (`session_usage_pause_pct`,
-`weekly_usage_pause_pct`, 70 by default, under `runtimes.claude_code`) and
+the pause percent of the window that is full (`usage_pause_pct`, 70 by default,
+in the `session` or `weekly` section of `runtimes.claude_code.limits`) and
 schedules a resume.
 
 **The threshold need not be flat.** Quota left unused when a window resets is
 simply lost, and the reasons to hold back — room for units already running, room
 for the user's own sessions — shrink as the reset approaches. So a window whose
-`..._usage_pause_ceiling_pct` is above its `..._usage_pause_pct` ramps from the
-one up to the other over the last `usage_relief_fraction` of that window, and
+`usage_pause_ceiling_pct` is above its `usage_pause_pct` ramps from the one up
+to the other over the last `usage_relief_fraction` of that window, and
 each window is measured against *its own* reset: the five-hour session and the
-seven-day week ramp independently. A window with no ceiling, or one equal to
+seven-day week ramp independently, each with its own relief fraction and resume
+buffer. A window with no ceiling, or one equal to
 its pause percent, does not ramp: its threshold is that one number all the way
 to the reset. The ceiling stays below 100 so relief never reaches the point
 where credits start paying.
@@ -54,7 +55,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit.config import CLAUDE_CODE, RuntimeConfig, active, active_root
+from agent_build_kit.config import (
+    CLAUDE_CODE,
+    RuntimeConfig,
+    UsageWindowConfig,
+    active,
+    active_root,
+)
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
@@ -301,10 +308,15 @@ def _resume_after(reading: UsageReading) -> datetime:
 
 
 class Band(Frozen):
-    """One window's threshold: the pause percent, and the ceiling it rises to."""
+    """One window's settings: the pause percent, the ceiling it rises to, and
+    the two numbers that shape the rise and the wait for it."""
 
     pause_pct: int
     ceiling_pct: int
+    # The trailing fraction of the window the rise is spread over.
+    relief_fraction: float = 0.25
+    # Room above current usage the threshold must offer before a resume.
+    resume_buffer_pct: int = 5
 
     @property
     def ramps(self) -> bool:
@@ -314,32 +326,28 @@ class Band(Frozen):
 
 
 class Limits(Frozen):
-    """What the ramp is made of, passed in rather than read from the active
-    config, so the arithmetic can be tested without one."""
+    """What the ramp is made of, one band per window, passed in rather than
+    read from the active config, so the arithmetic can be tested without one."""
 
     session: Band
     weekly: Band
-    relief_fraction: float
-    resume_buffer_pct: int
 
     def band(self, window: Window) -> Band:
         return self.session if window.name == "session" else self.weekly
 
     @classmethod
     def configured(cls) -> Limits:
-        claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig())
-        return cls(
-            session=Band(
-                pause_pct=claude.session_usage_pause_pct,
-                ceiling_pct=claude.session_usage_ceiling_pct,
-            ),
-            weekly=Band(
-                pause_pct=claude.weekly_usage_pause_pct,
-                ceiling_pct=claude.weekly_usage_ceiling_pct,
-            ),
-            relief_fraction=claude.usage_relief_fraction,
-            resume_buffer_pct=claude.usage_resume_buffer_pct,
-        )
+        claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
+        return cls(session=_band(claude.session), weekly=_band(claude.weekly))
+
+
+def _band(window: UsageWindowConfig) -> Band:
+    return Band(
+        pause_pct=window.usage_pause_pct,
+        ceiling_pct=window.usage_ceiling_pct,
+        relief_fraction=window.usage_relief_fraction,
+        resume_buffer_pct=window.usage_resume_buffer_pct,
+    )
 
 
 def threshold_at(window: Window, *, now: datetime, limits: Limits) -> int:
@@ -354,7 +362,7 @@ def threshold_at(window: Window, *, now: datetime, limits: Limits) -> int:
     if window.resets_at is None or not band.ramps:
         return band.pause_pct
 
-    span = window.length * limits.relief_fraction
+    span = window.length * band.relief_fraction
     remaining = window.resets_at - now
     if remaining >= span:
         return band.pause_pct
@@ -377,7 +385,7 @@ def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | No
         return None
 
     band = limits.band(window)
-    target = window.used_pct + limits.resume_buffer_pct
+    target = window.used_pct + band.resume_buffer_pct
     if target <= band.pause_pct:
         return now
     # A window that does not ramp never offers more than its pause percent, so
@@ -386,7 +394,7 @@ def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | No
         return None
 
     reach = (target - band.pause_pct) / (band.ceiling_pct - band.pause_pct)
-    span = window.length * limits.relief_fraction
+    span = window.length * band.relief_fraction
     return max(now, window.resets_at - span * (1 - reach))
 
 

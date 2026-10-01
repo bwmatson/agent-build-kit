@@ -512,9 +512,9 @@ fails.
 
 The two windows do not share a threshold, and a threshold need not be flat:
 quota unused when a window resets is lost, so a window with a ceiling above its
-pause percent (`session_usage_pause_ceiling_pct` over `session_usage_pause_pct`,
-likewise `weekly_`, all under `runtimes.claude_code`) ramps from the one to the
-other over the last `usage_relief_fraction` of *that* window — the session
+pause percent (`usage_pause_ceiling_pct` over `usage_pause_pct`, in each of the
+`session` and `weekly` sections of `runtimes.claude_code.limits`) ramps from the
+one to the other over the last `usage_relief_fraction` of *that* window — the session
 against the five-hour reset, the week against the seven-day one. A ceiling left
 out is the pause percent, and a window whose two are equal does not ramp: the
 ramp is skipped, not computed flat. The ceiling is validated below 100, so
@@ -524,7 +524,7 @@ relief never reaches the point where credits pay. The old
 
 A pause writes `runs/paused.json` with a deadline, a reason and a kind. The
 deadline is the moment the ramp would clear the current usage plus
-`runtimes.claude_code.usage_resume_buffer_pct`, else just after the window resets, else
+`runtimes.claude_code.limits.<window>.usage_resume_buffer_pct`, else just after the window resets, else
 thirty minutes later when nothing says when, and never more than six hours out.
 It schedules nothing: the tick timer already runs every few minutes, and a
 paused tick asks the guard again, so the first tick the guard allows clears the

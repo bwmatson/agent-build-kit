@@ -485,7 +485,7 @@ must not conflate them:
   nothing to wait for, so such a runtime may run as long as the work takes. The
   usage-guard *step* is skipped for it entirely, as a capability check rather
   than a per-tick call, and the usage percentages (which live under
-  `runtimes.claude_code`, and are refused on any other runtime) apply to nothing. **The "unknown
+  `runtimes.claude_code.limits`, and are refused on any other runtime) apply to nothing. **The "unknown
   reading pauses" rule must not leak into this path** — a runtime that never
   had a window would otherwise pause forever on a reading it can never give.
   What the protocol's `usage_update` notification does carry — context
