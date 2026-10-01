@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import forges
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
@@ -39,6 +40,17 @@ def forge(inst: Installation, monkeypatch: pytest.MonkeyPatch) -> StandInForge:
         return host, host.repo_id()
 
     monkeypatch.setattr(inst, "forge_of", forge_of)
+    # The rework handler reads the reviewer's words through the active
+    # workspace's forge, not the installation's: left alone it asked the real
+    # host for pull request 7 of `example/app`.
+    monkeypatch.setattr(
+        forges,
+        "for_repo",
+        lambda name: (
+            (app if name == "app" else elsewhere),
+            (app if name == "app" else elsewhere).repo_id(),
+        ),
+    )
     return app
 
 
