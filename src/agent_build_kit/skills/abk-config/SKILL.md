@@ -41,7 +41,7 @@ openspec:
   command: null               # argv for the OpenSpec CLI; null = npx with
                               # the framework's pinned version
 
-github:
+git:                          # was `github:`; the old name is read for one release
   push_host: ""               # ssh host alias carrying the key to push agent
                               # branches as; "" = origin
   branch_prefix: spec/        # marks a branch and its PR as agent-owned
@@ -90,7 +90,7 @@ tracks:                       # the scheduled health/improve/recommend tracks
                               # the same session/weekly usage windows, and
                               # the same ramped thresholds, as limits above
   propose_max_issues: 3       # issues one propose pass writes up as task groups
-  allowed_tools: "..."        # Claude Code --allowedTools syntax
+  allowed_tools: null         # Claude Code --allowedTools syntax; null = built-in
   disallowed_tools: "..."     # both have no effect under the acp runtime
   prompts_dir: null           # a directory overriding the built-in prompts
   raw_output_dir: .last-runs

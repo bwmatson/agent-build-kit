@@ -49,7 +49,7 @@ def init_repo(path: Path) -> Path:
 
 def activate_with(**sections):
     """Activate a copy of the active workspace with these top-level sections
-    replaced (e.g. github={"push_host": "github-example"})."""
+    replaced (e.g. git={"push_host": "github-example"})."""
     from agent_build_kit import config as config_module
 
     current = config_module.active()

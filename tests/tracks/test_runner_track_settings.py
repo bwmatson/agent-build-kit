@@ -21,7 +21,7 @@ from tests.tracks.test_runner import make_installation, project
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    installation = make_installation(tmp_path / "planning", github={"branch_prefix": "abk/"})
+    installation = make_installation(tmp_path / "planning", git={"branch_prefix": "abk/"})
     installation.activate()
     return installation
 

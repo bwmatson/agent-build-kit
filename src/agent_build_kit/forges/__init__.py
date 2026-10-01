@@ -101,6 +101,18 @@ def denied_prefixes() -> tuple[str, ...]:
     )
 
 
+def read_prefixes() -> tuple[str, ...]:
+    """Every registered forge's PR-reading commands, as plain command prefixes.
+
+    What a track, which is not tied to one repo's forge, is allowed to read a
+    PR with; a unit's agent gets its own repo's forge's alone.
+    """
+    _load_builtin()
+    return tuple(
+        " ".join(command) for forge in _REGISTRY.values() for command in forge.read_commands
+    )
+
+
 # Host-anchored patterns first; the permissive one last (see `identify`).
 _ORDER = ("azure_devops", "github")
 
@@ -131,5 +143,6 @@ __all__ = [
     "identify",
     "key",
     "names",
+    "read_prefixes",
     "register",
 ]

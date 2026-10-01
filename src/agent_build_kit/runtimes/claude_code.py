@@ -150,9 +150,7 @@ def build_argv(request: AgentRequest) -> list[str]:
         argv += ["--settings", json.dumps(settings)]
         denied = f"{disallowed()} {denied}".strip()
     elif request.planning_repo is not None:
-        settings = hook_settings(
-            None, branch_prefix=config.active().github.branch_prefix, **planning
-        )
+        settings = hook_settings(None, branch_prefix=config.active().git.branch_prefix, **planning)
         argv += ["--settings", json.dumps(settings)]
     if request.allowed_tools:
         argv += ["--allowedTools", request.allowed_tools]

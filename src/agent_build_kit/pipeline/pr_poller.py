@@ -194,7 +194,7 @@ class Poller(BaseModel):
             # Never touch a branch a human owns: the pipeline may only rework
             # and force-push its own. Checked here as well as by the forge:
             # this is the rule that keeps a force-push off someone's work.
-            if not pull.head.startswith(active().github.branch_prefix):
+            if not pull.head.startswith(active().git.branch_prefix):
                 continue
 
             number = str(pull.number)

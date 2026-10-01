@@ -28,7 +28,7 @@ def test_show_fills_in_the_defaults(tmp_path: Path, capsys) -> None:
     assert shown["repos"]["app"]["slug"] == "example/app"
     assert shown["repos"]["app"]["profile"] == "python-uv"
     assert shown["limits"]["max_concurrent_stacks"] == 4
-    assert shown["github"]["branch_prefix"] == "spec/"
+    assert shown["git"]["branch_prefix"] == "spec/"
 
 
 def test_show_is_the_default(tmp_path: Path, capsys) -> None:

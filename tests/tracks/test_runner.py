@@ -168,6 +168,21 @@ def test_the_command_comes_from_the_tracks_config(tmp_path, recorder) -> None:
     assert "--worktree" not in cmd, "no track runs in a worktree of the project"
 
 
+def test_the_default_allow_list_reads_a_pr_on_every_forge(inst, recorder) -> None:
+    runner.health(inst, project(inst), runtime=on(recorder))
+
+    cmd = recorder.argv
+    tools = cmd[cmd.index("--allowedTools") + 1]
+    assert tools == runner.allowed_tools_value(None)
+    for read in ("Bash(gh pr view*)", "Bash(gh pr diff*)", "Bash(az repos pr show*)"):
+        assert read in tools
+    assert "Bash(gh pr *)" not in tools
+
+
+def test_a_configured_allow_list_is_used_as_it_is() -> None:
+    assert runner.allowed_tools_value("Read") == "Read"
+
+
 def test_propose_runs_in_the_planning_repo_with_the_project_readable(tmp_path, recorder) -> None:
     """It writes a change, not code. Running it in the project's checkout would
     put it where the thing it must not edit is the working directory, and a

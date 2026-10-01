@@ -185,7 +185,7 @@ def _policy() -> ToolPolicy:
     writes confined to the checkout it runs in, which is the planning repo —
     stays.
     """
-    return ToolPolicy(specs_dir=None, branch_prefix=active().github.branch_prefix)
+    return ToolPolicy(specs_dir=None, branch_prefix=active().git.branch_prefix)
 
 
 # --- validation ---------------------------------------------------------------------

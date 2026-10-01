@@ -254,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
 
             config.activate(
                 config.active().model_copy(
-                    update={"github": config.GithubConfig(branch_prefix=args.branch_prefix)}
+                    update={"git": config.GitConfig(branch_prefix=args.branch_prefix)}
                 )
             )
         payload = json.load(sys.stdin)

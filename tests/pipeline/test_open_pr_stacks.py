@@ -34,6 +34,7 @@ class StackingForge:
     implemented = True
     deletes_head_branch_on_merge = True
     denied_commands = ()
+    read_commands = ()
 
     def __init__(
         self,

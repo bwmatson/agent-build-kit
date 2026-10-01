@@ -54,7 +54,8 @@ openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
                                 # @fission-ai/openspec@<ABK_OPENSPEC_VERSION>.
 
-github:
+git:                            # was `github:`, still read as an alias for one
+                                # release; `abk doctor` asks for the rename
   push_host: ""                 # an ssh host alias (from ~/.ssh/config)
                                 # carrying the key agent branches are pushed
                                 # as; origin's ssh URL is rewritten to it. "" =
@@ -136,11 +137,11 @@ tracks:                         # the scheduled tracks (docs/tracks.md); their
   propose_max_issues: 3         # issues one propose pass may write up as task
                                 # groups in its change, per repo. The change is
                                 # built by the pipeline, not by the track.
-  allowed_tools: >-             # Claude Code --allowedTools syntax; both
-                                # lists have no effect under the acp runtime
-    Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch
-    Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh pr *)
-    Bash(gh repo view*) Bash(docker compose config*)
+  allowed_tools: null           # Claude Code --allowedTools syntax; both
+                                # lists have no effect under the acp runtime.
+                                # null = the built-in list (read, edit, git,
+                                # the toolchain, abk, and every forge's PR
+                                # read commands); a list set here is used as is
   disallowed_tools: >-
     Bash(git push --force*) Bash(git reset --hard*) Bash(rm -rf*)
     Bash(git branch -D*) Bash(gh pr merge*)

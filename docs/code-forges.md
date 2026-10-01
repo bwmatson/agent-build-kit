@@ -35,6 +35,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `implemented` | `cli/pipeline._build` | false holds a unit rather than failing it |
 | `deletes_head_branch_on_merge` | `events` | whether the remote branch is ours to clean up |
 | `denied_commands` | `command_policy`, the deny flags | command prefixes no agent may run, on any repo |
+| `read_commands` | `wiring.allowed_tools`, the tracks' default allow-list | command prefixes an agent may run to read a PR; none may overlap any forge's `denied_commands` |
 | `permitted_commands` | `forges.denies` | exact command shapes allowed although a denied prefix covers them |
 | `requires` | `config.load` | the abk.yaml keys this forge cannot name a repo without |
 | `parse_remote(url)` | `abk init` | the repo an origin URL names, or None |
@@ -136,9 +137,20 @@ prefixes and stay whole, so an agent is still refused these commands there.
 4. **Deny every way of merging.** Not just the obvious command: a host may
    complete a pull request through an update, a vote, a policy change and a
    raw API escape, and all of them belong in `denied_commands`.
-5. **Record real fixtures.** From a real pull request, keeping the fields your
+5. **Say how an agent reads its PR.** `read_commands` lists the command
+   prefixes (`az repos pr show`, `gh pr view`); `wiring.allowed_tools` and the
+   tracks' default allow-list are composed from them. A test fails if one
+   overlaps any forge's `denied_commands`, so a read command can never be a
+   write.
+6. **Record real fixtures.** From a real pull request, keeping the fields your
    code does *not* read. That is what makes a host's traps catchable by a test
    rather than by an incident — see below.
+
+## Stacked pull requests on Azure DevOps
+
+Stacked PRs are unsupported on Azure DevOps (`supports_stacks = False`), so
+units serialise per repo there: a unit waits for its parent to merge rather than
+opening against the parent's branch.
 
 ## What each host makes easy to get wrong
 

@@ -102,6 +102,13 @@ branch someone deleted — then set the unit's `state` back to `planned` in
 `runs/units.json` and let the next tick take it. Do not mark it `planned`
 without a fix: it will fail the same way and cost a run.
 
+### What an agent may run on the code host
+
+Only to read its own pull request, by the commands its repo's forge declares
+(`gh pr view` on GitHub, `az repos pr show` on Azure DevOps). Merging, voting
+and the raw API escapes are refused on every repo, whatever its forge. On Azure
+DevOps, stacked pull requests are unsupported and units serialise per repo.
+
 ### Labels on the pull request
 
 Two families. The `agent-` labels are instructions a person sets:

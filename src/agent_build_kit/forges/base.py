@@ -195,6 +195,10 @@ class Forge(RegistersStacks, Protocol):
     # Command prefixes no agent may run on any repo - merging, voting, and the
     # raw API escapes that reach both. Folded together by `denies`.
     denied_commands: tuple[tuple[str, ...], ...]
+    # Command prefixes an agent may run to read its own PR. No prefix here may
+    # overlap any forge's `denied_commands`; `wiring.allowed_tools` composes the
+    # allow-list from them.
+    read_commands: tuple[tuple[str, ...], ...]
     # The exact command shapes allowed although a denied prefix covers them,
     # for the calls the pipeline itself makes. Empty when nothing needs one.
     permitted_commands: tuple[PermittedCommand, ...]

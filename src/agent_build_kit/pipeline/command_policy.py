@@ -199,7 +199,7 @@ def _landing(target: str) -> str:
 
 
 def _check_push(tokens: list[str], branch: str, protected: Collection[str] = ()) -> Verdict:
-    owns_branch = branch.startswith(active().github.branch_prefix)
+    owns_branch = branch.startswith(active().git.branch_prefix)
     targets = [token for token in tokens[2:] if not token.startswith("-")]
 
     # The branches units land on through a pull request, so a direct push to
@@ -231,7 +231,7 @@ def _check_push(tokens: list[str], branch: str, protected: Collection[str] = ())
         return Verdict(
             allowed=False,
             reason=f"force-pushing is only allowed on branches the agent owns "
-            f"({active().github.branch_prefix}…), not {branch}",
+            f"({active().git.branch_prefix}…), not {branch}",
         )
 
     if bare_lease and not (explicit_lease or includes):

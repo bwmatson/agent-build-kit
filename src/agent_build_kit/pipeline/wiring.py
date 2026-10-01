@@ -77,14 +77,19 @@ from agent_build_kit.runtimes.claude_code import through
 
 Run = Callable[..., subprocess.CompletedProcess]
 
-# gh is read-only for agents. What they have to say on a PR the pipeline posts
-# after the push (see `pr_replies`), as the account that owns the repo. The
+# The code host is read-only for agents: the forge names the commands that read
+# a PR (`read_commands`). What they have to say on a PR the pipeline posts after
+# the push (see `pr_replies`), as the account that owns the repo. The
 # toolchain's own commands (a test runner, a linter) come from the profile.
-ALLOWED = "Read Edit Write Grep Glob Bash(git *) Bash(gh pr view*) Bash(gh pr diff*)"
+BASE_TOOLS = "Read Edit Write Grep Glob Bash(git *)"
 
 
-def allowed_tools(profile: ToolchainProfile) -> str:
-    return f"{ALLOWED} {profile.allowed_tools}".strip()
+def forge_read_tools(forge: Forge) -> str:
+    return " ".join(f"Bash({' '.join(command)}*)" for command in forge.read_commands)
+
+
+def allowed_tools(profile: ToolchainProfile, forge: Forge) -> str:
+    return f"{BASE_TOOLS} {forge_read_tools(forge)} {profile.allowed_tools}".strip()
 
 
 def _specs_dir(planning_repo: Path | None) -> Path:
@@ -150,9 +155,9 @@ def build_run_claude(
                 # there under an invented unit id.
                 add_dirs=(specs,),
                 model=model,
-                allowed_tools=allowed_tools or ALLOWED,
+                allowed_tools=allowed_tools or BASE_TOOLS,
                 permission_mode="edit",
-                policy=ToolPolicy(specs_dir=specs, branch_prefix=active().github.branch_prefix),
+                policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
                 on_event=log or print,
             )
         )
@@ -577,7 +582,7 @@ def build_push(
     adopt = adopt or adopt_host_head
 
     def do_push(branch: str, *, cwd: Path) -> str:
-        unit_id = branch.removeprefix(active().github.branch_prefix)
+        unit_id = branch.removeprefix(active().git.branch_prefix)
         try:
             last_pushed = store.get(unit_id).pushed
         except KeyError:
@@ -1481,7 +1486,7 @@ def build_runner(
         with repo_turn():
             return push(branch, cwd=cwd)
 
-    tools = allowed_tools(profile)
+    tools = allowed_tools(profile, forges.get(repo.forge))
     run_claude = build_run_claude(planning_repo=planning_repo, allowed_tools=tools, log=log)
     return UnitRunner(
         store=store,

@@ -69,6 +69,7 @@ class GitHubForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
+    read_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "view"), ("gh", "pr", "diff"))
     # `gh pr close` and `gh pr ready` are not denied, so nothing needs an exception.
     permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ("slug",)

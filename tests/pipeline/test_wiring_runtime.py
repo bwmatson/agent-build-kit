@@ -25,7 +25,7 @@ from tests.runtimes.stand_in import StandInRuntime
 
 def test_a_build_asks_the_runtime_for_a_policed_run_in_the_worktree(tmp_path: Path) -> None:
     planning = tmp_path / "planning"
-    make_installation(planning, github={"branch_prefix": "unit/"})
+    make_installation(planning, git={"branch_prefix": "unit/"})
     specs = planning / "openspec"
     tree = tmp_path / "tree"
     runtime = StandInRuntime(answer="built it")

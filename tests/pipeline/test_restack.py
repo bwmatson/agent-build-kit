@@ -234,7 +234,7 @@ def test_agent_branches_push_through_the_configured_account(
     """The pipeline pushes as its own GitHub account, not as whoever owns the
     default ssh key. Rewriting origin's host is what routes it through the
     alias carrying that account's key."""
-    activate_with(github={"push_host": "github-example"})
+    activate_with(git={"push_host": "github-example"})
     repo = tmp_path / "r"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -251,7 +251,7 @@ def test_without_one_configured_it_pushes_to_origin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Unset is the working default: whatever the checkout already pushes to."""
-    activate_with(github={"push_host": ""})
+    activate_with(git={"push_host": ""})
 
     assert restack.push_target(tmp_path) == "origin"
 
@@ -260,7 +260,7 @@ def test_an_https_origin_is_left_alone(tmp_path: Path, monkeypatch: pytest.Monke
     """Only an ssh remote can be routed through an ssh alias. Mangling an
     https one would produce a URL that fails at push time, after the unit has
     already been built and reviewed locally."""
-    activate_with(github={"push_host": "github-example"})
+    activate_with(git={"push_host": "github-example"})
     repo = tmp_path / "r"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)

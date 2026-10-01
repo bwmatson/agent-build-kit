@@ -177,7 +177,7 @@ binds each step to git, gh and `claude`:
 
 1. **Usage guard first**, before the worktree exists, so a refusal never
    leaves a half-built unit.
-2. **Worktree.** `spec/<change>/<n>` (the prefix is `github.branch_prefix`)
+2. **Worktree.** `spec/<change>/<n>` (the prefix is `git.branch_prefix`)
    is checked out under the worktree root, created on its base — the newest
    `in_review` same-repo dependency's branch, else `origin/main`. A dirty
    worktree is refused, never cleaned. A resuming unit whose base moved is
