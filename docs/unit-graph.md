@@ -102,7 +102,7 @@ flowchart TD
     prepare -->|restack conflicted| adapt
     prepare -->|feedback waiting| rework
     adapt --> checks
-    resume --> implement & checks & tier1
+    resume --> implement & checks & verify_base
     tests --> implement
     implement -->|commits| checks
     implement -->|nothing new| tier1
@@ -110,14 +110,14 @@ flowchart TD
     checks -->|failed, fix rounds left| fix_checks
     checks -->|failed, fix rounds spent| failed
     fix_checks --> checks
-    review -->|approved| tier1
+    review -->|approved, tier 2 unit| tier2
+    review -->|approved| verify_base
     review -->|changes asked| rework
     review -->|needs a person| held
     review -->|rounds spent| open_pr
     rework --> checks
     tier1 -->|passed, no commits of its own| satisfied
-    tier1 -->|passed, tier 2 unit| tier2
-    tier1 -->|passed| verify_base
+    tier1 -->|passed, after a clean move| verify_base
     tier1 -->|failed| failed
     tier2 -->|passed| verify_base
     tier2 -->|failed| failed
@@ -149,7 +149,7 @@ reference for each condition until this replaces them. The nodes:
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run_rework`, `commit` |
 | `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
-| `tier1`, `tier2` | The test tiers. `tier1` here is the check after approval: it passes straight through when `checks` already passed on the approved commit, since review does not edit the branch, and runs in full for a unit that produced nothing and after a clean move onto a new base | `tier1`, `run_tier2` |
+| `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `push` | Pushes only the approved commit | the push gate, `push` |
 | `open_pr` | Opens or updates the pull request, posts replies and the PR body | `open_pr`, replies, labels |
@@ -168,12 +168,21 @@ draft could.
 
 A failure is saved on the unit as feedback (`tier 1 failed:` and the output) and
 goes to `fix_checks`, up to `limits.max_check_rounds` times (2 by default; 0
-turns the check before review off). Only when the budget is spent does the unit
-go to `failed`, with the output still saved, and `abk requeue --rework` is how it
+means no fix attempt, not no check: it is the only gate before a review and a
+push). Only when the budget is spent does the unit go to `failed`, with the
+output still saved, and `abk requeue --rework` is how it
 gets another go with that output in front of the agent. A pause during a fix
 keeps the saved failure, so the resume fixes what was found rather than finding
 it again; a successful fix clears it, so a run stopped before its review does
 not redo a fix that is already on the branch.
+
+Nothing runs tier 1 after the review. A reviewer reports and the builder fixes,
+so approval leaves the branch exactly as `checks` judged it. The branch is
+checked again only when it changes: a clean move onto a new base
+(`verify_base` → `tier1` → push) is checked before it is pushed, and a move with
+conflicts goes through `adapt`, which accounts for its own tests and then back
+through `checks` and `review`, since the resolution rewrote the commit that was
+approved.
 
 The nodes wrap the callables `wiring.build_runner` already builds. None of the
 agent, git or forge logic is rewritten; what changes is who decides what runs
@@ -301,8 +310,8 @@ fields. The callables in `wiring.py` and everything they reach stay.
 - **Paths** are tested through the compiled graph. The stack runner's
   scenarios are ported one for one (build, review rounds, rework, adapt,
   satisfied, holds, spent rounds, moved bases, and the check before review:
-  passing, fixed and re-checked, budget spent, switched off, re-checked after a
-  review rework), so the migration is checked against the behaviour it replaces.
+  passing, fixed and re-checked, budget spent, no fix attempts, re-checked after a
+  review rework, a clean and a conflicted move after approval), so the migration is checked against the behaviour it replaces.
 - **Resume** tests:
   - kill the process mid-node and resume the thread in a new process, so that
     node re-runs and does nothing twice;

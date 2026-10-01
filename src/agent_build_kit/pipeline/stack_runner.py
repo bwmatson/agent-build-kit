@@ -31,7 +31,7 @@ from collections.abc import Callable, Collection, Sequence
 from functools import partial
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
@@ -934,11 +934,6 @@ class UnitRunner(BaseModel):
     # unit has got to rather than going quiet for the length of a build.
     log: Callable[[str], None] = lambda message: None
 
-    # The commit tier 1 last passed on, per unit. Review does not edit the
-    # branch, so the check run before it is the check the final tier 1 would
-    # repeat on the same commit: kept so that run is not paid for twice.
-    _tier1_passed: dict[str, str] = PrivateAttr(default_factory=dict)
-
     def run(
         self, unit: Unit, *, base: str, graph: list[StoredUnit], rebased: bool = False
     ) -> RunOutcome:
@@ -1260,32 +1255,32 @@ class UnitRunner(BaseModel):
                     return outcome
                 return self._spend_rounds(unit, tree, branch, graph, base, why)
 
-        # Tier 1 is not a Claude run, so only upstream can stop it here.
+        # Past this point nothing is a Claude run, so only upstream can stop it.
         if outcome := checkpoint(VERIFY, usage=False):
             return outcome
 
-        # Whole-repo when the unit produced nothing: a diff-scoped tier 1
-        # would lint an empty range and test nothing, which is not proof that
-        # anything actually passes. See `wiring.build_tier1`.
-        if not produced_nothing and self._tier1_passed.get(unit.id) == self.head(tree):
-            # The check before review passed on this very commit, and review
-            # does not edit it. Running it again proves nothing new.
-            self.log("tier 1 already passed on this commit")
-            tier1_ok, tier1_output = True, ""
-        else:
-            self.log("step: tier 1")
-            tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=produced_nothing)
-            self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
-        if not tier1_ok:
-            # Kept, not thrown away. Both pilot units failed here and a retry
-            # knew nothing about why, so it re-ran both expensive prompts and
-            # rebuilt the same branch. Recorded as feedback, a retry is one
-            # scoped run against the actual failure — the same path review
-            # comments take.
-            self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
-            return self._fail(unit, "tier 1 failed")
-
+        # Tier 1 does not run again after a review. A reviewer reports and the
+        # builder fixes, so approval leaves the branch as the checks before it
+        # judged it; a second run would prove nothing new. The branch is
+        # checked again only when it changes: a clean move onto a new base below,
+        # and a conflicted one is resolved by the adapt step, which accounts for
+        # its own tests. A unit that produced nothing has no review and no
+        # earlier check, so tier 1 is the whole judgement of it.
         if produced_nothing:
+            # Whole-repo: a diff-scoped tier 1 would lint an empty range and
+            # test nothing, which is not proof that anything actually passes.
+            # See `wiring.build_tier1`.
+            self.log("step: tier 1")
+            tier1_ok, tier1_output = self.run_tier1(cwd=tree, base=ref, whole_repo=True)
+            self.log(f"tier 1 {'passed' if tier1_ok else 'failed'}")
+            if not tier1_ok:
+                # Kept, not thrown away. Both pilot units failed here and a
+                # retry knew nothing about why, so it re-ran both expensive
+                # prompts and rebuilt the same branch. Recorded as feedback, a
+                # retry is one scoped run against the actual failure.
+                self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
+                return self._fail(unit, "tier 1 failed")
+
             # Nothing of this unit's own on the branch, and what is already at
             # the tip passes — the work its groups called for arrived another
             # way. Judged here, on the branch and the checks, never on the
@@ -1718,22 +1713,17 @@ class UnitRunner(BaseModel):
         failure is a rework step on the saved output, up to
         `limits.max_check_rounds` of them, before it is failed.
 
-        Returns None when the checks pass (or are switched off with a budget of
-        0), else the outcome that ends the run: failed, or stopped by a pause.
-        A commit tier 1 already passed on is not run again.
+        Returns None when the checks pass, else the outcome that ends the run:
+        failed, or stopped by a pause. A budget of 0 is not "off": the branch is
+        still checked, and a failure fails the unit with no fix attempt, since
+        this is the only gate before a push.
         """
         budget = active().limits.max_check_rounds
-        if budget == 0:
-            return None
         for attempt in range(budget + 1):
-            head = self.head(tree)
-            if self._tier1_passed.get(unit.id) == head:
-                return None
             self.log("step: checks before review")
             ok, output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
             self.log(f"checks {'passed' if ok else 'failed'}")
             if ok:
-                self._tier1_passed[unit.id] = head
                 if self.store.get(unit.id).feedback.startswith(TIER1_FAILED):
                     # Fixed. Left saved, a run stopped before its review would
                     # resume into the same fix and redo work already on the branch.

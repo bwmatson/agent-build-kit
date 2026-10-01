@@ -136,7 +136,8 @@ limits:
   max_review_rounds: 3          # review rounds before a unit fails
   max_check_rounds: 2           # times a branch failing its checks (lint, types,
                                 # tests) goes back to the builder before a
-                                # reviewer is asked; 0 = check only after review
+                                # reviewer is asked; 0 = no fix attempt (the
+                                # checks still run: they are the gate)
   max_adapt_rounds: 2           # adapt-step accounting asks, first included,
                                 # before a unit fails
   max_plan_attempts: 3          # planner attempts per version of a tasks.md

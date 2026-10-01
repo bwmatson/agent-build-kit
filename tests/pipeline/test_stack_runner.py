@@ -293,16 +293,17 @@ def test_the_checks_run_before_a_reviewer_is_asked(runner) -> None:
     assert recorder.events.index("tier1") < recorder.events.index("review")
 
 
-def test_a_branch_that_passed_its_checks_is_not_checked_again_after_review(runner) -> None:
-    """Review does not edit the branch, so tier 1 after approval would repeat
-    the run that has just passed on the same commit."""
+def test_tier_one_does_not_run_again_after_the_review(runner) -> None:
+    """A reviewer reports and the builder fixes, so approval leaves the branch
+    as the checks before it judged it. Running them again proves nothing."""
     recorder = Recorder()
 
     runner(recorder).run(unit(), base="main", graph=[])
 
     assert recorder.events.count("tier1") == 1
+    assert recorder.events.index("tier1") < recorder.events.index("review")
     assert recorder.events.index("review") < recorder.events.index("push")
-    assert "tier 1 already passed on this commit" in recorder.logged
+    assert "step: tier 1" not in recorder.logged
 
 
 def test_tier_two_runs_before_the_push_for_a_tier_two_unit(runner) -> None:
@@ -668,7 +669,31 @@ def test_a_branch_review_never_approved_is_reviewed_before_it_is_pushed(tmp_path
 
 def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> None:
     """The rule, checked at the push: a commit landing after the verdict —
-    here tier 1 making one — fails the unit instead of reaching the PR."""
+    here tier 2 making one — fails the unit instead of reaching the PR. (Tier 1
+    runs before the review now, so a commit it makes is reviewed with the rest.)"""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(tier="tier2")])
+    recorder = Recorder()
+    original_tier2 = recorder.tier2
+
+    def tier2_that_commits(*, cwd: Path) -> tuple[bool, str]:
+        recorder.made += 1
+        return original_tier2(cwd=cwd)
+
+    runner = make_runner(store, recorder, tmp_path).model_copy(
+        update={"run_tier2": tier2_that_commits}
+    )
+    outcome = runner.run(unit(tier="tier2"), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert "push" not in recorder.events
+
+
+def test_a_commit_tier_one_makes_before_the_review_is_the_commit_that_is_reviewed(
+    tmp_path: Path,
+) -> None:
+    """An autoformatter in a check can rewrite files. Run before the review,
+    that is just more of the branch the reviewer reads and approves."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder()
@@ -685,8 +710,8 @@ def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> Non
     )
     outcome = runner.run(unit(), base="main", graph=[])
 
-    assert outcome.status == "failed"
-    assert "push" not in recorder.events
+    assert outcome.status == "open"
+    assert store.get(unit().id).approved == recorder.head(tmp_path)
 
 
 def test_the_review_pass_s_work_is_committed(tmp_path: Path) -> None:
@@ -2553,14 +2578,29 @@ def test_checks_that_keep_failing_fail_the_unit_before_any_review(tmp_path: Path
     assert after.feedback.startswith("tier 1 failed:") and FAILING in after.feedback
 
 
-def test_a_budget_of_zero_switches_the_check_before_review_off(tmp_path: Path) -> None:
+def test_a_budget_of_zero_still_checks_but_makes_no_fix_attempt(tmp_path: Path) -> None:
+    """Not an off switch: this check is the gate before a review and a push."""
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = FAILING
+    runner, store = checked_runner(tmp_path, recorder, max_check_rounds=0)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert recorder.events.count("tier1") == 1
+    assert "claude:fix_checks" not in recorder.events
+    assert "review" not in recorder.events and "push" not in recorder.events
+    assert store.get(unit().id).feedback.startswith("tier 1 failed:")
+
+
+def test_a_budget_of_zero_lets_a_passing_branch_through(tmp_path: Path) -> None:
     recorder = Recorder()
     runner, _ = checked_runner(tmp_path, recorder, max_check_rounds=0)
 
-    runner.run(unit(), base="main", graph=[])
+    outcome = runner.run(unit(), base="main", graph=[])
 
-    assert recorder.events.index("review") < recorder.events.index("tier1")
-    assert recorder.events.count("tier1") == 1
+    assert outcome.status == "open"
+    assert recorder.events.index("tier1") < recorder.events.index("review")
 
 
 def test_a_rework_after_review_is_checked_again_before_the_next_review(tmp_path: Path) -> None:
