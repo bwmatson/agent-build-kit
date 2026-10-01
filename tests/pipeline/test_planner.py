@@ -168,11 +168,9 @@ def test_the_prompt_states_the_rules_the_graph_must_satisfy() -> None:
 def test_an_empty_plan_is_allowed() -> None:
     """Nothing ready is a normal answer, not a failure: every change may be
     waiting on review."""
-    units = plan_round(
-        changes={}, in_flight=[], run_claude=lambda prompt: json.dumps({"units": []})
-    )
+    plan = plan_round(changes={}, in_flight=[], run_claude=lambda prompt: json.dumps({"units": []}))
 
-    assert units == []
+    assert plan.units == ()
 
 
 GROUPS = [

@@ -735,8 +735,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
                 if member.change == change
                 for number in member.groups
             }
-            joins: list[Join] = []
-            units = plan_round(
+            plan = plan_round(
                 changes={change: tasks.read_text()},
                 in_flight=context,
                 groups=task_groups,
@@ -744,7 +743,6 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
                 # Units the store already has: a dependency naming one of
                 # them is not a dependency on nothing.
                 known={u.id for u in store.all()},
-                joins=joins,
                 context=JoinContext(
                     stored=tuple(store.all()),
                     catalog={
@@ -774,9 +772,20 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             )
             continue
 
+        units = list(plan.units)
+        before = {u.id: u for u in store.all()}
         store.upsert(units, change=change)
-        dropped = [join for join in joins if not _write_join(inst, store, join)]
+        dropped = [join for join in plan.joins if not _write_join(inst, store, join)]
         log(f"planned {change}: {len(units)} unit(s)")
+        orphaned = _orphaned_changes(store, before)
+        for other in sorted(orphaned):
+            # The unit that carried this change's groups is gone, and nothing
+            # else builds them: plan it again rather than leave them held by an
+            # `unplanned` unit.
+            log(f"{change}: {other} is planned again, the unit carrying its groups was dropped")
+            planned.pop(other, None)
+        if orphaned:
+            _write_planned(inst, planned)
         if dropped:
             # A unit started while the plan was made. What was to be carried
             # is planned again next round, so this change is not recorded as
@@ -785,6 +794,16 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             continue
         planned[change] = {"hash": digest, "attempts": 0, "ok": True}
         _write_planned(inst, planned)
+
+
+def _orphaned_changes(store: UnitStore, before: dict[str, StoredUnit]) -> set[str]:
+    """Changes whose groups a unit just demoted to `unplanned` was carrying."""
+    return {
+        member.change
+        for unit in store.all()
+        if unit.state == UNPLANNED and before.get(unit.id) and before[unit.id].state != UNPLANNED
+        for member in unit.joined
+    }
 
 
 def _write_join(inst: Installation, store: UnitStore, join: Join) -> bool:
@@ -1052,16 +1071,23 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 # this one reaches a unit, another may have built it and opened its
                 # PR. Building it again would re-verify, re-push and re-open that
                 # PR. A poll may also have held or closed it since.
-                current = store.get(unit.id).state
-                if current != PLANNED:
-                    end(f"skipped, it is now {current}")
+                #
+                # The whole unit, not only its state: a join may have changed
+                # its members since, or removed it into another unit.
+                try:
+                    unit = store.get(unit.id)
+                except KeyError:
+                    end("skipped, it was joined into another unit")
+                    return True
+                if unit.state != PLANNED:
+                    end(f"skipped, it is now {unit.state}")
                     return True
                 # The base too, from the store rather than that evaluation: a
                 # parent may have merged since, and `base_moved` compares against
                 # this.
                 graph = store.all()
                 base = base_of(unit, graph)
-                step, model = starting_step(store.get(unit.id))
+                step, model = starting_step(unit)
                 run_log = RunLog(
                     run_log_dir(inst.state_dir),
                     unit,

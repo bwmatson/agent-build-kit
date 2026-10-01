@@ -462,6 +462,10 @@ def _in_flight_line(item: dict) -> str:
             f"builds {item.get('builds', '?')}, depends on "
             f"{', '.join(item.get('depends_on') or []) or 'nothing'}"
         )
+    elif item.get("builds"):
+        # Started units too: the groups one carries are taken, and the planner
+        # has to see that to leave them out.
+        line += f" builds {item['builds']}"
     return line
 
 
@@ -513,19 +517,18 @@ def plan_round(
     built: set[int] | None = None,
     known: set[str] | None = None,
     context: JoinContext | None = None,
-    joins: list[Join] | None = None,
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
-) -> list[Unit]:
+) -> Plan:
     """Ask for a graph and return it, or raise `PlannerError`.
 
     An empty plan is a normal answer: every change may be waiting on review.
-    Joins the planner proposes are checked against `context` and appended to
-    `joins`; a caller that passes no `context` accepts none.
+    Joins the planner proposes are checked against `context` and returned with
+    the units; a caller that passes no `context` accepts none.
     """
     prompt = build_prompt(changes, in_flight)
     answer = run_claude(prompt) if run_claude else _ask(prompt, runtime)
-    plan = parse_plan(
+    return parse_plan(
         answer,
         groups=groups,
         built=built,
@@ -533,6 +536,3 @@ def plan_round(
         change=next(iter(changes), None),
         context=context,
     )
-    if joins is not None:
-        joins.extend(plan.joins)
-    return list(plan.units)

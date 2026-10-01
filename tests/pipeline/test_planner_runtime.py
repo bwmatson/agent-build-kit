@@ -43,7 +43,7 @@ def test_the_graph_call_runs_through_the_runtime_it_is_given() -> None:
     answers from its prompt alone."""
     runtime = StandInRuntime(answer=json.dumps(PLAN))
 
-    units = plan_round(changes=CHANGES, in_flight=IN_FLIGHT, runtime=runtime)
+    units = plan_round(changes=CHANGES, in_flight=IN_FLIGHT, runtime=runtime).units
 
     assert [unit.id for unit in units] == ["add-marker/1"]
     request = runtime.request

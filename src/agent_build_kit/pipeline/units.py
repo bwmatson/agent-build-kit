@@ -399,21 +399,25 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
     A group the unit carries is its own work, not later work, so only groups
     above each change's highest one this unit builds, in other units, count.
     """
-    later: dict[str, tuple[int, ...]] = {}
+    # A chain of joins can give one change several members, so the ceiling is
+    # taken across all of them, not per member.
+    mine: dict[str, set[int]] = {}
     for member in unit.members():
-        ceiling = max(member.groups, default=0)
-        mine = {g for m in unit.members() if m.change == member.change for g in m.groups}
+        mine.setdefault(member.change, set()).update(member.groups)
+    later: dict[str, tuple[int, ...]] = {}
+    for change, own in mine.items():
+        ceiling = max(own, default=0)
         others = {
             group
             for other in graph
             if other.id != unit.id and other.state != "unplanned"
             for carried in other.members()
-            if carried.change == member.change
+            if carried.change == change
             for group in carried.groups
-            if group > ceiling and group not in mine
+            if group > ceiling and group not in own
         }
         if others:
-            later[member.change] = tuple(sorted(others | set(later.get(member.change, ()))))
+            later[change] = tuple(sorted(others))
     return later
 
 

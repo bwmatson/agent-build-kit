@@ -210,7 +210,14 @@ class UnitStore:
             if existing and existing.joined and not fresh.joined:
                 # Groups of other changes it took in are not in the plan the
                 # planner re-derives for this change, and are not its to drop.
-                fresh = fresh.model_copy(update={"joined": existing.joined})
+                # Its estimate too: the plan sizes only the unit's own groups,
+                # and a later join is checked against what the unit now holds.
+                fresh = fresh.model_copy(
+                    update={
+                        "joined": existing.joined,
+                        "estimated_lines": existing.estimated_lines,
+                    }
+                )
             if existing:
                 # Carry progress over — a running, open or merged unit is not
                 # rebuilt just because the graph was re-derived. The exception

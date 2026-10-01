@@ -23,6 +23,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -32,7 +33,9 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     RUNNING,
     SATISFIED,
+    Join,
     Member,
+    Unit,
 )
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -284,6 +287,24 @@ NEW_GROUP_REFUSED = {
     "joined onto group is separate": {"base_group": {"extra": "Separate: reviewed alone"}},
 }
 
+# The words of the rule each variation breaks, so a variation that one day trips
+# another rule fails instead of passing for the wrong reason.
+NEW_GROUP_REASON = {
+    "repo": "is tagged [platform]",
+    "tier": "is tagged [app] [tier2]",
+    "something depends on the unit": "already depends on base/1",
+    "waits on other unfinished work": "also waits on other group 1",
+    "narrowing group joined": "flagged [narrow]",
+    "narrowing group joined onto": "flagged [narrow]",
+    "contract group joined onto": "flagged [contract]",
+    "acceptance group joined": "flagged [acceptance]",
+    "acceptance group joined onto": "flagged [acceptance]",
+    "over the ceiling": "over the ceiling",
+    "joined group is separate": "marked `Separate:`",
+    "joined onto group is separate": "marked `Separate:`",
+}
+assert NEW_GROUP_REASON.keys() == NEW_GROUP_REFUSED.keys()
+
 
 @pytest.mark.parametrize("variation", list(NEW_GROUP_REFUSED))
 def test_a_join_that_breaks_a_rule_is_refused(
@@ -296,7 +317,7 @@ def test_a_join_that_breaks_a_rule_is_refused(
 
     assert run.ids() == before
     assert run.store.get("base/1").joined == ()
-    assert "join" in capsys.readouterr().out.lower()
+    assert NEW_GROUP_REASON[variation] in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("kind", STARTED)
@@ -475,6 +496,22 @@ CHAIN_REFUSED = {
     "later separate": {"b_group": {"extra": "Separate: reviewed alone"}},
 }
 
+CHAIN_REASON = {
+    "repo": "is in another repo or tier",
+    "tier": "is in another repo or tier",
+    "something else depends on the earlier": "already depends on a/1",
+    "the later waits on other unfinished work": "also waits on x/1",
+    "earlier narrowing": "flagged [narrow]",
+    "later narrowing": "flagged [narrow]",
+    "earlier contract": "flagged [contract]",
+    "earlier acceptance": "flagged [acceptance]",
+    "later acceptance": "flagged [acceptance]",
+    "over the ceiling": "over the ceiling",
+    "earlier separate": "marked `Separate:`",
+    "later separate": "marked `Separate:`",
+}
+assert CHAIN_REASON.keys() == CHAIN_REFUSED.keys()
+
 
 @pytest.mark.parametrize("variation", list(CHAIN_REFUSED))
 def test_a_join_of_two_units_that_breaks_a_rule_is_refused(
@@ -487,7 +524,7 @@ def test_a_join_of_two_units_that_breaks_a_rule_is_refused(
 
     assert run.ids() == before
     assert run.store.get("a/1").joined == ()
-    assert "join" in capsys.readouterr().out.lower()
+    assert CHAIN_REASON[variation] in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("uid", ["a/1", "b/1"])
@@ -733,3 +770,118 @@ def test_abk_tags_rejects_a_separate_line_without_a_reason(
 
     assert status == 1
     assert "Separate" in capsys.readouterr().out
+
+
+# --- what started or overlapping work sees of a join ---------------------------
+
+
+def test_a_started_unit_that_carries_a_group_is_shown_to_the_planner_as_building_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = carrying_feature(tmp_path, monkeypatch, answer())
+    start(run.store, "base/1", IN_REVIEW)
+
+    run.plan()
+
+    lines = [line for line in run.runtime.request.prompt.splitlines() if "base/1" in line]
+    assert lines, "the unit in review is not in the prompt"
+    assert all("feature group(s) 1" in line for line in lines)
+    assert not any("unstarted" in line for line in lines)
+
+
+def test_planning_the_carrying_units_change_without_it_plans_the_carried_change_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`base/1` carries `feature` group 1. Planning `base` without `base/1`
+    demotes it, and nothing else would build that group, so `feature` is
+    planned again."""
+    run = set_up(
+        tmp_path,
+        monkeypatch,
+        units=[
+            stored_unit(
+                "base/1",
+                change="base",
+                groups=(1,),
+                estimated_lines=180,
+                joined=(Member(change="feature", groups=(1,)),),
+            )
+        ],
+        tasks={"base": tasks_md(), "feature": tasks_md()},
+        planning="base",
+        reply=answer(units=[new_unit("base/2", (1,))]),
+    )
+    assert "feature" in json.loads((run.inst.state_dir / "planned.json").read_text())
+
+    run.plan()
+
+    assert run.store.get("base/1").state == "unplanned"
+    # `feature` is asked for again — here in the same pass, as it comes after
+    # `base` — instead of being left recorded as planned.
+    asked = [r.prompt for r in run.runtime.requests]
+    assert len(asked) == 2
+    assert "### base" in asked[0]
+    assert "### feature" in asked[1]
+
+
+def test_a_unit_taken_by_a_join_since_the_tick_listed_it_is_skipped_not_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    run = chain(tmp_path, monkeypatch)
+    listed = run.store.get("b/1")
+    assert run.store.join(Join(onto="a/1", unit="b/1")) is not None
+    monkeypatch.setattr(
+        cli, "build_runner", lambda unit, **kw: pytest.fail("built a unit that was joined away")
+    )
+
+    assert cli.build_unit(run.inst, listed, store=run.store) is True
+
+    out = capsys.readouterr().out
+    assert "joined into another unit" in out
+    assert "failed" not in out
+
+
+def test_a_build_runs_the_members_a_join_gave_the_unit_after_the_tick_listed_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = chain(tmp_path, monkeypatch)
+    listed = run.store.get("a/1")
+    assert run.store.join(Join(onto="a/1", unit="b/1")) is not None
+    built: list[Unit] = []
+
+    class Recording:
+        def run(self, unit: Unit, *, base: str, graph: list) -> RunOutcome:
+            built.append(unit)
+            return RunOutcome(status="open", detail="opened")
+
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kw: Recording())
+
+    cli.build_unit(run.inst, listed, store=run.store)
+
+    assert [m.change for m in built[0].members()] == ["a", "b"]
+
+
+def test_a_replan_of_the_carrying_unit_keeps_the_estimate_of_what_it_carries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = set_up(
+        tmp_path,
+        monkeypatch,
+        units=[
+            stored_unit(
+                "base/1",
+                change="base",
+                groups=(1,),
+                estimated_lines=400,
+                joined=(Member(change="feature", groups=(1,)),),
+            )
+        ],
+        tasks={"base": tasks_md(), "feature": tasks_md()},
+        planning="base",
+        reply=answer(units=[new_unit("base/1", (1,), estimated_lines=100)]),
+    )
+
+    run.plan()
+
+    assert run.store.get("base/1").estimated_lines == 400
+    assert carried(run, "base/1") == {"base": [1], "feature": [1]}
