@@ -202,7 +202,12 @@ PASSED_STATUS = {
 
 # `pending` and `notSet` are waiting, not failing: a check still running would
 # otherwise send the unit back for rework while its build was in progress.
-PENDING_STATUS = {**deepcopy(FAILED_STATUS), "id": 3, "state": "pending"}
+PENDING_STATUS = {
+    **deepcopy(FAILED_STATUS),
+    "id": 3,
+    "state": "pending",
+    "context": {"genre": "continuous-integration", "name": "deploy"},
+}
 
 # Each push to the source branch makes one of these. A status belongs to the
 # code that was evaluated, so the changed files come from the newest.
@@ -222,3 +227,43 @@ CHANGES = {
         {"changeType": "add", "item": {"path": "/poc/validate", "isFolder": True}},
     ]
 }
+
+
+# --- build policy evaluations -----------------------------------------------------
+#
+# `az repos pr policy list` answers one of these per policy configured on the
+# target branch. `status` is `approved`, `rejected`, `running`, `queued`,
+# `broken` or `notApplicable`; what makes it a *build* is the configuration's
+# type, and what names it is the configuration's own `displayName`.
+
+BUILD_POLICY_TYPE = {"id": "0609b952-1397-4640-95ec-e00a01b2c241", "displayName": "Build"}
+
+
+def evaluation(status: str, name: str = "CI build", policy_type: dict | None = None) -> dict:
+    """One evaluation of an open pull request: build validation unless a
+    `policy_type` of another policy says otherwise."""
+    finished = status not in ("running", "queued")
+    return {
+        "evaluationId": GUID,
+        "configuration": {
+            "id": 12,
+            "isEnabled": True,
+            "isBlocking": True,
+            "isDeleted": False,
+            "revision": 1,
+            "type": deepcopy(policy_type or BUILD_POLICY_TYPE),
+            "settings": {
+                "buildDefinitionId": 3,
+                "displayName": name,
+                "queueOnSourceUpdateOnly": False,
+                "validDuration": 0.0,
+                "scope": [{"refName": "refs/heads/main", "matchKind": "Exact"}],
+            },
+        },
+        "status": status,
+        # Null until a build has been queued: kept, because a reader that
+        # indexes into it breaks on the very evaluations that are not failing.
+        "context": {"buildId": 41, "isExpired": False} if status != "queued" else None,
+        "startedDate": "2026-09-24T18:02:11.483Z",
+        "completedDate": "2026-09-24T18:09:00.000Z" if finished else None,
+    }

@@ -22,6 +22,7 @@ registry's union means they are refused in a GitHub checkout too.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -51,6 +52,24 @@ _API = "7.1"
 # TF401028 a missing reference, TF401398 a source or target that no longer exists.
 _MISSING_REFERENCE = "TF401028"
 _MISSING_BRANCH = "TF401398"
+
+log = logging.getLogger(__name__)
+
+# `mergeStatus` as a conflict answer: only `succeeded` and `conflicts` are
+# definite. `queued` and `notSet` are the host working it out, and
+# `rejectedByPolicy` and `failure` say nothing about conflicts, so a rework
+# sent for any of them could not fix what it was sent for.
+_MERGEABLE = {"succeeded": True, "conflicts": False}
+
+# A build policy evaluation that has finished badly. `running` and `queued` are
+# waiting, and `approved` and `notApplicable` are passing.
+_POLICY_FAILING = ("rejected", "broken")
+
+# The policy type of build validation. `az repos pr policy list` evaluates every
+# policy on the target branch - reviewers, work item linking, comments, status -
+# and a pull request waiting for its approval is `rejected` on those too, which
+# no rework can fix.
+_BUILD_POLICY_TYPE = "0609b952-1397-4640-95ec-e00a01b2c241"
 
 
 def _base_missing(stderr: str, base: str) -> bool:
@@ -137,6 +156,7 @@ class AzureDevOpsForge:
         ),
     )
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
+    ci_name: str = "Azure Pipelines"
 
     # --- identity -------------------------------------------------------------------
 
@@ -310,9 +330,15 @@ class AzureDevOpsForge:
         notes = _notes(self._threads(repo, pull.number, run=run), live_only=False)
         failing = tuple(
             sorted(
-                _context(status)
-                for status in self._statuses(repo, pull.number, run=run)
-                if str(status.get("state") or "") in _FAILING
+                [
+                    _context(status)
+                    for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
+                    if str(status.get("state") or "") in _FAILING
+                ]
+                + [
+                    _policy_name(item)
+                    for item in self._failing_evaluations(repo, pull.number, run=run)
+                ]
             )
         )
         return pull.model_copy(
@@ -323,7 +349,28 @@ class AzureDevOpsForge:
             }
         )
 
-    def find_pr(self, repo: RepoId, *, head: str, run: Run | None = None) -> int | None:
+    def _failing_evaluations(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
+        """The build policy evaluations this pull request is failing.
+
+        A policy evaluation is a different resource from a status: a branch
+        policy's build reports here and never as a status.
+        """
+        found = az.json_out(
+            ["repos", "pr", "policy", "list", "--id", str(pr)],
+            org=az.org_url(repo.account),
+            run=run,
+        )
+        return [
+            item
+            for item in (found if isinstance(found, list) else [])
+            if isinstance(item, dict)
+            and str(item.get("status") or "") in _POLICY_FAILING
+            and _policy_type(item) == _BUILD_POLICY_TYPE
+        ]
+
+    def find_pr(
+        self, repo: RepoId, *, head: str, status: str = "all", run: Run | None = None
+    ) -> int | None:
         found = az.json_out(
             [
                 "repos",
@@ -336,7 +383,7 @@ class AzureDevOpsForge:
                 "--source-branch",
                 head,
                 "--status",
-                "all",
+                status,
                 "--top",
                 "1",
             ],
@@ -531,33 +578,65 @@ class AzureDevOpsForge:
         ok: bool,
         context: str,
         description: str,
+        head: str = "",
         run: Run | None = None,
     ) -> None:
         """Publish a result against the commit it was measured on.
 
-        A commit status rather than a pull request status: the result belongs
-        to one commit, and a pull request status would follow the branch as it
-        moved. A restack changes the SHA, and a status on the wrong commit is
-        worse than none.
+        The commit status is the record: the result belongs to one commit, and
+        a restack changes the SHA, so a status on the wrong commit is worse than
+        none. Azure shows only a pull request's own statuses, so the open pull
+        request for `head` gets the same result too, where a branch policy or a
+        person reading the pull request will see it. That one follows the
+        branch, and each result replaces the last of its context.
 
         Azure splits a context into a genre and a name, so `local/tier2`
         becomes both; a context with no slash keeps abk's own genre.
         """
         genre, _, name = context.rpartition("/")
-        self._rest(
-            repo,
-            "statuses",
-            method="POST",
-            payload={
-                "state": "succeeded" if ok else "failed",
-                # Well inside what the API accepts: an over-long description
-                # loses the whole status rather than its tail.
-                "description": description[:_DESCRIPTION],
-                "context": {"genre": genre or "abk", "name": name},
-            },
-            commitId=sha,
-            run=run,
-        )
+        payload = {
+            "state": "succeeded" if ok else "failed",
+            # Well inside what the API accepts: an over-long description
+            # loses the whole status rather than its tail.
+            "description": description[:_DESCRIPTION],
+            "context": {"genre": genre or "abk", "name": name},
+        }
+        self._rest(repo, "statuses", method="POST", payload=payload, commitId=sha, run=run)
+        if head:
+            self._post_pr_status(repo, head, payload, run=run)
+
+    def _post_pr_status(
+        self, repo: RepoId, head: str, payload: dict, *, run: Run | None = None
+    ) -> None:
+        """The same status on the open pull request for `head`, if there is one.
+
+        Never fatal: a completed or abandoned pull request takes no status and
+        the host may refuse for lack of permission, and the commit status that
+        was already posted is the record that matters.
+        """
+        # Active only: a completed or abandoned pull request takes no status.
+        number = self.find_pr(repo, head=head, status="active", run=run)
+        if number is None:
+            return
+        try:
+            self._rest(
+                repo,
+                "pullRequestStatuses",
+                method="POST",
+                payload=payload,
+                pullRequestId=number,
+                run=run,
+            )
+        except az.AzError as error:
+            context = payload["context"]
+            log.warning(
+                "could not show %s/%s %s on the pull request for %s: %s",
+                context["genre"],
+                context["name"],
+                payload["state"],
+                head,
+                error,
+            )
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> str:
         """What the failing checks said, for the rework that fixes them.
@@ -572,9 +651,20 @@ class AzureDevOpsForge:
         parts = [
             f"{_context(status)} - {status.get('description') or 'failed'}"
             + (f"\n{url}" if (url := status.get("targetUrl")) else "")
-            for status in self._statuses(repo, pull.number, run=run)
+            for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
             if str(status.get("state") or "") in _FAILING
         ]
+        for item in self._failing_evaluations(repo, pull.number, run=run):
+            build = (item.get("context") or {}).get("buildId")
+            parts.append(
+                f"{_policy_name(item)} - build policy {item.get('status')}"
+                + (
+                    f"\n{az.org_url(repo.account)}/{quote(repo.project)}"
+                    f"/_build/results?buildId={build}"
+                    if build
+                    else ""
+                )
+            )
         return "\n\n".join(parts)
 
     def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
@@ -689,6 +779,7 @@ def _view(pull: dict) -> PullRequest:
             else "open"
         ),
         draft=bool(pull.get("isDraft")),
+        mergeable=_MERGEABLE.get(str(pull.get("mergeStatus") or "")),
         # `null`, not `[]`, when a pull request has none.
         labels=tuple(sorted(str(label.get("name", "")) for label in pull.get("labels") or [])),
         review_decision=_decision(pull.get("reviewers") or []),
@@ -747,6 +838,34 @@ def _values(answered: object) -> list[dict]:
     hands the bare list back - both shapes reach here."""
     found = answered.get("value") if isinstance(answered, dict) else answered
     return [item for item in found if isinstance(item, dict)] if isinstance(found, list) else []
+
+
+def _policy_type(evaluation: dict) -> str:
+    """The id of the policy type an evaluation is of."""
+    kind = (evaluation.get("configuration") or {}).get("type") or {}
+    return str(kind.get("id") or "")
+
+
+def _latest_statuses(statuses: list[dict]) -> list[dict]:
+    """The newest status of each genre and name.
+
+    Every post is a status of its own and the listing returns them all; only
+    the latest of a context is the one in force, so a failure a later result
+    superseded is not a failing check.
+    """
+    latest: dict[tuple[str, str], dict] = {}
+    for status in sorted(statuses, key=lambda s: int(s.get("id") or 0)):
+        context = status.get("context") or {}
+        latest[(str(context.get("genre") or ""), str(context.get("name") or ""))] = status
+    return list(latest.values())
+
+
+def _policy_name(evaluation: dict) -> str:
+    """A policy evaluation's name: the build it runs, else the policy's type."""
+    configuration = evaluation.get("configuration") or {}
+    settings = configuration.get("settings") or {}
+    kind = configuration.get("type") or {}
+    return str(settings.get("displayName") or kind.get("displayName") or "build policy")
 
 
 def _context(status: dict) -> str:

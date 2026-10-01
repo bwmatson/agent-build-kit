@@ -74,6 +74,7 @@ class GitHubForge:
     # `gh pr close` and `gh pr ready` are not denied, so nothing needs an exception.
     permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ("slug",)
+    ci_name: str = "GitHub Actions"
 
     def parse_remote(self, url: str) -> RepoId | None:
         match = _ORIGIN.match(url.strip())
@@ -217,7 +218,7 @@ class GitHubForge:
         return _stack(_stacks_api(repo, "POST", f"/{stack}/add", _pull_fields(pulls)))
 
     def post_status(
-        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str
+        self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
     ) -> None:
         """Publish a result as a commit status on the tested SHA.
 
