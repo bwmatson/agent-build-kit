@@ -359,6 +359,20 @@ def cross_change_needs(path: Path) -> dict[int, list[tuple[str, int]]]:
     return needs
 
 
+class Need(Frozen):
+    """One `Needs:` line: another change's group, and whether it must merge first."""
+
+    change: str
+    group: int
+    merged: bool = False
+    reason: str = ""
+
+
+def group_needs(path: Path) -> dict[int, list[Need]]:
+    """Each group's `Needs:` lines with their `merged` qualifier and reason."""
+    raise NotImplementedError
+
+
 def tasks_path(change: str, changes_dir: Path) -> Path:
     return changes_dir / change / "tasks.md"
 

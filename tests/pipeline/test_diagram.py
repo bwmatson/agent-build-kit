@@ -62,6 +62,31 @@ def test_a_cross_repo_edge_is_drawn_differently() -> None:
     assert "-.->" in diagram, "cross-repo edges are dashed"
 
 
+def test_a_merge_gated_edge_is_drawn_and_labelled() -> None:
+    """A unit waiting on a same-repo dependency that is already in review
+    needs the page to say why."""
+    diagram = render_mermaid(
+        [
+            unit("a", state="in_review"),
+            unit("b", depends_on=("a",), merge_before=("a",)),
+        ]
+    )
+
+    assert "a ==>|merged| b" in diagram
+    assert "class b blocked" in diagram
+    assert "a --> b" not in diagram
+
+
+def test_the_legend_explains_the_merge_gated_edge() -> None:
+    page = render_markdown(
+        [unit("a", state="in_review"), unit("b", depends_on=("a",), merge_before=("a",))]
+    )
+
+    legend = page.split("## Legend")[1].split("## Waiting")[0]
+    assert "==>" in legend
+    assert "merge" in legend.lower()
+
+
 def test_state_is_visible_without_reading_the_labels() -> None:
     diagram = render_mermaid(
         [

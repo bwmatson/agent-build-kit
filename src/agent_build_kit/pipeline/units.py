@@ -86,6 +86,8 @@ class Unit(Frozen):
     repo: str
     tier: str
     depends_on: tuple[str, ...] = ()
+    # The subset of `depends_on` that must merge before this unit starts.
+    merge_before: tuple[str, ...] = ()
     estimated_lines: int = 0
     state: str = PLANNED
     issue: int | None = None
