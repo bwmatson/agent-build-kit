@@ -187,6 +187,86 @@ def test_a_parent_reaching_review_starts_its_child_in_the_same_pass(
     assert builder.store.get("slow/1").state == IN_REVIEW
 
 
+def test_a_pass_with_one_long_build_still_refreshes_and_fills_free_slots(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Waiting only for a completion left a pass with one long build blind for
+    its whole length — no poll, so no merge, comment or conflict was heard —
+    and the timer cannot start another tick while this one runs."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    polls: list[int] = []
+
+    def poll(inst, **kwargs) -> None:
+        polls.append(1)
+        if len(polls) == 2:  # something new turns up while slow/1 builds
+            builder.store.upsert([stored("late/1")])
+
+    monkeypatch.setattr(cli, "poll_all", poll)
+    builder.scripts["slow/1"] = lambda: (
+        None if eventually(lambda: "late/1" in builder.finished) else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert builder.finished.index("late/1") < builder.finished.index("slow/1")
+    assert builder.store.get("slow/1").state == IN_REVIEW
+
+
+def _sends_back(builder: Builder, unit_id: str, *, times: int):
+    """A poll that, after each time `unit_id` reaches review, sends it back for
+    rework — as a conflict or a failing check does — up to `times` times."""
+    sent: list[int] = []
+
+    def poll(inst, **kwargs) -> None:
+        if builder.store.get(unit_id).state == IN_REVIEW and len(sent) < times:
+            sent.append(1)
+            builder.store.set_state(
+                unit_id, PLANNED, note="rework requested: merge conflict with its base"
+            )
+
+    return poll
+
+
+def test_a_unit_a_poll_sends_back_is_rebuilt_in_the_same_pass(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Built once in a pass, a unit used to wait for the next pass however it
+    was sent back — and the next pass could not start until this one ended."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("conflicted/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    monkeypatch.setattr(cli, "poll_all", _sends_back(builder, "conflicted/1", times=1))
+    builder.scripts["slow/1"] = lambda: (
+        None if eventually(lambda: builder.finished.count("conflicted/1") == 2) else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert builder.started.count("conflicted/1") == 2
+    assert builder.store.get("conflicted/1").state == IN_REVIEW
+
+
+def test_a_unit_sent_back_again_and_again_is_rebuilt_a_bounded_number_of_times(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pass must still end."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("conflicted/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    monkeypatch.setattr(cli, "poll_all", _sends_back(builder, "conflicted/1", times=100))
+    builder.scripts["slow/1"] = lambda: (
+        None
+        if eventually(lambda: builder.started.count("conflicted/1") > cli.REBUILDS_PER_PASS)
+        else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert builder.started.count("conflicted/1") == 1 + cli.REBUILDS_PER_PASS
+
+
 def test_a_unit_set_back_to_planned_during_the_pass_is_started_by_it(
     builder: Builder, tmp_path: Path
 ) -> None:

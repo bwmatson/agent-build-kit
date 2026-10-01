@@ -134,9 +134,15 @@ under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 
 A pass keeps scheduling until it runs out of ready work. Each build that
-finishes is followed by a fresh fetch and poll and a fresh `ready_units`, so a
-parent reaching review starts its child, and a dependency merging releases its
-dependent, in the same pass rather than the next; the caps apply to every
+finishes — and, while builds are running, every five minutes regardless — is
+followed by a fresh fetch and poll and a fresh `ready_units`, so a parent
+reaching review starts its child, a dependency merging releases its dependent,
+and a conflict or a review comment on an open pull request is heard, in the
+same pass rather than the next. The timer cannot start a tick while one is
+running, so a pass with one long build must not wait for it to look. A unit
+the pass has already built and a poll then sends back for rework is started
+again in the same pass, at most twice; anything else the pass started stays
+handed out, which is what lets a pass end. The caps apply to every
 evaluation, and `--only` narrows every one. Planning stays once per pass. A
 build reporting that the pass should stop (the usage window spent) ends
 submission, and the builds in flight are still awaited. A pass therefore lasts
