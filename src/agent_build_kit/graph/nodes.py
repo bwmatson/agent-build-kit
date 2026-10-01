@@ -406,14 +406,13 @@ class BuildPath:
                 f"{approved[:9] or 'nothing'} on this branch"
             )
         branch = branch_name(unit)
-        if r.store.get(unit.id).pushed == head:
-            self.say(f"{branch} is already pushed at {head[:9]}")
-        else:
-            try:
-                sha = r.push(branch, cwd=tree)
-            except HostMoved as error:
-                return self.not_yet(f"a host branch that moved under the push ({error})")
-            self.say(f"pushed {branch} at {sha[:9]}")
+        # Always through `push`, where a branch the host moved is caught; pushing
+        # a commit the remote already has changes nothing.
+        try:
+            sha = r.push(branch, cwd=tree)
+        except HostMoved as error:
+            return self.not_yet(f"a host branch that moved under the push ({error})")
+        self.say(f"pushed {branch} at {sha[:9]}")
         # Only now, with the push confirmed: a follow-up recorded ahead of it
         # would describe work that never left the machine.
         deferred = r.store.get(unit.id).deferred
