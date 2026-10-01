@@ -180,10 +180,13 @@ class LimitsConfig(Frozen):
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
     # How many times a branch that fails its checks (lint, types, tests) is sent
-    # back to the builder before a reviewer is asked for it. The checks always
-    # run, as they are the gate before a review and a push; 0 only means a
-    # failure fails the unit at once, with no fix attempt.
-    max_check_rounds: Annotated[int, Field(ge=0)] = 2
+    # back to the builder before a reviewer is asked for it. Counted per round of
+    # review: the budget starts again before each one, so a rework that breaks
+    # the build gets its own attempts. null is no limit (a fix that changes
+    # nothing still ends the run). The checks always run, as they are the gate
+    # before a review and a push; 0 only means a failure fails the unit at once,
+    # with no fix attempt.
+    max_check_rounds: Annotated[int, Field(ge=0)] | None = 3
     # How many times, the first included, the adapt step's test accounting is
     # asked for before the unit fails, when it is incomplete rather than wrong.
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2

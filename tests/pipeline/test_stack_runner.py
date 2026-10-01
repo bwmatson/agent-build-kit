@@ -2520,7 +2520,7 @@ FAILING = "ERROR implicit-any-empty-container\n  --> tests/test_x.py:3:5"
 
 
 def checked_runner(
-    tmp_path: Path, recorder: Recorder, **limits: int
+    tmp_path: Path, recorder: Recorder, **limits: int | None
 ) -> tuple[UnitRunner, UnitStore]:
     """A runner whose limits are the given ones; the suite's autouse fixture
     puts the config back afterwards."""
@@ -2682,3 +2682,94 @@ def test_a_failed_tier_one_after_review_is_reworked_with_the_check_prompt(tmp_pa
     sent = [p for p in recorder.prompts if FAILING in p]
     assert len(sent) == 1 and "checks (lint" in sent[0]
     assert store.get(unit().id).pending_replies == (), "nothing to post to a PR"
+
+
+# --- how many fix rounds, and when they count from -----------------------------
+
+
+def test_the_fix_budget_starts_again_for_each_round_of_review(tmp_path: Path) -> None:
+    """Per round, not per unit: a rework that breaks the build again is its own
+    problem, with its own attempts, and does not inherit a spent budget."""
+    recorder = Recorder()
+    recorder.verdicts = [rejecting("rename it"), '{"approved": true, "feedback": ""}']
+    recorder.tier1_results = [
+        (False, FAILING),  # round 1: two fixes, the whole budget...
+        (False, FAILING),
+        (True, ""),
+        (False, FAILING),  # ...and round 2 gets two more
+        (False, FAILING),
+        (True, ""),
+    ]
+    runner, _ = checked_runner(tmp_path, recorder, max_check_rounds=2)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "open"
+    assert recorder.events.count("claude:fix_checks") == 4
+    assert recorder.events.count("review") == 2
+
+
+def test_the_default_is_three_fix_rounds(tmp_path: Path) -> None:
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = FAILING
+    runner, _ = checked_runner(tmp_path, recorder)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert recorder.events.count("claude:fix_checks") == 3
+
+
+def test_no_limit_keeps_fixing_until_the_checks_pass(tmp_path: Path) -> None:
+    recorder = Recorder()
+    recorder.tier1_results = [(False, FAILING)] * 12 + [(True, "")]
+    runner, _ = checked_runner(tmp_path, recorder, max_check_rounds=None)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "open"
+    assert recorder.events.count("claude:fix_checks") == 12
+    assert recorder.events.count("review") == 1
+
+
+def test_a_fix_that_changes_nothing_ends_the_run_even_with_no_limit(tmp_path: Path) -> None:
+    """The same question of the same tree again would get the same answer, and
+    with no limit it would be asked until the usage window ended."""
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = FAILING
+    runner, store = checked_runner(tmp_path, recorder, max_check_rounds=None)
+    original = recorder.commit
+
+    def commit_nothing(message: str, *, cwd: Path) -> int:
+        if "checks" in message:
+            recorder.events.append("commit:fix")
+            return 0
+        return original(message, cwd=cwd)
+
+    runner = runner.model_copy(update={"commit": commit_nothing})
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert recorder.events.count("claude:fix_checks") == 1, "asked once, then stopped"
+    assert "changed nothing" in outcome.detail
+    assert "review" not in recorder.events
+    assert store.get(unit().id).feedback.startswith("tier 1 failed:")
+
+
+def test_a_pause_still_stops_an_unlimited_fix_loop(tmp_path: Path) -> None:
+    """The usage guard, checked before every fix, is what bounds the cost."""
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = FAILING
+    runner, store = checked_runner(tmp_path, recorder, max_check_rounds=None)
+    runner = runner.model_copy(
+        update={
+            "may_start": lambda: (recorder.events.count("claude:fix_checks") < 2, "session at 91%")
+        }
+    )
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "paused"
+    assert recorder.events.count("claude:fix_checks") == 2
+    assert store.get(unit().id).resume_from == "rework"

@@ -212,10 +212,11 @@ binds each step to git, gh and `claude`:
    pass tier 1 (lint, formatting, types and the tests; see step 6): a reviewer's
    time goes on a branch that already builds. A failure is saved as feedback and
    handed to the builder with the check prompt, then tier 1 runs again, up to
-   `limits.max_check_rounds` times (2; 0 means no fix attempt, not no check),
-   before the unit is `failed` with the output kept. It runs again before every
-   later round, since a rework can break the build as easily as the first
-   draft. Nothing runs tier 1 after the review: a reviewer reports and the
+   `limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
+   attempt, not no check), before the unit is `failed` with the output kept. A
+   fix that changes nothing ends it too, whatever the limit. It runs again
+   before every later review round with the budget started over, since a
+   rework can break the build as easily as the first draft. Nothing runs tier 1 after the review: a reviewer reports and the
    builder fixes, so approval leaves the branch as the checks judged it.
    A read-only reviewer (`Read Grep Glob`, `git diff/log/
    show`) judges the branch against the repo's `CLAUDE.md` and the change,

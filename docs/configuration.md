@@ -134,9 +134,12 @@ limits:
                                 # must exceed min_unit_lines. Shapes plans
                                 # only — a branch is not measured against it
   max_review_rounds: 3          # review rounds before a unit fails
-  max_check_rounds: 2           # times a branch failing its checks (lint, types,
+  max_check_rounds: 3           # times a branch failing its checks (lint, types,
                                 # tests) goes back to the builder before a
-                                # reviewer is asked; 0 = no fix attempt (the
+                                # reviewer is asked. Counted per round of
+                                # review: it starts again before each one.
+                                # null = no limit (a fix that changes nothing
+                                # still ends the run); 0 = no fix attempt (the
                                 # checks still run: they are the gate)
   max_adapt_rounds: 2           # adapt-step accounting asks, first included,
                                 # before a unit fails

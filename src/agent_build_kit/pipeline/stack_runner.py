@@ -1713,13 +1713,20 @@ class UnitRunner(BaseModel):
         failure is a rework step on the saved output, up to
         `limits.max_check_rounds` of them, before it is failed.
 
+        The budget is per round of review, not per unit: this runs at the top of
+        each round and counts from zero every time, so a rework that breaks the
+        build again gets its own fix attempts. `None` is no limit.
+
         Returns None when the checks pass, else the outcome that ends the run:
         failed, or stopped by a pause. A budget of 0 is not "off": the branch is
         still checked, and a failure fails the unit with no fix attempt, since
-        this is the only gate before a push.
+        this is the only gate before a push. A fix that leaves the branch as it
+        was ends the run whatever the budget: asking again would be the same
+        question of the same tree, and with no limit it would never stop.
         """
         budget = active().limits.max_check_rounds
-        for attempt in range(budget + 1):
+        attempt = 0
+        while True:
             self.log("step: checks before review")
             ok, output = self.run_tier1(cwd=tree, base=ref, whole_repo=False)
             self.log(f"checks {'passed' if ok else 'failed'}")
@@ -1733,21 +1740,26 @@ class UnitRunner(BaseModel):
             # this output rather than running the checks to discover it.
             feedback = f"{TIER1_FAILED}\n{output}".strip()
             self.store.set_feedback(unit.id, feedback)
-            if attempt == budget:
+            if budget is not None and attempt >= budget:
                 return self._fail(
                     unit, f"checks still failing after {budget} fix round(s), before review"
                 )
             if outcome := checkpoint(REWORK):
                 return outcome
-            self.log(f"step: fix the failing checks ({models().rework}), round {attempt + 1}")
+            attempt += 1
+            self.log(f"step: fix the failing checks ({models().rework}), round {attempt}")
+            before = self.head(tree)
             self.run_rework(
                 CHECKS_PROMPT.format(
                     change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
                 ),
                 cwd=tree,
             )
-            self.commit(f"fix: {unit.title} (checks, round {attempt + 1})", cwd=tree)
-        return None
+            self.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
+            if self.head(tree) == before:
+                return self._fail(
+                    unit, f"checks failing and fix round {attempt} changed nothing, before review"
+                )
 
     def _record_response(self, unit: Unit, response: str) -> None:
         """The builder's account of the last round's ask, for the next review."""

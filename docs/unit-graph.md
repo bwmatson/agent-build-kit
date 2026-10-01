@@ -167,9 +167,13 @@ builder's fix for a reviewer's point can break the build as easily as the first
 draft could.
 
 A failure is saved on the unit as feedback (`tier 1 failed:` and the output) and
-goes to `fix_checks`, up to `limits.max_check_rounds` times (2 by default; 0
-means no fix attempt, not no check: it is the only gate before a review and a
-push). Only when the budget is spent does the unit go to `failed`, with the
+goes to `fix_checks`, up to `limits.max_check_rounds` times (3 by default;
+`null` is no limit; 0 means no fix attempt, not no check: it is the only gate
+before a review and a push). The count is per round of review: `checks` runs at
+the top of each round and the budget starts again, so a rework that breaks the
+build gets its own attempts. A fix that leaves the branch unchanged ends the
+run whatever the limit, as asking again would be the same question of the same
+tree. Only when the budget is spent does the unit go to `failed`, with the
 output still saved, and `abk requeue --rework` is how it
 gets another go with that output in front of the agent. A pause during a fix
 keeps the saved failure, so the resume fixes what was found rather than finding

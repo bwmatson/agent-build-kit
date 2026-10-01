@@ -99,7 +99,7 @@ instance).
 The run raised an exception, or its checks failed; its last log line in the
 tick output says which, and `abk status` shows the unit. A branch is checked
 (lint, types, tests) before a reviewer is asked, and sent back to the builder up
-to `limits.max_check_rounds` times before it fails with the output kept.
+to `limits.max_check_rounds` times (3 by default, counted per review round; `null` for no limit) before it fails with the output kept.
 
 Fix the cause first where it is outside the branch — a missing credential, a
 broken toolchain, a branch someone deleted — then `abk requeue <unit>` resumes
