@@ -34,6 +34,7 @@ class StandInForge:
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
+    read_commands: tuple[tuple[str, ...], ...] = ()
     permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ()
 

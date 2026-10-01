@@ -391,7 +391,7 @@ def push_target(repo: Path) -> str:
     as `origin` — mangling it would produce a URL that fails at push time,
     after the unit has been built, reviewed and checked.
     """
-    if not active().github.push_host:
+    if not active().git.push_host:
         return "origin"
 
     result = git(repo, "remote", "get-url", "origin", check=False)
@@ -399,7 +399,7 @@ def push_target(repo: Path) -> str:
     if result.returncode or not match:
         return "origin"
 
-    return f"git@{active().github.push_host}:{match.group('path')}"
+    return f"git@{active().git.push_host}:{match.group('path')}"
 
 
 def remote_head(repo: Path, branch: str) -> str:

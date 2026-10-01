@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
@@ -87,6 +88,10 @@ _HTTPS = re.compile(
 )
 
 
+# How many pull requests' conversations and checks are read at once.
+READ_POOL = 4
+
+
 class AzureDevOpsForge:
     name: str = "azure_devops"
     implemented: bool = True
@@ -107,6 +112,11 @@ class AzureDevOpsForge:
         # The raw escapes, which reach all of the above.
         ("az", "rest"),
         ("az", "devops", "invoke"),
+    )
+    read_commands: tuple[tuple[str, ...], ...] = (
+        ("az", "repos", "pr", "show"),
+        ("az", "repos", "pr", "list"),
+        ("az", "repos", "pr", "policy", "list"),
     )
     # Abandoning or reopening a PR and toggling draft are the pipeline's own
     # calls; each flag is spelled in full with the values it may carry.
@@ -284,7 +294,15 @@ class AzureDevOpsForge:
         # What was said is a second call per pull request, so only the open
         # ones are asked: a merged or abandoned one is dispatched on its state,
         # and nothing said on it afterwards changes what the pipeline does.
-        return [p if p.state != "open" else self._said_on(repo, p, run=run) for p in pulls]
+        # On a small pool, so a poll's latency stops scaling with the open PRs
+        # while the `az` process count stays bounded. `map` keeps listing order
+        # and raises the first failure, so a failed read leaves no partial list.
+        with ThreadPoolExecutor(max_workers=READ_POOL) as pool:
+            return list(
+                pool.map(
+                    lambda p: p if p.state != "open" else self._said_on(repo, p, run=run), pulls
+                )
+            )
 
     def _said_on(self, repo: RepoId, pull: PullRequest, *, run: Run | None = None) -> PullRequest:
         """The pull request with what was said on it, for the poller to diff."""

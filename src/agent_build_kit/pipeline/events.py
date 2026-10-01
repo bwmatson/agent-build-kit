@@ -493,12 +493,6 @@ def build_fetch_review(
     return fetch
 
 
-# The part of a failed job's log a fix needs: the failure and what led to it.
-CHECK_LOG_CHARS = 6000
-RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
-LOG_PREFIX = re.compile(r"^[^\t]*\t[^\t]*\t\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
-
-
 def build_fetch_check_logs(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[..., str]:

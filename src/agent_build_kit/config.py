@@ -20,6 +20,7 @@ Two ways to reach it:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -61,7 +62,7 @@ class OpenSpecConfig(Frozen):
     command: list[str] | None = None
 
 
-class GithubConfig(Frozen):
+class GitConfig(Frozen):
     # An ssh host alias (see ~/.ssh/config) carrying the key for the account
     # the pipeline pushes agent branches as. "" means push to `origin`, which
     # authenticates as whoever owns the default key.
@@ -187,12 +188,9 @@ class TracksConfig(Frozen):
     propose_max_issues: int = 3
     # Claude Code's --allowedTools/--disallowedTools syntax; neither list has
     # any effect under the acp runtime.
-    allowed_tools: str = (
-        "Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch "
-        "Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh pr *) "
-        "Bash(gh repo view*) Bash(docker compose config*) Bash(abk check*) "
-        "Bash(abk tags*)"
-    )
+    # None is the built-in list (`tracks.runner.allowed_tools_value`): the base
+    # tools plus every forge's way of reading a PR. A list set here is used as is.
+    allowed_tools: str | None = None
     # Every registered forge's way of merging is added to whatever this names
     # (`tracks/runner.py`), so a workspace overriding it cannot drop them.
     disallowed_tools: str = (
@@ -366,7 +364,7 @@ class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()
-    github: GithubConfig = GithubConfig()
+    git: GitConfig = GitConfig()
     # The agent runtime (runtimes/) every call runs on; ABK_RUNTIME overrides it.
     runtime: str = runtimes.DEFAULT
     # Per-runtime facts, only the selected runtime's demanded.
@@ -409,6 +407,7 @@ def load(path: Path) -> WorkspaceConfig:
         raise ConfigError(f"{path} is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
+    raw = _rename_github_section(raw, path)
     try:
         loaded = WorkspaceConfig.model_validate(raw)
     except ValidationError as error:
@@ -416,6 +415,20 @@ def load(path: Path) -> WorkspaceConfig:
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     return loaded
+
+
+def _rename_github_section(raw: dict, path: Path) -> dict:
+    """Read the old `github:` section as `git:`; refuse a file that sets both.
+
+    The section was never about GitHub alone. The alias goes in a later release
+    (CHANGELOG); `abk doctor` asks for the rename.
+    """
+    if "github" not in raw:
+        return raw
+    if "git" in raw:
+        raise ConfigError(f"{path} sets both `git:` and its old name `github:`; keep `git:`")
+    print(f"warning: {path}: `github:` is now `git:`; rename it", file=sys.stderr)
+    return {("git" if key == "github" else key): value for key, value in raw.items()}
 
 
 def _check_forges(config: WorkspaceConfig, path: Path) -> None:

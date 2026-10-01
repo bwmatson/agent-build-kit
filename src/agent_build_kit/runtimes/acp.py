@@ -138,7 +138,7 @@ PROBE_CLASSES: tuple[tuple[str, str], ...] = (
 def probe_branch() -> str:
     """The branch the probe's throwaway worktree is on: under the active
     workspace's own prefix, so the rules judge it as a unit's branch."""
-    return f"{config.active().github.branch_prefix}policy-probe/1"
+    return f"{config.active().git.branch_prefix}policy-probe/1"
 
 
 def _command_of(raw_input: Any) -> str | None:

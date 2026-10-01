@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- What an agent may run to read its PR comes from its repo's forge
+  (`read_commands`), so an Azure DevOps agent can read its PR with `az repos pr
+  show` and is no longer offered `gh`. The tracks' default allow-list carries
+  every forge's read commands in place of `Bash(gh pr *)`. An Azure DevOps poll
+  reads each open PR's conversation and checks on a pool of four. The `github:`
+  section of `abk.yaml` is now `git:`; the old name still loads with a warning
+  and `abk doctor` asks for the rename. It stops loading in the release after
+  this one. `RUN_URL`, `LOG_PREFIX` and `CHECK_LOG_CHARS` are gone from
+  `pipeline/events.py`.
+
 - A pass refreshes from the code host every five minutes while builds run, not
   only when one finishes, and starts again a unit it already built that a poll
   sent back (a conflict, a failing check, a review comment), at most twice per

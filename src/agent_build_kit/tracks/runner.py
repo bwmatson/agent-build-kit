@@ -118,6 +118,21 @@ class Project(Frozen):
         return f"https://github.com/{self.repo}"
 
 
+TRACK_TOOLS = (
+    "Read Grep Glob Edit Write TodoWrite Agent Skill WebSearch WebFetch "
+    "Bash(git *) Bash(uv run *) Bash(pre-commit *) Bash(gh repo view*) "
+    "Bash(docker compose config*) Bash(abk check*) Bash(abk tags*)"
+)
+
+
+def allowed_tools_value(configured: str | None) -> str:
+    """The workspace's allow list, or the built-in one with every forge's PR reads."""
+    if configured is not None:
+        return configured
+    reads = " ".join(f"Bash({prefix}*)" for prefix in forges.read_prefixes())
+    return f"{TRACK_TOOLS} {reads}"
+
+
 def denied_tools_value(configured: str) -> str:
     """The workspace's deny list, plus every forge's way of merging.
 
@@ -372,7 +387,7 @@ def phase_request(
         cwd=cwd,
         add_dirs=tuple(path for path in (inst.root, project.path) if path != cwd),
         model=tracks.model,
-        allowed_tools=tracks.allowed_tools,
+        allowed_tools=allowed_tools_value(tracks.allowed_tools),
         denied_tools=denied_tools_value(tracks.disallowed_tools),
         permission_mode="edit",
         planning_repo=inst.root,

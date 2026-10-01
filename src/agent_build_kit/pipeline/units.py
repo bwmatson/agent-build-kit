@@ -128,7 +128,7 @@ def branch_name(unit: Unit) -> str:
     place a unit's branch is spelled; the prefix is the setting the command
     policy and the poller use to recognise these branches.
     """
-    return f"{active().github.branch_prefix}{unit.id}"
+    return f"{active().git.branch_prefix}{unit.id}"
 
 
 def local_ref(base: str) -> str:
@@ -141,7 +141,7 @@ def local_ref(base: str) -> str:
     longer exists. The trunk is taken from the remote, which
     each tick fetches first; the PR's base stays the bare name GitHub knows.
     """
-    return base if base.startswith(active().github.branch_prefix) else f"origin/{base}"
+    return base if base.startswith(active().git.branch_prefix) else f"origin/{base}"
 
 
 def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: int) -> list[Unit]:
