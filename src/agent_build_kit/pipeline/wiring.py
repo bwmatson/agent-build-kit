@@ -59,6 +59,7 @@ from agent_build_kit.pipeline.tier2 import (
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
+    BASE_CHANGED,
     IN_REVIEW,
     MERGED,
     REVIEWED,
@@ -1410,11 +1411,11 @@ def build_base_moved(store: UnitStore) -> Callable[..., str]:
     def base_moved(unit: Unit, base: str, *, tree: Path, start: str) -> str:
         now = base_of(unit, store.all())
         if now != base:
-            return f"its base moved from {base} to {now} while it built"
+            return f"{BASE_CHANGED}moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or
         # the resume's restack takes it in. Rewritten is not.
         if start and not _is_ancestor(tree, start, local_ref(base)):
-            return f"its base {base} was rewritten while it built"
+            return f"{BASE_CHANGED}{base} was rewritten while it built"
         return ""
 
     return base_moved

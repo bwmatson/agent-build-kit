@@ -517,3 +517,17 @@ def ready_units(
             room -= 1
         started.append(unit)
     return started
+
+
+# How a build says it stopped because the branch it builds on changed under it:
+# a parent merged ("its base moved from A to B while it built") or was rewritten
+# ("its base A was rewritten while it built"). Resuming restacks the unit onto its
+# new base before anything else, so the cause is gone by the time it runs again —
+# unlike a hold for an unfinished upstream or a full usage window, which a rerun
+# would only meet again.
+BASE_CHANGED = "its base "
+
+
+def held_for_base(note: str) -> bool:
+    """Whether a unit's last note says it held because its base changed."""
+    return note.startswith(("held before", "held after")) and f": {BASE_CHANGED}" in note

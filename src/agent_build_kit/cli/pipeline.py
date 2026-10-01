@@ -77,6 +77,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
+    held_for_base,
     in_progress,
     in_progress_label,
     local_ref,
@@ -488,14 +489,18 @@ REBUILDS_PER_PASS = 2
 def _sent_back(
     units: list[StoredUnit], started: dict[str, datetime], building: set[str]
 ) -> set[str]:
-    """Units this pass already built that a poll has since sent back for rework."""
+    """Units this pass already built that have since been put back to planned:
+    sent back for rework by a poll, or held by their own build because the
+    branch it builds on changed (see `held_for_base`). A unit held for any other
+    reason waits for the next pass: a rerun would meet the same cause."""
     out: set[str] = set()
     for unit in units:
         at = started.get(unit.id)
         if at is None or unit.id in building or unit.state != PLANNED or not unit.history:
             continue
         last = unit.history[-1]
-        if not str(last.get("note", "")).startswith("rework requested"):
+        note = str(last.get("note", ""))
+        if not (note.startswith("rework requested") or held_for_base(note)):
             continue
         try:
             when = datetime.fromisoformat(str(last.get("at", "")))
@@ -537,6 +542,7 @@ def _schedule(
     """
     started: dict[str, datetime] = {}
     rebuilt: dict[str, int] = {}
+    readmitted: set[str] = set()
     building: dict[Future[bool], Unit] = {}
     stopping = False
     refused = False
@@ -568,12 +574,14 @@ def _schedule(
             _refresh(inst, store=store)
             units = store.all()
             in_flight = {unit.id for unit in building.values()}
-            # A unit this pass built and a poll sent back is due again now,
-            # not in the next pass — which cannot start until this one ends.
+            # A unit this pass built and that has since been put back — sent
+            # back by a poll, or held by its own build because its base moved
+            # — is due again now, not in the next pass, which cannot start
+            # until this one ends.
             for unit_id in _sent_back(units, started, in_flight):
                 if rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
-                    rebuilt[unit_id] = rebuilt.get(unit_id, 0) + 1
                     started.pop(unit_id)
+                    readmitted.add(unit_id)
             ready = _evaluate(
                 inst,
                 units,
@@ -581,6 +589,13 @@ def _schedule(
                 building=in_flight,
                 only=only,
             )
+            # The budget is spent when a unit is started again, not when it is
+            # let back in: a held unit may wait several rounds on what it was
+            # held for, and must not run out before it can run.
+            for unit in ready:
+                if unit.id in readmitted:
+                    readmitted.discard(unit.id)
+                    rebuilt[unit.id] = rebuilt.get(unit.id, 0) + 1
             if ready:
                 log(f"ready: {', '.join(unit.id for unit in ready)}")
                 if _refuse_unconfigured(inst, ready):
