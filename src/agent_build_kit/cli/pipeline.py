@@ -96,7 +96,11 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import CommitRejected, build_commit, build_runner
-from agent_build_kit.pipeline.work_graph import NEEDS_LINE, cross_change_needs, validate_tasks
+from agent_build_kit.pipeline.work_graph import (
+    NEEDS_LINE,
+    group_needs,
+    validate_tasks,
+)
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 
 
@@ -733,23 +737,41 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
         for member in unit.members()
         for group in member.groups
     }
+    wanted: dict[str, list[str]] = {}
+    gated: dict[str, list[str]] = {}
     for tasks in inst.tasks_files():
         change = tasks.parent.name
-        for group, needs in cross_change_needs(tasks).items():
-            wanted = [covering[need] for need in needs if need in covering]
-            for missing in (need for need in needs if need not in covering):
+        for group, found in group_needs(tasks).items():
+            for missing in (n for n in found if (n.change, n.group) not in covering):
                 log(
-                    f"{change} group {group} needs {missing[0]} group {missing[1]}, not planned yet"
+                    f"{change} group {group} needs {missing.change} group {missing.group}, "
+                    "not planned yet"
                 )
             for unit in units:
                 if unit.state == UNPLANNED or not any(
                     member.change == change and group in member.groups for member in unit.members()
                 ):
                     continue
-                linked = tuple(dict.fromkeys((*unit.depends_on, *wanted)))
-                if linked != unit.depends_on:
-                    store.set_dependencies(unit.id, linked)
-                    log(f"{unit.id}: now depends on {', '.join(wanted)} (Needs: in tasks.md)")
+                for need in found:
+                    if (need.change, need.group) in covering:
+                        target = covering[(need.change, need.group)]
+                        wanted.setdefault(unit.id, []).append(target)
+                        if need.merged:
+                            gated.setdefault(unit.id, []).append(target)
+    for unit in units:
+        if unit.id not in wanted and not unit.merge_before:
+            continue
+        add = wanted.get(unit.id, [])
+        linked = tuple(dict.fromkeys((*unit.depends_on, *add)))
+        if linked != unit.depends_on:
+            store.set_dependencies(unit.id, linked)
+            log(f"{unit.id}: now depends on {', '.join(add)} (Needs: in tasks.md)")
+        # Recomputed from tasks.md, not unioned with what is stored: dropping
+        # `merged` from a Needs: line releases the unit, and that edit does not
+        # change the plan hash, so nothing else would clear it.
+        held = tuple(dict.fromkeys(g for g in gated.get(unit.id, []) if g in linked))
+        if held != unit.merge_before:
+            store.set_merge_before(unit.id, held)
 
 
 def plan_all(inst: Installation, *, store: UnitStore) -> None:
@@ -832,7 +854,8 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
                         for path in inst.tasks_files()
                     },
                     needs={
-                        group: tuple(found) for group, found in cross_change_needs(tasks).items()
+                        group: tuple((need.change, need.group) for need in found)
+                        for group, found in group_needs(tasks).items()
                     },
                 ),
             )

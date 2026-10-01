@@ -80,8 +80,12 @@ ANY_GROUP_HEADING = re.compile(r"^##\s+(?P<rest>.+?)\s*$")
 # a group of *another* change has. The planner orders groups within a change;
 # across changes it only sees what is already in flight, and its answer is a
 # model's, so a dependency that must hold is written down and applied as code.
+# A single word `merged` straight after the group number makes it wait for the
+# merge; anywhere else the word is part of the reason.
 NEEDS_LINE = re.compile(
-    r"^Needs:\s*(?P<change>[a-z0-9][a-z0-9-]*)\s+group\s+(?P<group>\d+)\b", re.I
+    r"^Needs:\s*(?P<change>[a-z0-9][a-z0-9-]*)\s+group\s+(?P<group>\d+)\b"
+    r"(?:\s+(?P<merged>merged)(?=\s|$))?\s*[—–-]*\s*(?P<reason>.*?)\s*$",
+    re.I,
 )
 
 # "Separate: reviewed and reverted on its own", inside a group: no other change's
@@ -147,6 +151,19 @@ def validate_tasks(
 
         heading = ANY_GROUP_HEADING.match(text)
         if heading is None:
+            if (
+                current is not None
+                and (need := NEEDS_LINE.match(text.strip()))
+                and need["merged"]
+                and need["change"].lower() == path.parent.name.lower()
+            ):
+                errors.append(
+                    ValidationError(
+                        line=index,
+                        message="`merged` on a Needs: for this change's own group says "
+                        "nothing — the groups of one change are ordered already",
+                    )
+                )
             if current is not None and (kept := SEPARATE_LINE.match(text.strip())):
                 if kept["reason"]:
                     separate.add(current)
@@ -347,15 +364,31 @@ def _acceptance_errors(groups: list[TaskGroup], lines: list[str]) -> list[Valida
     return errors
 
 
-def cross_change_needs(path: Path) -> dict[int, list[tuple[str, int]]]:
-    """Each group's `Needs:` lines: {group: [(other change, its group), ...]}."""
-    needs: dict[int, list[tuple[str, int]]] = {}
+class Need(Frozen):
+    """One `Needs:` line: another change's group, and whether it must merge first."""
+
+    change: str
+    group: int
+    merged: bool = False
+    reason: str = ""
+
+
+def group_needs(path: Path) -> dict[int, list[Need]]:
+    """Each group's `Needs:` lines with their `merged` qualifier and reason."""
+    needs: dict[int, list[Need]] = {}
     current: int | None = None
     for line in path.read_text().splitlines():
         if heading := GROUP_HEADING.match(line):
             current = int(heading["number"])
         elif current is not None and (found := NEEDS_LINE.match(line.strip())):
-            needs.setdefault(current, []).append((found["change"].lower(), int(found["group"])))
+            needs.setdefault(current, []).append(
+                Need(
+                    change=found["change"].lower(),
+                    group=int(found["group"]),
+                    merged=found["merged"] is not None,
+                    reason=found["reason"],
+                )
+            )
     return needs
 
 
