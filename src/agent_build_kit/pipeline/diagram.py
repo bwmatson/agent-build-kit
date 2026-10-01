@@ -107,7 +107,10 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
             if parent is None:
                 continue
             # Dashed across repos: that edge cannot be stacked, only waited on.
-            arrow = "-->" if parent.repo == unit.repo else "-.->"
+            if dependency in unit.merge_before:
+                arrow = "==>|merged|"
+            else:
+                arrow = "-->" if parent.repo == unit.repo else "-.->"
             lines.append(f"    {_node_id(dependency)} {arrow} {_node_id(unit.id)}")
 
     for state, style in STATES.items():
@@ -162,7 +165,9 @@ edit by hand.
 - **planned** — ready to start when a slot and the depth cap allow.
 - **blocked** — waiting on a dependency. A cross-repo dependency (dashed
   edge) must *merge* first; a same-repo one must be through its build/review
-  loop, so there is a reviewed branch to stack on.
+  loop, so there is a reviewed branch to stack on. A thick edge labelled
+  `merged` (`==>`) is a dependency its dependent wrote as `Needs: ... merged`:
+  it waits for the merge even in the same repo.
 - **running** — in the build/review loop: an agent is working in a worktree.
 - **paused-rework** — stopped between steps because a unit it depends on
   went back for rework; it restacks and resumes once that unit is through

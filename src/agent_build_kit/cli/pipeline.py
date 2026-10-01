@@ -96,7 +96,12 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import CommitRejected, build_commit, build_runner
-from agent_build_kit.pipeline.work_graph import NEEDS_LINE, cross_change_needs, validate_tasks
+from agent_build_kit.pipeline.work_graph import (
+    NEEDS_LINE,
+    cross_change_needs,
+    group_needs,
+    validate_tasks,
+)
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 
 
@@ -735,8 +740,14 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
     }
     for tasks in inst.tasks_files():
         change = tasks.parent.name
-        for group, needs in cross_change_needs(tasks).items():
+        for group, found in group_needs(tasks).items():
+            needs = [(need.change, need.group) for need in found]
             wanted = [covering[need] for need in needs if need in covering]
+            gated = [
+                covering[(n.change, n.group)]
+                for n in found
+                if n.merged and (n.change, n.group) in covering
+            ]
             for missing in (need for need in needs if need not in covering):
                 log(
                     f"{change} group {group} needs {missing[0]} group {missing[1]}, not planned yet"
@@ -750,6 +761,9 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
                 if linked != unit.depends_on:
                     store.set_dependencies(unit.id, linked)
                     log(f"{unit.id}: now depends on {', '.join(wanted)} (Needs: in tasks.md)")
+                held = tuple(dict.fromkeys((*unit.merge_before, *gated)))
+                if held != unit.merge_before:
+                    store.set_merge_before(unit.id, held)
 
 
 def plan_all(inst: Installation, *, store: UnitStore) -> None:

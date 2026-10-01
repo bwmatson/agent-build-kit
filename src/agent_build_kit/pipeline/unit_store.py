@@ -378,6 +378,9 @@ class UnitStore:
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
         self._update(unit_id, depends_on=tuple(depends_on))
 
+    def set_merge_before(self, unit_id: str, merge_before: Sequence[str]) -> None:
+        self._update(unit_id, merge_before=tuple(merge_before))
+
     def set_review_rounds(self, unit_id: str, rounds: Sequence[dict]) -> None:
         self._update(unit_id, review_rounds=tuple(rounds))
 

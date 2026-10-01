@@ -355,7 +355,8 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     what `unit` waits on is what that dependency was built on. Its predecessor
     sent back for rework, or failed, holds `unit` too; in review or merged it
     does not. Cross-repo ones must have merged: the dependent can't stack on
-    them, so it waits rather than building against a moving target — except a
+    them, so it waits rather than building against a moving target — as does
+    a same-repo one the unit lists in `merge_before` — except a
     satisfied cross-repo dependency, which never merges itself; it is done
     once its own same-repo work has (`satisfied_landed`). The scheduler and
     the diagram both ask this, so the graph never shows a unit as startable
@@ -367,7 +368,7 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         parent = index.get(dep)
         if parent is None:
             continue
-        if parent.repo == unit.repo:
+        if parent.repo == unit.repo and parent.id not in unit.merge_before:
             if parent.state not in REVIEWED:
                 waiting.append(parent)
             continue
