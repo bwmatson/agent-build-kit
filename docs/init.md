@@ -137,7 +137,9 @@ doctor` is the other half: it re-runs detection to report where `abk.yaml`
 has drifted from the checkouts, and reads the `# abk-rules:` stamp in
 `openspec/config.yaml` to report what the framework has added to its rules
 since that version. The rules themselves are yours to reword; only the stamp
-is compared.
+is compared. `abk init --update-rules` closes the gap without rewriting
+anything: it adds each newer version's paragraph to the end of the `context:`
+and restamps the file, leaving every other line as it was.
 
 ## `install-skills` and the three skills
 

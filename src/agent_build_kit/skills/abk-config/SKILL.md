@@ -163,7 +163,7 @@ is 1 when anything failed.
 | runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is `runtimes.<name>.policy_fix`. `abk init` offers to run it. The answer is reused for 15 minutes. It also fails when the check could not be run because the runtime raised (e.g. its usage window is spent); nothing is cached, so run doctor again once the runtime can answer. It warns, unchecked, when the agent command does not resolve; fix the `runtime` check first. |
 | ssh key | A `deploy.ssh_key` does not exist. |
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
-| rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. |
+| rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. `abk init --update-rules` adds what they added to the end of the `context:` and restamps the file, changing nothing else. |
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
 | skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
 

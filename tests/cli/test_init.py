@@ -448,3 +448,36 @@ def test_a_policy_check_that_raises_is_reported_and_init_carries_on(
     # Nothing kept: the next check asks again.
     main(init_args(planning, app))
     assert len(runtime.checked) == 2
+
+
+def test_update_rules_restamps_the_config_without_touching_the_rest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from agent_build_kit.init.scaffold import RULES_VERSION
+
+    planning = tmp_path / "planning"
+    (planning / "openspec").mkdir(parents=True)
+    config = planning / "openspec" / "config.yaml"
+    config.write_text(
+        "# abk-rules: v1\nschema: spec-driven\n\ncontext: |\n  Mine.\n\n"
+        "rules:\n  tasks:\n    - mine\n"
+    )
+    abk_yaml = planning / "abk.yaml"
+    abk_yaml.write_text("version: 1\nrepos: {}\n")
+
+    code = main(["init", str(planning), "--update-rules"])
+
+    assert code == 0
+    assert config.read_text().startswith(f"# abk-rules: v{RULES_VERSION}\n")
+    assert "    - mine\n" in config.read_text()
+    assert abk_yaml.read_text() == "version: 1\nrepos: {}\n"
+    assert "git mv" in capsys.readouterr().out
+    assert main(["init", str(planning), "--update-rules"]) == 0
+    assert "already at rules" in capsys.readouterr().out
+
+
+def test_update_rules_on_a_planning_repo_without_the_file_is_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["init", str(tmp_path), "--update-rules"]) == 2
+    assert "does not exist" in capsys.readouterr().err
