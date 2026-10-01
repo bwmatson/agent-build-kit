@@ -46,6 +46,9 @@ class Harness:
         self.opened_on: list[str] = []
         self.fetch_error: Exception | None = None
         self.base_now = "main"
+        # Whether a clean move carries the approval to the moved commit, as the
+        # real one does when the unit's own diff is unchanged.
+        self.carries_approval = True
         self.move_result: Restacked | Exception | None = None
         # What each move gives after the first, in order; None once spent.
         self.later: list[Restacked | Exception | None] = []
@@ -89,7 +92,8 @@ class Harness:
         if result is not None and not result.resolved and not result.conflict:
             # What the real move does for a clean replay of an approved commit.
             self.moved = True
-            self.store.record_approval(unit.id, MOVED)
+            if self.carries_approval:
+                self.store.record_approval(unit.id, MOVED)
         return result
 
     def close_window_after_one_run(self) -> None:
@@ -436,3 +440,21 @@ def test_a_forge_that_cannot_be_asked_leaves_the_unit_on_its_base_and_is_logged(
     assert outcome.status == "open"
     assert harness.opened_on == ["spec/add-marker/0"], "opened on the base the run had"
     assert any("HTTP 502" in line for line in harness.recorder.logged)
+
+
+def test_a_clean_move_whose_approval_did_not_carry_is_reviewed_again_not_refused(
+    tmp_path: Path,
+) -> None:
+    """Moved without conflicts, but the unit's diff is not the one review read
+    (the base changed around it): the commit being pushed is not the approved
+    one. That used to fail the unit at the push; it is read again instead."""
+    harness = Harness(tmp_path)
+    harness.move_result = CLEAN
+    harness.carries_approval = False
+
+    outcome = harness.run()
+
+    assert outcome.status != "failed", outcome.detail
+    assert "refusing to push" not in outcome.detail
+    assert harness.events.count("review") == 2
+    assert "push" in harness.events
