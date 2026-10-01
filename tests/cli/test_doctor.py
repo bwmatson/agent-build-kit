@@ -725,3 +725,36 @@ def test_the_git_section_draws_no_rename_warning(workspace: Path) -> None:
     checks = _with_section(workspace, "git")
 
     assert not [c for c in checks if "git:" in c.fix]
+
+
+# --- usage limits that moved ---------------------------------------------------
+
+
+def test_the_old_usage_keys_are_a_warning_that_spells_out_the_replacement(
+    workspace: Path,
+) -> None:
+    path = workspace / "abk.yaml"
+    path.write_text(path.read_text() + "limits:\n  usage_pause_pct: 85\n  usage_ceiling_pct: 92\n")
+
+    checks = run_doctor(path, run=Answers(), which=which_all)
+
+    [warned] = [c for c in checks if c.name == "usage limits"]
+    assert warned.status == "warn"
+    assert "limits.usage_pause_pct" in warned.detail and "limits.usage_ceiling_pct" in warned.detail
+    assert "runtimes.claude_code" in warned.fix
+    assert "session_usage_pause_pct: 85" in warned.fix
+    assert "weekly_usage_pause_ceiling_pct: 92" in warned.fix
+
+
+def test_the_new_usage_keys_are_not_warned_about(workspace: Path) -> None:
+    path = workspace / "abk.yaml"
+    path.write_text(
+        path.read_text()
+        + "runtimes:\n  claude_code:\n"
+        + "    session_usage_pause_pct: 85\n    weekly_usage_pause_pct: 90\n"
+    )
+
+    checks = run_doctor(path, run=Answers(), which=which_all)
+
+    assert not [c for c in checks if c.name == "usage limits"]
+    assert all(c.status != "FAIL" for c in checks if c.name == "config")

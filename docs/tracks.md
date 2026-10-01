@@ -201,8 +201,8 @@ guessed dollar ceiling drifts from actual cost, and set too low it refuses to
 start a run rather than bounding one. `has_headroom` at the start of every
 track is what keeps a timer from spending into credits: it checks the same
 session/weekly usage-window percentages, against the same ramped thresholds
-(`limits.usage_pause_pct` rising to `usage_ceiling_pct` near each window's
-reset) the unit pipeline uses to decide whether a new unit may start, and
+(each window's `..._usage_pause_pct` under `runtimes.claude_code`, rising to its
+`..._pause_ceiling_pct` near its reset when one is set) the unit pipeline uses to decide whether a new unit may start, and
 skips the whole run — before any repo, before any phase — if there's no
 headroom.
 

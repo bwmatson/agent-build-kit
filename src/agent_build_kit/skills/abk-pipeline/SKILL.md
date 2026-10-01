@@ -155,8 +155,9 @@ holds the failure; `abk verify <change>` reruns it once the cause is fixed.
 
 `abk status` prints `paused until … — <reason>`. The usual reason is the
 usage windows: no new unit starts above the threshold for the window named
-in the reason — `limits.usage_pause_pct` for most of a window, rising to
-`limits.usage_ceiling_pct` as that window's reset nears — and a resume is
+in the reason — `session_usage_pause_pct` or `weekly_usage_pause_pct` (under
+`runtimes.claude_code`) for most of a window, rising to its
+`..._pause_ceiling_pct` as that window's reset nears, when one is set — and a resume is
 scheduled for when the rising threshold would clear the current usage, or
 for the reset. Nothing needs doing; a tick before that time exits without
 work. `abk status` prints each window as `used%/threshold%` with its time to

@@ -4,15 +4,19 @@ The account is on a subscription, so the constraint isn't dollars — it's the
 plan's usage window, shared with the user's own interactive sessions. Credits
 are enabled past the plan limit, which means running to 100% spends real money
 instead of stopping. So unattended work stops starting new units at
-`limits.usage_pause_pct` (70 by default) and schedules a resume.
+the pause percent of the window that is full (`session_usage_pause_pct`,
+`weekly_usage_pause_pct`, 70 by default, under `runtimes.claude_code`) and
+schedules a resume.
 
-**The threshold is not flat.** Quota left unused when a window resets is simply
-lost, and the reasons to hold back — room for units already running, room for
-the user's own sessions — shrink as the reset approaches. So each window's
-threshold ramps from `usage_pause_pct` up to `usage_ceiling_pct` (90) over the
-last `usage_relief_fraction` of that window, and each window is measured
-against *its own* reset: the five-hour session and the seven-day week ramp
-independently. The ceiling stays below 100 so relief never reaches the point
+**The threshold need not be flat.** Quota left unused when a window resets is
+simply lost, and the reasons to hold back — room for units already running, room
+for the user's own sessions — shrink as the reset approaches. So a window whose
+`..._usage_pause_ceiling_pct` is above its `..._usage_pause_pct` ramps from the
+one up to the other over the last `usage_relief_fraction` of that window, and
+each window is measured against *its own* reset: the five-hour session and the
+seven-day week ramp independently. A window with no ceiling, or one equal to
+its pause percent, does not ramp: its threshold is that one number all the way
+to the reset. The ceiling stays below 100 so relief never reaches the point
 where credits start paying.
 
 **Where the numbers come from**, in the order tried:
@@ -50,7 +54,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit.config import active, active_root
+from agent_build_kit.config import CLAUDE_CODE, RuntimeConfig, active, active_root
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
@@ -296,45 +300,69 @@ def _resume_after(reading: UsageReading) -> datetime:
     return reading.resets_at + RESUME_GRACE
 
 
-class Limits(Frozen):
-    """The four numbers the ramp is made of, passed in rather than read from
-    the active config, so the arithmetic can be tested without one."""
+class Band(Frozen):
+    """One window's threshold: the pause percent, and the ceiling it rises to."""
 
     pause_pct: int
     ceiling_pct: int
+
+    @property
+    def ramps(self) -> bool:
+        """Whether the threshold moves at all. With the ceiling at the pause
+        percent it cannot, so there is nothing to compute and nothing to say."""
+        return self.ceiling_pct > self.pause_pct
+
+
+class Limits(Frozen):
+    """What the ramp is made of, passed in rather than read from the active
+    config, so the arithmetic can be tested without one."""
+
+    session: Band
+    weekly: Band
     relief_fraction: float
     resume_buffer_pct: int
 
+    def band(self, window: Window) -> Band:
+        return self.session if window.name == "session" else self.weekly
+
     @classmethod
     def configured(cls) -> Limits:
-        limits = active().limits
+        claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig())
         return cls(
-            pause_pct=limits.usage_pause_pct,
-            ceiling_pct=limits.usage_ceiling_pct,
-            relief_fraction=limits.usage_relief_fraction,
-            resume_buffer_pct=limits.usage_resume_buffer_pct,
+            session=Band(
+                pause_pct=claude.session_usage_pause_pct,
+                ceiling_pct=claude.session_usage_ceiling_pct,
+            ),
+            weekly=Band(
+                pause_pct=claude.weekly_usage_pause_pct,
+                ceiling_pct=claude.weekly_usage_ceiling_pct,
+            ),
+            relief_fraction=claude.usage_relief_fraction,
+            resume_buffer_pct=claude.usage_resume_buffer_pct,
         )
 
 
 def threshold_at(window: Window, *, now: datetime, limits: Limits) -> int:
     """The percent this window may be run to at `now`.
 
-    `pause_pct` for most of the window, then a straight line up to
-    `ceiling_pct`, reached at the reset. A window with no reset time isn't
-    open, so nothing is close to running out: the base applies.
+    Its pause percent for most of the window, then a straight line up to its
+    ceiling, reached at the reset. A window with no reset time isn't open, so
+    nothing is close to running out: the base applies. So does a window whose
+    ceiling is its pause percent: the line would be flat, and is not drawn.
     """
-    if window.resets_at is None:
-        return limits.pause_pct
+    band = limits.band(window)
+    if window.resets_at is None or not band.ramps:
+        return band.pause_pct
 
     span = window.length * limits.relief_fraction
     remaining = window.resets_at - now
     if remaining >= span:
-        return limits.pause_pct
+        return band.pause_pct
     if remaining <= timedelta(0):
-        return limits.ceiling_pct
+        return band.ceiling_pct
 
     elapsed = 1 - remaining / span
-    return round(limits.pause_pct + (limits.ceiling_pct - limits.pause_pct) * elapsed)
+    return round(band.pause_pct + (band.ceiling_pct - band.pause_pct) * elapsed)
 
 
 def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | None:
@@ -348,13 +376,16 @@ def relief_at(window: Window, *, now: datetime, limits: Limits) -> datetime | No
     if window.resets_at is None:
         return None
 
+    band = limits.band(window)
     target = window.used_pct + limits.resume_buffer_pct
-    if target <= limits.pause_pct:
+    if target <= band.pause_pct:
         return now
-    if target > limits.ceiling_pct:
+    # A window that does not ramp never offers more than its pause percent, so
+    # only its reset can bring room back.
+    if not band.ramps or target > band.ceiling_pct:
         return None
 
-    reach = (target - limits.pause_pct) / (limits.ceiling_pct - limits.pause_pct)
+    reach = (target - band.pause_pct) / (band.ceiling_pct - band.pause_pct)
     span = window.length * limits.relief_fraction
     return max(now, window.resets_at - span * (1 - reach))
 
@@ -559,14 +590,13 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
     nothing is ever left half-committed or unpushed by a pause. The headroom
     above the threshold is what pays for them finishing.
 
-    **The threshold is the operative limit.** It rises from
-    `usage_pause_pct` towards `usage_ceiling_pct` as a window nears its reset
-    (`threshold_at`), and each window is judged against its own. The credits
-    checks below are backstops for the case where something has already gone
-    wrong; they can only ever stop work earlier, never permit more of it.
+    **The threshold is the operative limit.** It is a window's pause percent,
+    rising towards its ceiling as that window nears its reset when the two
+    differ (`threshold_at`), and each window is judged against its own. The
+    credits checks below are backstops for the case where something has already
+    gone wrong; they can only ever stop work earlier, never permit more of it.
     Available credits are the user's reserve, not headroom for the pipeline,
-    so a healthy credit balance does not raise the ceiling past
-    `usage_ceiling_pct`.
+    so a healthy credit balance does not raise a ceiling.
     """
     now = datetime.now(UTC)
 
@@ -634,11 +664,12 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
 
 def _threshold_note(window: Window, threshold: int, limits: Limits) -> str:
     """The threshold, and — while it is moving — what it is moving towards."""
-    if threshold >= limits.ceiling_pct or window.resets_at is None:
+    band = limits.band(window)
+    if not band.ramps or threshold >= band.ceiling_pct or window.resets_at is None:
         return f"threshold {threshold}%"
-    if threshold > limits.pause_pct:
+    if threshold > band.pause_pct:
         return (
-            f"threshold {threshold}%, ramping to {limits.ceiling_pct}% by {_hhmm(window.resets_at)}"
+            f"threshold {threshold}%, ramping to {band.ceiling_pct}% by {_hhmm(window.resets_at)}"
         )
     return f"threshold {threshold}%"
 
