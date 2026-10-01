@@ -190,6 +190,10 @@ class Forge(RegistersStacks, Protocol):
     # False while a forge is declared but unfinished: callers hold the unit
     # rather than failing it. The `node_npm` profile does the same.
     implemented: bool
+    # The command this forge's calls go through (`gh`, `az`), which a scheduled
+    # unit has to be able to find: it starts with no login environment, so a
+    # client that is on a person's PATH is not necessarily on the unit's.
+    client: str
     # Whether merging removes the source branch, which decides who cleans up.
     deletes_head_branch_on_merge: bool
     # Command prefixes no agent may run on any repo - merging, voting, and the

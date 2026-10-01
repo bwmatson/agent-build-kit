@@ -254,3 +254,21 @@ def test_an_installation_with_the_same_name_is_reported_not_overwritten(
     assert "belongs to the installation at" in out
     assert str(other.root.resolve()) in out
     assert timers.installed_root(units, other.root) == other.root.resolve()
+
+
+def test_the_tools_a_tick_needs_are_put_on_the_units_path_and_said(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """On WSL `az` is the Windows install, which a login shell's PATH carries
+    and a unit's does not."""
+    inst = planning(tmp_path)
+    monkeypatch.chdir(inst.root)
+    monkeypatch.setattr(timers, "subprocess", _Recorder([]))
+    monkeypatch.setattr(timers, "tool_dirs", lambda inst: ("/mnt/c/Azure/CLI2/wbin",))
+
+    code = main(["install-timers", "--no-enable"])
+
+    assert code == 0
+    assert "units' PATH also carries: /mnt/c/Azure/CLI2/wbin" in capsys.readouterr().out
+    unit = (units / timers.unit_names(inst.root)[0]).read_text()
+    assert unit.count("/mnt/c/Azure/CLI2/wbin") == 1

@@ -15,6 +15,7 @@ installation's own fix command.
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -404,7 +405,13 @@ def cmd_install_timers(args: argparse.Namespace, inst: Installation | None) -> i
             print(f"nothing installed for {inst.root}")
         return 0
 
-    change = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run)
+    tools = timers.tool_dirs(inst)
+    change = timers.install(inst.root, enable=args.enable, dry_run=args.dry_run, tool_dirs=tools)
+    if tools:
+        print(f"units' PATH also carries: {', '.join(tools)}")
+    for tool in timers.needed_tools(inst):
+        if shutil.which(tool) is None:
+            print(f"warning: {tool} is not on this shell's PATH, so no unit can find it either")
     for path in change.written:
         print(f"{'would write' if args.dry_run else 'wrote'} {path}")
     for path in change.unchanged:

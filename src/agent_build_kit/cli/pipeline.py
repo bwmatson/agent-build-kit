@@ -1088,6 +1088,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
             list_prs=lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
             ignore=lambda number, slug=slug: own_posts(inst.state_dir, slug, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
+            log=log,
         ).poll()
 
 

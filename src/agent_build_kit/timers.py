@@ -27,13 +27,19 @@ runs on every boot.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from agent_build_kit import config, runtimes
 from agent_build_kit.init.scaffold import render_systemd
 from agent_build_kit.model import Frozen
 from agent_build_kit.settings import settings
+
+if TYPE_CHECKING:
+    from agent_build_kit.installation import Installation
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -59,6 +65,20 @@ SAFE_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9_.]+")
 _WORKING_DIRECTORY = "WorkingDirectory="
+_PATH_LINE = re.compile(r'^Environment="PATH=(.*)"$', re.M)
+
+# The PATH every unit starts with (see the templates): `%h` is the user's home.
+# A tool on one of these needs nothing added.
+BASE_PATH = (
+    "%h/.local/bin",
+    "%h/.volta/bin",
+    "/usr/local/sbin",
+    "/usr/local/bin",
+    "/usr/sbin",
+    "/usr/bin",
+    "/sbin",
+    "/bin",
+)
 
 
 class UnitChange(Frozen):
@@ -100,11 +120,58 @@ def unit_names(root: Path) -> list[str]:
     return [f"abk-{slug(root)}-{base}" for base in BASE_UNITS]
 
 
-def render(root: Path) -> dict[str, str]:
+def needed_tools(inst: Installation) -> list[str]:
+    """The commands a tick runs that are not the framework's own: `uv` starts it,
+    the agent runtime does the work, and each repo's forge client talks to its
+    host. A unit has no login environment, so each has to be findable from the
+    PATH the unit is given."""
+    name = config.runtime_name(inst.config)
+    command = config.runtime_entry(inst.config).command or list(runtimes.get(name).agent_command)
+    tools = ["uv", *command[:1]]
+    for repo in inst.repos:
+        tools.append(inst.forge_of(repo)[0].client)
+    return list(dict.fromkeys(tool for tool in tools if tool))
+
+
+def _expand(path: str) -> str:
+    """A unit's PATH entry as the manager reads it: `%h` is home, `%%` a percent."""
+    return path.replace("%h", str(Path.home())).replace("%%", "%")
+
+
+def tool_dirs(
+    inst: Installation, *, which: Callable[[str], str | None] = shutil.which
+) -> tuple[str, ...]:
+    """The directories to add to a unit's PATH so it finds what a tick runs.
+
+    Asked of the machine doing the installing, which is the one whose login
+    environment knows where `az` lives (on WSL, under the Windows install). A
+    tool already on the unit's base PATH adds nothing, and one nothing can find
+    adds nothing either: `abk doctor` is what reports that, not an install.
+    """
+    base = {_expand(entry) for entry in BASE_PATH}
+    found: list[str] = []
+    for tool in needed_tools(inst):
+        location = which(tool)
+        if location is None:
+            continue
+        folder = str(Path(location).parent)
+        if folder not in base and folder not in found:
+            found.append(folder)
+    return tuple(found)
+
+
+def render(root: Path, tool_dirs: Sequence[str] = ()) -> dict[str, str]:
     """Unit name -> text, each named for its installation and stamped so a
-    later install knows it wrote it."""
+    later install knows it wrote it.
+
+    `tool_dirs` go at the *end* of the unit's PATH, so a directory like the
+    Windows CLI's can supply `az` without being able to shadow a system tool.
+    A `%` in a directory is doubled: the manager reads `%x` as a specifier.
+    """
     root = root.expanduser().resolve()
-    rendered = render_systemd(root)
+    rendered = render_systemd(
+        root, tool_path="".join(":" + folder.replace("%", "%%") for folder in tool_dirs)
+    )
     return {
         f"abk-{slug(root)}-{base}": f"{MARKER}\n{rendered[f'abk-{base}']}" for base in BASE_UNITS
     }
@@ -201,7 +268,7 @@ class TimerReport(Frozen):
     outdated: tuple[Path, ...] = ()
 
 
-def report(root: Path, *, dest: Path | None = None) -> TimerReport:
+def report(root: Path, *, dest: Path | None = None, tool_dirs: Sequence[str] = ()) -> TimerReport:
     """Whether the units on this machine are the ones install would write now.
 
     `drifted` is a current unit whose content differs from the template — the
@@ -209,7 +276,7 @@ def report(root: Path, *, dest: Path | None = None) -> TimerReport:
     says everything is fine means a reinstall would change nothing.
     """
     dest = dest or user_unit_dir()
-    wanted = render(root)
+    wanted = render(root, tool_dirs)
     missing = tuple(name for name in wanted if not (dest / name).is_file())
     drifted = tuple(
         dest / name
@@ -245,6 +312,7 @@ def install(
     run: Run | None = None,
     enable: bool = True,
     dry_run: bool = False,
+    tool_dirs: Sequence[str] = (),
 ) -> UnitChange:
     """Render this installation's units into `dest`, enable them, and report
     what changed.
@@ -275,7 +343,7 @@ def install(
     unchanged: list[Path] = []
     refused: list[Path] = []
     taken: list[Path] = []
-    for name, text in render(root).items():
+    for name, text in render(root, tool_dirs).items():
         target = dest / name
         if target.exists():
             current = target.read_text()
@@ -368,3 +436,44 @@ def installed_root(dest: Path | None = None, root: Path | None = None) -> Path |
             if where is not None:
                 return where
     return None
+
+
+def service_path(root: Path, dest: Path | None = None) -> list[str] | None:
+    """The PATH the installed tick service will run with, or None when there is
+    no such unit. Read from the unit, not worked out again: what matters is what
+    the manager will do, not what a reinstall would write."""
+    unit = (dest or user_unit_dir()) / f"abk-{slug(root)}-tick.service"
+    try:
+        match = _PATH_LINE.search(unit.read_text())
+    except OSError:
+        return None
+    return [_expand(entry) for entry in match.group(1).split(":")] if match else None
+
+
+def unreachable(
+    inst: Installation,
+    dest: Path | None = None,
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+) -> list[tuple[str, bool]]:
+    """What a tick needs that its installed service cannot find, each with
+    whether the installing user's own shell can (so a reinstall would fix it).
+
+    This is the check a person's terminal passes by accident: `az` is on their
+    PATH and not on the unit's, every command they run by hand works, and the
+    scheduled poll fails on every tick. A tool is reachable when the directory
+    the shell finds it in is on the unit's PATH — the same test `tool_dirs`
+    installs by — or when the unit's own PATH finds it.
+    """
+    path = service_path(inst.root, dest)
+    if path is None:
+        return []
+    missing: list[tuple[str, bool]] = []
+    for tool in needed_tools(inst):
+        found = which(tool)
+        if found is not None and str(Path(found).parent) in path:
+            continue
+        if shutil.which(tool, path=":".join(path)) is not None:
+            continue
+        missing.append((tool, found is not None))
+    return missing

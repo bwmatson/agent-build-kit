@@ -675,3 +675,30 @@ def test_the_conflicted_pull_requests_are_named_from_the_last_poll(tmp_path: Pat
     ).poll()
 
     assert unmergeable(path) == {4}
+
+
+# --- a failed poll is said, not swallowed ----------------------------------------------
+
+
+def test_a_failed_poll_is_logged_and_leaves_the_recorded_state_alone(tmp_path: Path) -> None:
+    """A forge client missing from a timer's PATH failed every tick for hours,
+    and the only trace was a snapshot that stopped changing."""
+    said: list[str] = []
+
+    def broken() -> list[PullRequest]:
+        raise FileNotFoundError(2, "No such file or directory", "az")
+
+    state = tmp_path / "poll.json"
+    instance = Poller(
+        repo="app",
+        state_path=state,
+        list_prs=broken,
+        dispatch=lambda *a, **k: None,
+        log=said.append,
+    )
+
+    instance.poll()
+
+    assert len(said) == 1
+    assert "app" in said[0] and "FileNotFoundError" in said[0] and "az" in said[0]
+    assert not state.exists(), "nothing recorded from a poll that did not happen"

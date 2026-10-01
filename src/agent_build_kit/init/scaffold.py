@@ -224,10 +224,11 @@ def render_openspec_config(config: WorkspaceConfig) -> str:
     return f"schema: spec-driven\n\ncontext: |\n{context}\n\n{render_rules(list(config.repos))}"
 
 
-def render_systemd(planning_dir: Path) -> dict[str, str]:
-    """Unit file name -> rendered text."""
+def render_systemd(planning_dir: Path, *, tool_path: str = "") -> dict[str, str]:
+    """Unit file name -> rendered text. `tool_path` is appended to the unit's
+    PATH, each directory with its own leading colon."""
     return {
-        path.name: path.read_text().format(planning_dir=planning_dir)
+        path.name: path.read_text().format(planning_dir=planning_dir, tool_path=tool_path)
         for path in sorted((TEMPLATES / "systemd").iterdir())
         if path.suffix in (".service", ".timer")
     }

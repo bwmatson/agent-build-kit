@@ -203,6 +203,16 @@ and everyone who cloned it afterwards got units aimed at someone else's home.
   installations on one machine do not replace each other's units. Two planning
   repos *both* called `planning` would collide, so the second install refuses
   and names where the first lives; give one of them a different directory name.
+- **Finds its tools.** A unit starts with no login environment, so its `PATH` is
+  fixed by the template, and a tool that is on yours is not necessarily on the
+  unit's. On WSL the Azure CLI is the Windows install, which only a login shell
+  carries: every command you ran by hand worked while the scheduled poll of the
+  Azure repo failed on every tick. The install therefore asks *this* shell where
+  `uv`, the agent's command and each repo's forge client (`gh`, `az`) live, and
+  appends the directory of any that is not already on the unit's `PATH`. It says
+  which it added, and warns about a tool it cannot find. `abk doctor` checks the
+  installed unit's own `PATH` against the same list (`timer PATH`), and a failed
+  poll is written to the tick's log.
 - **Enabled by default.** Written-but-not-enabled is the failure that looks most
   like success: the units are there, `abk status` answers, and no tick has
   happened in a week. Only the timers are enabled, never the services beside
