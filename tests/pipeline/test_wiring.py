@@ -489,6 +489,17 @@ def test_a_failing_member_fails_the_unit(tmp_path: Path) -> None:
     assert passed is False
 
 
+def test_a_failure_names_the_command_that_failed_and_what_it_printed(tmp_path: Path) -> None:
+    def run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1, "", "pre-commit: not found")
+
+    passed, output = build_tier1(run=run, changed=lambda *a: [])(cwd=tmp_path, base="main")
+
+    assert passed is False
+    assert output.startswith("$ uv run pre-commit run --from-ref main --to-ref HEAD")
+    assert "pre-commit: not found" in output
+
+
 def test_a_root_documentation_change_does_not_fan_out(tmp_path: Path) -> None:
     """A unit touching CLAUDE.md would fan out to an isolated install per
     member. Markdown is the one root change that cannot affect a test run;

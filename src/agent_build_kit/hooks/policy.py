@@ -34,7 +34,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from agent_build_kit.pipeline.command_policy import check_command
+from agent_build_kit.pipeline.command_policy import check_command, check_no_push
 
 
 def _deny(reason: str) -> dict:
@@ -199,6 +199,7 @@ def decide(
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
     protected_branches: tuple[str, ...] = (),
+    no_push: bool = False,
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
@@ -230,6 +231,8 @@ def decide(
         verdict = check_command(
             command, branch=branch, planning_repo=planning_repo, protected=protected_branches
         )
+        if verdict.allowed and no_push:
+            verdict = check_no_push(command)
         if verdict.allowed:
             return None
         return _deny(verdict.reason)
@@ -245,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planning-state-dir", type=Path, default=None)
     parser.add_argument("--planning-change-dir", type=Path, default=None)
     parser.add_argument("--protected-branches", default="")
+    parser.add_argument("--no-push", action="store_true")
     try:
         args = parser.parse_args(argv)
         if args.branch_prefix:
@@ -271,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         planning_state_dir=args.planning_state_dir,
         planning_change_dir=args.planning_change_dir,
         protected_branches=tuple(b for b in args.protected_branches.split(",") if b),
+        no_push=args.no_push,
     )
     if answer is not None:
         print(json.dumps(answer))
@@ -285,6 +290,7 @@ def hook_settings(
     planning_state_dir: Path | None = None,
     planning_change_dir: Path | None = None,
     protected_branches: tuple[str, ...] = (),
+    no_push: bool = False,
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
@@ -301,6 +307,9 @@ def hook_settings(
     `protected_branches` are the branches repos integrate on beyond `main` and
     `master`, which a direct push is refused to; the hook is its own process and
     knows no workspace, so it has to be told.
+    `no_push` refuses every `git push`, as the acp broker does: a unit run never
+    pushes, the pipeline does, and a push is refused before it runs rather than
+    found after.
     """
     command = f"{sys.executable} -m agent_build_kit.hooks.policy --branch-prefix {branch_prefix}"
     if specs is not None:
@@ -313,6 +322,8 @@ def hook_settings(
         command += f" --planning-change-dir {planning_change_dir}"
     if protected_branches:
         command += f" --protected-branches {','.join(protected_branches)}"
+    if no_push:
+        command += " --no-push"
     return {
         "hooks": {
             "PreToolUse": [

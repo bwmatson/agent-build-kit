@@ -184,3 +184,21 @@ def test_stub_detection_reads_python_bodies() -> None:
 def test_unparseable_python_is_not_treated_as_a_stub() -> None:
     """A syntax error can't be read, and 'can't tell' must not mean 'allowed'."""
     assert stub_violations("s.py", "def x(:\n") != []
+
+
+def test_a_lockfile_only_commit_after_the_implementation_is_accepted(repo: Path) -> None:
+    """A real build pushes one: the lockfile update lands after the implementation."""
+    commit(
+        repo,
+        "test: Add marker()",
+        {
+            "src/app/marker.py": "def marker():\n    raise NotImplementedError\n",
+            "tests/test_marker.py": "def test_marker(): assert False\n",
+        },
+    )
+    commit(
+        repo, "feat: Implement marker()", {"src/app/marker.py": "def marker():\n    return 'm'\n"}
+    )
+    commit(repo, "chore: Update the lockfile", {"uv.lock": "version = 1\n"})
+
+    assert check_structure(repo, "main") == []

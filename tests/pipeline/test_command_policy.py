@@ -18,7 +18,7 @@ Two of the rules are subtle enough to be worth stating here:
 
 import pytest
 
-from agent_build_kit.pipeline.command_policy import Verdict, check_command
+from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
 
 SPEC = "spec/add-marker/1-unit"
 
@@ -247,3 +247,23 @@ def test_a_refspec_to_main_is_caught_too() -> None:
 def test_a_branch_merely_containing_the_name_is_not_the_trunk() -> None:
     assert pushes("git push origin spec/developer-docs/1", protected=("dev",))
     assert pushes("git push origin spec/add-marker/1-unit:spec/dev-tools/1", protected=("dev",))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin spec/add-marker/1",
+        "git -C wt push --force-with-lease=b:abc origin b",
+        "env FOO=1 git push",
+        "git status; git push",
+    ],
+)
+def test_no_push_refuses_every_push(command: str) -> None:
+    assert not check_no_push(command).allowed
+
+
+@pytest.mark.parametrize(
+    "command", ["git status", "git log --oneline", "echo git push", "git pull"]
+)
+def test_no_push_leaves_other_commands_alone(command: str) -> None:
+    assert check_no_push(command).allowed

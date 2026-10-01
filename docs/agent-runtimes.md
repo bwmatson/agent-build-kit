@@ -11,10 +11,15 @@ and streams progress; a request for a named `worktree` it refuses as a
 failed result rather than run in `cwd`. Its client capabilities, permission
 answering and `check_policy` are now implemented too (see "Policy enforcement
 without a hook contract" and "Proving the constraint: `check_policy`" below),
-but it still stays unregistered — `runtimes/__init__.py`'s `_load_builtin`
-registers only `claude_code`, since importing `runtimes.acp` unconditionally
-would fail every installation that has not opted into the `acp` extra — so
-Claude Code remains the only runtime a workspace can actually select today.
+and it is registered when the `acp` extra is installed — `runtimes/__init__.py`'s
+`_load_builtin` imports `runtimes.acp` and registers it only if that import
+succeeds, so an installation without the extra still imports cleanly and knows
+`claude_code` alone. Every refusal an operator needs to act on is one progress
+line, ``refused `<command>` by abk's command rules: <reason>``; a forbidden
+command whose call fails without abk having run or answered it reads "by the
+agent's own policy" when the call's output says it was blocked or denied, and
+otherwise "by the agent's own configuration", a best-effort attribution, since
+the protocol does not say why a call failed.
 This document specifies the whole shape, so that adding a second runtime is
 writing an adapter against a fixed Protocol, not another round of the same
 subprocess plumbing.
@@ -369,28 +374,54 @@ agent's tools in that agent's own config instead. This is a real reduction in
 expressiveness, not a detail to gloss: it is why the policy work below does
 not lean on tool scoping for anything load-bearing.
 
-**The one case where the list is not advisory is refused, not ignored.** An
-ordinary run's tool list is a hint the run did not need — it names an edit
-tool because it was going to edit anyway. Two call sites send a list that
-names no edit tool at all, because the list is meant to keep the run from
-editing rather than merely describe what it planned to do anyway.
-`wiring.build_run_review` sends `permission_mode="edit"` with `allowed_tools`
-naming no edit tool, because "The reviewer cannot edit" is a property the
-pipeline states as a guarantee (docs/architecture.md), not a preference — a
-reviewer that could edit the worktree it is judging could approve a diff it
-had itself changed. `init.research.research` sends
-`permission_mode="allowed_tools_only"` with the same shape of list, for a
-run that has no business editing the repo it is researching. `runtimes/acp.py`
-has no way to keep either guarantee (the agent's own configuration decides
-its tools, not this request), so a request shaped that way — `allowed_tools`
-is set but names no edit tool, whatever `permission_mode` it carries — is
-refused with `AgentResult(ok=False, ...)` before the agent is even spawned,
-rather than silently run under a promise this runtime cannot keep. The
+**The one case where the list is applied is a read-only run.** An ordinary
+run's tool list is a hint the run did not need — it names an edit tool because
+it was going to edit anyway. Two call sites send a list that names no edit tool
+at all, because the list is meant to keep the run from editing rather than
+merely describe what it planned to do anyway. `wiring.build_run_review` sends
+`permission_mode="edit"` with `allowed_tools` naming no edit tool, because "The
+reviewer cannot edit" is a property the pipeline states as a guarantee
+(docs/architecture.md). `init.research.research` sends
+`permission_mode="allowed_tools_only"` with the same shape of list. On `acp` a
+request shaped that way — `allowed_tools` is set but names no edit tool,
+whatever `permission_mode` it carries — runs in a **read-only broker mode**:
+every edit approval is refused, every write through the client's file
+capability is refused, and a command is allowed, whether the agent asks
+permission for it or has the client run it, only when it matches one of the
+list's `Bash(...)` patterns (`*` stands for anything, as in Claude Code, and a
+line chaining a second command or redirecting is not covered). A refusal picks
+the agent's rejecting option, and the run is cancelled if none is offered.
+
+**The broker holds only what the agent asks permission for; the rest is
+detected.** An agent that runs a tool without asking is not stopped by it. So
+before a read-only run starts, `acp` records the worktree's `HEAD`, `git
+status --porcelain` and `git diff HEAD`, and compares them after it: a run that
+moved `HEAD`, added or removed a status entry, or changed a file already
+modified returns `AgentResult(ok=False, error=...)` naming what changed. On
+`acp` the reviewer's guarantee is kept by refusing what is asked plus failing
+the run on any change. The edit is not prevented and stays on disk; the failed
+run is what keeps it from being reviewed and committed. A directory that is not
+a git worktree has nothing to compare, and a further change to a file that was
+already untracked is not seen. A read-only list naming anything the broker cannot
+hold back (a web tool, say, rather than `Read`, `Grep`, `Glob` or `Bash(...)`)
+is still refused with `AgentResult(ok=False, ...)` before the agent is even
+spawned, rather than run under a promise this runtime cannot keep. The
 planner's graph call also sends `permission_mode="allowed_tools_only"`, but
 with `allowed_tools` empty, so it is not this shape and is let through:
 under `claude_code` that run is kept from editing by headless permission
-denial, not by a list, so there is no list here for this runtime to fail to
-enforce.
+denial, not by a list, so there is no list here for this runtime to enforce.
+
+## Only the pipeline pushes
+
+A policed run — a build, a rework, a review — never pushes: both runtimes
+refuse every `git push` before it runs (`command_policy.check_no_push`; the
+`acp` broker applies it itself, Claude Code's hook is registered with
+`--no-push`). As a backstop, `build_run_claude` reads the unit branch's head
+on the remote before and after each agent step and raises `AgentPushed` only
+when both reads succeed, the head moved, and the new head is contained in the
+worktree's own branch (an ancestor of its HEAD). An unreadable remote, or a head pushed from elsewhere
+(a person, the host's update-branch button), is not the agent's and never
+fails the step.
 
 ## Policy enforcement without a hook contract
 
@@ -456,6 +487,12 @@ this machine. `check_policy` establishes the fact.
   report. The command shapes come from abk's own `command_policy` (a test
   holds the list to it), so this names no product, and every attempt is
   harmless in that worktree even if it does run.
+
+  What the client cannot see: an agent that declines a forbidden command
+  before announcing any tool call tells abk nothing, so no refusal line, and
+  no layer, can be logged for it. The tier-2 build test does not accept that
+  silence: it requires a refusal line naming its layer, and fails for an agent
+  that never makes the attempt.
 - **`abk init` asks before changing anything.** It runs the check for the
   configured runtime, prints each unenforced class in abk's own words, and
   offers to run `runtimes.<name>.policy_fix` — a command the installation
@@ -522,7 +559,7 @@ packaging detail inside `skills/`, not a Protocol method.
 
 ## Migration steps
 
-Steps 1 to 5 are done; registering `acp` as a selectable runtime is not.
+Steps 1 to 5 are done, and `acp` is registered when its extra is installed.
 
 1. Add `runtimes/base.py` — the Protocol and value objects above — and
    `runtimes/__init__.py` with the registry (`get`, `register`,
@@ -553,8 +590,8 @@ Steps 1 to 5 are done; registering `acp` as a selectable runtime is not.
    "Selecting a runtime"; add a `_runtime` check to `abk doctor` and the
    `check_policy` ask to `abk init`.
 5. Add `runtimes/acp.py` behind an `acp` extra, with the permission handling
-   and client capabilities described above. Done, but not registered — see
-   the status paragraph above.
+   and client capabilities described above. Done, and registered when the
+   `acp` extra is installed — see the status paragraph above.
 
 Unlike an unimplemented `ToolchainProfile` — which affects one repo's commands
 and simply holds that repo's units — an unimplemented or misconfigured
@@ -568,7 +605,19 @@ message.
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
 |---|---|---|---|---|---|---|
 | `claude_code` | local CLI (`claude -p`), subprocess | `all_calls` via the `PreToolUse` hook plus `--disallowedTools` | bare aliases (`opus`, `fable`, ...) via `--model` | `--output-format stream-json`, one JSON event per line | live endpoint with its stored OAuth token, falling back to its own cache | **implemented**, as `runtimes/claude_code.py` |
-| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **implemented**, as `runtimes/acp.py`: runs, outcomes, models, progress, enforcement and `check_policy`; not yet registered (see the status paragraph at the top) |
+| `acp` | spawns the configured agent, JSON-RPC over stdio; `session/new` takes the worktree as `cwd`, extra readable directories as workspace roots; `session/prompt` returns the end-turn signal with a `stopReason` (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) | `all_calls` when the agent routes file and terminal work through the client's capabilities; `agent_flagged` otherwise, via `session/request_permission`. `check_policy` decides which | agent-defined: session config options expose a `model` category to select among what the agent offers, so a name abk does not recognise is a no-op, not an error | `session/update` notifications: message chunks, thought chunks, tool-call start and update, plan updates | none, and none needed: billed on demand per token, with no shared window over a time period, so a run is limited only by the work | **implemented**, as `runtimes/acp.py`: runs, outcomes, models, progress, enforcement and `check_policy`; registered when the `acp` extra is installed (see the status paragraph at the top) |
+
+## Test markers
+
+Two markers keep slow tests out of the default suite (`pytest`):
+
+- `integration` needs node (`npx`) and the network for the real OpenSpec CLI.
+  Run with `pytest -m integration`.
+- `local_stack` is the tier-2 marker the acceptance tests carry: they build a
+  unit through the `acp` runtime with a real agent on the host, named by
+  `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
+  demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
+  test-local-stack`).
 
 ## Open questions
 

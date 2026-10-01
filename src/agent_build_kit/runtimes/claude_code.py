@@ -145,7 +145,10 @@ def build_argv(request: AgentRequest) -> list[str]:
     }
     if request.policy is not None:
         settings = hook_settings(
-            request.policy.specs_dir, branch_prefix=request.policy.branch_prefix, **planning
+            request.policy.specs_dir,
+            branch_prefix=request.policy.branch_prefix,
+            no_push=True,
+            **planning,
         )
         argv += ["--settings", json.dumps(settings)]
         denied = f"{disallowed()} {denied}".strip()

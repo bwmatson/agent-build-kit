@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.pipeline.command_policy import check_command
+from agent_build_kit.pipeline.command_policy import check_command, check_no_push
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.acp import AcpRuntime, _Session
 from tests.factories import git, init_repo
@@ -147,6 +147,46 @@ def test_a_forbidden_command_is_never_run_and_the_agent_is_told_why(
     # The run goes on: one refusal is not the end of the unit.
     assert allowed["output"].strip() == BRANCH
     assert result.ok is True
+
+
+PUSHES = [
+    pytest.param("git", ["push", "origin", BRANCH], id="its-own-branch"),
+    pytest.param("git push -u origin HEAD", [], id="as-one-string"),
+    pytest.param("git status && git push origin " + BRANCH, [], id="behind-another-command"),
+]
+
+
+@pytest.mark.parametrize(("command", "args"), PUSHES)
+def test_a_push_is_never_run_even_to_the_units_own_branch(
+    tmp_path: Path, worktree: Path, specs: Path, command: str, args: list[str]
+) -> None:
+    """The pipeline's push is the only one the branch may receive: its lease
+    names the commit it last published, so any other push fails it later."""
+    record = tmp_path / "agent.jsonl"
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "-q", "--bare", str(remote))
+    git(worktree, "remote", "add", "origin", str(remote))
+
+    _run(record, worktree, specs, act=[{"terminal": command, "args": args}, ALLOWED])
+
+    refused, _ = _did(record, "terminal")
+    assert "error" in refused or refused.get("exitCode") != 0, refused
+    assert check_no_push(" ".join([command, *args])).reason in json.dumps(
+        refused, ensure_ascii=False
+    ), refused
+    assert git(remote, "branch", "--list").strip() == ""
+
+
+def test_a_push_the_agent_asks_about_is_refused(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+
+    _run(record, worktree, specs, act=[{"ask": "execute", "command": f"git push origin {BRANCH}"}])
+
+    [answer] = _answered(record)
+    assert answer["optionKind"] in ("reject_once", "reject_always"), answer
+    assert _did(record, "run") == []
 
 
 def test_a_write_inside_the_worktree_is_performed(
@@ -272,6 +312,32 @@ def test_an_allowed_command_the_agent_asks_about_is_allowed_once(
     [answer] = _answered(record)
     assert answer["optionKind"] == "allow_once", answer
     assert [ran["command"] for ran in _did(record, "run")] == ["git status --short"]
+
+
+@pytest.mark.parametrize("locations", [True, False], ids=["as-locations", "as-raw-path"])
+def test_an_edit_naming_a_relative_path_is_weighed_against_the_session_cwd(
+    tmp_path: Path, worktree: Path, specs: Path, locations: bool
+) -> None:
+    """Relative to the worktree the session opened in — not to abk's own
+    directory — and through a link to it, as a worktree under a symlinked
+    /tmp is reached; an agent may also send no `locations` at all."""
+    record = tmp_path / "agent.jsonl"
+    link = tmp_path / "linked"
+    link.symlink_to(worktree)
+
+    _run(
+        record,
+        link,
+        specs,
+        act=[
+            {"ask": "edit", "paths": ["src/app.py"], "locations": locations},
+            {"ask": "edit", "paths": ["../outside.txt"], "locations": locations},
+        ],
+    )
+
+    allowed, refused = _answered(record)
+    assert allowed["optionKind"] == "allow_once", allowed
+    assert refused["optionKind"] in ("reject_once", "reject_always"), refused
 
 
 def test_an_edit_inside_the_worktree_is_allowed(
@@ -662,6 +728,31 @@ def test_the_branch_is_read_where_the_command_runs_on_every_call(
     assert after["error"]["data"]["reason"] == reason, after
 
 
+def test_a_relative_path_is_read_and_written_in_the_worktree_not_abks_directory(
+    tmp_path: Path, worktree: Path, specs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "src").mkdir(parents=True)
+    (elsewhere / "src" / "app.py").write_text("WRONG = True\n")
+    monkeypatch.chdir(elsewhere)
+    record = tmp_path / "agent.jsonl"
+
+    _run(
+        record,
+        worktree,
+        specs,
+        act=[
+            {"read": "src/app.py"},
+            {"write": "src/new.py", "content": "NEW = 1\n"},
+        ],
+    )
+
+    [read] = _did(record, "read")
+    assert read["content"] == "MARKER = None\n", read
+    assert (worktree / "src" / "new.py").read_text() == "NEW = 1\n"
+    assert not (elsewhere / "src" / "new.py").exists()
+
+
 # --- paging a file ---------------------------------------------------------------------
 
 
@@ -674,3 +765,31 @@ def test_a_read_honours_line_and_limit(tmp_path: Path, worktree: Path, specs: Pa
 
     [read] = _did(record, "read")
     assert read["content"] == "two\n", read
+
+
+# --- an edit approval titled with its path -------------------------------------------
+
+
+def test_an_edit_approval_titled_with_its_path_is_weighed_on_that_path(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    """An agent that asks for an edit with `Approve edit: <absolute path>` and
+    neither a kind nor locations: the path is read from the title, and the
+    worktree-and-not-specs check applies to it."""
+    record = tmp_path / "agent.jsonl"
+    inside = str(worktree / "src" / "marker.py")
+    spec = str(specs / "feature" / "spec.md")
+
+    _run(
+        record,
+        worktree,
+        specs,
+        act=[
+            {"ask": "other", "title": f"Approve edit: {inside}", "locations": False},
+            {"ask": "other", "title": f"Approve edit: {spec}", "locations": False},
+        ],
+    )
+
+    inside_answer, spec_answer = _answered(record)
+    assert inside_answer["optionKind"] == "allow_once", inside_answer
+    assert spec_answer["optionKind"] in ("reject_once", "reject_always"), spec_answer

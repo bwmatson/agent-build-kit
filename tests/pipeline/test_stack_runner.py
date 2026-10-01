@@ -765,6 +765,42 @@ def test_a_tier_one_failure_is_kept_as_feedback(tmp_path: Path) -> None:
     assert "ImportError" in store.get(unit().id).feedback
 
 
+def test_a_failed_tier_one_s_output_reaches_the_run_log(tmp_path: Path) -> None:
+    """The run log is what a person reads to see why a unit failed."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = "E   DISTINCTIVE-TIER-ONE-OUTPUT"
+
+    make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+
+    assert "E   DISTINCTIVE-TIER-ONE-OUTPUT" in recorder.logged
+
+
+def test_a_tier_one_that_fails_after_a_clean_move_logs_its_output(tmp_path: Path) -> None:
+    """The re-check before the push, on the base as it now is, is a tier 1 too."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    recorder = Recorder()
+    runner = make_runner(store, recorder, tmp_path)
+    runs: list[int] = []
+
+    def tier1(*, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
+        runs.append(1)
+        return (True, "") if len(runs) == 1 else (False, "E   DISTINCTIVE-RECHECK-OUTPUT")
+
+    runner.run_tier1 = tier1
+    runner.fresh_base = lambda unit, base: "main-moved"
+    runner.restack_onto = lambda **kw: Restacked(
+        onto_unit="", onto_intent="", old_base="a", old_head="b"
+    )
+
+    runner.run(unit(), base="main", graph=[])
+
+    assert len(runs) >= 2, recorder.logged
+    assert "E   DISTINCTIVE-RECHECK-OUTPUT" in recorder.logged
+
+
 def test_a_unit_retried_after_tier_one_takes_the_rework_path(tmp_path: Path) -> None:
     """With the failure recorded, the retry is one scoped run against it —
     not the full tests-then-implementation pair against a branch that already

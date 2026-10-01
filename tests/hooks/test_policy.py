@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.hooks.policy import decide
+from agent_build_kit.hooks.policy import decide, hook_settings
 from agent_build_kit.pipeline.command_policy import check_command
 
 # tests/ mirrors the source layout, so the repo root is two levels up.
@@ -66,6 +66,24 @@ def test_an_allowed_command_produces_no_decision(repo: Path) -> None:
     """Staying silent leaves the normal permission flow in charge; answering
     "allow" would override the user's own deny rules."""
     assert decide(payload("git status", cwd=str(repo))) is None
+
+
+def test_a_push_to_the_units_own_branch_is_refused_when_the_run_may_not_push(repo: Path) -> None:
+    command = "git push origin spec/change/1"
+
+    assert decide(payload(command, cwd=str(repo))) is None
+    answer = decide(payload(command, cwd=str(repo)), no_push=True)
+
+    assert answer is not None
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_a_unit_run_registers_the_hook_with_pushing_refused() -> None:
+    def command_of(settings: dict) -> str:
+        return settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+    assert "--no-push" not in command_of(hook_settings(Path("/repo")))
+    assert command_of(hook_settings(Path("/repo"), no_push=True)).endswith(" --no-push")
 
 
 def edit(target: Path | str, *, cwd: Path | str) -> dict:
