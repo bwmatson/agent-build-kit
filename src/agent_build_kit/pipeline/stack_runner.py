@@ -900,6 +900,17 @@ class RunOutcome(Frozen):
     pr: int | None = None
 
 
+class Weighed(Frozen):
+    """A reviewer's answer after `UnitRunner.weigh_review`."""
+
+    verdict: Verdict
+    approved: bool
+    # What to put to the builder; empty once approved.
+    why: str
+    # The rounds that preceded this one, with the builder's answers applied.
+    earlier_rounds: tuple[dict, ...]
+
+
 class UnitRunner(BaseModel):
     """Runs one unit, given the ways to do each step.
 
@@ -977,13 +988,11 @@ class UnitRunner(BaseModel):
             return RunOutcome(status="paused", detail=why)
 
         branch = branch_name(unit)
-        later = _later_text(unit, later_groups_by_change(unit, graph))
-        build_boundary = BUILD_BOUNDARY_NOTE.format(later=later) if later else ""
-        review_boundary = REVIEW_BOUNDARY_NOTE.format(later=later) if later else ""
+        build_boundary, review_boundary = self.boundary_notes(unit, graph)
         # From the store, not the passed-in unit: `run` takes a `Unit`, and
         # the store is what the poller wrote the review's words to.
         feedback = self.store.get(unit.id).feedback
-        change_dir, groups = self._scope(unit)
+        change_dir, groups = self.scope(unit)
         self.store.set_state(unit.id, "running", branch=branch)
         ref = local_ref(base)
         tree = self.worktree(unit, ref)
@@ -1006,7 +1015,7 @@ class UnitRunner(BaseModel):
             # its parent was reworked comes back to a base that was force-pushed
             # underneath it, so its branch no longer contains the commits it sits
             # on. Judging it against that base would judge work it does not have.
-            self._fetch(unit)
+            self.fetch_quietly(unit)
             try:
                 restacked = self.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
             except (AgentRateLimited, AgentInterrupted):
@@ -1021,7 +1030,7 @@ class UnitRunner(BaseModel):
                 # review's, and replacing it would lose that review.
                 waiting = self.store.get(unit.id).feedback
                 self.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
-                return self._fail(unit, why)
+                return self.fail(unit, why)
 
             if restacked is not None:
                 if restacked.conflict:
@@ -1184,7 +1193,7 @@ class UnitRunner(BaseModel):
             # Given to both build prompts: a unit resumed at IMPLEMENT skips
             # the tests prompt entirely, and would otherwise never see what an
             # earlier unit left for this one to act on.
-            follow_ups_note = self._follow_ups_note(unit)
+            follow_ups_note = self.follow_ups_note(unit)
             if resume != IMPLEMENT:
                 self.store.record_step(unit.id, TESTS)
                 self.log(f"step: write the tests ({models().implement})")
@@ -1313,7 +1322,7 @@ class UnitRunner(BaseModel):
                 # prompts and rebuilt the same branch. Recorded as feedback, a
                 # retry is one scoped run against the actual failure.
                 self.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{tier1_output}".strip())
-                return self._fail(unit, "tier 1 failed")
+                return self.fail(unit, "tier 1 failed")
 
             # Nothing of this unit's own on the branch, and what is already at
             # the tip passes — the work its groups called for arrived another
@@ -1364,7 +1373,7 @@ class UnitRunner(BaseModel):
                         note=f"already implemented; tier 1 passed; PR #{stored.pr} not closed "
                         f"— {error}",
                     )
-            self._mark(unit, done=True)
+            self.mark_tasks(unit, done=True)
             return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
 
         snapshot = None
@@ -1377,7 +1386,7 @@ class UnitRunner(BaseModel):
                 # has to be reproduced by hand.
                 waiting = self.store.get(unit.id).feedback
                 self.store.set_feedback(unit.id, f"{waiting}\n\ntier 2 failed:\n{snapshot}".strip())
-                return self._fail(unit, "tier 2 failed")
+                return self.fail(unit, "tier 2 failed")
 
         # Last gate before anything leaves the machine: a push against a base
         # that has since moved puts the parent's old commits in this unit's diff.
@@ -1387,7 +1396,7 @@ class UnitRunner(BaseModel):
         # The base may have moved on the remote since this run began: a parent
         # merged, or the trunk advanced. Checked once, here, so what is pushed
         # sits on the base as it now is.
-        self._fetch(unit)
+        self.fetch_quietly(unit)
         try:
             fresh = self.fresh_base(unit, base)
         except Exception as error:  # noqa: BLE001
@@ -1447,7 +1456,7 @@ class UnitRunner(BaseModel):
         # taken: the PR only ever receives the commit the review loop approved.
         head, approved_sha = self.head(tree), self.store.get(unit.id).approved
         if not approved_sha or head != approved_sha:
-            return self._fail(
+            return self.fail(
                 unit,
                 f"refusing to push {head[:9] or '?'}: review approved "
                 f"{approved_sha[:9] or 'nothing'} on this branch",
@@ -1469,7 +1478,7 @@ class UnitRunner(BaseModel):
         # machine.
         # From the store, not this run: a unit resumed at VERIFY skips review.
         if self.store.get(unit.id).deferred:
-            self._record_follow_ups(unit, self.store.get(unit.id).deferred)
+            self.record_follow_ups(unit, self.store.get(unit.id).deferred)
             self.store.set_deferred(unit.id, ())
 
         stored = self.store.get(unit.id)
@@ -1485,7 +1494,7 @@ class UnitRunner(BaseModel):
             # this run's local `deferred`: a unit resumed at VERIFY skips
             # review and has none, a rework re-pushes without repeating
             # them, and a later approval must not lose an earlier one's.
-            follow_ups=self._follow_ups_for(unit) or None,
+            follow_ups=self.follow_ups_for(unit) or None,
             linear=self.linear(tree, ref),
         )
         try:
@@ -1538,7 +1547,7 @@ class UnitRunner(BaseModel):
             self.store.set_review_rounds(unit.id, ())
         # Done means through the loop, verified and pushed — so here, and not
         # when a build merely finished. See `task_progress`.
-        self._mark(unit, done=True)
+        self.mark_tasks(unit, done=True)
         self.log(f"in review: PR #{pr}")
         return RunOutcome(status="open", detail=f"opened #{pr}", pr=pr)
 
@@ -1592,85 +1601,14 @@ class UnitRunner(BaseModel):
             judged = self.head(tree)
             model = models().review if first else models().rework_review
             self.log(f"step: review round {round_number + 1} ({model})")
-            # A branch moved onto a changed predecessor tells its reviewer so,
-            # with the instruction to check its tests still fit.
-            stored = self.store.get(unit.id)
-            notes = [
-                f"This unit carries task group(s) {groups}, all of them its own work."
-                if unit.joined
-                else "",
-                review_boundary,
-                stored.predecessor_note,
-                _round_budget_note(round_number + 1, total),
-                _earlier_rounds(stored.review_rounds),
-            ]
-            text = "\n\n".join(n for n in notes if n)
-            context = {"context": text} if text else {}
-            raw = (self.run_review if first else self.run_rework_review)(cwd=tree, **context)
-            verdict = parse_verdict(raw)
-
-            # A blocking follow-up — correctness, a test that would pass
-            # regardless, a missing test the task asked for, anything the
-            # command policy forbids — overrides `approved`: deferral is for
-            # work that can wait, not for work that is inconvenient.
-            prose = verdict.feedback
-            if verdict.blocking:
-                points = "\n".join(f"- {f.point}" for f in verdict.blocking)
-                prose = f"{prose}\n\n{points}".strip() if prose else points
-            earlier_rounds = stored.review_rounds
-            open_ids = _unresolved(earlier_rounds, verdict.earlier)
-            still_open = _render_open(earlier_rounds, verdict.earlier)
-            shown, cut = cap_optional(verdict.findings)
-            if cut:
-                self.log(f"{cut} optional finding(s) left out, over the {MAX_OPTIONAL} shown")
-            bare = sum(1 for f in shown if f.required and not f.consequence)
-            if bare:
-                self.log(f"{bare} required finding(s) returned with no consequence stated")
-            kept = [
-                f.model_copy(update={"id": f"{len(earlier_rounds) + 1}.{n}"})
-                for n, f in enumerate(shown, start=1)
-            ]
-            why = "\n\n".join(p for p in (prose, still_open, render_findings(kept)) if p)
-            approved = (
-                verdict.approved
-                and not verdict.blocking
-                and not open_ids
-                and not any(f.required for f in verdict.findings)
+            context = self.review_notes(
+                unit, round_number=round_number, total=total, review_boundary=review_boundary
             )
-
-            if approved:
-                sha = judged
-                # One line each, so the change's file and the PR body read a
-                # point back as the one item it was. Optional findings ride
-                # with the deferred follow-ups rather than vanishing.
-                points = tuple(
-                    p
-                    for p in (
-                        *(" ".join(f.point.split()) for f in verdict.deferrable),
-                        *(
-                            " ".join(f"{_where(f)} — {f.summary}".split())
-                            for f in shown
-                            if not f.required
-                        ),
-                    )
-                    if p
-                )
-                self.store.record_approval(unit.id, sha, points)
-                self.log(f"review approved {sha[:9]}")
-                if points:
-                    self.log(f"deferred {len(points)} follow-up(s) to the change")
+            raw = (self.run_review if first else self.run_rework_review)(cwd=tree, **context)
+            weighed = self.weigh_review(unit, raw, judged=judged)
+            verdict, why, rounds = weighed.verdict, weighed.why, weighed.earlier_rounds
+            if weighed.approved:
                 return True, ""
-
-            self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
-            rounds = tuple(_apply_answers(earlier_rounds, verdict.earlier))
-            recorded = {
-                "asked": why,
-                "prose": prose,
-                "response": "",
-                "judged": judged,
-                "findings": [{**f.model_dump(), "status": ""} for f in kept],
-            }
-            self.store.set_review_rounds(unit.id, (*rounds, recorded))
             if verdict.needs_human:
                 # What is left is something the builder's environment refuses
                 # (an edit to a file Claude Code protects). Asking again spends
@@ -1740,6 +1678,106 @@ class UnitRunner(BaseModel):
             self.commit(f"fix: {unit.title} (review round {round_number + 1})", cwd=tree)
         return False, why
 
+    def boundary_notes(self, unit: Unit, graph: list[StoredUnit]) -> tuple[str, str]:
+        """What the build prompts and the reviewer are told belongs to later
+        units of the change; empty when the unit carries the change's last groups."""
+        later = _later_text(unit, later_groups_by_change(unit, graph))
+        return (
+            BUILD_BOUNDARY_NOTE.format(later=later) if later else "",
+            REVIEW_BOUNDARY_NOTE.format(later=later) if later else "",
+        )
+
+    def review_notes(
+        self, unit: Unit, *, round_number: int, total: int, review_boundary: str
+    ) -> dict[str, str]:
+        """The `context` a round's reviewer is handed, as keyword arguments."""
+        # A branch moved onto a changed predecessor tells its reviewer so,
+        # with the instruction to check its tests still fit.
+        stored = self.store.get(unit.id)
+        notes = [
+            f"This unit carries task group(s) {self.scope(unit)[1]}, all of them its own work."
+            if unit.joined
+            else "",
+            review_boundary,
+            stored.predecessor_note,
+            _round_budget_note(round_number + 1, total),
+            _earlier_rounds(stored.review_rounds),
+        ]
+        text = "\n\n".join(n for n in notes if n)
+        return {"context": text} if text else {}
+
+    def weigh_review(self, unit: Unit, raw: str, *, judged: str) -> Weighed:
+        """Read a reviewer's answer on the commit `judged` and record it.
+
+        An approval is recorded with the follow-ups it deferred; anything else
+        is added to the unit's review rounds. What to do next is the caller's.
+        """
+        verdict = parse_verdict(raw)
+        stored = self.store.get(unit.id)
+
+        # A blocking follow-up — correctness, a test that would pass
+        # regardless, a missing test the task asked for, anything the
+        # command policy forbids — overrides `approved`: deferral is for
+        # work that can wait, not for work that is inconvenient.
+        prose = verdict.feedback
+        if verdict.blocking:
+            points = "\n".join(f"- {f.point}" for f in verdict.blocking)
+            prose = f"{prose}\n\n{points}".strip() if prose else points
+        earlier_rounds = stored.review_rounds
+        open_ids = _unresolved(earlier_rounds, verdict.earlier)
+        still_open = _render_open(earlier_rounds, verdict.earlier)
+        shown, cut = cap_optional(verdict.findings)
+        if cut:
+            self.log(f"{cut} optional finding(s) left out, over the {MAX_OPTIONAL} shown")
+        bare = sum(1 for f in shown if f.required and not f.consequence)
+        if bare:
+            self.log(f"{bare} required finding(s) returned with no consequence stated")
+        kept = [
+            f.model_copy(update={"id": f"{len(earlier_rounds) + 1}.{n}"})
+            for n, f in enumerate(shown, start=1)
+        ]
+        why = "\n\n".join(p for p in (prose, still_open, render_findings(kept)) if p)
+        approved = (
+            verdict.approved
+            and not verdict.blocking
+            and not open_ids
+            and not any(f.required for f in verdict.findings)
+        )
+
+        if approved:
+            # One line each, so the change's file and the PR body read a
+            # point back as the one item it was. Optional findings ride
+            # with the deferred follow-ups rather than vanishing.
+            points = tuple(
+                p
+                for p in (
+                    *(" ".join(f.point.split()) for f in verdict.deferrable),
+                    *(
+                        " ".join(f"{_where(f)} — {f.summary}".split())
+                        for f in shown
+                        if not f.required
+                    ),
+                )
+                if p
+            )
+            self.store.record_approval(unit.id, judged, points)
+            self.log(f"review approved {judged[:9]}")
+            if points:
+                self.log(f"deferred {len(points)} follow-up(s) to the change")
+            return Weighed(verdict=verdict, approved=True, why="", earlier_rounds=earlier_rounds)
+
+        self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
+        rounds = tuple(_apply_answers(earlier_rounds, verdict.earlier))
+        recorded = {
+            "asked": why,
+            "prose": prose,
+            "response": "",
+            "judged": judged,
+            "findings": [{**f.model_dump(), "status": ""} for f in kept],
+        }
+        self.store.set_review_rounds(unit.id, (*rounds, recorded))
+        return Weighed(verdict=verdict, approved=False, why=why, earlier_rounds=rounds)
+
     def _fix_until_checks_pass(
         self,
         unit: Unit,
@@ -1788,7 +1826,7 @@ class UnitRunner(BaseModel):
             feedback = f"{TIER1_FAILED}\n{output}".strip()
             self.store.set_feedback(unit.id, feedback)
             if budget is not None and attempt >= budget:
-                return self._fail(
+                return self.fail(
                     unit, f"checks still failing after {budget} fix round(s), before review"
                 )
             if outcome := checkpoint(REWORK):
@@ -1804,7 +1842,7 @@ class UnitRunner(BaseModel):
             )
             self.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
             if self.head(tree) == before:
-                return self._fail(
+                return self.fail(
                     unit, f"checks failing and fix round {attempt} changed nothing, before review"
                 )
 
@@ -1886,7 +1924,7 @@ class UnitRunner(BaseModel):
                 why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
             waiting = self.store.get(unit.id).feedback
             self.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
-            return self._fail(unit, why)
+            return self.fail(unit, why)
 
         rendered = "".join(
             f"\n- `{d.name}`: {d.decision}" + (f" — {d.reason}" if d.reason else "")
@@ -1922,7 +1960,7 @@ class UnitRunner(BaseModel):
     def _change_dir(self, change: str) -> str:
         return CHANGE_DIR.format(planning_repo=self.planning_repo, change=change)
 
-    def _scope(self, unit: Unit) -> tuple[str, str]:
+    def scope(self, unit: Unit) -> tuple[str, str]:
         """What a prompt names as the unit's change directory and task groups.
 
         A unit carrying nothing names its own, as it always has. One that
@@ -1939,7 +1977,7 @@ class UnitRunner(BaseModel):
             " and ".join(f"{n} of {d}" for n, d in zip(numbers, dirs, strict=True)),
         )
 
-    def _mark(self, unit: Unit, *, done: bool) -> None:
+    def mark_tasks(self, unit: Unit, *, done: bool) -> None:
         """Tick or untick each change's groups in that change's own tasks file."""
         for member in unit.members():
             tasks = Path(self._change_dir(member.change)) / "tasks.md"
@@ -1948,7 +1986,7 @@ class UnitRunner(BaseModel):
     def _follow_ups_path(self, unit: Unit) -> Path:
         return Path(self._change_dir(unit.change)) / FOLLOW_UPS_FILE
 
-    def _follow_ups_note(self, unit: Unit) -> str:
+    def follow_ups_note(self, unit: Unit) -> str:
         """What earlier units of this change deferred, for a fresh build to see.
 
         Read directly, like `tasks.md`: the planning repo is a real checkout
@@ -1961,7 +1999,7 @@ class UnitRunner(BaseModel):
         content = "\n\n".join(text for text in texts if text)
         return FOLLOW_UPS_NOTE.format(items=content) if content else ""
 
-    def _follow_ups_for(self, unit: Unit) -> list[str]:
+    def follow_ups_for(self, unit: Unit) -> list[str]:
         """This unit's own follow-ups, as last recorded — for its PR body.
 
         Read from the file rather than a run's local `deferred`: a unit
@@ -1980,7 +2018,7 @@ class UnitRunner(BaseModel):
         block = content[start + len(marker) : _follow_ups_block_end(content, start, marker)]
         return [line[2:].strip() for line in block.splitlines() if line.startswith("- ")]
 
-    def _record_follow_ups(self, unit: Unit, items: Sequence[str]) -> None:
+    def record_follow_ups(self, unit: Unit, items: Sequence[str]) -> None:
         if not items:
             return
         path = self._follow_ups_path(unit)
@@ -2028,7 +2066,7 @@ class UnitRunner(BaseModel):
             graph=graph or [stored],
             base=base,
             open_points=why,
-            follow_ups=self._follow_ups_for(unit) or None,
+            follow_ups=self.follow_ups_for(unit) or None,
             linear=self.linear(tree, local_ref(base)),
         )
         pr = self.open_pr(
@@ -2044,7 +2082,7 @@ class UnitRunner(BaseModel):
         self.log(f"held: rounds spent — #{pr}")
         return RunOutcome(status="held", detail=f"rounds spent, held as #{pr}")
 
-    def _fetch(self, unit: Unit) -> None:
+    def fetch_quietly(self, unit: Unit) -> None:
         """Bring the repo's remote refs up to date; a failure is logged, not fatal."""
         try:
             self.fetch(unit)
@@ -2077,10 +2115,10 @@ class UnitRunner(BaseModel):
         self.log(f"resuming at its restack on {base}")
         return self.run(unit, base=base, graph=graph, rebased=True)
 
-    def _fail(self, unit: Unit, detail: str) -> RunOutcome:
+    def fail(self, unit: Unit, detail: str) -> RunOutcome:
         # Recorded rather than left at "planned": the next round would
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
         self.store.set_state(unit.id, "failed")
-        self._mark(unit, done=False)
+        self.mark_tasks(unit, done=False)
         return RunOutcome(status="failed", detail=detail)

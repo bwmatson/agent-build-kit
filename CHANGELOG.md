@@ -14,6 +14,14 @@
 - The Python recommendations seed prefers `enum.StrEnum` over repeated string literals for
   closed sets of strings on Python 3.11 and later, so `abk init`'s research proposes it.
 
+- New runtime dependencies: `langgraph`, `langgraph-checkpoint`,
+  `langgraph-checkpoint-sqlite` and `aiosqlite`, for the unit graph engine. A new setting,
+  `ABK_ENGINE` (`classic` by default, or `graph`), picks the engine that builds a unit. `graph`
+  is not usable yet: the build path (prepare through opening the pull request) is built and
+  tested behind it, but the engine is not yet driven by a tick, so nothing changes for an
+  installation that does not opt in. An unknown value is now refused when settings load, so a
+  mistyped `ABK_ENGINE` stops every command rather than falling back to `classic`.
+
 - A unit's approval now carries across a clean rebase when the base had edited lines near
   its change. The change's id was taken over its context lines too, so a parent that touched a
   line three lines away gave the same change a new id; the approval did not carry, and the unit

@@ -1,11 +1,22 @@
 # The unit graph
 
-**Status: design, skeleton built.** Behind `ABK_ENGINE=graph` there is a
+**Status: design, build path built.** Behind `ABK_ENGINE=graph` there is a
 `UnitEngine` seam (`pipeline/unit_engine.py`), the `UnitRun` state, the node
 enum, the SQLite checkpointer with its allowlist and a compiled graph in
-`graph/`. The graph's nodes do no work yet and are joined in one straight line
-rather than by the edges below; the classic engine is still the default and
-the only one that builds. This document is what the
+`graph/`. `graph/unit.run_unit` runs a unit's build path on it, over the
+callables `wiring.build_runner` binds: `prepare`, `tests`, `implement`,
+`checks`, `fix_checks`, `review`, `rework`, `tier1`, `verify_base`, `push`,
+`open_pr` and `failed`, joined by the edges below, ending at the pull request.
+What follows a pull request, and every path off the build path, is not built:
+where the classic runner would adapt, run tier 2, mark a unit satisfied, hold
+it, or stop for a base that moved, the graph ends the run as `failed` and says
+which of these it is. Two more differences from the classic runner: the
+`chore:` commit of uncommitted work before each review round is not made, as
+every step already ends in its own commit; and `open_pr` posts the commit
+status for every unit, not only a tier 2 one, noting where there is none to
+post. `ABK_ENGINE=graph` still does not drive a unit through
+`run_unit`: a tick starts a thread whose nodes do no work, and the classic
+engine is the default and the only one that builds. This document is what the
 implementation is specified against: it says which part of the pipeline moves
 onto [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview),
 which part stays as it is, and how the two meet.
@@ -257,7 +268,13 @@ carries today plus what routing needs:
   replies, the predecessor note;
 - **step results routing reads:** commits this run produced, the last verdict,
   tier results, why a run stopped;
-- **the last event received,** so a resumed node knows why it is running.
+- **the last event received,** so a resumed node knows why it is running;
+- **what the build path routes on:** the base the unit is on once `verify_base`
+  moved it, the commits on the branch when `prepare` finished, the branch's tip
+  when the last node finished (what a re-run compares with), whether feedback
+  was waiting at the start, the fix rounds and the review round so far, and
+  whether the checks passed, the branch is empty or `verify_base` moved it;
+- **how the run ended:** the status, detail and pull request `RunOutcome` reports.
 
 Updates are partial: each node returns only the fields it changes. Anything a
 person reads (state, pull request, history) is also written to `units.json`
@@ -301,9 +318,14 @@ poller already replays a deferred event.
   - commits already on the branch from this step;
   - the pushed commit;
   - an open pull request.
-  It does nothing twice. A killed agent process leaves uncommitted work, which
-  the node's re-run commits as `wip:` before continuing, as `reclaim_stale`
-  does now.
+  It does nothing twice: an agent node compares the branch's tip with the one
+  its predecessor recorded, `push` compares the pushed commit with the tip, and
+  `open_pr` leaves a note on the unit when it is interrupted inside the call, so
+  the run that resumes does not open the pull request again. (The runner has no
+  way to ask the forge for a unit's pull request, so that note stands in for the
+  look.) A killed agent process leaves uncommitted work, which the node's
+  re-run is to commit as `wip:` before continuing, as `reclaim_stale` does now;
+  that is not built yet.
 - **Timeouts kill the process group.** A node's `TimeoutPolicy` cancels its
   task, and cancelling a task does not stop a child process. The runtime call
   inside a node owns the agent's process group and kills it on cancellation.
