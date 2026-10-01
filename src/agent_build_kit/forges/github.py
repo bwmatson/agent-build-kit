@@ -50,6 +50,10 @@ _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
 _LOG_PREFIX = re.compile(r"^[^\t]*\t[^\t]*\t\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 _LOG_CHARS = 6000
+# One job of that run, and a bare job log's lines: a timestamp and nothing else.
+_JOB_URL = re.compile(r"/job/(?P<job>\d+)")
+_JOB_LINE = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+_ERROR_LINE = "##[error]"
 
 # `git@github.com:owner/name.git`, `https://github.com/owner/name`,
 # `ssh://git@github.com/owner/name.git`, `alias:owner/name.git` (an ssh host
@@ -409,10 +413,52 @@ class GitHubForge:
         for run in runs:
             result = gh(["gh", "run", "view", run, "--repo", slug, "--log-failed"], slug=slug)
             text = "\n".join(_LOG_PREFIX.sub("", line) for line in result.stdout.splitlines())
+            if not text.strip():
+                # A run still in progress has no log as a whole, though a job
+                # that has finished does: the check fails in a minute and the
+                # slowest job takes several, and the poller reports the failure
+                # at once. Asked for the run, the rework got an empty block and
+                # said so.
+                text = self._failed_job_logs(slug, run, failed)
+            if not text.strip():
+                parts.append(
+                    f"CI run {run} ({names}) failed, but its log could not be fetched "
+                    "(the run may still be in progress). Run the command CI runs "
+                    "(`pre-commit run --all-files` for a lint failure) and fix what it reports."
+                )
+                continue
             parts.append(
                 f"CI run {run} ({names}), end of its failed log:\n```\n{text[-_LOG_CHARS:]}\n```"
             )
         return "\n\n".join(parts)
+
+    def _failed_job_logs(self, slug: str, run: str, failed: list[dict]) -> str:
+        """The log of each failed job of `run`, up to where the job reported its error.
+
+        A job's whole log ends in the runner's clean-up, so the tail of it says
+        nothing; the failure is in the lines before the last `##[error]`.
+        """
+        out = []
+        for check in failed:
+            details = str(check.get("detailsUrl", ""))
+            match = _JOB_URL.search(details)
+            if not match or f"/runs/{run}/" not in details:
+                continue
+            result = gh(
+                [
+                    "gh", "api", f"repos/{slug}/actions/jobs/{match['job']}/logs",
+                    "--allow-escape-sequences",
+                ],
+                slug=slug,
+            )  # fmt: skip
+            lines = [_JOB_LINE.sub("", line) for line in result.stdout.splitlines()]
+            errors = [i for i, line in enumerate(lines) if _ERROR_LINE in line]
+            if errors:
+                lines = lines[: errors[-1] + 1]
+            text = "\n".join(lines).strip()
+            if text:
+                out.append(f"{check.get('name')}:\n{text[-_LOG_CHARS:]}")
+        return "\n\n".join(out)
 
     def _ensure_label(self, slug: str, label: Label) -> None:
         """Make the repo's label what `label` says: created when missing, and
