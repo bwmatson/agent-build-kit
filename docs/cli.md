@@ -156,7 +156,7 @@ unknown unit, 1 when the unit is not stuck, else 0.
 
 ## Setting up
 
-### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--dry-run] [--register-store ID]`
+### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--register-store ID]`
 
 Creates a planning repo for a set of checkouts; the one command that creates
 an installation rather than reading one. Step by step in [init.md](init.md).
@@ -170,6 +170,14 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   model-driven steps. `--force` overwrites `abk.yaml`, `openspec/config.yaml`,
   the recommendation documents and the generated changes. `--dry-run` prints
   the `abk.yaml` that would be written and the plan, and stops.
+- `--update-rules` brings `openspec/config.yaml` up to the framework's rules
+  version and does nothing else: it adds, to the end of the `context:`, the
+  paragraph each newer version added, and restamps the file. The wording, the
+  comments and the rules are left byte for byte, and `abk.yaml` is not read.
+  A second run changes nothing. A file with no `# abk-rules:` stamp, a newer
+  stamp, or a version that changed more than the context is refused, and the
+  file is left alone. Review the diff and commit it; this is what `abk doctor`
+  points to when the stamp is behind.
 - `--register-store ID` runs `openspec store register --id ID --yes` on the
   planning repo.
 - Last, it asks the selected runtime (`runtime`, or `ABK_RUNTIME`) whether it

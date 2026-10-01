@@ -333,3 +333,122 @@ def test_a_github_repo_is_still_written_with_its_slug(tmp_path: Path) -> None:
 
     assert config.repos["app"].forge == "github"
     assert config.repos["app"].slug == "example/app"
+
+
+# --- update_rules ----------------------------------------------------------------
+
+
+def v1_config(tail: str = "\nrules:\n  tasks:\n    - my own rule, in my words\n") -> str:
+    return (
+        "# abk-rules: v1\nschema: spec-driven\n\n# a comment of mine\ncontext: |\n"
+        "  Two repos, and what I say about them.\n\n"
+        "  Tests mirror the source layout.\n" + tail
+    )
+
+
+def test_an_update_adds_the_new_paragraph_to_the_context_and_restamps(tmp_path: Path) -> None:
+    from agent_build_kit.init.scaffold import RULES_UPDATES, RULES_VERSION, update_rules
+
+    path = tmp_path / "config.yaml"
+    path.write_text(v1_config())
+
+    applied = update_rules(path)
+
+    assert applied == list(range(2, RULES_VERSION + 1))
+    text = path.read_text()
+    assert text.startswith(f"# abk-rules: v{RULES_VERSION}\n")
+    context = " ".join(yaml.safe_load(text)["context"].split())
+    assert all(update in context for update in RULES_UPDATES.values())
+    assert context.index("Tests mirror") < context.index(RULES_UPDATES[2])
+
+
+def test_an_update_changes_nothing_else_in_the_file(tmp_path: Path) -> None:
+    """The installation's own wording, its comments and its rules are left byte
+    for byte: take the added paragraph out and restore the old stamp, and the
+    file is the one that was given."""
+    import textwrap
+
+    from agent_build_kit.init.scaffold import RULES_UPDATES, update_rules
+
+    path = tmp_path / "config.yaml"
+    before = v1_config()
+    path.write_text(before)
+
+    update_rules(path)
+
+    after = path.read_text()
+    for paragraph in RULES_UPDATES.values():
+        wrapped = textwrap.fill(paragraph, width=78, initial_indent="  ", subsequent_indent="  ")
+        after = after.replace(f"\n{wrapped}\n", "", 1)
+    assert after.splitlines()[1:] == before.splitlines()[1:]
+    assert "# a comment of mine" in after and "    - my own rule, in my words" in after
+
+
+def test_a_second_update_is_a_no_op(tmp_path: Path) -> None:
+    from agent_build_kit.init.scaffold import update_rules
+
+    path = tmp_path / "config.yaml"
+    path.write_text(v1_config())
+    update_rules(path)
+    once = path.read_text()
+
+    assert update_rules(path) == []
+    assert path.read_text() == once
+
+
+def test_a_context_that_ends_the_file_is_added_to_too(tmp_path: Path) -> None:
+    from agent_build_kit.init.scaffold import RULES_UPDATES, update_rules
+
+    path = tmp_path / "config.yaml"
+    path.write_text("# abk-rules: v1\ncontext: |\n  Only this.\n")
+
+    update_rules(path)
+
+    assert RULES_UPDATES[2] in " ".join(yaml.safe_load(path.read_text())["context"].split())
+
+
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        ("schema: spec-driven\ncontext: |\n  x\n", "no `# abk-rules:` stamp"),
+        ("# abk-rules: v99\ncontext: |\n  x\n", "newer than this framework"),
+        ("# abk-rules: v1\nschema: spec-driven\n", "no `context: |` block"),
+    ],
+)
+def test_a_file_that_cannot_be_updated_is_refused_and_left_alone(
+    tmp_path: Path, text: str, why: str
+) -> None:
+    from agent_build_kit.init.scaffold import update_rules
+
+    path = tmp_path / "config.yaml"
+    path.write_text(text)
+
+    with pytest.raises(ScaffoldError, match=why):
+        update_rules(path)
+
+    assert path.read_text() == text
+
+
+def test_a_version_that_changed_more_than_the_context_is_not_applied_by_guessing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_build_kit.init import scaffold
+
+    monkeypatch.setattr(scaffold, "RULES_VERSION", scaffold.RULES_VERSION + 1)
+    path = tmp_path / "config.yaml"
+    path.write_text(v1_config())
+
+    with pytest.raises(ScaffoldError, match="changed more than the context"):
+        scaffold.update_rules(path)
+
+    assert path.read_text() == v1_config()
+
+
+def test_the_update_says_what_a_new_init_says() -> None:
+    """The paragraph an update adds and the context a fresh `abk init` writes
+    are the same sentences, so a file made either way carries the same rule."""
+    from agent_build_kit.init.scaffold import RULES_UPDATES, template
+
+    written = " ".join(template("openspec_context.md").split())
+    for version, paragraph in RULES_UPDATES.items():
+        assert paragraph in written, f"v{version}'s update has drifted from the context template"

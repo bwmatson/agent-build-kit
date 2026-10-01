@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `abk init --update-rules` brings `openspec/config.yaml` up to the framework's rules
+  version without rewriting it: each newer version's paragraph goes at the end of the
+  `context:`, the `# abk-rules:` stamp is raised, and nothing else changes. `abk doctor`
+  names it when the stamp is behind.
+
 - **Breaking:** three more compatibility shims are removed.
   - The `github:` section of `abk.yaml` is no longer read as `git:`, and
     `abk doctor` no longer asks for the rename; a file that still has it is

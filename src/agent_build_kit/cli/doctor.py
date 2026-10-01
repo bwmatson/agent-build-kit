@@ -360,7 +360,8 @@ def _rules_drift(inst: Installation) -> Check:
         "rules",
         f"{path.name} is stamped v{stamped}; the framework is at v{RULES_VERSION}:\n"
         + "\n".join(added),
-        f"fold in what you want of these, in your own words, then stamp it v{RULES_VERSION}",
+        "run `abk init --update-rules` to add what they added and restamp the file, "
+        f"or fold them in yourself, in your own words, and stamp it v{RULES_VERSION}",
     )
 
 

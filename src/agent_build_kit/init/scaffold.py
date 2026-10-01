@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import textwrap
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -174,6 +175,21 @@ def render_rules(repos: Sequence[str]) -> str:
     return f"{RULES_HEADER}\n{body}"
 
 
+# version -> the paragraph an update adds to an installation's `context:` for
+# that version, for the versions whose change is a convention the context
+# carries. The same sentences are in the context template a fresh `abk init`
+# writes (a test holds the two together), so an updated file and a new one say
+# the same thing; an installation rewords it afterwards like the rest.
+RULES_UPDATES: dict[int, str] = {
+    2: (
+        "A file that moves or is renamed moves with `git mv`, in a commit that does "
+        "nothing else. Git then records a rename rather than a delete beside an add, "
+        "so `git log --follow` and `git blame` still reach the file's history and a "
+        "reviewer can see at a glance that the contents did not change. Editing it "
+        "belongs in a later commit."
+    ),
+}
+
 _RULES_STAMP = re.compile(r"^#\s*abk-rules:\s*v(?P<version>\d+)\s*$", re.M)
 
 
@@ -182,6 +198,67 @@ def rules_version(text: str) -> int | None:
     (written before the stamp existed, or by hand)."""
     match = _RULES_STAMP.search(text)
     return int(match["version"]) if match else None
+
+
+def update_rules(config_yaml: Path) -> list[int]:
+    """Bring an `openspec/config.yaml` up to this framework's rules version
+    without rewriting it, and return the versions applied.
+
+    The file is the installation's own wording, so nothing is regenerated:
+    each version since the file's stamp adds its paragraph (`RULES_UPDATES`)
+    to the end of the `context:` block, and the stamp becomes the current
+    version. Everything else — the comments, the rules, every word the
+    installation changed — is left byte for byte. A file with no stamp, or at
+    a version whose change this cannot apply, is refused: guessing what it
+    lacks is how a hand-written rule gets doubled or dropped.
+    """
+    text = config_yaml.read_text()
+    stamped = rules_version(text)
+    if stamped is None:
+        raise ScaffoldError(
+            f"{config_yaml} carries no `# abk-rules:` stamp, so what it lacks cannot be told; "
+            f"add `{RULES_HEADER}` once it has what `abk init` would write"
+        )
+    if stamped > RULES_VERSION:
+        raise ScaffoldError(
+            f"{config_yaml} is stamped v{stamped}, newer than this framework's v{RULES_VERSION}"
+        )
+    versions = list(range(stamped + 1, RULES_VERSION + 1))
+    missing = [v for v in versions if v not in RULES_UPDATES]
+    if missing:
+        raise ScaffoldError(
+            f"{config_yaml}: v{missing[0]} changed more than the context, so it cannot be "
+            "applied automatically; see `abk doctor` for what changed"
+        )
+    if not versions:
+        return []
+
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if re.match(r"^context:\s*\|", line)), None)
+    if start is None:
+        raise ScaffoldError(f"{config_yaml} has no `context: |` block to add to")
+    end = start + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t"):
+        end += 1
+    last = end
+    while last > start + 1 and not lines[last - 1].strip():
+        last -= 1  # the block's last line of text, before its trailing blank lines
+    added = ""
+    for version in versions:
+        wrapped = textwrap.fill(
+            RULES_UPDATES[version], width=78, initial_indent="  ", subsequent_indent="  "
+        )
+        added += f"\n{wrapped}\n"
+    lines[last:last] = [added]
+    updated = "".join(lines)
+    updated = _RULES_STAMP.sub(RULES_HEADER, updated, count=1)
+
+    loaded = yaml.safe_load(updated)
+    context = " ".join(str(loaded.get("context", "")).split()) if isinstance(loaded, dict) else ""
+    if not all(RULES_UPDATES[v] in context for v in versions):
+        raise ScaffoldError(f"{config_yaml}: the update did not produce a valid file; left alone")
+    config_yaml.write_text(updated)
+    return versions
 
 
 def rules_of(text: str) -> dict:

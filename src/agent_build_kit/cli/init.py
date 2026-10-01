@@ -28,7 +28,14 @@ from agent_build_kit.init.claude_call import RunClaude
 from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
-from agent_build_kit.init.scaffold import ScaffoldError, draft_config, write_planning_repo
+from agent_build_kit.init.scaffold import (
+    RULES_CHANGES,
+    RULES_VERSION,
+    ScaffoldError,
+    draft_config,
+    update_rules,
+    write_planning_repo,
+)
 from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 
@@ -235,8 +242,31 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
         print(f"still unenforced: {', '.join(after.unenforced)}")
 
 
+def _update_rules(planning: Path) -> int:
+    """`abk init --update-rules`: the rules version only, nothing else rewritten."""
+    config_yaml = planning / "openspec" / "config.yaml"
+    if not config_yaml.is_file():
+        print(f"abk init: {config_yaml} does not exist", file=sys.stderr)
+        return 2
+    try:
+        applied = update_rules(config_yaml)
+    except ScaffoldError as error:
+        print(f"abk init: {error}", file=sys.stderr)
+        return 2
+    if not applied:
+        print(f"{config_yaml} is already at rules v{RULES_VERSION}")
+        return 0
+    for version in applied:
+        for change in RULES_CHANGES.get(version, []):
+            print(f"v{version}: {change}")
+    print(f"{config_yaml} is now at rules v{RULES_VERSION}; review the diff and commit it")
+    return 0
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
+    if args.update_rules:
+        return _update_rules(planning)
     try:
         paths = [Path(p) for p in args.repo or []]
         if not paths and not args.yes:
@@ -450,6 +480,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     init.add_argument("--skip-research", action="store_true")
     init.add_argument("--skip-propose", action="store_true")
     init.add_argument("--force", action="store_true", help="overwrite abk.yaml and config.yaml")
+    init.add_argument(
+        "--update-rules",
+        action="store_true",
+        help="bring openspec/config.yaml up to the framework's rules version, "
+        "adding what newer versions added and nothing else",
+    )
     init.add_argument("--dry-run", action="store_true", help="print the config and the plan")
     init.add_argument("--register-store", metavar="ID", help="register as an OpenSpec store")
     init.set_defaults(func=cmd_init, needs_installation=False)
