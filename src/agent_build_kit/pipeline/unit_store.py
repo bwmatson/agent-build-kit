@@ -29,7 +29,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Join, Member, Unit
+from agent_build_kit.pipeline.units import PLANNED, Join, Member, Unit
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
@@ -150,7 +150,7 @@ class UnitStore:
             raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
 
         stored: dict[str, StoredUnit] = {}
-        for item in map(_migrate, units):
+        for item in units:
             # Validated rather than splatted in: the file is on disk and may
             # predate a change to StoredUnit, so a missing or unknown key
             # should fail here — naming the field — rather than construct
@@ -413,28 +413,6 @@ class UnitStore:
         is pushed several times — once per restack — while staying `open`.
         """
         self._update(unit_id, pushed=sha)
-
-
-# State names that have been renamed, old to new. Read-side, so a store
-# written before the rename — or by a tick still running the old code — reads
-# as the new names, and the next write persists them.
-RENAMED_STATES = {"open": IN_REVIEW}
-
-
-def _migrate(item: object) -> object:
-    if not isinstance(item, dict):
-        return item  # validation names what is wrong with it
-    item = {**item, "state": _renamed(item.get("state"))}
-    if isinstance(item.get("history"), list):
-        item["history"] = [
-            {**entry, "state": _renamed(entry.get("state"))} if isinstance(entry, dict) else entry
-            for entry in item["history"]
-        ]
-    return item
-
-
-def _renamed(state: object) -> object:
-    return RENAMED_STATES.get(state, state) if isinstance(state, str) else state
 
 
 def _with_state(unit: StoredUnit, state: str) -> StoredUnit:

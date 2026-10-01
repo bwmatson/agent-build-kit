@@ -20,7 +20,6 @@ Two ways to reach it:
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -184,13 +183,6 @@ class LimitsConfig(Frozen):
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
-
-    @model_validator(mode="before")
-    @classmethod
-    def _renamed_depth_cap(cls, data: object) -> object:
-        if isinstance(data, dict) and "stack_depth_cap" in data:
-            raise ValueError("stack_depth_cap was renamed to stack_depth_build_cap")
-        return data
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:
@@ -447,7 +439,6 @@ def load(path: Path) -> WorkspaceConfig:
         raise ConfigError(f"{path} is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must hold a mapping at the top level")
-    raw = _rename_github_section(raw, path)
     try:
         loaded = WorkspaceConfig.model_validate(raw)
     except ValidationError as error:
@@ -455,20 +446,6 @@ def load(path: Path) -> WorkspaceConfig:
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
     return loaded
-
-
-def _rename_github_section(raw: dict, path: Path) -> dict:
-    """Read the old `github:` section as `git:`; refuse a file that sets both.
-
-    The section was never about GitHub alone. The alias goes in a later release
-    (CHANGELOG); `abk doctor` asks for the rename.
-    """
-    if "github" not in raw:
-        return raw
-    if "git" in raw:
-        raise ConfigError(f"{path} sets both `git:` and its old name `github:`; keep `git:`")
-    print(f"warning: {path}: `github:` is now `git:`; rename it", file=sys.stderr)
-    return {("git" if key == "github" else key): value for key, value in raw.items()}
 
 
 def _check_forges(config: WorkspaceConfig, path: Path) -> None:

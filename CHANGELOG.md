@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Breaking:** three more compatibility shims are removed.
+  - The `github:` section of `abk.yaml` is no longer read as `git:`, and
+    `abk doctor` no longer asks for the rename; a file that still has it is
+    refused at load like any unknown key.
+  - `limits.stack_depth_cap` is refused with the schema's usual unknown-key
+    error instead of one naming `stack_depth_build_cap`.
+  - A units store or PR poll snapshot written by an older version is no longer
+    translated on read: the `open` unit state (now `in_review`) and the poll
+    snapshot's earlier shape (`merged: true`, `CHANGES_REQUESTED`). Both are
+    state files that older code wrote; let the old version finish its work
+    first if one might still hold either.
+
 - **Breaking:** the `limits.usage_pause_pct`, `usage_ceiling_pct`,
   `usage_relief_fraction` and `usage_resume_buffer_pct` keys are no longer read
   as the Claude runtime's thresholds, and `abk doctor` no longer warns about

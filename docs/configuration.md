@@ -54,8 +54,7 @@ openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
                                 # @fission-ai/openspec@<ABK_OPENSPEC_VERSION>.
 
-git:                            # was `github:`, still read as an alias for one
-                                # release; `abk doctor` asks for the rename
+git:
   push_host: ""                 # an ssh host alias (from ~/.ssh/config)
                                 # carrying the key agent branches are pushed
                                 # as; origin's ssh URL is rewritten to it. "" =
@@ -120,7 +119,7 @@ models:                         # bare aliases, not pinned ids. These are the
 
 limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a
-                                # new unit may extend (was stack_depth_cap)
+                                # new unit may extend
   stack_depth_rebase_cap:       # deepest a dependent may sit when a merge
                                 # restacks it; unset = the build cap's value
   max_concurrent_stacks: 4      # units being built at once, across all repos
