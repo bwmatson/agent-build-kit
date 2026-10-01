@@ -49,6 +49,8 @@ class Recorder:
         self.commits_from_impl = commits_from_impl
         self.tier2_ok = tier2_ok
         self.tier1_ok = tier1_ok
+        # Answers for successive tier 1 runs, in order; once spent, `tier1_ok`.
+        self.tier1_results: list[tuple[bool, str]] = []
         self.pushed_shas: list[str] = []
         self.close_error = close_error
         self.closed: list[tuple[str, int, str]] = []
@@ -56,7 +58,9 @@ class Recorder:
 
     def claude(self, prompt: str, *, cwd: Path) -> str:
         self.prompts.append(prompt)
-        if "Review asked for" in prompt or "review of this branch" in prompt:
+        if "checks (lint" in prompt:
+            self.events.append("claude:fix_checks")
+        elif "Review asked for" in prompt or "review of this branch" in prompt:
             self.events.append("claude:rework")
         else:
             self.events.append("claude:tests" if "test tasks" in prompt else "claude:impl")
@@ -91,6 +95,8 @@ class Recorder:
 
     def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
         self.events.append("tier1:whole_repo" if whole_repo else "tier1")
+        if self.tier1_results:
+            return self.tier1_results.pop(0)
         return self.tier1_ok, self.tier1_output
 
     def tier2(self, *, cwd: Path) -> tuple[bool, str]:
@@ -275,14 +281,28 @@ def test_a_unit_whose_remaining_work_is_already_implemented_still_goes_to_review
     assert outcome.status == "open"
 
 
-def test_the_review_pass_runs_before_the_tests_do(runner) -> None:
-    """Cheap first: a review that rewrites code would invalidate a test run
-    done before it."""
+def test_the_checks_run_before_a_reviewer_is_asked(runner) -> None:
+    """The reviewer is the expensive model, so its time goes on a branch that
+    already lints, type-checks and passes its tests. A review used to run first
+    on the grounds that it might rewrite code and invalidate a test run done
+    before it; a reviewer reports and the builder fixes, so it cannot."""
     recorder = Recorder()
 
     runner(recorder).run(unit(), base="main", graph=[])
 
-    assert recorder.events.index("review") < recorder.events.index("tier1")
+    assert recorder.events.index("tier1") < recorder.events.index("review")
+
+
+def test_a_branch_that_passed_its_checks_is_not_checked_again_after_review(runner) -> None:
+    """Review does not edit the branch, so tier 1 after approval would repeat
+    the run that has just passed on the same commit."""
+    recorder = Recorder()
+
+    runner(recorder).run(unit(), base="main", graph=[])
+
+    assert recorder.events.count("tier1") == 1
+    assert recorder.events.index("review") < recorder.events.index("push")
+    assert "tier 1 already passed on this commit" in recorder.logged
 
 
 def test_tier_two_runs_before_the_push_for_a_tier_two_unit(runner) -> None:
@@ -680,9 +700,11 @@ def test_the_review_pass_s_work_is_committed(tmp_path: Path) -> None:
 
     make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
-    assert recorder.events.index("review") < recorder.events.index("tier1")
-    before_review = recorder.events[recorder.events.index("review") - 1]
-    assert before_review.startswith("commit:"), "the tree is committed before review looks"
+    # The tree is committed, then checked, then reviewed: so the checks and the
+    # review both judge the commit that will be pushed, not a dirty tree.
+    review = recorder.events.index("review")
+    assert recorder.events[review - 2].startswith("commit:")
+    assert recorder.events[review - 1] == "tier1"
 
 
 def test_the_branch_ends_with_exactly_three_commit_attempts(tmp_path: Path) -> None:
@@ -877,8 +899,9 @@ def test_the_loop_is_bounded(tmp_path: Path) -> None:
     outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
 
     assert outcome.status == "held", "spent rounds hand the unit to a person"
-    assert recorder.events.count("review") == active().limits.max_review_rounds
-    assert "tier1" not in recorder.events, "an unapproved branch is not verified"
+    rounds = active().limits.max_review_rounds
+    assert recorder.events.count("review") == rounds
+    assert recorder.events.count("tier1") == rounds, "checked before each round, not after"
 
 
 class MovedOnceRecorder(Recorder):
@@ -1250,8 +1273,8 @@ def test_the_log_says_which_step_a_unit_is_on(tmp_path: Path) -> None:
     assert [s.split(" (")[0] for s in steps] == [
         "step: write the tests",
         "step: implement",
+        "step: checks before review",
         "step: review round 1",
-        "step: tier 1",
     ]
     assert lines[-1].startswith("in review: PR #")
 
@@ -1311,7 +1334,8 @@ def test_a_unit_held_before_review_is_still_reviewed_when_it_resumes(tmp_path: P
 
     runner.run(unit(), base="main", graph=[])
 
-    assert [e for e in recorder.events if not e.startswith("commit:")][0] == "review"
+    steps = [e for e in recorder.events if not e.startswith("commit:")]
+    assert steps[:2] == ["tier1", "review"], "checked, then reviewed — not built again"
     assert "claude:impl" not in recorder.events
 
 
@@ -2459,3 +2483,162 @@ def test_a_finished_unit_opens_its_pull_request_at_the_limit(tmp_path: Path) -> 
     assert outcome.status == "open"
     assert "push" in recorder.events and "pr" in recorder.events
     assert store.get(unit().id).state == IN_REVIEW
+
+
+# --- the checks before a review ------------------------------------------------
+#
+# A branch that does not lint, type-check or pass its tests is not worth a
+# reviewer's time, and used to be found out only after the reviewer approved it.
+# Now it goes back to the builder first, a bounded number of times.
+
+FAILING = "ERROR implicit-any-empty-container\n  --> tests/test_x.py:3:5"
+
+
+def checked_runner(
+    tmp_path: Path, recorder: Recorder, **limits: int
+) -> tuple[UnitRunner, UnitStore]:
+    """A runner whose limits are the given ones; the suite's autouse fixture
+    puts the config back afterwards."""
+    from agent_build_kit import config as config_module
+
+    current = config_module.active()
+    config_module.activate(
+        current.model_copy(update={"limits": current.limits.model_copy(update=limits)}),
+        config_module.active_root(),
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    return make_runner(store, recorder, tmp_path), store
+
+
+def test_failing_checks_go_back_to_the_builder_before_a_reviewer_is_asked(tmp_path: Path) -> None:
+    recorder = Recorder()
+    recorder.tier1_results = [(False, FAILING), (True, "")]
+    runner, store = checked_runner(tmp_path, recorder)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "open"
+    steps = [e for e in recorder.events if e in ("tier1", "claude:fix_checks", "review", "push")]
+    assert steps == ["tier1", "claude:fix_checks", "tier1", "review", "push"]
+    fix = [p for p in recorder.prompts if "checks (lint" in p]
+    assert len(fix) == 1 and FAILING in fix[0], "the builder is given the output"
+
+
+def test_the_saved_failure_is_cleared_once_the_checks_pass(tmp_path: Path) -> None:
+    """Left saved, a run stopped between the fix and its review would resume
+    into the same fix and redo work that is already on the branch."""
+    recorder = Recorder()
+    recorder.tier1_results = [(False, FAILING), (True, "")]
+    runner, store = checked_runner(tmp_path, recorder)
+
+    runner.run(unit(), base="main", graph=[])
+
+    assert store.get(unit().id).feedback == ""
+
+
+def test_checks_that_keep_failing_fail_the_unit_before_any_review(tmp_path: Path) -> None:
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = FAILING
+    runner, store = checked_runner(tmp_path, recorder, max_check_rounds=2)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "failed"
+    assert recorder.events.count("claude:fix_checks") == 2, "the budget, no more"
+    assert recorder.events.count("tier1") == 3, "checked, then once after each fix"
+    assert "review" not in recorder.events and "push" not in recorder.events
+    after = store.get(unit().id)
+    assert after.state == "failed"
+    assert after.feedback.startswith("tier 1 failed:") and FAILING in after.feedback
+
+
+def test_a_budget_of_zero_switches_the_check_before_review_off(tmp_path: Path) -> None:
+    recorder = Recorder()
+    runner, _ = checked_runner(tmp_path, recorder, max_check_rounds=0)
+
+    runner.run(unit(), base="main", graph=[])
+
+    assert recorder.events.index("review") < recorder.events.index("tier1")
+    assert recorder.events.count("tier1") == 1
+
+
+def test_a_rework_after_review_is_checked_again_before_the_next_review(tmp_path: Path) -> None:
+    """The builder's fix for a reviewer's point can break the build as easily
+    as the first draft could."""
+    recorder = Recorder()
+    recorder.verdicts = [rejecting("rename it"), '{"approved": true, "feedback": ""}']
+    recorder.tier1_results = [(True, ""), (False, FAILING), (True, "")]
+    runner, _ = checked_runner(tmp_path, recorder)
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "open"
+    steps = [
+        e for e in recorder.events if e in ("tier1", "claude:fix_checks", "claude:rework", "review")
+    ]
+    assert steps == [
+        "tier1",
+        "review",
+        "claude:rework",
+        "tier1",
+        "claude:fix_checks",
+        "tier1",
+        "review",
+    ]
+
+
+def test_a_pause_while_fixing_keeps_the_failure_for_the_resume(tmp_path: Path) -> None:
+    recorder = Recorder(tier1_ok=False)
+    recorder.tier1_output = FAILING
+    runner, store = checked_runner(tmp_path, recorder)
+    runner = runner.model_copy(
+        update={"may_start": lambda: ("tier1" not in recorder.events, "session at 91%")}
+    )
+
+    outcome = runner.run(unit(), base="main", graph=[])
+
+    assert outcome.status == "paused"
+    after = store.get(unit().id)
+    assert after.state == "planned" and after.resume_from == "rework"
+    assert after.feedback.startswith("tier 1 failed:"), "so the resume fixes this, not a guess"
+    assert "claude:fix_checks" not in recorder.events
+
+
+def test_a_unit_resumed_into_a_failed_check_is_given_the_check_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not the review-feedback prompt, which says a reviewer asked for changes,
+    and not a record of an answer to a reviewer that was never asked."""
+    recorded: list[str] = []
+    monkeypatch.setattr(
+        UnitRunner, "_record_response", lambda self, unit, response: recorded.append(response)
+    )
+    recorder = Recorder()
+    runner, store = checked_runner(tmp_path, recorder)
+    store.set_state(unit().id, PLANNED, resume_from="rework")
+    store.set_feedback(unit().id, f"tier 1 failed:\n{FAILING}")
+    runner = runner.model_copy(update={"branch_commits": lambda cwd, base: 2})
+
+    runner.run(unit(), base="main", graph=[])
+
+    fixes = [p for p in recorder.prompts if "checks (lint" in p]
+    assert len(fixes) == 1 and FAILING in fixes[0]
+    assert not any("A review of this branch" in p for p in recorder.prompts)
+    assert recorded == [], "no reviewer asked, so no answer to a reviewer is recorded"
+
+
+def test_a_failed_tier_one_after_review_is_reworked_with_the_check_prompt(tmp_path: Path) -> None:
+    """The retry of a unit that failed tier 1 for real: the feedback is the
+    check's output, which the PR-review prompt (asking for JSON replies to a
+    reviewer's comments) was never written for."""
+    recorder = Recorder()
+    runner, store = checked_runner(tmp_path, recorder)
+    store.set_feedback(unit().id, f"tier 1 failed:\n{FAILING}")
+    runner = runner.model_copy(update={"branch_commits": lambda cwd, base: 2})
+
+    runner.run(unit(), base="main", graph=[])
+
+    sent = [p for p in recorder.prompts if FAILING in p]
+    assert len(sent) == 1 and "checks (lint" in sent[0]
+    assert store.get(unit().id).pending_replies == (), "nothing to post to a PR"

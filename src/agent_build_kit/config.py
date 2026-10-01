@@ -179,6 +179,10 @@ class LimitsConfig(Frozen):
     max_unit_lines: int = 1000
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
+    # How many times a branch that fails its checks (lint, types, tests) is sent
+    # back to the builder before a reviewer is asked for it. 0 turns the check
+    # before review off, leaving tier 1 to run only after approval.
+    max_check_rounds: Annotated[int, Field(ge=0)] = 2
     # How many times, the first included, the adapt step's test accounting is
     # asked for before the unit fails, when it is incomplete rather than wrong.
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2

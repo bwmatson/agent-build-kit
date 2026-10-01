@@ -241,8 +241,10 @@ def test_tier_one_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_
     assert stored.state == IN_REVIEW
     rework = [p for p in harness.recorder.prompts if "trunk renamed the helper" in p]
     assert len(rework) == 1, "the rework was given the tier 1 output"
-    after = harness.events[harness.events.index("claude:rework") :]
-    assert after.index("review") < after.index("tier1") < after.index("push") < after.index("pr")
+    after = harness.events[harness.events.index("claude:fix_checks") :]
+    # Fixed, checked again, reviewed, then pushed: the tier 1 after approval is
+    # the run that already passed on this commit, so it is not repeated.
+    assert after.index("tier1") < after.index("review") < after.index("push") < after.index("pr")
     assert harness.events.count("push") == 1, "nothing was pushed before the rework"
     assert stored.feedback == ""
 

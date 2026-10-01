@@ -139,7 +139,7 @@ if something is only findable in `config.py`, that is a bug in the reference.
 | `abk archive CHANGE` | `openspec archive CHANGE --yes`. |
 | `abk openspec -- ARGS` | Any OpenSpec command, in the planning repo. |
 | `abk gate [--repo] [--base]` | The tests-first gate for a branch: commit order, clean, red. |
-| `abk requeue UNIT [--restart]` | Give a failed or held unit another go: resume where it stopped, or start over. |
+| `abk requeue UNIT [--restart \| --rework]` | Give a failed or held unit another go: resume where it stopped, start over, or rework it from the failure it saved. |
 | `abk install-skills [--repo PATH] [--user]` | Copy the abk skills into `.claude/skills/`. |
 | `abk scrub-check --target DIR` | Grep a checkout for anything naming this installation. |
 | `abk track PHASE [--project NAME]` | Run a scheduled track (health, improve, recommend, implement) now. |

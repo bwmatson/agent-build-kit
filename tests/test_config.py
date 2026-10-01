@@ -243,3 +243,12 @@ def test_a_file_with_neither_section_keeps_the_defaults(tmp_path: Path) -> None:
 
     assert load(path).git.branch_prefix == "spec/"
     assert load(path).git.push_host == ""
+
+
+def test_the_check_before_review_defaults_to_two_fix_rounds_and_can_be_switched_off() -> None:
+    from agent_build_kit.config import LimitsConfig
+
+    assert LimitsConfig().max_check_rounds == 2
+    assert LimitsConfig(max_check_rounds=0).max_check_rounds == 0
+    with pytest.raises(ValidationError):
+        LimitsConfig(max_check_rounds=-1)

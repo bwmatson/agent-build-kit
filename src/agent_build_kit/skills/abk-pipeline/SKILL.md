@@ -96,11 +96,19 @@ instance).
 
 ### `failed`
 
-The run raised an exception; its last log line in the tick output says
-which. Fix the cause first — a missing credential, a broken toolchain, a
-branch someone deleted — then set the unit's `state` back to `planned` in
-`runs/units.json` and let the next tick take it. Do not mark it `planned`
-without a fix: it will fail the same way and cost a run.
+The run raised an exception, or its checks failed; its last log line in the
+tick output says which, and `abk status` shows the unit. A branch is checked
+(lint, types, tests) before a reviewer is asked, and sent back to the builder up
+to `limits.max_check_rounds` times before it fails with the output kept.
+
+Fix the cause first where it is outside the branch — a missing credential, a
+broken toolchain, a branch someone deleted — then `abk requeue <unit>` resumes
+it where it stopped. Where the failure is in the branch's own work (a type
+error, a failing test) a plain requeue meets the same failure again; use
+`abk requeue <unit> --rework` to keep the work and hand the agent the saved
+output. `--restart` throws the attempt away. Never edit `runs/units.json` by
+hand: a failed unit remembers its step, and putting it back to `planned` alone
+sends the next run past the agent to a check on the same branch.
 
 ### What an agent may run on the code host
 

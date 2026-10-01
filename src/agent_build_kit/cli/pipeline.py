@@ -1303,13 +1303,17 @@ def cmd_openspec(args: argparse.Namespace, inst: Installation) -> int:
 def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     """Give a failed or held unit another go.
 
-    Two different things, and the command says which. By default the unit
+    Three different things, and the command says which. By default the unit
     resumes where it stopped: a unit that failed its tier 1 check because the
     toolchain was missing has its work on the branch, and redoing the agent's
     step would only spend the usage window to arrive at the same branch.
-    `--restart` throws the attempt away — the step it stopped at and the failure
-    it was handed — for a failure that was the attempt's own, such as a build on
-    the wrong base, where resuming would judge work that was never valid.
+    `--rework` keeps the work and hands the agent the failure: a unit that
+    failed tier 1 on real errors (a type check, a lint rule, a test) saved the
+    output, but a resume at `verify` runs the check again and meets the same
+    errors, without the agent ever seeing them. `--restart` throws the attempt
+    away — the step it stopped at and the failure it was handed — for a failure
+    that was the attempt's own, such as a build on the wrong base, where
+    resuming would judge work that was never valid.
 
     Editing the store by hand got this wrong: a failed unit remembers its step,
     so putting it back to `planned` and nothing else sent the next attempt
@@ -1330,7 +1334,19 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
             "(a running one would be built twice, an in-review one has a PR to orphan)"
         )
         return 1
-    if args.restart:
+    if args.rework:
+        saved = known[args.unit].feedback
+        if not saved:
+            print(
+                f"{args.unit} has no saved failure to rework from; "
+                "--restart starts it over, a plain requeue resumes it"
+            )
+            return 1
+        store.set_state(
+            args.unit, PLANNED, note="requeued: reworking from the saved failure", resume_from=""
+        )
+        print(f"{args.unit} requeued, the agent will rework it from the failure it saved")
+    elif args.restart:
         store.set_feedback(args.unit, "")
         store.set_state(args.unit, PLANNED, note="requeued: starting over", resume_from="")
         print(f"{args.unit} requeued, starting over from the agent's step")
@@ -1404,10 +1420,17 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     requeue = sub.add_parser("requeue", help="give a failed or held unit another go")
     requeue.add_argument("unit", help="the unit id, e.g. add-marker/1")
-    requeue.add_argument(
+    how = requeue.add_mutually_exclusive_group()
+    how.add_argument(
         "--restart",
         action="store_true",
         help="start over from the agent's step and forget the failure, instead of resuming",
+    )
+    how.add_argument(
+        "--rework",
+        action="store_true",
+        help="keep the work and have the agent rework it from the failure the unit saved "
+        "(a failed check), instead of resuming into the same failure",
     )
     requeue.set_defaults(func=cmd_requeue)
 

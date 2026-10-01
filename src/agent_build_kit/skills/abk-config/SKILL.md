@@ -88,6 +88,7 @@ limits:
   max_unit_lines: 1000        # estimated lines one unit may carry; above
                               # min_unit_lines. Plans only, not branches
   max_review_rounds: 3        # review rounds before a unit fails
+  max_check_rounds: 2         # fix rounds for failing checks before a reviewer is asked; 0 = off
   max_adapt_rounds: 2         # adapt-step accounting asks, first included,
                               # before a unit fails
   max_plan_attempts: 3        # times one tasks.md is sent to the planner
