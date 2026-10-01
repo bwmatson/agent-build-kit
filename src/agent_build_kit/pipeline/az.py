@@ -165,7 +165,11 @@ def rest(
         with opener(request, timeout=_TIMEOUT) as answer:  # type: ignore[union-attr]
             text = answer.read().decode("utf-8", "replace").strip()
     except urllib.error.HTTPError as error:
-        raise AzError(f"{method} {url}: {error.code} {error.reason}") from None
+        # What the host said, not only that it refused: a bare "400 Bad Request"
+        # hid "This pull request already targets ..." behind a failed unit.
+        said = _host_message(error)
+        detail = f": {said}" if said else ""
+        raise AzError(f"{method} {url}: {error.code} {error.reason}{detail}", stderr=said) from None
     except OSError as error:
         raise AzError(f"{method} {url}: {error}") from None
     if not text:
@@ -177,6 +181,20 @@ def rest(
             f"{method} {url}: answered with something that is not JSON "
             f"(a sign-in page means the call was not authenticated): {text[:120]}"
         ) from None
+
+
+def _host_message(error: urllib.error.HTTPError) -> str:
+    """The `message` of an Azure error body, else the body's first 300 characters."""
+    try:
+        text = error.read().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return text[:300]
+    message = parsed.get("message") if isinstance(parsed, dict) else None
+    return str(message or text)[:300]
 
 
 def _authorization(run: Run | None = None) -> str:
