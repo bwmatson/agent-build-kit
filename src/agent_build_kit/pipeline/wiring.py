@@ -43,7 +43,6 @@ from agent_build_kit.pipeline.restack import (
     adopt_host_head,
     diff_id,
     move_branch_onto,
-    push_target,
     push_with_lease,
     remote_head,
     resolved_move,
@@ -125,15 +124,6 @@ def _unit_branch(cwd: Path) -> str:
     return here if here.startswith(active().git.branch_prefix) else ""
 
 
-def _read_remote_head(cwd: Path, branch: str) -> str | None:
-    """The branch's head on the remote, "" when the remote answers that it has
-    no such branch, None when it could not be asked."""
-    found = git(cwd, "ls-remote", push_target(cwd), f"refs/heads/{branch}", check=False)
-    if found.returncode:
-        return None
-    return found.stdout.split()[0] if found.stdout.strip() else ""
-
-
 def _agent_pushed(cwd: Path, branch: str, before: str | None) -> str | None:
     """The head the agent pushed during the step, or None when nothing says it did.
 
@@ -143,7 +133,7 @@ def _agent_pushed(cwd: Path, branch: str, before: str | None) -> str | None:
     branch. Neither is the agent's push. An unreadable remote, on either side,
     says nothing.
     """
-    after = _read_remote_head(cwd, branch)
+    after = remote_head(cwd, branch)
     if before is None or not after or after == before:
         return None
     ancestor = git(cwd, "merge-base", "--is-ancestor", after, "HEAD", check=False)
@@ -181,7 +171,7 @@ def build_run_claude(
     def run_claude(prompt: str, *, cwd: Path) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
         branch = _unit_branch(cwd)
-        before = _read_remote_head(cwd, branch) if branch else None
+        before = remote_head(cwd, branch) if branch else None
         result = agent.run(
             AgentRequest(
                 prompt=prompt,
@@ -617,7 +607,7 @@ def build_push(
     store: UnitStore,
     *,
     push: Callable[..., str] | None = None,
-    remote_head_of: Callable[[Path, str], str] | None = None,
+    remote_head_of: Callable[[Path, str], str | None] | None = None,
     adopt: Callable[..., str] | None = None,
 ) -> Callable[..., str]:
     """Push a unit's branch with the lease its own history justifies.
