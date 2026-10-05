@@ -17,6 +17,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 
@@ -102,7 +103,7 @@ def serve(status: int) -> Iterator[Receiver]:
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def log_message(self, *args: object) -> None:
+        def log_message(self, format: str, *args: Any) -> None:
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
