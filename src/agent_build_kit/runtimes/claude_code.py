@@ -44,6 +44,7 @@ from agent_build_kit.runtimes.base import (
     SessionUnavailable,
     UsageStatus,
 )
+from agent_build_kit.runtimes.traced import traced
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
 # shape. `on_event` is called with each JSON event as it is printed, and is
@@ -215,6 +216,9 @@ class ClaudeCodeRuntime:
         self._read_cached = read_cached
 
     def run(self, request: AgentRequest) -> AgentResult:
+        return traced(self.name, request, lambda: self._run(request))
+
+    def _run(self, request: AgentRequest) -> AgentResult:
         execute = self._execute or spawn
         result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request))
 
@@ -240,8 +244,16 @@ class ClaudeCodeRuntime:
                 raw=result.stdout,
                 error=f"claude exited {result.returncode}: {said}",
                 stop_reason=stop_reason,
+                turns=ended.num_turns if ended is not None else None,
             )
-        return AgentResult(ok=True, text=text, raw=result.stdout, stop_reason=stop_reason)
+        return AgentResult(
+            ok=True,
+            text=text,
+            raw=result.stdout,
+            stop_reason=stop_reason,
+            turns=ended.num_turns if ended is not None else None,
+            tokens=_tokens(ended.usage) if ended is not None else {},
+        )
 
     def get_usage_status(self) -> UsageStatus | None:
         read_live = self._read_live or (lambda: read_live_usage(refresh=refresh_login))
@@ -260,6 +272,18 @@ class ClaudeCodeRuntime:
         """Answered locally: every policed run registers the hook and passes
         the same denies as flags, so no class goes unenforced."""
         return PolicyReport(ok=True)
+
+
+def _tokens(usage: dict) -> dict[str, int]:
+    """The tokens a result event's usage reports, by kind; nothing it omits."""
+    counts: dict[str, int | None] = {
+        "input": usage.get("input_tokens"),
+        "output": usage.get("output_tokens"),
+    }
+    cached = [usage.get("cache_creation_input_tokens"), usage.get("cache_read_input_tokens")]
+    if any(isinstance(n, int) for n in cached):
+        counts["cache"] = sum(n for n in cached if isinstance(n, int))
+    return {kind: n for kind, n in counts.items() if isinstance(n, int)}
 
 
 def _progress(request: AgentRequest) -> Callable[[dict], None] | None:

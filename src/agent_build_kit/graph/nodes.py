@@ -8,18 +8,22 @@ branch's tip, the pushed commit, the pull request — and does nothing twice.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
 from typing import Any
 
+from langgraph.errors import GraphInterrupt
 from langgraph.graph import END
 from langgraph.types import interrupt
 
+from agent_build_kit import telemetry
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
+from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -138,19 +142,41 @@ class BuildPath:
         async def run(state: UnitRun) -> Update:
             if node in AGENT_NODES:
                 await self.gate(node)
-            attributes = {"unit": self.unit.id, "change": self.unit.change, "step": node.value}
-            span: AbstractContextManager[object] = (
+            attributes: dict[str, str | int] = {
+                "unit": self.unit.id,
+                "change": self.unit.change,
+                "step": node.value,
+            }
+            if round_number := _round(node, state):
+                attributes["round"] = round_number
+            span: AbstractContextManager[Any] = (
                 self.tracer.start_as_current_span(node.value, attributes=attributes)
                 if self.tracer
                 else nullcontext()
             )
-            with span:
+            started = time.monotonic()
+            outcome = "error"
+            with span as active:
                 self._node = node.value
                 self.say("started")
-                # Off the loop: the callables block on agents and git.
-                update = await asyncio.to_thread(self._step, node, body, state)
-                # The node is done, and with it the session it was in.
-                return {**update, "session_id": ""}
+                try:
+                    # Off the loop: the callables block on agents and git.
+                    update = await asyncio.to_thread(self._step, node, body, state)
+                    outcome = str(update.get("status") or "ok")
+                    # The node is done, and with it the session it was in.
+                    return {**update, "session_id": ""}
+                except GraphInterrupt:
+                    outcome = "waiting"
+                    raise
+                finally:
+                    if active is not None:
+                        active.set_attribute("outcome", outcome)
+                    telemetry.duration(
+                        "abk.step.duration",
+                        time.monotonic() - started,
+                        step=node.value,
+                        outcome=outcome,
+                    )
 
         return run
 
@@ -486,6 +512,9 @@ class BuildPath:
                 r.store.set_feedback(unit.id, "")
             return {"checks_ok": True, "head": head}
         self.say(output)
+        telemetry.count(
+            "abk.checks.failures", check=failed_check(output), round=state.fix_rounds + 1
+        )
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
         budget = active().limits.max_check_rounds
@@ -675,6 +704,7 @@ class BuildPath:
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)
+            telemetry.count("abk.checks.failures", check=failed_check(output), round=0)
             r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
             if state.moved:
                 return self.rebase(state, f"tier 1 failed on {base}", base=base)
@@ -958,6 +988,17 @@ class BuildPath:
     def failed(self, state: UnitRun) -> Update:
         outcome = self.runner.fail(self.unit, state.stopped)
         return {"status": outcome.status, "detail": outcome.detail}
+
+
+def _round(node: Node, state: UnitRun) -> int:
+    """The round a step is in, for the steps that go in rounds; 0 for the rest."""
+    if node is Node.REVIEW:
+        return state.review_round + 1
+    if node in (Node.CHECKS, Node.FIX_CHECKS):
+        return state.fix_rounds + 1
+    if node is Node.REWORK:
+        return state.review_round
+    return 0
 
 
 def halted(state: UnitRun) -> Node | None:

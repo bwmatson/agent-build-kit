@@ -14,6 +14,7 @@ from __future__ import annotations
 import atexit
 import logging
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from agent_build_kit.settings import settings
@@ -186,6 +187,66 @@ def init() -> bool:
             atexit.register(shutdown)
             _atexit_registered = True
         return True
+
+
+def _safely(call: Callable[[], object]) -> None:
+    try:
+        call()
+    except Exception as exc:
+        log.warning("telemetry: could not record a metric: %s", type(exc).__name__)
+
+
+# Seconds, for the duration histograms: the SDK's own default buckets are
+# milliseconds, which would put every step in the last one.
+DURATION_BUCKETS = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200]
+
+
+def duration(name: str, seconds: float, **attributes: str) -> None:
+    """Record `seconds` in the histogram `name`."""
+    _safely(
+        lambda: (
+            meter()
+            .create_histogram(name, unit="s", explicit_bucket_boundaries_advisory=DURATION_BUCKETS)
+            .record(seconds, attributes)
+        )
+    )
+
+
+def observe(name: str, value: float, **attributes: str) -> None:
+    """Record `value` in the histogram `name`."""
+    _safely(lambda: meter().create_histogram(name).record(value, attributes))
+
+
+def count(name: str, value: int = 1, **attributes: str | int) -> None:
+    """Add `value` to the counter `name`."""
+    _safely(lambda: meter().create_counter(name).add(value, attributes))
+
+
+def level(name: str, value: int, **attributes: str) -> None:
+    """Set the gauge `name`."""
+    _safely(lambda: meter().create_gauge(name).set(value, attributes))
+
+
+def reference(span: Any) -> str:
+    """Where `span` is, as text a later run can link to; empty when telemetry
+    is off."""
+    context = span.get_span_context()
+    if not context.is_valid:
+        return ""
+    return f"{context.trace_id:032x}-{context.span_id:016x}"
+
+
+def links(earlier: str) -> list[Any]:
+    """The span links that point at the span `reference` named."""
+    trace, _, span = earlier.partition("-")
+    if not (trace and span and _tracer_provider is not None):
+        return []
+    try:
+        from opentelemetry.trace import Link, SpanContext
+
+        return [Link(SpanContext(int(trace, 16), int(span, 16), is_remote=True))]
+    except (ImportError, ValueError):
+        return []
 
 
 def tracer() -> Any:

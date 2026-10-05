@@ -635,6 +635,45 @@ out is pushed too, but never past this gate: it is the commit the last round
 reviewed, not one exempted from review — it is just not the commit that round
 approved.
 
+## Telemetry
+
+With `ABK_OTEL_ENABLED` set (docs/configuration.md) a tick that has work exports traces and
+metrics over OTLP/HTTP, and flushes them before it returns; an idle tick exports nothing. It
+never changes what a run does.
+
+```
+tick                      one per tick that has work
+ └─ unit                  unit.id, change, repo, tier, outcome
+     ├─ <step>            the graph's node names; step, round, outcome
+     │   └─ agent         runtime, model, role, turns, outcome
+     └─ …
+```
+
+The tick's context is copied into each unit's worker thread, so the unit spans of a tick share its
+trace. A unit that runs again in a later tick starts a new trace with a link to its previous
+run's, kept on the stored unit (`trace`). `round` is the review round of a `review` step, the fix
+round of `checks` and `fix_checks`, and the review round a `rework` answers. A `rework_review`
+agent is a `review` role; its model says which model judged. Spans carry identifiers, counts and
+names, never a prompt, a diff, feedback, a commit message or an error's text: a failure is its
+outcome and, for a failed check, its kind.
+
+| Instrument | Kind | Attributes |
+|---|---|---|
+| `abk.tick.duration` | histogram (s) | outcome |
+| `abk.unit.duration` | histogram (s) | repo, tier, outcome |
+| `abk.step.duration` | histogram (s) | step, outcome |
+| `abk.review.rounds` | histogram | repo, outcome |
+| `abk.checks.failures` | counter | check (lint, test, types), round |
+| `abk.agent.turns` | histogram | role, model |
+| `abk.agent.tokens` | counter | role, model, kind (input, output, cache) |
+| `abk.usage.pauses` | counter | kind (usage, rate_limit) |
+| `abk.units.reclaimed` | counter | |
+| `abk.units` | gauge | state |
+
+Unit ids and change names are on spans only, never on a metric. Tokens are recorded where the
+runtime's output carries them (Claude Code's result event); the `acp` runtime reports its one turn
+and no tokens.
+
 ## State on disk
 
 The planning repo's state directory (`planning.state_dir`, default `runs/`):

@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -46,6 +46,9 @@ class ResultEvent(BaseModel):
     result: str | None = None
     # What went wrong, on an error subtype.
     errors: list[str] = []
+    # How many turns the run took, and the tokens it spent, when it says.
+    num_turns: int | None = None
+    usage: dict[str, Any] = {}
 
 
 def stream_run(

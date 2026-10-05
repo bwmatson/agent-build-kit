@@ -18,19 +18,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import hashlib
 import json
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from agent_build_kit import config, forges, runtimes
+from agent_build_kit import config, forges, runtimes, telemetry
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -351,10 +354,49 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
 
     # First, and silently: the timer fires every few minutes whether or not
     # there is anything to do, and an idle tick should cost nothing — not a
-    # usage read, not a GitHub call, not a log line each time.
+    # usage read, not a GitHub call, not a log line each time, not a span.
     if not has_work(inst, store_for(inst)):
         return 0
 
+    telemetry.init()
+    tick = _Tick()
+    started = time.monotonic()
+    try:
+        with telemetry.tracer().start_as_current_span("tick"):
+            return _tick(args, inst, tick)
+    except BaseException:
+        tick.outcome = "error"
+        raise
+    finally:
+        telemetry.duration("abk.tick.duration", time.monotonic() - started, outcome=tick.outcome)
+        _record_unit_states(inst)
+        # Before returning: a tick is a short-lived process, and what it
+        # recorded would be lost at exit.
+        telemetry.shutdown()
+
+
+class _Tick:
+    """How a tick ended, for its duration's `outcome`: `built` unless it says otherwise."""
+
+    outcome = "built"
+
+
+UNIT_GAUGE_STATES = (PLANNED, RUNNING, IN_REVIEW, HELD, FAILED)
+
+
+def _record_unit_states(inst: Installation) -> None:
+    """How many units stand in each state that wants attention, as the tick ends."""
+    try:
+        states = [unit.state for unit in store_for(inst).all()]
+    except Exception:  # noqa: BLE001 — telemetry never affects a tick.
+        return
+    for state in UNIT_GAUGE_STATES:
+        telemetry.level("abk.units", states.count(state), state=state)
+
+
+def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
+    """What a tick does once there is work: the pause checks, the refresh and
+    planning, then the builds."""
     # A pause is not a lock: the guard is asked again on every tick, so a
     # threshold raised by hand, or the ramp offering room before the reset,
     # ends it at the next tick. Only the model's own refusal is kept to its
@@ -365,6 +407,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         # A pause builds nothing, so a unit no run holds should read `planned`
         # for as long as it lasts. Not otherwise: a tick that goes on resumes it.
         reclaim_stranded(inst, store_for(inst))
+        tick.outcome = "paused"
         return 0
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
@@ -382,7 +425,11 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
                 f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
                 f" — {decision.reason}"
             )
+            if not paused:
+                # A new pause; the ticks that find it still in force are not more of them.
+                telemetry.count("abk.usage.pauses", kind="usage")
             reclaim_stranded(inst, store_for(inst))
+            tick.outcome = "paused"
             return 0
         reason = decision.reason
     else:
@@ -430,17 +477,20 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     ]
     if not ready:
         log(_nothing_started_reason(inst, units, only=only))
+        tick.outcome = "idle"
         return 0
 
     log(f"ready: {', '.join(unit.id for unit in ready)}")
     if args.dry_run:
         log("dry run — stopping before any unit is built")
+        tick.outcome = "dry_run"
         return 0
 
     # Here rather than at the commit step: catching it there would mean
     # paying for two Claude runs first, and again every tick. After the dry
     # run returns, so `--dry-run` still reports what is pending.
     if _refuse_unconfigured(inst, ready):
+        tick.outcome = "refused"
         return 1
 
     return _schedule(inst, ready, store=store, only=only)
@@ -457,6 +507,7 @@ def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
             and not has_thread(inst, unit.id)
         ):
             store.set_state(unit.id, PLANNED, note="requeued: its run ended without a thread")
+            telemetry.count("abk.units.reclaimed")
             log(f"{unit.id}: no run holds it — planned again")
 
 
@@ -632,7 +683,11 @@ def _schedule(
         def submit(units: list[Unit]) -> None:
             for unit in units:
                 started[unit.id] = datetime.now(UTC)
-                building[pool.submit(build_unit, inst, unit, store=store)] = unit
+                # The tick's span goes into the worker by its context: a
+                # pool's threads do not inherit it.
+                work = contextvars.copy_context()
+                run = partial(build_unit, inst, unit, store=store)
+                building[pool.submit(work.run, run)] = unit
 
         submit(ready)
         # Each round waits for a build to finish or for REFRESH_SECONDS,
@@ -1212,7 +1267,53 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         ).poll()
 
 
+class _Run:
+    """How a unit's run ended, for its span and its duration: the run's status,
+    or why it did not get as far as one."""
+
+    outcome = "interrupted"
+
+
 def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
+    """`_build_unit` as a `unit` span below the tick's, with the run's duration.
+
+    A unit that has run before links to where that was, so its life across ticks
+    can be followed: each run is its own trace, as a pause or a review wait can
+    last days."""
+    run = _Run()
+    started = time.monotonic()
+    try:
+        earlier = store.get(unit.id).trace
+    except KeyError:
+        earlier = ""
+    attributes = {
+        "unit.id": unit.id,
+        "change": unit.change,
+        "repo": unit.repo,
+        "tier": unit.tier,
+    }
+    with telemetry.tracer().start_as_current_span(
+        "unit", attributes=attributes, links=telemetry.links(earlier)
+    ) as span:
+        if here := telemetry.reference(span):
+            try:
+                store.set_trace(unit.id, here)
+            except KeyError:
+                pass
+        try:
+            return _build_unit(inst, unit, store=store, run=run)
+        finally:
+            span.set_attribute("outcome", run.outcome)
+            telemetry.duration(
+                "abk.unit.duration",
+                time.monotonic() - started,
+                repo=unit.repo,
+                tier=unit.tier,
+                outcome=run.outcome,
+            )
+
+
+def _build_unit(inst: Installation, unit: Unit, *, store: UnitStore, run: _Run) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the tick should stop.
 
@@ -1235,9 +1336,10 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
         if run_log is not None:
             run_log.emit(f"[{at}] {message}")
 
-    def end(message: str) -> None:
+    def end(message: str, outcome: str) -> None:
         nonlocal ended
         ended = message
+        run.outcome = outcome
         say(message)
 
     try:
@@ -1255,12 +1357,12 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 try:
                     unit = store.get(unit.id)
                 except KeyError:
-                    end("skipped, it was joined into another unit")
+                    end("skipped, it was joined into another unit", "skipped")
                     return True
                 # A unit may also be `running`: killed or paused in a node,
                 # which is how its thread resumes it.
                 if unit.state not in (PLANNED, RUNNING):
-                    end(f"skipped, it is now {unit.state}")
+                    end(f"skipped, it is now {unit.state}", "skipped")
                     return True
                 # The base too, from the store rather than that evaluation: a
                 # parent may have merged since, and `base_moved` compares against
@@ -1282,14 +1384,14 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
         except NotImplementedError as error:
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
-            end(f"held — {error}")
+            end(f"held — {error}", "held")
             store.set_state(unit.id, "held", note=str(error))
             return True
         except Interrupted as error:
             # Left `running`, with the lock released as the `with` exits: the next
             # tick resumes its thread at the node it was in. Not failed — nothing
             # is known to be wrong.
-            end(f"interrupted ({error}); the next tick resumes it")
+            end(f"interrupted ({error}); the next tick resumes it", "interrupted")
             return True
         except RateLimited as error:
             # Not the unit's fault and not retried: the account is out of room, so
@@ -1306,15 +1408,16 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 marker=_paused_marker(inst),
                 kind="rate_limit",
             )
-            end(f"rate limited — pausing until {state.until:%H:%M UTC}")
+            telemetry.count("abk.usage.pauses", kind="rate_limit")
+            end(f"rate limited — pausing until {state.until:%H:%M UTC}", "rate_limited")
             return False
         except BranchBusy as error:
             # Another tick is already on it. Not a failure — marking it one would
             # drop a unit that is going fine out of the plan.
-            end(f"skipped, {error}")
+            end(f"skipped, {error}", "skipped")
             return True
         except Exception as error:  # noqa: BLE001 — see the docstring.
-            end(f"failed, {type(error).__name__}: {error}")
+            end(f"failed, {type(error).__name__}: {error}", "failed")
             # A rejected commit's reason is the gate's own output: on the unit's
             # record, not only in a tick log someone would have to find.
             note = str(error) if isinstance(error, CommitRejected) else ""
@@ -1324,8 +1427,9 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 say(f"could not be recorded as failed — {second}")
             return True
 
-        end(f"{outcome.status} — {outcome.detail}")
+        end(f"{outcome.status} — {outcome.detail}", str(outcome.status))
         if outcome.status == "paused":
+            telemetry.count("abk.usage.pauses", kind="usage")
             _pause_for_usage(inst, outcome.detail)
             return False
         return True
@@ -1413,7 +1517,7 @@ async def _on_thread(
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
     from agent_build_kit.graph.unit import resume_unit, run_unit
 
-    common = dict(base=base, graph=graph, run_log=run_log, tracer=None)
+    common = dict(base=base, graph=graph, run_log=run_log, tracer=telemetry.tracer())
     async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
         if event is None:
             # Under the lock `build_unit` holds; a delivery takes its own.

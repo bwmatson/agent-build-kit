@@ -8,6 +8,15 @@
   rejects the line with no reason, on group 1, or beside a flag. A change without the line plans
   as before.
 
+- Telemetry for the shape of a run, when `ABK_OTEL_ENABLED` is set: a tick is a `tick` span, each unit
+  run a `unit` span below it (a unit that runs again links to its earlier trace, kept on the stored
+  unit as `trace`), each graph step a span with its round, and each agent call an `agent` span with
+  runtime, model, role, turns and outcome. The metrics are the tick, unit and step durations,
+  review rounds, check failures by kind, agent turns and tokens, usage pauses, reclaimed units and
+  a gauge of units by state; none carries a unit id or change name, and no span or metric carries a
+  prompt, diff, feedback or commit message. A tick flushes before it returns. `AgentResult` gains
+  `turns` and `tokens`. See docs/architecture.md.
+
 - A cancelled check is no longer a failing one. A host cancels a check when a runner never came or
   a newer run superseded it, which says nothing about the commit, yet it sent the unit back for
   rework. `PullRequest` gains `cancelled_checks` (GitHub `CANCELLED`; an Azure DevOps build policy
