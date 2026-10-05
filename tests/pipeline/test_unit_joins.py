@@ -46,6 +46,8 @@ OPT_OUT = "Acceptance: none — a fixture about planning, not about the acceptan
 
 # --- fixtures ------------------------------------------------------------------
 
+pytestmark = pytest.mark.usefixtures("scripted_engine")
+
 
 def group(**overrides: Any) -> dict[str, Any]:
     return {"repo": "app", "tier": "tier1", "flag": "", "extra": "", **overrides}
@@ -96,8 +98,6 @@ def start(store: UnitStore, uid: str, kind: str) -> None:
         store.set_state(uid, "planned", branch=branch)
     elif kind == "pull-request":
         store.set_state(uid, "planned", pr=4)
-    elif kind == "resume-step":
-        store.record_step(uid, "build")
     elif kind == "pushed-commit":
         store.record_push(uid, "abc1234")
     elif kind == "approved-commit":
@@ -116,7 +116,6 @@ STARTED = [
     HELD,
     "branch",
     "pull-request",
-    "resume-step",
     "pushed-commit",
     "approved-commit",
 ]

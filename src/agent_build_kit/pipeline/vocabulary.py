@@ -52,7 +52,6 @@ STATES: Mapping[str, StateStyle] = {
     "paused_rework": _style(
         "paused-rework", "#ffedd5", "#ea580c", "#431407", "stroke-dasharray:3 3"
     ),
-    "paused_usage": _style("paused-usage", "#fef9c3", "#ca8a04", "#422006", "stroke-dasharray:3 3"),
     HELD: _style("held", "#fae8ff", "#a21caf", "#4a044e"),
     IN_REVIEW: _style("in-review", "#dbeafe", "#2563eb", "#172554"),
     MERGED: _style("merged", "#dcfce7", "#16a34a", "#052e16"),
@@ -72,7 +71,6 @@ _DESCRIPTIONS = {
     "blocked": "Waiting on a unit it depends on",
     "running": "An agent is building this unit",
     "paused_rework": "Stopped because a unit it depends on went back for rework",
-    "paused_usage": "Stopped because the usage window was spent",
     "held": "A person has taken this over; the pipeline will not touch it",
     "in_review": "Built and waiting for human review",
     "failed": "Stopped on something it could not get past",
@@ -116,13 +114,11 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
     if unit.state != PLANNED:
         return unit.state
 
-    # Stopped part-way through its loop, rather than never started: the runner
-    # records that as a return to planned with a note saying why.
+    # Stopped part-way through its loop, rather than never started: a run that
+    # held at a boundary records a return to planned with a note saying why. A
+    # usage pause is not one: the unit stays `running`, interrupted, in its thread.
     last = unit.history[-1] if unit.history else {}
     note = str(last.get("note", ""))
-    if note.startswith("paused before"):
-        # Not gated on `waiting_on`: nothing upstream holds it, only the window.
-        return "paused_usage"
     if waiting_on(unit, units):
         return "paused_rework" if note.startswith(("held before", "held after")) else "blocked"
     return PLANNED

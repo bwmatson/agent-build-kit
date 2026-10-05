@@ -333,7 +333,7 @@ def test_a_restack_that_changed_the_diff_goes_back_to_review_not_to_the_pr(
 
     assert pushed == []
     assert store.get("c/2").state == PLANNED
-    assert store.get("c/2").resume_from == "rework_review"
+    assert "restacked onto main, not pushed" in store.get("c/2").note
 
 
 def test_a_head_review_never_approved_is_not_pushed_by_a_restack(tmp_path: Path) -> None:
@@ -427,7 +427,7 @@ def test_a_branch_the_host_moved_is_re_reviewed_before_anything_is_pushed(
     assert "move" not in order, "a branch the host rebased is not moved again"
     assert adopted[0]["host_head"] == "host-rebased"
     assert store.get("c/2").state == PLANNED
-    assert store.get("c/2").resume_from == "rework_review"
+    assert "host moved its branch off the approved commit" in store.get("c/2").note
     assert store.get("c/2").approved == "", "no approval for the host's head"
     assert store.get("c/2").pushed == "host-rebased", "the next lease names what the host has"
 
@@ -859,18 +859,6 @@ def test_the_pipeline_s_own_replies_are_not_read_back_as_review() -> None:
     assert lines == ["[comment 11] a.py:3 — rename"]
 
 
-def test_new_feedback_overrides_where_a_paused_unit_would_resume(tmp_path: Path) -> None:
-    """Resuming at a review would skip the rework the feedback asks for, and a
-    pass would then clear that feedback unread."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit("add-marker/1")])
-    store.set_state("add-marker/1", PLANNED, pr=1, resume_from="review")
-
-    events.on_rework(1, repo="app", store=store, reason="new comment", log=lambda m: None)
-
-    assert store.get("add-marker/1").resume_from == ""
-
-
 def test_a_clean_rebase_keeps_the_diff_id_and_a_changed_diff_does_not(tmp_path: Path) -> None:
     """What lets a restack push without a second review: the id is the same
     exactly when the unit's own change is."""
@@ -1039,7 +1027,8 @@ def test_a_restack_the_resolver_rewrote_tells_the_reviewer_to_check_the_tests(
 
     assert pushed == [], "even an unchanged diff id does not excuse a resolver's edit"
     assert "src/mcp.py" in store.get("c/2").predecessor_note
-    assert store.get("c/2").resume_from == "rework_review"
+    assert store.get("c/2").state == PLANNED
+    assert "restacked onto main, not pushed" in store.get("c/2").note
 
 
 def test_a_ci_failure_is_reworked_from_its_log_not_the_old_review(tmp_path: Path) -> None:

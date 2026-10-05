@@ -13,9 +13,9 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.state import ResumeEvent
 from agent_build_kit.graph.unit import Position, resume_unit, run_unit, thread_position
 from agent_build_kit.pipeline.run_log import RunLog
-from agent_build_kit.pipeline.stack_runner import RunOutcome
-from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import branch_name
+from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitRunner
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import Unit, branch_name
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import unit
 from tests.runner_fakes import Recorder, make_runner
@@ -73,5 +73,27 @@ def position(tmp_path: Path) -> Position:
     async def go() -> Position:
         async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
             return await thread_position(saver, unit().id)
+
+    return asyncio.run(go())
+
+
+def run_on_graph(
+    runner: UnitRunner,
+    run_unit_of: Unit,
+    *,
+    base: str = "main",
+    graph: list[StoredUnit] | None = None,
+) -> RunOutcome:
+    """Run a unit's thread over `runner`'s callables, as a tick does, with the
+    thread's checkpoint and locks beside the runner's store."""
+    where = runner.store.path.parent
+    locks = where / "locks"
+
+    async def go() -> RunOutcome:
+        async with open_checkpointer(unit_graphs_path(where / "state")) as saver:
+            with branch_lock(branch_name(run_unit_of), root=locks):
+                return await run_unit(
+                    runner, run_unit_of, base=base, graph=graph or [], saver=saver, tracer=None
+                )
 
     return asyncio.run(go())

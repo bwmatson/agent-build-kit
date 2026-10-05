@@ -169,13 +169,12 @@ edit by hand.
   loop, so there is a reviewed branch to stack on. A thick edge labelled
   `merged` (`==>`) is a dependency its dependent wrote as `Needs: ... merged`:
   it waits for the merge even in the same repo.
-- **running** — in the build/review loop: an agent is working in a worktree.
+- **running** — in the build/review loop: an agent is working in a worktree,
+  or the run is interrupted before an agent step until the usage window allows
+  it and the next tick resumes it.
 - **paused-rework** — stopped between steps because a unit it depends on
   went back for rework; it restacks and resumes once that unit is through
   review again.
-- **paused-usage** — stopped between steps because the usage window passed
-  its threshold; it resumes at that step on the first tick after the window
-  resets.
 - **in_review** — through the build/review loop; its PR is waiting for human
   review. Dependents in the same repo may stack on it. Deliberately uncapped.
 - **merged** — done, and no longer counted against its stack's depth.

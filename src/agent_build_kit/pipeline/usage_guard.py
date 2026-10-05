@@ -567,7 +567,7 @@ RESET_EPOCH = re.compile(r"limit reached\|(\d{10,})")
 
 # What the agent runtime raises, under the names the pipeline catches them by.
 # A killed run says nothing about the work, so it must not fail the unit: it
-# is left `running` for the next tick's `reclaim_stale`. A refusal means the
+# is left `running`, and the next tick resumes it from its thread. A refusal means the
 # unit is fine and the account is out of room, so the pipeline pauses rather
 # than marking real work failed and dropping it from the plan.
 Interrupted = AgentInterrupted

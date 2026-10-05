@@ -2,7 +2,7 @@
 
 `ready_units` is the one place that answers what may start now, so the limit
 and the ordering are read off what it returns. Both facts the rules need — a
-pull request number and the step a unit resumes from — are on the stored unit,
+pull request number and the branch a run recorded — are on the stored unit,
 so these graphs are stored units and nothing asks the forge.
 """
 
@@ -35,7 +35,8 @@ def rework(uid: str, pr: int, **kw):
 
 
 def resuming(uid: str, **kw):
-    return stored_unit(uid, change=uid.split("/")[0], resume_from="implement", **kw)
+    """A build a run began and stopped: it has recorded its branch."""
+    return stored_unit(uid, change=uid.split("/")[0], branch=f"spec/{uid}", **kw)
 
 
 def failed(uid: str, **kw):
@@ -74,7 +75,7 @@ def test_a_held_unit_does_not_count_whatever_it_holds() -> None:
     held = [
         stored_unit("a/1", change="a", state=HELD),
         stored_unit("b/1", change="b", state=HELD, pr=4),
-        stored_unit("c/1", change="c", state=HELD, resume_from="review"),
+        stored_unit("c/1", change="c", state=HELD, branch="spec/c/1"),
     ]
 
     assert [in_progress(unit) for unit in held] == [False] * len(held)
@@ -199,12 +200,10 @@ def test_a_resume_with_no_room_left_starts_above_the_limit() -> None:
 
 
 def test_a_restacked_unit_with_a_pull_request_starts_at_the_limit() -> None:
-    """A restack leaves the child planned, with its PR and a step to resume from."""
+    """A restack leaves the child planned, with its PR and branch."""
     graph = [
         at_review("a/1", 1),
-        stored_unit(
-            "b/1", change="b", state=PLANNED, pr=2, resume_from="rework_review", feedback=""
-        ),
+        stored_unit("b/1", change="b", state=PLANNED, pr=2, branch="spec/b/1", feedback=""),
         new("c/1"),
     ]
 
@@ -219,7 +218,7 @@ def test_with_four_started_units_one_failed_and_a_limit_of_five_one_new_unit_sta
         at_review("a/1", 1),
         at_review("b/1", 2),
         failed("c/1"),
-        stored_unit("d/1", change="d", resume_from="implement"),
+        resuming("d/1"),
         new("n/1"),
         new("n/2"),
         new("n/3"),

@@ -1,10 +1,9 @@
 # The unit graph
 
-**Status: design, the build, the remaining paths and the waits built.** Behind
-`ABK_ENGINE=graph` there is a `UnitEngine` seam (`pipeline/unit_engine.py`),
-the `UnitRun` state, the node enum, the SQLite checkpointer with its allowlist
-and a compiled graph in `graph/`. `graph/unit.run_unit` runs a unit on it, over
-the callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
+**Status: built.** The graph is the only engine. `graph/` holds the `UnitRun`
+state, the node enum, the SQLite checkpointer with its allowlist and the
+compiled graph, and `graph/unit.run_unit` runs a unit on it, over the
+callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
 `implement`, `checks`, `fix_checks`, `review`, `rework`, `tier1`, `tier2`,
 `verify_base`, `push`, `open_pr`, `await_review`, `satisfied`, `held` and
 `failed`, joined by the edges below. Before a step that starts work or leaves
@@ -14,27 +13,25 @@ waiting in review or held waits there holding no branch lock and no slot.
 `resume_unit` delivers an event to a thread as a resume command and stops,
 leaving the thread at the node the event routes to. A usage refusal before an
 agent step interrupts the thread, and a run killed mid-node is resumed at that
-node. One difference from the classic runner: the `chore:` commit of
+node. A tick drives each unit through `run_unit`: it starts the unit's thread,
+or resumes one a killed or paused run left (a `running` unit that has a thread,
+whose branch no live process holds). The poller's events and `abk requeue`
+reach a unit that has a thread through `resume_unit`, which runs no node but
+the wait; the tick runs the thread in a slot. The first tick on this version
+moves the units the previous one left in flight onto threads (see Moving the
+units in flight). One difference from the old runner: the `chore:` commit of
 uncommitted work before each review round is not made, as every step already
-ends in its own commit.
-On `ABK_ENGINE=graph` a tick drives each unit through `run_unit`: it starts
-the unit's thread, or resumes one a killed or paused run left (a `running`
-unit that has a thread, whose branch no live process holds), and
-`reclaim_stale` leaves that unit to the thread instead of requeuing it. The
-poller's events and `abk requeue` reach a unit that has a thread through
-`resume_unit`, which runs no node but the wait; the tick runs the thread in a
-slot. A unit without a thread is handled as the classic engine does. The
-classic engine is still the default. This document is what the implementation is specified against: it
-says which part of the pipeline moves onto
+ends in its own commit. This document is what the implementation is specified
+against: it says which part of the pipeline moved onto
 [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview), which
-part stays as it is, and how the two meet.
+part stayed as it was, and how the two meet.
 
 ## Why
 
-A unit's lifecycle is a graph, written today as hand-rolled control flow.
-`UnitRunner.run` (`pipeline/stack_runner.py`) branches on a recorded step
-(`resume_from`) and decides which steps to run next. `checkpoint()` and
-`record_step` persist where it got to. `reclaim_stale` puts a unit back after
+A unit's lifecycle is a graph, and was written as hand-rolled control flow.
+`UnitRunner.run` (`pipeline/stack_runner.py`) branched on a recorded step
+(`resume_from`) and decided which steps to run next. `checkpoint()` and
+`record_step` persisted where it got to. `reclaim_stale` put a unit back after
 its process was killed. And a dozen event handlers in `pipeline/events.py`
 reach into the unit store to send a unit back, hold it, or move it.
 
@@ -93,9 +90,9 @@ line falls where a unit ends:
 |---|---|
 | Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, `max_units_in_progress`, slot order, `max_concurrent_stacks` |
 |  | Merge-gated dependencies (`merge_before`, from `Needs: … merged`), applied by `waiting_on`/`ready_units`: the dependent waits for the merge even in one repo and starts on the trunk |
-| `checkpoint()`, `record_step`, `resume_from`, `starting_step` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
-| In-run state: review rounds, the approved commit, deferred follow-ups, pending replies, the predecessor note | Polling the forge (`pr_poller.py`): the source of events |
-| Requeue after a kill (`reclaim_stale`) | Branch locks, repo turns, the tier 2 lock |
+| Where a run got to: the thread's position replaces `checkpoint()`, `record_step` and `resume_from` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
+| In-run state: review rounds, deferred follow-ups, pending replies and the comments they answer | Polling the forge (`pr_poller.py`): the source of events |
+| Recovery after a kill: the tick resumes the thread | Branch locks, repo turns, the tier 2 lock |
 | Waiting in review or held, and what `events.py` does to a waiting unit | Git and forge work: restack and adapt mechanics, the approved-commit push gate, the commit gate, the policy hook, forges, profiles |
 | Stopping between steps for usage | The usage guard's decision (`usage_guard.py`), which a node asks |
 
@@ -104,8 +101,14 @@ line falls where a unit ends:
 - **`runs/units.json`** stays the scheduling record. It holds each unit's
   identity, change, repo, tier, dependencies, state, branch, pull request and
   history. It is versioned beside the specs, the unit graph page is drawn from
-  it, and `ready_units` reads it. What leaves it is in-run progress: the
-  fields that say where inside a unit a run got to.
+  it, and `ready_units` reads it. What left it is in-run progress: where inside
+  a unit a run got to, which is the thread's position, and the review rounds,
+  deferred follow-ups, pending replies and the comments they answer, which are
+  the thread's state. Two in-run fields stay, because something writes them
+  with no run in progress: `approved` (the push gate and `build_restack` read
+  and write it) and `predecessor_note` (`build_restack` writes it). `resume_from`
+  and `classic_run` stay as read-only legacy: an old store's step and in-run
+  keys, read only by `graph.convert`, which clears them once the thread holds them.
 - **The checkpoint** holds a run's progress. There is one LangGraph thread per
   unit, with `thread_id` equal to the unit id.
 - **git** holds the work: every step that produces anything ends in a commit,
@@ -184,8 +187,8 @@ git, tests and bookkeeping. Two nodes are not shaded but can call an agent: the
 restack in `prepare` and `verify_base` hands a conflict it cannot settle to the
 conflict resolver, and nothing else in them does.
 
-The edges are today's transitions; `stack_runner.py`'s docstrings are the
-reference for each condition until this replaces them. The nodes:
+The edges are the transitions the routers in `graph/` choose; their docstrings
+are the reference for each condition. The nodes:
 
 | Node | Does | Wraps (from `wiring.build_runner`) |
 |---|---|---|
@@ -206,10 +209,11 @@ reference for each condition until this replaces them. The nodes:
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue. A satisfied unit's thread is deleted, its groups ticked and an open pull request closed with the reason | `close_pr` for satisfied |
 
 Between steps a unit is held, not stopped: before `implement`, `fix_checks`,
-`review`, `rework`, `tier2` (unless the branch just moved), `verify_base` (and `tier1` for a unit that produced nothing,
-and `push` when its rounds are spent) the run asks whether its upstream went back
-for rework or its base moved or was rewritten since `prepare` took the tip, and
-goes to `held` with the unit `planned` if so. A step already begun is finished.
+`review`, `rework`, `tier2` (unless the branch just moved), `verify_base` (and
+`tier1` for a unit that produced nothing, and `push` when its rounds are spent)
+the run asks whether its upstream went back for rework or its base moved or was
+rewritten since `prepare` took the tip, and goes to `held` with the unit
+`planned` if so. A step already begun is finished.
 
 A base that moves before the push, a pull request refused for a missing base, a
 failing tier 1 or tier 2 after a clean move, and a move that changed what review
@@ -291,8 +295,8 @@ misspelled edge fails when the graph is compiled, not in the middle of a run.
 
 ### State
 
-The state is one pydantic model, `UnitRun`, the in-run fields `StoredUnit`
-carries today plus what routing needs:
+The state is one pydantic model, `UnitRun`: the in-run progress that used to
+sit in the unit store, plus what routing needs:
 
 - **identity:** the unit id, its groups, its change;
 - **progress:** the review rounds so far (each round's findings and the
@@ -330,9 +334,9 @@ unit's thread with a command:
 | A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict | `rework{reason, feedback}` | `await_review` → `rework` |
 | The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node) |
 | `agent-hold` | `hold` | → `held` |
-| Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handled as the classic engine does (restacked, held for depth, or left alone) |
+| Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handled by the handler itself (restacked, held for depth, or left alone) |
 | Closed unmerged | `closed` | → end |
-| `abk requeue` | `requeue{mode}` | `held` / `failed` → `prepare`. `resume` (the default) goes back where it stopped; `restart` drops the saved failure and rounds but keeps the branch's commits (it does not start a fresh thread on the graph engine); `rework` keeps the work and the saved failure, clears the resume point, and so enters at the agent with the failure in hand (`fix_checks` for a failed check) |
+| `abk requeue` | `requeue{mode}` | `held` / `failed` → `prepare`. `resume` (the default) goes back where it stopped; `restart` drops the saved failure and rounds but keeps the branch's commits (it does not start a fresh thread); `rework` keeps the work and the saved failure, and so enters at the agent with the failure in hand (`fix_checks` for a failed check) |
 
 A delivery runs only the wait node's own work, the store writes and the event in
 the state, and stops there (`interrupt_after` on the waits): it never runs the
@@ -354,7 +358,7 @@ event: such a thread is not carried on inside the handler, the tick resumes it i
 a slot, and the event is delivered once it waits. The event handlers and `abk
 requeue` treat `BranchBusy` as the poller's deferral: the event is kept and the
 poller reports it again. An event for a thread that has ended (`NotWaiting`) is
-not delivered, and the handler does what the classic engine does: holds the unit
+not delivered, and the handler does what the event handler acts on the store alone: it holds the unit
 for a `hold`, saves the feedback and plans it again for a `rework`. `await_review`
 and `held` are `interrupt()` calls, so a waiting thread's next node is the wait.
 `merged` and `closed` route to the end and the thread is then deleted. A
@@ -363,14 +367,14 @@ and `held` are `interrupt()` calls, so a waiting thread's next node is the wait.
 A merge sends `base_moved`, with the new base as its reason, only to a child
 waiting in review (stored `in_review`, within the rebase cap), and that thread's
 own `prepare` moves the branch while its PR is retargeted at once. Any other
-child is handled as the classic engine does. If the delivery finds the child's
+child is handled by the handler itself, as above. If the delivery finds the child's
 branch busy, the thread is not told and the handler logs that; the merge is not
 redelivered.
 
 A node that raises out of a run leaves its thread at that node while the build
 records the unit `failed` (or `held`). Nothing will run that node, so a delivery
 treats such a thread, with the lock held, as an ended one: a `requeue` positions it
-at `prepare`, and any other event is `NotWaiting`, for the classic handler.
+at `prepare`, and any other event is `NotWaiting`, and the handler acts on the store as above.
 
 ## Durability and idempotency
 
@@ -394,21 +398,19 @@ at `prepare`, and any other event is `NotWaiting`, for the classic handler.
   its predecessor recorded, `push` always goes through the push wiring, where a branch the host moved is
   caught (pushing a commit the remote already has changes nothing), and
   `open_pr` runs again whole: the real call finds the branch's pull request and
-  updates it instead of opening a second. A killed agent process leaves uncommitted work, which the node's
-  re-run is to commit as `wip:` before continuing, as `reclaim_stale` does now;
-  that is not built yet.
+  updates it instead of opening a second. A killed agent process leaves uncommitted work in the worktree; nothing
+  commits it as `wip:`, and the re-run carries on from the tree as it is (a node
+  that has a recorded session continues it, see Session capture and resume).
 - **A killed run is resumed, not requeued.** The thread's next node is the
   one that was running, and the next tick carries on from it with no new
-  input; on the graph engine `reclaim_stale` leaves a running unit that has a
-  thread alone, and the tick resumes it unless a live process holds its branch.
-- **Known gap: `review`.** `weigh_review` records a rejected round in the unit
-  store before the node's checkpoint is written, so a kill between the two
-  makes the re-run ask the reviewer again and record a second round. The
-  window is short, and a legitimate re-review of an unchanged head (a rework
-  that pushed back and committed nothing) looks the same in the store, so it
-  cannot be skipped on that evidence alone. Closing it needs the round count in
-  the thread's own state. The gap is still open; it is not tracked by a later
-  group of this change yet and needs a follow-up.
+  input. The unit stays `running`, and the tick resumes it unless a live
+  process holds its branch. Nothing requeues it, and nothing commits what it left.
+- **`review` and its rounds.** A round's findings are returned in the node's
+  own update (`review_rounds` in the thread's state), not written to the unit
+  store first, so a kill before the checkpoint leaves no half-recorded round: the
+  re-run asks the reviewer again and records the round once. An approval is
+  the exception: `weigh_review` records the approved commit on the unit
+  (`approved`) as it is read, and a re-run records it again.
 - **Timeouts kill the process group.** A node's `TimeoutPolicy` cancels its
   task, and cancelling a task does not stop a child process. The runtime call
   inside a node owns the agent's process group and kills it on cancellation.
@@ -419,12 +421,13 @@ at `prepare`, and any other event is `NotWaiting`, for the classic handler.
 ## Usage pauses
 
 Before an agent step (`tests`, `implement`, `fix_checks`, `review`, `rework`) a
-node asks the usage guard, as `checkpoint()` does now. When the guard refuses,
+node asks the usage guard. When the guard refuses,
 the node interrupts with `{reason, until}`, `until` being the guard's resume
-time (`UnitRunner.resume_at`); it does not put the unit back to `planned`, and
+time (`UnitRunner.resume_at`); it does not put the unit back to `planned`: the
+unit stays `running`, with its thread interrupted before the agent node, and
 the run's outcome is `paused`. The tick resumes every thread interrupted that
 way once the guard allows: it asks again on every tick, as the pause marker
-does now (`pipeline/pause.py`). A step is never interrupted while it runs:
+does (`pipeline/pause.py`). The graph page draws such a unit as `running`. A step is never interrupted while it runs:
 interrupts happen only at node boundaries.
 
 ## Session capture and resume
@@ -473,17 +476,40 @@ a new session and says so in the run log.
 
 ## Moving the units in flight
 
-The switch happens once, on the release that removes the old engine:
+`convert_in_flight` runs on every tick, but it only seeds a thread for a stored
+unit that has none and has something in flight, so once the stores the previous
+engine left are converted it finds nothing to do. The first tick on this version:
 
-- each stored unit with a resume step or waiting feedback seeds a thread
-  positioned at the node that step names;
-- `in_review` and `held` units seed a thread already waiting in
-  `await_review` or `held`;
-- a unit with nothing in flight needs no thread until it starts.
+- seeds each such unit with a resume step or waiting feedback onto a thread
+  positioned at the node that step names (`resume_from`), carrying the in-run
+  progress the old store held (`classic_run`: review rounds, deferred follow-ups,
+  pending replies, the comments they answer), then clears both;
+- seeds `in_review` and `held` units a thread already waiting in `await_review`
+  or `held`;
+- gives a stored `running` unit with no thread a thread starting at `prepare`;
+- leaves a unit with nothing in flight without a thread until it starts.
 
-After the switch `UnitRunner`'s control flow, `resume_from`, `checkpoint()`
-and `reclaim_stale`'s requeue are removed, and `StoredUnit` loses its in-run
-fields. The callables in `wiring.py` and everything they reach stay.
+An old `units.json` still loads: the in-run keys it carries are gathered into
+`classic_run` on read, so the schema's refusal of unknown keys does not stop a
+tick.
+
+What stays in the store, and why: `approved`, because the push gate and
+`build_restack` read and write it with no run in progress; `predecessor_note`,
+because `build_restack` writes it the same way; and `resume_from` and
+`classic_run` as read-only legacy that only `graph.convert` reads. `build_restack`
+no longer writes a resume step: a restacked child goes `planned` with a note,
+and its run's `prepare` decides from the branch. `in_progress` and the start
+rank judge that a planned or unplanned unit has been started from what a run
+writes: a recorded `branch`, a `pushed` or `approved` commit or a `pr`.
+
+An accepted gap: conversion positions a unit after `prepare`, so its first run
+on a converted unit skips what `prepare` does: the fetch, the restack onto a
+moved base and recording the base's tip. A base that moved before the switch is
+caught later, at `verify_base`.
+
+`UnitRunner`'s control flow, `checkpoint()`, `record_step` and `reclaim_stale`
+are gone, and so is the `ABK_ENGINE` setting; it was never released, so it has
+no deprecation window. The callables in `wiring.py` and everything they reach stay.
 
 ## Testing
 

@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.constants import START
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
 
@@ -87,6 +88,19 @@ def _config(unit_id: str) -> RunnableConfig:
 async def thread_position(saver: BaseCheckpointSaver, unit_id: str) -> Position:
     """Read `unit_id`'s thread without running it."""
     return _position(await _compiled(saver).aget_state(_config(unit_id)))
+
+
+async def seed_thread(
+    saver: BaseCheckpointSaver, state: UnitRun, *, as_node: Node | None = None
+) -> None:
+    """Make a thread for `state`, positioned as if `as_node` had just finished
+    (before the first node when None), so the node its router names runs next."""
+    compiled = _compiled(saver)
+    await compiled.aupdate_state(
+        _config(state.unit_id),
+        state.model_dump(),
+        as_node=as_node.value if as_node else START,
+    )
 
 
 def _record_sessions(path: BuildPath, compiled: CompiledStateGraph, unit_id: str) -> None:
@@ -229,8 +243,8 @@ async def run_unit(
     it, over the callables `runner` carries, and return what `UnitRunner.run`
     would.
 
-    The caller holds the unit's branch lock for the whole run, as `build_unit`
-    does for the classic engine; the nodes do not take it."""
+    The caller holds the unit's branch lock for the whole run, as the tick
+    does; the nodes do not take it."""
     path = BuildPath(runner, unit, base=base, graph=graph, run_log=run_log, tracer=tracer)
     compiled = _compiled(saver, path)
     _record_sessions(path, compiled, unit.id)

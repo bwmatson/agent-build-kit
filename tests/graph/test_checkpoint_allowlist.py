@@ -53,6 +53,8 @@ def populated(annotation: Any) -> Any:
         )
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return next(iter(annotation))
+    if annotation is dict or origin is dict:
+        return {"asked": "x"}
     if annotation is bool:
         return True
     if annotation is int:

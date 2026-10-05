@@ -19,6 +19,7 @@ import pytest
 
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import Restacked
@@ -31,8 +32,10 @@ from agent_build_kit.pipeline.units import (
     branch_name,
     waiting_on,
 )
+from tests.classic_store import leave_in_flight
 from tests.factories import unit
 from tests.graph.test_build_path import build, limited, once, restacked
+from tests.graph_driver import position
 from tests.runner_fakes import Recorder, make_runner, rejecting
 
 
@@ -201,18 +204,30 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     tasks_file(tmp_path)
     recorder = fresh(tmp_path, commits_from_impl=0)
     store = recorder.store
-    store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    store.set_state(unit().id, PLANNED, pr=4, branch=branch_name(unit()))
     store.set_feedback(unit().id, "please double-check the edge case")
-    store.set_pending_replies(unit().id, ("done",))
-    store.set_person_comments(unit().id, "[comment 1] rename")
+    # An older version left replies and the comments they answer; they move onto the thread.
+    leave_in_flight(
+        store, unit().id, pending_replies=["done"], person_comments="[comment 1] rename"
+    )
+
+    async def convert() -> None:
+        async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
+            await convert_units_in_flight(saver, store)
+
+    asyncio.run(convert())
+    seeded = position(tmp_path).state
+    assert seeded is not None
+    assert seeded.pending_replies == ("done",)
 
     outcome = build(tmp_path, recorder, graph=[store.get(unit().id)], **empty_branch())
 
     assert outcome.status == "satisfied"
     stored = store.get(unit().id)
     assert stored.feedback == "", "a satisfied unit carries no review feedback"
-    assert stored.pending_replies == (), "nor replies to a review it no longer has"
-    assert stored.person_comments == "", "nor the comments they answered"
+    # The thread ends with the unit, taking the replies and the comments with it.
+    assert position(tmp_path).state is None, "no replies to a review it no longer has"
+    assert recorder.events.count("reply") == 0
     assert recorder.events.count("claude:rework") == 1
     for step in ("claude:tests", "claude:impl", "review"):
         assert step not in recorder.events

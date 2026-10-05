@@ -55,8 +55,8 @@ more task groups of a change.
 
 | State | Meaning | What to do |
 |---|---|---|
-| `planned` | In the graph, waiting for its dependencies and a free slot — or, with a `paused before <step>` note, a unit stopped there because the usage window filled and will resume at that step. A step already running is never interrupted; an empty step (an agent that finished having written nothing) against an exhausted window is one of these pauses, not a failure. | Nothing. `abk tick --dry-run` says whether it is ready. |
-| `running` | A worktree is open and an agent is in the build/review loop. | Nothing. A run interrupted mid-way is reclaimed by the next tick. |
+| `planned` | In the graph, waiting for its dependencies and a free slot — or a unit held before a step, which its next run decides again from the branch. A step already running is never interrupted; a usage pause leaves the unit `running` (below), not `planned`. | Nothing. `abk tick --dry-run` says whether it is ready. |
+| `running` | A worktree is open and an agent is in the build/review loop, or the run was killed or paused for the usage window and its thread is interrupted. | Nothing. A killed run is resumed at the node it was in by the next tick; a usage pause resumes on the first tick the usage guard allows. An empty step against an exhausted window is one of these pauses, not a failure. |
 | `in_review` | The loop and tier 1 passed; the PR is waiting for a human. | Review the PR. A comment sends it back for rework; a merge moves it on. A branch that stops merging into its base sends it back to `planned` by itself; `abk status` marks such an entry `cannot be merged`. |
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
@@ -85,8 +85,8 @@ instance).
   What a reviewer returns is a verdict: `approved`, a `findings` list (file,
   optional line, summary, consequence, what done looks like, required), and
   from round two an `earlier` list answering each earlier required finding by
-  id as `fixed`, `open` or `declined`. The unit's `review_rounds` keep each
-  round's findings, ids and the commit it judged; a required finding, or an
+  id as `fixed`, `open` or `declined`. The review loop keeps each
+  round's findings, ids and the commit it judged in the unit's thread; a required finding, or an
   earlier one left open or unanswered, means the round is not an approval.
 - A toolchain hold: nothing a retry fixes. Either build the unit by hand on
   its branch, or change the plan.

@@ -25,6 +25,7 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -51,36 +52,28 @@ class StoredUnit(Unit):
     # What review asked for, waiting to be addressed. Cleared once a run has
     # acted on it, so a unit is never reworked twice for the same comment.
     feedback: str = ""
-    # The step a unit stopped before, when it stopped between steps; empty
-    # otherwise. The runner resumes there rather than guessing from the branch.
+    # The step the previous engine stopped a unit before; empty otherwise. Read
+    # only by `graph.convert`, which seeds the unit's thread from it and clears
+    # it; nothing writes it. A store written before the switch may still carry it.
     resume_from: str = ""
+    # In-run progress a store written before the switch holds (`BEFORE_THE_SWITCH`:
+    # review rounds, deferred follow-ups, pending replies, the comments they
+    # answer). Collected on read so such a file still loads; `graph.convert`
+    # moves it into the unit's thread and clears it. Nothing writes it.
+    classic_run: dict[str, Any] = {}
     # The commit the review loop last approved. Nothing else may be pushed:
-    # see the gate before `push` in `StackRunner.run`.
+    # see the gate before the `push` node. Here, not in the run, because the
+    # push gate and `build_restack` read and write it with no run in progress.
     approved: str = ""
-    # The approved verdict's deferrable points, waiting for the push that makes
-    # them true. Kept here, not in the run: a unit that stops between approval
-    # and push resumes at VERIFY with no review to repeat them.
-    deferred: tuple[str, ...] = ()
-    # A PR rework's replies, waiting for the push that makes them true. Kept
-    # here, not in the run: a rework that writes its replies, then pauses for
-    # usage before its push, would otherwise lose them with the process.
-    pending_replies: tuple[str, ...] = ()
-    # The person's comments those replies answer, kept apart from `feedback`,
-    # which the review loop overwrites with its own findings between rounds.
-    # Cleared with the replies.
-    person_comments: str = ""
     # Whether `feedback` is a person's words, fetched from the pull request when
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
     feedback_from_person: bool = False
     # Set when the unit was moved onto a predecessor that changed under it,
     # for the reviewer: which files needed resolving, or how its tests were
-    # carried over. Cleared once the unit is back in review.
+    # carried over. Cleared once the unit is back in review. Here, not in the
+    # run, because `build_restack` writes it with no run in progress.
     predecessor_note: str = ""
-    # The review loop so far: each round's ask and the builder's response, for
-    # later rounds to check against instead of starting over. Kept here so a
-    # loop that pauses or is killed resumes with it. Cleared once in review.
-    review_rounds: tuple[dict, ...] = ()
     # The file name of this unit's most recent run log (see `run_log`); empty
     # until it has run.
     run_log: str = ""
@@ -92,16 +85,35 @@ class StoredUnit(Unit):
 
     @property
     def unstarted(self) -> bool:
-        """Planned, with no branch, commit, pull request or step to resume at:
+        """Planned, with no branch, commit or pull request:
         nothing exists that removing or extending this unit could disturb."""
         return self.state == PLANNED and not (
-            self.branch or self.pr is not None or self.pushed or self.resume_from or self.approved
+            self.branch
+            or self.pr is not None
+            or self.pushed
+            or self.approved
+            or self.resume_from
+            or self.classic_run
         )
 
     @property
     def note(self) -> str:
         """Why the unit is in its present state, as its latest history entry says."""
         return str(self.history[-1].get("note", "")) if self.history else ""
+
+
+# The in-run fields a unit used to carry here, which now live in its thread.
+BEFORE_THE_SWITCH = ("review_rounds", "deferred", "pending_replies", "person_comments")
+
+
+def _collect_classic_run(item: Any) -> Any:
+    """`item` with any in-run field of a store written before the switch gathered
+    into `classic_run`, where they are for `graph.convert` and no longer a field."""
+    if not isinstance(item, dict) or not any(key in item for key in BEFORE_THE_SWITCH):
+        return item
+    moved = {key: item[key] for key in BEFORE_THE_SWITCH if item.get(key)}
+    kept = {key: value for key, value in item.items() if key not in BEFORE_THE_SWITCH}
+    return {**kept, "classic_run": {**kept.get("classic_run", {}), **moved}}
 
 
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
@@ -164,7 +176,7 @@ class UnitStore:
             # should fail here — naming the field — rather than construct
             # something odd that breaks three steps later.
             try:
-                unit = StoredUnit.model_validate(item)
+                unit = StoredUnit.model_validate(_collect_classic_run(item))
             except ValidationError as error:
                 raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
             stored[unit.id] = unit
@@ -219,13 +231,10 @@ class UnitStore:
                 # review asked for, or where a paused unit should pick up.
                 feedback=existing.feedback if existing else "",
                 resume_from=existing.resume_from if existing else "",
+                classic_run=existing.classic_run if existing else {},
                 approved=existing.approved if existing else "",
-                deferred=existing.deferred if existing else (),
-                pending_replies=existing.pending_replies if existing else (),
-                person_comments=existing.person_comments if existing else "",
                 feedback_from_person=existing.feedback_from_person if existing else False,
                 predecessor_note=existing.predecessor_note if existing else "",
-                review_rounds=existing.review_rounds if existing else (),
                 run_log=existing.run_log if existing else "",
                 stack_refusal=existing.stack_refusal if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
@@ -320,7 +329,6 @@ class UnitStore:
         pr: int | None = None,
         branch: str | None = None,
         note: str = "",
-        resume_from: str | None = None,
     ) -> None:
         """Record a state, optionally with why.
 
@@ -329,7 +337,7 @@ class UnitStore:
         that something happened.
         """
         unit, everything, opened = self._record_state(
-            unit_id, state, pr=pr, branch=branch, note=note, resume_from=resume_from
+            unit_id, state, pr=pr, branch=branch, note=note
         )
         if self.on_state:
             self.on_state(unit, everything, opened)
@@ -343,7 +351,6 @@ class UnitStore:
         pr: int | None,
         branch: str | None,
         note: str,
-        resume_from: str | None,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         stored = self._read()
         unit = stored[unit_id]
@@ -353,7 +360,6 @@ class UnitStore:
                 "state": state,
                 "pr": pr if pr is not None else unit.pr,
                 "branch": branch if branch is not None else unit.branch,
-                "resume_from": resume_from if resume_from is not None else unit.resume_from,
                 "history": (
                     *unit.history,
                     {"state": state, "at": _now(), **({"note": note} if note else {})},
@@ -380,29 +386,20 @@ class UnitStore:
             unit_id, feedback=feedback, feedback_from_person=from_person and bool(feedback)
         )
 
-    def record_step(self, unit_id: str, step: str) -> None:
-        """The step a running unit is starting, so a run killed inside it
-        resumes there. Not a state change, so no history entry."""
-        self._update(unit_id, resume_from=step)
-
     def set_run_log(self, unit_id: str, name: str) -> None:
         """Name the unit's most recent run log. Not a state change."""
         self._update(unit_id, run_log=name)
 
-    def set_person_comments(self, unit_id: str, comments: str) -> None:
-        self._update(unit_id, person_comments=comments)
-
-    def set_pending_replies(self, unit_id: str, replies: Sequence[str]) -> None:
-        self._update(unit_id, pending_replies=tuple(replies))
+    def clear_converted(self, unit_id: str) -> None:
+        """Forget the step and the in-run progress a store written before the
+        switch holds, once the unit's thread has them."""
+        self._update(unit_id, resume_from="", classic_run={})
 
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
         self._update(unit_id, depends_on=tuple(depends_on))
 
     def set_merge_before(self, unit_id: str, merge_before: Sequence[str]) -> None:
         self._update(unit_id, merge_before=tuple(merge_before))
-
-    def set_review_rounds(self, unit_id: str, rounds: Sequence[dict]) -> None:
-        self._update(unit_id, review_rounds=tuple(rounds))
 
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
         self._update(unit_id, predecessor_note=note)
@@ -412,22 +409,9 @@ class UnitStore:
         Not a state change: the refusal changes nothing about the unit."""
         self._update(unit_id, stack_refusal=reason)
 
-    def record_approval(
-        self, unit_id: str, sha: str, deferred: Sequence[str] | None = None
-    ) -> None:
-        """The commit review approved — the only one the runner may push.
-
-        `deferred` replaces the recorded follow-ups, so a later approval with
-        none clears an earlier one's; left as `None` (a restack re-approving
-        a moved commit) it keeps them.
-        """
-        if deferred is None:
-            self._update(unit_id, approved=sha)
-        else:
-            self._update(unit_id, approved=sha, deferred=tuple(deferred))
-
-    def set_deferred(self, unit_id: str, deferred: Sequence[str]) -> None:
-        self._update(unit_id, deferred=tuple(deferred))
+    def record_approval(self, unit_id: str, sha: str) -> None:
+        """The commit review approved — the only one the runner may push."""
+        self._update(unit_id, approved=sha)
 
     def record_push(self, unit_id: str, sha: str) -> None:
         """Remember what we published, so the next push can lease against it.

@@ -10,8 +10,8 @@ parts that talk to git and GitHub, live elsewhere — so these rules can be
 argued with directly, in tests, rather than through a subprocess.
 
 `ready_units`, `in_progress`, `in_progress_label` and `start_room` expect stored units: `pr` and
-`resume_from` exist only on those, and `unit_store` imports this module, so it cannot be named
-here. Given plain `Unit`s they would see no pull request and no resume point.
+`branch`, `pushed` and `approved` exist only on those, and `unit_store` imports this module, so it
+cannot be named here. Given plain `Unit`s they would see no pull request and no sign of a run.
 """
 
 from __future__ import annotations
@@ -440,10 +440,11 @@ def in_progress(unit: Unit) -> bool:
     """Whether the unit has been started and not finished (docs/architecture.md).
 
     Running, in review and failed units are; so is a planned or unplanned one
-    that has a pull request or a step to resume from, since something was
-    already done to it. Merged, closed and satisfied units are finished, and a
-    unit with neither a pull request nor a resume point has never started,
-    blocked on a dependency or not.
+    that has a pull request, a branch or a pushed commit, since something was
+    already done to it: a run records its branch when it begins, so a unit held
+    before a step, or whose branch a person pushed, shows it. Merged, closed
+    and satisfied units are finished, and a unit with no pull request, branch
+    or pushed commit has never started, blocked on a dependency or not.
 
     A held unit is not: holding takes a unit out of the automatic flow until a
     person releases it, whether a reviewer, the review loop or the operator
@@ -454,7 +455,18 @@ def in_progress(unit: Unit) -> bool:
         return False
     if unit.state in (RUNNING, IN_REVIEW, FAILED):
         return True
-    return getattr(unit, "pr", None) is not None or bool(getattr(unit, "resume_from", ""))
+    return _worked_on(unit)
+
+
+def _worked_on(unit: Unit) -> bool:
+    """Whether a run has already done something to the unit: the graph records
+    its branch when a run begins, then the pushed and approved commits."""
+    return (
+        getattr(unit, "pr", None) is not None
+        or bool(getattr(unit, "branch", ""))
+        or bool(getattr(unit, "pushed", None))
+        or bool(getattr(unit, "approved", ""))
+    )
 
 
 def in_progress_label(unit: Unit) -> str:
@@ -462,7 +474,7 @@ def in_progress_label(unit: Unit) -> str:
 
     A planned or unplanned unit is in progress only because something was
     already done to it, so it is named for that, not `planned`: "reworking"
-    with a pull request, "paused" with only a step to resume from.
+    with a pull request, "paused" with only a branch of work.
     """
     if unit.state in (PLANNED, "unplanned"):
         return "reworking" if getattr(unit, "pr", None) is not None else "paused"
@@ -478,7 +490,7 @@ def _start_rank(unit: Unit) -> int:
     """Existing work first: an open pull request, then a paused build, then new."""
     if getattr(unit, "pr", None) is not None:
         return 0
-    return 1 if getattr(unit, "resume_from", "") else 2
+    return 1 if _worked_on(unit) else 2
 
 
 def ready_units(

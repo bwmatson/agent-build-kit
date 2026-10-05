@@ -163,6 +163,24 @@ def workspace(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monk
 
 
 @pytest.fixture
+def scripted_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs a unit by calling `.run(unit, base=, graph=)` on whatever
+    `build_runner` returns when it has one, in place of the unit's thread, so a
+    tick test can script what a build does and check what the tick makes of
+    it. A real `UnitRunner` has no such method and runs its thread."""
+    from agent_build_kit.cli import pipeline as cli
+
+    on_thread = cli.run_unit_thread
+
+    def run(inst, runner, unit, *, base, graph, run_log):
+        if hasattr(runner, "run"):
+            return runner.run(unit, base=base, graph=graph)
+        return on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log)
+
+    monkeypatch.setattr(cli, "run_unit_thread", run)
+
+
+@pytest.fixture
 def installation(tmp_path: Path) -> Installation:
     """A workspace rooted at the test's own tmp_path (state, specs and graph
     page under it), for tests that write planning-repo files."""

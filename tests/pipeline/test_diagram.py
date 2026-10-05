@@ -232,18 +232,15 @@ def test_a_pr_link_points_at_the_unit_s_repo() -> None:
     assert "https://github.com/example/platform/pull/16" in page
 
 
-def test_a_unit_stopped_by_the_usage_window_says_so() -> None:
-    """Told apart from a rework pause: one waits on a unit, the other on the
-    clock, and what (if anything) a person should do differs."""
-    paused = unit(
-        "c/1",
-        history=({"state": "planned", "at": "t", "note": "paused before review: usage at 75%"},),
-    )
+def test_a_unit_interrupted_for_the_usage_window_is_drawn_running() -> None:
+    """The graph leaves it `running`, interrupted in its thread, and writes no
+    note that a diagram could read it from."""
+    paused = unit("c/1", state="running")
 
     diagram = render_mermaid([paused])
 
-    assert "class c_1 paused_usage" in diagram
-    assert "paused-usage" in diagram
+    assert "class c_1 running" in diagram
+    assert "paused-usage" not in diagram
 
 
 def test_a_failed_unit_stays_in_view_with_the_merged_unit_it_builds_on() -> None:

@@ -20,7 +20,6 @@ EVERY_STATE = {
     "blocked",
     "running",
     "paused_rework",
-    "paused_usage",
     "held",
     "in_review",
     "merged",
@@ -55,12 +54,12 @@ def test_the_states_the_host_shows_or_that_have_no_pull_request_are_unlabelled()
 
 
 def test_the_states_derived_from_history_each_get_their_own_label() -> None:
-    labels = [state_label(key) for key in ("blocked", "paused_rework", "paused_usage")]
+    labels = [state_label(key) for key in ("blocked", "paused_rework")]
 
     names = [label.name for label in labels if label is not None]
 
-    assert len(names) == 3, "each of the three has a label"
-    assert len(set(names)) == 3, "waiting, stopped before a rework and usage must not share one"
+    assert len(names) == 2, "each of the two has a label"
+    assert len(set(names)) == 2, "waiting and stopped before a rework must not share one"
     planned = state_label("planned")
     assert planned is not None
     assert planned.name not in names
@@ -68,7 +67,6 @@ def test_the_states_derived_from_history_each_get_their_own_label() -> None:
 
 def test_a_state_is_named_as_the_graph_writes_it() -> None:
     assert STATES["paused_rework"].name == "paused-rework"
-    assert STATES["paused_usage"].name == "paused-usage"
     assert STATES["in_review"].name == "in-review"
 
 
@@ -117,7 +115,6 @@ def test_a_node_reads_as_its_state_is_named_in_the_vocabulary() -> None:
 def test_the_colours_are_the_ones_the_graph_has_always_used() -> None:
     assert STATES["running"].stroke == "#d97706"
     assert STATES["in_review"].stroke == "#2563eb"
-    assert STATES["paused_usage"].stroke == "#ca8a04"
     assert STATES["paused_rework"].extra == "stroke-dasharray:3 3"
     assert STATES["failed"].extra == "stroke-width:3px"
     line = "    classDef running fill:#fef3c7,stroke:#d97706,color:#451a03"

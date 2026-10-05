@@ -66,6 +66,8 @@ done
 exit 0
 """
 
+pytestmark = pytest.mark.usefixtures("scripted_engine")
+
 
 def repo_with_gate(tmp_path: Path, hook: str) -> Path:
     repo = init_repo(tmp_path / "repo")

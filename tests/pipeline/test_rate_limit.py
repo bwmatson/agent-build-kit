@@ -25,6 +25,8 @@ from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.usage_guard import RateLimited, rate_limit_reset
 from agent_build_kit.pipeline.wiring import build_run_claude
 
+pytestmark = pytest.mark.usefixtures("scripted_engine")
+
 
 @pytest.mark.parametrize(
     "text",

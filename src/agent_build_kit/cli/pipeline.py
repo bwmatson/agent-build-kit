@@ -28,9 +28,10 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_build_kit import config, forges, runtimes
-from agent_build_kit.graph.state import EventKind, ResumeEvent
+from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import diagram
@@ -64,9 +65,8 @@ from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner, starting_step
+from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.tier2 import stack_lock
-from agent_build_kit.pipeline.unit_engine import select_engine
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     FAILED,
@@ -101,7 +101,6 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import (
     CommitRejected,
-    build_commit,
     build_resume_at,
     build_runner,
 )
@@ -110,8 +109,10 @@ from agent_build_kit.pipeline.work_graph import (
     group_needs,
     validate_tasks,
 )
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
-from agent_build_kit.settings import settings
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
+
+if TYPE_CHECKING:
+    from agent_build_kit.graph.unit import Position
 
 
 def stamp() -> str:
@@ -389,7 +390,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # straight away, and they must land on the trunk as it now is.
     _refresh(inst, store=store)
 
-    reclaim_stale(inst, store=store)
+    convert_in_flight(inst, store=store)
     plan_all(inst, store=store)
     link_needs(inst, store=store)
     units = store.all()
@@ -436,12 +437,10 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
 def resumable_units(
     inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
 ) -> list[Unit]:
-    """On the graph engine, the units whose thread a run left partway: killed
-    in a node, or interrupted for the usage window, which the guard let this
-    tick through. They are `running`, so they hold the slots `_evaluate` counts;
-    a thread waiting for review or a person is not here, and holds none."""
-    if settings.engine != "graph":
-        return []
+    """The units whose thread a run left partway: killed in a node, or
+    interrupted for the usage window, which the guard let this tick through.
+    They are `running`, so they hold the slots `_evaluate` counts; a thread
+    waiting for review or a person is not here, and holds none."""
     return [
         unit
         for unit in units
@@ -692,83 +691,37 @@ def branch_is_held(inst: Installation, branch: str) -> bool:
         return True
 
 
-def commit_leftovers(inst: Installation, unit: Unit) -> int:
-    """Commit whatever the killed run had written but not committed.
-
-    Without this the reclaim is hollow: `prepare_worktree` refuses a dirty
-    tree, so the unit goes back to `planned` in a state it cannot start from.
-    The work is the agent's own — these worktrees have no other writer — and
-    the next run's `git add -A` would have swept it into the tests commit
-    regardless, so committing it loses nothing and makes the tree reusable.
-    """
-    repo = inst.checkouts.get(unit.repo)
-    if repo is None:
-        return 0
-
-    tree = worktree_path(repo, branch_name(unit), inst.worktree_root)
-    if not tree.exists():
-        return 0
-
-    made = build_commit(unit_id=unit.id)(f"wip: {unit.title} (interrupted run)", cwd=tree)
-    if made:
-        log(f"{unit.id}: committed work the interrupted run had left uncommitted")
-    return made
-
-
-def has_thread(inst: Installation, unit_id: str) -> bool:
-    """Whether the graph engine holds a thread for the unit."""
+def thread_of(inst: Installation, unit_id: str) -> Position:
+    """Where the unit's thread stands; its `state` is None when it has none."""
     # Late: the graph package imports the pipeline.
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
     from agent_build_kit.graph.unit import thread_position
 
-    async def look() -> bool:
+    async def look() -> Position:
         async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
-            return (await thread_position(saver, unit_id)).state is not None
+            return await thread_position(saver, unit_id)
 
     return asyncio.run(look())
 
 
-def reclaim_stale(inst: Installation, *, store: UnitStore) -> None:
-    """Put units back that nothing is working on any more.
+def has_thread(inst: Installation, unit_id: str) -> bool:
+    """Whether a thread exists for the unit."""
+    return thread_of(inst, unit_id).state is not None
 
-    `ready_units` only ever picks up `planned`, so a unit left `running` when
-    its tick was killed would be stranded for good. Reclaimed at the start of
-    a tick and nowhere else: this is the "at startup" recovery, not a retry
-    timer, and a unit that keeps failing on its own merits still stops at
-    `failed`.
 
-    A unit whose branch lock a live process holds is left alone. Ticks can
-    overlap — a slow unit outlives the timer interval — and reclaiming one
-    would hand the same work to a second runner.
-    """
-    for unit in store.all():
-        if unit.state != RUNNING:
-            continue
-        branch = unit.branch or branch_name(unit)
-        if branch_is_held(inst, branch):
-            continue
-        if settings.engine == "graph" and has_thread(inst, unit.id):
-            # Its thread resumes it at the node it stopped in, redoing what
-            # that node left; requeuing it here would build it again.
-            continue
-        log(f"{unit.id}: reclaimed — left running with no process on it")
-        if commit_leftovers(inst, unit) and not (unit.resume_from or unit.feedback):
-            # Those leftovers are commits now, and the resume path reads
-            # commits on the branch as "the work is there" and skips building
-            # — which would send an interrupted unit straight to tier 1 on
-            # half-written work. Saying so as feedback routes it to the rework
-            # path, which continues from what is there.
-            #
-            # Only when nothing better is known. A unit that recorded the step
-            # it was in resumes there, and feedback already waiting is what
-            # review asked for — replacing it would lose the review.
-            store.set_feedback(
-                unit.id,
-                "The previous run was interrupted partway through and its work was "
-                "committed as-is. Continue from what is on the branch: finish the "
-                "tasks, keeping anything already written that still makes sense.",
-            )
-        store.set_state(unit.id, PLANNED, note="reclaimed: no process held its branch")
+def convert_in_flight(inst: Installation, *, store: UnitStore) -> None:
+    """Seed a thread for each unit the engine before the switch left in flight, at the
+    start of a tick: units that already have one are left where they are."""
+    # Late: the graph package imports the pipeline.
+    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.convert import convert_units_in_flight
+
+    async def convert() -> tuple[str, ...]:
+        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+            return await convert_units_in_flight(saver, store)
+
+    for unit_id in asyncio.run(convert()):
+        log(f"{unit_id}: moved onto a thread")
 
 
 def link_needs(inst: Installation, *, store: UnitStore) -> None:
@@ -1211,30 +1164,12 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
 
 
 def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-    """Build one unit on the engine `ABK_ENGINE` names (the classic one by default).
-
-    Returns False only when the tick should stop entirely.
-    """
-    return select_engine(settings.engine).build(inst, unit, store=store)
-
-
-def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-    """Build one unit through `UnitRunner`. Returns False only when the tick should stop."""
-    return _build(inst, unit, store=store, on_thread=False)
-
-
-def build_graph(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-    """Start the unit's thread, or resume the one a killed or paused run left.
+    """Start the unit's thread, or resume the one a killed or paused run left,
+    and run it to a wait or the end. Returns False only when the tick should stop.
 
     The branch's lock is held around the run, from reading the thread's position
-    until it returns at a wait or the end, as the classic engine holds it: a
-    thread waiting for review holds nothing, as the run has returned.
-    """
-    return _build(inst, unit, store=store, on_thread=True)
-
-
-def _build(inst: Installation, unit: Unit, *, store: UnitStore, on_thread: bool) -> bool:
-    """`build_classic` and `build_graph`: what a unit's build does around the run.
+    until it returns: a thread waiting for review holds nothing, as the run has
+    returned.
 
     Nothing in here may raise. A tick runs unattended on a timer, so a
     traceback is not a report — it is a unit left in `running` forever and no
@@ -1273,9 +1208,9 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore, on_thread: bool)
                 except KeyError:
                     end("skipped, it was joined into another unit")
                     return True
-                # A thread's unit may also be `running`: killed or paused in a
-                # node, which is how its thread resumes it.
-                if unit.state not in ((PLANNED, RUNNING) if on_thread else (PLANNED,)):
+                # A unit may also be `running`: killed or paused in a node,
+                # which is how its thread resumes it.
+                if unit.state not in (PLANNED, RUNNING):
                     end(f"skipped, it is now {unit.state}")
                     return True
                 # The base too, from the store rather than that evaluation: a
@@ -1291,12 +1226,9 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore, on_thread: bool)
                     record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
                     log=say,
                 )
-                if on_thread:
-                    outcome = asyncio.run(
-                        _on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log)
-                    )
-                else:
-                    outcome = runner.run(unit, base=base, graph=graph)
+                outcome = run_unit_thread(
+                    inst, runner, unit, base=base, graph=graph, run_log=run_log
+                )
         except NotImplementedError as error:
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
@@ -1305,9 +1237,9 @@ def _build(inst: Installation, unit: Unit, *, store: UnitStore, on_thread: bool)
             return True
         except Interrupted as error:
             # Left `running`, with the lock released as the `with` exits: the next
-            # tick's `reclaim_stale` commits what the run left and requeues it at
-            # the step it was in. Not failed — nothing is known to be wrong.
-            end(f"interrupted ({error}); the next tick reclaims it")
+            # tick resumes its thread at the node it was in. Not failed — nothing
+            # is known to be wrong.
+            end(f"interrupted ({error}); the next tick resumes it")
             return True
         except RateLimited as error:
             # Not the unit's fault and not retried: the account is out of room, so
@@ -1366,8 +1298,28 @@ def _pause_for_usage(inst: Installation, reason: str) -> None:
     log(f"pausing until {state.until:%H:%M UTC}")
 
 
+def _starting_step(inst: Installation, unit: StoredUnit) -> tuple[str, str]:
+    """The step a run of this unit starts at, and the model it names: the node
+    its thread is positioned at, or `implement` for a build that has none. A
+    review of a rework is named apart, as it is judged by its own model; the
+    steps that call no model say so."""
+    where = thread_of(inst, unit.id)
+    node = where.next[0] if where.next else Node.IMPLEMENT
+    reworking = where.state is not None and where.state.had_feedback
+    step = "rework_review" if node is Node.REVIEW and reworking else node.value
+    role = config.models()
+    named = {
+        "rework_review": role.rework_review,
+        Node.REVIEW.value: role.review,
+        Node.REWORK.value: role.rework,
+        Node.TESTS.value: role.implement,
+        Node.IMPLEMENT.value: role.implement,
+    }
+    return step, named.get(step, "none")
+
+
 def _start_run_log(inst: Installation, unit: StoredUnit, *, store: UnitStore, base: str) -> RunLog:
-    step, model = starting_step(unit)
+    step, model = _starting_step(inst, unit)
     run_log = RunLog(
         run_log_dir(inst.state_dir),
         unit,
@@ -1380,6 +1332,19 @@ def _start_run_log(inst: Installation, unit: StoredUnit, *, store: UnitStore, ba
     if run_log.writing:
         store.set_run_log(unit.id, run_log.name)
     return run_log
+
+
+def run_unit_thread(
+    inst: Installation,
+    runner: UnitRunner,
+    unit: Unit,
+    *,
+    base: str,
+    graph: list[StoredUnit],
+    run_log: RunLog | None,
+) -> RunOutcome:
+    """Start or resume the unit's thread to its next wait or the end."""
+    return asyncio.run(_on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log))
 
 
 async def _on_thread(
@@ -1401,7 +1366,7 @@ async def _on_thread(
     common = dict(base=base, graph=graph, run_log=run_log, tracer=None)
     async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
         if event is None:
-            # Under the lock `build_graph` holds; a delivery takes its own.
+            # Under the lock `build_unit` holds; a delivery takes its own.
             return await run_unit(runner, unit, saver=saver, **common)
         return await resume_unit(
             runner,
@@ -1439,13 +1404,13 @@ def resume_thread(
     That is why no run log is opened, and the unit's link to its build's log is
     left alone.
 
-    None when there is nothing to deliver it to — the classic engine, a unit
-    with no thread, or a thread that has ended and takes no such event — and the
-    caller handles the event as it always has. Raises `BranchBusy` when the
+    None when there is nothing to deliver it to — a unit with no thread, or a
+    thread that has ended and takes no such event — and the caller handles the
+    event as it always has. Raises `BranchBusy` when the
     event cannot be delivered now, because someone else holds the branch or the
     thread has a node to run; the caller keeps the event and delivers it again.
     """
-    if settings.engine != "graph" or not has_thread(inst, unit.id):
+    if not has_thread(inst, unit.id):
         return None
     # Late: the graph package imports the pipeline.
     from agent_build_kit.graph.unit import NotWaiting
@@ -1567,13 +1532,13 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     failed tier 1 on real errors (a type check, a lint rule, a test) saved the
     output, but a resume at `verify` runs the check again and meets the same
     errors, without the agent ever seeing them. `--restart` throws the attempt
-    away — the step it stopped at and the failure it was handed — for a failure
-    that was the attempt's own, such as a build on the wrong base, where
-    resuming would judge work that was never valid.
+    away — the review rounds so far and the failure it was handed — for a
+    failure that was the attempt's own, such as a build on the wrong base,
+    where resuming would judge work that was never valid.
 
-    Editing the store by hand got this wrong: a failed unit remembers its step,
-    so putting it back to `planned` and nothing else sent the next attempt
-    straight past the agent to a check on a branch with no work on it.
+    Editing the store by hand gets this wrong: a unit's place in its build is
+    in its thread, so putting it back to `planned` and nothing else leaves the
+    thread where the failure stopped it.
     """
     store = store_for(inst)
     known = {unit.id: unit for unit in store.all()}
@@ -1610,18 +1575,15 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
         )
         return 1 if delivered.raised else 0
     if args.rework:
-        store.set_state(
-            args.unit, PLANNED, note="requeued: reworking from the saved failure", resume_from=""
-        )
+        store.set_state(args.unit, PLANNED, note="requeued: reworking from the saved failure")
         print(f"{args.unit} requeued, the agent will rework it from the failure it saved")
     elif args.restart:
         store.set_feedback(args.unit, "")
-        store.set_state(args.unit, PLANNED, note="requeued: starting over", resume_from="")
+        store.set_state(args.unit, PLANNED, note="requeued: starting over")
         print(f"{args.unit} requeued, starting over from the agent's step")
     else:
         store.set_state(args.unit, PLANNED, note="requeued: resuming where it stopped")
-        resume = known[args.unit].resume_from
-        print(f"{args.unit} requeued, resuming" + (f" before {resume}" if resume else ""))
+        print(f"{args.unit} requeued, resuming where it stopped")
     return 0
 
 
