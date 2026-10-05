@@ -938,3 +938,75 @@ def test_a_base_gone_at_open_that_the_forge_still_names_holds_the_unit(tmp_path:
     assert outcome.status == "held"
     assert stored.state == PLANNED
     assert "before its pull request" in stored.note, "it was pushed, so not 'before its push'"
+
+
+@pytest.mark.parametrize("tier", ["tier1", "tier2"])
+def test_a_unit_moved_cleanly_onto_the_base_the_forge_named_is_pushed_not_held(
+    tmp_path: Path, tier: str
+) -> None:
+    recorder = fresh(tmp_path, tier=tier)
+    moves = Moves(recorder, CLEAN)
+    opened: list[str] = []
+
+    def open_pr(u: Any, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
+        opened.append(base)
+        return recorder.open_pr(u, body=body, base=base, cwd=cwd)
+
+    outcome = build(
+        tmp_path,
+        recorder,
+        base="spec/add-marker/0",
+        fresh_base=lambda u, base: "main",
+        base_moved=lambda u, base, **kw: "" if base == "spec/add-marker/0" else f"moved to {base}",
+        open_pr=open_pr,
+        **moves.overrides(),
+    )
+
+    assert outcome.status == "open", outcome.detail
+    assert recorder.events.count("push") == 1
+    assert opened == ["main"]
+
+
+def test_a_unit_whose_rounds_ran_out_gets_a_fresh_budget_when_its_base_is_gone_at_open(
+    tmp_path: Path,
+) -> None:
+    from agent_build_kit.config import active
+
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [
+        rejecting("the lock is still not released")
+    ] * active().limits.max_review_rounds
+    base_now = ["spec/add-marker/0"]
+
+    def gone(u: Any, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
+        if base == "spec/add-marker/0":
+            base_now[0] = "main"
+            raise BaseMissing("base branch spec/add-marker/0 does not exist")
+        return recorder.open_pr(u, body=body, base=base, cwd=cwd)
+
+    outcome = build(
+        tmp_path,
+        recorder,
+        base="spec/add-marker/0",
+        branch_commits=lambda cwd, base: 2 + recorder.made,
+        fresh_base=lambda u, base: base_now[0],
+        open_pr=gone,
+    )
+
+    stored = recorder.store.get(unit().id)
+    assert outcome.status == "open", outcome.detail
+    assert stored.state == IN_REVIEW
+    assert "rounds spent" not in stored.note
+    assert all("rounds spent" not in h.get("note", "") for h in stored.history)
+
+
+def test_a_tier_two_unit_whose_checks_never_pass_ends_failed_before_tier_two_and_the_push(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path, tier="tier2")
+    recorder.tier1_results = [(False, "ERROR lint")] * 20
+
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == "failed"
+    assert "tier2" not in recorder.events and "push" not in recorder.events

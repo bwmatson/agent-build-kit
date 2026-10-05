@@ -63,6 +63,7 @@ FRESH: Update = {
     "verdict": None,
     "fix_rounds": 0,
     "review_round": 0,
+    "spent": False,
     "checks_ok": False,
     "produced_nothing": False,
     "snapshot": "",
@@ -834,13 +835,18 @@ def after_tier1(state: UnitRun) -> Node:
         return Node.PREPARE
     if state.produced_nothing:
         return Node.SATISFIED
-    return Node.TIER2 if state.moved and state.tier2 else Node.VERIFY_BASE
+    if state.moved:
+        # verify_base already moved the unit onto the base: nothing left to check there.
+        return Node.TIER2 if state.tier2 else Node.PUSH
+    return Node.VERIFY_BASE
 
 
 def after_tier2(state: UnitRun) -> Node:
     if stop := halted(state):
         return stop
-    return Node.PREPARE if state.restack else Node.VERIFY_BASE
+    if state.restack:
+        return Node.PREPARE
+    return Node.PUSH if state.moved else Node.VERIFY_BASE
 
 
 def after_verify_base(state: UnitRun) -> Node:
@@ -892,9 +898,20 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     Node.REWORK: (after_rework, (Node.HELD, Node.TIER1, Node.CHECKS)),
     Node.TIER1: (
         after_tier1,
-        (Node.HELD, Node.FAILED, Node.PREPARE, Node.SATISFIED, Node.TIER2, Node.VERIFY_BASE),
+        (
+            Node.HELD,
+            Node.FAILED,
+            Node.PREPARE,
+            Node.SATISFIED,
+            Node.TIER2,
+            Node.VERIFY_BASE,
+            Node.PUSH,
+        ),
     ),
-    Node.TIER2: (after_tier2, (Node.HELD, Node.FAILED, Node.PREPARE, Node.VERIFY_BASE)),
+    Node.TIER2: (
+        after_tier2,
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.VERIFY_BASE, Node.PUSH),
+    ),
     Node.VERIFY_BASE: (
         after_verify_base,
         (Node.HELD, Node.FAILED, Node.PREPARE, Node.TIER1, Node.PUSH),

@@ -470,7 +470,7 @@ def test_a_branch_moved_cleanly_before_the_push_is_checked_again_and_the_moved_h
 
     assert outcome.status == "open"
     steps = [e for e in recorder.events if e in ("tier1", "review", "verify_base", "push")]
-    assert steps == ["tier1", "review", "verify_base", "tier1", "verify_base", "push"]
+    assert steps == ["tier1", "review", "verify_base", "tier1", "push"]
     assert recorder.remote == ["sha-3"], "the moved head, not the one review saw"
     assert recorder.store.get(unit().id).approved == "sha-3"
 

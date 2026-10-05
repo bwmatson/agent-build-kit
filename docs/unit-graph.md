@@ -1,26 +1,21 @@
 # The unit graph
 
-**Status: design, build path built.** Behind `ABK_ENGINE=graph` there is a
-`UnitEngine` seam (`pipeline/unit_engine.py`), the `UnitRun` state, the node
-enum, the SQLite checkpointer with its allowlist and a compiled graph in
-`graph/`. `graph/unit.run_unit` runs a unit's build path on it, over the
-callables `wiring.build_runner` binds: `prepare`, `tests`, `implement`,
-`checks`, `fix_checks`, `review`, `rework`, `tier1`, `verify_base`, `push`,
-`open_pr` and `failed`, joined by the edges below, ending at the pull request.
-Two built edges are not in the diagram: `prepare → verify_base`, for a branch
-with work, no feedback and a tip review already approved, and `rework → tier1`,
-for a rework after which the branch carries no commits of its own.
-What follows a pull request, and every path off the build path, is not built:
-where the classic runner would adapt, run tier 2, mark a unit satisfied, hold
-it, or stop for a base that moved, the graph ends the run as `failed` and says
-which of these it is. Two more differences from the classic runner: (1) the
+**Status: design, the build and the remaining paths built.** Behind
+`ABK_ENGINE=graph` there is a `UnitEngine` seam (`pipeline/unit_engine.py`),
+the `UnitRun` state, the node enum, the SQLite checkpointer with its allowlist
+and a compiled graph in `graph/`. `graph/unit.run_unit` runs a unit on it, over
+the callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
+`implement`, `checks`, `fix_checks`, `review`, `rework`, `tier1`, `tier2`,
+`verify_base`, `push`, `open_pr`, `satisfied`, `held` and `failed`, joined by
+the edges below, ending at the pull request. Before a step that starts work or
+leaves the machine the nodes consult `upstream_incomplete` and the hold, and a
+unit whose base moved is held. Holds record the store state and end the run
+until the waits-and-events group lands. Still missing: the usage pauses
+(`may_start` is never called, so a run calls agents while the usage guard
+refuses), the interrupts (`await_review`, resuming a held thread) and the
+events that resume a thread. One difference from the classic runner: the
 `chore:` commit of uncommitted work before each review round is not made, as
-every step already ends in its own commit; (2) the nodes never call
-`may_start` (no usage check before the run, before an agent step, or after an
-implementation that added nothing) and never consult `upstream_incomplete` or
-the hold before a step, so a run on the graph engine calls agents while the
-usage guard refuses or an upstream unit is incomplete. Both arrive with the
-usage-pause interrupts and the routes into `held`.
+every step already ends in its own commit.
 `ABK_ENGINE=graph` still does not drive a unit through `run_unit`: a tick
 starts a thread whose nodes do no work, and the classic engine is the default
 and the only one that builds. This document is what the
@@ -142,11 +137,16 @@ flowchart TD
     review -->|rounds spent| push
     rework --> checks
     tier1 -->|passed, no commits of its own| satisfied
-    tier1 -->|passed, after a clean move| tier2
+    tier1 -->|passed, after a clean move, tier 2 unit| tier2
+    tier1 -->|passed, after a clean move| push
+    tier1 -->|passed, on its base| verify_base
     tier1 -->|failed| failed
     tier1 -->|failed or changed approval after a move| prepare
+    prepare -->|approved tip, tier 2 unit| tier2
     tier2 -->|passed| verify_base
+    tier2 -->|passed, after a clean move| push
     tier2 -->|failed| failed
+    tier2 -->|failed after a move| prepare
     verify_base -->|base moved, clean| tier1
     verify_base -->|base moved, conflicts| prepare
     verify_base -->|on its base| push
