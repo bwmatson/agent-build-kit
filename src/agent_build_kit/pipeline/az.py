@@ -59,12 +59,14 @@ class AzError(RuntimeError):
     """An `az` call that did not answer. Never a quiet empty result.
 
     `stderr` is the host's answer alone, when there was one: the message also
-    carries the command line, which can hold a title or description.
+    carries the command line, which can hold a title or description. `status`
+    is the HTTP status of a refused REST call, else 0.
     """
 
-    def __init__(self, message: str, *, stderr: str = "") -> None:
+    def __init__(self, message: str, *, stderr: str = "", status: int = 0) -> None:
         super().__init__(message)
         self.stderr = stderr
+        self.status = status
 
 
 def org_url(account: str) -> str:
@@ -179,7 +181,9 @@ def rest(
         # hid "This pull request already targets ..." behind a failed unit.
         said = _host_message(error)
         detail = f": {said}" if said else ""
-        raise AzError(f"{method} {url}: {error.code} {error.reason}{detail}", stderr=said) from None
+        raise AzError(
+            f"{method} {url}: {error.code} {error.reason}{detail}", stderr=said, status=error.code
+        ) from None
     except OSError as error:
         raise AzError(f"{method} {url}: {error}") from None
     if not text:

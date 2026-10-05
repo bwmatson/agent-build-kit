@@ -703,7 +703,7 @@ class AzureDevOpsForge:
         wanted = {name.casefold() for name in family} - {label.name.casefold()}
         for item in present:
             if item["name"].casefold() in wanted:
-                self._delete_label(repo, pr, item, run, open_url)
+                self.remove_label(repo, pr, item["name"], run=run, open_url=open_url)
 
     def remove_label(
         self,
@@ -714,13 +714,16 @@ class AzureDevOpsForge:
         run: Run | None = None,
         open_url: az.OpenUrl | None = None,
     ) -> None:
-        """Untag by id: a name with `:` in the path is refused by the host."""
-        for item in self._labels(repo, pr, run, open_url):
-            if item["name"].casefold() == name.casefold():
-                self._delete_label(repo, pr, item, run, open_url)
+        """Untag by name, one request with nothing looked up first. A label
+        that is not there returns normally; any other refusal raises."""
+        try:
+            az.rest("DELETE", self._labels_url(repo, pr, name), run=run, open_url=open_url)
+        except az.AzError as error:
+            if error.status != 404:
+                raise
 
-    def _labels_url(self, repo: RepoId, pr: int, label_id: str = "") -> str:
-        tail = f"/{quote(label_id)}" if label_id else ""
+    def _labels_url(self, repo: RepoId, pr: int, name: str = "") -> str:
+        tail = f"/{quote(name, safe='')}" if name else ""
         return f"{self._api(repo)}/pullRequests/{pr}/labels{tail}?api-version={_API}"
 
     def _labels(
@@ -731,11 +734,6 @@ class AzureDevOpsForge:
         answer = az.rest("GET", self._labels_url(repo, pr), run=run, open_url=open_url)
         values = answer.get("value") if isinstance(answer, dict) else None
         return [item for item in values or [] if isinstance(item, dict) and item.get("name")]
-
-    def _delete_label(
-        self, repo: RepoId, pr: int, item: dict, run: Run | None, open_url: az.OpenUrl | None
-    ) -> None:
-        az.rest("DELETE", self._labels_url(repo, pr, str(item["id"])), run=run, open_url=open_url)
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.

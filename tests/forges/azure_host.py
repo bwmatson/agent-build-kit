@@ -131,11 +131,7 @@ class AzureLabelsHost:
             return _Response(held)
         if method == "DELETE" and rest.startswith("labels/"):
             key = rest.removeprefix("labels/")
-            by_id = next((x for x in labels if x["id"] == key), None)
-            by_name = next((x for x in labels if x["name"].casefold() == key.casefold()), None)
-            if by_id is None and by_name is not None and ":" in key:
-                raise _refused(request, 400, "Bad Request", "The label name is not valid")
-            gone = by_id or by_name
+            gone = next((x for x in labels if x["name"].casefold() == key.casefold()), None)
             if gone is None:
                 raise _refused(request, 404, "Not Found", "The label does not exist")
             labels.remove(gone)

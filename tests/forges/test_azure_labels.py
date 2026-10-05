@@ -1,7 +1,7 @@
 """The Azure DevOps forge's label writes, as the REST calls each one sends.
 
 Mirrors `test_github_labels.py`. The host is a stand-in at the wire: it keeps
-labels unique case-insensitively, deletes by id, and keeps them off the single
+labels unique case-insensitively, deletes by name, and keeps them off the single
 pull request document, as the real one does.
 """
 
@@ -13,6 +13,7 @@ import pytest
 
 from agent_build_kit.forges.azure_devops import FORGE
 from agent_build_kit.forges.base import Label, RepoId
+from agent_build_kit.pipeline.az import AzError
 from agent_build_kit.settings import settings
 from tests.forges.azure_host import AzureLabelsHost
 
@@ -89,14 +90,14 @@ def test_the_current_labels_come_from_the_labels_endpoint(monkeypatch: pytest.Mo
     assert host.names(7) == ["held"]
 
 
-def test_removing_a_label_with_a_colon_goes_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_removing_a_label_is_one_delete_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
     host = install(monkeypatch, AzureLabelsHost({7: ["needs:review", "bug"]}))
 
     FORGE.remove_label(REPO, 7, "needs:review")
 
     assert host.names(7) == ["bug"]
-    [(method, path)] = host.writes()
-    assert method == "DELETE" and "needs" not in path
+    [(method, path)] = host.requests
+    assert method == "DELETE" and path.endswith("/labels/needs:review")
 
 
 def test_removing_a_label_that_is_gone_returns_normally(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,5 +105,12 @@ def test_removing_a_label_that_is_gone_returns_normally(monkeypatch: pytest.Monk
 
     FORGE.remove_label(REPO, 7, "agent-rework")
 
-    assert host.writes() == []
+    assert [method for method, _ in host.requests] == ["DELETE"]
     assert host.names(7) == ["bug"]
+
+
+def test_a_refused_removal_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    install(monkeypatch, AzureLabelsHost({7: ["bug"]}, refuse="no rights"))
+
+    with pytest.raises(AzError, match="403"):
+        FORGE.remove_label(REPO, 7, "bug")
