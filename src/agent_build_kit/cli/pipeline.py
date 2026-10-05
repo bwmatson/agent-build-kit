@@ -47,6 +47,7 @@ from agent_build_kit.pipeline.events import (
     build_fetch_check_logs,
     build_fetch_review,
     build_remove_worktree,
+    build_rerun_checks,
     build_restack,
     build_retarget,
 )
@@ -1107,6 +1108,7 @@ def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
         delete_branch=named(build_delete_branch(checkouts)),
         fetch_review=build_fetch_review(),
         fetch_checks=build_fetch_check_logs(),
+        rerun_checks=build_rerun_checks(),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         claim=build_claim(inst.state_dir / "locks"),

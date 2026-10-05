@@ -191,6 +191,9 @@ class LimitsConfig(Frozen):
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
+    # How many times a head commit's cancelled checks are re-run before the
+    # host is taken to be cancelling them for good.
+    max_check_reruns: Annotated[int, Field(ge=0)] = 2
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

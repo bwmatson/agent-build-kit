@@ -44,7 +44,8 @@ _FIELDS = (
     "number,headRefName,baseRefName,state,isDraft,mergedAt,labels,comments,"
     "statusCheckRollup,reviewDecision,reviews,mergeable"
 )
-_FAILING = ("FAILURE", "TIMED_OUT", "CANCELLED")
+_FAILING = ("FAILURE", "TIMED_OUT")
+_CANCELLED = ("CANCELLED",)
 _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 # A failed Actions run, and the timestamp prefix its log lines carry.
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
@@ -298,6 +299,13 @@ class GitHubForge:
                     if str(check.get("conclusion", "")).upper() in _FAILING
                 )
             ),
+            cancelled_checks=tuple(
+                sorted(
+                    str(check.get("name", ""))
+                    for check in checks
+                    if str(check.get("conclusion", "")).upper() in _CANCELLED
+                )
+            ),
             # UNKNOWN is what GitHub says until it has worked the answer out.
             mergeable=_MERGEABLE.get(str(pull.get("mergeable") or "")),
         )
@@ -390,6 +398,32 @@ class GitHubForge:
         node = str(made.get("node_id", "")) if isinstance(made, dict) else ""
         return [node] if node else []
 
+    def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
+        """Re-run the workflow runs behind the cancelled checks, their cancelled
+        jobs included."""
+        slug = key(repo)
+        _, runs = self._runs_with(slug, pull.number, _CANCELLED)
+        for run in runs:
+            result = gh(["gh", "run", "rerun", run, "--repo", slug, "--failed"], slug=slug)
+            if result.returncode:
+                raise RuntimeError(f"gh run rerun {run} ({slug}): {result.stderr.strip()}")
+
+    def _runs_with(
+        self, slug: str, pr: int, conclusions: Collection[str]
+    ) -> tuple[list[dict], list[str]]:
+        """The checks of a pull request that ended as one of `conclusions`, and
+        the workflow runs they belong to."""
+        raw = gh_json(
+            ["gh", "pr", "view", str(pr), "--repo", slug, "--json", "statusCheckRollup"],
+            default={},
+        )
+        checks = raw.get("statusCheckRollup") or [] if isinstance(raw, dict) else []
+        found = [c for c in checks if str(c.get("conclusion", "")).upper() in conclusions]
+        runs = sorted(
+            {m["run"] for c in found if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
+        )
+        return found, runs
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         """The failed CI jobs' logs, for the rework that fixes them.
 
@@ -399,15 +433,7 @@ class GitHubForge:
         if not pull.failing_checks:
             return ""
         slug = key(repo)
-        raw = gh_json(
-            ["gh", "pr", "view", str(pull.number), "--repo", slug, "--json", "statusCheckRollup"],
-            default={},
-        )
-        checks = raw.get("statusCheckRollup") or [] if isinstance(raw, dict) else []
-        failed = [c for c in checks if str(c.get("conclusion", "")).upper() in _FAILING]
-        runs = sorted(
-            {m["run"] for c in failed if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
-        )
+        failed, runs = self._runs_with(slug, pull.number, _FAILING)
         names = ", ".join(str(c.get("name")) for c in failed)
         parts = []
         for run in runs:

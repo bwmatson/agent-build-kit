@@ -93,6 +93,7 @@ limits:
   max_adapt_rounds: 2         # adapt-step accounting asks, first included,
                               # before a unit fails
   max_plan_attempts: 3        # times one tasks.md is sent to the planner
+  max_check_reruns: 2         # re-runs of a head commit's cancelled checks
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet               # Claude Code's alias, sent to any runtime as

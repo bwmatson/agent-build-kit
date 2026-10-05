@@ -67,6 +67,10 @@ _MERGEABLE = {"succeeded": True, "conflicts": False}
 # waiting, and `approved` and `notApplicable` are passing.
 _POLICY_FAILING = ("rejected", "broken")
 
+# How a build says it was cancelled, in its `result`. The policy evaluation says
+# only `rejected`, so the build is asked.
+_BUILD_CANCELLED = "canceled"
+
 # The policy type of build validation. `az repos pr policy list` evaluates every
 # policy on the target branch - reviewers, work item linking, comments, status -
 # and a pull request waiting for its approval is `rejected` on those too, which
@@ -330,6 +334,9 @@ class AzureDevOpsForge:
     def _said_on(self, repo: RepoId, pull: PullRequest, *, run: Run | None = None) -> PullRequest:
         """The pull request with what was said on it, for the poller to diff."""
         notes = _notes(self._threads(repo, pull.number, run=run), live_only=False)
+        failing_evaluations, cancelled_evaluations = self._split_evaluations(
+            repo, pull.number, run=run
+        )
         failing = tuple(
             sorted(
                 [
@@ -337,19 +344,44 @@ class AzureDevOpsForge:
                     for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
                     if str(status.get("state") or "") in _FAILING
                 ]
-                + [
-                    _policy_name(item)
-                    for item in self._failing_evaluations(repo, pull.number, run=run)
-                ]
+                + [_policy_name(item) for item in failing_evaluations]
             )
         )
+        cancelled = tuple(sorted(_policy_name(item) for item in cancelled_evaluations))
         return pull.model_copy(
             update={
                 "conversation": tuple(note.id for note in notes),
                 "comment_bodies": tuple(note.body for note in notes),
                 "failing_checks": failing,
+                "cancelled_checks": cancelled,
             }
         )
+
+    def _split_evaluations(
+        self, repo: RepoId, pr: int, *, run: Run | None = None
+    ) -> tuple[list[dict], list[dict]]:
+        """The failing build evaluations, apart from those whose build was cancelled.
+
+        Both are `rejected` on the policy; only the build says which it was.
+        An evaluation with no build to ask about is a failure.
+        """
+        failing: list[dict] = []
+        cancelled: list[dict] = []
+        for item in self._failing_evaluations(repo, pr, run=run):
+            build = (item.get("context") or {}).get("buildId")
+            if build and self._build_result(repo, build, run=run) == _BUILD_CANCELLED:
+                cancelled.append(item)
+            else:
+                failing.append(item)
+        return failing, cancelled
+
+    def _build_result(self, repo: RepoId, build: object, *, run: Run | None = None) -> str:
+        found = az.json_out(
+            ["pipelines", "runs", "show", "--id", str(build), "--project", repo.project],
+            org=az.org_url(repo.account),
+            run=run,
+        )
+        return str(found.get("result") or "") if isinstance(found, dict) else ""
 
     def _failing_evaluations(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
         """The build policy evaluations this pull request is failing.
@@ -640,6 +672,25 @@ class AzureDevOpsForge:
                 error,
             )
 
+    def rerun_checks(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> None:
+        """Queue the build policy evaluations whose build was cancelled again."""
+        _, cancelled = self._split_evaluations(repo, pull.number, run=run)
+        for item in cancelled:
+            az.json_out(
+                [
+                    "repos",
+                    "pr",
+                    "policy",
+                    "queue",
+                    "--id",
+                    str(pull.number),
+                    "--evaluation-id",
+                    str(item.get("evaluationId")),
+                ],
+                org=az.org_url(repo.account),
+                run=run,
+            )
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> str:
         """What the failing checks said, for the rework that fixes them.
 
@@ -656,7 +707,8 @@ class AzureDevOpsForge:
             for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
             if str(status.get("state") or "") in _FAILING
         ]
-        for item in self._failing_evaluations(repo, pull.number, run=run):
+        failing, _ = self._split_evaluations(repo, pull.number, run=run)
+        for item in failing:
             build = (item.get("context") or {}).get("buildId")
             parts.append(
                 f"{_policy_name(item)} - build policy {item.get('status')}"

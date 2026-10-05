@@ -55,6 +55,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `post_comment(repo, pr, body)` | rework, restack | ditto, for a note about the PR itself |
 | `post_status(repo, sha, ok, ..., head)` | the tier 2 gate | publish a result against the tested commit; a host that shows statuses on the pull request also gets it there, found from `head` |
 | `failed_check_logs(repo, pull)` | rework | what the failing checks said |
+| `rerun_checks(repo, pull)` | `events` | run `pull.cancelled_checks` again: GitHub re-runs the workflow runs behind them, Azure DevOps requeues the build policy evaluations whose build was cancelled |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
 | `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |
 | `add_label(repo, pr, label)` | state labels | put the label on, creating it in the repo first if missing; raises if the host refuses |

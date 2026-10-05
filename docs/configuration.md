@@ -143,6 +143,8 @@ limits:
   max_adapt_rounds: 2           # adapt-step accounting asks, first included,
                                 # before a unit fails
   max_plan_attempts: 3          # planner attempts per version of a tasks.md
+  max_check_reruns: 2           # re-runs of a head commit's cancelled checks
+                                # before the host is left cancelling them
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under
