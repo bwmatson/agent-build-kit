@@ -40,14 +40,6 @@ def no_real_unit_directory(
 
 
 @pytest.fixture(autouse=True)
-def no_cached_azure_token() -> None:
-    """The access token is cached for the process; no test inherits another's."""
-    from agent_build_kit.pipeline import az
-
-    az.forget_token()
-
-
-@pytest.fixture(autouse=True)
 def no_real_login_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refreshing the login is a real `claude` call. A test that means to
     exercise it injects `refresh=`; anything else reaching it fails. Patched

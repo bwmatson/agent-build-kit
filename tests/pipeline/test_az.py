@@ -20,7 +20,6 @@ import pytest
 
 from agent_build_kit.pipeline import az
 from agent_build_kit.settings import settings
-from tests.forges import azure_answers
 
 
 def recorded(stdout: str = "", returncode: int = 0):
@@ -188,7 +187,7 @@ def test_a_pat_authenticates_as_basic(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_without_a_pat_a_token_is_fetched_through_az(monkeypatch: pytest.MonkeyPatch) -> None:
     """The other supported way to be authenticated: the `az` sign-in session."""
     monkeypatch.setattr(settings, "ado_pat", "")
-    run, calls = recorded(azure_answers.access_token("a-token"))
+    run, calls = recorded("a-token\n")
     seen: list = []
 
     az.rest(
@@ -235,75 +234,3 @@ def test_a_refused_call_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(az.AzError, match="403"):
         az.rest("PATCH", "https://dev.azure.com/acme/_apis/x", open_url=refuses)
-
-
-def test_five_calls_ask_the_runner_for_a_token_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "ado_pat", "")
-    run, calls = recorded(azure_answers.access_token("a-token", seconds_left=3600))
-    seen: list = []
-
-    for _ in range(5):
-        az.rest("GET", "https://dev.azure.com/acme/_apis/x", run=run, open_url=opener(seen=seen))
-
-    assert len([c for c in calls if c["args"][:3] == ["az", "account", "get-access-token"]]) == 1
-    assert [r.get_header("Authorization") for r in seen] == ["Bearer a-token"] * 5
-
-
-def test_a_token_with_thirty_seconds_left_is_fetched_again(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "ado_pat", "")
-    answers = iter(
-        [
-            azure_answers.access_token("old", seconds_left=30),
-            azure_answers.access_token("new", seconds_left=3600),
-        ]
-    )
-    calls: list = []
-
-    def run(args, **kwargs):
-        calls.append(args)
-        return subprocess.CompletedProcess(args, 0, next(answers), "")
-
-    seen: list = []
-    for _ in range(3):
-        az.rest("GET", "https://dev.azure.com/acme/_apis/x", run=run, open_url=opener(seen=seen))
-
-    assert len(calls) == 2, "the expiring token was fetched again, the fresh one was kept"
-    assert [r.get_header("Authorization") for r in seen] == ["Bearer old", "Bearer new"] + [
-        "Bearer new"
-    ]
-
-
-def test_a_personal_access_token_is_never_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "ado_pat", "a-secret")
-    run, calls = recorded(azure_answers.access_token("a-token"))
-
-    for _ in range(3):
-        az.rest("GET", "https://dev.azure.com/acme/_apis/x", run=run, open_url=opener())
-
-    assert calls == []
-
-
-def _fetches_over_three_calls(monkeypatch: pytest.MonkeyPatch, printed: str) -> int:
-    monkeypatch.setattr(settings, "ado_pat", "")
-    run, calls = recorded(printed)
-    for _ in range(3):
-        az.rest("GET", "https://dev.azure.com/acme/_apis/x", run=run, open_url=opener())
-    return len([c for c in calls if c["args"][:3] == ["az", "account", "get-access-token"]])
-
-
-def test_a_cli_printing_only_local_expires_on_is_still_cached(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    printed = json.loads(azure_answers.access_token("a-token", seconds_left=3600))
-    del printed["expires_on"]
-
-    assert _fetches_over_three_calls(monkeypatch, json.dumps(printed)) == 1
-
-
-def test_a_token_with_no_expiry_is_never_reused(monkeypatch: pytest.MonkeyPatch) -> None:
-    printed = json.loads(azure_answers.access_token("a-token"))
-    del printed["expires_on"], printed["expiresOn"]
-
-    assert _fetches_over_three_calls(monkeypatch, json.dumps(printed)) == 3

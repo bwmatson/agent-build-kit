@@ -1,116 +1,175 @@
-"""The Azure DevOps forge's label writes, as the REST calls each one sends.
+"""The Azure DevOps forge's label writes, as the `az devops invoke` calls each sends.
 
-Mirrors `test_github_labels.py`. The host is a stand-in at the wire: it keeps
+Mirrors `test_github_labels.py`. The runner is a stand-in at the wire: it keeps
 labels unique case-insensitively, deletes by name, and keeps them off the single
-pull request document, as the real one does.
+pull request document, as the real host does. The CLI handles credentials, so
+no label call fetches a token or makes a REST request of its own.
 """
 
 from __future__ import annotations
 
-import urllib.request
+import json
+from pathlib import Path
 
 import pytest
 
 from agent_build_kit.forges.azure_devops import FORGE
 from agent_build_kit.forges.base import Label, RepoId
 from agent_build_kit.pipeline.az import AzError
-from agent_build_kit.settings import settings
 from tests.forges.azure_host import AzureLabelsHost
 
 REPO = RepoId(forge="azure_devops", account="example", project="Proj", name="app")
 STATE_FAMILY = ("planned", "running", "in-review", "held")
-LABELS = "/example/Proj/_apis/git/repositories/app/pullRequests/7/labels"
 HELD = Label(name="held", color="d97706")
 
 
-def install(monkeypatch: pytest.MonkeyPatch, host: AzureLabelsHost) -> AzureLabelsHost:
-    monkeypatch.setattr(settings, "ado_pat", "a-secret")
-    monkeypatch.setattr(urllib.request, "urlopen", host.open_url)
-    return host
+def never_opened(*args, **kwargs):
+    pytest.fail("a label call went out over REST")
+
+
+def invoke(method: str, *route: str) -> list[str]:
+    """The argv a label call is expected to send, less the body file."""
+    return [
+        "az",
+        "devops",
+        "invoke",
+        "--area",
+        "git",
+        "--resource",
+        "pullRequestLabels",
+        "--route-parameters",
+        "project=Proj",
+        "repositoryId=app",
+        "pullRequestId=7",
+        *route,
+        "--http-method",
+        method,
+        "--api-version",
+        "7.1",
+        "--org",
+        "https://dev.azure.com/example",
+        "--output",
+        "json",
+    ]
+
+
+def add(host: AzureLabelsHost, label: Label) -> None:
+    FORGE.add_label(REPO, 7, label, run=host, open_url=never_opened)
+
+
+def move(host: AzureLabelsHost, label: Label) -> None:
+    FORGE.set_exclusive_label(REPO, 7, label, family=STATE_FAMILY, run=host, open_url=never_opened)
+
+
+def remove(host: AzureLabelsHost, name: str) -> None:
+    FORGE.remove_label(REPO, 7, name, run=host, open_url=never_opened)
 
 
 def test_a_label_is_added(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost())
+    host = AzureLabelsHost()
+    bodies: list[object] = []
+    ask = host.__call__
 
-    FORGE.add_label(REPO, 7, Label(name="change-feature", color="2563eb"))
+    def reading(args, **kwargs):
+        bodies.append(json.loads(Path(args[args.index("--in-file") + 1]).read_text()))
+        return ask(args, **kwargs)
+
+    FORGE.add_label(REPO, 7, Label(name="change-feature", color="2563eb"), run=reading)
 
     assert host.names(7) == ["change-feature"]
-    assert host.writes() == [("POST", LABELS)]
+    [call] = host.calls
+    in_file = call.index("--in-file")
+    assert call[:in_file] + call[in_file + 2 :] == invoke("post")
+    assert bodies == [{"name": "change-feature"}]
 
 
-def test_adding_it_again_in_another_case_leaves_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["in-review"]}))
+def test_adding_it_again_in_another_case_leaves_one() -> None:
+    host = AzureLabelsHost({7: ["in-review"]})
 
-    FORGE.add_label(REPO, 7, Label(name="In-Review", color="2563eb"))
+    add(host, Label(name="In-Review", color="2563eb"))
 
     assert [name.casefold() for name in host.names(7)] == ["in-review"]
 
 
-def test_a_colour_and_a_description_are_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost())
+def test_a_colour_and_a_description_are_not_an_error() -> None:
+    host = AzureLabelsHost()
 
-    FORGE.add_label(REPO, 7, Label(name="running", color="d97706", description="Building"))
+    add(host, Label(name="running", color="d97706", description="Building"))
 
     assert host.names(7) == ["running"]
 
 
-def test_the_state_label_moves_and_leaves_the_rest(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["in-review", "change-feature", "bug"]}))
+def test_the_state_label_moves_and_leaves_the_rest() -> None:
+    host = AzureLabelsHost({7: ["in-review", "change-feature", "bug"]})
 
-    FORGE.set_exclusive_label(REPO, 7, HELD, family=STATE_FAMILY)
+    move(host, HELD)
 
     assert sorted(host.names(7)) == ["bug", "change-feature", "held"]
-    assert [method for method, _ in host.writes()] == ["POST", "DELETE"]
+    assert [call[call.index("--http-method") + 1] for call in host.calls] == [
+        "get",
+        "post",
+        "delete",
+    ]
+    assert host.calls[2] == invoke("delete", "labelIdOrName=in-review")
 
 
-def test_a_family_member_in_another_case_is_still_removed(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["In-Review"]}))
+def test_a_family_member_in_another_case_is_still_removed() -> None:
+    host = AzureLabelsHost({7: ["In-Review"]})
 
-    FORGE.set_exclusive_label(REPO, 7, HELD, family=STATE_FAMILY)
+    move(host, HELD)
 
     assert host.names(7) == ["held"]
 
 
-def test_a_state_already_there_writes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["held", "bug"]}))
+def test_a_state_already_there_writes_nothing() -> None:
+    host = AzureLabelsHost({7: ["held", "bug"]})
 
-    FORGE.set_exclusive_label(REPO, 7, HELD, family=STATE_FAMILY)
+    move(host, HELD)
 
     assert host.writes() == []
 
 
-def test_the_current_labels_come_from_the_labels_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_current_labels_come_from_one_list_call() -> None:
     """The host's pull request document carries none, so a writer that trusted
     it would leave `in-review` beside `held`."""
-    host = install(monkeypatch, AzureLabelsHost({7: ["in-review"]}))
+    host = AzureLabelsHost({7: ["in-review"]})
 
-    FORGE.set_exclusive_label(REPO, 7, HELD, family=STATE_FAMILY)
+    move(host, HELD)
 
-    assert ("GET", LABELS) in host.requests
+    assert host.calls[0] == invoke("get")
+    assert [call for call in host.calls if "get" in call].count(host.calls[0]) == 1
     assert host.names(7) == ["held"]
 
 
-def test_removing_a_label_is_one_delete_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["needs:review", "bug"]}))
+def test_removing_a_label_is_one_delete_by_name() -> None:
+    host = AzureLabelsHost({7: ["needs:review", "bug"]})
 
-    FORGE.remove_label(REPO, 7, "needs:review")
+    remove(host, "needs:review")
 
     assert host.names(7) == ["bug"]
-    [(method, path)] = host.requests
-    assert method == "DELETE" and path.endswith("/labels/needs:review")
+    assert host.calls == [invoke("delete", "labelIdOrName=needs:review")]
 
 
-def test_removing_a_label_that_is_gone_returns_normally(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["bug"]}))
+def test_removing_a_label_that_is_gone_returns_normally() -> None:
+    host = AzureLabelsHost({7: ["bug"]})
 
-    FORGE.remove_label(REPO, 7, "agent-rework")
+    remove(host, "agent-rework")
 
-    assert [method for method, _ in host.requests] == ["DELETE"]
+    assert len(host.calls) == 1
     assert host.names(7) == ["bug"]
 
 
-def test_a_refused_removal_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    install(monkeypatch, AzureLabelsHost({7: ["bug"]}, refuse="no rights"))
+def test_a_refused_removal_raises() -> None:
+    host = AzureLabelsHost({7: ["bug"]}, refuse="TF401027: no rights")
 
-    with pytest.raises(AzError, match="403"):
-        FORGE.remove_label(REPO, 7, "bug")
+    with pytest.raises(AzError, match="no rights"):
+        remove(host, "bug")
+
+
+def test_no_access_token_is_requested() -> None:
+    host = AzureLabelsHost({7: ["in-review"]})
+
+    move(host, HELD)
+    remove(host, "held")
+
+    assert not [call for call in host.calls if "get-access-token" in call]

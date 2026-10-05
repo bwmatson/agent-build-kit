@@ -13,11 +13,8 @@ reaching for a resource nobody expected is the thing under test.
 
 from __future__ import annotations
 
-import io
 import json
 import subprocess
-import urllib.error
-import urllib.parse
 from pathlib import Path
 
 from tests.forges import azure_answers
@@ -82,15 +79,15 @@ class AzureHost:
 
 
 class AzureLabelsHost:
-    """The pull request labels endpoints, answering at the wire.
+    """The pull request labels resource, answering `az devops invoke` at the wire.
 
-    `open_url` stands in for `urlopen`: it receives the request `az.rest`
-    builds and answers with the raw JSON the service sends. What it keeps of
+    It is the runner: it receives the argv the forge builds and the body file
+    it writes, and answers with the raw JSON the service sends. What it keeps of
     the real service: a label is `{id, name, active}`, unique case-insensitively
     (adding `In-Review` to a pull request carrying `in-review` answers with the
-    one it has), and removed by id; a name containing `:` in the path is
-    refused by the host's path check. The single pull request document does not
-    carry labels, as the host's does not.
+    one it has), and removed by name; removing one the pull request does not
+    carry exits non-zero with "could not be found". The single pull request
+    document does not carry labels, as the host's does not.
     """
 
     def __init__(self, labels: dict[int, list[str]] | None = None, *, refuse: str = "") -> None:
@@ -99,67 +96,49 @@ class AzureLabelsHost:
         self._next = 0
         for number, names in (labels or {}).items():
             self._labels[number] = [self._made(name) for name in names]
-        self.requests: list[tuple[str, str]] = []
+        self.calls: list[list[str]] = []
 
     def names(self, number: int) -> list[str]:
         return [label["name"] for label in self._labels.get(number, [])]
 
-    def writes(self) -> list[tuple[str, str]]:
-        """Every request that changed something."""
-        return [(method, path) for method, path in self.requests if method != "GET"]
+    def writes(self) -> list[list[str]]:
+        """Every call that changed something."""
+        return [call for call in self.calls if _flag(call, "--http-method") != "get"]
 
-    def open_url(self, request, timeout=None) -> _Response:
-        method = request.get_method()
-        path = urllib.parse.unquote(urllib.parse.urlsplit(request.full_url).path)
-        self.requests.append((method, path))
-        _, _, tail = path.partition("/pullRequests/")
-        number, _, rest = tail.partition("/")
-        pull = int(number)
-        labels = self._labels.setdefault(pull, [])
-        if rest == "":
-            return _Response({"pullRequestId": pull, "status": "active"})
-        if method == "GET" and rest == "labels":
-            return _Response({"count": len(labels), "value": list(labels)})
-        if method != "GET" and self.refuse:
-            raise _refused(request, 403, "Forbidden", self.refuse)
-        if method == "POST" and rest == "labels":
-            name = json.loads(request.data.decode())["name"]
-            held = next((x for x in labels if x["name"].casefold() == name.casefold()), None)
+    def __call__(self, args: list[str], **kwargs) -> subprocess.CompletedProcess:
+        self.calls.append(args)
+        if args[1:3] != ["devops", "invoke"] or "pullRequestLabels" not in args:
+            raise AssertionError(f"the stand-in host was not expecting {' '.join(args)}")
+        method = _flag(args, "--http-method")
+        labels = self._labels.setdefault(int(_route(args, "pullRequestId")), [])
+        if method == "get":
+            return _ok(args, {"count": len(labels), "value": list(labels)})
+        if self.refuse:
+            return subprocess.CompletedProcess(args, 1, "", self.refuse)
+        if method == "post":
+            name = _body(args)["name"]
+            held = _find(labels, name)
             if held is None:
                 held = self._made(name)
                 labels.append(held)
-            return _Response(held)
-        if method == "DELETE" and rest.startswith("labels/"):
-            key = rest.removeprefix("labels/")
-            gone = next((x for x in labels if x["name"].casefold() == key.casefold()), None)
+            return _ok(args, held)
+        if method == "delete":
+            gone = _find(labels, _route(args, "labelIdOrName"))
             if gone is None:
-                raise _refused(request, 404, "Not Found", "The label does not exist")
+                return subprocess.CompletedProcess(
+                    args, 1, "", "TF401088: The label could not be found."
+                )
             labels.remove(gone)
-            return _Response(None)
-        raise AssertionError(f"the stand-in host was not expecting {method} {path}")
+            return subprocess.CompletedProcess(args, 0, "", "")
+        raise AssertionError(f"the stand-in host was not expecting {' '.join(args)}")
 
     def _made(self, name: str) -> dict:
         self._next += 1
         return {"id": f"00000000-0000-0000-0000-{self._next:012d}", "name": name, "active": True}
 
 
-class _Response:
-    def __init__(self, body: object) -> None:
-        self.text = "" if body is None else json.dumps(body)
-
-    def read(self) -> bytes:
-        return self.text.encode()
-
-    def __enter__(self) -> _Response:
-        return self
-
-    def __exit__(self, *exc) -> None:
-        return None
-
-
-def _refused(request, code: int, reason: str, message: str) -> urllib.error.HTTPError:
-    body = io.BytesIO(json.dumps({"message": message}).encode())
-    return urllib.error.HTTPError(request.full_url, code, reason, {}, body)  # type: ignore[arg-type]
+def _find(labels: list[dict], name: str) -> dict | None:
+    return next((x for x in labels if x["name"].casefold() == name.casefold()), None)
 
 
 def _ok(args: list[str], payload: object) -> subprocess.CompletedProcess:

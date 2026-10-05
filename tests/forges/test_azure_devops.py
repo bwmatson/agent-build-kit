@@ -293,8 +293,8 @@ def test_retargeting_goes_through_the_rest_api() -> None:
         return _Answer("{}")
 
     def token(args, **kwargs):
-        """`az account get-access-token` prints the token and when it expires."""
-        return subprocess.CompletedProcess(args, 0, azure_answers.access_token("a-token"), "")
+        """`az account get-access-token ... -o tsv` prints the token bare."""
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
 
     # `run` as well as `open_url`: without it the call falls through to a real
     # `az account get-access-token`, which passes on a machine that happens to
@@ -320,7 +320,7 @@ def test_a_pull_request_already_on_the_branch_is_not_retargeted() -> None:
         return _Answer(json.dumps({"targetRefName": "refs/heads/dev"}))
 
     def token(args, **kwargs):
-        return subprocess.CompletedProcess(args, 0, azure_answers.access_token("a-token"), "")
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
 
     FORGE.update_pr(REPO, 41, base="dev", run=token, open_url=open_url)
 
@@ -343,7 +343,7 @@ def test_a_refusal_from_azure_says_what_azure_said() -> None:
         )
 
     def token(args, **kwargs):
-        return subprocess.CompletedProcess(args, 0, azure_answers.access_token("a-token"), "")
+        return subprocess.CompletedProcess(args, 0, "a-token\n", "")
 
     with pytest.raises(az.AzError) as raised:
         az.rest(

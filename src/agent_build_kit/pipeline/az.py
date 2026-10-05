@@ -26,12 +26,10 @@ import json
 import os
 import subprocess
 import tempfile
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.settings import settings
@@ -42,14 +40,6 @@ OpenUrl = Callable[..., object]
 # Azure DevOps' own application id, for `az account get-access-token`.
 _RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
 
-# A cached token is dropped this long before it expires, so one never lapses
-# in flight.
-_TOKEN_MARGIN = 60
-
-# The access token the `az` session gave, with the epoch second it expires at.
-# One per process: every REST call used to start an `az` process for its own.
-_token: tuple[str, float] | None = None
-
 # Long enough for a slow answer, short enough that a wedged call does not hold
 # a tick open.
 _TIMEOUT = 30
@@ -59,14 +49,12 @@ class AzError(RuntimeError):
     """An `az` call that did not answer. Never a quiet empty result.
 
     `stderr` is the host's answer alone, when there was one: the message also
-    carries the command line, which can hold a title or description. `status`
-    is the HTTP status of a refused REST call, else 0.
+    carries the command line, which can hold a title or description.
     """
 
-    def __init__(self, message: str, *, stderr: str = "", status: int = 0) -> None:
+    def __init__(self, message: str, *, stderr: str = "") -> None:
         super().__init__(message)
         self.stderr = stderr
-        self.status = status
 
 
 def org_url(account: str) -> str:
@@ -181,9 +169,7 @@ def rest(
         # hid "This pull request already targets ..." behind a failed unit.
         said = _host_message(error)
         detail = f": {said}" if said else ""
-        raise AzError(
-            f"{method} {url}: {error.code} {error.reason}{detail}", stderr=said, status=error.code
-        ) from None
+        raise AzError(f"{method} {url}: {error.code} {error.reason}{detail}", stderr=said) from None
     except OSError as error:
         raise AzError(f"{method} {url}: {error}") from None
     if not text:
@@ -195,12 +181,6 @@ def rest(
             f"{method} {url}: answered with something that is not JSON "
             f"(a sign-in page means the call was not authenticated): {text[:120]}"
         ) from None
-
-
-def forget_token() -> None:
-    """Drop the cached access token, so the next REST call asks for one."""
-    global _token
-    _token = None
 
 
 def _host_message(error: urllib.error.HTTPError) -> str:
@@ -221,44 +201,18 @@ def _authorization(run: Run | None = None) -> str:
     """A PAT as the password of an empty user, or the `az` session's token."""
     if settings.ado_pat:
         return "Basic " + base64.b64encode(f":{settings.ado_pat}".encode()).decode()
-    global _token
-    if _token and _token[1] - time.time() > _TOKEN_MARGIN:
-        return f"Bearer {_token[0]}"
     execute = run or subprocess.run
     result = execute(
-        ["az", "account", "get-access-token", "--resource", _RESOURCE, "--output", "json"],
+        ["az", "account", "get-access-token", "--resource", _RESOURCE,
+         "--query", "accessToken", "-o", "tsv"],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         check=False,
         env=env(),
-    )
-    token, expires = _parse_token(result.stdout or "")
+    )  # fmt: skip
+    token = (result.stdout or "").strip()
     if result.returncode or not token:
         raise AzError("no Azure DevOps credential: set AZURE_DEVOPS_EXT_PAT, or run `az login`")
-    _token = (token, expires)
     return f"Bearer {token}"
-
-
-def _parse_token(text: str) -> tuple[str, float]:
-    """The token and its expiry (epoch seconds) from `get-access-token`'s JSON.
-
-    `expires_on` is epoch seconds; older CLIs print only `expiresOn`, in local
-    time. With neither, the expiry is now, so the token is not reused.
-    """
-    try:
-        parsed = json.loads(text)
-        token = str(parsed["accessToken"])
-    except (ValueError, KeyError, TypeError):
-        return "", 0.0
-    try:
-        return token, float(parsed["expires_on"])
-    except (KeyError, ValueError, TypeError):
-        pass
-    try:
-        return token, datetime.strptime(
-            str(parsed["expiresOn"]), "%Y-%m-%d %H:%M:%S.%f"
-        ).timestamp()
-    except (KeyError, ValueError):
-        return token, 0.0

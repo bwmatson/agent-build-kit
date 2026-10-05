@@ -6,7 +6,7 @@ wire; and a forge that has no labels, which still says so once.
 
 from __future__ import annotations
 
-import urllib.request
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -36,7 +36,7 @@ def azure_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: AzureLabelsHost, logged: list[str]
 ) -> UnitStore:
     monkeypatch.setattr(settings, "ado_pat", "a-secret")
-    monkeypatch.setattr(urllib.request, "urlopen", host.open_url)
+    monkeypatch.setattr(subprocess, "run", host)
     return store_over(StateLabels(lambda repo: (FORGE, REPO), log=logged.append), tmp_path)
 
 
@@ -62,7 +62,7 @@ def test_a_refused_label_write_is_logged_and_the_unit_goes_on(tmp_path: Path, mo
     store.set_state("add-marker/1", "held")
 
     assert store.get("add-marker/1").state == "held"
-    assert any("failed" in line and "403" in line for line in logged), logged
+    assert any("failed" in line and "you need permission" in line for line in logged), logged
     assert not any("no labels" in line for line in logged), logged
 
 
