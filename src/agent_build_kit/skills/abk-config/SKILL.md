@@ -13,7 +13,8 @@ should know about how they relate — lives in `abk.yaml` in the planning
 repo and nowhere else. The framework knows nothing about any particular
 installation; a fact that belongs to one goes here, not in a prompt, a skill
 or a script. Machine-local values (tokens, a worktree root override, model
-overrides, `ABK_RUNTIME`) go in the planning repo's `.env`, which is not
+overrides, `ABK_RUNTIME`, the telemetry switch `ABK_OTEL_ENABLED` and its
+`OTEL_*` endpoints) go in the planning repo's `.env`, which is not
 committed.
 
 The schema is strict: an unknown key fails at load. `abk config --show`
@@ -161,6 +162,7 @@ is 1 when anything failed.
 | runtime | The selected runtime is not implemented, or its agent command is not on PATH. |
 | runtime coverage (warn) | The runtime sees only some of the agent's tool calls (`agent_flagged` or `none`). |
 | runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is `runtimes.<name>.policy_fix`. `abk init` offers to run it. The answer is reused for 15 minutes. It also fails when the check could not be run because the runtime raised (e.g. its usage window is spent); nothing is cached, so run doctor again once the runtime can answer. It warns, unchecked, when the agent command does not resolve; fix the `runtime` check first. |
+| telemetry (warn) | `ABK_OTEL_ENABLED` is set but there is no traces or metrics endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal `..._TRACES_ENDPOINT` / `..._METRICS_ENDPOINT`), or one does not answer. Only checked when enabled. |
 | ssh key | A `deploy.ssh_key` does not exist. |
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. `abk init --update-rules` adds what they added to the end of the `context:` and restamps the file, changing nothing else. |

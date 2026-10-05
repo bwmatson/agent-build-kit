@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import socket
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from agent_build_kit import (
     __version__,
@@ -33,6 +35,7 @@ from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_ve
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes import policy_check
+from agent_build_kit.settings import settings
 
 Run = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], str | None]
@@ -497,6 +500,52 @@ def _skills(inst: Installation) -> list[Check]:
 # --- the run ---------------------------------------------------------------------------
 
 
+def _reachable(endpoint: str) -> bool:
+    parsed = urlparse(endpoint)
+    host = parsed.hostname
+    if not host:
+        return False
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+def _telemetry() -> list[Check]:
+    """Telemetry is off by default; when it is on, a missing or unreachable
+    endpoint is a warning, never a failure, since a tick runs regardless."""
+    if not settings.otel_enabled:
+        return []
+    shared = settings.otel_exporter_otlp_endpoint
+    endpoints = {
+        "traces": settings.otel_exporter_otlp_traces_endpoint or shared,
+        "metrics": settings.otel_exporter_otlp_metrics_endpoint or shared,
+    }
+    checks = []
+    for signal, endpoint in endpoints.items():
+        name = f"telemetry {signal}"
+        if not endpoint:
+            checks.append(
+                _warn(
+                    name,
+                    "ABK_OTEL_ENABLED is set but no endpoint is",
+                    f"set OTEL_EXPORTER_OTLP_{signal.upper()}_ENDPOINT "
+                    "or OTEL_EXPORTER_OTLP_ENDPOINT",
+                )
+            )
+        elif not _reachable(endpoint):
+            checks.append(
+                _warn(
+                    name, f"{endpoint} does not answer", "start the collector, or fix the endpoint"
+                )
+            )
+        else:
+            checks.append(_ok(name, endpoint))
+    return checks
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -533,6 +582,7 @@ def run_doctor(
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)
     checks += _skills(inst)
+    checks += _telemetry()
     return checks
 
 
