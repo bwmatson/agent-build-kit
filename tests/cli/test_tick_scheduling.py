@@ -26,7 +26,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
-from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitRunner
+from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
@@ -156,7 +156,9 @@ class Builder:
             self.store.set_state(unit.id, PLANNED, note=note)
         with self._lock:
             self.finished.append(unit.id)
-        return RunOutcome(status=status, detail=f"{status} {unit.id}", pr=pr)
+        return RunOutcome(
+            status=RunStatus(status.split()[0].rstrip(":")), detail=f"{status} {unit.id}", pr=pr
+        )
 
 
 @pytest.fixture
