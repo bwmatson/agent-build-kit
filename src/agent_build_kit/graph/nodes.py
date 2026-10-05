@@ -253,7 +253,8 @@ class BuildPath:
         """A progress line, for the tick log and the unit's run log."""
         line = f"{self._node}: {message}"
         self.runner.log(line)
-        if self.run_log:
+        # The tick's logger already copies the line, stamped, into its run log.
+        if self.run_log and not self.runner.log_reaches_run_log:
             self.run_log.emit(line)
 
     def stop(self, reason: str) -> Update:

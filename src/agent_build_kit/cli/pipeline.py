@@ -1227,6 +1227,7 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                     installation=inst,
                     record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
                     log=say,
+                    log_reaches_run_log=True,
                 )
                 outcome = run_unit_thread(
                     inst, runner, unit, base=base, graph=graph, run_log=run_log

@@ -992,6 +992,9 @@ class UnitRunner(BaseModel):
     # Each step as it starts and how it ended, so the tick log says where a
     # unit has got to rather than going quiet for the length of a build.
     log: Callable[[str], None] = lambda message: None
+    # True when `log` already copies each line into the unit's run log, so a
+    # step writing to the run log as well would put the line there twice.
+    log_reaches_run_log: bool = False
 
     def boundary_notes(self, unit: Unit, graph: list[StoredUnit]) -> tuple[str, str]:
         """What the build prompts and the reviewer are told belongs to later
