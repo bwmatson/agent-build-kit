@@ -69,12 +69,12 @@ def test_every_unit_is_named_for_its_installation(tmp_path: Path) -> None:
 
 def test_a_name_systemd_would_refuse_is_made_safe(tmp_path: Path) -> None:
     """A checkout directory may be called anything at all; a unit name may not."""
-    planning = planning_at(tmp_path, "AI%20Accelerators meta")
+    planning = planning_at(tmp_path, "Plan%20Dir meta")
 
     names = timers.unit_names(planning)
 
     assert all(set(name) <= set(timers.SAFE_CHARACTERS) for name in names), names
-    assert "abk-AI-20Accelerators-meta-tick.service" in names
+    assert "abk-Plan-20Dir-meta-tick.service" in names
 
 
 # --- several installations ----------------------------------------------------------

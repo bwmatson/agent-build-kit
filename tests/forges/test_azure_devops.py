@@ -299,12 +299,21 @@ def test_retargeting_goes_through_the_rest_api() -> None:
     # `run` as well as `open_url`: without it the call falls through to a real
     # `az account get-access-token`, which passes on a machine that happens to
     # be signed in and fails everywhere else.
+    other = RepoId(forge="azure_devops", account="acme", project="Other Project", name="Other Repo")
     FORGE.update_pr(REPO, 41, base="main", run=token, open_url=open_url)
+    first = seen[-1]
+    FORGE.update_pr(other, 41, base="main", run=token, open_url=open_url)
+    second = seen[-1]
 
-    request = seen[-1]
+    assert first.full_url != second.full_url
+    assert "/Some%20Project/_apis/git/repositories/Some%20Repo/" in first.full_url
+    assert "Other" not in first.full_url
+    assert "/Other%20Project/_apis/git/repositories/Other%20Repo/" in second.full_url
+    assert "Some" not in second.full_url
+
+    request = first
     assert request.get_method() == "PATCH"
     assert json.loads(request.data.decode()) == {"targetRefName": "refs/heads/main"}
-    assert "/AI%20Accelerators" not in request.full_url, "this repo names no installation"
     assert request.full_url.endswith("/pullRequests/41?api-version=7.1")
     assert "/Some%20Project/_apis/git/repositories/Some%20Repo" in request.full_url
     assert request.get_header("Authorization") == "Bearer a-token"

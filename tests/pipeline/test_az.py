@@ -118,7 +118,7 @@ def test_an_empty_answer_is_an_empty_answer() -> None:
 
 
 def test_the_organisation_url_is_built_from_the_account_name() -> None:
-    assert az.org_url("3CInternalAI") == "https://dev.azure.com/3CInternalAI"
+    assert az.org_url("example") == "https://dev.azure.com/example"
 
 
 def test_the_call_asks_az_for_utf_8() -> None:
