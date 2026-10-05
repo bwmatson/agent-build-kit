@@ -160,14 +160,29 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
     """
     units: list[Unit] = []
     current: list[dict] = []
+    # The unit the next chained group depends on. An independent group is
+    # outside the chain: it neither takes this tail nor moves it.
+    tail: str | None = None
+    independent_seen = False
 
     def flush() -> None:
+        nonlocal tail, independent_seen
         if not current:
             return
-        number = len(units) + 1
+        unit_id = f"{change}/{len(units) + 1}"
+        alone = bool(current[0].get("independent"))
+        # A group that exercises or removes what the others built waits for
+        # every earlier unit once any of them is off the chain.
+        waits_for_all = current[0].get("flag") in ("acceptance", "narrow") and independent_seen
+        if alone:
+            depends_on: tuple[str, ...] = ()
+        elif waits_for_all:
+            depends_on = tuple(u.id for u in units)
+        else:
+            depends_on = (tail,) if tail else ()
         units.append(
             Unit(
-                id=f"{change}/{number}",
+                id=unit_id,
                 change=change,
                 title=current[0]["title"]
                 if len(current) == 1
@@ -178,13 +193,20 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
                 tier="tier2" if any(g["tier"] == "tier2" for g in current) else "tier1",
                 estimated_lines=sum(g["estimated_lines"] for g in current),
                 groups=tuple(g["number"] for g in current),
-                depends_on=(units[-1].id,) if units else (),
+                depends_on=depends_on,
             )
         )
+        if alone:
+            independent_seen = True
+        else:
+            tail = unit_id
         current.clear()
 
     for group in groups:
-        if current and group["repo"] != current[0]["repo"]:
+        independent = bool(group.get("independent"))
+        # Joining is a form of ordering, so an independent group is joined
+        # neither to the unit before it nor to the one after.
+        if current and (independent or group["repo"] != current[0]["repo"]):
             flush()
 
         size = sum(g["estimated_lines"] for g in current) + group["estimated_lines"]
@@ -194,7 +216,7 @@ def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: in
 
         current.append(group)
 
-        if group.get("fans_out") or size >= min_lines:
+        if independent or group.get("fans_out") or size >= min_lines:
             flush()
 
     flush()

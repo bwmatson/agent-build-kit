@@ -107,7 +107,8 @@ repo and tier; a straight line (the later depends on the earlier, nothing else
 does, the later waits on nothing else unfinished); both unstarted; no
 `[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:`;
 the estimates together at or under `limits.max_unit_lines`. Joins are checked in
-order against a copy of the store, so three units in a line can become one in a
+order against a copy of the store (a group marked `Independent: <reason>` depends
+on no earlier group of its change, and is never joined into a neighbour's unit), so three units in a line can become one in a
 round. On the write each join is applied under both units' branch locks with
 "unstarted" read again; a unit that has started since drops that join alone, the
 rest of the plan is written, and the change is planned again next round. A group
