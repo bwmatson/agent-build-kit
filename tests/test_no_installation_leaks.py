@@ -24,6 +24,8 @@ TEXT = {".py", ".md", ".yaml", ".yml", ".toml", ".service", ".timer", ".tmpl", "
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
 # Upstream projects the framework builds on and credits; not installations.
 UPSTREAM_OWNERS = ("fission-ai",)
+# Azure DevOps organisations a fixture may use.
+FIXTURE_AZURE_ORGS = ("acme", "example", "o", "org")
 
 # A product's config directory under the home directory; the agent runtime's
 # own, and the XDG/ssh conventions, are the framework's business.
@@ -32,6 +34,7 @@ HOME_PRODUCT_DIR = re.compile(
 )
 HOME_PATH = re.compile(r"(?<![\w/])~/(?!\.(?:claude|local|config|cache|ssh|volta)\b)|/home/[a-z]")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
+AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
 ANECDOTE = re.compile(r"(?<![\w/.])[a-z][a-z0-9-]{2,}#\d{1,4}\b")
 DATED_ANECDOTE = re.compile(
@@ -84,6 +87,39 @@ def test_every_github_slug_belongs_to_a_fixture_owner() -> None:
                     and match["owner"].lower() not in UPSTREAM_OWNERS
                 ):
                     offending.append(f"{path.relative_to(ROOT)}:{number}: {match.group(0)}")
+    assert offending == []
+
+
+def _foreign_azure_orgs(text: str) -> list[str]:
+    return [
+        match["org"] for match in AZURE_ORG.finditer(text) if match["org"] not in FIXTURE_AZURE_ORGS
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "caught"),
+    [
+        ("https://dev.azure.com/contoso-real/Project/_git/Repo", ["contoso-real"]),
+        ("https://dev.azure.com/example/Project/_git/Repo", []),
+        ("git@ssh.dev.azure.com:v3/contoso-real/Project/Repo", ["contoso-real"]),
+        ("git@ssh.dev.azure.com:v3/acme/Project/Repo", []),
+        ("https://acme@dev.azure.com/contoso-real/Project", ["contoso-real"]),
+    ],
+)
+def test_the_azure_organisation_rule_sees_a_foreign_organisation(
+    text: str, caught: list[str]
+) -> None:
+    assert _foreign_azure_orgs(text) == caught
+
+
+def test_every_azure_organisation_belongs_to_a_fixture() -> None:
+    offending = []
+    for path in _files():
+        if path == Path(__file__):
+            continue
+        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
+            if _foreign_azure_orgs(line):
+                offending.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()[:100]}")
     assert offending == []
 
 
