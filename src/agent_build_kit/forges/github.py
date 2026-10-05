@@ -390,6 +390,9 @@ class GitHubForge:
         node = str(made.get("node_id", "")) if isinstance(made, dict) else ""
         return [node] if node else []
 
+    def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
+        raise NotImplementedError
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         """The failed CI jobs' logs, for the rework that fixes them.
 

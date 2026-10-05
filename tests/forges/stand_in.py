@@ -186,6 +186,9 @@ class StandInForge:
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         return self.logs
 
+    def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
+        pass
+
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         self.deleted.append(branch)
 

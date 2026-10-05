@@ -191,6 +191,7 @@ class LimitsConfig(Frozen):
     max_adapt_rounds: Annotated[int, Field(ge=1)] = 2
     # How many times one version of a tasks.md is sent to the planner.
     max_plan_attempts: int = 3
+    max_check_reruns: int = 0
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

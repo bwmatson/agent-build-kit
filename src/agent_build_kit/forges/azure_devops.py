@@ -640,6 +640,9 @@ class AzureDevOpsForge:
                 error,
             )
 
+    def rerun_checks(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> None:
+        raise NotImplementedError
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> str:
         """What the failing checks said, for the rework that fixes them.
 

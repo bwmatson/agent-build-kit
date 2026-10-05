@@ -79,6 +79,8 @@ class PullRequest(Frozen):
     comment_bodies: tuple[str, ...] = ()
     review_decision: str = ""
     failing_checks: tuple[str, ...] = ()
+    # Checks the host cancelled: neither a pass nor a verdict on the commit.
+    cancelled_checks: tuple[str, ...] = ()
     # Whether the host says the branch merges into its base; None while the
     # host has not worked it out, which is not a conflict.
     mergeable: bool | None = None
@@ -272,6 +274,10 @@ class Forge(RegistersStacks, Protocol):
         ...
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str: ...
+
+    def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
+        """Ask the host to run `pull`'s cancelled checks again."""
+        ...
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None: ...
 

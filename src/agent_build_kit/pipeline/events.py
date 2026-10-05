@@ -763,6 +763,20 @@ def on_rework(
     return taken
 
 
+def on_rerun_checks(
+    pr: int,
+    *,
+    repo: str,
+    pull: PullRequest,
+    store: UnitStore,
+    rerun: Callable[[PullRequest], None],
+    log: Log = print,
+) -> bool:
+    """Ask the host to run a unit's cancelled checks again, without an agent,
+    up to `limits.max_check_reruns` times per head commit."""
+    raise NotImplementedError
+
+
 def _not_for_now(
     unit: StoredUnit, *, pr: int, reason: str, waiting: set[tuple[str, str]], log: Log
 ) -> bool | None:
@@ -1147,6 +1161,7 @@ def build_dispatch(
     delete_branch: Callable[..., None] | None = None,
     fetch_review: Callable[..., list[str]] | None = None,
     fetch_checks: Callable[..., str] | None = None,
+    rerun_checks: Callable[..., None] | None = None,
     claim: Claim = _unclaimed,
     retarget: Callable[[StoredUnit, str], None] | None = None,
     rebase_cap: int | None = None,
