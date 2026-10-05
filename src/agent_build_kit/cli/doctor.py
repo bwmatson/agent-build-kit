@@ -11,13 +11,18 @@ the checks are tested against recorded answers rather than this machine.
 from __future__ import annotations
 
 import argparse
+import re
+import shlex
 import shutil
 import socket
 import subprocess
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
+
+import yaml
 
 from agent_build_kit import (
     __version__,
@@ -408,6 +413,179 @@ def _gaps(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
+def _normalized(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _requirement_names(items: object) -> set[str]:
+    """The package names in a list of requirement strings; anything else is empty."""
+    if not isinstance(items, list):
+        return set()
+    return {
+        _normalized(m.group(0))
+        for item in items
+        if isinstance(item, str) and (m := re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", item.strip()))
+    }
+
+
+def _pyproject_tools(pyproject: Path) -> tuple[set[str], set[str]]:
+    """The package names the repo's dependency groups hold, and every command
+    `uv run` can start there besides those: the project's own name and scripts,
+    its dependencies and optional dependencies, and the interpreter."""
+    try:
+        data = tomllib.loads(pyproject.read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return set(), set()
+    groups = data.get("dependency-groups", {})
+    project = data.get("project", {})
+    locked: set[str] = set()
+    for group in groups.values() if isinstance(groups, dict) else []:
+        locked |= _requirement_names(group)
+    if not isinstance(project, dict):
+        return locked, set()
+    others = _requirement_names(project.get("dependencies"))
+    extras = project.get("optional-dependencies", {})
+    for extra in extras.values() if isinstance(extras, dict) else []:
+        others |= _requirement_names(extra)
+    scripts = project.get("scripts", {})
+    if isinstance(scripts, dict):
+        others |= {_normalized(str(key)) for key in scripts}
+    if isinstance(project.get("name"), str):
+        others.add(_normalized(project["name"]))
+    return locked, others
+
+
+def _is_python(tool: str) -> bool:
+    return re.fullmatch(r"python(3(\.\d+)?)?", tool) is not None
+
+
+_UV_RUN_VALUE_FLAGS = frozenset(
+    {
+        "--package",
+        "--group",
+        "--only-group",
+        "--python",
+        "-p",
+        "--with",
+        "--with-requirements",
+        "--with-editable",
+        "--project",
+        "--directory",
+        "--extra",
+        "--env-file",
+        "--index",
+        "--default-index",
+        "--index-url",
+        "--extra-index-url",
+        "--config-file",
+        "--cache-dir",
+        "--no-install-package",
+        "--no-group",
+        "--no-extra",
+        "--exclude-newer",
+        "--resolution",
+        "--prerelease",
+        "--python-preference",
+        "--link-mode",
+        "--config-setting",
+        "-C",
+        "--upgrade-package",
+        "-P",
+        "--reinstall-package",
+        "--refresh-package",
+    }
+)
+
+
+def _hook_repo_tools(hook_repo: dict, hooks: list[dict]) -> set[str]:
+    """The tool names a hook repository provides: its basename without a
+    `-pre-commit` suffix or `mirrors-` prefix, and each hook id that is a tool
+    name or `<tool>-check` / `<tool>-format`. Whole names, never substrings."""
+    base = _normalized(str(hook_repo.get("repo", "")).rstrip("/").rsplit("/", 1)[-1])
+    base = base.removeprefix("mirrors-").removesuffix("-pre-commit")
+    names = {base}
+    for hook in hooks:
+        hook_id = _normalized(str(hook.get("id", "")))
+        names.add(hook_id)
+        names.add(hook_id.removesuffix("-check").removesuffix("-format"))
+    return names
+
+
+def _uv_run_tool(entry: str) -> str | None:
+    """The command a `uv run ...` hook entry runs, or None for any other entry."""
+    try:
+        words = shlex.split(entry)
+    except ValueError:
+        return None
+    if words[:2] != ["uv", "run"]:
+        return None
+    rest = words[2:]
+    while rest and rest[0].startswith("-"):
+        flag = rest.pop(0)
+        if flag in _UV_RUN_VALUE_FLAGS and rest:
+            rest.pop(0)
+    return _normalized(rest[0]) if rest else None
+
+
+def _python_tools(inst: Installation) -> list[Check]:
+    """A Python tool's version has one owner, the lock: warn when a hook
+    repository pins one the dependency group also holds, and when a system hook
+    runs one the group does not hold."""
+    checks = []
+    for name, repo in inst.repos.items():
+        path = repo.path.expanduser()
+        hooks_file = path / ".pre-commit-config.yaml"
+        if not (path / "pyproject.toml").is_file() or not hooks_file.is_file():
+            continue
+        try:
+            hook_repos = (yaml.safe_load(hooks_file.read_text()) or {}).get("repos") or []
+        except (OSError, yaml.YAMLError):
+            continue
+        locked, others = _pyproject_tools(path / "pyproject.toml")
+        pinned: set[str] = set()
+        orphaned: set[str] = set()
+        for hook_repo in hook_repos:
+            if not isinstance(hook_repo, dict):
+                continue
+            hook_list = hook_repo.get("hooks")
+            hooks = (
+                [h for h in hook_list if isinstance(h, dict)] if isinstance(hook_list, list) else []
+            )
+            if hook_repo.get("repo") == "local":
+                for hook in hooks:
+                    tool = _uv_run_tool(str(hook.get("entry", "")))
+                    runnable = locked | others
+                    if (
+                        hook.get("language") == "system"
+                        and tool
+                        and tool not in runnable
+                        and not _is_python(tool)
+                    ):
+                        orphaned.add(tool)
+            elif hook_repo.get("rev"):
+                pinned |= locked & _hook_repo_tools(hook_repo, hooks)
+        for tool in sorted(pinned):
+            checks.append(
+                _warn(
+                    f"{name} {tool} version",
+                    f"{tool} is pinned in pyproject.toml's dependency group and by a hook "
+                    f"`rev` in .pre-commit-config.yaml, so two versions can disagree",
+                    f"run {tool} from a `repo: local`, `language: system` hook "
+                    f"(`uv run --frozen {tool} ...`) and drop the hook's `rev`",
+                )
+            )
+        for tool in sorted(orphaned):
+            checks.append(
+                _warn(
+                    f"{name} {tool} hook",
+                    f"a `language: system` hook in .pre-commit-config.yaml runs `uv run {tool}`, "
+                    f"but {tool} is not in pyproject.toml's dependency groups, so it fails",
+                    f"add {tool} to the dev dependency group, or fix the hook's entry",
+                )
+            )
+    return checks
+
+
 def _runtime(inst: Installation, which: Which) -> list[Check]:
     """Which runtime the pipeline runs on, whether it can start, how much it
     interposes on, and whether it refuses what abk forbids."""
@@ -599,6 +777,7 @@ def run_doctor(
     checks += _verify_env(inst, run)
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)
+    checks += _python_tools(inst)
     checks += _skills(inst)
     checks += _telemetry()
     return checks

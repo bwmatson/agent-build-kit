@@ -142,7 +142,7 @@ uv sync --group dev
 uv run poe test              # the suite, fixture-only: parallel workers (capped at 8), then a serial pass of tests marked `serial`
 uv run poe test-integration  # needs node: runs the real OpenSpec CLI via npx
 uv run poe test-local-stack  # tier 2: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
-uv run poe format            # pre-commit: ruff, ruff-format, pyrefly, yamllint
+uv run poe format            # pre-commit: ruff, ruff-format, pyrefly (from the lock), yamllint
 uv run poe scrub             # the structural no-installation-leaks check
 ```
 

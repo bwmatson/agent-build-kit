@@ -23,7 +23,7 @@ TEXT = {".py", ".md", ".yaml", ".yml", ".toml", ".service", ".timer", ".tmpl", "
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
 # Upstream projects the framework builds on and credits; not installations.
-UPSTREAM_OWNERS = ("fission-ai",)
+UPSTREAM_OWNERS = ("fission-ai", "astral-sh", "facebook", "adrienverge", "pre-commit")
 # Azure DevOps organisations a fixture may use.
 FIXTURE_AZURE_ORGS = ("acme", "example", "o", "org")
 

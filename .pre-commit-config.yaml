@@ -5,11 +5,12 @@
 # Ruff and pyrefly both discover pyproject.toml on their own, so no --config
 # pointer is needed. What stays below is hook plumbing only.
 #
-# Ruff is pinned twice on purpose: the rev here is what CI enforces, and the
-# copy in pyproject.toml's dev group is what your editor uses. `pre-commit
-# autoupdate` bumps the first; bump the second to match, or the editor stops
-# agreeing with CI. Pyrefly's settings live in pyproject.toml ([tool.pyrefly]),
-# because without them it silently drops to a lenient preset.
+# ruff and pyrefly are dev dependencies, so uv.lock owns their versions and the
+# local hooks below run the project's copy (`uv run --frozen`, which builds the
+# environment from the lock on a fresh clone). They carry no `rev`: a second pin
+# would be a second version to keep equal. Hooks for tools that are not project
+# dependencies keep their `rev`. Pyrefly's settings live in pyproject.toml
+# ([tool.pyrefly]), because without them it silently drops to a lenient preset.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -28,8 +29,7 @@ repos:
       - id: yamllint
         args: [--strict]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.8
+  - repo: local
     hooks:
       # Format first, lint second. The other order fails a commit over a line
       # the formatter would have wrapped one hook later — `E501` on a 105-column
@@ -39,18 +39,22 @@ repos:
       # The residual case is a `--fix` that leaves something unformatted, which
       # the next run formats; that one is self-healing, and the one above was not.
       - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        require_serial: true
+        types_or: [python, pyi, jupyter]
       # --fix is hook behavior, not lint config: a bare `ruff check` in the
       # editor should report, not rewrite.
       - id: ruff
-        args: [--fix]
-
-  - repo: https://github.com/facebook/pyrefly-pre-commit
-    rev: 1.3.1
-    hooks:
+        name: ruff check
+        entry: uv run --frozen ruff check --fix
+        language: system
+        require_serial: true
+        types_or: [python, pyi, jupyter]
       - id: pyrefly-check
-        # pre-commit runs this from its own isolated venv, which holds pyrefly
-        # and nothing else. Without this, pydantic-settings resolves to nothing
-        # and every value typed by it degrades to `object`. Path is relative to
-        # the repo root, which is pre-commit's working directory.
-        args: [--python-interpreter-path, .venv/bin/python]
+        name: pyrefly check
+        entry: uv run --frozen pyrefly check
+        language: system
+        pass_filenames: false
         files: ^(src|tests)/
