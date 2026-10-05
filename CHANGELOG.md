@@ -9,6 +9,12 @@
   new `rerun_checks` operation runs them again with no agent, up to `limits.max_check_reruns`
   (default 2) per head commit, counted on the stored unit. `FAILURE` and `TIMED_OUT` still rework.
 
+- The lock owns the Python tool versions. This repo's ruff and pyrefly hooks are `repo: local`
+  hooks running `uv run --frozen`, with no `rev` and no interpreter-path argument, so the locked
+  version is the one tier 1, CI and the editor run. `abk doctor` warns when a tool is pinned in
+  both the dependency group and a hook `rev`, and when a `language: system` hook runs a tool the
+  group does not hold. The Python recommendations seed describes the arrangement.
+
 - Tier 1 type-checks `tests` in a unit's worktree. The pre-commit hook pinned pyrefly 1.2.0, which
   dropped the `tests` include in a worktree under the pipeline's state directory, so a unit's
   checks passed on test files CI then failed. The hook and the dev pin are 1.3.1.

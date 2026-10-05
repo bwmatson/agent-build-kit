@@ -19,8 +19,10 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev deps
-        # Populates .venv, which the pyrefly hook points at.
-        run: uv sync --group dev
+        # Populates .venv from the lock, which the ruff and pyrefly hooks run;
+        # --locked fails a lock that pyproject.toml has moved past, instead of
+        # re-resolving it to versions a local commit would not run.
+        run: uv sync --locked --group dev
       - name: Run pre-commit
         run: uv run pre-commit run --all-files --show-diff-on-failure
 

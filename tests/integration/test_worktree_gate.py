@@ -28,7 +28,14 @@ pytestmark = pytest.mark.integration
 REPO = Path(__file__).resolve().parents[2]
 
 # What the repository's gate is made of: its hooks and the tool settings they read.
-GATE_FILES = (".pre-commit-config.yaml", "pyproject.toml", ".yamllint", ".gitignore")
+GATE_FILES = (
+    ".pre-commit-config.yaml",
+    "pyproject.toml",
+    "uv.lock",
+    "README.md",
+    ".yamllint",
+    ".gitignore",
+)
 
 # Formatted differently from how ruff-format writes it, and correct otherwise: the
 # formatter must change it, and the linter and type checker then read the result.
@@ -53,6 +60,10 @@ def _worktree_of_a_fixture_repo(tmp_path: Path) -> Path:
     for name in GATE_FILES:
         shutil.copy(REPO / name, repo / name)
     (repo / "src" / "probe").mkdir(parents=True)
+    # The hooks run the lock's tools through `uv run --frozen`, which builds the
+    # project the lock describes; this is the package pyproject.toml names.
+    (repo / "src" / "agent_build_kit").mkdir()
+    (repo / "src" / "agent_build_kit" / "__init__.py").write_text("")
     (repo / "src" / "probe" / "__init__.py").write_text("")
     (repo / "tests").mkdir()
     (repo / "tests" / ".keep").write_text("")
@@ -64,9 +75,6 @@ def _worktree_of_a_fixture_repo(tmp_path: Path) -> Path:
 
     tree = tmp_path / "worktree"
     git(repo, "worktree", "add", "-q", "-b", "spec/probe/1", str(tree))
-    # The gate points pyrefly at the repo's own interpreter; a build has synced
-    # one into its worktree, and this stands for it.
-    (tree / ".venv").symlink_to(sys.prefix, target_is_directory=True)
     return tree
 
 

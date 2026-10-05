@@ -16,8 +16,8 @@ check that a repo follows it.
   **Tool:** `ruff format` (ruff ≥ 0.16), line length 100.
   **Why:** a single formatter removes every formatting comment from review;
   100 columns fits two panes and leaves room for descriptive names.
-  **Verify:** `uv run ruff format --check .` exits 0; `[tool.ruff]` has
-  `line-length = 100`.
+  **Verify:** `uv run pre-commit run ruff-format --all-files` exits 0;
+  `[tool.ruff]` has `line-length = 100`.
 
 ## Linting
 
@@ -28,7 +28,7 @@ check that a repo follows it.
   `UP` keeps syntax current with `requires-python`, `B` flags the bug-shaped
   patterns (mutable defaults, unused loop variables).
   **Verify:** `[tool.ruff.lint] select = ["E", "F", "I", "UP", "B"]`;
-  `uv run ruff check .` exits 0.
+  `uv run pre-commit run ruff --all-files` exits 0.
 
 ## Types
 
@@ -39,17 +39,20 @@ check that a repo follows it.
   **Why:** a checker that sees each member's source root resolves imports
   the way the interpreter does; without the search path it silently degrades
   to a lenient preset and reports nothing.
-  **Verify:** `uv run pyrefly check` exits 0; `[tool.pyrefly]` lists
+  **Verify:** `uv run pre-commit run pyrefly-check --all-files` exits 0; `[tool.pyrefly]` lists
   `python-version` and `search-path`.
 
-- **Rule:** the pre-commit hook for the type checker points at the project's
-  own interpreter.
-  **Tool:** pyrefly's pre-commit hook with `--python-interpreter-path
-  .venv/bin/python`.
-  **Why:** pre-commit runs hooks from an isolated environment that holds the
-  checker and nothing else, so third-party types resolve to nothing.
-  **Verify:** `.pre-commit-config.yaml`'s pyrefly hook carries the argument
-  and CI runs `uv sync` before pre-commit.
+- **Rule:** the formatter, linter and type checker are dependencies in the
+  dev group and the lock owns their versions; their hooks run the project's
+  copy, so no hook carries a version of its own.
+  **Tool:** `repo: local` hooks with `language: system` and an entry of
+  `uv run --frozen <tool> ...`; no `rev` for them. The hook ids are
+  `ruff-format`, `ruff` and `pyrefly-check`, the ids the verify steps run.
+  **Why:** a version pinned in the lock and again as a hook `rev` is two
+  things to keep equal, and a hook in an isolated environment cannot see the
+  project's packages, so third-party types resolve to nothing.
+  **Verify:** `.pre-commit-config.yaml` has no hook repository for these
+  tools; `uv run pre-commit run pyrefly-check --all-files` exits 0 after `uv sync`.
 
 ## Test layout & tiers
 
@@ -130,7 +133,9 @@ check that a repo follows it.
 ## Pre-commit
 
 - **Rule:** pre-commit runs the basic hygiene hooks, yamllint in strict mode,
-  ruff, ruff-format and the type checker; CI runs the same config.
+  ruff, ruff-format and the type checker; CI runs the same config. The Python
+  tools run from the lock through local hooks (`uv run --frozen`); only tools
+  that are not project dependencies keep a hook `rev`.
   **Tool:** pre-commit ≥ 4; pre-commit-hooks ≥ 6.0 (`trailing-whitespace`,
   `end-of-file-fixer`, `check-toml`, `check-merge-conflict`,
   `check-added-large-files`); yamllint ≥ 1.38 with `--strict` and a
