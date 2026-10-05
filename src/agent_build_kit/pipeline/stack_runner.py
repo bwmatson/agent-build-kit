@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Collection, Sequence
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 
@@ -894,8 +895,16 @@ def check_test_decisions(
     return problems
 
 
+class RunStatus(StrEnum):
+    OPEN = "open"
+    PAUSED = "paused"
+    HELD = "held"
+    SATISFIED = "satisfied"
+    FAILED = "failed"
+
+
 class RunOutcome(Frozen):
-    status: str  # "open" | "paused" | "held" | "satisfied" | "failed"
+    status: RunStatus
     detail: str
     pr: int | None = None
 
@@ -985,7 +994,7 @@ class UnitRunner(BaseModel):
         if not allowed:
             # Before anything else: pausing here costs nothing, while pausing
             # after the first run leaves a worktree and a half-built unit.
-            return RunOutcome(status="paused", detail=why)
+            return RunOutcome(status=RunStatus.PAUSED, detail=why)
 
         branch = branch_name(unit)
         build_boundary, review_boundary = self.boundary_notes(unit, graph)
@@ -1069,7 +1078,7 @@ class UnitRunner(BaseModel):
                 note=f"paused before {next_step}: {why}",
                 resume_from=next_step,
             )
-            return RunOutcome(status="paused", detail=why)
+            return RunOutcome(status=RunStatus.PAUSED, detail=why)
 
         def checkpoint(next_step: str, *, usage: bool = True) -> RunOutcome | None:
             """Stop before `next_step` if the unit should not go on yet.
@@ -1101,7 +1110,7 @@ class UnitRunner(BaseModel):
                 self.store.set_state(
                     unit.id, PLANNED, note=f"held before {next_step}: {why}", resume_from=next_step
                 )
-                return RunOutcome(status="held", detail=f"held before {next_step} — {why}")
+                return RunOutcome(status=RunStatus.HELD, detail=f"held before {next_step} — {why}")
             if usage:
                 allowed, why = self.may_start()
                 if not allowed:
@@ -1374,7 +1383,9 @@ class UnitRunner(BaseModel):
                         f"— {error}",
                     )
             self.mark_tasks(unit, done=True)
-            return RunOutcome(status="satisfied", detail="already implemented; tier 1 passed")
+            return RunOutcome(
+                status=RunStatus.SATISFIED, detail="already implemented; tier 1 passed"
+            )
 
         snapshot = None
         if unit.tier == "tier2":
@@ -1470,7 +1481,7 @@ class UnitRunner(BaseModel):
             self.store.set_state(
                 unit.id, PLANNED, note=f"not pushed: {moved}", resume_from=REWORK_REVIEW
             )
-            return RunOutcome(status="held", detail=f"re-reviewing: {moved}")
+            return RunOutcome(status=RunStatus.HELD, detail=f"re-reviewing: {moved}")
         self.log(f"pushed {branch} at {sha[:9]}")
 
         # Only now, with the push confirmed: a follow-up recorded ahead of a
@@ -1549,7 +1560,7 @@ class UnitRunner(BaseModel):
         # when a build merely finished. See `task_progress`.
         self.mark_tasks(unit, done=True)
         self.log(f"in review: PR #{pr}")
-        return RunOutcome(status="open", detail=f"opened #{pr}", pr=pr)
+        return RunOutcome(status=RunStatus.OPEN, detail=f"opened #{pr}", pr=pr)
 
     def _review_until_satisfied(
         self,
@@ -1616,7 +1627,7 @@ class UnitRunner(BaseModel):
                 self.store.set_feedback(unit.id, why)
                 self.store.set_state(unit.id, HELD, note=f"needs a human: {why[:300]}")
                 self.log(f"needs a human — held: {' '.join(why.split())[:300]}")
-                return RunOutcome(status="held", detail=f"needs a human: {why[:200]}"), why
+                return RunOutcome(status=RunStatus.HELD, detail=f"needs a human: {why[:200]}"), why
             # A class escalation needs an earlier round to be another instance
             # of; a disagreement needs the builder to have declined a point on
             # an earlier round, so both positions can go on the record. With
@@ -1648,7 +1659,7 @@ class UnitRunner(BaseModel):
                 self.log(f"escalated ({verdict.escalate}) — held: {reasoning_flat}")
                 return (
                     RunOutcome(
-                        status="held",
+                        status=RunStatus.HELD,
                         detail=f"escalated ({verdict.escalate}): {reasoning_flat[:200]}",
                     ),
                     why,
@@ -2089,7 +2100,7 @@ class UnitRunner(BaseModel):
             note=f"rounds spent with work outstanding: {' '.join(why.split())[:300]}",
         )
         self.log(f"held: rounds spent — #{pr}")
-        return RunOutcome(status="held", detail=f"rounds spent, held as #{pr}")
+        return RunOutcome(status=RunStatus.HELD, detail=f"rounds spent, held as #{pr}")
 
     def fetch_quietly(self, unit: Unit) -> None:
         """Bring the repo's remote refs up to date; a failure is logged, not fatal."""
@@ -2120,7 +2131,7 @@ class UnitRunner(BaseModel):
         self.log(f"held: {note}")
         self.store.set_state(unit.id, PLANNED, note=note, resume_from=RESTACK)
         if rebased:
-            return RunOutcome(status="held", detail=note)
+            return RunOutcome(status=RunStatus.HELD, detail=note)
         self.log(f"resuming at its restack on {base}")
         return self.run(unit, base=base, graph=graph, rebased=True)
 
@@ -2130,4 +2141,4 @@ class UnitRunner(BaseModel):
         self.log(f"failed: {detail}")
         self.store.set_state(unit.id, "failed")
         self.mark_tasks(unit, done=False)
-        return RunOutcome(status="failed", detail=detail)
+        return RunOutcome(status=RunStatus.FAILED, detail=detail)

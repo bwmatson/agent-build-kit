@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.stack_runner import EarlierAnswer, Finding, FollowUp
+from agent_build_kit.pipeline.stack_runner import EarlierAnswer, Finding, FollowUp, RunStatus
 
 
 class Node(StrEnum):
@@ -80,6 +80,6 @@ class UnitRun(Frozen):
     produced_nothing: bool = False
     moved: bool = False  # `verify_base` moved the branch onto a new base
     # How the run ended, as `RunOutcome` reports it.
-    status: str = ""
+    status: RunStatus | None = None
     detail: str = ""
     pr: int | None = None

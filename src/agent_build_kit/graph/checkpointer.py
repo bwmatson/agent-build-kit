@@ -21,6 +21,7 @@ ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
     ("agent_build_kit.pipeline.stack_runner", "EarlierAnswer"),
     ("agent_build_kit.pipeline.stack_runner", "Finding"),
     ("agent_build_kit.pipeline.stack_runner", "FollowUp"),
+    ("agent_build_kit.pipeline.stack_runner", "RunStatus"),
 )
 
 

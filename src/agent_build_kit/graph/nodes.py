@@ -28,6 +28,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     TESTS_PROMPT,
     TIER1_FAILED,
+    RunStatus,
     UnitRunner,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -466,7 +467,7 @@ class BuildPath:
         # Done means through the loop, verified and pushed.
         r.mark_tasks(unit, done=True)
         self.say(f"in review: PR #{pr}")
-        return {"status": "open", "detail": f"opened #{pr}", "pr": pr}
+        return {"status": RunStatus.OPEN, "detail": f"opened #{pr}", "pr": pr}
 
     def failed(self, state: UnitRun) -> Update:
         outcome = self.runner.fail(self.unit, state.stopped)

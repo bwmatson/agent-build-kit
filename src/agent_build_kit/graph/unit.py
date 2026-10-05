@@ -49,4 +49,6 @@ async def run_unit(
         None if interrupted else UnitRun(unit_id=unit.id, change=unit.change, groups=unit.groups)
     )
     state = UnitRun.model_validate(await run_thread(compiled, start, unit.id))
+    if state.status is None:
+        raise RuntimeError(f"the thread for {unit.id} ended without a status")
     return RunOutcome(status=state.status, detail=state.detail, pr=state.pr)
