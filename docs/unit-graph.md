@@ -530,7 +530,10 @@ no deprecation window. The callables in `wiring.py` and everything they reach st
     new one;
   - a checkpoint holding every state type loads under the allowlist.
 - **Acceptance:** one real unit built end to end through the graph, reviewed,
-  pushed, opened, then resumed by a real review comment.
+  pushed, opened, then resumed by a real review comment. The live-agent tests
+  read the run log as the graph writes it: lines are `<unit>: <node>: …` with
+  the node names from `graph.state.Node`, and a failing tier 2 leaves the tail
+  of its output there, under the `tier2` prefix.
 
 ## Dependencies
 
