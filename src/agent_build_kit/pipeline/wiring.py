@@ -348,6 +348,7 @@ def build_run_review(
     log: Callable[[str], None] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "review",
+    forge: Forge | None = None,
 ) -> Callable[..., str]:
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
@@ -357,7 +358,9 @@ def build_run_review(
         run=run,
         planning_repo=planning_repo,
         model=model or models().review,
-        allowed_tools=REVIEW_TOOLS,
+        # Reading its pull request is allowed (the review may need what a
+        # comment says in place); nothing that changes the host is.
+        allowed_tools=f"{REVIEW_TOOLS} {forge_read_tools(forge)}" if forge else REVIEW_TOOLS,
         log=log,
         runtime=runtime,
         role=role,
@@ -1569,7 +1572,8 @@ def build_runner(
         with repo_turn():
             return push(branch, cwd=cwd)
 
-    tools = allowed_tools(profile, forges.get(repo.forge))
+    forge = forges.get(repo.forge)
+    tools = allowed_tools(profile, forge)
     run_claude = build_run_claude(planning_repo=planning_repo, allowed_tools=tools, log=log)
     return UnitRunner(
         store=store,
@@ -1587,9 +1591,10 @@ def build_runner(
             log=log,
             role="rework",
         ),
-        run_review=build_run_review(planning_repo=planning_repo, log=log),
+        run_review=build_run_review(planning_repo=planning_repo, log=log, forge=forge),
         run_rework_review=build_run_review(
             planning_repo=planning_repo,
+            forge=forge,
             model=models().rework_review,
             log=log,
             role="rework_review",

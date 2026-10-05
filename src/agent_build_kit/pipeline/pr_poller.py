@@ -42,6 +42,7 @@ REWORK_LABEL = "agent-rework"
 # The `rework` reason for a branch that does not merge into its base.
 # `events.on_rework` recognises it by this value.
 CONFLICT_REASON = "merge conflict with its base"
+FAILING_CHECKS_REASON = "failing checks"
 
 
 def state_path(state_dir: Path, repo: str) -> Path:
@@ -234,7 +235,7 @@ class Poller(BaseModel):
                 "rework",
                 number,
                 pull=pull,
-                reason=f"failing checks: {', '.join(current['failing_checks'])}",
+                reason=f"{FAILING_CHECKS_REASON}: {', '.join(current['failing_checks'])}",
             )
         if current["mergeable"] is False:
             return self.dispatch("rework", number, pull=pull, reason=CONFLICT_REASON)
@@ -259,6 +260,14 @@ class Poller(BaseModel):
 
         labels_added = set(after["labels"]) - set(before.get("labels") or [])
         if HOLD_LABEL in labels_added:
+            # A comment arriving with the hold is not delivered by it, so it
+            # stays new: recorded as seen, it would be lost once the unit is
+            # released, and no later poll would report it.
+            if "comment_ids" in before:
+                after["comment_ids"] = before["comment_ids"]
+            else:
+                after.pop("comment_ids", None)
+            after["last_comment"] = before.get("last_comment")
             return self.dispatch("hold", number, pull=pull)
 
         if REWORK_LABEL in labels_added:
@@ -294,7 +303,10 @@ class Poller(BaseModel):
             # Only newly failing: a check that was already red is not news, and
             # green is the expected state rather than an event.
             return self.dispatch(
-                "rework", number, pull=pull, reason=f"failing checks: {', '.join(newly_failing)}"
+                "rework",
+                number,
+                pull=pull,
+                reason=f"{FAILING_CHECKS_REASON}: {', '.join(newly_failing)}",
             )
 
         if after["mergeable"] is False and before.get("mergeable") is not False:

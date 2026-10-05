@@ -1100,6 +1100,7 @@ def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
         claim=build_claim(inst.state_dir / "locks"),
         retarget=build_retarget(),
         rebase_cap=inst.stack_depth_rebase_cap,
+        waiting_path=inst.state_dir / "held-waiting.json",
         log=log,
     )
     return dispatch

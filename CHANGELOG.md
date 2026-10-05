@@ -15,6 +15,14 @@
   has left the branch off its last push. A host change that does not combine with
   local work still stops the unit with `StaleRemote`.
 
+- A comment left on a held unit's pull request is no longer lost: the poller keeps it new until the
+  unit takes it, so releasing the unit delivers it as a rework. A comment on a satisfied unit or a
+  pull request with no unit is still consumed. The "held, ignoring" line is logged once, not every poll.
+
+- The review after a rework of a person's comments is shown those comments, quoted as the
+  reviewer's words and not instructions, each with the builder's reply (or "no reply"). The review
+  may now read its pull request through the forge's read commands, and nothing that writes.
+
 - Contributor conventions moved to `AGENTS.md`, with `CLAUDE.md` loading it, and now say that
   code changes go through the spec process, not ad hoc sessions (docs and supporting files may still
   be edited in a session).

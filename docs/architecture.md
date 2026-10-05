@@ -225,7 +225,8 @@ binds each step to git, gh and `claude`:
    rework can break the build as easily as the first draft. Nothing runs tier 1 after the review: a reviewer reports and the
    builder fixes, so approval leaves the branch as the checks judged it.
    A read-only reviewer (`Read Grep Glob`, `git diff/log/
-   show`) judges the branch against the repo's `CLAUDE.md` and the change,
+   show`, and the forge's read commands, `gh pr view`/`diff` or `az repos pr
+   show`; nothing that writes) judges the branch against the repo's `CLAUDE.md` and the change,
    told which round this is, how many remain and what running out costs, and
    answers JSON: `approved`, `feedback`, `findings`, `earlier`, `needs_human`,
    `follow_ups`, `escalate`, `reasoning`. Its prompt names its angles — the
@@ -241,7 +242,11 @@ binds each step to git, gh and `claude`:
    the builder's answer, and answers each by id in `earlier` (`fixed`, `open`,
    `declined`) — it cannot approve while one is open or unanswered. A note too
    long for its budget leaves out whole findings, reported-fixed first, and
-   says how many. A reply in the earlier prose shape (no `findings`, no
+   says how many. A review that follows a person's comments is also given
+   those comments, quoted, each with the builder's reply or `(no reply)`, and
+   asked whether the work meets what each meant; an unmet one is a required
+   finding. The comments are kept in their own field until the push, so a
+   resumed run builds the same note. A reply in the earlier prose shape (no `findings`, no
    `earlier`) still works unchanged. It is told the same boundary as the build: a
    finding whose fix belongs to a later group is reported as belonging there,
    not required of this unit, while it keeps its full reach — find everything
@@ -372,7 +377,7 @@ add or push until its resolver finishes. Its tier 1 run happens outside the turn
 | `mergedAt` set | `merged` | unit `merged`; children in the same repo restacked onto their next open parent (or `main`) — a child being built only has its PR retargeted, and its build holds at the next step and restacks itself when it resumes; a merge only cascades within `limits.stack_depth_rebase_cap`: a child deeper than it is `held` with its depth and the cap on its record and the merged branch is kept, and a later merge in the same repo restacks it once its depth falls within the cap (the branch kept for it is left behind afterwards, like any other leftover local branch); a child being built is not held: it is retargeted as above; the merged unit's worktree removed (refused if dirty) and its local branch force-deleted — GitHub squash-merges, so `-d` would refuse — unless a same-repo dependent holds its lock, when the branch is kept. Deferred while the merged unit itself is being built. |
 | closed without merging | `closed` | unit `closed`; nothing cascades to what was stacked on it. Deferred while the unit is being built. |
 | label `agent-hold` added | `hold` | unit `held`; nothing automatic touches it again, and the label stays until a person removes it. Deferred while the unit is being built. |
-| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (on Azure DevOps, `mergeStatus: conflicts`; an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new). A PR first seen already red or already unmergeable is dispatched too. | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit ignores it. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
+| label `agent-rework` added, `reviewDecision` becomes `CHANGES_REQUESTED`, a new comment or submitted review id, a newly failing check, or a pull request that becomes unmergeable (on Azure DevOps, `mergeStatus: conflicts`; an undetermined answer, which the host gives for a while after every push and whenever the base moves, is not a conflict and dispatches nothing; the snapshot keeps the last definite answer through it, so the conflict it resolves back into is not new). A PR first seen already red or already unmergeable is dispatched too. | `rework` | the reviewer's words (review bodies, inline comments still attached to a line, the latest comment) become the unit's feedback and it returns to `planned`; for failing checks the feedback is the failed jobs' logs (`gh run view --log-failed`, the tail); for a conflict it is the conflict alone, and the restack at the start of the run does the rebase. A held unit does not take it: the comment stays new, is delivered as a rework once the unit is released, and the wait is logged once. A comment on a satisfied unit, or on a pull request with no unit, is consumed. Deferred while the unit is being built. A rework asked for by the `agent-rework` label also takes that label off once acted on, so it can be given again; a label that will not come off is left and acted on once. |
 
 **Labels on a pull request** are two families. The `agent-` labels are
 instructions a person sets (`agent-hold`, `agent-rework`); the pipeline reads
@@ -622,6 +627,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |
 | `own-posts.json` | ids of the pipeline's own PR comments and reviews. | a unit reworked over its own reply. |
+| `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-cache.json` | the live usage reading, three-minute TTL. | one endpoint call. |
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |

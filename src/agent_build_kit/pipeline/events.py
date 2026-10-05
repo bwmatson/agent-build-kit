@@ -32,6 +32,7 @@ overwritten by the state the build records when it ends.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
@@ -40,7 +41,7 @@ from pathlib import Path
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
-from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
+from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, FAILING_CHECKS_REASON
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
     Moved,
@@ -624,9 +625,14 @@ def on_rework(
     fetch_review: Callable[[int], list[str]] | None = None,
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
     claim: Claim = _unclaimed,
+    waiting: set[tuple[str, str]] | None = None,
     log: Log = print,
 ) -> bool:
     """Put a unit back in the queue with what review asked for.
+
+    False when the unit did not take it (it is held, or being built): the
+    poller then keeps the event to report again. `waiting` remembers which
+    held units have said so, so a comment that waits is logged once.
 
     The reviewer's own words, not just "new comment": the tick that reworks a
     unit is a different process from the poll that heard the review, and a
@@ -641,7 +647,7 @@ def on_rework(
     try:
         with claim(unit):
             # Re-read under the lock: a build that has just ended moved it.
-            _requeue(
+            taken = _requeue(
                 store.get(unit.id),
                 pr=pr,
                 reason=reason,
@@ -649,11 +655,12 @@ def on_rework(
                 store=store,
                 fetch_review=fetch_review,
                 fetch_checks=fetch_checks,
+                waiting=waiting if waiting is not None else set(),
                 log=log,
             )
     except BranchBusy as error:
         return _deferred(f"rework #{pr}", unit, error, log)
-    return True
+    return taken
 
 
 def _requeue(
@@ -665,25 +672,36 @@ def _requeue(
     store: UnitStore,
     fetch_review: Callable[[int], list[str]] | None,
     fetch_checks: Callable[[PullRequest | None], str] | None,
+    waiting: set[tuple[str, str]],
     log: Log,
-) -> None:
+) -> bool:
+    """Requeue `unit` for `reason`; whether it took the event.
+
+    A held unit does not: the event is reported again once it is released,
+    rather than recorded as handled and lost.
+    """
     if unit.state == HELD:
         # A human has taken it over; requeuing would push over work they are
-        # in the middle of.
-        log(f"rework #{pr}: {unit.id} is held, ignoring")
-        return
+        # in the middle of. Said once per unit and event, as the poll comes
+        # round every few minutes until it is released.
+        if (unit.id, reason) not in waiting:
+            waiting.add((unit.id, reason))
+            log(f"rework #{pr}: {unit.id} is held, ignoring")
+        return False
+    waiting.discard((unit.id, reason))
     if unit.state == SATISFIED:
         # See `on_closed`: requeuing it would judge a branch this unit never
         # built, over feedback aimed at a pull request that is closing.
         log(f"rework #{pr}: {unit.id} is satisfied, ignoring")
-        return
+        return True
 
     # A poll cannot afford a second request per PR, so the reviewer's actual
     # words are fetched only now, when there is something to act on. They are
     # often the only content there is: a review's bodies can both be empty,
     # with the whole review one inline comment on a line, which `gh pr list`
     # does not return at all.
-    if reason.startswith("failing checks"):
+    from_person = False
+    if reason.startswith(FAILING_CHECKS_REASON):
         # CI, not a reviewer: what failed and its log, and nothing else. The
         # review comments on the PR were answered already, and replaying them
         # would have the rework redo old work instead of fixing the build.
@@ -701,14 +719,19 @@ def _requeue(
         )
     else:
         words = list(fetch_review(pr)) if fetch_review else []
-        feedback = "\n".join([*words, _latest_comment(pull)]).strip() or reason
-    store.set_feedback(unit.id, feedback)
+        said = "\n".join([*words, _latest_comment(pull)]).strip()
+        # The one place a person's words enter feedback; the reason alone is
+        # the host's.
+        from_person = bool(said)
+        feedback = said or reason
+    store.set_feedback(unit.id, feedback, from_person=from_person)
     # New feedback outranks where a paused unit meant to pick up: resuming at
     # a review would skip the rework this feedback asks for, and a pass would
     # then clear the feedback unread — dropping a review left while its unit
     # was paused before review.
     store.set_state(unit.id, PLANNED, note=f"rework requested: {reason}", resume_from="")
     log(f"rework #{pr}: {unit.id} requeued — {reason}")
+    return True
 
 
 def _check_fetcher(
@@ -989,6 +1012,24 @@ def _default_comment(pr: int, body: str, *, repo: str, posts_root: Path | None) 
         record_posts(posts_root, forges.key(repo_id), pr, posted)
 
 
+def _load_waiting(path: Path) -> set[tuple[str, str]]:
+    try:
+        return {(unit_id, reason) for unit_id, reason in json.loads(path.read_text())}
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def _save_waiting(path: Path, store: UnitStore, waiting: set[tuple[str, str]]) -> None:
+    """Record `waiting`, less the units no longer held: a unit that is released
+    has no wait left to remember, whether or not it took the event."""
+    held = {unit.id for unit in store.all() if unit.state == HELD}
+    kept = sorted(entry for entry in waiting if entry[0] in held)
+    if kept == sorted(_load_waiting(path)):
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(kept))
+
+
 def build_dispatch(
     store: UnitStore,
     *,
@@ -1000,6 +1041,7 @@ def build_dispatch(
     claim: Claim = _unclaimed,
     retarget: Callable[[StoredUnit, str], None] | None = None,
     rebase_cap: int | None = None,
+    waiting_path: Path | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
@@ -1012,7 +1054,15 @@ def build_dispatch(
     `repo` is the repo the event was read from, and required: a pull request
     number means nothing without it. One dispatch serves every repo's poller,
     so whoever builds the pollers binds each one's repo (see `cli.poll_all`).
+
+    `waiting_path` is where the held units that have already said they are
+    waiting are recorded. A dispatch is built afresh for every poll, so the
+    record has to outlive it, or a comment waiting on a hold is logged on
+    every poll for as long as the hold lasts. Without a path it lives only as
+    long as this dispatch.
     """
+
+    waiting: set[tuple[str, str]] = set()
 
     def dispatch(event: str, number: int, *, repo: str, **kwargs) -> bool:
         if event == "merged":
@@ -1033,7 +1083,8 @@ def build_dispatch(
         if event == "hold":
             return on_hold(number, repo=repo, store=store, claim=claim, log=log)
         if event == "rework":
-            return on_rework(
+            known = _load_waiting(waiting_path) if waiting_path else waiting
+            taken = on_rework(
                 number,
                 repo=repo,
                 reason=kwargs.get("reason", "unspecified"),
@@ -1042,8 +1093,12 @@ def build_dispatch(
                 fetch_review=_review_fetcher(store, repo, number, fetch_review),
                 fetch_checks=_check_fetcher(store, repo, number, fetch_checks),
                 claim=claim,
+                waiting=known,
                 log=log,
             )
+            if waiting_path:
+                _save_waiting(waiting_path, store, known)
+            return taken
         log(f"unhandled poller event {event!r} for #{number} in {repo}")
         return True
 
