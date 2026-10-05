@@ -667,16 +667,75 @@ class AzureDevOpsForge:
             )
         return "\n\n".join(parts)
 
-    def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
-        raise NotImplementedError
+    def add_label(
+        self,
+        repo: RepoId,
+        pr: int,
+        label: Label,
+        *,
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
+    ) -> None:
+        """Tag a pull request. Azure DevOps keeps no colour or description, so
+        only the name is sent; a name already there, in any case, is kept."""
+        az.rest(
+            "POST",
+            self._labels_url(repo, pr),
+            payload={"name": label.name},
+            run=run,
+            open_url=open_url,
+        )
 
     def set_exclusive_label(
-        self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
+        self,
+        repo: RepoId,
+        pr: int,
+        label: Label,
+        *,
+        family: Collection[str],
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
     ) -> None:
-        raise NotImplementedError
+        present = self._labels(repo, pr, run, open_url)
+        held = {item["name"].casefold() for item in present}
+        if label.name.casefold() not in held:
+            self.add_label(repo, pr, label, run=run, open_url=open_url)
+        wanted = {name.casefold() for name in family} - {label.name.casefold()}
+        for item in present:
+            if item["name"].casefold() in wanted:
+                self._delete_label(repo, pr, item, run, open_url)
 
-    def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
-        raise NotImplementedError
+    def remove_label(
+        self,
+        repo: RepoId,
+        pr: int,
+        name: str,
+        *,
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
+    ) -> None:
+        """Untag by id: a name with `:` in the path is refused by the host."""
+        for item in self._labels(repo, pr, run, open_url):
+            if item["name"].casefold() == name.casefold():
+                self._delete_label(repo, pr, item, run, open_url)
+
+    def _labels_url(self, repo: RepoId, pr: int, label_id: str = "") -> str:
+        tail = f"/{quote(label_id)}" if label_id else ""
+        return f"{self._api(repo)}/pullRequests/{pr}/labels{tail}?api-version={_API}"
+
+    def _labels(
+        self, repo: RepoId, pr: int, run: Run | None, open_url: az.OpenUrl | None
+    ) -> list[dict]:
+        """The labels on a pull request, from the labels endpoint: the pull
+        request document itself carries none."""
+        answer = az.rest("GET", self._labels_url(repo, pr), run=run, open_url=open_url)
+        values = answer.get("value") if isinstance(answer, dict) else None
+        return [item for item in values or [] if isinstance(item, dict) and item.get("name")]
+
+    def _delete_label(
+        self, repo: RepoId, pr: int, item: dict, run: Run | None, open_url: az.OpenUrl | None
+    ) -> None:
+        az.rest("DELETE", self._labels_url(repo, pr, str(item["id"])), run=run, open_url=open_url)
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.

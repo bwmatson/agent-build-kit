@@ -18,7 +18,7 @@ from tests.forges.azure_host import AzureLabelsHost
 
 REPO = RepoId(forge="azure_devops", account="example", project="Proj", name="app")
 STATE_FAMILY = ("planned", "running", "in-review", "held")
-LABELS = "/Proj/_apis/git/repositories/app/pullRequests/7/labels"
+LABELS = "/example/Proj/_apis/git/repositories/app/pullRequests/7/labels"
 HELD = Label(name="held", color="d97706")
 
 

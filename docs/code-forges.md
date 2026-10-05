@@ -239,3 +239,7 @@ every call rather than relying on `az devops configure --defaults` — global
 CLI state, and units run concurrently — and passes the token through the
 environment rather than argv, where `ps` would show it for the hours a build
 runs.
+
+REST calls (`az.rest`) share one access token per process: the `az` session's
+token is fetched once with its expiry and reused until a minute before it
+expires. A PAT is never fetched.
