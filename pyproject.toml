@@ -29,6 +29,7 @@ dev = [
     "poethepoet>=0.30.0",
     "pyrefly>=1.2.0",
     "pytest>=8.0.0",
+    "pytest-xdist>=3.6.0",
     "ruff>=0.16",
     "agent-build-kit[acp]",
 ]
@@ -66,12 +67,17 @@ pythonpath = ["."]
 markers = [
     "integration: needs node (npx) and the network for the real OpenSpec CLI; excluded by default, run with `pytest -m integration`",
     "local_stack: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m local_stack`",
+    "serial: cannot share a process with other tests; excluded from the parallel pass and run by its own serial pass of `poe test`",
 ]
 addopts = "-m 'not integration and not local_stack'"
 
 [tool.poe.tasks]
 format = "pre-commit run --all-files"
-test = "pytest"
+test = { sequence = [
+    { cmd = "pytest -n auto --maxprocesses=8 -m 'not serial and not integration and not local_stack'" },
+    # Exit 5 is "no tests collected": no test is serial yet, and that is not a failure.
+    { cmd = "pytest -m 'serial and not integration and not local_stack'", ignore_fail = [5] },
+] }
 test-integration = "pytest -m integration"
 test-local-stack = "pytest -m local_stack"
 scrub = "pytest tests/test_no_installation_leaks.py"
