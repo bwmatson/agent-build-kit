@@ -51,6 +51,8 @@ from tests.runtimes.selectable import SelectableRuntime, select
 # its batch at the start, it is what the slow unit waits before giving up.
 WAIT = 5
 
+pytestmark = pytest.mark.usefixtures("scripted_engine")
+
 
 def eventually(condition: Callable[[], bool]) -> bool:
     """Whether `condition` comes true within `WAIT`. For waiting on another
@@ -851,7 +853,7 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
         return 0 if ref in deleted else commits.get(unit_id, 0)
 
     def runner(unit, *, store: UnitStore, installation, log, **kwargs) -> UnitRunner:
-        def claude(prompt: str, *, cwd: Path) -> str:
+        def claude(prompt: str, *, cwd: Path, **session) -> str:
             if unit.id == "chain/2" and step in prompt:
                 # Still at this step when the merge is heard.
                 assert merged.wait(WAIT), "the refresh never reported the merge"
@@ -872,8 +874,8 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
             may_start=lambda: (True, ""),
             run_claude=claude,
             run_rework=claude,
-            run_review=lambda *, cwd, context="": '{"approved": true}',
-            run_rework_review=lambda *, cwd, context="": '{"approved": true}',
+            run_review=lambda *, cwd, context="", **session: '{"approved": true}',
+            run_rework_review=lambda *, cwd, context="", **session: '{"approved": true}',
             commit=commit,
             branch_commits=lambda tree, ref: branch_commits(unit.id, ref),
             head=lambda tree: f"{unit.id}@{commits.get(unit.id, 0)}",

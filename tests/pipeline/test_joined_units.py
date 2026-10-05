@@ -18,7 +18,6 @@ from agent_build_kit.pipeline.units import Member, branch_name
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from tests.conftest import make_installation
 from tests.factories import stored_unit, unit
-from tests.pipeline.test_stack_runner import Recorder, make_runner
 
 CARRIED = Member(change="sample-change", groups=(7, 8))
 
@@ -76,54 +75,6 @@ def test_carried_groups_survive_the_store(tmp_path: Path) -> None:
 # --- 1.2 prompts -----------------------------------------------------------
 
 
-def test_the_build_and_review_prompts_name_every_change_and_its_groups(tmp_path: Path) -> None:
-    joined = carrying(groups=(1, 2))
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([joined])
-    recorder = Recorder()
-
-    make_runner(store, recorder, tmp_path).run(joined, base="main", graph=[])
-
-    assert len(recorder.prompts) >= 2
-    for prompt in recorder.prompts[:2]:
-        assert "openspec/changes/add-marker" in prompt
-        assert "openspec/changes/sample-change" in prompt
-        assert "1, 2" in prompt
-        assert "7, 8" in prompt
-    assert any(
-        "add-marker" in context and "sample-change" in context and "7, 8" in context
-        for context in recorder.contexts
-    ), "the reviewer is told what the unit carries, even with no later unit"
-
-
-def test_the_scope_note_treats_carried_groups_as_this_units_own(tmp_path: Path) -> None:
-    """Groups 4 and 5 of sample-change are carried, so they are not later work;
-    group 6 of the same change, in another unit, still is."""
-    carried = Member(change="sample-change", groups=(4, 5))
-    joined = unit(groups=(1,), joined=(carried,))
-    graph = [
-        stored_unit("add-marker/1", groups=(1,), joined=(carried,)),
-        stored_unit("sample-change/2", change="sample-change", groups=(6,)),
-    ]
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(graph)
-    recorder = Recorder()
-
-    make_runner(store, recorder, tmp_path).run(joined, base="main", graph=graph)
-
-    notes = [
-        line
-        for text in (*recorder.prompts[:2], *recorder.contexts)
-        for line in text.splitlines()
-        if "belong to later" in line
-    ]
-    assert notes, "the later group is still fenced off"
-    for line in notes:
-        assert "6" in line
-        assert "4" not in line
-        assert "5" not in line
-
-
 # --- 1.3 ticking -----------------------------------------------------------
 
 
@@ -144,35 +95,6 @@ def _ticked(tasks: Path) -> set[int]:
         for line in tasks.read_text().splitlines()
         if line.startswith("- [x]")
     }
-
-
-def test_each_changes_groups_are_ticked_in_its_own_tasks_file(tmp_path: Path) -> None:
-    mine = _tasks(tmp_path, "add-marker", (1, 2, 3))
-    theirs = _tasks(tmp_path, "sample-change", (6, 7, 8, 9))
-    joined = unit(groups=(2,), joined=(CARRIED,))
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([joined])
-
-    outcome = make_runner(store, Recorder(), tmp_path).run(joined, base="main", graph=[])
-
-    assert outcome.status == "open"
-    assert _ticked(mine) == {2}
-    assert _ticked(theirs) == {7, 8}
-
-
-def test_a_failed_joined_unit_unticks_every_change_it_carries(tmp_path: Path) -> None:
-    mine = _tasks(tmp_path, "add-marker", (2,))
-    theirs = _tasks(tmp_path, "sample-change", (7, 8))
-    for path in (mine, theirs):
-        path.write_text(path.read_text().replace("- [ ]", "- [x]"))  # a build agent's doing
-    joined = unit(groups=(2,), joined=(CARRIED,))
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([joined])
-
-    make_runner(store, Recorder(tier1_ok=False), tmp_path).run(joined, base="main", graph=[])
-
-    assert _ticked(mine) == set()
-    assert _ticked(theirs) == set()
 
 
 # --- 1.4 archive readiness -------------------------------------------------

@@ -9,6 +9,7 @@ and every earlier required finding is answered by id in a later round.
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -22,6 +23,7 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import unit
+from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
 
 
@@ -61,17 +63,17 @@ class Watching(Recorder):
         self.rework_rounds: list[list[dict]] = []
         self.rework_feedback: list[str] = []
 
-    def review(self, *, cwd: Path, context: str = "") -> str:
+    def review(self, *, cwd: Path, context: str = "", **session: Any) -> str:
         self.rounds_at_review.append(list(self.store.get(unit().id).review_rounds))
         self.heads_at_review.append(self.head(cwd))
-        return super().review(cwd=cwd, context=context)
+        return super().review(cwd=cwd, context=context, **session)
 
-    def claude(self, prompt: str, *, cwd: Path) -> str:
+    def claude(self, prompt: str, *, cwd: Path, **session: Any) -> str:
         if "review of this branch" in prompt:
             stored = self.store.get(unit().id)
             self.rework_rounds.append(list(stored.review_rounds))
             self.rework_feedback.append(stored.feedback)
-        return super().claude(prompt, cwd=cwd)
+        return super().claude(prompt, cwd=cwd, **session)
 
 
 def _run(tmp_path: Path, verdicts: list[str]) -> tuple[Watching, UnitStore, RunOutcome]:
@@ -80,7 +82,7 @@ def _run(tmp_path: Path, verdicts: list[str]) -> tuple[Watching, UnitStore, RunO
     recorder = Watching()
     recorder.store = store
     recorder.verdicts = list(verdicts)
-    outcome = make_runner(store, recorder, tmp_path).run(unit(), base="main", graph=[])
+    outcome = run_on_graph(make_runner(store, recorder, tmp_path), unit())
     return recorder, store, outcome
 
 
@@ -437,7 +439,7 @@ def _resumed_run(store: UnitStore, verdicts: list[str]) -> Watching:
     recorder.store = store
     recorder.verdicts = list(verdicts)
     store.set_feedback(unit().id, "fix it")
-    make_runner(store, recorder, store.path.parent).run(unit(), base="main", graph=[])
+    run_on_graph(make_runner(store, recorder, store.path.parent), unit())
     return recorder
 
 

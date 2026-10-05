@@ -1,4 +1,4 @@
-"""On `ABK_ENGINE=graph` the tick starts and resumes unit threads, and the
+"""The tick starts and resumes unit threads, and the
 poller's events and `abk requeue` resume them, through the entry points a
 person or the timer calls (docs/unit-graph.md, Events become resume commands)."""
 
@@ -21,7 +21,6 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
-from agent_build_kit.settings import settings
 from tests.conftest import make_installation
 from tests.factories import stored_unit, unit
 from tests.graph_driver import fresh
@@ -80,7 +79,6 @@ def graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         limits={"max_concurrent_stacks": 1},
     )
-    monkeypatch.setattr(settings, "engine", "graph")
     recorder = fresh(tmp_path)
     options: dict[str, Any] = {}
 

@@ -51,11 +51,12 @@ class StoredUnit(Unit):
     # What review asked for, waiting to be addressed. Cleared once a run has
     # acted on it, so a unit is never reworked twice for the same comment.
     feedback: str = ""
-    # The step a unit stopped before, when it stopped between steps; empty
-    # otherwise. The runner resumes there rather than guessing from the branch.
+    # The step the classic engine stopped a unit before; empty otherwise. Kept
+    # so a store it left can be moved onto threads (`graph.convert`), which is
+    # where a unit resumes now; nothing in a run writes it.
     resume_from: str = ""
     # The commit the review loop last approved. Nothing else may be pushed:
-    # see the gate before `push` in `StackRunner.run`.
+    # see the gate before the `push` node.
     approved: str = ""
     # The approved verdict's deferrable points, waiting for the push that makes
     # them true. Kept here, not in the run: a unit that stops between approval
@@ -379,11 +380,6 @@ class UnitStore:
         self._update(
             unit_id, feedback=feedback, feedback_from_person=from_person and bool(feedback)
         )
-
-    def record_step(self, unit_id: str, step: str) -> None:
-        """The step a running unit is starting, so a run killed inside it
-        resumes there. Not a state change, so no history entry."""
-        self._update(unit_id, resume_from=step)
 
     def set_run_log(self, unit_id: str, name: str) -> None:
         """Name the unit's most recent run log. Not a state change."""

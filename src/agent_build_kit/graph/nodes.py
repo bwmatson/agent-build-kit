@@ -591,7 +591,9 @@ class BuildPath:
         feedback = stored.feedback
         failed_check = feedback.startswith(TIER1_FAILED)
         in_loop = state.verdict is Verdict.CHANGES
-        if r.head(tree) != state.head:
+        # An empty head is a thread converted from the classic engine: no node
+        # has recorded the branch's tip, so nothing is known to be done.
+        if state.head and r.head(tree) != state.head:
             self.say("the rework commit is already on the branch")
         elif in_loop:
             self.say(f"address review round {state.review_round} ({models().rework})")

@@ -179,8 +179,8 @@ fixes its base ref before it reads `running` — and nothing deletes it later,
 since the merge event is consumed: such a branch is left behind and can be
 deleted by hand.
 
-`UnitRunner.run` (`pipeline/stack_runner.py`) is the sequence; `wiring.py`
-binds each step to git, gh and `claude`:
+The unit's graph (`graph/`, see [unit-graph.md](unit-graph.md)) is the
+sequence; `wiring.py` binds each step to git, gh and `claude`:
 
 1. **Usage guard first**, before the worktree exists, so a refusal never
    leaves a half-built unit.
@@ -337,10 +337,10 @@ binds each step to git, gh and `claude`:
    `in_review`, and its groups are ticked in `tasks.md` — now, not when a
    build finished.
 
-Between steps a **checkpoint** can stop the unit: a same-repo parent went
-back for rework (`held before <step>`), or the usage window filled
-(`paused before <step>`). The step is recorded in `resume_from`, and the
-resume starts exactly there.
+Between steps the unit can be stopped: a same-repo parent went back for
+rework (`held before <step>`), or the usage window filled (`paused before
+<step>`). The unit's thread keeps the node it stopped before, and the resume
+starts exactly there.
 
 ### 4. Polling and events
 
@@ -573,8 +573,8 @@ threshold. The one exception is a pause the model itself caused (a rate-limit
 refusal): the usage endpoint can show room it has just refused, so that pause
 is kept to its deadline without asking. A `claude` call refused
 mid-unit with a rate-limit message pauses too; a `claude` killed by a signal
-leaves the unit `running` for the next tick's `reclaim_stale`, which commits
-whatever the run left and requeues it at the step it was in.
+leaves the unit `running`, and the next tick resumes its thread at the node it
+was in.
 
 **The push gate** (`gate.py`, `commit_order.py`, `red_check.py`,
 `check_runner.py`; `abk gate`). A branch reads as tests-then-implementation
@@ -622,7 +622,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 
 | File | What | Loss means |
 |---|---|---|
-| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, `resume_from`, review rounds, history. The truth; the graph page is a view of it. | rebuilt work. Commit it. |
+| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, review rounds, history (and `resume_from`, which only a store the previous engine left carries, until the first tick moves it onto threads). The truth; the graph page is a view of it. | rebuilt work. Commit it. |
 | `verified.json` | the last verification of each change and the units it covered. | a change verified again. |
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |

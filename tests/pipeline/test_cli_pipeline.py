@@ -36,6 +36,8 @@ from tests.runtimes.stand_in import StandInRuntime
 
 inst: Installation = cast(Installation, None)  # set per test by `isolated`
 
+pytestmark = pytest.mark.usefixtures("scripted_engine")
+
 
 def reading(**overrides) -> UsageReading:
     defaults: dict = {
@@ -878,22 +880,6 @@ def test_the_planner_is_told_about_satisfied_units(tmp_path: Path, monkeypatch) 
     assert 1 in seen[0]["built"]
 
 
-def test_a_unit_whose_process_died_is_reclaimed(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """`ready_units` only picks up `planned`, so a unit left `running` when
-    its tick was killed is stranded for good: a session ending mid-run leaves
-    it with no process and no PR."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-
-    cli.cmd_tick(argv_namespace(dry_run=True), inst)
-
-    assert store.get("add-marker/1").state == "planned"
-    assert "reclaimed" in str(store.get("add-marker/1").history[-1])
-
-
 def test_a_unit_a_live_process_holds_is_left_alone(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -908,58 +894,6 @@ def test_a_unit_a_live_process_holds_is_left_alone(
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
     assert store.get("add-marker/1").state == "running"
-
-
-def test_reclaiming_keeps_work_the_killed_run_had_not_committed(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A tick killed between writing tests and committing them leaves them
-    uncommitted — and `prepare_worktree` then refuses the tree, so the unit is
-    reclaimed into a state it cannot actually start from. Committing them is
-    what makes the reclaim mean something; the next run's `git add -A` would
-    have swept them into the tests commit anyway."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    committed: list[tuple] = []
-    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: committed.append(unit.id))
-
-    cli.cmd_tick(argv_namespace(dry_run=True), inst)
-
-    assert committed == ["add-marker/1"]
-
-
-def test_reclaiming_says_the_run_was_interrupted(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Committing the leftovers put commits on the branch, and the resume path
-    reads commits as "the work is there" and skips building. So an interrupted
-    unit went straight to tier 1 on half-written work and failed. Recording
-    the interruption as feedback routes it to the rework path instead, which
-    continues from what is there rather than skipping or starting over."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: 1)
-
-    cli.cmd_tick(argv_namespace(dry_run=True), inst)
-
-    assert "interrupted" in store.get("add-marker/1").feedback
-
-
-def test_reclaiming_a_unit_that_wrote_nothing_adds_no_feedback(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Killed before it wrote anything, there is nothing to continue from —
-    it should start cleanly, not be told to resume work that isn't there."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: 0)
-
-    cli.cmd_tick(argv_namespace(dry_run=True), inst)
-
-    assert store.get("add-marker/1").feedback == ""
 
 
 def test_a_unit_another_tick_built_meanwhile_is_not_built_again(
@@ -1017,25 +951,6 @@ def test_only_narrows_what_is_built_and_nothing_else(
     assert cli.cmd_tick(args, inst) == 0
     assert built == ["add-marker/2"]
     assert store.get("add-marker/1").state == "planned"
-
-
-def test_reclaiming_keeps_the_review_a_killed_rework_was_addressing(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Replacing waiting feedback with "you were interrupted" would lose what
-    review asked for; the unit resumes at its recorded step with it intact."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1", resume_from="rework")
-    store.set_feedback("add-marker/1", "make it a StrEnum")
-    monkeypatch.setattr(cli, "commit_leftovers", lambda inst, unit: 1)
-
-    cli.cmd_tick(argv_namespace(dry_run=True), inst)
-
-    stored_unit = store.get("add-marker/1")
-    assert stored_unit.feedback == "make it a StrEnum"
-    assert stored_unit.state == "planned"
-    assert stored_unit.resume_from == "rework"
 
 
 def test_a_killed_claude_run_is_an_interruption_not_a_failure(
@@ -1506,36 +1421,36 @@ def test_a_units_file_names_the_rework_of_waiting_feedback(
 
 
 @pytest.mark.parametrize(
-    ("resume", "model"),
+    ("resume", "step", "model"),
     [
-        ("review", "m-review"),
-        ("rework_review", "m-rework-review"),
-        ("tests", "m-implement"),
-        ("verify", "none"),
+        ("review", "review", "m-review"),
+        ("rework_review", "rework_review", "m-rework-review"),
+        ("tests", "tests", "m-implement"),
+        ("verify", "verify_base", "none"),
     ],
 )
 def test_a_units_file_names_the_step_it_resumes_at(
-    resume: str, model: str, healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    resume: str, step: str, model: str, healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _distinct_models(monkeypatch)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
-    store.record_step("add-marker/1", resume)
+    store.set_state("add-marker/1", PLANNED, resume_from=resume)
     speaking(monkeypatch, {"add-marker/1": opened(1)})
 
     cli.cmd_tick(argv_namespace(dry_run=False), inst)
 
     (path,) = run_logs()
-    assert path.name.endswith(f"-{resume}.log")
-    assert f"step: {resume}\nmodel: {model}\n" in path.read_text()
+    assert path.name.endswith(f"-{step}.log")
+    assert f"step: {step}\nmodel: {model}\n" in path.read_text()
 
 
 def _distinct_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent_build_kit import config
     from agent_build_kit.config import ModelsConfig
-    from agent_build_kit.pipeline import stack_runner
 
     monkeypatch.setattr(
-        stack_runner,
+        config,
         "models",
         lambda: ModelsConfig(
             implement="m-implement",

@@ -1,10 +1,9 @@
 # The unit graph
 
-**Status: design, the build, the remaining paths and the waits built.** Behind
-`ABK_ENGINE=graph` there is a `UnitEngine` seam (`pipeline/unit_engine.py`),
-the `UnitRun` state, the node enum, the SQLite checkpointer with its allowlist
-and a compiled graph in `graph/`. `graph/unit.run_unit` runs a unit on it, over
-the callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
+**Status: built.** The graph is the only engine. `graph/` holds the `UnitRun`
+state, the node enum, the SQLite checkpointer with its allowlist and the
+compiled graph, and `graph/unit.run_unit` runs a unit on it, over the
+callables `wiring.build_runner` binds: `prepare`, `adapt`, `tests`,
 `implement`, `checks`, `fix_checks`, `review`, `rework`, `tier1`, `tier2`,
 `verify_base`, `push`, `open_pr`, `await_review`, `satisfied`, `held` and
 `failed`, joined by the edges below. Before a step that starts work or leaves
@@ -14,27 +13,25 @@ waiting in review or held waits there holding no branch lock and no slot.
 `resume_unit` delivers an event to a thread as a resume command and stops,
 leaving the thread at the node the event routes to. A usage refusal before an
 agent step interrupts the thread, and a run killed mid-node is resumed at that
-node. One difference from the classic runner: the `chore:` commit of
+node. A tick drives each unit through `run_unit`: it starts the unit's thread,
+or resumes one a killed or paused run left (a `running` unit that has a thread,
+whose branch no live process holds). The poller's events and `abk requeue`
+reach a unit that has a thread through `resume_unit`, which runs no node but
+the wait; the tick runs the thread in a slot. The first tick on this version
+moves the units the previous one left in flight onto threads (see Moving the
+units in flight). One difference from the old runner: the `chore:` commit of
 uncommitted work before each review round is not made, as every step already
-ends in its own commit.
-On `ABK_ENGINE=graph` a tick drives each unit through `run_unit`: it starts
-the unit's thread, or resumes one a killed or paused run left (a `running`
-unit that has a thread, whose branch no live process holds), and
-`reclaim_stale` leaves that unit to the thread instead of requeuing it. The
-poller's events and `abk requeue` reach a unit that has a thread through
-`resume_unit`, which runs no node but the wait; the tick runs the thread in a
-slot. A unit without a thread is handled as the classic engine does. The
-classic engine is still the default. This document is what the implementation is specified against: it
-says which part of the pipeline moves onto
+ends in its own commit. This document is what the implementation is specified
+against: it says which part of the pipeline moved onto
 [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview), which
-part stays as it is, and how the two meet.
+part stayed as it was, and how the two meet.
 
 ## Why
 
-A unit's lifecycle is a graph, written today as hand-rolled control flow.
-`UnitRunner.run` (`pipeline/stack_runner.py`) branches on a recorded step
-(`resume_from`) and decides which steps to run next. `checkpoint()` and
-`record_step` persist where it got to. `reclaim_stale` puts a unit back after
+A unit's lifecycle is a graph, and was written as hand-rolled control flow.
+`UnitRunner.run` (`pipeline/stack_runner.py`) branched on a recorded step
+(`resume_from`) and decided which steps to run next. `checkpoint()` and
+`record_step` persisted where it got to. `reclaim_stale` put a unit back after
 its process was killed. And a dozen event handlers in `pipeline/events.py`
 reach into the unit store to send a unit back, hold it, or move it.
 
@@ -206,10 +203,11 @@ reference for each condition until this replaces them. The nodes:
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue. A satisfied unit's thread is deleted, its groups ticked and an open pull request closed with the reason | `close_pr` for satisfied |
 
 Between steps a unit is held, not stopped: before `implement`, `fix_checks`,
-`review`, `rework`, `tier2` (unless the branch just moved), `verify_base` (and `tier1` for a unit that produced nothing,
-and `push` when its rounds are spent) the run asks whether its upstream went back
-for rework or its base moved or was rewritten since `prepare` took the tip, and
-goes to `held` with the unit `planned` if so. A step already begun is finished.
+`review`, `rework`, `tier2` (unless the branch just moved), `verify_base` (and
+`tier1` for a unit that produced nothing, and `push` when its rounds are spent)
+the run asks whether its upstream went back for rework or its base moved or was
+rewritten since `prepare` took the tip, and goes to `held` with the unit
+`planned` if so. A step already begun is finished.
 
 A base that moves before the push, a pull request refused for a missing base, a
 failing tier 1 or tier 2 after a clean move, and a move that changed what review

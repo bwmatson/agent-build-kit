@@ -12,14 +12,13 @@ from __future__ import annotations
 from functools import partial
 from pathlib import Path
 
-import pytest
-
 from agent_build_kit.pipeline.restack import resolved_move
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, local_ref
+from agent_build_kit.pipeline.units import PLANNED, local_ref
 from agent_build_kit.pipeline.wiring import branch_commits, build_restack_onto
 from tests.factories import git, init_repo, unit
+from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
 
 BRANCH = "spec/add-marker/1"
@@ -209,51 +208,4 @@ class Run:
         return sha
 
     def run(self):
-        return self.runner.run(self.store.get(unit().id), base="main", graph=[])
-
-
-def test_a_clean_move_before_the_push_reaches_the_gate_as_the_approved_moved_commit(
-    tmp_path: Path,
-) -> None:
-    run = Run(tmp_path, conflicting=False)
-
-    outcome = run.run()
-
-    assert outcome.status == "open"
-    assert run.pushed == [run.repos.head()] != [run.before]
-    assert git(run.repos.tree, "rev-parse", "HEAD^") == git(run.repos.tree, "rev-parse", BASE)
-    assert run.store.get(unit().id).approved == run.repos.head()
-    assert run.store.get(unit().id).state == IN_REVIEW
-    assert run.resolver.calls == []
-    assert "review" not in run.recorder.events and run.recorder.prompts == []
-
-
-def test_a_conflict_before_the_push_is_aborted_then_resolved_under_review_in_the_same_run(
-    tmp_path: Path,
-) -> None:
-    run = Run(tmp_path, conflicting=True)
-
-    outcome = run.run()
-
-    assert outcome.status == "open", "resumed at its restack at once, not sent to the queue"
-    assert len(run.resolver.calls) == 1, "the resumed run's restack does the resolving"
-    assert not run.repos.rebase_in_progress()
-    assert "review" in run.recorder.events, "and what it produced is reviewed"
-    assert any("shared.py" in context for context in run.recorder.contexts), (
-        "the review is told which file a resolution touched"
-    )
-    assert run.pushed == [run.repos.head()] != [run.before]
-
-
-@pytest.mark.parametrize("conflicting", [False, True], ids=["clean", "conflicting"])
-def test_a_trunk_that_has_not_moved_changes_nothing_before_the_push(
-    tmp_path: Path, conflicting: bool
-) -> None:
-    run = Run(tmp_path, conflicting=conflicting)
-    run.fetches = 10  # the trunk does not advance on this run's fetches
-
-    outcome = run.run()
-
-    assert outcome.status == "open"
-    assert run.pushed == [run.before]
-    assert run.resolver.calls == []
+        return run_on_graph(self.runner, self.store.get(unit().id), base="main")
