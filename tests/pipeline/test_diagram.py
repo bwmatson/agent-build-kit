@@ -13,6 +13,7 @@ regenerated.
 from pathlib import Path
 
 from agent_build_kit.pipeline.diagram import in_view, render_markdown, render_mermaid, write_page
+from agent_build_kit.pipeline.units import plan_units
 from tests.factories import stored_unit as unit
 
 
@@ -254,3 +255,27 @@ def test_a_failed_unit_stays_in_view_with_the_merged_unit_it_builds_on() -> None
 
     assert [u.id for u in in_view(units)] == ["c/4", "c/5", "c/6"]
     assert "class c_5 failed" in render_mermaid(in_view(units), graph=units)
+
+
+def test_an_independent_unit_is_drawn_with_no_edge_from_its_predecessor() -> None:
+    planned = plan_units(
+        "feature",
+        [
+            dict(
+                number=n,
+                repo=repo,
+                tier="tier1",
+                title=f"group {n}",
+                estimated_lines=200,
+                independent=n == 3,
+            )
+            for n, repo in ((1, "app"), (2, "app"), (3, "platform"))
+        ],
+        min_lines=100,
+        max_lines=1000,
+    )
+    stored = [unit(u.id, repo=u.repo, depends_on=u.depends_on, groups=u.groups) for u in planned]
+
+    edges = [line.strip() for line in render_mermaid(stored).splitlines() if "->" in line]
+
+    assert edges == ["feature_1 --> feature_2"]

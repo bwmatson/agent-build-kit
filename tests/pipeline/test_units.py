@@ -591,3 +591,87 @@ def test_the_reasons_a_build_gives_for_a_changed_base_come_from_the_shared_prefi
     source = inspect.getsource(wiring.build_base_moved)
 
     assert source.count("{BASE_CHANGED}") == 2
+
+
+# --- groups declared independent ---------------------------------------------
+
+
+def indep(number: int, **kw) -> dict:
+    return {**group(number, **kw), "independent": True}
+
+
+def test_an_independent_group_has_no_dependency_and_the_chain_closes_around_it() -> None:
+    units = plan_units(
+        "feature",
+        [group(1), group(2), indep(3, repo="platform")],
+        min_lines=100,
+        max_lines=1000,
+    )
+
+    assert [u.groups for u in units] == [(1,), (2,), (3,)]
+    assert [u.depends_on for u in units] == [(), ("feature/1",), ()]
+
+
+def test_the_group_after_an_independent_one_depends_on_the_last_chained_unit() -> None:
+    units = plan_units(
+        "feature",
+        [group(1), indep(2, repo="platform"), group(3)],
+        min_lines=100,
+        max_lines=1000,
+    )
+
+    assert [u.depends_on for u in units] == [(), (), ("feature/1",)]
+
+
+def test_an_acceptance_group_depends_on_every_earlier_unit() -> None:
+    units = plan_units(
+        "feature",
+        [
+            group(1),
+            indep(2, repo="platform"),
+            group(3),
+            {**group(4, tier="tier2"), "flag": "acceptance"},
+        ],
+        min_lines=100,
+        max_lines=1000,
+    )
+
+    assert units[2].depends_on == ("feature/1",)
+    assert set(units[3].depends_on) == {"feature/1", "feature/2", "feature/3"}
+
+
+def test_a_narrow_group_depends_on_every_earlier_unit() -> None:
+    units = plan_units(
+        "feature",
+        [group(1), indep(2, repo="platform"), {**group(3), "flag": "narrow"}],
+        min_lines=100,
+        max_lines=1000,
+    )
+
+    assert set(units[2].depends_on) == {"feature/1", "feature/2"}
+
+
+def test_an_independent_group_is_never_joined_to_its_neighbours() -> None:
+    """Small groups in one repo would be one unit; joining is a form of
+    ordering, so neither side of an independent group takes it in."""
+    units = plan_units(
+        "feature",
+        [group(1, lines=50), indep(2, lines=50), group(3, lines=50)],
+        min_lines=500,
+        max_lines=1000,
+    )
+
+    assert [u.groups for u in units] == [(1,), (2,), (3,)]
+    assert [u.depends_on for u in units] == [(), (), ("feature/1",)]
+
+
+def test_without_a_declaration_groups_plan_as_they_did() -> None:
+    units = plan_units(
+        "feature",
+        [group(1, lines=50), group(2, lines=50), group(3, repo="platform")],
+        min_lines=100,
+        max_lines=1000,
+    )
+
+    assert [u.groups for u in units] == [(1, 2), (3,)]
+    assert [u.depends_on for u in units] == [(), ("feature/1",)]

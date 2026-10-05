@@ -112,6 +112,9 @@ class TaskGroup(Frozen):
     # A `Separate: <reason>` line in the group: never carried by another
     # change's unit, and no other change's groups are added to its unit.
     separate: bool = False
+    # An `Independent: <reason>` line in the group: it depends on no earlier
+    # group of its change.
+    independent: bool = False
 
 
 class ValidationError(Frozen):
