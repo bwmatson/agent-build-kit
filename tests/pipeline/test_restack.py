@@ -346,6 +346,46 @@ def test_a_host_head_that_descends_from_the_last_push_still_gets_local_work_repl
     assert (stack / "rework.txt").exists()
 
 
+def test_a_local_commit_the_host_already_holds_is_not_replayed(stack: Path, tmp_path: Path) -> None:
+    """The host added what one unpushed local commit adds: replaying it would
+    stop as empty, so only the commit the host lacks goes on top."""
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    other = _host_clone(tmp_path, "spec/c/1")
+    commit(other, "rework.txt")
+    git(other, "push", "-q", "origin", "spec/c/1")
+    host_head = git(other, "rev-parse", "HEAD").strip()
+    git(stack, "checkout", "-q", "spec/c/1")
+    commit(stack, "rework.txt")
+    commit(stack, "more.txt")
+
+    adopt_host_head(
+        stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack, base="origin/main"
+    )
+
+    assert git(stack, "rev-parse", "spec/c/1~1").strip() == host_head
+    assert (stack / "more.txt").exists()
+
+
+def test_a_dirty_worktree_is_refused_rather_than_reset(stack: Path, tmp_path: Path) -> None:
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    host_head = _host_rebases(tmp_path, "spec/c/1")
+    git(stack, "checkout", "-q", "spec/c/1")
+    (stack / "parent.txt").write_text("uncommitted edit")
+
+    with pytest.raises(StaleRemote, match="uncommitted"):
+        adopt_host_head(
+            stack,
+            "spec/c/1",
+            host_head=host_head,
+            last_pushed=pushed,
+            cwd=stack,
+            base="origin/main",
+        )
+
+    assert (stack / "parent.txt").read_text() == "uncommitted edit"
+    assert git(stack, "rev-parse", "spec/c/1").strip() == pushed
+
+
 def test_a_stacked_unit_keeps_only_its_own_rework_when_the_host_squashes_its_parent(
     stack: Path, tmp_path: Path
 ) -> None:

@@ -636,6 +636,8 @@ def build_push(
     After a stack merge the host rebases every PR above the merged one, not
     only the one sitting on it. Its head is adopted rather than overwritten,
     the old approval dropped, and `HostMoved` raised so review sees it first.
+    A host head holding the same change (same diff id over the trunk) only moves
+    the lease: the approval stands and the approved head is pushed.
     """
     push = push or _default_push
     remote_head_of = remote_head_of or remote_head

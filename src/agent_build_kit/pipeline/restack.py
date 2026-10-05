@@ -482,12 +482,25 @@ def adopt_host_head(
         ).returncode
     )
     if descends:
-        local_only = git(repo, "rev-list", "--reverse", f"{last_pushed}..{branch}").stdout.split()
+        # `cherry` over `last_pushed` lists the same commits as `rev-list`, oldest
+        # first, and marks those the host holds by patch so they are not replayed.
+        cherry = git(
+            repo, "cherry", host_head, branch, last_pushed, check=False
+        ).stdout.splitlines()
+        local_only = [line[2:] for line in cherry if line.startswith("+ ")]
     elif base is not None:
         cherry = git(repo, "cherry", host_head, branch, base, check=False).stdout.splitlines()
         local_only = [line[2:] for line in cherry if line.startswith("+ ")]
     else:
         local_only = []
+
+    if checked_out and git(cwd, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        # Both ways of adopting the host's head below reset the worktree.
+        raise StaleRemote(
+            f"the host moved {branch} to {host_head[:9]}, but the worktree has "
+            "uncommitted changes that adopting it would discard — commit or "
+            "remove them before pushing again."
+        )
 
     if not local_only:
         log(f"{branch}: adopting the host's head {host_head[:9]}")

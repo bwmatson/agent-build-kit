@@ -822,7 +822,7 @@ def build_restack(
         elif remote and last_pushed and remote != last_pushed:
             # Adopted, not overwritten: the local branch is brought to the
             # host's head, so review sees what the host has and the next
-            # lease names it. The old approval was for a different commit.
+            # lease names it.
             before = head_of(repo, branch)
             adopted = adopt(
                 repo,
@@ -838,6 +838,7 @@ def build_restack(
                 # stands: only the lease moves, and the restack goes on.
                 last_pushed = remote
             else:
+                # The old approval was for a different commit.
                 store.record_approval(child.id, "")
                 # Not moved here: the host already rebased it onto the trunk, so
                 # `old_base..branch` now spans trunk commits that are not the
