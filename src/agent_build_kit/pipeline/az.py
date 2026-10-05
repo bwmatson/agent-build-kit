@@ -183,6 +183,10 @@ def rest(
         ) from None
 
 
+def forget_token() -> None:
+    """Drop the cached access token, so the next REST call asks for one."""
+
+
 def _host_message(error: urllib.error.HTTPError) -> str:
     """The `message` of an Azure error body, else the body's first 300 characters."""
     try:
