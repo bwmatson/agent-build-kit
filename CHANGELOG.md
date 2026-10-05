@@ -17,6 +17,12 @@
   prompt, diff, feedback or commit message. A tick flushes before it returns. `AgentResult` gains
   `turns` and `tokens`. See docs/architecture.md.
 
+- Removing `agent-hold` releases the unit. The poller dispatches a new `release` event, and a unit
+  the label held returns to `in_review` with its thread resumed. The stored unit records why it was
+  held (`held_by`, absent in older records): a hold the review loop, a depth cap or the toolchain
+  made stays, and the log says so. A comment or failing check that arrived during the hold is
+  delivered by the next poll.
+
 - A cancelled check is no longer a failing one. A host cancels a check when a runner never came or
   a newer run superseded it, which says nothing about the commit, yet it sent the unit back for
   rework. `PullRequest` gains `cancelled_checks` (GitHub `CANCELLED`; an Azure DevOps build policy

@@ -230,7 +230,9 @@ class BuildPath:
             unit, base, tree=self.tree(), start=state.start
         )
 
-    def hold(self, state: str, note: str, detail: str, *, pr: int | None = None) -> Update:
+    def hold(
+        self, state: str, note: str, detail: str, *, pr: int | None = None, held_by: str = ""
+    ) -> Update:
         """Stop the run in `held`, with the store left in `state`.
 
         Recorded here and not by the `held` node, which waits: a node that waits
@@ -239,7 +241,7 @@ class BuildPath:
         """
         self.say(f"held: {note}")
         opened: dict[str, Any] = {"pr": pr} if pr else {}
-        self.runner.store.set_state(self.unit.id, state, note=note, **opened)
+        self.runner.store.set_state(self.unit.id, state, note=note, held_by=held_by, **opened)
         update: Update = {
             "held": detail,
             "hold_state": state,
@@ -614,7 +616,12 @@ class BuildPath:
             r.store.set_feedback(unit.id, why)
             return {
                 **update,
-                **self.hold(HELD, f"needs a human: {why[:300]}", f"needs a human: {why[:200]}"),
+                **self.hold(
+                    HELD,
+                    f"needs a human: {why[:300]}",
+                    f"needs a human: {why[:200]}",
+                    held_by="toolchain",
+                ),
             }
         if escalates(verdict, weighed.earlier_rounds):
             # Another instance of a kind that cannot be enumerated, or a point
@@ -634,6 +641,7 @@ class BuildPath:
                     HELD,
                     f"escalated — {label} ({verdict.escalate}): {reasoning}",
                     f"escalated ({verdict.escalate}): {reasoning[:200]}",
+                    held_by="review",
                 ),
             }
         # Kept as feedback, so the rework addresses what this round asked for, or
@@ -901,7 +909,7 @@ class BuildPath:
             )
         if state.spent:
             note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
-            return self.hold(HELD, note, f"rounds spent, held as #{pr}", pr=pr)
+            return self.hold(HELD, note, f"rounds spent, held as #{pr}", pr=pr, held_by="review")
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
         # a comment it has already answered.
@@ -962,8 +970,13 @@ class BuildPath:
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
         elif event.kind is EventKind.HOLD:
-            r.store.set_state(unit.id, HELD, note=event.reason or "held by a reviewer")
+            r.store.set_state(
+                unit.id, HELD, note=event.reason or "held by a reviewer", held_by="reviewer"
+            )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
+        elif event.kind is EventKind.RELEASE:
+            r.store.set_state(unit.id, IN_REVIEW, note="hold label removed")
+            update.update({"status": RunStatus.OPEN, "detail": "released"})
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
             if event.kind is EventKind.REQUEUE and event.reason == "restart":
                 r.store.set_feedback(unit.id, "")
@@ -1121,6 +1134,8 @@ def after_held(state: UnitRun) -> Node | str:
     kind = state.event.kind if state.event else None
     if kind is EventKind.REQUEUE:
         return Node.PREPARE
+    if kind is EventKind.RELEASE:
+        return Node.AWAIT_REVIEW
     if kind in (EventKind.MERGED, EventKind.CLOSED):
         return END
     return Node.HELD
@@ -1181,5 +1196,5 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_await_review,
         (Node.REWORK, Node.PREPARE, Node.HELD, Node.AWAIT_REVIEW, END),
     ),
-    Node.HELD: (after_held, (Node.PREPARE, Node.HELD, END)),
+    Node.HELD: (after_held, (Node.PREPARE, Node.AWAIT_REVIEW, Node.HELD, END)),
 }

@@ -74,7 +74,12 @@ which — a toolchain profile the framework does not implement yet, for
 instance).
 
 - A reviewer's hold: the human is driving. Finish the PR by hand, or remove
-  the label and comment what should change; the next poll picks either up.
+  the label: the next poll returns the unit to `in_review` (the log says
+  `release`), and a comment or failing check left during the hold is then
+  delivered as a rework. Removing the label frees only a hold the label made;
+  the unit records why it was held (`held_by`: `reviewer`, `review`, `depth` or
+  `toolchain`), and the others stay held, the log saying so. A record from
+  before the cause was kept is read from its last note.
 - The review loop's own hold: read the unit's `feedback` and its last
   `history` entry to see which of these it is. A change only a person can
   make (`needs_human`) or a repeated disagreement need a decision on the

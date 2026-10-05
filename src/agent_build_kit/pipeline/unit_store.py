@@ -30,7 +30,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import PLANNED, Join, Member, Unit
+from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
@@ -343,15 +343,18 @@ class UnitStore:
         pr: int | None = None,
         branch: str | None = None,
         note: str = "",
+        held_by: str = "",
     ) -> None:
         """Record a state, optionally with why.
 
         The note matters where the state does not change — review asking for
         rework leaves a unit open — because without it the entry says only
         that something happened.
+
+        `held_by` is why a unit is held; any other state forgets it.
         """
         unit, everything, opened = self._record_state(
-            unit_id, state, pr=pr, branch=branch, note=note
+            unit_id, state, pr=pr, branch=branch, note=note, held_by=held_by
         )
         if self.on_state:
             self.on_state(unit, everything, opened)
@@ -365,6 +368,7 @@ class UnitStore:
         pr: int | None,
         branch: str | None,
         note: str,
+        held_by: str,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         stored = self._read()
         unit = stored[unit_id]
@@ -374,6 +378,7 @@ class UnitStore:
                 "state": state,
                 "pr": pr if pr is not None else unit.pr,
                 "branch": branch if branch is not None else unit.branch,
+                "held_by": held_by if state == HELD else "",
                 "history": (
                     *unit.history,
                     {"state": state, "at": _now(), **({"note": note} if note else {})},

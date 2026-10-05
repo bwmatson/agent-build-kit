@@ -63,6 +63,7 @@ from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     MERGED,
     PLANNED,
+    RUNNING,
     SATISFIED,
     base_of,
     branch_name,
@@ -100,6 +101,9 @@ def _no_thread(
 ) -> bool:
     return False
 
+
+# What the label handler wrote as a hold's note before the cause was kept.
+_HELD_BY_A_REVIEWER = "held by a reviewer"
 
 # What a hold for depth says, so a later merge can find what it held and which
 # branch it still sits on.
@@ -496,7 +500,9 @@ def _hold_for_depth(
     log: Log,
 ) -> None:
     note = DEPTH_HOLD.format(new_base=new_base, depth=depth, cap=cap)
-    store.set_state(child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base))
+    store.set_state(
+        child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base), held_by="depth"
+    )
     log(f"{child.id}: held — {note}")
     # Only the PR moves, as for a child being built: it touches no tree, and
     # one left on the merged branch may be closed by the host, which would put
@@ -821,7 +827,7 @@ def on_hold(
             if store.get(unit.id).state == SATISFIED:
                 log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
                 return True
-            store.set_state(unit.id, HELD)
+            store.set_state(unit.id, HELD, held_by="reviewer")
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
     log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
@@ -837,8 +843,54 @@ def on_release(
     resume: Resume = _no_thread,
     log: Log = print,
 ) -> bool:
-    """The hold label has come off: a unit it held goes back to waiting for review."""
-    raise NotImplementedError
+    """The hold label has come off: a unit it held goes back to waiting for review.
+
+    Only a hold the label caused. One the review loop, a depth cap or the
+    toolchain made has nothing to do with it, and stays. What arrived during
+    the hold is not touched here: the poller delivers it as it would to any
+    unit waiting for review.
+    """
+    unit = _find(store, repo, pr)
+    if unit is None:
+        log(f"release #{pr}: no unit recorded for it in {repo}, ignoring")
+        return True
+
+    try:
+        if (taken := _release_refused(store.get(unit.id), pr, log)) is not None:
+            return taken
+        if resume(unit, "release", "", ""):
+            log(f"release #{pr}: {unit.id} is waiting for review again")
+            return True
+        with claim(unit):
+            current = store.get(unit.id)
+            if (taken := _release_refused(current, pr, log)) is not None:
+                return taken
+            store.set_state(unit.id, IN_REVIEW, note="hold label removed")
+    except BranchBusy as error:
+        return _deferred(f"release #{pr}", unit, error, log)
+    log(f"release #{pr}: {unit.id} is waiting for review again")
+    return True
+
+
+def _release_refused(unit: StoredUnit, pr: int, log: Log) -> bool | None:
+    """Why a release changes nothing, as the handler's answer; None when it applies.
+
+    A unit being built defers it, so the poller reports it again.
+    """
+    if unit.state == RUNNING:
+        return None
+    if unit.state != HELD:
+        log(f"release #{pr}: {unit.id} is {unit.state}, not held, nothing to release")
+        return True
+    if unit.held_by == "reviewer" or (not unit.held_by and _HELD_BY_A_REVIEWER in _last_note(unit)):
+        return None
+    cause = unit.held_by or "an unrecorded cause"
+    log(f"release #{pr}: {unit.id} is held by {cause}, not the label's, leaving it held")
+    return True
+
+
+def _last_note(unit: StoredUnit) -> str:
+    return str(unit.history[-1].get("note", "")) if unit.history else ""
 
 
 def on_rework(
@@ -1440,6 +1492,8 @@ def build_dispatch(
             return on_closed(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
         if event == "hold":
             return on_hold(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
+        if event == "release":
+            return on_release(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
         if event == "rework":
             known = _load_waiting(waiting_path) if waiting_path else waiting
             taken = on_rework(

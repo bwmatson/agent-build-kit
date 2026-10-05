@@ -282,6 +282,17 @@ class Poller(BaseModel):
             after["last_comment"] = before.get("last_comment")
             return self.dispatch("hold", number, pull=pull)
 
+        if HOLD_LABEL in set(before.get("labels") or []) - set(after["labels"]):
+            # The release is the poll's one event. What arrived during the hold
+            # was not delivered by it, so it stays new: recorded as seen, the
+            # unit would wait on words nobody has read.
+            for key in ("comment_ids", "last_comment", "failing_checks", "cancelled_checks"):
+                if key in before:
+                    after[key] = before[key]
+                else:
+                    after.pop(key, None)
+            return self.dispatch("release", number, pull=pull)
+
         if REWORK_LABEL in labels_added:
             handled = self.dispatch("rework", number, pull=pull, reason="agent-rework label")
             if handled is not False and self.consume(number, REWORK_LABEL):
