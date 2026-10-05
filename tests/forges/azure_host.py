@@ -88,8 +88,8 @@ class AzureLabelsHost:
     builds and answers with the raw JSON the service sends. What it keeps of
     the real service: a label is `{id, name, active}`, unique case-insensitively
     (adding `In-Review` to a pull request carrying `in-review` answers with the
-    one it has), and removed by id; a name containing `:` in the path is
-    refused by the host's path check. The single pull request document does not
+    one it has), and removed by name, matched case-insensitively; a name the
+    pull request does not carry answers 404. The single pull request document does not
     carry labels, as the host's does not.
     """
 

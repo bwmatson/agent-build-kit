@@ -91,13 +91,13 @@ def test_the_current_labels_come_from_the_labels_endpoint(monkeypatch: pytest.Mo
 
 
 def test_removing_a_label_is_one_delete_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    host = install(monkeypatch, AzureLabelsHost({7: ["needs:review", "bug"]}))
+    host = install(monkeypatch, AzureLabelsHost({7: ["agent-rework", "bug"]}))
 
-    FORGE.remove_label(REPO, 7, "needs:review")
+    FORGE.remove_label(REPO, 7, "agent-rework")
 
     assert host.names(7) == ["bug"]
     [(method, path)] = host.requests
-    assert method == "DELETE" and path.endswith("/labels/needs:review")
+    assert method == "DELETE" and path.endswith("/labels/agent-rework")
 
 
 def test_removing_a_label_that_is_gone_returns_normally(monkeypatch: pytest.MonkeyPatch) -> None:
