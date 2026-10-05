@@ -52,8 +52,11 @@ AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
 COMMENT = "Please add a one-line docstring to `marker()` saying what it returns."
 
 # The forge, as `gh` prints it. `FORGE` is a directory: `created` exists once a
-# pull request has been opened, `comment.json` holds the review comment the test
-# posted, `merged` exists once the test has merged the pull request.
+# pull request has been opened, `merged` exists once the test has merged the
+# pull request. An inline review comment is one state in three wire shapes, each
+# a file the test writes: `review.json` (the submitted review as `gh pr list
+# --json reviews` prints it), and `rest_review.json` and `rest_comment.json`
+# (the same review and its comment as the REST API prints them).
 FAKE_GH = """#!/bin/sh
 echo "$@" >> "$GH_CALLS"
 cd "$FORGE" || exit 1
@@ -61,19 +64,18 @@ case "$1 $2" in
   "pr list")
     if ! [ -e created ]; then echo '[]'; exit 0; fi
     case "$*" in
-      *"--json number"*) echo '[{"number": 7}]' ;;
+      *"--head "*) echo '[{"number": 7}]' ;;
       *)
         merged=null
         [ -e merged ] && merged='"2026-01-02T00:00:00Z"'
         state=OPEN
         [ -e merged ] && state=MERGED
-        comments='[]'
-        [ -e comment.json ] && comments="[$(cat comment.json)]"
+        reviews='[]'
+        [ -e review.json ] && reviews="[$(cat review.json)]"
         printf '[{"number": 7, "headRefName": "%s", "baseRefName": "main", "state": "%s", ' \
           "$BRANCH" "$state"
-        printf '"isDraft": false, "mergedAt": %s, "labels": [], "comments": %s, ' \
-          "$merged" "$comments"
-        printf '"statusCheckRollup": [], "reviewDecision": "", "reviews": [], '
+        printf '"isDraft": false, "mergedAt": %s, "labels": [], "comments": [], ' "$merged"
+        printf '"statusCheckRollup": [], "reviewDecision": "", "reviews": %s, ' "$reviews"
         printf '"mergeable": "MERGEABLE"}]\\n'
         ;;
     esac ;;
@@ -82,7 +84,9 @@ case "$1 $2" in
   "api --paginate")
     case "$3" in
       */pulls/7/comments)
-        if [ -e comment.json ]; then echo "[$(cat comment.json)]"; else echo '[]'; fi ;;
+        if [ -e rest_comment.json ]; then echo "[$(cat rest_comment.json)]"; else echo '[]'; fi ;;
+      */pulls/7/reviews)
+        if [ -e rest_review.json ]; then echo "[$(cat rest_review.json)]"; else echo '[]'; fi ;;
       *) echo '[]' ;;
     esac ;;
   *) echo '{}' ;;
@@ -225,20 +229,41 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     assert commits_on_branch(scratch) == first
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,)
 
-    comment = {
+    review = {
+        "id": "PRR_kwDOexample5001",
+        "state": "COMMENTED",
+        "author": {"login": "reviewer"},
+        "body": "",
+        "submittedAt": "2026-01-01T00:00:00Z",
+    }
+    rest_review = {
+        "id": 5001,
+        "node_id": "PRR_kwDOexample5001",
+        "state": "COMMENTED",
+        "user": {"login": "reviewer"},
+        "body": "",
+        "submitted_at": "2026-01-01T00:00:00Z",
+    }
+    rest_comment = {
         "id": 9001,
+        "node_id": "PRRC_kwDOexample9001",
+        "pull_request_review_id": 5001,
         "body": COMMENT,
         "path": "src/app/marker.py",
         "line": 1,
         "user": {"login": "reviewer"},
     }
-    (scratch.forge / "comment.json").write_text(json.dumps(comment))
+    (scratch.forge / "review.json").write_text(json.dumps(review))
+    (scratch.forge / "rest_review.json").write_text(json.dumps(rest_review))
+    (scratch.forge / "rest_comment.json").write_text(json.dumps(rest_comment))
     reworked = tick(scratch)
     assert reworked.returncode == 0, reworked.output
     second = commits_on_branch(scratch)
     assert len(second) > len(first), f"no rework was pushed\n{reworked.output}\n{run_log(scratch)}"
     assert set(first) <= set(second), "the rework rewrote what was already pushed"
-    assert "rework" in run_log(scratch), run_log(scratch)
+    # Only the comment asks for a docstring: the rework that read it wrote one.
+    marker = git(scratch.remote, "show", f"{BRANCH}:src/app/marker.py")
+    assert '"""' in marker, f"the rework did not act on the comment\n{marker}\n{run_log(scratch)}"
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
 
     (scratch.forge / "merged").touch()
