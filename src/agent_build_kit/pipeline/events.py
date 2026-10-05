@@ -204,6 +204,27 @@ def on_merged(
     return True
 
 
+def release_children(
+    leaving: StoredUnit,
+    *,
+    store: UnitStore,
+    restack: Restack,
+    remove_worktree: Callable[..., None],
+    delete_branch: Callable[..., None],
+    claim: Claim = _unclaimed,
+    retarget: Callable[[StoredUnit, str], None],
+    rebase_cap: int | None = None,
+    resume: Resume = _no_thread,
+    before_removal: Callable[[], None] = lambda: None,
+    log: Log = print,
+) -> None:
+    """Move what is stacked on a unit that has left the stack — merged or
+    satisfied, already recorded as such in the store — onto its new base, then
+    call `before_removal`, then remove the unit's worktree and branch once
+    nothing builds on it."""
+    raise NotImplementedError
+
+
 def _record_merge(
     merged: StoredUnit,
     *,
