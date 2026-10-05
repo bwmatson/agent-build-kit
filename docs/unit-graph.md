@@ -195,20 +195,19 @@ So the agent hands back structured text and the runner posts it. The rework
 prompt tells the agent not to post and to end with that JSON, so the replies
 describe the code as the reviewer will see it once it is pushed.
 
-What an agent *may* run is narrower than it looks. A build agent is allowed its
-forge's read commands (`gh pr view` and `gh pr diff` on GitHub, `az repos pr
-show` on Azure DevOps) and nothing else on the host; the review agent has none,
-only `git diff`, `git log` and `git show`. No prompt tells a unit's agent to use
-them: the feedback it needs is already in the prompt. They are granted, not
-needed.
+What an agent *may* run is narrower than it looks, and deliberate. A build agent
+is allowed its forge's read commands (`gh pr view` and `gh pr diff` on GitHub,
+`az repos pr show` on Azure DevOps) and nothing else on the host; the review
+agent has only `git diff`, `git log` and `git show`. The runner puts the
+feedback an agent needs into its prompt, and the read commands are there for
+whatever the prompt does not carry, so an agent may look at its own pull request
+when it judges that useful.
 
-The tracks (health, improve, recommend, propose) are different. Their prompts
-tell the agent to run `gh pr view <url> --json state` to see whether a PR in a
-follow-up list has merged. That is a forge read made by an agent, for a fact the
-runner could look up in code and hand over.
-
-Two things are not yet deterministic: that track read, and the unit agents'
-unused read commands.
+The tracks (health, improve, recommend, propose) use the same freedom: their
+prompts tell the agent to run `gh pr view <url> --json state` to see whether a
+PR in a follow-up list has merged. That read stays with the agent. The line that
+matters is the one in the table: agents read the host as they need to, and never
+change it.
 
 ### Checks before review
 
