@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import config
+from agent_build_kit.graph.state import Node
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
@@ -271,7 +272,7 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
         f"no commit after the tests implements src/app/marker.py\n{found()}"
     )
     log_lines = run_log(scratch).splitlines()
-    assert any("step: review round" in line for line in log_lines), log_lines
+    assert any(f"{Node.REVIEW}: review round" in line for line in log_lines), log_lines
     assert any("in review: PR #7" in line for line in log_lines), log_lines
     assert "pr create" in scratch.calls.read_text()
 
@@ -307,23 +308,27 @@ def test_the_pipeline_alone_pushed_and_only_what_review_approved(
 def test_progress_is_visible_while_the_run_works(built: tuple[Scratch, Ticked]) -> None:
     _, ticked = built
 
-    # The pipeline's own lines are `<unit id>: <message>`; the agent's progress
-    # is `<unit id>:` followed by the runtime's two-space-indented line.
-    own = re.compile(rf"^\[[\d:]+\] {re.escape(UNIT_ID)}: step: (.*)")
+    # The graph's own lines are `<unit id>: <node>: <message>`; the agent's
+    # progress is `<unit id>:` followed by the runtime's two-space-indented line.
+    nodes = "|".join(re.escape(node.value) for node in Node)
+    own = re.compile(rf"^\[[\d:]+\] {re.escape(UNIT_ID)}: ({nodes}): ")
     progress = re.compile(rf"^\[[\d:]+\] {re.escape(UNIT_ID)}:   \S")
-    steps = [(at, i) for i, (at, line) in enumerate(ticked.lines) if own.match(line)]
+    steps = [
+        (at, i, match.group(1))
+        for i, (at, line) in enumerate(ticked.lines)
+        if (match := own.match(line))
+    ]
     first = next(
-        (
-            n
-            for n, (_, i) in enumerate(steps)
-            if own.match(ticked.lines[i][1]).group(1).startswith(("write the tests", "implement"))  # type: ignore[union-attr]
-        ),
-        None,
+        (n for n, (_, _, node) in enumerate(steps) if node in (Node.TESTS, Node.IMPLEMENT)), None
     )
-    assert first is not None and first + 1 < len(steps), output_of(ticked)
-    window = ticked.lines[steps[first][1] + 1 : steps[first + 1][1]]
+    assert first is not None, output_of(ticked)
+    # The node's own lines (`started`, its step) belong to it: the window ends
+    # where the next node's first line begins.
+    after = next((s for s in steps[first:] if s[2] != steps[first][2]), None)
+    assert after is not None, output_of(ticked)
+    window = ticked.lines[steps[first][1] + 1 : after[1]]
     arrivals = [at for at, line in window if progress.match(line)]
-    next_step = steps[first + 1][0]
+    next_step = after[0]
     # Lines that arrive as the agent works, not all together when its turn ends.
     assert len(arrivals) >= 3, f"agent progress lines in the step: {len(arrivals)}\n{window}"
     assert arrivals[0] < next_step - 5, "the agent's progress arrived only as its run ended"
