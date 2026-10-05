@@ -136,6 +136,18 @@ def test_a_failing_tier_one_fails_the_unit_and_leaves_no_pull_request(tmp_path: 
     assert recorder.prs == {}
 
 
+def test_a_second_run_on_a_finished_thread_starts_from_a_clean_state(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    assert build(tmp_path, recorder).pr == 7
+
+    recorder.store.set_feedback(unit().id, "rename it")
+    recorder.push_raises = HostMoved("host head moved")
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == "failed"
+    assert outcome.pr is None, "the first run's pull request is not this run's"
+
+
 def test_the_prompts_are_scoped_to_this_unit_and_name_the_change(tmp_path: Path) -> None:
     recorder = fresh(tmp_path)
     graph = [

@@ -51,6 +51,7 @@ class Recorder:
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
         self.pr_calls = 0
+        self.pr_opens = 0  # calls that found no pull request for the branch
         self.contexts: list[str] = []  # what each review was given
 
     def _after(self, event: str) -> None:
@@ -111,7 +112,9 @@ class Recorder:
     def open_pr(self, unit, *, body: str, base: str, cwd: Path, **bodies: str) -> int:
         """Opens on the first call, updates on later ones, as the forge does."""
         self.pr_calls += 1
-        self.prs.setdefault(f"spec/{unit.id}", 7)
+        if f"spec/{unit.id}" not in self.prs:
+            self.pr_opens += 1
+            self.prs[f"spec/{unit.id}"] = 7
         self._after("pr")
         return self.prs[f"spec/{unit.id}"]
 

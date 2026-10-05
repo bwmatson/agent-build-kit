@@ -9,15 +9,21 @@ callables `wiring.build_runner` binds: `prepare`, `tests`, `implement`,
 `open_pr` and `failed`, joined by the edges below, ending at the pull request.
 Two built edges are not in the diagram: `prepare → verify_base`, for a branch
 with work, no feedback and a tip review already approved, and `rework → tier1`,
-for a rework that left nothing new.
+for a rework after which the branch carries no commits of its own.
 What follows a pull request, and every path off the build path, is not built:
 where the classic runner would adapt, run tier 2, mark a unit satisfied, hold
 it, or stop for a base that moved, the graph ends the run as `failed` and says
-which of these it is. Two more differences from the classic runner: the
+which of these it is. Two more differences from the classic runner: (1) the
 `chore:` commit of uncommitted work before each review round is not made, as
-every step already ends in its own commit. `ABK_ENGINE=graph` still does not drive a unit through
-`run_unit`: a tick starts a thread whose nodes do no work, and the classic
-engine is the default and the only one that builds. This document is what the
+every step already ends in its own commit; (2) the nodes never call
+`may_start` (no usage check before the run, before an agent step, or after an
+implementation that added nothing) and never consult `upstream_incomplete` or
+the hold before a step, so a run on the graph engine calls agents while the
+usage guard refuses or an upstream unit is incomplete. Both arrive with the
+usage-pause interrupts and the routes into `held`.
+`ABK_ENGINE=graph` still does not drive a unit through `run_unit`: a tick
+starts a thread whose nodes do no work, and the classic engine is the default
+and the only one that builds. This document is what the
 implementation is specified against: it says which part of the pipeline moves
 onto [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview),
 which part stays as it is, and how the two meet.

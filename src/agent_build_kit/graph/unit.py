@@ -45,8 +45,12 @@ async def run_unit(
     # A thread with a node still to run was interrupted: it carries on from
     # there, with no new input. Anything else is a new run of the unit.
     interrupted = bool((await compiled.aget_state(config)).next)
+    # The whole state, not the fields set: a pydantic input writes only those,
+    # and the previous run's verdict, pr and event would carry over.
     start = (
-        None if interrupted else UnitRun(unit_id=unit.id, change=unit.change, groups=unit.groups)
+        None
+        if interrupted
+        else UnitRun(unit_id=unit.id, change=unit.change, groups=unit.groups).model_dump()
     )
     state = UnitRun.model_validate(await run_thread(compiled, start, unit.id))
     if state.status is None:

@@ -394,6 +394,18 @@ def _parse_answers(raw: object) -> tuple[EarlierAnswer, ...] | None:
     return tuple(out)
 
 
+def escalates(verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
+    """Whether a rejection is a person's call instead of another round.
+
+    A class escalation needs an earlier round to be another instance of; a
+    disagreement needs the builder to have declined a point on the last one.
+    """
+    if not earlier_rounds:
+        return False
+    declined = str(earlier_rounds[-1].get("response", "")).strip()
+    return verdict.escalate == "class" or (verdict.escalate == "disagreement" and bool(declined))
+
+
 def parse_verdict(output: str) -> Verdict:
     """A reviewer's reply, read as a verdict.
 
@@ -1634,7 +1646,7 @@ class UnitRunner(BaseModel):
             # no earlier round — `rounds` here is what preceded this one —
             # neither holds, so an escalation on round one is an ordinary
             # rejection instead.
-            if self.escalates(verdict, rounds):
+            if escalates(verdict, rounds):
                 # Another instance of a kind that cannot be enumerated, or a
                 # point raised again after the builder already declined it: a
                 # third exchange of prose is the least likely thing to settle
@@ -1852,19 +1864,6 @@ class UnitRunner(BaseModel):
                 return self.fail(
                     unit, f"checks failing and fix round {attempt} changed nothing, before review"
                 )
-
-    def escalates(self, verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
-        """Whether a rejection is a person's call instead of another round.
-
-        A class escalation needs an earlier round to be another instance of; a
-        disagreement needs the builder to have declined a point on the last one.
-        """
-        if not earlier_rounds:
-            return False
-        declined = str(earlier_rounds[-1].get("response", "")).strip()
-        return verdict.escalate == "class" or (
-            verdict.escalate == "disagreement" and bool(declined)
-        )
 
     def record_response(self, unit: Unit, response: str) -> None:
         """The builder's account of the last round's ask, for the next review."""

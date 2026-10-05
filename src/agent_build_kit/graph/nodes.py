@@ -30,6 +30,7 @@ from agent_build_kit.pipeline.stack_runner import (
     TIER1_FAILED,
     RunStatus,
     UnitRunner,
+    escalates,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, Unit, branch_name, local_ref
@@ -279,7 +280,7 @@ class BuildPath:
             if unit.tier == "tier2":
                 return {**update, **self.not_yet("tier 2 after approval")}
             return {**update, "verdict": Verdict.APPROVED, "approved": judged, "fix_rounds": 0}
-        if weighed.verdict.needs_human or r.escalates(weighed.verdict, weighed.earlier_rounds):
+        if weighed.verdict.needs_human or escalates(weighed.verdict, weighed.earlier_rounds):
             return {**update, **self.not_yet("holding a unit for a person")}
         if round_number == total - 1:
             return {**update, **self.not_yet("a unit whose review rounds are spent")}

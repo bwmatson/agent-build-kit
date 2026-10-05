@@ -55,7 +55,8 @@ def test_a_node_killed_after_its_effect_does_not_repeat_it_when_resumed(
     assert outcome.pr == 7
     assert recorder.store.get(unit().id).pr == 7
     assert recorder.store.get(unit().id).state == IN_REVIEW
-    assert len(recorder.prs) == 1, "the pull request is found, not opened again"
+    assert recorder.pr_opens == 1, "the pull request is found, not opened again"
+    assert recorder.pr_calls == (2 if killed_after == "pr" else 1)
 
 
 def test_a_rework_killed_after_its_commit_is_not_made_again_when_resumed(
