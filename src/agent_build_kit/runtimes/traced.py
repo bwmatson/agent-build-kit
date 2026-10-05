@@ -27,7 +27,9 @@ def traced(runtime: str, request: AgentRequest, call: Callable[[], AgentResult])
     role = ROLES.get(request.role, request.role)
     model = request.model or "default"
     with telemetry.tracer().start_as_current_span(
-        "agent", attributes={"runtime": runtime, "model": model, "role": role}
+        "agent",
+        attributes={"runtime": runtime, "model": model, "role": role},
+        **telemetry.SPAN_OPTIONS,
     ) as span:
         outcome = "failed"
         try:
@@ -37,6 +39,9 @@ def traced(runtime: str, request: AgentRequest, call: Callable[[], AgentResult])
             raise
         except AgentRateLimited:
             outcome = "rate_limited"
+            raise
+        except Exception:
+            telemetry.failed(span)
             raise
         else:
             # A run that exits cleanly can still close on an error result

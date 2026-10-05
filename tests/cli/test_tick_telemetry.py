@@ -24,6 +24,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
+from agent_build_kit.pipeline.wiring import CommitRejected
 from agent_build_kit.runtimes import AgentRequest, claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.conftest import make_installation
@@ -35,7 +36,13 @@ from tests.runtimes.claude_cli import MODEL, FakeClaude, finished_build
 
 UNIT = "add-marker/1"
 OTHER = "other/1"
-FAILING = "ERROR implicit-any-empty-container\n  --> tests/test_x.py:3:5"
+FAILING = (
+    "$ uv run pre-commit run --from-ref main --to-ref HEAD (exit 1)\n"
+    "ruff.....................................................................Passed\n"
+    "pyrefly-check............................................................Failed\n"
+    "ERROR implicit-any-empty-container\n  --> tests/test_x.py:3:5"
+)
+ERROR = 2  # an OTLP span status code
 DIFF = 'diff --git a/src/app.py b/src/app.py\n-MARKER = None\n+MARKER = "added"'
 SPEC_STEPS = {"tests", "implement", "checks", "review", "rework", "push", "open_pr"}
 
@@ -257,6 +264,39 @@ def test_no_span_or_metric_carries_feedback_a_prompt_a_diff_or_a_commit_message(
     assert not [value for value in values if "SENTINEL" in value or "MARKER" in value]
 
 
+def test_a_commit_the_gate_rejects_leaves_its_text_on_no_span(
+    ticks: Ticks, exported: Collector
+) -> None:
+    def rejected(message: str, *, cwd: Path) -> int:
+        raise CommitRejected("git commit was rejected: SENTINEL-gate said\n" + DIFF)
+
+    ticks.options["commit"] = rejected
+    ticks.agents()
+
+    ticks.tick()
+
+    spans = exported.spans()
+    assert spans
+    assert not [value for span in spans for value in span.texts() if "SENTINEL" in value]
+    assert not [span for span in spans if span.events], "no exception event on any span"
+    failed = [span for span in steps(spans) if span.status_code == ERROR]
+    assert failed, "the step the rejection passed through is marked as an error"
+    assert all(span.status_message == "" for span in failed)
+
+
+def test_a_step_that_waits_for_review_is_not_an_error(ticks: Ticks, exported: Collector) -> None:
+    ticks.agents()
+
+    ticks.tick()
+
+    spans = exported.spans()
+    waiting = one(spans, "await_review")
+    assert waiting.events == ()
+    assert waiting.status_code == 0
+    assert waiting.attributes["outcome"] == "waiting"
+    assert not [span for span in spans if span.status_code == ERROR]
+
+
 def test_a_failure_is_recorded_by_its_category_and_not_by_its_text(
     ticks: Ticks, exported: Collector
 ) -> None:
@@ -319,7 +359,7 @@ def test_a_unit_built_reviewed_twice_and_pushed_records_the_tables_instruments(
 
     failures = exported.metric("abk.checks.failures")
     assert failures and all(set(point.attributes) == {"check", "round"} for point in failures)
-    assert {point.attributes["check"] for point in failures} <= {"lint", "test", "types"}
+    assert {point.attributes["check"] for point in failures} == {"types"}
 
     turns = exported.metric("abk.agent.turns")
     assert turns and all(set(point.attributes) == {"role", "model"} for point in turns)

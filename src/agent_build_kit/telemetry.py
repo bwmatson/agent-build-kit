@@ -249,6 +249,26 @@ def links(earlier: str) -> list[Any]:
         return []
 
 
+# What every span is opened with: the SDK's defaults would export an
+# exception's text and stack as an event and in the status, and the text of a
+# failure (a gate's output, a diff) is never to leave the process.
+SPAN_OPTIONS: dict[str, bool] = {"record_exception": False, "set_status_on_exception": False}
+
+
+def failed(span: Any) -> None:
+    """Mark `span` as an error, with no description: the kind of failure is
+    the `outcome` attribute, never the exception's text."""
+    if not span.is_recording():
+        return
+    _safely(lambda: span.set_status(_error_status()))
+
+
+def _error_status() -> Any:
+    from opentelemetry.trace import Status, StatusCode
+
+    return Status(StatusCode.ERROR)
+
+
 def tracer() -> Any:
     """The tracer, or a no-op that accepts every call."""
     provider = _tracer_provider

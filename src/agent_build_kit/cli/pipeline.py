@@ -362,8 +362,12 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     tick = _Tick()
     started = time.monotonic()
     try:
-        with telemetry.tracer().start_as_current_span("tick"):
-            return _tick(args, inst, tick)
+        with telemetry.tracer().start_as_current_span("tick", **telemetry.SPAN_OPTIONS) as span:
+            try:
+                return _tick(args, inst, tick)
+            except BaseException:
+                telemetry.failed(span)
+                raise
     except BaseException:
         tick.outcome = "error"
         raise
@@ -1293,7 +1297,7 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
         "tier": unit.tier,
     }
     with telemetry.tracer().start_as_current_span(
-        "unit", attributes=attributes, links=telemetry.links(earlier)
+        "unit", attributes=attributes, links=telemetry.links(earlier), **telemetry.SPAN_OPTIONS
     ) as span:
         if here := telemetry.reference(span):
             try:
@@ -1302,6 +1306,9 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 pass
         try:
             return _build_unit(inst, unit, store=store, run=run)
+        except BaseException:
+            telemetry.failed(span)
+            raise
         finally:
             span.set_attribute("outcome", run.outcome)
             telemetry.duration(

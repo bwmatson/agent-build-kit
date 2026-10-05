@@ -47,6 +47,7 @@ class Span:
     attributes: dict[str, Any]
     links: tuple[str, ...]  # the trace id of each link
     status_message: str
+    status_code: int  # 0 unset, 1 ok, 2 error
     events: tuple[tuple[str, dict[str, Any]], ...]
 
     def texts(self) -> list[str]:
@@ -95,6 +96,7 @@ class Collector:
                                 attributes=_attributes(span.attributes),
                                 links=tuple(link.trace_id.hex() for link in span.links),
                                 status_message=span.status.message,
+                                status_code=span.status.code,
                                 events=tuple(
                                     (event.name, _attributes(event.attributes))
                                     for event in span.events

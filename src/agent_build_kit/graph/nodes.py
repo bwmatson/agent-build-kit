@@ -150,7 +150,9 @@ class BuildPath:
             if round_number := _round(node, state):
                 attributes["round"] = round_number
             span: AbstractContextManager[Any] = (
-                self.tracer.start_as_current_span(node.value, attributes=attributes)
+                self.tracer.start_as_current_span(
+                    node.value, attributes=attributes, **telemetry.SPAN_OPTIONS
+                )
                 if self.tracer
                 else nullcontext()
             )
@@ -167,6 +169,10 @@ class BuildPath:
                     return {**update, "session_id": ""}
                 except GraphInterrupt:
                     outcome = "waiting"
+                    raise
+                except BaseException:
+                    if active is not None:
+                        telemetry.failed(active)
                     raise
                 finally:
                     if active is not None:
@@ -513,7 +519,9 @@ class BuildPath:
             return {"checks_ok": True, "head": head}
         self.say(output)
         telemetry.count(
-            "abk.checks.failures", check=failed_check(output), round=state.fix_rounds + 1
+            "abk.checks.failures",
+            check=failed_check(output, unit.repo),
+            round=state.fix_rounds + 1,
         )
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
@@ -704,7 +712,7 @@ class BuildPath:
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)
-            telemetry.count("abk.checks.failures", check=failed_check(output), round=0)
+            telemetry.count("abk.checks.failures", check=failed_check(output, unit.repo), round=0)
             r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
             if state.moved:
                 return self.rebase(state, f"tier 1 failed on {base}", base=base)

@@ -1,29 +1,21 @@
-"""Which check a failed tier 1 run was, from what it printed (spec: telemetry).
+"""Which check a failed tier 1 run was (spec: telemetry).
 
 The metrics count a failure by its kind, never by its text, and three kinds
-cover what a person acts on: the linter or formatter, the type checker, the
-tests. The output of a repo's own hook runner can hold any of them, so the
-tools' own names and output shapes decide, not the command that ran them.
+cover what a person acts on: the linter or formatter (`lint`), the type
+checker (`types`), the tests (`test`). Which tool means which, and what its
+output looks like, is the toolchain profile's to say; this only asks it.
 """
 
 from __future__ import annotations
 
-import re
+from agent_build_kit import profiles
+from agent_build_kit.config import active
 
-TYPES = re.compile(
-    r"pyrefly|mypy|pyright|\btsc\b|error TS\d+|^ERROR [a-z]+(?:-[a-z]+)+\b",
-    re.IGNORECASE | re.MULTILINE,
-)
-TESTS = re.compile(
-    r"pytest|vitest|jest|short test summary|AssertionError|=+ .*\b(?:failed|passed)\b",
-    re.IGNORECASE,
-)
+KINDS = ("lint", "types", "test")
 
 
-def failed_check(output: str) -> str:
-    """`types`, `test` or `lint`: what failed, by what it printed."""
-    if TYPES.search(output):
-        return "types"
-    if TESTS.search(output):
-        return "test"
-    return "lint"
+def failed_check(output: str, repo: str | None = None) -> str:
+    """`lint`, `types` or `test`: what failed in `output`, a tier 1 failure of
+    `repo` (its profile reads it; the default profile when `repo` is unnamed)."""
+    entry = active().repos.get(repo) if repo else None
+    return profiles.get(entry.profile if entry else "python-uv").failure_kind(output)

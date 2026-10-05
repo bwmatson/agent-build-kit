@@ -46,6 +46,11 @@ class ToolchainProfile(Protocol):
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool: ...
 
+    def failure_kind(self, output: str) -> str:
+        """`lint`, `types` or `test`: which check a failed tier 1 command was,
+        from the `$ command (exit N)` header and output the pipeline keeps."""
+        ...
+
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]: ...
 
     def acceptance_commands(
