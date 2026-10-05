@@ -267,3 +267,26 @@ def evaluation(status: str, name: str = "CI build", policy_type: dict | None = N
         "startedDate": "2026-09-24T18:02:11.483Z",
         "completedDate": "2026-09-24T18:09:00.000Z" if finished else None,
     }
+
+
+def access_token(token: str = "a-token", *, seconds_left: int = 3600) -> str:
+    """What `az account get-access-token` prints: the token with its expiry.
+
+    Both spellings of the expiry, as the CLI prints them: `expiresOn` in local
+    time and `expires_on` as epoch seconds.
+    """
+    import json
+    import time
+    from datetime import datetime
+
+    expires = time.time() + seconds_left
+    return json.dumps(
+        {
+            "accessToken": token,
+            "expiresOn": datetime.fromtimestamp(expires).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "expires_on": int(expires),
+            "subscription": GUID,
+            "tenant": GUID,
+            "tokenType": "Bearer",
+        }
+    )
