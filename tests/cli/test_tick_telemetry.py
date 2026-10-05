@@ -38,8 +38,12 @@ UNIT = "add-marker/1"
 OTHER = "other/1"
 FAILING = (
     "$ uv run pre-commit run --from-ref main --to-ref HEAD (exit 1)\n"
-    "ruff.....................................................................Passed\n"
-    "pyrefly-check............................................................Failed\n"
+    "ruff format..............................................................Passed\n"
+    "ruff check...............................................................Passed\n"
+    "pyrefly check............................................................Failed\n"
+    "- hook id: pyrefly-check\n"
+    "- exit code: 1\n"
+    "\n"
     "ERROR implicit-any-empty-container\n  --> tests/test_x.py:3:5"
 )
 ERROR = 2  # an OTLP span status code
