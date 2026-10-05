@@ -15,6 +15,7 @@ async def run_thread(
     thread_id: str,
     *,
     interrupt_before: list[Node] | None = None,
+    interrupt_after: list[Node] | None = None,
 ) -> Any:
     """Run or resume `thread_id` (`input=None` resumes), each step written to disk first.
 
@@ -27,4 +28,5 @@ async def run_thread(
         {"configurable": {"thread_id": thread_id}},
         durability="sync",
         interrupt_before=interrupt_before,
+        interrupt_after=interrupt_after,
     )

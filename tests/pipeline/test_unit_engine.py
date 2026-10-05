@@ -1,12 +1,11 @@
 """The seam `build_unit` runs a unit through (docs/unit-graph.md).
 
 Without a setting, the classic engine runs it; with `ABK_ENGINE=graph`, the
-graph engine does, and the unit gets a thread named by its id.
+graph engine does (its thread is covered by tests/graph/test_graph_tick.py).
 """
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -91,24 +90,6 @@ def test_build_unit_with_no_setting_runs_the_classic_engine(
     assert not (tmp_path / "unit-graphs.sqlite").exists(), "no thread for a classic build"
 
 
-def threads(db: Path) -> set[str]:
-    """The thread ids the checkpointer's own table holds, read raw."""
-    with sqlite3.connect(db) as conn:
-        return {row[0] for row in conn.execute("select distinct thread_id from checkpoints")}
-
-
-def test_on_the_graph_engine_a_unit_gets_a_thread_named_by_its_id(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst = make_installation(tmp_path, planning={"state_dir": "."})
-    store = a_store(tmp_path)
-    monkeypatch.setattr(settings, "engine", "graph")
-
-    cli.build_unit(inst, store.get(UNIT), store=store)
-
-    assert threads(inst.state_dir / "unit-graphs.sqlite") == {UNIT}
-
-
 def test_an_unknown_engine_is_refused_when_settings_load(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ABK_ENGINE", "grpah")
 
@@ -116,26 +97,20 @@ def test_an_unknown_engine_is_refused_when_settings_load(monkeypatch: pytest.Mon
         Settings(_env_file=None)
 
 
-def test_a_graph_build_that_errors_is_logged_and_does_not_raise(
+def test_a_graph_build_that_errors_is_recorded_and_does_not_raise(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     inst = make_installation(tmp_path, planning={"state_dir": "."})
     store = a_store(tmp_path)
     (inst.state_dir / "unit-graphs.sqlite").write_text("not a database")
+    runner = Rejected()
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: runner)
     monkeypatch.setattr(settings, "engine", "graph")
 
     assert cli.build_unit(inst, store.get(UNIT), store=store) is True
 
-    assert UNIT + ": the graph engine failed" in capsys.readouterr().out
-
-
-def test_a_graph_build_says_it_ran_no_step(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    inst = make_installation(tmp_path, planning={"state_dir": "."})
-    store = a_store(tmp_path)
-    monkeypatch.setattr(settings, "engine", "graph")
-
-    cli.build_unit(inst, store.get(UNIT), store=store)
-
-    assert UNIT + ": the graph engine ran no step" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert UNIT + ": failed" in out
+    assert "DatabaseError" in out, "the checkpoint file's error, not the runner's"
+    assert runner.ran == [], "the graph engine never calls UnitRunner.run"
+    assert store.get(UNIT).state == "failed"

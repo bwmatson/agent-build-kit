@@ -1051,6 +1051,7 @@ class AcpRuntime:
     policy_coverage: PolicyCoverage = "agent_flagged"
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
+    supports_session_resume: bool = False
     # There is no default agent to spawn.
     requires: tuple[str, ...] = ("command",)
     agent_command: tuple[str, ...] = ()

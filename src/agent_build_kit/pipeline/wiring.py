@@ -26,6 +26,7 @@ import subprocess
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Protocol
@@ -71,11 +72,16 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
-from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
+from agent_build_kit.pipeline.usage_guard import (
+    Decision,
+    UsageReading,
+    current_usage,
+    may_start_unit,
+)
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
-from agent_build_kit.runtimes.base import Role
+from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
 
 Run = Callable[..., subprocess.CompletedProcess]
@@ -141,6 +147,13 @@ def _agent_pushed(cwd: Path, branch: str, before: str | None) -> str | None:
     return None if ancestor.returncode else after
 
 
+INTERRUPTED_PROMPT = (
+    "The process running you was interrupted and has been restarted; this is the same "
+    "session, continued. Re-read the worktree (git status, git log, the files you were "
+    "changing) before trusting your memory of it, then finish the task you were given."
+)
+
+
 def build_run_claude(
     *,
     run: Run | None = None,
@@ -169,13 +182,24 @@ def build_run_claude(
     specs = _specs_dir(planning_repo)
     model = model or models().implement
 
-    def run_claude(prompt: str, *, cwd: Path) -> str:
+    def run_claude(
+        prompt: str,
+        *,
+        cwd: Path,
+        resume_session: str = "",
+        on_session: Callable[[str], None] | None = None,
+    ) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
+        if resume_session and not agent.supports_session_resume:
+            raise SessionUnavailable(f"{agent.name} cannot continue a session")
         branch = _unit_branch(cwd)
         before = remote_head(cwd, branch) if branch else None
         result = agent.run(
             AgentRequest(
-                prompt=prompt,
+                # A continued session holds the original prompt already.
+                prompt=INTERRUPTED_PROMPT if resume_session else prompt,
+                resume_session=resume_session,
+                on_session=on_session,
                 role=role,
                 cwd=cwd,
                 # The specs, and nothing else in the planning repo. The unit
@@ -366,10 +390,21 @@ def build_run_review(
         role=role,
     )
 
-    def run_review(*, cwd: Path, context: str = "") -> str:
+    def run_review(
+        *,
+        cwd: Path,
+        context: str = "",
+        resume_session: str = "",
+        on_session: Callable[[str], None] | None = None,
+    ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
-        return inner(f"{context}\n\n{REVIEW_PROMPT}" if context else REVIEW_PROMPT, cwd=cwd)
+        return inner(
+            f"{context}\n\n{REVIEW_PROMPT}" if context else REVIEW_PROMPT,
+            cwd=cwd,
+            resume_session=resume_session,
+            on_session=on_session,
+        )
 
     return run_review
 
@@ -988,6 +1023,27 @@ def build_may_start(*, usage: Callable[[], object] | None = None) -> Callable[[]
     return may_start
 
 
+def build_resume_at(
+    *,
+    usage: Callable[[], UsageReading | None] | None = None,
+    decide: Callable[[UsageReading | None], Decision] | None = None,
+) -> Callable[[], datetime | None]:
+    """When the usage guard expects to allow a start again, in the shape the
+    runner asks for: the guard's own answer, which counts the ramp towards the
+    window's reset, and the reset itself when it has none."""
+    usage = usage or current_usage
+    decide = decide or may_start_unit
+
+    def resume_at() -> datetime | None:
+        reading = usage()
+        decision = decide(reading)
+        if not decision.may_start and decision.resume_at:
+            return decision.resume_at
+        return reading.resets_at if reading else None
+
+    return resume_at
+
+
 class Tier2Session:
     """One unit's tier 2 run, and the status that follows it.
 
@@ -1583,6 +1639,7 @@ def build_runner(
         tests_in=tests_in,
         tests_changed=tests_changed,
         may_start=build_may_start(),
+        resume_at=build_resume_at(),
         run_claude=run_claude,
         run_rework=build_run_claude(
             planning_repo=planning_repo,

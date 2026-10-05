@@ -22,6 +22,7 @@ from agent_build_kit.runtimes.base import PolicyCoverage
 class SelectableRuntime:
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
+    supports_session_resume: bool = False
 
     def __init__(
         self,

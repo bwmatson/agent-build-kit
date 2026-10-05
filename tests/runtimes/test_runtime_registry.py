@@ -31,6 +31,7 @@ class _Double:
     policy_coverage: PolicyCoverage = "none"
     supports_usage_tracking = False
     supports_streaming = False
+    supports_session_resume = False
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = ()
     default_models = ModelsConfig()

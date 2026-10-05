@@ -17,6 +17,7 @@ test can point one at a temporary planning repo.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import re
@@ -29,7 +30,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import config, forges, runtimes
+from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import diagram
 from agent_build_kit.pipeline.archive import (
     _already_archived,
@@ -61,7 +64,7 @@ from agent_build_kit.pipeline.pr_replies import own_posts
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.stack_runner import starting_step
+from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner, starting_step
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_engine import select_engine
 from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
@@ -96,7 +99,12 @@ from agent_build_kit.pipeline.usage_guard import (
     threshold_at,
 )
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
-from agent_build_kit.pipeline.wiring import CommitRejected, build_commit, build_runner
+from agent_build_kit.pipeline.wiring import (
+    CommitRejected,
+    build_commit,
+    build_resume_at,
+    build_runner,
+)
 from agent_build_kit.pipeline.work_graph import (
     NEEDS_LINE,
     group_needs,
@@ -403,7 +411,10 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     only = frozenset(getattr(args, "only", None) or ())
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
-    ready = _evaluate(inst, units, started=set(), building=set(), only=only)
+    ready = [
+        *resumable_units(inst, units, only=only),
+        *_evaluate(inst, units, started=set(), building=set(), only=only),
+    ]
     if not ready:
         log(_nothing_started_reason(inst, units, only=only))
         return 0
@@ -420,6 +431,25 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         return 1
 
     return _schedule(inst, ready, store=store, only=only)
+
+
+def resumable_units(
+    inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
+) -> list[Unit]:
+    """On the graph engine, the units whose thread a run left partway: killed
+    in a node, or interrupted for the usage window, which the guard let this
+    tick through. They are `running`, so they hold the slots `_evaluate` counts;
+    a thread waiting for review or a person is not here, and holds none."""
+    if settings.engine != "graph":
+        return []
+    return [
+        unit
+        for unit in units
+        if unit.state == RUNNING
+        and (not only or unit.id in only)
+        and not branch_is_held(inst, unit.branch or branch_name(unit))
+        and has_thread(inst, unit.id)
+    ]
 
 
 def _evaluate(
@@ -685,6 +715,19 @@ def commit_leftovers(inst: Installation, unit: Unit) -> int:
     return made
 
 
+def has_thread(inst: Installation, unit_id: str) -> bool:
+    """Whether the graph engine holds a thread for the unit."""
+    # Late: the graph package imports the pipeline.
+    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.unit import thread_position
+
+    async def look() -> bool:
+        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+            return (await thread_position(saver, unit_id)).state is not None
+
+    return asyncio.run(look())
+
+
 def reclaim_stale(inst: Installation, *, store: UnitStore) -> None:
     """Put units back that nothing is working on any more.
 
@@ -703,6 +746,10 @@ def reclaim_stale(inst: Installation, *, store: UnitStore) -> None:
             continue
         branch = unit.branch or branch_name(unit)
         if branch_is_held(inst, branch):
+            continue
+        if settings.engine == "graph" and has_thread(inst, unit.id):
+            # Its thread resumes it at the node it stopped in, redoing what
+            # that node left; requeuing it here would build it again.
             continue
         log(f"{unit.id}: reclaimed — left running with no process on it")
         if commit_leftovers(inst, unit) and not (unit.resume_from or unit.feedback):
@@ -1092,6 +1139,18 @@ def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
             push=at_path(push_with_lease),
         ),
         remove_worktree=named(build_remove_worktree(checkouts, root=inst.worktree_root)),
+        resume=lambda unit, kind, reason, feedback, from_person=False: (
+            resume_thread(
+                inst,
+                unit,
+                kind,
+                store=store,
+                reason=reason,
+                feedback=feedback,
+                from_person=from_person,
+            )
+            is not None
+        ),
         delete_branch=named(build_delete_branch(checkouts)),
         fetch_review=build_fetch_review(),
         fetch_checks=build_fetch_check_logs(),
@@ -1160,7 +1219,22 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
 
 
 def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
-    """Build one unit through `UnitRunner`. Returns False only when the tick should stop.
+    """Build one unit through `UnitRunner`. Returns False only when the tick should stop."""
+    return _build(inst, unit, store=store, on_thread=False)
+
+
+def build_graph(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
+    """Start the unit's thread, or resume the one a killed or paused run left.
+
+    The branch's lock is held around the run, from reading the thread's position
+    until it returns at a wait or the end, as the classic engine holds it: a
+    thread waiting for review holds nothing, as the run has returned.
+    """
+    return _build(inst, unit, store=store, on_thread=True)
+
+
+def _build(inst: Installation, unit: Unit, *, store: UnitStore, on_thread: bool) -> bool:
+    """`build_classic` and `build_graph`: what a unit's build does around the run.
 
     Nothing in here may raise. A tick runs unattended on a timer, so a
     traceback is not a report — it is a unit left in `running` forever and no
@@ -1184,7 +1258,8 @@ def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
 
     try:
         try:
-            with branch_lock(branch, root=inst.state_dir / "locks"):
+            with ExitStack() as held:
+                held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
                 # Re-read under the lock. `ready` comes from the pass's latest
                 # evaluation, and ticks overlap to build in parallel: by the time
                 # this one reaches a unit, another may have built it and opened its
@@ -1198,7 +1273,9 @@ def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 except KeyError:
                     end("skipped, it was joined into another unit")
                     return True
-                if unit.state != PLANNED:
+                # A thread's unit may also be `running`: killed or paused in a
+                # node, which is how its thread resumes it.
+                if unit.state not in ((PLANNED, RUNNING) if on_thread else (PLANNED,)):
                     end(f"skipped, it is now {unit.state}")
                     return True
                 # The base too, from the store rather than that evaluation: a
@@ -1206,18 +1283,7 @@ def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                 # this.
                 graph = store.all()
                 base = base_of(unit, graph)
-                step, model = starting_step(unit)
-                run_log = RunLog(
-                    run_log_dir(inst.state_dir),
-                    unit,
-                    step=step,
-                    model=model,
-                    base=base,
-                    started=datetime.now(UTC),
-                    report=lambda message: log(f"{unit.id}: {message}"),
-                )
-                if run_log.writing:
-                    store.set_run_log(unit.id, run_log.name)
+                run_log = _start_run_log(inst, unit, store=store, base=base)
                 runner = build_runner(
                     unit,
                     store=store,
@@ -1225,7 +1291,12 @@ def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
                     record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
                     log=say,
                 )
-                outcome = runner.run(unit, base=base, graph=graph)
+                if on_thread:
+                    outcome = asyncio.run(
+                        _on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log)
+                    )
+                else:
+                    outcome = runner.run(unit, base=base, graph=graph)
         except NotImplementedError as error:
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
@@ -1273,24 +1344,157 @@ def build_classic(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
 
         end(f"{outcome.status} — {outcome.detail}")
         if outcome.status == "paused":
-            # Re-read rather than reuse the tick's reading: the guard said no
-            # after the units before this one ran, so the window has moved, and a
-            # resume scheduled from the stale figure wakes up into a full window.
-            # The guard's own answer to when, which counts the ramp towards
-            # the reset — not the reset itself, which it can be well before.
-            reading = current_usage()
-            decision = may_start_unit(reading)
-            if not decision.may_start and decision.resume_at:
-                until = decision.resume_at
-            else:
-                until = reading.resets_at if reading else None
-            state = pause_until(until, reason=outcome.detail, marker=_paused_marker(inst))
-            log(f"pausing until {state.until:%H:%M UTC}")
+            _pause_for_usage(inst, outcome.detail)
             return False
         return True
     finally:
         if run_log is not None:
             run_log.close(ended)
+
+
+def _pause_for_usage(inst: Installation, reason: str) -> None:
+    """Pause the pipeline for a run the usage guard stopped.
+
+    Re-read rather than reuse the tick's reading: the guard said no after the
+    units before this one ran, so the window has moved, and a resume scheduled
+    from the stale figure wakes up into a full window. The guard's own answer
+    to when, which counts the ramp towards the reset — not the reset itself,
+    which it can be well before.
+    """
+    until = build_resume_at(usage=current_usage, decide=may_start_unit)()
+    state = pause_until(until, reason=reason, marker=_paused_marker(inst))
+    log(f"pausing until {state.until:%H:%M UTC}")
+
+
+def _start_run_log(inst: Installation, unit: StoredUnit, *, store: UnitStore, base: str) -> RunLog:
+    step, model = starting_step(unit)
+    run_log = RunLog(
+        run_log_dir(inst.state_dir),
+        unit,
+        step=step,
+        model=model,
+        base=base,
+        started=datetime.now(UTC),
+        report=lambda message: log(f"{unit.id}: {message}"),
+    )
+    if run_log.writing:
+        store.set_run_log(unit.id, run_log.name)
+    return run_log
+
+
+async def _on_thread(
+    inst: Installation,
+    runner: UnitRunner,
+    unit: Unit,
+    *,
+    base: str,
+    graph: list[StoredUnit],
+    run_log: RunLog | None,
+    event: ResumeEvent | None = None,
+    feedback: Callable[[], tuple[str, bool]] | None = None,
+) -> RunOutcome:
+    """Start or resume the unit's thread to its next wait, or deliver `event` to it."""
+    # Late: the graph package imports the pipeline.
+    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.unit import resume_unit, run_unit
+
+    common = dict(base=base, graph=graph, run_log=run_log, tracer=None)
+    async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+        if event is None:
+            # Under the lock `build_graph` holds; a delivery takes its own.
+            return await run_unit(runner, unit, saver=saver, **common)
+        return await resume_unit(
+            runner,
+            unit,
+            saver=saver,
+            event=event,
+            feedback=feedback,
+            locks=inst.state_dir / "locks",
+            **common,
+        )
+
+
+class Resumed(Frozen):
+    """What delivering an event to a thread did: the run's outcome, and whether
+    it raised (the unit is then recorded as failed)."""
+
+    outcome: RunOutcome
+    raised: bool = False
+
+
+def resume_thread(
+    inst: Installation,
+    unit: StoredUnit,
+    kind: str,
+    *,
+    store: UnitStore,
+    reason: str = "",
+    feedback: str | Callable[[], tuple[str, bool]] = "",
+    from_person: bool = False,
+) -> Resumed | None:
+    """Deliver an event to the unit's thread, which then waits for the tick.
+
+    Nothing runs here but the wait node's store writes: the thread is left
+    positioned at the node the event routes to, and the tick runs it in a slot.
+    That is why no run log is opened, and the unit's link to its build's log is
+    left alone.
+
+    None when there is nothing to deliver it to — the classic engine, a unit
+    with no thread, or a thread that has ended and takes no such event — and the
+    caller handles the event as it always has. Raises `BranchBusy` when the
+    event cannot be delivered now, because someone else holds the branch or the
+    thread has a node to run; the caller keeps the event and delivers it again.
+    """
+    if settings.engine != "graph" or not has_thread(inst, unit.id):
+        return None
+    # Late: the graph package imports the pipeline.
+    from agent_build_kit.graph.unit import NotWaiting
+
+    # A callable is asked for the words only once the delivery can take them.
+    lazy = feedback if callable(feedback) else None
+    words = "" if callable(feedback) else feedback
+    event = ResumeEvent(
+        kind=EventKind(kind),
+        reason=reason,
+        feedback=words,
+        from_person=from_person,
+    )
+    graph = store.all()
+    base = base_of(unit, graph)
+
+    def say(message: str) -> None:
+        log(f"{unit.id}: {message}")
+
+    try:
+        runner = build_runner(
+            unit,
+            store=store,
+            installation=inst,
+            record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+            log=say,
+        )
+        outcome = asyncio.run(
+            _on_thread(
+                inst, runner, unit, base=base, graph=graph, run_log=None, event=event, feedback=lazy
+            )
+        )
+    except NotWaiting as error:
+        # The thread has ended: no node is running and none will route this.
+        say(f"not delivered, {error}")
+        return None
+    except BranchBusy:
+        say(f"{event.kind.value} deferred, the branch is busy or the thread has a node to run")
+        raise
+    except Exception as error:  # noqa: BLE001 — an event handler must not end the poll.
+        detail = f"failed, {type(error).__name__}: {error}"
+        try:
+            store.set_state(unit.id, "failed")
+        except Exception as second:  # noqa: BLE001
+            say(f"could not be recorded as failed — {second}")
+        say(detail)
+        return Resumed(outcome=RunOutcome(status=RunStatus.FAILED, detail=detail), raised=True)
+    say(f"{event.kind.value} delivered: {outcome.status} — {outcome.detail}")
+    return Resumed(outcome=outcome)
 
 
 # --- tags / gate / check / archive / openspec ----------------------------------------
@@ -1386,14 +1590,26 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
             "(a running one would be built twice, an in-review one has a PR to orphan)"
         )
         return 1
+    mode = "rework" if args.rework else "restart" if args.restart else "resume"
+    if args.rework and not known[args.unit].feedback:
+        print(
+            f"{args.unit} has no saved failure to rework from; "
+            "--restart starts it over, a plain requeue resumes it"
+        )
+        return 1
+    try:
+        delivered = resume_thread(inst, known[args.unit], "requeue", store=store, reason=mode)
+    except BranchBusy as error:
+        print(f"{args.unit} is being built ({error}); requeue it again once it has stopped")
+        return 1
+    if delivered:
+        outcome = delivered.outcome
+        print(
+            f"{args.unit} thread resumed ({mode}): {outcome.status} — {outcome.detail}",
+            file=sys.stderr if delivered.raised else sys.stdout,
+        )
+        return 1 if delivered.raised else 0
     if args.rework:
-        saved = known[args.unit].feedback
-        if not saved:
-            print(
-                f"{args.unit} has no saved failure to rework from; "
-                "--restart starts it over, a plain requeue resumes it"
-            )
-            return 1
         store.set_state(
             args.unit, PLANNED, note="requeued: reworking from the saved failure", resume_from=""
         )

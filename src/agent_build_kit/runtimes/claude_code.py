@@ -41,6 +41,7 @@ from agent_build_kit.runtimes.base import (
     PermissionMode,
     PolicyCoverage,
     PolicyReport,
+    SessionUnavailable,
     UsageStatus,
 )
 
@@ -174,7 +175,9 @@ def build_argv(request: AgentRequest) -> list[str]:
         argv += ["--permission-mode", mode]
     if request.model:
         argv += ["--model", request.model]
-    if request.on_event is not None:
+    if request.resume_session:
+        argv += ["--resume", request.resume_session]
+    if request.on_event is not None or request.on_session is not None:
         argv += STREAM_FLAGS
     elif request.keep_record:
         argv += ["--output-format", "json"]
@@ -191,6 +194,8 @@ class ClaudeCodeRuntime:
     policy_coverage: PolicyCoverage = "all_calls"
     supports_usage_tracking: bool = True
     supports_streaming: bool = True
+    # `--resume <id>`, with the id its init event reports.
+    supports_session_resume: bool = True
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = AGENT_COMMAND
@@ -224,6 +229,8 @@ class ClaudeCodeRuntime:
             # Only what the CLI said about the ending, never the transcript:
             # see `claude_stream.own_words`.
             said = f"{own_words(result.stdout)}\n{result.stderr}".strip()
+            if request.resume_session and "no conversation found" in said.lower():
+                raise SessionUnavailable(said)
             reset = rate_limit_reset(said)
             if reset is not False:
                 raise AgentRateLimited(said or "claude reported a usage limit", resets_at=reset)
@@ -256,13 +263,25 @@ class ClaudeCodeRuntime:
 
 
 def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
-    """Each event worth reading, as a log line for the request's callback."""
-    report = request.on_event
-    if report is None:
+    """Each event worth reading, as a log line for the request's callback, and
+    the session's id for its session callback the moment the init event gives it."""
+    report, on_session = request.on_event, request.on_session
+    if report is None and on_session is None:
         return None
     prefix = f"{request.cwd}/" if request.cwd is not None else None
 
     def on_event(event: dict) -> None:
+        # Only the init event: each later system event repeats the id, and each
+        # report is a checkpoint written to the thread.
+        if (
+            on_session
+            and event.get("type") == "system"
+            and event.get("subtype") == "init"
+            and event.get("session_id")
+        ):
+            on_session(str(event["session_id"]))
+        if report is None:
+            return
         for line in describe(event):
             # Relative to the worktree: its absolute path is the same long
             # prefix on every line and says nothing.

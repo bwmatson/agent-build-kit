@@ -85,6 +85,11 @@ class AgentRequest(Frozen):
     # not only its answer — a track phase writes it to its raw output file.
     # Ignored when `on_event` is set: a streamed run's `raw` is its event lines.
     keep_record: bool = False
+    # A session to continue instead of starting one; honoured only by a runtime
+    # that declares `supports_session_resume`.
+    resume_session: str = ""
+    # Told the session's id as soon as the runtime knows it.
+    on_session: Callable[[str], None] | None = None
 
 
 class AgentResult(Frozen):
@@ -116,6 +121,11 @@ class AgentInterrupted(RuntimeError):
     `reclaim_stale` recovers it rather than the unit being marked failed."""
 
 
+class SessionUnavailable(RuntimeError):
+    """The runtime could not continue `AgentRequest.resume_session`: it is gone,
+    unreadable by this version, or refused."""
+
+
 class AgentRateLimited(RuntimeError):
     """The runtime refused: an account-level usage window is exhausted, not a
     problem with this call. `resets_at` is None when the runtime cannot say."""
@@ -144,6 +154,9 @@ class AgentRuntime(Protocol):
     policy_coverage: PolicyCoverage
     supports_usage_tracking: bool
     supports_streaming: bool
+    # Whether `AgentRequest.resume_session` continues an earlier session; one
+    # that does not is never sent it, and its node runs from its start instead.
+    supports_session_resume: bool
     # The facts this runtime cannot run without, by their key in its
     # `runtimes.<name>` entry in abk.yaml (`command`, ...): a selection that
     # leaves one out fails at load. Empty for a runtime abk can default.

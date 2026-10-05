@@ -8,6 +8,7 @@ re-run did nothing twice.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +68,14 @@ class Recorder:
             self.kill_after = ""
             raise Killed(event)
 
-    def claude(self, prompt: str, *, cwd: Path) -> str:
+    def claude(
+        self,
+        prompt: str,
+        *,
+        cwd: Path,
+        resume_session: str = "",
+        on_session: Callable[[str], None] | None = None,
+    ) -> str:
         self.prompts.append(prompt)
         if "checks (lint" in prompt:
             self.events.append("claude:fix_checks")
@@ -78,7 +86,14 @@ class Recorder:
             self.events.append("claude:tests" if "test tasks" in prompt else "claude:impl")
         return "done"
 
-    def review(self, *, cwd: Path, context: str = "") -> str:
+    def review(
+        self,
+        *,
+        cwd: Path,
+        context: str = "",
+        resume_session: str = "",
+        on_session: Callable[[str], None] | None = None,
+    ) -> str:
         self.contexts.append(context)
         self.events.append("review")
         return self.verdicts.pop(0) if self.verdicts else approving()

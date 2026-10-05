@@ -423,9 +423,9 @@ def test_a_restack_that_needed_resolving_is_reviewed_for_whether_its_tests_still
     who: list[str] = []
 
     def reviewer(name: str) -> Callable[..., str]:
-        def review(*, cwd: Path, context: str = "") -> str:
+        def review(**kwargs: Any) -> str:
             who.append(name)
-            return recorder.review(cwd=cwd, context=context)
+            return recorder.review(**kwargs)
 
         return review
 

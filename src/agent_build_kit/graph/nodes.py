@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END
+from langgraph.types import interrupt
 
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
-from agent_build_kit.graph.state import Node, UnitRun, Verdict
+from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -45,12 +46,13 @@ from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
     PLANNED,
+    RUNNING,
     SATISFIED,
     Unit,
     branch_name,
     local_ref,
 )
-from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
+from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, SessionUnavailable
 
 Update = dict[str, Any]
 
@@ -72,6 +74,12 @@ FRESH: Update = {
 # The nodes a unit is held before, at the boundary, when its upstream went back
 # for rework or its base moved: the ones that start work or leave the machine.
 GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.VERIFY_BASE})
+# The nodes that start an agent: each asks the usage guard first.
+AGENT_NODES = frozenset(
+    {Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.ADAPT}
+)
+# The nodes a thread waits in, for the forge or for a person.
+WAITS = frozenset({Node.AWAIT_REVIEW, Node.HELD})
 
 
 class BuildPath:
@@ -93,6 +101,9 @@ class BuildPath:
         self.graph = graph
         self.run_log = run_log
         self.tracer = tracer
+        # Told each session id a running agent reports; set by whoever drives
+        # the thread, as writing it into the thread's state is theirs to do.
+        self.on_session: Callable[[str], None] | None = None
         self._tree: Path | None = None
         self._node = ""
 
@@ -112,6 +123,7 @@ class BuildPath:
             Node.VERIFY_BASE: self.verify_base,
             Node.PUSH: self.push,
             Node.OPEN_PR: self.open_pr,
+            Node.AWAIT_REVIEW: self.await_review,
             Node.HELD: self.held,
             Node.SATISFIED: self.satisfied,
             Node.FAILED: self.failed,
@@ -120,6 +132,8 @@ class BuildPath:
 
     def _wrapped(self, node: Node, body: Callable[[UnitRun], Update]):
         async def run(state: UnitRun) -> Update:
+            if node in AGENT_NODES:
+                await self.gate(node)
             attributes = {"unit": self.unit.id, "change": self.unit.change, "step": node.value}
             span: AbstractContextManager[object] = (
                 self.tracer.start_as_current_span(node.value, attributes=attributes)
@@ -130,9 +144,26 @@ class BuildPath:
                 self._node = node.value
                 self.say("started")
                 # Off the loop: the callables block on agents and git.
-                return await asyncio.to_thread(self._step, node, body, state)
+                update = await asyncio.to_thread(self._step, node, body, state)
+                # The node is done, and with it the session it was in.
+                return {**update, "session_id": ""}
 
         return run
+
+    async def gate(self, node: Node) -> None:
+        """Interrupt before an agent step the usage guard refuses.
+
+        At the node's boundary and never inside it: a step that is running is
+        let finish. The resume asks the guard again, so the interrupt carries
+        only what a person reading the thread needs.
+        """
+        allowed, why = await asyncio.to_thread(self.runner.may_start)
+        if allowed:
+            return
+        until = await asyncio.to_thread(self.runner.resume_at)
+        self._node = node.value
+        self.say(f"paused before the agent step: {why}")
+        interrupt({"reason": why, "until": until.isoformat() if until else None})
 
     def _step(self, node: Node, body: Callable[[UnitRun], Update], state: UnitRun) -> Update:
         # Between steps, never inside one: a held unit has finished the step it was in.
@@ -157,10 +188,24 @@ class BuildPath:
             unit, base, tree=self.tree(), start=state.start
         )
 
-    def hold(self, state: str, note: str, detail: str) -> Update:
-        """Stop the run for `held` to record: `state` is what the store is left in."""
+    def hold(self, state: str, note: str, detail: str, *, pr: int | None = None) -> Update:
+        """Stop the run in `held`, with the store left in `state`.
+
+        Recorded here and not by the `held` node, which waits: a node that waits
+        runs again from its start when its interrupt is resumed, and would write
+        over whatever the event that resumed it had recorded.
+        """
         self.say(f"held: {note}")
-        return {"held": detail, "hold_state": state, "hold_note": note}
+        opened: dict[str, Any] = {"pr": pr, "resume_from": ""} if pr else {}
+        self.runner.store.set_state(self.unit.id, state, note=note, **opened)
+        update: Update = {
+            "held": detail,
+            "hold_state": state,
+            "hold_note": note,
+            "status": RunStatus.HELD,
+            "detail": detail,
+        }
+        return {**update, "pr": pr} if pr else update
 
     def rebase(
         self, state: UnitRun, why: str, *, base: str, lead: str = "base moved before its push"
@@ -172,6 +217,33 @@ class BuildPath:
             return self.hold(PLANNED, note, note)
         self.say(f"held: {note}; resuming at its restack on {base}")
         return {"restack": True, "rebased": True, "base": base}
+
+    def agent(
+        self, run: Callable[..., str], *args: str, cwd: Path, state: UnitRun, **inputs: str
+    ) -> str:
+        """One agent run, continuing the session a killed run of this node left.
+
+        `args` and `inputs` are what `run` is called with besides the worktree
+        and the session. A session the runtime cannot continue is not an error:
+        the node runs from its start in a new one, as it would have without a
+        recorded id.
+        """
+        if state.session_id:
+            self.say(f"continuing agent session {state.session_id}")
+            try:
+                return run(
+                    *args,
+                    cwd=cwd,
+                    resume_session=state.session_id,
+                    on_session=self.on_session,
+                    **inputs,
+                )
+            except SessionUnavailable as error:
+                self.say(
+                    f"session {state.session_id} cannot be continued ({error}); "
+                    "running the node from its start in a new session"
+                )
+        return run(*args, cwd=cwd, on_session=self.on_session, **inputs)
 
     def say(self, message: str) -> None:
         """A progress line, for the tick log and the unit's run log."""
@@ -278,7 +350,8 @@ class BuildPath:
             r.reset_to(tree, ref, keep)
         # Otherwise a killed run already reset the branch: resetting again would
         # overwrite `keep` with the half-ported tree and lose the old work.
-        answer = r.run_rework(
+        answer = self.agent(
+            r.run_rework,
             ADAPT_PROMPT.format(
                 change_dir=change_dir,
                 groups=groups,
@@ -290,6 +363,7 @@ class BuildPath:
                 tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
             ),
             cwd=tree,
+            state=state,
         )
         r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
         # Only now does the tree hold what the agent carried over.
@@ -302,9 +376,11 @@ class BuildPath:
         for _ in range(active().limits.max_adapt_rounds - 1):
             if not problems:
                 break
-            answer = r.run_rework(
+            answer = self.agent(
+                r.run_rework,
                 ADAPT_FOLLOWUP_PROMPT.format(problems="\n".join(f"- {p}" for p in problems)),
                 cwd=tree,
+                state=state,
             )
             # Merged over the first answer's: an agent that answers only for the
             # tests just named must not lose the decisions it already gave.
@@ -367,7 +443,7 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            r.run_claude(prompt, cwd=tree)
+            self.agent(r.run_claude, prompt, cwd=tree, state=state)
             r.commit(f"test: {unit.title}", cwd=tree)
         return {"head": r.head(tree)}
 
@@ -385,7 +461,7 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            r.run_claude(prompt, cwd=tree)
+            self.agent(r.run_claude, prompt, cwd=tree, state=state)
             r.commit(f"feat: {unit.title}", cwd=tree)
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
@@ -424,7 +500,8 @@ class BuildPath:
         attempt = state.fix_rounds + 1
         if r.head(tree) == state.head:
             self.say(f"fix the failing checks ({models().rework}), round {attempt}")
-            r.run_rework(
+            self.agent(
+                r.run_rework,
                 CHECKS_PROMPT.format(
                     change_dir=change_dir,
                     groups=groups,
@@ -432,6 +509,7 @@ class BuildPath:
                     boundary=build_boundary,
                 ),
                 cwd=tree,
+                state=state,
             )
             r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
             if r.head(tree) == state.head:
@@ -459,7 +537,9 @@ class BuildPath:
         context = r.review_notes(
             unit, round_number=round_number, total=total, review_boundary=review_boundary
         )
-        raw = (r.run_review if first else r.run_rework_review)(cwd=tree, **context)
+        raw = self.agent(
+            r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
+        )
         weighed = r.weigh_review(unit, raw, judged=judged)
         update: Update = {"review_round": round_number + 1, "head": judged}
         if weighed.approved:
@@ -515,11 +595,13 @@ class BuildPath:
             self.say("the rework commit is already on the branch")
         elif in_loop:
             self.say(f"address review round {state.review_round} ({models().rework})")
-            response = r.run_rework(
+            response = self.agent(
+                r.run_rework,
                 REVIEW_FEEDBACK_PROMPT.format(
                     change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
                 ),
                 cwd=tree,
+                state=state,
             )
             r.record_response(unit, response)
             r.commit(f"fix: {unit.title} (review round {state.review_round})", cwd=tree)
@@ -527,7 +609,8 @@ class BuildPath:
             # One run on the review model, not the tests-then-implementation
             # pair: both are already on the branch.
             self.say(f"rework from feedback ({models().rework})")
-            answer = r.run_rework(
+            answer = self.agent(
+                r.run_rework,
                 CHECKS_PROMPT.format(
                     groups=groups,
                     change_dir=change_dir,
@@ -543,6 +626,7 @@ class BuildPath:
                     boundary=build_boundary,
                 ),
                 cwd=tree,
+                state=state,
             )
             r.commit(f"fix: {unit.title}", cwd=tree)
             if answer and stored.pr and not failed_check:
@@ -642,13 +726,6 @@ class BuildPath:
                 )
         r.mark_tasks(unit, done=True)
         return {"status": RunStatus.SATISFIED, "detail": "already implemented; tier 1 passed"}
-
-    def held(self, state: UnitRun) -> Update:
-        r, unit = self.runner, self.unit
-        # A hold that pushed (rounds spent) carries its pull request.
-        opened: dict[str, Any] = {"pr": state.pr, "resume_from": ""} if state.pr else {}
-        r.store.set_state(unit.id, state.hold_state, note=state.hold_note, **opened)
-        return {"status": RunStatus.HELD, "detail": state.held}
 
     def verify_base(self, state: UnitRun) -> Update:
         """The base as it is now, before anything is pushed against it."""
@@ -755,7 +832,7 @@ class BuildPath:
             )
         if state.spent:
             note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
-            return {"pr": pr, **self.hold(HELD, note, f"rounds spent, held as #{pr}")}
+            return self.hold(HELD, note, f"rounds spent, held as #{pr}", pr=pr)
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
         # a comment it has already answered.
@@ -781,6 +858,78 @@ class BuildPath:
         r.mark_tasks(unit, done=True)
         self.say(f"in review: PR #{pr}")
         return {"status": RunStatus.OPEN, "detail": f"opened #{pr}", "pr": pr}
+
+    def await_review(self, state: UnitRun) -> Update:
+        """Wait for the forge: the interrupt holds no lock and no slot, and the
+        event that ends it is acted on by `resume_unit`, under the branch's lock."""
+        event = ResumeEvent.model_validate(interrupt({"wait": "review"}))
+        return self.on_event(state, event)
+
+    def held(self, state: UnitRun) -> Update:
+        """Wait for a person: a requeue, a merge or a close."""
+        event = ResumeEvent.model_validate(interrupt({"wait": "held"}))
+        return self.on_event(state, event)
+
+    def on_event(self, state: UnitRun, event: ResumeEvent) -> Update:
+        """What an event does to a unit that was waiting: the store and the
+        state the routers read. Where it goes next is `after_await_review`
+        and `after_held`."""
+        r, unit = self.runner, self.unit
+        self.say(f"{event.kind.value}: {event.reason or 'no reason given'}")
+        if state.status is RunStatus.HELD and event.kind in (
+            EventKind.REWORK,
+            EventKind.HOLD,
+            EventKind.BASE_MOVED,
+        ):
+            # A person has the unit: nothing automatic touches it again.
+            return {"event": None}
+        update: Update = {"event": event}
+        if event.kind is EventKind.REWORK:
+            r.store.set_feedback(
+                unit.id, event.feedback or event.reason, from_person=event.from_person
+            )
+            r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
+            update.update(self.fresh_run(had_feedback=True))
+        elif event.kind is EventKind.HOLD:
+            r.store.set_state(unit.id, HELD, note=event.reason or "held by a reviewer")
+            update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
+        elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
+            if event.kind is EventKind.REQUEUE and event.reason == "restart":
+                r.store.set_feedback(unit.id, "")
+                r.store.set_review_rounds(unit.id, ())
+                update.update({"rounds": (), "approved": ""})
+            # Running, so the tick resumes the thread at `prepare` in a slot.
+            r.store.set_state(
+                unit.id, RUNNING, note=f"{event.kind.value}: {event.reason or 'no reason given'}"
+            )
+            update.update(self.fresh_run())
+            if event.kind is EventKind.BASE_MOVED:
+                # The run takes the base the store names when the tick starts
+                # it: the one `verify_base` last recorded is the old one.
+                update["base"] = ""
+        else:
+            update["detail"] = event.kind.value
+        return update
+
+    @staticmethod
+    def fresh_run(*, had_feedback: bool = False) -> Update:
+        """A thread taking up work again: what the last run ended on is not this run's."""
+        return {
+            "verdict": None,
+            "stopped": "",
+            "status": None,
+            "detail": "",
+            "review_round": 0,
+            "fix_rounds": 0,
+            "checks_ok": False,
+            "produced_nothing": False,
+            "moved": False,
+            "head_approved": False,
+            "had_feedback": had_feedback,
+            "held": "",
+            "hold_state": "",
+            "hold_note": "",
+        }
 
     def failed(self, state: UnitRun) -> Update:
         outcome = self.runner.fail(self.unit, state.stopped)
@@ -870,10 +1019,30 @@ def after_push(state: UnitRun) -> Node:
     return halted(state) or Node.OPEN_PR
 
 
-def after_open_pr(state: UnitRun) -> Node | str:
-    if stop := halted(state):
-        return stop
-    return Node.PREPARE if state.restack else END
+def after_open_pr(state: UnitRun) -> Node:
+    return halted(state) or (Node.PREPARE if state.restack else Node.AWAIT_REVIEW)
+
+
+def after_await_review(state: UnitRun) -> Node | str:
+    kind = state.event.kind if state.event else None
+    if kind is EventKind.REWORK:
+        return Node.REWORK
+    if kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
+        return Node.PREPARE
+    if kind is EventKind.HOLD:
+        return Node.HELD
+    if kind in (EventKind.MERGED, EventKind.CLOSED):
+        return END
+    return Node.AWAIT_REVIEW
+
+
+def after_held(state: UnitRun) -> Node | str:
+    kind = state.event.kind if state.event else None
+    if kind is EventKind.REQUEUE:
+        return Node.PREPARE
+    if kind in (EventKind.MERGED, EventKind.CLOSED):
+        return END
+    return Node.HELD
 
 
 # Each node's router and the nodes it may name, which compiling checks.
@@ -926,5 +1095,10 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         (Node.HELD, Node.FAILED, Node.PREPARE, Node.TIER1, Node.PUSH),
     ),
     Node.PUSH: (after_push, (Node.HELD, Node.FAILED, Node.OPEN_PR)),
-    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, END)),
+    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW)),
+    Node.AWAIT_REVIEW: (
+        after_await_review,
+        (Node.REWORK, Node.PREPARE, Node.HELD, Node.AWAIT_REVIEW, END),
+    ),
+    Node.HELD: (after_held, (Node.PREPARE, Node.HELD, END)),
 }

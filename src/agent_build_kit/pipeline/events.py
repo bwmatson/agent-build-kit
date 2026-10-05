@@ -80,6 +80,25 @@ Restack = Callable[..., None]
 # Holds a unit's branch for the length of a handler, or raises `BranchBusy`
 # because a build holds it. See the module docstring.
 Claim = Callable[[StoredUnit], AbstractContextManager[object]]
+# Delivers an event (its kind, reason, feedback and whether the feedback is a
+# person's words, which only a rework has) to the unit's thread on the
+# graph engine, which leaves the thread positioned at the node the event routes
+# to for the tick to run: True when it did, False when the unit has no thread
+# and the handler does what it always did, `BranchBusy` when the event cannot be
+# delivered now, because the branch is held or the thread has a node to run. It
+# is called without the claim, as the delivery takes the branch's lock itself.
+#
+# A rework hands `feedback` as a zero-argument callable returning `(words,
+# from_person)` rather than the words: what review said costs requests, and is
+# worth them only once the delivery holds the lock and the thread is waiting.
+Resume = Callable[..., bool]
+Feedback = Callable[[], tuple[str, bool]]
+
+
+def _no_thread(
+    unit: StoredUnit, kind: str, reason: str, feedback: str | Feedback, *, from_person: bool = False
+) -> bool:
+    return False
 
 
 # What a hold for depth says, so a later merge can find what it held and which
@@ -148,6 +167,7 @@ def on_merged(
     claim: Claim = _unclaimed,
     retarget: Callable[[StoredUnit, str], None] | None = None,
     rebase_cap: int | None = None,
+    resume: Resume = _no_thread,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
@@ -164,6 +184,8 @@ def on_merged(
         return True
 
     try:
+        # First: a thread mid-node defers the event before anything is recorded.
+        resume(merged, "merged", "", "")
         with claim(merged):
             _record_merge(
                 merged,
@@ -174,6 +196,7 @@ def on_merged(
                 claim=claim,
                 retarget=retarget or (lambda unit, base: None),
                 rebase_cap=rebase_cap,
+                resume=resume,
                 log=log,
             )
     except BranchBusy as error:
@@ -191,6 +214,7 @@ def _record_merge(
     claim: Claim,
     retarget: Callable[[StoredUnit, str], None],
     rebase_cap: int | None,
+    resume: Resume,
     log: Log,
 ) -> None:
     store.set_state(merged.id, MERGED)
@@ -211,6 +235,36 @@ def _record_merge(
 
         depth = depth_of(child, graph)
         try:
+            # A child with a thread is told its base moved, and its thread
+            # moves the branch when the tick runs it; without the claim, as the
+            # delivery takes the branch's lock itself. One held, by a person or
+            # for depth, is not moved: only a thread waiting in review is told.
+            if child.state == IN_REVIEW and (rebase_cap is None or depth <= rebase_cap):
+                try:
+                    told = resume(child, "base_moved", new_base, "")
+                except BranchBusy:
+                    # The merge is consumed either way. Nothing re-tells the
+                    # thread: it moves onto the new base on its next rework or
+                    # conflict, so say so, and keep the old branch for it.
+                    log(
+                        f"{child.id}: its thread was not told the base is now {new_base}, "
+                        "the branch is busy; it moves on its next rework or conflict"
+                    )
+                    building_on_it.append(child.id)
+                    try:
+                        retarget(child, new_base)
+                    except Exception as error:  # noqa: BLE001
+                        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+                    continue
+                if told:
+                    log(f"{child.id}: its thread is told the base is now {new_base}")
+                    # At once, as every other path here: a PR left on a branch merged
+                    # away may be closed, and the thread only retargets when it runs.
+                    try:
+                        retarget(child, new_base)
+                    except Exception as error:  # noqa: BLE001
+                        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+                    continue
             with claim(child):
                 if rebase_cap is not None and depth > rebase_cap:
                     _hold_for_depth(
@@ -555,7 +609,13 @@ def build_remove_worktree(repos: dict[str, Path], *, root: Path) -> Callable[...
 
 
 def on_closed(
-    pr: int, *, repo: str, store: UnitStore, claim: Claim = _unclaimed, log: Log = print
+    pr: int,
+    *,
+    repo: str,
+    store: UnitStore,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
 ) -> bool:
     """Record that a PR was closed without merging.
 
@@ -576,6 +636,10 @@ def on_closed(
         return True
 
     try:
+        if store.get(unit.id).state == SATISFIED:
+            log(f"closed #{pr}: {unit.id} is satisfied — its own close, leaving it as it is")
+            return True
+        resume(unit, "closed", "", "")
         with claim(unit):
             # Re-read under the lock, as `on_rework` does: a build that has
             # just ended may have moved it.
@@ -590,7 +654,13 @@ def on_closed(
 
 
 def on_hold(
-    pr: int, *, repo: str, store: UnitStore, claim: Claim = _unclaimed, log: Log = print
+    pr: int,
+    *,
+    repo: str,
+    store: UnitStore,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
 ) -> bool:
     """A reviewer has taken the unit over. Nothing automatic touches it again.
 
@@ -604,6 +674,12 @@ def on_hold(
         return True
 
     try:
+        if store.get(unit.id).state == SATISFIED:
+            log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
+            return True
+        if resume(unit, "hold", "", ""):
+            log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
+            return True
         with claim(unit):
             if store.get(unit.id).state == SATISFIED:
                 log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
@@ -626,6 +702,7 @@ def on_rework(
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
     claim: Claim = _unclaimed,
     waiting: set[tuple[str, str]] | None = None,
+    resume: Resume = _no_thread,
     log: Log = print,
 ) -> bool:
     """Put a unit back in the queue with what review asked for.
@@ -644,18 +721,41 @@ def on_rework(
         log(f"rework #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
 
+    heard: set[tuple[str, str]] = waiting if waiting is not None else set()
     try:
-        with claim(unit):
-            # Re-read under the lock: a build that has just ended moved it.
-            taken = _requeue(
-                store.get(unit.id),
+        if (
+            taken := _not_for_now(store.get(unit.id), pr=pr, reason=reason, waiting=heard, log=log)
+        ) is not None:
+            return taken
+
+        def feedback() -> tuple[str, bool]:
+            return _feedback(
                 pr=pr,
                 reason=reason,
                 pull=pull,
-                store=store,
                 fetch_review=fetch_review,
                 fetch_checks=fetch_checks,
-                waiting=waiting if waiting is not None else set(),
+            )
+
+        if resume(unit, "rework", reason, feedback):
+            log(f"rework #{pr}: {unit.id} resumed — {reason}")
+            return True
+        with claim(unit):
+            # Re-read under the lock: a build that has just ended moved it.
+            current = store.get(unit.id)
+            if (
+                taken := _not_for_now(current, pr=pr, reason=reason, waiting=heard, log=log)
+            ) is not None:
+                return taken
+            # Only now, with the unit taking it: a deferred rework asks for nothing.
+            words, from_person = feedback()
+            taken = _requeue(
+                current,
+                pr=pr,
+                reason=reason,
+                store=store,
+                feedback=words,
+                from_person=from_person,
                 log=log,
             )
     except BranchBusy as error:
@@ -663,22 +763,14 @@ def on_rework(
     return taken
 
 
-def _requeue(
-    unit: StoredUnit,
-    *,
-    pr: int,
-    reason: str,
-    pull: PullRequest | None,
-    store: UnitStore,
-    fetch_review: Callable[[int], list[str]] | None,
-    fetch_checks: Callable[[PullRequest | None], str] | None,
-    waiting: set[tuple[str, str]],
-    log: Log,
-) -> bool:
-    """Requeue `unit` for `reason`; whether it took the event.
+def _not_for_now(
+    unit: StoredUnit, *, pr: int, reason: str, waiting: set[tuple[str, str]], log: Log
+) -> bool | None:
+    """What a rework does to a unit that cannot take it now, None when it can.
 
-    A held unit does not: the event is reported again once it is released,
-    rather than recorded as handled and lost.
+    A held unit does not take it: the event is reported again once it is
+    released, rather than recorded as handled and lost. A satisfied unit has
+    nothing to rework, and the event is consumed.
     """
     if unit.state == HELD:
         # A human has taken it over; requeuing would push over work they are
@@ -694,36 +786,59 @@ def _requeue(
         # built, over feedback aimed at a pull request that is closing.
         log(f"rework #{pr}: {unit.id} is satisfied, ignoring")
         return True
+    return None
 
+
+def _feedback(
+    *,
+    pr: int,
+    reason: str,
+    pull: PullRequest | None,
+    fetch_review: Callable[[int], list[str]] | None,
+    fetch_checks: Callable[[PullRequest | None], str] | None,
+) -> tuple[str, bool]:
+    """What a rework hands the agent, and whether it is a person's words,
+    fetched only now there is something to act on."""
     # A poll cannot afford a second request per PR, so the reviewer's actual
     # words are fetched only now, when there is something to act on. They are
     # often the only content there is: a review's bodies can both be empty,
     # with the whole review one inline comment on a line, which `gh pr list`
     # does not return at all.
-    from_person = False
     if reason.startswith(FAILING_CHECKS_REASON):
         # CI, not a reviewer: what failed and its log, and nothing else. The
         # review comments on the PR were answered already, and replaying them
         # would have the rework redo old work instead of fixing the build.
         logs = fetch_checks(pull) if fetch_checks else ""
-        feedback = f"{reason}\n\n{logs}".strip()
-    elif reason == CONFLICT_REASON:
+        return f"{reason}\n\n{logs}".strip(), False
+    if reason == CONFLICT_REASON:
         # Nor a reviewer: the branch no longer merges into its base, and the
         # restack at the start of the run does the rebase. Replaying the
         # PR's answered review would bury that under old work.
-        feedback = (
+        return (
             f"{reason}: the branch has been moved onto its current base at the "
             "start of this run; check that the resolution kept this unit's "
             "behaviour and its tests pass, and do not rebase or reset the "
-            "branch yourself."
+            "branch yourself.",
+            False,
         )
-    else:
-        words = list(fetch_review(pr)) if fetch_review else []
-        said = "\n".join([*words, _latest_comment(pull)]).strip()
-        # The one place a person's words enter feedback; the reason alone is
-        # the host's.
-        from_person = bool(said)
-        feedback = said or reason
+    words = list(fetch_review(pr)) if fetch_review else []
+    said = "\n".join([*words, _latest_comment(pull)]).strip()
+    # The one place a person's words enter feedback; the reason alone is
+    # the host's.
+    return said or reason, bool(said)
+
+
+def _requeue(
+    unit: StoredUnit,
+    *,
+    pr: int,
+    reason: str,
+    store: UnitStore,
+    feedback: str,
+    from_person: bool,
+    log: Log,
+) -> bool:
+    """Requeue `unit`, which has taken the rework for `reason`."""
     store.set_feedback(unit.id, feedback, from_person=from_person)
     # New feedback outranks where a paused unit meant to pick up: resuming at
     # a review would skip the rework this feedback asks for, and a pass would
@@ -1042,6 +1157,7 @@ def build_dispatch(
     retarget: Callable[[StoredUnit, str], None] | None = None,
     rebase_cap: int | None = None,
     waiting_path: Path | None = None,
+    resume: Resume = _no_thread,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
@@ -1076,12 +1192,13 @@ def build_dispatch(
                 claim=claim,
                 retarget=retarget,
                 rebase_cap=rebase_cap,
+                resume=resume,
                 log=log,
             )
         if event == "closed":
-            return on_closed(number, repo=repo, store=store, claim=claim, log=log)
+            return on_closed(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
         if event == "hold":
-            return on_hold(number, repo=repo, store=store, claim=claim, log=log)
+            return on_hold(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
         if event == "rework":
             known = _load_waiting(waiting_path) if waiting_path else waiting
             taken = on_rework(
@@ -1094,6 +1211,7 @@ def build_dispatch(
                 fetch_checks=_check_fetcher(store, repo, number, fetch_checks),
                 claim=claim,
                 waiting=known,
+                resume=resume,
                 log=log,
             )
             if waiting_path:

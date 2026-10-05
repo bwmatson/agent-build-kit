@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Collection, Sequence
+from datetime import datetime
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
@@ -984,6 +985,9 @@ class UnitRunner(BaseModel):
     planning_repo: Path
     worktree: Callable[[Unit, str], Path]
     may_start: Callable[[], tuple[bool, str]]
+    # When the usage guard expects to allow a start again, for the interrupt a
+    # refusal makes; None when it cannot say.
+    resume_at: Callable[[], datetime | None] = lambda: None
     run_claude: Callable[..., str]
     run_rework: Callable[..., str]
     run_review: Callable[..., str]
