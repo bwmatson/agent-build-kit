@@ -543,7 +543,16 @@ class GitHubForge:
         gh_out(["gh", "pr", "edit", str(pr), "--repo", slug, "--remove-label", name], slug=slug)
 
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
-        raise NotImplementedError
+        """Make a pull request a draft or publish it, writing only on a change.
+
+        Through `gh_out`, which raises with the host's message on a refusal.
+        """
+        slug = key(repo)
+        view = gh_out(["gh", "pr", "view", str(pr), "--repo", slug, "--json", "isDraft"], slug=slug)
+        if bool(json.loads(view or "{}").get("isDraft")) == draft:
+            return
+        argv = ["gh", "pr", "ready", str(pr), "--repo", slug]
+        gh_out([*argv, "--undo"] if draft else argv, slug=slug)
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.

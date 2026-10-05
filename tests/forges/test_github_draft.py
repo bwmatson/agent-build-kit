@@ -104,7 +104,9 @@ def test_a_pull_request_already_in_the_asked_for_state_is_not_written_to(
 
 
 def test_a_refusal_raises_with_the_hosts_message(monkeypatch: pytest.MonkeyPatch) -> None:
-    host(monkeypatch, draft=False, refusal="Draft pull requests are not supported in this repository")
+    host(
+        monkeypatch, draft=False, refusal="Draft pull requests are not supported in this repository"
+    )
 
     with pytest.raises(RuntimeError, match="Draft pull requests are not supported"):
         FORGE.set_draft(REPO, 7, True)
