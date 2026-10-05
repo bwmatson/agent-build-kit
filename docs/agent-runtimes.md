@@ -120,6 +120,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
+| `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable` |
 | `requires` | attr | the `runtimes.<name>` keys it cannot run without; a selection missing one fails at load |
 | `agent_command` | attr | the argv that starts its agent when `runtimes.<name>.command` is unset; a set `command` replaces it in every run and in `abk doctor`'s PATH check alike |
 | `default_models` | attr | its own model names for a role nothing in the file or the environment names |
@@ -262,6 +263,7 @@ class AgentRuntime(Protocol):
     policy_coverage: PolicyCoverage
     supports_usage_tracking: bool
     supports_streaming: bool
+    supports_session_resume: bool
     requires: tuple[str, ...]
     agent_command: tuple[str, ...]
     default_models: ModelsConfig

@@ -59,6 +59,7 @@ class ResumeEvent(Frozen):
     kind: EventKind
     reason: str = ""
     feedback: str = ""
+    from_person: bool = False  # the feedback is words a person left on the pull request
 
 
 class UnitRun(Frozen):
@@ -74,6 +75,7 @@ class UnitRun(Frozen):
     verdict: Verdict | None = None
     stopped: str = ""
     event: ResumeEvent | None = None
+    session_id: str = ""  # the agent session the running node reported, until the node completes
     # What the build path routes on and what a re-run checks against git.
     base: str = ""  # the base the unit is on, once `verify_base` found it moved
     base_commits: int = 0  # commits on the branch when `prepare` finished

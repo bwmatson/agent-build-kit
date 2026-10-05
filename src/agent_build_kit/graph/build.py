@@ -34,6 +34,10 @@ async def nothing(state: UnitRun) -> dict[str, Any]:
     return {}
 
 
+# The nodes of the build path, which `compile_build_path` needs a body for each of.
+BUILD_NODES = tuple(Node)
+
+
 def compile_graph(
     saver: BaseCheckpointSaver, *, work: Mapping[Node, NodeWork] | None = None
 ) -> CompiledStateGraph:
@@ -66,6 +70,6 @@ def compile_build_path(
             node.value, router, {str(target): str(target) for target in targets}
         )
     builder.add_edge(Node.TESTS.value, Node.IMPLEMENT.value)
-    for node in (Node.FAILED, Node.HELD, Node.SATISFIED):
+    for node in (Node.FAILED, Node.SATISFIED):
         builder.add_edge(node.value, END)
     return builder.compile(checkpointer=saver)

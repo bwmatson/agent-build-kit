@@ -35,6 +35,15 @@
 - The Python recommendations seed prefers `enum.StrEnum` over repeated string literals for
   closed sets of strings on Python 3.11 and later, so `abk init`'s research proposes it.
 
+- Behind `ABK_ENGINE=graph`, a unit waiting for review or held waits in an interrupt of its
+  thread that holds no branch lock, the poller's events and `abk requeue` resume the thread as
+  commands, a usage refusal interrupts before an agent step, and a run killed mid-node is resumed
+  at that node rather than requeued. An agent runtime declares `supports_session_resume`; Claude
+  Code's does (`--resume`), so a node killed mid-agent continues its session. On that engine a
+  tick starts a unit's thread and resumes the ones a kill or a usage pause left; an event for a
+  thread whose node is running, or held by another process's branch lock, is kept for a later
+  poll.
+
 - New runtime dependencies: `langgraph`, `langgraph-checkpoint`,
   `langgraph-checkpoint-sqlite` and `aiosqlite`, for the unit graph engine. A new setting,
   `ABK_ENGINE` (`classic` by default, or `graph`), picks the engine that builds a unit. `graph`

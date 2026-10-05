@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Protocol
 
 from agent_build_kit.installation import Installation
@@ -38,34 +37,19 @@ class ClassicEngine:
 class GraphEngine:
     """One LangGraph thread per unit, named by its id.
 
-    The nodes do no step's work yet: a build only starts the thread and the
-    unit stays `planned`.
+    A build starts the unit's thread, or resumes the one a killed or paused
+    run left, and runs it to a wait or the end; the store moves as the nodes
+    move it. Events and `abk requeue` resume the thread through
+    `cli.pipeline.resume_thread`.
     """
 
     name = "graph"
 
     def build(self, inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
         # Late: the CLI module imports this one.
-        from agent_build_kit.cli.pipeline import log
+        from agent_build_kit.cli import pipeline
 
-        try:
-            asyncio.run(self._run(inst, unit))
-        except Exception as error:
-            log(f"{unit.id}: the graph engine failed: {type(error).__name__}: {error}")
-            return True
-        log(f"{unit.id}: the graph engine ran no step; the unit stays {unit.state}")
-        return True
-
-    async def _run(self, inst: Installation, unit: Unit) -> None:
-        from agent_build_kit.graph.build import compile_graph
-        from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-        from agent_build_kit.graph.run import run_thread
-        from agent_build_kit.graph.state import UnitRun
-
-        run = UnitRun(unit_id=unit.id, change=unit.change, groups=tuple(unit.groups))
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
-            graph = compile_graph(saver)
-            await run_thread(graph, run, unit.id)
+        return pipeline.build_graph(inst, unit, store=store)
 
 
 ENGINES: dict[str, UnitEngine] = {e.name: e for e in (ClassicEngine(), GraphEngine())}

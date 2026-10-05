@@ -547,7 +547,9 @@ class Adapting:
         self.resets: list[tuple[str, str]] = []
         self.changed_asked_after_commit: list[bool] = []
 
-    def run_rework(self, prompt: str, *, cwd: Path) -> str:
+    def run_rework(
+        self, prompt: str, *, cwd: Path, resume_session: str = "", on_session: object = None
+    ) -> str:
         self.prompts.append(prompt)
         return self.answers[min(len(self.prompts), len(self.answers)) - 1]
 
@@ -575,7 +577,13 @@ def reviewers(recorder: Recorder) -> tuple[list[str], dict[str, Any]]:
     who: list[str] = []
 
     def named(name: str) -> Callable[..., str]:
-        def review(*, cwd: Path, context: str = "") -> str:
+        def review(
+            *,
+            cwd: Path,
+            context: str = "",
+            resume_session: str = "",
+            on_session: object = None,
+        ) -> str:
             who.append(name)
             return recorder.review(cwd=cwd, context=context)
 
@@ -766,9 +774,11 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
     overrides: dict[str, Any] = adapting.overrides()
     port = overrides["run_rework"]
 
-    def adapt(prompt: str, *, cwd: Path) -> str:
+    def adapt(
+        prompt: str, *, cwd: Path, resume_session: str = "", on_session: object = None
+    ) -> str:
         tip[0] = "rewritten"  # the parent is restacked while the port runs
-        return port(prompt, cwd=cwd)
+        return port(prompt, cwd=cwd, resume_session=resume_session, on_session=on_session)
 
     wired: dict[str, Any] = {**overrides, "run_rework": adapt}
     outcome = build(

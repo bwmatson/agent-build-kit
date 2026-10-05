@@ -8,6 +8,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node
@@ -17,7 +18,17 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import unit
 from tests.runner_fakes import Recorder, make_runner
 
-BUILD_PATH = ("prepare", "tests", "implement", "checks", "review", "verify_base", "push", "open_pr")
+BUILD_PATH = (
+    "prepare",
+    "tests",
+    "implement",
+    "checks",
+    "review",
+    "verify_base",
+    "push",
+    "open_pr",
+    "await_review",
+)
 
 
 class FakeTracer:
@@ -34,11 +45,13 @@ class FakeTracer:
         yield
 
 
-def run(tmp_path: Path, *, run_log: RunLog | None, tracer: FakeTracer | None) -> None:
+def run(
+    tmp_path: Path, *, run_log: RunLog | None, tracer: FakeTracer | None, **options: Any
+) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     recorder = Recorder(store)
-    runner = make_runner(store, recorder, tmp_path)
+    runner = make_runner(store, recorder, tmp_path, **options)
 
     async def go() -> None:
         async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
@@ -59,6 +72,16 @@ def test_each_nodes_progress_lines_reach_the_units_run_log(tmp_path: Path) -> No
     lines = written.read_text().splitlines()
     for node in BUILD_PATH:
         assert any(node in line for line in lines), f"nothing from {node} in the run log"
+
+
+def test_a_usage_pause_says_why_in_the_units_run_log(tmp_path: Path) -> None:
+    logs = tmp_path / "unit-logs"
+    run_log = RunLog(logs, unit(), step="build", model="m", base="main", started=datetime.now(UTC))
+
+    run(tmp_path, run_log=run_log, tracer=None, may_start=lambda: (False, "session usage at 88%"))
+
+    (written,) = logs.iterdir()
+    assert "paused before the agent step: session usage at 88%" in written.read_text()
 
 
 def test_each_node_is_a_span_carrying_the_unit_id_change_and_step(tmp_path: Path) -> None:
