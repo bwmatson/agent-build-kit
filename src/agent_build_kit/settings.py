@@ -65,6 +65,27 @@ class Settings(BaseSettings):
     review_model: str | None = None
     rework_review_model: str | None = None
 
+    # Telemetry (telemetry.py): off unless this is set. The endpoint and
+    # resource settings keep their standard OpenTelemetry names, so any
+    # collector setup works unchanged; the per-signal endpoints override the
+    # shared one.
+    otel_enabled: bool = False
+    otel_exporter_otlp_endpoint: str = Field(
+        "", validation_alias=AliasChoices("OTEL_EXPORTER_OTLP_ENDPOINT")
+    )
+    otel_exporter_otlp_traces_endpoint: str = Field(
+        "", validation_alias=AliasChoices("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    )
+    otel_exporter_otlp_metrics_endpoint: str = Field(
+        "", validation_alias=AliasChoices("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+    )
+    otel_service_name: str = Field(
+        "agent-build-kit", validation_alias=AliasChoices("OTEL_SERVICE_NAME")
+    )
+    otel_resource_attributes: str = Field(
+        "", validation_alias=AliasChoices("OTEL_RESOURCE_ATTRIBUTES")
+    )
+
 
 settings = Settings()
 
