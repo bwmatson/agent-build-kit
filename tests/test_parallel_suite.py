@@ -8,6 +8,8 @@ import shlex
 import tomllib
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -49,7 +51,7 @@ def pytest_invocations(name: str) -> list[list[str]]:
 
 
 def has_workers_flag(argv: list[str]) -> bool:
-    return any(arg == "-n" or arg.startswith(("-n", "--numprocesses")) for arg in argv)
+    return any(re.fullmatch(r"-n(\d+|auto|logical)?|--numprocesses(=.*)?", arg) for arg in argv)
 
 
 def marker_expression(argv: list[str]) -> str:
@@ -86,6 +88,14 @@ def test_addopts_leaves_a_single_file_single_process() -> None:
 
     assert not has_workers_flag(addopts)
     assert not any(arg.startswith("--maxprocesses") for arg in addopts)
+
+
+def test_ci_runs_the_suite_with_the_poe_command() -> None:
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    jobs = yaml.safe_load(ci)["jobs"]
+    runs = [step["run"] for step in jobs["test"]["steps"] if "run" in step]
+
+    assert any(re.search(r"\bpoe test\s*$", run.strip()) for run in runs), runs
 
 
 def test_the_serial_marker_is_registered() -> None:

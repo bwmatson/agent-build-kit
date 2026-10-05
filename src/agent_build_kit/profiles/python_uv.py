@@ -11,6 +11,7 @@ environment, so the collision cannot happen.
 from __future__ import annotations
 
 import re
+import shlex
 import tomllib
 from pathlib import Path
 
@@ -25,6 +26,8 @@ NO_TESTS_COLLECTED = 5
 
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+XDIST = "pytest-xdist"
+WORKERS = ["-n", "auto", "--maxprocesses=8"]
 
 
 def _normalize(name: str) -> str:
@@ -36,6 +39,48 @@ def _pyproject(path: Path) -> dict:
         return tomllib.loads((path / "pyproject.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
+
+
+def _declared_dependencies(pyproject: dict) -> set[str]:
+    """Every dependency name a pyproject declares: project, extras, groups."""
+    project = pyproject.get("project", {})
+    declared = list(project.get("dependencies", []))
+    for extras in project.get("optional-dependencies", {}).values():
+        declared += list(extras)
+    for group in pyproject.get("dependency-groups", {}).values():
+        declared += [dep for dep in group if isinstance(dep, str)]
+    declared += list(pyproject.get("tool", {}).get("uv", {}).get("dev-dependencies", []))
+    return {_normalize(m.group(1)) for dep in declared if (m := _DEP_NAME.match(str(dep)))}
+
+
+def _declares_xdist(path: Path) -> bool:
+    return XDIST in _declared_dependencies(_pyproject(path))
+
+
+def _addopts_marker(repo: Path) -> str:
+    """The `-m` expression the repo's own pytest addopts applies, if any."""
+    options = _pyproject(repo).get("tool", {}).get("pytest", {}).get("ini_options", {})
+    addopts = options.get("addopts", "")
+    argv = shlex.split(addopts) if isinstance(addopts, str) else list(addopts)
+    for i, arg in enumerate(argv):
+        if arg == "-m" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("-m") and len(arg) > 2:
+            return arg[2:]
+    return ""
+
+
+def _marker_selection(repo: Path, selection: str) -> str:
+    # A later -m replaces the one in addopts, so keep the repo's exclusions.
+    existing = _addopts_marker(repo)
+    return f"({existing}) and {selection}" if existing else selection
+
+
+def _is_serial_pass(command: list[str]) -> bool:
+    if "-m" not in command[:-1]:
+        return False
+    expression = command[command.index("-m") + 1]
+    return expression == "serial" or expression.endswith(" and serial")
 
 
 def package_name(member: Path) -> str:
@@ -130,33 +175,55 @@ class PythonUvProfile:
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         return parse_pytest_summary(output)
 
-    def _root_tests(self, root_extras: list[str]) -> list[str]:
+    def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
         # environment its CI job uses: pytest plus whatever it declares.
         withs = [arg for extra in ["pytest", *root_extras] for arg in ("--with", extra)]
-        return ["uv", "run", "--no-project", "--isolated", *withs, "pytest", "tests", "-q"]
+        head = ["uv", "run", "--no-project", "--isolated", *withs]
+        # The environment holds only what root_extras names, so workers need it there.
+        workers = any(_normalize(extra.split("[")[0]) == XDIST for extra in root_extras)
+        return self._passes(head, ["tests"], parallel=workers, repo=repo)
+
+    def _passes(
+        self, head: list[str], target: list[str], *, parallel: bool, repo: Path
+    ) -> list[list[str]]:
+        """One pytest command, or — where xdist is declared — what `poe test`
+        runs: a parallel pass, then the tests marked `serial` on their own."""
+        command = [*head, "pytest", *target]
+        if not parallel:
+            return [[*command, "-q"]]
+        return [
+            [*command, *WORKERS, "-m", _marker_selection(repo, "not serial"), "-q"],
+            [*command, "-m", _marker_selection(repo, "serial"), "-q"],
+        ]
+
+    def tolerates_exit(self, command: list[str], returncode: int) -> bool:
+        """Whether a tier 1 command's exit status is a pass. The serial pass
+        collects nothing in a repo with no `serial` tests, which is not a failure."""
+        if returncode == 0:
+            return True
+        return returncode == NO_TESTS_COLLECTED and _is_serial_pass(command)
 
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.
         # No tests/ at all is intentional too — the satisfied verdict then
         # rests on lint alone, since there is nothing here to run.
-        return [["uv", "run", "pytest", "-q"]] if (repo / "tests").is_dir() else []
+        if not (repo / "tests").is_dir():
+            return []
+        return self._passes(["uv", "run"], [], parallel=_declares_xdist(repo), repo=repo)
 
     def _member_commands(self, repo: Path, members: list[str]) -> list[list[str]]:
         # `--package` names the package; the trailing path names the directory.
         # They differ more often than not.
         return [
-            [
-                "uv",
-                "run",
-                "--package",
-                package_name(repo / member),
-                "--isolated",
-                "pytest",
-                member,
-                "-q",
-            ]
+            command
             for member in members
+            for command in self._passes(
+                ["uv", "run", "--package", package_name(repo / member), "--isolated"],
+                [member],
+                parallel=_declares_xdist(repo / member),
+                repo=repo / member,
+            )
         ]
 
     def test_commands(
@@ -186,9 +253,9 @@ class PythonUvProfile:
             for path in changed
         )
         chosen = testable if outside else [m for m in testable if m in touched]
-        root = []
+        root: list[list[str]] = []
         if (repo / "tests").is_dir() and (outside or any(p.startswith("tests/") for p in changed)):
-            root = [self._root_tests(root_extras)]
+            root = self._root_tests(repo, root_extras)
         return self._member_commands(repo, chosen) + root
 
     def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
@@ -204,7 +271,7 @@ class PythonUvProfile:
             return self._whole_repo_tests(repo)
 
         testable = [member for member in members if (repo / member / "tests").is_dir()]
-        root = [self._root_tests(root_extras)] if (repo / "tests").is_dir() else []
+        root = self._root_tests(repo, root_extras) if (repo / "tests").is_dir() else []
         return self._member_commands(repo, testable) + root
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:

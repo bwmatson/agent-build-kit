@@ -93,7 +93,9 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   marked `integration` (excluded by default). Tests driving a real agent on
   the host are tier 2: they live under `tests/integration/` too, are marked
   `local_stack`, are excluded by default and run with `uv run pytest -m
-  local_stack`. Test directories carry no `__init__.py`, so test file
+  local_stack`. Mark a test `serial` when it cannot share a process with
+  others: `poe test` runs it in a serial pass after the parallel one, and
+  `pytest <file>` runs without workers. Test directories carry no `__init__.py`, so test file
   basenames must be unique.
 - **The habitat test.** `tests/integration/test_worktree_gate.py` commits a
   trivially correct file in a real git worktree of a fixture repository
@@ -137,7 +139,7 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
 
 ```bash
 uv sync --group dev
-uv run poe test              # the suite (fixture-only, no node needed)
+uv run poe test              # the suite, fixture-only: parallel workers (capped at 8), then a serial pass of tests marked `serial`
 uv run poe test-integration  # needs node: runs the real OpenSpec CLI via npx
 uv run poe test-local-stack  # tier 2: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
 uv run poe format            # pre-commit: ruff, ruff-format, pyrefly, yamllint

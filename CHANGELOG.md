@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `poe test` and CI run the suite with `pytest-xdist` (a new dev dependency): a parallel pass in
+  up to 8 workers, then a serial pass of tests carrying the new `serial` marker. A single
+  `pytest <file>` still runs in one process. The python-uv profile's tier 1 does the same for a
+  repo that declares `pytest-xdist` (and treats "no tests collected" in the serial pass as a pass);
+  a repo without it keeps `uv run pytest -q`.
+
 - Contributor conventions moved to `AGENTS.md`, with `CLAUDE.md` loading it, and now say that
   code changes go through the spec process, not ad hoc sessions (docs and supporting files may still
   be edited in a session).
