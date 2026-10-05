@@ -8,6 +8,12 @@
   repo that declares `pytest-xdist` (and treats "no tests collected" in the serial pass as a pass);
   a repo without it keeps `uv run pytest -q`.
 
+- A branch the host rewrote to different commits holding the same change, or holds at an older
+  restack of the same work, is no longer refused at the push: its head is recorded as the last push,
+  the approval stands, and the approved head goes out leased on it. The commits replayed over a
+  host head are chosen with `git cherry` over the trunk. A host change that does not combine with
+  local work still stops the unit with `StaleRemote`.
+
 - Contributor conventions moved to `AGENTS.md`, with `CLAUDE.md` loading it, and now say that
   code changes go through the spec process, not ad hoc sessions (docs and supporting files may still
   be edited in a session).

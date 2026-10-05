@@ -69,6 +69,7 @@ from agent_build_kit.pipeline.units import (
     branch_name,
     local_ref,
     through_satisfied,
+    trunk_of,
 )
 from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit
 from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
@@ -638,7 +639,6 @@ def build_push(
     """
     push = push or _default_push
     remote_head_of = remote_head_of or remote_head
-    adopt = adopt or adopt_host_head
 
     def do_push(branch: str, *, cwd: Path) -> str:
         unit_id = branch.removeprefix(active().git.branch_prefix)
@@ -654,13 +654,29 @@ def build_push(
             store.record_push(unit_id, remote)
             last_pushed = remote
         elif remote and last_pushed and remote != last_pushed:
-            adopt(cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd)
+            if adopt is None:
+                adopt_host_head(
+                    cwd,
+                    branch,
+                    host_head=remote,
+                    last_pushed=last_pushed,
+                    cwd=cwd,
+                    base=trunk_of(store.get(unit_id).repo),
+                )
+            else:
+                adopt(cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd)
             store.record_push(unit_id, remote)
-            store.record_approval(unit_id, "")
-            raise HostMoved(
-                f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
-                "adopted its head, which review has not seen"
-            )
+            after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
+            if here and after == here:
+                # The host holds the same change, so what review approved
+                # stands: only the lease moves, and the approved head is pushed.
+                last_pushed = remote
+            else:
+                store.record_approval(unit_id, "")
+                raise HostMoved(
+                    f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
+                    "adopted its head, which review has not seen"
+                )
 
         sha = push(cwd, branch, last_pushed)
         try:
