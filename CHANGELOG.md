@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Tier 1 type-checks `tests` in a unit's worktree. The pre-commit hook pinned pyrefly 1.2.0, which
+  dropped the `tests` include in a worktree under the pipeline's state directory, so a unit's
+  checks passed on test files CI then failed. The hook and the dev pin are 1.3.1.
+
 - `poe test` and CI run the suite with `pytest-xdist` (a new dev dependency): a parallel pass in
   up to 8 workers, then a serial pass of tests carrying the new `serial` marker. A single
   `pytest <file>` still runs in one process. The python-uv profile's tier 1 does the same for a
