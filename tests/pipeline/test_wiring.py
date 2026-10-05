@@ -190,7 +190,12 @@ def test_a_branch_the_host_moved_is_adopted_not_pushed(tmp_path: Path) -> None:
 
     assert pushed == []
     assert adopted == [
-        {"host_head": "host-rebased", "last_pushed": "before-the-merge", "cwd": tmp_path}
+        {
+            "host_head": "host-rebased",
+            "last_pushed": "before-the-merge",
+            "cwd": tmp_path,
+            "base": "origin/main",
+        }
     ]
     assert store.get("add-marker/1").pushed == "host-rebased", "the next lease holds"
     assert store.get("add-marker/1").approved == ""
@@ -249,15 +254,18 @@ def test_a_branch_the_host_rewrote_without_changing_the_work_is_pushed_over_its_
 def test_a_restacked_branch_over_the_hosts_older_form_is_pushed_over_its_head(
     tmp_path: Path,
 ) -> None:
+    """The trunk moved on the remote only; the local `main` is behind."""
     repo, host, pushed_head = _unit_on_a_host(tmp_path)
     git(host, "commit", "-q", "--amend", "-m", "add marker")
     git(host, "push", "-q", "--force", "origin", "spec/add-marker/1")
     host_head = git(host, "rev-parse", "HEAD").strip()
-    git(repo, "checkout", "-q", "main")
-    (repo / "trunk.txt").write_text("trunk")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "trunk moves on")
-    git(repo, "rebase", "-q", "main", "spec/add-marker/1")
+    git(host, "checkout", "-q", "main")
+    (host / "trunk.txt").write_text("trunk")
+    git(host, "add", "-A")
+    git(host, "commit", "-qm", "trunk moves on")
+    git(host, "push", "-q", "origin", "main")
+    git(repo, "fetch", "-q", "origin")
+    git(repo, "rebase", "-q", "origin/main", "spec/add-marker/1")
     restacked = git(repo, "rev-parse", "HEAD").strip()
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
@@ -272,6 +280,7 @@ def test_a_restacked_branch_over_the_hosts_older_form_is_pushed_over_its_head(
 
     assert leased == [host_head]
     assert git(repo, "rev-parse", "spec/add-marker/1").strip() == restacked
+    assert store.get("add-marker/1").approved == restacked
 
 
 def test_a_push_whose_recording_was_lost_is_not_taken_for_a_host_move(tmp_path: Path) -> None:

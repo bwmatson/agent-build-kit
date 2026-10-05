@@ -456,9 +456,12 @@ def adopt_host_head(
     - local commits that do not apply onto the host's head: `StaleRemote`,
       nothing changed, left for a human.
 
-    The commits to replay are chosen by `git cherry` over `base`, not by
-    counting from `last_pushed`, which a restacked branch no longer descends
-    from. Without a `base`, the commits after `last_pushed` are replayed.
+    The commits to replay are those made since `last_pushed` while the branch
+    still descends from it — which keeps a stacked unit's predecessor out of
+    the set, as the host may have squashed it into the trunk. A restacked
+    branch no longer descends from it, and then `git cherry` over `base` picks
+    the commits the host does not hold by patch. Without a `base`, the commits
+    after `last_pushed` are replayed.
     """
     here_head = git(repo, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
     if here_head == host_head:
@@ -472,11 +475,17 @@ def adopt_host_head(
 
     here = git(cwd, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
     checked_out = here == branch
-    if base is not None:
+    descends = (
+        bool(last_pushed)
+        and not git(
+            repo, "merge-base", "--is-ancestor", last_pushed or "", branch, check=False
+        ).returncode
+    )
+    if descends:
+        local_only = git(repo, "rev-list", "--reverse", f"{last_pushed}..{branch}").stdout.split()
+    elif base is not None:
         cherry = git(repo, "cherry", host_head, branch, base, check=False).stdout.splitlines()
         local_only = [line[2:] for line in cherry if line.startswith("+ ")]
-    elif last_pushed:
-        local_only = git(repo, "rev-list", "--reverse", f"{last_pushed}..{branch}").stdout.split()
     else:
         local_only = []
 
@@ -498,7 +507,7 @@ def adopt_host_head(
         git(cwd, "reset", "-q", "--hard", here_head)
     raise StaleRemote(
         f"the host moved {branch} to {host_head[:9]}, and the {len(local_only)} "
-        "commit(s) made here since the last push do not apply onto it — include "
+        "local commit(s) the host does not hold do not apply onto it — include "
         "them by hand before pushing again."
     )
 

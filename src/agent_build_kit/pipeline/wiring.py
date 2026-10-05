@@ -639,6 +639,7 @@ def build_push(
     """
     push = push or _default_push
     remote_head_of = remote_head_of or remote_head
+    adopt_head = adopt or adopt_host_head
 
     def do_push(branch: str, *, cwd: Path) -> str:
         unit_id = branch.removeprefix(active().git.branch_prefix)
@@ -654,17 +655,14 @@ def build_push(
             store.record_push(unit_id, remote)
             last_pushed = remote
         elif remote and last_pushed and remote != last_pushed:
-            if adopt is None:
-                adopt_host_head(
-                    cwd,
-                    branch,
-                    host_head=remote,
-                    last_pushed=last_pushed,
-                    cwd=cwd,
-                    base=trunk_of(store.get(unit_id).repo),
-                )
-            else:
-                adopt(cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd)
+            adopt_head(
+                cwd,
+                branch,
+                host_head=remote,
+                last_pushed=last_pushed,
+                cwd=cwd,
+                base=local_ref(trunk_of(store.get(unit_id).repo)),
+            )
             store.record_push(unit_id, remote)
             after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
             if here and after == here:

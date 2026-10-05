@@ -432,6 +432,48 @@ def test_a_branch_the_host_moved_is_re_reviewed_before_anything_is_pushed(
     assert store.get("c/2").pushed == "host-rebased", "the next lease names what the host has"
 
 
+def test_a_host_branch_holding_the_same_change_keeps_the_approval_and_the_restack_goes_on(
+    tmp_path: Path,
+) -> None:
+    """The adopt left the local head as it was, so review's approval stands:
+    only the lease moves, and the branch is restacked and pushed."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("c/2")])
+    store.set_state("c/2", IN_REVIEW, pr=2, branch="spec/c/2")
+    store.record_approval("c/2", "approved")
+    store.record_push("c/2", "approved")
+    order: list[str] = []
+    bases: list[str] = []
+    leases: list[str | None] = []
+    restack = events.build_restack(
+        repos={"app": tmp_path},
+        store=store,
+        root=tmp_path,
+        move=lambda *a, **k: order.append("move") or Moved(sha="newsha"),
+        tier1=lambda **k: (True, ""),
+        push=lambda *a, last_pushed, **k: leases.append(last_pushed) or "newsha",
+        retarget=lambda *a, **k: None,
+        comment=lambda *a, **k: None,
+        diff_id=lambda repo, base, branch: "same-diff",
+        head_of=lambda repo, branch: "approved",
+        remote_head_of=lambda repo, branch: "host-reworded",
+        adopt=lambda repo, branch, **k: bases.append(k["base"]) or "approved",
+    )
+
+    restack(
+        branch="spec/c/2",
+        old_base="spec/c/1",
+        new_base="main",
+        child=store.get("c/2"),
+        parent=unit("c/1", pr=1, branch="spec/c/1", state=MERGED),
+    )
+
+    assert bases == ["origin/main"]
+    assert "move" in order
+    assert leases == ["host-reworded"]
+    assert store.get("c/2").state != PLANNED
+
+
 def test_a_failed_adopt_still_retargets_the_pr(tmp_path: Path) -> None:
     """With its base merged away, a PR left pointing at it is closed by the
     host. Whatever adopting the host's head does, the retarget has happened."""
