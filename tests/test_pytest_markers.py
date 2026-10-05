@@ -27,7 +27,7 @@ def test_the_default_run_excludes_it_and_the_integration_tier() -> None:
 
 
 def test_the_docs_describe_it_beside_the_integration_marker() -> None:
-    for path in (ROOT / "docs" / "agent-runtimes.md", ROOT / "CLAUDE.md"):
+    for path in (ROOT / "docs" / "agent-runtimes.md", ROOT / "AGENTS.md"):
         text = " ".join(path.read_text().split())
 
         assert "local_stack" in text, path

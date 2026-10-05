@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Contributor conventions moved to `AGENTS.md`, with `CLAUDE.md` loading it, and now say that
+  code changes go through the spec process, not ad hoc sessions (docs and supporting files may still
+  be edited in a session).
+
 - Runs on the Claude Code runtime no longer add its `Co-Authored-By` trailer to commits or its
   "Generated with" line to pull requests. Every run passes `attribution` empty in its
   `--settings` (and `includeCoAuthoredBy: false` for an older CLI). A repo that forbids the

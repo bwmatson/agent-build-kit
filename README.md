@@ -156,7 +156,7 @@ Details, arguments and exit codes: [docs/cli.md](docs/cli.md).
 - [docs/init.md](docs/init.md) — what `abk init` does, step by step.
 - [docs/tracks.md](docs/tracks.md) — the scheduled health/improve/recommend/implement tracks.
 
-Contributing conventions are in [CLAUDE.md](CLAUDE.md). One rule matters
+Contributing conventions are in [AGENTS.md](AGENTS.md). One rule matters
 more than the rest: this repo never names an installation — no repo names,
 owners, product names or anecdotes from any deployment.
 
