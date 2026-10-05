@@ -128,9 +128,9 @@ a label reads as its node does. `merged`, `closed`, `unplanned` and
 `satisfied` have none: the host shows the first two, the last two have no pull
 request of their own. Labels are cosmetic and never read back — the unit store
 is the truth, so a stale label on a PR changes nothing; a label that cannot be
-written is logged and the unit carries on. Azure DevOps keeps no labels: no
-state label or change label appears there, and `agent-rework` is left on and
-acted on once.
+written is logged and the unit carries on. Azure DevOps keeps labels (it calls
+them tags) but no colour or description, so a state is told apart by its name
+there; everything above works the same.
 
 ## A change's lifecycle
 

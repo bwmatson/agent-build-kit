@@ -64,7 +64,12 @@ parts are free functions beside it rather than inherited behaviour.
 
 A host without labels raises `NotImplementedError` from all three. That is said
 once ("this host keeps no labels") rather than logged as a failure on every
-call; any other error is logged as one (Azure DevOps keeps no labels today).
+call; any other error is logged as one.
+
+Azure DevOps keeps labels (it calls them tags) but no colour or description, so
+a state is told apart by its name there; the colour and description a caller
+passes are accepted and ignored. Pull requests already open pick up their labels
+at their next state change; there is no backfill.
 
 Two free functions sit beside the Protocol rather than on it: `forges.key(repo)`
 is the canonical identity string (`owner/name`, or `org/project/repo`) that
