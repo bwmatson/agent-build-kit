@@ -411,11 +411,11 @@ itself, and the last two have no pull request of their own to carry one.
 Labels are cosmetic and are never read back: the unit store is the source of
 truth, a pull request wearing a stale label does not change its unit, and a
 label that cannot be written is logged and changes nothing about the unit.
-Azure DevOps carries no pipeline labels today: its forge cannot add or remove
-one, so no state label and no change label appears there, and `agent-rework`
-stays on the pull request after it is acted on and is not acted on again until
-a person removes it and adds it back. That is said once per store and once per poll ("this host
-keeps no labels"), not as a failure on each state change. A state label is
+Azure DevOps keeps labels (it calls them tags) but no colour or description, so
+a state is told apart by its name there; state labels, change labels and the
+removal of `agent-rework` work as on GitHub. A host that keeps none says so once
+per store and once per poll ("this host keeps no labels"), not as a failure on
+each state change. A state label is
 written when the unit's own state changes, so a dependent's derived state
 (`blocked`, `paused-rework`) is refreshed on its own next transition, not when
 its parent's changes. `agent-rework` added to a held unit's pull request is
