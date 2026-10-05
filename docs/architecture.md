@@ -129,7 +129,7 @@ merged. `limits.stack_depth_build_cap` holds
 back chains of open PRs; `limits.max_concurrent_stacks` bounds units being
 built. `limits.max_units_in_progress` bounds the units started and not finished
 across repos: running, in review or failed, and any planned or unplanned unit
-that has a pull request or a step to resume from. Merged, closed and satisfied
+that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
 never started, do not count. Only a unit that
 has never started is stopped by it, and no more of them start than leave room;
@@ -338,9 +338,11 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    build finished.
 
 Between steps the unit can be stopped: a same-repo parent went back for
-rework (`held before <step>`), or the usage window filled (`paused before
-<step>`). The unit's thread keeps the node it stopped before, and the resume
-starts exactly there.
+rework (`held before <step>`, the unit `planned`), or the usage window filled.
+A usage pause leaves the unit `running`, with its thread interrupted before
+the agent node; the first tick the usage guard allows resumes it from there.
+A run that is killed is resumed the same way, at the node it was in: nothing
+requeues it and nothing commits what it left.
 
 ### 4. Polling and events
 
@@ -548,8 +550,8 @@ what starts next. The one place that reading is taken mid-unit rather than
 only at a boundary is judging a step that ends having written nothing: an
 agent told it is out of usage can finish cleanly having said so in prose, and
 against an exhausted window that empty result is a pause, not a failure — one
-more read of the same guard, never a poll, and the same shape (state, note,
-resume point) as a stop between steps. Empty for any other reason still
+more read of the same guard, never a poll, and the same shape (a `running` unit,
+interrupted before its next agent node) as a stop between steps. Empty for any other reason still
 fails.
 
 The two windows do not share a threshold, and a threshold need not be flat:
@@ -622,7 +624,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 
 | File | What | Loss means |
 |---|---|---|
-| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, review rounds, history (and `resume_from`, which only a store the previous engine left carries, until the first tick moves it onto threads). The truth; the graph page is a view of it. | rebuilt work. Commit it. |
+| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, history. In-run progress (review rounds, deferred follow-ups, pending replies) is in the unit's thread, not here; only `approved` and `predecessor_note` stay, because the push gate and the restack write them with no run in progress. A store the previous engine left may still carry `resume_from` and the in-run keys, which load and are moved onto the thread by the first tick. The truth; the graph page is a view of it. | rebuilt work. Commit it. |
 | `verified.json` | the last verification of each change and the units it covered. | a change verified again. |
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |

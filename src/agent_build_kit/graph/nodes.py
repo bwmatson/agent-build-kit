@@ -40,6 +40,7 @@ from agent_build_kit.pipeline.stack_runner import (
     escalates,
     parse_test_decisions,
     tests_needing_decision,
+    with_response,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
@@ -196,7 +197,7 @@ class BuildPath:
         over whatever the event that resumed it had recorded.
         """
         self.say(f"held: {note}")
-        opened: dict[str, Any] = {"pr": pr, "resume_from": ""} if pr else {}
+        opened: dict[str, Any] = {"pr": pr} if pr else {}
         self.runner.store.set_state(self.unit.id, state, note=note, **opened)
         update: Update = {
             "held": detail,
@@ -528,22 +529,36 @@ class BuildPath:
         round_number = state.review_round
         reworking = state.had_feedback or bool(r.store.get(unit.id).predecessor_note)
         first = round_number == 0 and not reworking
-        if first:
-            # A fresh build starts a fresh loop; a reworking one carries the rounds it had.
-            r.store.set_review_rounds(unit.id, ())
+        # A fresh build starts a fresh loop; a reworking one carries the rounds it had.
+        rounds = () if first else state.review_rounds
         judged = r.head(tree)
         model = models().review if first else models().rework_review
         self.say(f"review round {round_number + 1} ({model})")
         context = r.review_notes(
-            unit, round_number=round_number, total=total, review_boundary=review_boundary
+            unit,
+            round_number=round_number,
+            total=total,
+            review_boundary=review_boundary,
+            rounds=rounds,
+            person_comments=state.person_comments,
+            pending_replies=state.pending_replies,
         )
         raw = self.agent(
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )
-        weighed = r.weigh_review(unit, raw, judged=judged)
-        update: Update = {"review_round": round_number + 1, "head": judged}
+        weighed = r.weigh_review(unit, raw, judged=judged, rounds=rounds)
+        update: Update = {
+            "review_round": round_number + 1,
+            "head": judged,
+            "review_rounds": weighed.rounds,
+        }
         if weighed.approved:
-            return {**update, "verdict": Verdict.APPROVED, "approved": judged, "fix_rounds": 0}
+            return {
+                **update,
+                "verdict": Verdict.APPROVED,
+                "deferred": weighed.deferred,
+                "fix_rounds": 0,
+            }
         verdict = weighed.verdict
         if verdict.needs_human:
             # What is left is something the builder's environment refuses: asking
@@ -591,7 +606,8 @@ class BuildPath:
         feedback = stored.feedback
         failed_check = feedback.startswith(TIER1_FAILED)
         in_loop = state.verdict is Verdict.CHANGES
-        # An empty head is a thread converted from the classic engine: no node
+        kept: Update = {}
+        # An empty head is a thread converted from the engine before the switch: no node
         # has recorded the branch's tip, so nothing is known to be done.
         if state.head and r.head(tree) != state.head:
             self.say("the rework commit is already on the branch")
@@ -605,7 +621,7 @@ class BuildPath:
                 cwd=tree,
                 state=state,
             )
-            r.record_response(unit, response)
+            kept["review_rounds"] = with_response(state.review_rounds, response)
             r.commit(f"fix: {unit.title} (review round {state.review_round})", cwd=tree)
         else:
             # One run on the review model, not the tests-then-implementation
@@ -633,12 +649,11 @@ class BuildPath:
             r.commit(f"fix: {unit.title}", cwd=tree)
             if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
-                r.store.set_pending_replies(unit.id, (*stored.pending_replies, answer))
+                kept["pending_replies"] = (*state.pending_replies, answer)
                 if stored.feedback_from_person:
-                    r.store.set_person_comments(
-                        unit.id, f"{stored.person_comments}\n\n{feedback}".strip()
-                    )
+                    kept["person_comments"] = f"{state.person_comments}\n\n{feedback}".strip()
         return {
+            **kept,
             "verdict": None,
             "fix_rounds": 0,
             "head": r.head(tree),
@@ -695,21 +710,13 @@ class BuildPath:
         and the checks, never on a step's report of itself."""
         r, unit = self.runner, self.unit
         self.say("nothing to add and tier 1 passes — satisfied")
-        r.store.set_state(
-            unit.id, SATISFIED, note="already implemented; tier 1 passed", resume_from=""
-        )
+        r.store.set_state(unit.id, SATISFIED, note="already implemented; tier 1 passed")
         # A satisfied unit is done: nothing here should look like a build in progress.
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")
-        if r.store.get(unit.id).review_rounds:
-            r.store.set_review_rounds(unit.id, ())
         # The review feedback and its replies belong to a build this unit is no longer doing.
         if r.store.get(unit.id).feedback:
             r.store.set_feedback(unit.id, "")
-        if r.store.get(unit.id).pending_replies:
-            r.store.set_pending_replies(unit.id, ())
-        if r.store.get(unit.id).person_comments:
-            r.store.set_person_comments(unit.id, "")
         stored = r.store.get(unit.id)
         if stored.pr:
             # Posting and closing are one call, so the reason is never missing before the close.
@@ -727,7 +734,13 @@ class BuildPath:
                     ),
                 )
         r.mark_tasks(unit, done=True)
-        return {"status": RunStatus.SATISFIED, "detail": "already implemented; tier 1 passed"}
+        return {
+            "status": RunStatus.SATISFIED,
+            "detail": "already implemented; tier 1 passed",
+            "review_rounds": (),
+            "pending_replies": (),
+            "person_comments": "",
+        }
 
     def verify_base(self, state: UnitRun) -> Update:
         """The base as it is now, before anything is pushed against it."""
@@ -793,10 +806,9 @@ class BuildPath:
             return {}
         # Only now, with the push confirmed: a follow-up recorded ahead of it
         # would describe work that never left the machine.
-        deferred = r.store.get(unit.id).deferred
-        if deferred:
-            r.record_follow_ups(unit, deferred)
-            r.store.set_deferred(unit.id, ())
+        if state.deferred:
+            r.record_follow_ups(unit, state.deferred)
+            return {"deferred": ()}
         return {}
 
     def open_pr(self, state: UnitRun) -> Update:
@@ -843,23 +855,25 @@ class BuildPath:
         # seen is rejected.
         if unit.tier == "tier2":
             r.post_status(sha, True)
-        for answer in stored.pending_replies:
+        for answer in state.pending_replies:
             r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha)
-        if stored.pending_replies:
-            r.store.set_pending_replies(unit.id, ())
-        if stored.person_comments:
-            r.store.set_person_comments(unit.id, "")
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
-        r.store.set_state(unit.id, IN_REVIEW, pr=pr, resume_from="")
+        r.store.set_state(unit.id, IN_REVIEW, pr=pr)
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")
-        if r.store.get(unit.id).review_rounds:
-            r.store.set_review_rounds(unit.id, ())
         # Done means through the loop, verified and pushed.
         r.mark_tasks(unit, done=True)
         self.say(f"in review: PR #{pr}")
-        return {"status": RunStatus.OPEN, "detail": f"opened #{pr}", "pr": pr}
+        return {
+            "status": RunStatus.OPEN,
+            "detail": f"opened #{pr}",
+            "pr": pr,
+            # Said and no longer owed: the loop that asked for them is over.
+            "pending_replies": (),
+            "person_comments": "",
+            "review_rounds": (),
+        }
 
     def await_review(self, state: UnitRun) -> Update:
         """Wait for the forge: the interrupt holds no lock and no slot, and the
@@ -898,8 +912,7 @@ class BuildPath:
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
             if event.kind is EventKind.REQUEUE and event.reason == "restart":
                 r.store.set_feedback(unit.id, "")
-                r.store.set_review_rounds(unit.id, ())
-                update.update({"rounds": (), "approved": ""})
+                update["review_rounds"] = ()
             # Running, so the tick resumes the thread at `prepare` in a slot.
             r.store.set_state(
                 unit.id, RUNNING, note=f"{event.kind.value}: {event.reason or 'no reason given'}"

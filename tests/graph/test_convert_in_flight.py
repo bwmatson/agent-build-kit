@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -14,10 +15,11 @@ from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, branch_name
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
+from tests.classic_store import leave_in_flight
 from tests.factories import unit
-from tests.graph_driver import position, tick
-from tests.runner_fakes import Recorder
+from tests.graph_driver import position, run_on_graph, tick
+from tests.runner_fakes import Recorder, make_runner
 
 UNIT = "add-marker/1"
 WAITING = "rename the marker"
@@ -30,11 +32,14 @@ def stored(
     resume_from: str = "",
     feedback: str = "",
     pr: int | None = None,
+    tier: str = "tier1",
+    **in_run: Any,
 ) -> Recorder:
-    """A store as the classic engine left it, with a commit on the branch."""
+    """A store as the previous engine left it, with a commit on the branch."""
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit()])
-    store.set_state(UNIT, state, pr=pr, branch=branch_name(unit()), resume_from=resume_from)
+    store.upsert([unit(tier=tier)])
+    store.set_state(UNIT, state, pr=pr, branch=branch_name(unit()))
+    leave_in_flight(store, UNIT, resume_from=resume_from, **in_run)
     if feedback:
         store.set_feedback(UNIT, feedback, from_person=True)
     recorder = Recorder(store)
@@ -54,6 +59,7 @@ def convert(tmp_path: Path, store: UnitStore) -> tuple[str, ...]:
     ("step", "node"),
     [
         ("tests", Node.TESTS),
+        ("implement", Node.IMPLEMENT),
         ("review", Node.REVIEW),
         ("rework_review", Node.REVIEW),
         ("verify", Node.VERIFY_BASE),
@@ -187,3 +193,71 @@ def test_a_merge_for_a_converted_unit_in_review_ends_its_thread(tmp_path: Path) 
     tick(tmp_path, recorder, event=ResumeEvent(kind=EventKind.MERGED))
 
     assert position(tmp_path).state is None
+
+
+def test_a_tier_2_unit_stopped_at_verify_runs_tier_2_before_it_pushes(tmp_path: Path) -> None:
+    # The previous engine recorded `verify` before tier 2 ran, so a unit stopped
+    # there, or killed during tier 2, has not passed it.
+    recorder = stored(tmp_path, resume_from="verify", tier="tier2")
+    recorder.store.record_approval(UNIT, recorder.head(tmp_path))
+    convert(tmp_path, recorder.store)
+    assert position(tmp_path).next == (Node.TIER2,)
+
+    run_on_graph(make_runner(recorder.store, recorder, tmp_path), unit(tier="tier2"))
+
+    assert "review" not in recorder.events
+    assert recorder.events.count("tier2") == 1
+    assert recorder.events.index("tier2") < recorder.events.index("push")
+    assert position(tmp_path).next == (Node.AWAIT_REVIEW,)
+
+
+def test_a_tier_1_unit_stopped_at_verify_goes_to_the_base_check(tmp_path: Path) -> None:
+    recorder = stored(tmp_path, resume_from="verify")
+    recorder.store.record_approval(UNIT, recorder.head(tmp_path))
+
+    convert(tmp_path, recorder.store)
+
+    assert position(tmp_path).next == (Node.VERIFY_BASE,)
+
+
+def test_a_running_unit_with_no_step_and_no_feedback_gets_a_thread_at_prepare(
+    tmp_path: Path,
+) -> None:
+    # Killed before its first step was recorded: during setup, the fetch, or a restack.
+    recorder = stored(tmp_path, state=RUNNING)
+
+    assert convert(tmp_path, recorder.store) == (UNIT,)
+
+    assert position(tmp_path).next == (Node.PREPARE,)
+
+
+def test_converting_moves_the_step_and_the_in_run_progress_into_the_thread(
+    tmp_path: Path,
+) -> None:
+    recorder = stored(
+        tmp_path,
+        resume_from="review",
+        pending_replies=["done"],
+        person_comments="[comment 1] rename",
+        deferred=["tidy the docs"],
+        review_rounds=[{"asked": "rename it", "response": "renamed"}],
+    )
+
+    convert(tmp_path, recorder.store)
+
+    state = position(tmp_path).state
+    assert state is not None
+    assert state.pending_replies == ("done",)
+    assert state.person_comments == "[comment 1] rename"
+    assert state.deferred == ("tidy the docs",)
+    assert state.review_rounds == ({"asked": "rename it", "response": "renamed"},)
+    after = recorder.store.get(UNIT)
+    assert after.resume_from == "" and after.classic_run == {}, "nothing reads them again"
+
+
+def test_a_store_an_older_version_wrote_still_loads_with_its_in_run_keys(tmp_path: Path) -> None:
+    recorder = stored(tmp_path, pending_replies=["done"], review_rounds=[])
+
+    loaded = recorder.store.get(UNIT)
+
+    assert loaded.classic_run == {"pending_replies": ["done"]}

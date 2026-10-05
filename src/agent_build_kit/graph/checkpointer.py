@@ -15,12 +15,8 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
     ("agent_build_kit.graph.state", "EventKind"),
     ("agent_build_kit.graph.state", "ResumeEvent"),
-    ("agent_build_kit.graph.state", "ReviewRound"),
     ("agent_build_kit.graph.state", "UnitRun"),
     ("agent_build_kit.graph.state", "Verdict"),
-    ("agent_build_kit.pipeline.stack_runner", "EarlierAnswer"),
-    ("agent_build_kit.pipeline.stack_runner", "Finding"),
-    ("agent_build_kit.pipeline.stack_runner", "FollowUp"),
     ("agent_build_kit.pipeline.stack_runner", "Restacked"),
     ("agent_build_kit.pipeline.stack_runner", "RunStatus"),
 )

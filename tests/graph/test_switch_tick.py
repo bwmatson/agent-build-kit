@@ -1,6 +1,6 @@
-"""With no engine setting at all the graph is the engine: the first tick on the
-new version converts the units in flight, then runs every unit on its thread
-(docs/unit-graph.md, Moving the units in flight)."""
+"""The graph is the only engine: the first tick on the new version converts the
+units in flight, then runs every unit on its thread (docs/unit-graph.md,
+Moving the units in flight)."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.usage_guard import Decision
+from tests.classic_store import leave_in_flight
 from tests.conftest import make_installation
 from tests.factories import unit
 from tests.graph_driver import fresh
@@ -43,8 +44,6 @@ class Tick:
 
 @pytest.fixture
 def tick(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tick:
-    # No `engine` setting anywhere: whatever the default is runs the unit.
-    monkeypatch.delenv("ABK_ENGINE", raising=False)
     inst = make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
@@ -70,7 +69,7 @@ def tick(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tick:
     return Tick(inst, recorder)
 
 
-def test_a_tick_with_no_engine_setting_builds_a_unit_on_its_thread(tick: Tick) -> None:
+def test_a_tick__builds_a_unit_on_its_thread(tick: Tick) -> None:
     assert tick.run() == 0
 
     assert tick.store.get(UNIT).state == IN_REVIEW
@@ -78,7 +77,7 @@ def test_a_tick_with_no_engine_setting_builds_a_unit_on_its_thread(tick: Tick) -
     assert tick.next() == (Node.AWAIT_REVIEW,)
 
 
-def test_a_unit_killed_mid_node_is_resumed_there_with_no_engine_setting(tick: Tick) -> None:
+def test_a_unit_killed_mid_node_is_resumed_there_(tick: Tick) -> None:
     tick.recorder.kill_after = "commit:feat"
     with pytest.raises(Killed):
         tick.run()
@@ -95,7 +94,8 @@ def test_a_unit_killed_mid_node_is_resumed_there_with_no_engine_setting(tick: Ti
 def test_the_first_tick_converts_a_unit_in_flight_and_resumes_it_where_it_stopped(
     tick: Tick,
 ) -> None:
-    tick.store.set_state(UNIT, PLANNED, branch=branch_name(unit()), resume_from="review")
+    tick.store.set_state(UNIT, PLANNED, branch=branch_name(unit()))
+    leave_in_flight(tick.store, UNIT, resume_from="review")
     tick.recorder.made = 2
 
     assert tick.run() == 0
@@ -115,6 +115,20 @@ def test_the_first_tick_converts_a_unit_in_review_without_building_it_again(tick
     assert tick.next() == (Node.AWAIT_REVIEW,)
     assert tick.recorder.events == [], "nothing was run for a unit waiting in review"
     assert tick.store.get(UNIT).state == IN_REVIEW
+
+
+def test_a_running_unit_with_no_step_and_no_feedback_is_resumed_by_the_next_tick(
+    tick: Tick,
+) -> None:
+    # A run killed before it recorded anything: the unit is `running` with a
+    # branch and no thread, and nothing else would ever move it.
+    tick.store.set_state(UNIT, RUNNING, branch=branch_name(unit()))
+    tick.recorder.made = 2
+
+    assert tick.run() == 0
+
+    assert tick.store.get(UNIT).state == IN_REVIEW
+    assert tick.next() == (Node.AWAIT_REVIEW,)
 
 
 def test_a_second_tick_does_not_convert_again(tick: Tick) -> None:

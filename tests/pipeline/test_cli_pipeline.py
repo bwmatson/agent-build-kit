@@ -1420,31 +1420,6 @@ def test_a_units_file_names_the_rework_of_waiting_feedback(
     assert "step: rework\nmodel: m-rework\n" in path.read_text()
 
 
-@pytest.mark.parametrize(
-    ("resume", "step", "model"),
-    [
-        ("review", "review", "m-review"),
-        ("rework_review", "rework_review", "m-rework-review"),
-        ("tests", "tests", "m-implement"),
-        ("verify", "verify_base", "none"),
-    ],
-)
-def test_a_units_file_names_the_step_it_resumes_at(
-    resume: str, step: str, model: str, healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _distinct_models(monkeypatch)
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", PLANNED, resume_from=resume)
-    speaking(monkeypatch, {"add-marker/1": opened(1)})
-
-    cli.cmd_tick(argv_namespace(dry_run=False), inst)
-
-    (path,) = run_logs()
-    assert path.name.endswith(f"-{step}.log")
-    assert f"step: {step}\nmodel: {model}\n" in path.read_text()
-
-
 def _distinct_models(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent_build_kit import config
     from agent_build_kit.config import ModelsConfig
@@ -1751,7 +1726,7 @@ def test_status_names_reworks_and_resumes_by_why_they_count(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
     store.set_state("one/1", PLANNED, pr=11)
-    store.set_state("two/1", PLANNED, resume_from="verify")
+    store.set_state("two/1", PLANNED, branch="spec/two/1")
     monkeypatch.setattr(cli, "current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0

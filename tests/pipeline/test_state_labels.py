@@ -198,7 +198,7 @@ def test_the_label_follows_a_unit_through_the_changes_the_pipeline_makes(tmp_pat
     store.set_state(uid, "running", branch="spec/add-marker/1")
     assert state_labels_on(forge) == set(), "no pull request yet, nothing to label"
 
-    store.set_state(uid, IN_REVIEW, pr=PR, resume_from="")
+    store.set_state(uid, IN_REVIEW, pr=PR)
     assert state_labels_on(forge) == {"in-review"}
 
     dispatch("rework", PR, repo="app", reason="review: changes requested")

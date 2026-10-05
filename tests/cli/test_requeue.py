@@ -1,10 +1,9 @@
 """`abk requeue`: give a failed or held unit another go.
 
 Requeueing by editing the store by hand is easy to get subtly wrong, and was:
-a failed unit remembers the step it stopped at (`resume_from`), so putting it
-back to `planned` and nothing else sends the next attempt straight past the
-agent to a check on a branch that has no work on it. The command is the
-supported way, and says which of the two things it is doing.
+a unit's place in its build is in its thread, so putting it back to `planned`
+and nothing else leaves the thread where the failure stopped it. The command is
+the supported way, and says which of the two things it is doing.
 """
 
 from __future__ import annotations
@@ -32,7 +31,7 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> UnitStore:
 def failed_at_verify(store: UnitStore, uid: str = "add-marker/1") -> None:
     """A unit that built, then failed its tier 1 check: the case that resumes."""
     store.upsert([unit(uid)])
-    store.set_state(uid, "failed", branch=f"spec/{uid}", resume_from="verify")
+    store.set_state(uid, "failed", branch=f"spec/{uid}")
     store.set_feedback(uid, "tier 1 failed: pre-commit was not found")
 
 
@@ -45,7 +44,6 @@ def test_a_failed_unit_resumes_where_it_stopped(store: UnitStore, capsys) -> Non
 
     after = store.get("add-marker/1")
     assert after.state == "planned"
-    assert after.resume_from == "verify"
     assert "resuming" in capsys.readouterr().out
 
 
@@ -58,8 +56,7 @@ def test_restart_throws_the_attempt_away(store: UnitStore, capsys) -> None:
 
     after = store.get("add-marker/1")
     assert after.state == "planned"
-    assert after.resume_from == "", "the next attempt starts at the agent, not past it"
-    assert after.feedback == "", "and is not handed a failure that no longer applies"
+    assert after.feedback == "", "the next attempt is not handed a failure that no longer applies"
     assert "starting over" in capsys.readouterr().out
 
 
@@ -120,7 +117,6 @@ def test_rework_hands_the_agent_the_saved_failure(store: UnitStore, capsys) -> N
 
     after = store.get("add-marker/1")
     assert after.state == "planned"
-    assert after.resume_from == "", "not past the agent, to a check that fails the same way"
     assert after.feedback == "tier 1 failed:\nERROR implicit-any in test_x.py", "and it keeps it"
     assert after.branch == "spec/add-marker/1", "the work stays"
     assert "rework it from the failure it saved" in capsys.readouterr().out
@@ -129,12 +125,12 @@ def test_rework_hands_the_agent_the_saved_failure(store: UnitStore, capsys) -> N
 def test_rework_with_nothing_saved_changes_nothing(store: UnitStore, capsys) -> None:
     """There is nothing to hand the agent, and guessing would redo the build."""
     store.upsert([unit("add-marker/1")])
-    store.set_state("add-marker/1", "failed", resume_from="verify")
+    store.set_state("add-marker/1", "failed")
 
     assert main(["requeue", "add-marker/1", "--rework"]) == 1
 
     after = store.get("add-marker/1")
-    assert after.state == "failed" and after.resume_from == "verify"
+    assert after.state == "failed"
     assert "no saved failure" in capsys.readouterr().out
 
 

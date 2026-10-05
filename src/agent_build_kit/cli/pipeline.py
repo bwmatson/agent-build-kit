@@ -710,7 +710,7 @@ def has_thread(inst: Installation, unit_id: str) -> bool:
 
 
 def convert_in_flight(inst: Installation, *, store: UnitStore) -> None:
-    """Seed a thread for each unit the classic engine left in flight, at the
+    """Seed a thread for each unit the engine before the switch left in flight, at the
     start of a tick: units that already have one are left where they are."""
     # Late: the graph package imports the pipeline.
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -1532,13 +1532,13 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     failed tier 1 on real errors (a type check, a lint rule, a test) saved the
     output, but a resume at `verify` runs the check again and meets the same
     errors, without the agent ever seeing them. `--restart` throws the attempt
-    away — the step it stopped at and the failure it was handed — for a failure
-    that was the attempt's own, such as a build on the wrong base, where
-    resuming would judge work that was never valid.
+    away — the review rounds so far and the failure it was handed — for a
+    failure that was the attempt's own, such as a build on the wrong base,
+    where resuming would judge work that was never valid.
 
-    Editing the store by hand got this wrong: a failed unit remembers its step,
-    so putting it back to `planned` and nothing else sent the next attempt
-    straight past the agent to a check on a branch with no work on it.
+    Editing the store by hand gets this wrong: a unit's place in its build is
+    in its thread, so putting it back to `planned` and nothing else leaves the
+    thread where the failure stopped it.
     """
     store = store_for(inst)
     known = {unit.id: unit for unit in store.all()}
@@ -1575,18 +1575,15 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
         )
         return 1 if delivered.raised else 0
     if args.rework:
-        store.set_state(
-            args.unit, PLANNED, note="requeued: reworking from the saved failure", resume_from=""
-        )
+        store.set_state(args.unit, PLANNED, note="requeued: reworking from the saved failure")
         print(f"{args.unit} requeued, the agent will rework it from the failure it saved")
     elif args.restart:
         store.set_feedback(args.unit, "")
-        store.set_state(args.unit, PLANNED, note="requeued: starting over", resume_from="")
+        store.set_state(args.unit, PLANNED, note="requeued: starting over")
         print(f"{args.unit} requeued, starting over from the agent's step")
     else:
         store.set_state(args.unit, PLANNED, note="requeued: resuming where it stopped")
-        resume = known[args.unit].resume_from
-        print(f"{args.unit} requeued, resuming" + (f" before {resume}" if resume else ""))
+        print(f"{args.unit} requeued, resuming where it stopped")
     return 0
 
 

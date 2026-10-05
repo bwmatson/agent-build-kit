@@ -6,6 +6,7 @@ the builder's feedback, recorded on the round with ids and the commit judged,
 and every earlier required finding is answered by id in a later round.
 """
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.pipeline import stack_runner
 from agent_build_kit.pipeline.stack_runner import (
     Finding,
@@ -22,6 +25,7 @@ from agent_build_kit.pipeline.stack_runner import (
     render_findings,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
+from tests.classic_store import leave_in_flight
 from tests.factories import unit
 from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
@@ -51,28 +55,24 @@ _FIXED_1_1 = {"id": "1.1", "status": "fixed"}
 
 
 class Watching(Recorder):
-    """Snapshots what the unit stores while a round exists: `run` clears the
-    rounds once the unit is in review, so the store cannot be read after."""
+    """Snapshots what the unit is handed while a round exists: the rounds live in
+    the run and are cleared once the unit is in review, so what the reviewer is
+    given (`contexts`) and what the builder is told are what can be observed."""
 
     store: UnitStore
 
     def __init__(self) -> None:
         super().__init__()
-        self.rounds_at_review: list[list[dict]] = []
         self.heads_at_review: list[str] = []
-        self.rework_rounds: list[list[dict]] = []
         self.rework_feedback: list[str] = []
 
     def review(self, *, cwd: Path, context: str = "", **session: Any) -> str:
-        self.rounds_at_review.append(list(self.store.get(unit().id).review_rounds))
         self.heads_at_review.append(self.head(cwd))
         return super().review(cwd=cwd, context=context, **session)
 
     def claude(self, prompt: str, *, cwd: Path, **session: Any) -> str:
         if "review of this branch" in prompt:
-            stored = self.store.get(unit().id)
-            self.rework_rounds.append(list(stored.review_rounds))
-            self.rework_feedback.append(stored.feedback)
+            self.rework_feedback.append(self.store.get(unit().id).feedback)
         return super().claude(prompt, cwd=cwd, **session)
 
 
@@ -177,16 +177,14 @@ def test_rendered_findings_put_required_first_and_carry_location_consequence_and
     assert "docs/a.md" in text
 
 
-def test_the_unit_stores_and_the_rework_prompt_carries_the_rendered_findings(
+def test_the_unit_s_feedback_and_the_rework_prompt_carry_the_rendered_findings(
     tmp_path: Path,
 ) -> None:
     optional = _finding(required=False, summary="tidy the wording", consequence="")
     recorder, _, _ = _run(tmp_path, [_reply(optional, _finding()), _reply(approved=True)])
 
     prompt = _rework_prompts(recorder)[0]
-    stored_round = recorder.rework_rounds[0][0]["asked"]
-    assert recorder.rework_feedback[0] == stored_round
-    for text in (prompt, stored_round, recorder.rework_feedback[0]):
+    for text in (prompt, recorder.rework_feedback[0]):
         assert "src/pkg/units.py:182" in text
         assert "with c/1 planned and c/2 satisfied" in text
         assert "iterate through_satisfied()" in text
@@ -253,19 +251,21 @@ def test_a_round_keeps_its_findings_with_ids_and_the_commit_judged(tmp_path: Pat
     second = _finding(summary="second problem", file="src/b.py", line=None)
     recorder, _, _ = _run(tmp_path, [_reply(_finding(), second), _reply(approved=True)])
 
-    recorded = recorder.rounds_at_review[1][0]
-    assert [f["id"] for f in recorded["findings"]] == ["1.1", "1.2"]
-    assert recorded["findings"][1]["summary"] == "second problem"
-    assert recorded["judged"] == recorder.heads_at_review[0], "the head the reviewer was given"
+    # The round the run holds is what the next review is told of it.
+    context = recorder.contexts[1]
+    assert "[1.1]" in context and "[1.2]" in context
+    assert "second problem" in context
+    assert recorder.heads_at_review[0] in context, "the head the reviewer was given"
 
 
 def test_rounds_recorded_before_findings_still_load_and_render_as_prose(tmp_path: Path) -> None:
     path = tmp_path / "units.json"
     store = UnitStore(path)
     store.upsert([unit()])
-    store.set_review_rounds(
+    leave_in_flight(
+        store,
         unit().id,
-        (
+        review_rounds=[
             {"asked": "Use a Sequence, list is invariant", "response": "Done, switched."},
             {
                 "asked": "rendered",
@@ -273,10 +273,10 @@ def test_rounds_recorded_before_findings_still_load_and_render_as_prose(tmp_path
                 "judged": "sha-9",
                 "findings": [{**_finding(), "id": "2.1"}],
             },
-        ),
+        ],
     )
 
-    note = _earlier_rounds(UnitStore(path).get(unit().id).review_rounds)
+    note = _earlier_rounds(UnitStore(path).get(unit().id).classic_run["review_rounds"])
 
     assert "Use a Sequence, list is invariant" in note
     assert "Done, switched." in note
@@ -428,9 +428,17 @@ def _stored_round(**fields: object) -> dict:
 
 
 def _store_with(tmp_path: Path, *rounds: dict) -> UnitStore:
+    """A store an older version left mid-loop, moved onto a thread as a tick does."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_review_rounds(unit().id, rounds)
+    leave_in_flight(store, unit().id, review_rounds=list(rounds))
+
+    async def convert() -> None:
+        async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
+            await convert_units_in_flight(saver, store)
+
+    store.set_feedback(unit().id, "fix it")
+    asyncio.run(convert())
     return store
 
 
@@ -470,8 +478,8 @@ def test_a_rework_with_a_stored_round_numbers_its_findings_after_it(tmp_path: Pa
     store = _store_with(tmp_path, _stored_round())
     recorder = _resumed_run(store, [_reply(_finding(summary="new"), approved=False)] * 3)
 
-    ids = [f["id"] for r in recorder.rework_rounds[0] for f in r["findings"]]
-    assert ids == ["1.1", "2.1"]
+    context = recorder.contexts[1]
+    assert context.index("[1.1]") < context.index("[2.1]")
 
 
 def test_a_note_never_leaves_out_an_unresolved_finding() -> None:

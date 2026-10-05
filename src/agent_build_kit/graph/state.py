@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.stack_runner import (
-    EarlierAnswer,
-    Finding,
-    FollowUp,
-    Restacked,
-    RunStatus,
-)
+from agent_build_kit.pipeline.stack_runner import Restacked, RunStatus
 
 
 class Node(StrEnum):
@@ -49,12 +44,6 @@ class EventKind(StrEnum):
     REQUEUE = "requeue"
 
 
-class ReviewRound(Frozen):
-    findings: tuple[Finding, ...] = ()
-    answers: tuple[EarlierAnswer, ...] = ()
-    response: str = ""
-
-
 class ResumeEvent(Frozen):
     kind: EventKind
     reason: str = ""
@@ -66,11 +55,15 @@ class UnitRun(Frozen):
     unit_id: str
     change: str
     groups: tuple[int, ...] = ()
-    rounds: tuple[ReviewRound, ...] = ()
-    approved: str = ""
-    deferred: tuple[FollowUp, ...] = ()
+    # The review loop so far: each round's ask and the builder's response, for
+    # later rounds to check against instead of starting over.
+    review_rounds: tuple[dict[str, Any], ...] = ()
+    # The approved verdict's deferrable points, waiting for the push that makes them true.
+    deferred: tuple[str, ...] = ()
+    # A PR rework's replies, and the person's comments they answer, waiting for the
+    # push that makes them true.
     pending_replies: tuple[str, ...] = ()
-    predecessor_note: str = ""
+    person_comments: str = ""
     commits: tuple[str, ...] = ()
     verdict: Verdict | None = None
     stopped: str = ""

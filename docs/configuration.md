@@ -309,7 +309,6 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_WORKTREE_ROOT` | overrides `planning.worktree_root` on this machine | unset |
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
 | `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |
-| `ABK_ENGINE` | the engine that builds a unit: `classic` (`UnitRunner`) or `graph` (a LangGraph thread per unit, kept in `<state_dir>/unit-graphs.sqlite`; not usable yet: it starts a thread but runs no step, so units stay `planned`, and unit-graph.md tracks the status) | `classic` |
 | `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of `models.*` | unset: the file's |
 
 The model overrides name the *active* runtime's models: a role's model is

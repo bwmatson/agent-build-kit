@@ -35,22 +35,34 @@
 - The Python recommendations seed prefers `enum.StrEnum` over repeated string literals for
   closed sets of strings on Python 3.11 and later, so `abk init`'s research proposes it.
 
-- Behind `ABK_ENGINE=graph`, a unit waiting for review or held waits in an interrupt of its
-  thread that holds no branch lock, the poller's events and `abk requeue` resume the thread as
-  commands, a usage refusal interrupts before an agent step, and a run killed mid-node is resumed
-  at that node rather than requeued. An agent runtime declares `supports_session_resume`; Claude
-  Code's does (`--resume`), so a node killed mid-agent continues its session. On that engine a
-  tick starts a unit's thread and resumes the ones a kill or a usage pause left; an event for a
-  thread whose node is running, or held by another process's branch lock, is kept for a later
-  poll.
+- The unit graph is the only engine. A unit waiting for review or held waits in an interrupt of
+  its thread that holds no branch lock, the poller's events and `abk requeue` resume the thread as
+  commands, a usage refusal interrupts the thread before an agent step, and a run killed mid-node
+  is resumed at that node. An agent runtime declares `supports_session_resume`; Claude Code's does
+  (`--resume`), so a node killed mid-agent continues its session. A tick starts a unit's thread
+  and resumes the ones a kill or a usage pause left; an event for a thread whose node is running,
+  or held by another process's branch lock, is kept for a later poll.
+
+- Units in flight are moved onto threads on the first tick after the upgrade: each is positioned
+  at the node its stored `resume_from` step names, carrying the review rounds, deferred follow-ups,
+  pending replies and the comments they answer an old store held, and a `running` unit with no
+  thread starts at `prepare`. The conversion runs on every tick but only seeds a unit that has no
+  thread. An old `units.json` still loads: its in-run keys are gathered into `classic_run` and
+  moved to the thread, then cleared. `approved` and `predecessor_note` stay in the store, since
+  the push gate and the restack write them with no run in progress. The first run of a converted
+  unit skips `prepare`'s fetch and restack onto a moved base; a base moved before the upgrade is
+  caught at `verify_base`.
+
+- A killed run is resumed from its thread by the next tick, not reclaimed: `reclaim_stale`, the
+  classic engine's `UnitRunner.run`, `checkpoint()` and `record_step` are gone, and so is the `wip:`
+  commit of a killed run's leftovers. A usage pause leaves the unit `running`, with its thread
+  interrupted before the agent node, until a tick the usage guard allows; it is no longer set back
+  to `planned` with a `paused before <step>` note. A planned unit counts as started when a run
+  recorded a branch, a pushed or approved commit or a pull request, not a resume step.
 
 - New runtime dependencies: `langgraph`, `langgraph-checkpoint`,
-  `langgraph-checkpoint-sqlite` and `aiosqlite`, for the unit graph engine. A new setting,
-  `ABK_ENGINE` (`classic` by default, or `graph`), picks the engine that builds a unit. `graph`
-  is not usable yet: the build path (prepare through opening the pull request) is built and
-  tested behind it, but the engine is not yet driven by a tick, so nothing changes for an
-  installation that does not opt in. An unknown value is now refused when settings load, so a
-  mistyped `ABK_ENGINE` stops every command rather than falling back to `classic`.
+  `langgraph-checkpoint-sqlite` and `aiosqlite`, for the unit graph. There is no setting that
+  chooses an engine: `ABK_ENGINE` was never released and does not exist.
 
 - A unit's approval now carries across a clean rebase when the base had edited lines near
   its change. The change's id was taken over its context lines too, so a parent that touched a

@@ -186,7 +186,7 @@ class Run:
         self.pushed: list[str] = []
         self.before = self.repos.head()
         self.store.record_approval(unit().id, self.before)
-        self.store.set_state(unit().id, PLANNED, resume_from="verify")
+        self.store.set_state(unit().id, PLANNED)
         runner = make_runner(self.store, self.recorder, tmp_path)
         runner.worktree = lambda u, base: self.repos.tree
         runner.branch_commits = branch_commits

@@ -462,4 +462,5 @@ def test_a_build_for_a_unit_another_run_is_between_nodes_on_is_skipped(graph: Se
         graph.tick()
 
     assert graph.recorder.events == ran, "no node ran"
-    assert graph.next() == ()
+    # The only thing the tick did is move the unit onto a thread, still before its first node.
+    assert graph.next() == (Node.PREPARE,)

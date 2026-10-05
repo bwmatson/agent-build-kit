@@ -243,8 +243,8 @@ async def run_unit(
     it, over the callables `runner` carries, and return what `UnitRunner.run`
     would.
 
-    The caller holds the unit's branch lock for the whole run, as `build_unit`
-    does for the classic engine; the nodes do not take it."""
+    The caller holds the unit's branch lock for the whole run, as the tick
+    does; the nodes do not take it."""
     path = BuildPath(runner, unit, base=base, graph=graph, run_log=run_log, tracer=tracer)
     compiled = _compiled(saver, path)
     _record_sessions(path, compiled, unit.id)

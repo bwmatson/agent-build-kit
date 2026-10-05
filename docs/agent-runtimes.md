@@ -232,7 +232,7 @@ class PolicyReport(Frozen):
 class AgentInterrupted(RuntimeError):
     """The run was killed (a signal, a timeout the runtime itself enforces, a
     cancelled turn), not refused and not broken. Says nothing about the work:
-    `reclaim_stale` recovers it rather than the unit being marked failed."""
+    the tick resumes the unit from its thread rather than the unit being marked failed."""
 
 
 class AgentRateLimited(RuntimeError):

@@ -297,15 +297,13 @@ def test_changes_made_at_the_same_time_are_all_kept(tmp_path) -> None:
     assert [store.get(uid).pushed for uid in ids] == [f"sha-{uid}" for uid in ids]
 
 
-def test_re_planning_keeps_feedback_and_where_a_unit_should_resume(tmp_path) -> None:
-    """Both are work in progress, not shape. A re-plan dropped the feedback
+def test_re_planning_keeps_feedback(tmp_path) -> None:
+    """Feedback is work in progress, not shape. A re-plan dropped the feedback
     waiting to be addressed, so the next run built as if nobody had asked."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     store.set_feedback("add-marker/1", "rename it")
-    store.set_state("add-marker/1", PLANNED, resume_from="rework")
 
     store.upsert([unit(title="retitled by the plan")])
 
     assert store.get("add-marker/1").feedback == "rename it"
-    assert store.get("add-marker/1").resume_from == "rework"

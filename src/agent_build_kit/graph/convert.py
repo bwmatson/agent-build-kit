@@ -10,9 +10,9 @@ from agent_build_kit.graph.state import Node, UnitRun
 from agent_build_kit.graph.unit import seed_thread, thread_position
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, RUNNING
 
-# The steps the classic engine recorded in a unit's `resume_from`.
+# The steps the engine before the switch recorded in a unit's `resume_from`.
 TESTS = "tests"
 IMPLEMENT = "implement"
 REVIEW = "review"
@@ -38,27 +38,42 @@ def _seed(stored: StoredUnit) -> Seed | None:
         reworking = step == REWORK_REVIEW
         return Node.CHECKS, {"checks_ok": True, "had_feedback": reworking, "tier2": tier2}
     if step == VERIFY:
-        return Node.TIER2, {"tier2": tier2}
+        # The engine before the switch recorded VERIFY before tier 2 ran, so a tier 2 unit
+        # has not passed it: `after_prepare` picks `tier2` or `verify_base`.
+        return Node.PREPARE, {"base_commits": 1, "head_approved": True, "tier2": tier2}
     if stored.feedback:
         return Node.PREPARE, {"had_feedback": True, "base_commits": 1, "tier2": tier2}
     if step == TESTS:
         return Node.PREPARE, {"base_commits": 0, "tier2": tier2}
     if step == IMPLEMENT:
         return Node.TESTS, {"tier2": tier2}
-    # A restack, or a step this version does not know: start again from prepare.
-    return (None, {}) if step else None
+    # A restack, a step this version does not know, or a run killed before it
+    # recorded any step: start again from prepare, which looks at the branch.
+    return (None, {}) if step or stored.state == RUNNING else None
 
 
 async def convert_units_in_flight(saver: BaseCheckpointSaver, store: UnitStore) -> tuple[str, ...]:
     """Seed a thread for each stored unit that has no thread and something in
-    flight, positioned at the node its stored step names; return their ids."""
+    flight, positioned at the node its stored step names; return their ids.
+
+    Runs on every tick but only seeds a unit without a thread, so once the
+    stores the previous engine left are converted it finds nothing to do. The
+    stored step and in-run progress are cleared as they are read: nothing else
+    reads them."""
     seeded: list[str] = []
     for stored in store.all():
         seed = _seed(stored)
-        if seed is None or (await thread_position(saver, stored.id)).state is not None:
-            continue
-        node, values = seed
-        run = UnitRun(unit_id=stored.id, change=stored.change, groups=stored.groups, **values)
-        await seed_thread(saver, run, as_node=node)
-        seeded.append(stored.id)
+        if seed is not None and (await thread_position(saver, stored.id)).state is None:
+            node, values = seed
+            # What the run had in hand moves with it: the thread is where it lives now.
+            run = UnitRun(
+                unit_id=stored.id,
+                change=stored.change,
+                groups=stored.groups,
+                **{**stored.classic_run, **values},
+            )
+            await seed_thread(saver, run, as_node=node)
+            seeded.append(stored.id)
+        if stored.resume_from or stored.classic_run:
+            store.clear_converted(stored.id)
     return tuple(seeded)

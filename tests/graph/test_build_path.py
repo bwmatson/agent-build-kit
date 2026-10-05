@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from tests.factories import stored_unit, unit
+from tests.graph_driver import position
 from tests.runner_fakes import Recorder, make_runner, rejecting
 
 
@@ -493,7 +494,9 @@ def test_a_rework_of_an_open_pr_posts_its_replies_after_the_push(tmp_path: Path)
 
     assert recorder.events.index("reply") > recorder.events.index("push")
     assert replies[0]["pr"] == 7 and replies[0]["answer_text"] == "done"
-    assert recorder.store.get(unit().id).pending_replies == (), "cleared once posted"
+    after = position(tmp_path).state
+    assert after is not None
+    assert after.pending_replies == (), "cleared once posted"
 
 
 def test_a_review_after_a_persons_comments_in_the_graph_is_given_them_and_they_clear_on_push(
@@ -506,7 +509,9 @@ def test_a_review_after_a_persons_comments_in_the_graph_is_given_them_and_they_c
     build(tmp_path, recorder)
 
     assert "> [comment 11] a.py:3 — rename" in recorder.contexts[0]
-    assert recorder.store.get(unit().id).person_comments == ""
+    after = position(tmp_path).state
+    assert after is not None
+    assert after.person_comments == ""
 
 
 def test_a_first_build_has_nobody_to_reply_to(tmp_path: Path) -> None:

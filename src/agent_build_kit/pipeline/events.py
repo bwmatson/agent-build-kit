@@ -840,11 +840,7 @@ def _requeue(
 ) -> bool:
     """Requeue `unit`, which has taken the rework for `reason`."""
     store.set_feedback(unit.id, feedback, from_person=from_person)
-    # New feedback outranks where a paused unit meant to pick up: resuming at
-    # a review would skip the rework this feedback asks for, and a pass would
-    # then clear the feedback unread — dropping a review left while its unit
-    # was paused before review.
-    store.set_state(unit.id, PLANNED, note=f"rework requested: {reason}", resume_from="")
+    store.set_state(unit.id, PLANNED, note=f"rework requested: {reason}")
     log(f"rework #{pr}: {unit.id} requeued — {reason}")
     return True
 
@@ -988,7 +984,6 @@ def build_restack(
                     PLANNED,
                     note=f"not restacked onto {new_base}: "
                     "the host moved its branch off the approved commit",
-                    resume_from="rework_review",
                 )
                 return
 
@@ -1060,7 +1055,6 @@ def build_restack(
                 child.id,
                 PLANNED,
                 note=f"restacked onto {new_base}, not pushed: {why}",
-                resume_from="rework_review",
             )
             return
 
