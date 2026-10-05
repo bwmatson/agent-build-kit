@@ -85,6 +85,10 @@ class Receiver:
 
 @pytest.fixture
 def receiver() -> Iterator[Receiver]:
+    yield from serve(200)
+
+
+def serve(status: int) -> Iterator[Receiver]:
     posts: list[tuple[str, bytes]] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -93,7 +97,7 @@ def receiver() -> Iterator[Receiver]:
             if self.headers.get("Content-Encoding") == "gzip":
                 body = gzip.decompress(body)
             posts.append((self.path, body))
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/x-protobuf")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -109,6 +113,12 @@ def receiver() -> Iterator[Receiver]:
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.fixture(params=[503, 429])
+def overloaded_receiver(request: pytest.FixtureRequest) -> Iterator[Receiver]:
+    """A collector that answers every export with a retryable error."""
+    yield from serve(request.param)
 
 
 @pytest.fixture
@@ -167,6 +177,13 @@ NO_OP_SCRIPT = textwrap.dedent(
     meter.create_up_down_counter("u").add(-1)
     meter.create_gauge("g").set(3, {"a": "b"})
     telemetry.shutdown()
+
+    @telemetry.tracer().start_as_current_span("s")
+    def decorated():
+        return 7
+
+    assert decorated() == 7
+    assert telemetry.tracer().start_span("s").is_recording() is False
     loaded = sorted(m for m in sys.modules if m.split(".")[0] == "opentelemetry")
     print("LOADED:" + ",".join(loaded))
     """
@@ -194,12 +211,29 @@ def test_the_no_op_tracer_and_meter_are_safe_in_process(configure) -> None:
     telemetry.shutdown()
 
 
+def test_the_no_op_leaves_a_decorated_function_running(configure) -> None:
+    assert telemetry.init() is False
+
+    @telemetry.tracer().start_as_current_span("s")
+    def build(unit: str, *, retries: int = 0) -> str:
+        return f"{unit}:{retries}"
+
+    assert build("u", retries=2) == "u:2"
+    span = telemetry.tracer().start_span("s")
+    assert span.is_recording() is False
+    assert span.get_span_context().trace_id == 0
+    assert span.get_span_context().span_id == 0
+
+
 def test_enabled_without_the_extra_says_so_in_one_line(
     configure, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     configure(ABK_OTEL_ENABLED="true", OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:9")
-    # A None entry makes any import of the package raise ImportError.
-    monkeypatch.setitem(sys.modules, "opentelemetry", None)
+    # A None entry makes an import of that exact name raise ImportError, and
+    # the import system looks the full dotted name up first, so submodules an
+    # earlier test already imported are hidden one by one.
+    for name in ["opentelemetry", *(m for m in sys.modules if m.startswith("opentelemetry."))]:
+        monkeypatch.setitem(sys.modules, name, None)
 
     with caplog.at_level(logging.DEBUG):
         assert telemetry.init() is False
@@ -322,6 +356,27 @@ def test_an_endpoint_that_does_not_answer_neither_delays_nor_fails_the_caller(
         telemetry.shutdown()
         assert time.monotonic() - started < SHUTDOWN_BOUND
 
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_a_collector_answering_with_a_retryable_error_neither_delays_nor_fails_the_caller(
+    configure, overloaded_receiver: Receiver, caplog: pytest.LogCaptureFixture
+) -> None:
+    configure(ABK_OTEL_ENABLED="true", OTEL_EXPORTER_OTLP_ENDPOINT=overloaded_receiver.url)
+
+    with caplog.at_level(logging.DEBUG):
+        assert telemetry.init() is True
+        started = time.monotonic()
+        for _ in range(50):
+            with telemetry.tracer().start_as_current_span("step"):
+                telemetry.meter().create_counter("abk.test.counter").add(1)
+        assert time.monotonic() - started < 2.0
+
+        started = time.monotonic()
+        telemetry.shutdown()
+        assert time.monotonic() - started < SHUTDOWN_BOUND
+
+    assert overloaded_receiver.posts, "the collector was never asked"
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
 

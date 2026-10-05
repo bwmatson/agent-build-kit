@@ -272,6 +272,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | rules | | The `# abk-rules: vN` stamp in `openspec/config.yaml` against the framework's rules version: a note when it is unstamped, a warning when the framework has added rules since (they are listed) or the stamp is newer. Wording is never compared. |
 | abk.yaml `<name>` | | a service directory with no deploy rule, a rule prefix that no longer exists, a dev-stack script without `dev_stack`, a `live_written` path that is not a directory |
 | skills `<target>` | | an installed abk skill is older than the framework |
+| telemetry traces / telemetry metrics | | `ABK_OTEL_ENABLED` is set and the signal has no endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal one), or the endpoint does not answer. Only checked when enabled |
 
 ### `abk config [--show | --path]`
 

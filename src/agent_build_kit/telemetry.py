@@ -31,8 +31,20 @@ _meter_provider: Any = None
 _atexit_registered = False
 
 
+class _NoSpanContext:
+    """What a no-op span reports as its context: no trace, no span."""
+
+    trace_id = 0
+    span_id = 0
+    is_valid = False
+
+
 class _NoOp:
-    """Accepts every call and attribute, returning itself; a context manager."""
+    """Accepts every call and attribute, returning itself; a context manager.
+
+    Called with a single function it hands the function back, so the decorator
+    form `@tracer().start_as_current_span("x")` leaves the function alone.
+    """
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("__"):
@@ -40,7 +52,15 @@ class _NoOp:
         return self
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        if len(args) == 1 and not kwargs and callable(args[0]):
+            return args[0]
         return self
+
+    def is_recording(self) -> bool:
+        return False
+
+    def get_span_context(self) -> _NoSpanContext:
+        return _NoSpanContext()
 
     def __enter__(self) -> _NoOp:
         return self

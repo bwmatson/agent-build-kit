@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import socket
 import subprocess
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -746,3 +748,105 @@ def test_the_new_usage_keys_are_not_warned_about(workspace: Path) -> None:
 
     assert not [c for c in checks if c.name == "usage limits"]
     assert all(c.status != "FAIL" for c in checks if c.name == "config")
+
+
+TELEMETRY_ENV = (
+    "ABK_OTEL_ENABLED",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+)
+
+
+@pytest.fixture
+def telemetry_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
+    """Set telemetry settings through the environment and re-read them."""
+    for key in TELEMETRY_ENV:
+        monkeypatch.delenv(key, raising=False)
+
+    def apply(**env: str) -> None:
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        reload(None)
+
+    reload(None)
+    yield apply
+    monkeypatch.undo()
+    reload(None)
+
+
+@pytest.fixture
+def listening() -> Iterator[str]:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(4)
+        yield f"http://127.0.0.1:{sock.getsockname()[1]}"
+
+
+@pytest.fixture
+def closed() -> str:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+
+
+def telemetry_checks(workspace: Path) -> dict[str, Check]:
+    checks = run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+    assert not [c for c in checks if c.status == "FAIL"]
+    return {name: check for name, check in by_name(checks).items() if name.startswith("telemetry")}
+
+
+def test_telemetry_is_not_checked_while_the_switch_is_off(workspace: Path, telemetry_env) -> None:
+    telemetry_env(OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:9")
+
+    assert telemetry_checks(workspace) == {}
+
+
+def test_telemetry_with_no_endpoint_warns_per_signal_naming_the_variable(
+    workspace: Path, telemetry_env
+) -> None:
+    telemetry_env(ABK_OTEL_ENABLED="true")
+
+    checks = telemetry_checks(workspace)
+
+    assert set(checks) == {"telemetry traces", "telemetry metrics"}
+    assert {c.status for c in checks.values()} == {"warn"}
+    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" in checks["telemetry traces"].fix
+    assert "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT" in checks["telemetry metrics"].fix
+
+
+def test_telemetry_with_an_endpoint_that_does_not_answer_warns(
+    workspace: Path, telemetry_env, closed: str
+) -> None:
+    telemetry_env(ABK_OTEL_ENABLED="true", OTEL_EXPORTER_OTLP_ENDPOINT=closed)
+
+    checks = telemetry_checks(workspace)
+
+    assert {c.status for c in checks.values()} == {"warn"}
+    assert all("does not answer" in c.detail for c in checks.values())
+
+
+def test_telemetry_with_a_listening_endpoint_is_ok(
+    workspace: Path, telemetry_env, listening: str
+) -> None:
+    telemetry_env(ABK_OTEL_ENABLED="true", OTEL_EXPORTER_OTLP_ENDPOINT=listening)
+
+    checks = telemetry_checks(workspace)
+
+    assert set(checks) == {"telemetry traces", "telemetry metrics"}
+    assert {c.status for c in checks.values()} == {"ok"}
+
+
+def test_a_per_signal_endpoint_overrides_the_shared_one(
+    workspace: Path, telemetry_env, listening: str, closed: str
+) -> None:
+    telemetry_env(
+        ABK_OTEL_ENABLED="true",
+        OTEL_EXPORTER_OTLP_ENDPOINT=closed,
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=listening,
+    )
+
+    checks = telemetry_checks(workspace)
+
+    assert checks["telemetry traces"].status == "ok"
+    assert checks["telemetry metrics"].status == "warn"
