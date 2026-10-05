@@ -6,6 +6,7 @@ this rather than each keeping a copy that can drift.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 from agent_build_kit.forges import Label
@@ -95,9 +96,14 @@ def state_label_names() -> frozenset[str]:
 
 
 def change_label(change: str) -> Label:
-    """The label naming the change a pull request belongs to."""
+    """The label naming the change a pull request belongs to.
+
+    A plain name — lowercase letters, digits and dashes, at most 50 characters —
+    so every forge accepts it and can address it by name.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", change.lower()).strip("-")
     return Label(
-        name=f"change-{change}"[:50],
+        name=f"change-{slug}"[:50].rstrip("-"),
         color="64748b",
         description="The change this pull request belongs to",
     )

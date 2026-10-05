@@ -14,7 +14,10 @@ merged — which restacks its children and deletes their branches.
 
 from __future__ import annotations
 
+import json
+import time
 from copy import deepcopy
+from datetime import datetime
 
 GUID = "00000000-0000-0000-0000-000000000000"
 _URL = f"https://dev.azure.com/acme/{GUID}/_apis/git/repositories/{GUID}/pullRequests"
@@ -275,10 +278,6 @@ def access_token(token: str = "a-token", *, seconds_left: int = 3600) -> str:
     Both spellings of the expiry, as the CLI prints them: `expiresOn` in local
     time and `expires_on` as epoch seconds.
     """
-    import json
-    import time
-    from datetime import datetime
-
     expires = time.time() + seconds_left
     return json.dumps(
         {
