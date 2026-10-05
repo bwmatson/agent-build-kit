@@ -5,11 +5,15 @@ read one definition, and these tests are what stops a new state leaving the two
 surfaces disagreeing about the same unit.
 """
 
+import re
+
 from agent_build_kit.pipeline.diagram import render_mermaid
+from agent_build_kit.pipeline.pr_poller import HOLD_LABEL, REWORK_LABEL
 from agent_build_kit.pipeline.vocabulary import (
     INSTRUCTION_PREFIX,
     STATES,
     UNLABELLED,
+    change_label,
     state_label,
     state_label_names,
 )
@@ -119,3 +123,35 @@ def test_the_colours_are_the_ones_the_graph_has_always_used() -> None:
     assert STATES["failed"].extra == "stroke-width:3px"
     line = "    classDef running fill:#fef3c7,stroke:#d97706,color:#451a03"
     assert line in render_mermaid([stored_unit()]).splitlines()
+
+
+PLAIN_NAME = re.compile(r"[a-z0-9-]{1,50}")
+
+
+def test_a_change_named_with_capitals_and_punctuation_gives_a_lowercase_dash_label() -> None:
+    assert change_label("Wave_2: Close Out!").name == "change-wave-2-close-out"
+
+
+def test_a_name_already_plain_is_unchanged() -> None:
+    assert change_label("add-marker").name == "change-add-marker"
+
+
+def test_a_long_name_is_cut_to_fifty_without_a_trailing_dash() -> None:
+    name = "a" * 42 + "-" + "b" * 20  # "change-" + 42 a's puts the dash at character 50
+    label = change_label(name).name
+
+    assert len(label) <= 50
+    assert not label.endswith("-")
+    assert PLAIN_NAME.fullmatch(label)
+
+
+def test_every_label_the_pipeline_writes_is_a_plain_name() -> None:
+    names = [
+        *state_label_names(),
+        HOLD_LABEL,
+        REWORK_LABEL,
+        *(change_label(c).name for c in ("add-marker", "Wave_2: Close Out!", "x" * 80, "a.b c")),
+    ]
+
+    assert names
+    assert all(PLAIN_NAME.fullmatch(name) for name in names), names

@@ -78,6 +78,69 @@ class AzureHost:
         return _ok(args, stored)
 
 
+class AzureLabelsHost:
+    """The pull request labels resource, answering `az devops invoke` at the wire.
+
+    It is the runner: it receives the argv the forge builds and the body file
+    it writes, and answers with the raw JSON the service sends. What it keeps of
+    the real service: a label is `{id, name, active}`, unique case-insensitively
+    (adding `In-Review` to a pull request carrying `in-review` answers with the
+    one it has), and removed by name; removing one the pull request does not
+    carry exits non-zero with "could not be found". The single pull request
+    document does not carry labels, as the host's does not.
+    """
+
+    def __init__(self, labels: dict[int, list[str]] | None = None, *, refuse: str = "") -> None:
+        self.refuse = refuse
+        self._labels: dict[int, list[dict]] = {}
+        self._next = 0
+        for number, names in (labels or {}).items():
+            self._labels[number] = [self._made(name) for name in names]
+        self.calls: list[list[str]] = []
+
+    def names(self, number: int) -> list[str]:
+        return [label["name"] for label in self._labels.get(number, [])]
+
+    def writes(self) -> list[list[str]]:
+        """Every call that changed something."""
+        return [call for call in self.calls if _flag(call, "--http-method") != "get"]
+
+    def __call__(self, args: list[str], **kwargs) -> subprocess.CompletedProcess:
+        self.calls.append(args)
+        if args[1:3] != ["devops", "invoke"] or "pullRequestLabels" not in args:
+            raise AssertionError(f"the stand-in host was not expecting {' '.join(args)}")
+        method = _flag(args, "--http-method")
+        labels = self._labels.setdefault(int(_route(args, "pullRequestId")), [])
+        if method == "get":
+            return _ok(args, {"count": len(labels), "value": list(labels)})
+        if self.refuse:
+            return subprocess.CompletedProcess(args, 1, "", self.refuse)
+        if method == "post":
+            name = _body(args)["name"]
+            held = _find(labels, name)
+            if held is None:
+                held = self._made(name)
+                labels.append(held)
+            return _ok(args, held)
+        if method == "delete":
+            gone = _find(labels, _route(args, "labelIdOrName"))
+            if gone is None:
+                return subprocess.CompletedProcess(
+                    args, 1, "", "TF401088: The label could not be found."
+                )
+            labels.remove(gone)
+            return subprocess.CompletedProcess(args, 0, "", "")
+        raise AssertionError(f"the stand-in host was not expecting {' '.join(args)}")
+
+    def _made(self, name: str) -> dict:
+        self._next += 1
+        return {"id": f"00000000-0000-0000-0000-{self._next:012d}", "name": name, "active": True}
+
+
+def _find(labels: list[dict], name: str) -> dict | None:
+    return next((x for x in labels if x["name"].casefold() == name.casefold()), None)
+
+
 def _ok(args: list[str], payload: object) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
 

@@ -52,6 +52,8 @@ _API = "7.1"
 # TF401028 a missing reference, TF401398 a source or target that no longer exists.
 _MISSING_REFERENCE = "TF401028"
 _MISSING_BRANCH = "TF401398"
+# What removing a label the pull request does not carry says.
+_LABEL_ABSENT = "could not be found"
 
 log = logging.getLogger(__name__)
 
@@ -667,16 +669,75 @@ class AzureDevOpsForge:
             )
         return "\n\n".join(parts)
 
-    def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
-        raise NotImplementedError
+    def add_label(
+        self,
+        repo: RepoId,
+        pr: int,
+        label: Label,
+        *,
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
+    ) -> None:
+        """Tag a pull request. Azure DevOps keeps no colour or description, so
+        only the name is sent; a name already there, in any case, is kept."""
+        self._rest(
+            repo,
+            "pullRequestLabels",
+            method="post",
+            payload={"name": label.name},
+            run=run,
+            pullRequestId=pr,
+        )
 
     def set_exclusive_label(
-        self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
+        self,
+        repo: RepoId,
+        pr: int,
+        label: Label,
+        *,
+        family: Collection[str],
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
     ) -> None:
-        raise NotImplementedError
+        present = self._labels(repo, pr, run)
+        held = {item["name"].casefold() for item in present}
+        if label.name.casefold() not in held:
+            self.add_label(repo, pr, label, run=run, open_url=open_url)
+        wanted = {name.casefold() for name in family} - {label.name.casefold()}
+        for item in present:
+            if item["name"].casefold() in wanted:
+                self.remove_label(repo, pr, item["name"], run=run, open_url=open_url)
 
-    def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
-        raise NotImplementedError
+    def remove_label(
+        self,
+        repo: RepoId,
+        pr: int,
+        name: str,
+        *,
+        run: Run | None = None,
+        open_url: az.OpenUrl | None = None,
+    ) -> None:
+        """Untag by name, one request with nothing looked up first. A label
+        that is not there returns normally; any other refusal raises."""
+        try:
+            self._rest(
+                repo,
+                "pullRequestLabels",
+                method="delete",
+                run=run,
+                pullRequestId=pr,
+                labelIdOrName=name,
+            )
+        except az.AzError as error:
+            if _LABEL_ABSENT not in error.stderr:
+                raise
+
+    def _labels(self, repo: RepoId, pr: int, run: Run | None) -> list[dict]:
+        """The labels on a pull request, from the labels resource: the pull
+        request document itself carries none."""
+        answer = self._rest(repo, "pullRequestLabels", method="get", run=run, pullRequestId=pr)
+        values = answer.get("value") if isinstance(answer, dict) else None
+        return [item for item in values or [] if isinstance(item, dict) and item.get("name")]
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.
