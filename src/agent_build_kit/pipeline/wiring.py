@@ -946,6 +946,65 @@ def build_fresh_base(
     return fresh_base
 
 
+def build_release_dependents(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[[Unit], None]:
+    """Move what is stacked on a unit that has become satisfied onto its new
+    base, as `events.on_merged` does for a merged one, with the same restack
+    and retarget the merge handler is built with.
+
+    The unit's own worktree and branch are left alone: the run that found it
+    satisfied is still standing in that tree.
+    """
+    # Late: `events` imports this module.
+    from agent_build_kit.cli.pipeline import resume_thread
+    from agent_build_kit.pipeline import events
+
+    checkouts = installation.checkouts
+    names = {path: repo for repo, path in checkouts.items()}
+
+    def at_path[T](step: Callable[..., T]) -> Callable[..., T]:
+        def in_turn(path: Path, *args, **kwargs) -> T:
+            with file_lock(installation.state_dir / "locks" / f"repo-{names[path]}.lock"):
+                return step(path, *args, **kwargs)
+
+        return in_turn
+
+    def release(unit: Unit) -> None:
+        events.release_children(
+            store.get(unit.id),
+            store=store,
+            restack=events.build_restack(
+                repos=checkouts,
+                store=store,
+                root=installation.worktree_root,
+                posts_root=installation.state_dir,
+                move=at_path(resolved_move),
+                push=at_path(push_with_lease),
+            ),
+            remove_worktree=lambda repo, branch: None,
+            delete_branch=lambda repo, branch: None,
+            claim=events.build_claim(installation.state_dir / "locks"),
+            retarget=events.build_retarget(),
+            rebase_cap=installation.stack_depth_rebase_cap,
+            resume=lambda child, kind, reason, feedback, from_person=False: (
+                resume_thread(
+                    installation,
+                    child,
+                    kind,
+                    store=store,
+                    reason=reason,
+                    feedback=feedback,
+                    from_person=from_person,
+                )
+                is not None
+            ),
+            log=log,
+        )
+
+    return release
+
+
 def build_close_pr(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[Unit, int, str], None]:
@@ -1672,6 +1731,7 @@ def build_runner(
         linear=is_linear,
         post_status=tier2.post,
         close_pr=build_close_pr(),
+        release_dependents=build_release_dependents(store, installation, log=log),
         reply=build_post_replies(root=root, log=log),
         head=_head_sha,
         fetch=build_fetch(installation.checkouts, turn=lambda repo: repo_turn_of(repo)),

@@ -155,7 +155,9 @@ build reporting that the pass should stop (the usage window spent) ends
 submission, and the builds in flight are still awaited. A pass therefore lasts
 as long as the work it can reach — watch the pass, not a unit.
 
-Reclaiming, verifying and archiving also stay at the start of a pass. With a
+A tick reclaims first: a unit marked `running` that no process holds and that
+has no thread to resume goes back to `planned` before the usage check, so its
+state is true for as long as a pause lasts. Reclaiming, verifying and archiving also stay at the start of a pass. With a
 oneshot timer, a change that fully merges early in a long pass is verified
 live and archived by the next pass, not the moment it merges.
 
@@ -288,7 +290,14 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    asked of a model; a post or close that fails is recorded and leaves the unit
    satisfied regardless — a stale PR is a nuisance, not grounds to revisit a
    judgement the branch and the checks already settled. Judged on the branch
-   and the check, never on what the build step reported about itself.
+   and the check, never on what the build step reported about itself. Before
+   that PR is closed, whatever is stacked on the unit leaves it as it would
+   leave a merged one: the same function moves each dependent onto the unit's
+   own base (its open predecessor, or the trunk), retargets its PR, tells a
+   running thread rather than rebasing under it, and hands a conflict to the
+   adapt step. A dependent that cannot be moved is logged and left, and the
+   rest still move; the unit's own worktree and branch stay until a merge or
+   close cleans up.
 7. **Tier 2**, for `tier2` units. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev

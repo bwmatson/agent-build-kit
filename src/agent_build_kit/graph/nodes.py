@@ -718,6 +718,9 @@ class BuildPath:
         if r.store.get(unit.id).feedback:
             r.store.set_feedback(unit.id, "")
         stored = r.store.get(unit.id)
+        # First: a dependent left on this unit's branch would be pointing at a
+        # closed pull request. A dependent that cannot be moved is logged, not raised.
+        r.release_dependents(stored)
         if stored.pr:
             # Posting and closing are one call, so the reason is never missing before the close.
             try:

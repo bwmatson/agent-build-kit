@@ -348,6 +348,10 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     if not has_work(inst, store_for(inst)):
         return 0
 
+    # Before the usage check: it needs no usage and calls no agent, and a unit
+    # no run holds should read `planned` for as long as a pause lasts.
+    reclaim_stranded(inst, store_for(inst))
+
     # A pause is not a lock: the guard is asked again on every tick, so a
     # threshold raised by hand, or the ramp offering room before the reset,
     # ends it at the next tick. Only the model's own refusal is kept to its
@@ -433,6 +437,20 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         return 1
 
     return _schedule(inst, ready, store=store, only=only)
+
+
+def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
+    """Return to `planned` each unit marked `running` that no process holds
+    and no thread can resume: its run was killed before it reached a point to
+    resume from. One a live process holds, or with a thread, is left."""
+    for unit in store.all():
+        if (
+            unit.state == RUNNING
+            and not branch_is_held(inst, unit.branch or branch_name(unit))
+            and not has_thread(inst, unit.id)
+        ):
+            store.set_state(unit.id, PLANNED, note="requeued: its run ended without a thread")
+            log(f"{unit.id}: no run holds it — planned again")
 
 
 def resumable_units(
