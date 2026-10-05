@@ -798,6 +798,11 @@ def on_rerun_checks(
     if unit is None:
         log(f"rerun #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
+    if unit.state in (HELD, SATISFIED):
+        # A held unit is a person's, and a satisfied one is closing: neither
+        # has CI the runner may touch.
+        log(f"rerun #{pr}: {unit.id} is {unit.state}, leaving the checks")
+        return True
 
     head = unit.pushed or ""
     done = unit.check_reruns if unit.check_rerun_head == head else 0
@@ -809,9 +814,13 @@ def on_rerun_checks(
             f"({names}) after {limit} re-runs, leaving them"
         )
         return True
-    store.record_check_rerun(unit.id, head, done + 1)
     log(f"rerun #{pr}: {unit.id} at {head}: re-run {done + 1} of {limit} of {names}")
-    rerun(pull)
+    try:
+        rerun(pull)
+    except RuntimeError as error:
+        log(f"rerun #{pr}: the host refused: {error}")
+        return True
+    store.record_check_rerun(unit.id, head, done + 1)
     return True
 
 

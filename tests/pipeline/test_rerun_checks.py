@@ -15,7 +15,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, SATISFIED
 from tests.factories import stored_unit as unit
 
 
@@ -213,6 +213,39 @@ def test_a_unit_stored_before_the_count_existed_loads_and_is_rerun(tmp_path: Pat
     handle(UnitStore(path), reruns, [])
 
     assert len(reruns.pulls) == 1
+
+
+@pytest.mark.parametrize("state", [HELD, SATISFIED])
+def test_a_held_or_satisfied_unit_keeps_its_checks(store: UnitStore, state: str) -> None:
+    store.set_state("add-marker/1", state)
+    reruns: Reruns = Reruns()
+    log: list[str] = []
+
+    assert handle(store, reruns, log) is True
+
+    assert reruns.pulls == []
+    assert store.get("add-marker/1").check_reruns == 0
+    assert any(f"is {state}, leaving the checks" in line for line in log)
+
+
+def test_a_refused_rerun_is_logged_and_not_counted(store: UnitStore) -> None:
+    log: list[str] = []
+
+    def refuse(pull: PullRequest) -> None:
+        raise RuntimeError("no actions: write")
+
+    taken = events.on_rerun_checks(
+        4,
+        repo="app",
+        pull=pr(cancelled_checks=("CI",)),
+        store=store,
+        rerun=refuse,
+        log=log.append,
+    )
+
+    assert taken is True
+    assert store.get("add-marker/1").check_reruns == 0
+    assert any("the host refused: no actions: write" in line for line in log)
 
 
 def test_an_unknown_pull_request_is_ignored(store: UnitStore) -> None:

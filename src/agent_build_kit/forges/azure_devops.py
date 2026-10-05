@@ -707,7 +707,8 @@ class AzureDevOpsForge:
             for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
             if str(status.get("state") or "") in _FAILING
         ]
-        for item in self._failing_evaluations(repo, pull.number, run=run):
+        failing, _ = self._split_evaluations(repo, pull.number, run=run)
+        for item in failing:
             build = (item.get("context") or {}).get("buildId")
             parts.append(
                 f"{_policy_name(item)} - build policy {item.get('status')}"

@@ -402,17 +402,27 @@ class GitHubForge:
         """Re-run the workflow runs behind the cancelled checks, their cancelled
         jobs included."""
         slug = key(repo)
+        _, runs = self._runs_with(slug, pull.number, _CANCELLED)
+        for run in runs:
+            result = gh(["gh", "run", "rerun", run, "--repo", slug, "--failed"], slug=slug)
+            if result.returncode:
+                raise RuntimeError(f"gh run rerun {run} ({slug}): {result.stderr.strip()}")
+
+    def _runs_with(
+        self, slug: str, pr: int, conclusions: Collection[str]
+    ) -> tuple[list[dict], list[str]]:
+        """The checks of a pull request that ended as one of `conclusions`, and
+        the workflow runs they belong to."""
         raw = gh_json(
-            ["gh", "pr", "view", str(pull.number), "--repo", slug, "--json", "statusCheckRollup"],
+            ["gh", "pr", "view", str(pr), "--repo", slug, "--json", "statusCheckRollup"],
             default={},
         )
         checks = raw.get("statusCheckRollup") or [] if isinstance(raw, dict) else []
-        cancelled = [c for c in checks if str(c.get("conclusion", "")).upper() in _CANCELLED]
+        found = [c for c in checks if str(c.get("conclusion", "")).upper() in conclusions]
         runs = sorted(
-            {m["run"] for c in cancelled if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
+            {m["run"] for c in found if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
         )
-        for run in runs:
-            gh(["gh", "run", "rerun", run, "--repo", slug, "--failed"], slug=slug)
+        return found, runs
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         """The failed CI jobs' logs, for the rework that fixes them.
@@ -423,15 +433,7 @@ class GitHubForge:
         if not pull.failing_checks:
             return ""
         slug = key(repo)
-        raw = gh_json(
-            ["gh", "pr", "view", str(pull.number), "--repo", slug, "--json", "statusCheckRollup"],
-            default={},
-        )
-        checks = raw.get("statusCheckRollup") or [] if isinstance(raw, dict) else []
-        failed = [c for c in checks if str(c.get("conclusion", "")).upper() in _FAILING]
-        runs = sorted(
-            {m["run"] for c in failed if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
-        )
+        failed, runs = self._runs_with(slug, pull.number, _FAILING)
         names = ", ".join(str(c.get("name")) for c in failed)
         parts = []
         for run in runs:

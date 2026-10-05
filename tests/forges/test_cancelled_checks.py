@@ -19,7 +19,8 @@ from agent_build_kit.pipeline.pr_poller import Poller
 from tests.forges import azure_answers
 
 AZURE_REPO = RepoId(forge="azure_devops", account="acme", project="Some Project", name="Some Repo")
-GITHUB_REPO = RepoId(forge="github", account="o", name="r")
+GITHUB_REPO = RepoId(forge="github", account="example", name="app")
+OPEN_PULL = PullRequest(number=16, head="spec/add-marker/1", base="main", state="open")
 
 PULL = {
     "number": 16,
@@ -149,6 +150,98 @@ def test_azure_reports_a_mixed_outcome_in_both_lists() -> None:
 
     assert pull.cancelled_checks == ("CI build",)
     assert pull.failing_checks == ("lint build",)
+
+
+MIXED_BUILDS = {41: "canceled", 42: "failed"}
+
+
+def mixed_run(queued: list[list[str]] | None = None):
+    """An `az` that knows builds 41 (canceled) and 42 (failed), each with its own
+    evaluation, and records what is queued."""
+    evaluations = [
+        {**evaluated("rejected", "CI build", 41), "evaluationId": "eval-41"},
+        {**evaluated("rejected", "lint build", 42), "evaluationId": "eval-42"},
+    ]
+
+    def run(args, **kwargs):
+        payload: object = {}
+        if "queue" in args:
+            if queued is not None:
+                queued.append(list(args))
+        elif "policy" in args:
+            payload = evaluations
+        elif "pullRequestStatuses" in args:
+            payload = {"value": []}
+        else:
+            asked = 41 if "41" in args else 42
+            payload = build(asked, MIXED_BUILDS[asked])
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    return run
+
+
+def test_azure_feedback_for_a_mixed_outcome_names_only_the_failed_build() -> None:
+    pull = PullRequest(
+        number=16,
+        head="spec/add-marker/1",
+        base="main",
+        state="open",
+        failing_checks=("lint build",),
+        cancelled_checks=("CI build",),
+    )
+
+    logs = AZURE.failed_check_logs(AZURE_REPO, pull, run=mixed_run())
+
+    assert "lint build" in logs and "buildId=42" in logs
+    assert "CI build" not in logs and "buildId=41" not in logs
+
+
+# --- asking the host to run cancelled checks again -------------------------------------
+
+
+def github_rollup(monkeypatch, result_code: int, stderr: str = "") -> list[list[str]]:
+    base = "https://github.com/example/app/actions/runs"
+    rollup = [
+        {**check("CI", "CANCELLED"), "detailsUrl": f"{base}/123/job/9"},
+        {**check("CI", "CANCELLED"), "detailsUrl": f"{base}/123/job/10"},
+        {**check("lint", "FAILURE"), "detailsUrl": f"{base}/456/job/3"},
+    ]
+    sent: list[list[str]] = []
+    monkeypatch.setattr(
+        "agent_build_kit.forges.github.gh_json", lambda args, **kw: {"statusCheckRollup": rollup}
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.forges.github.gh",
+        lambda args, **kw: (
+            sent.append(args) or subprocess.CompletedProcess(args, result_code, "", stderr)
+        ),
+    )
+    return sent
+
+
+def test_github_reruns_each_cancelled_run_once_and_not_a_failed_one(monkeypatch) -> None:
+    sent = github_rollup(monkeypatch, 0)
+
+    GITHUB.rerun_checks(GITHUB_REPO, OPEN_PULL)
+
+    assert sent == [["gh", "run", "rerun", "123", "--repo", "example/app", "--failed"]]
+
+
+def test_github_refusing_a_rerun_raises(monkeypatch) -> None:
+    github_rollup(monkeypatch, 1, "resource not accessible")
+
+    with pytest.raises(RuntimeError, match="123.*resource not accessible"):
+        GITHUB.rerun_checks(GITHUB_REPO, OPEN_PULL)
+
+
+def test_azure_queues_only_the_cancelled_builds_evaluation() -> None:
+    queued: list[list[str]] = []
+
+    AZURE.rerun_checks(AZURE_REPO, OPEN_PULL, run=mixed_run(queued))
+
+    [sent] = queued
+    assert sent[sent.index("--id") + 1] == "16"
+    assert sent[sent.index("--evaluation-id") + 1] == "eval-41"
 
 
 # --- a re-run check that then fails is an ordinary failure -------------------------
