@@ -125,7 +125,7 @@ flowchart TD
     prepare -->|resume at a step| resume{{resume point}}
     prepare -->|restack conflicted| adapt
     prepare -->|feedback waiting| rework
-    adapt --> checks
+    adapt --> checks & rework & verify_base
     resume --> implement & checks & verify_base
     tests --> implement
     implement -->|commits| checks
@@ -137,18 +137,23 @@ flowchart TD
     review -->|approved, tier 2 unit| tier2
     review -->|approved| verify_base
     review -->|changes asked| rework
-    review -->|needs a person| held
-    review -->|rounds spent| open_pr
+    review -->|needs a person, escalated| held
+    implement & rework & review & verify_base -->|upstream went back, base moved| held
+    review -->|rounds spent| push
     rework --> checks
     tier1 -->|passed, no commits of its own| satisfied
-    tier1 -->|passed, after a clean move| verify_base
+    tier1 -->|passed, after a clean move| tier2
     tier1 -->|failed| failed
+    tier1 -->|failed or changed approval after a move| prepare
     tier2 -->|passed| verify_base
     tier2 -->|failed| failed
     verify_base -->|base moved, clean| tier1
     verify_base -->|base moved, conflicts| prepare
     verify_base -->|on its base| push
+    push -->|host moved the branch| held
     push --> open_pr
+    open_pr -->|base gone| prepare
+    open_pr -->|rounds spent| held
     open_pr --> await_review
     await_review -->|rework| rework
     await_review -->|base moved| prepare
@@ -189,8 +194,20 @@ reference for each condition until this replaces them. The nodes:
 | `push` | Pushes only the approved commit | the push gate, `push` |
 | `open_pr` | Opens or updates the pull request, posts replies and the PR body | `open_pr`, replies, labels |
 | `await_review` | **Interrupt.** Waits for the forge: rework, a merge, a close, a hold, a moved base | — |
-| `held` | **Interrupt.** Waits for a person: requeue, merge, close | — |
-| `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue | `close_pr` for satisfied |
+| `held` | **Interrupt.** Waits for a person: requeue, merge, close. Until the waits-and-events group lands it records the hold in the store and ends the run | — |
+| `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue. A satisfied unit's thread is deleted, its groups ticked and an open pull request closed with the reason | `close_pr` for satisfied |
+
+Between steps a unit is held, not stopped: before `implement`, `fix_checks`,
+`review`, `rework`, `verify_base` (and `tier1` for a unit that produced nothing,
+and `push` when its rounds are spent) the run asks whether its upstream went back
+for rework or its base moved or was rewritten since `prepare` took the tip, and
+goes to `held` with the unit `planned` if so. A step already begun is finished.
+
+A base that moves before the push, a pull request refused for a missing base, a
+failing tier 1 or tier 2 after a clean move, and a move that changed what review
+approved all go back to `prepare` once (`rebased`), so the restack resolves under
+the usage gate and review reads the result; a second time the unit is held
+`planned` for the next tick, so a base that keeps moving cannot loop.
 
 ### Who touches the code host
 
@@ -279,7 +296,11 @@ carries today plus what routing needs:
   moved it, the commits on the branch when `prepare` finished, the branch's tip
   when the last node finished (what a re-run compares with), whether feedback
   was waiting at the start, the fix rounds and the review round so far, and
-  whether the checks passed, the branch is empty or `verify_base` moved it;
+  whether the checks passed, the branch is empty or `verify_base` moved it, the
+  base's tip when `prepare` began, whether it is a tier 2 unit, the restack that
+  could not be merged (for `adapt`), whether the review rounds are spent, tier 2's
+  results, whether to go back to `prepare` and whether it already has once;
+- **why a run is held:** the detail, the state the store is left in and its note;
 - **how the run ended:** the status, detail and pull request `RunOutcome` reports.
 
 Updates are partial: each node returns only the fields it changes. Anything a

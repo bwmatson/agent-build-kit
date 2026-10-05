@@ -14,13 +14,17 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+from langgraph.graph import END
+
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import Node, UnitRun, Verdict
-from agent_build_kit.pipeline.pr_body import build_pr_body
+from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
+    ADAPT_FOLLOWUP_PROMPT,
+    ADAPT_PROMPT,
     CHECKS_PROMPT,
     IMPLEMENTATION_PROMPT,
     PREDECESSOR_NOTE,
@@ -28,15 +32,45 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     TESTS_PROMPT,
     TIER1_FAILED,
+    Restacked,
     RunStatus,
     UnitRunner,
+    check_test_decisions,
     escalates,
+    parse_test_decisions,
+    tests_needing_decision,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import IN_REVIEW, Unit, branch_name, local_ref
+from agent_build_kit.pipeline.units import (
+    HELD,
+    IN_REVIEW,
+    PLANNED,
+    SATISFIED,
+    Unit,
+    branch_name,
+    local_ref,
+)
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 Update = dict[str, Any]
+
+# What a trip back through `prepare` starts over from; the rest of the state is
+# what that trip recomputes.
+FRESH: Update = {
+    "restack": False,
+    "moved": False,
+    "conflict": None,
+    "verdict": None,
+    "fix_rounds": 0,
+    "review_round": 0,
+    "checks_ok": False,
+    "produced_nothing": False,
+    "snapshot": "",
+}
+
+# The nodes a unit is held before, at the boundary, when its upstream went back
+# for rework or its base moved: the ones that start work or leave the machine.
+GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.VERIFY_BASE})
 
 
 class BuildPath:
@@ -71,10 +105,14 @@ class BuildPath:
             Node.FIX_CHECKS: self.fix_checks,
             Node.REVIEW: self.review,
             Node.REWORK: self.rework,
+            Node.ADAPT: self.adapt,
             Node.TIER1: self.tier1,
+            Node.TIER2: self.tier2,
             Node.VERIFY_BASE: self.verify_base,
             Node.PUSH: self.push,
             Node.OPEN_PR: self.open_pr,
+            Node.HELD: self.held,
+            Node.SATISFIED: self.satisfied,
             Node.FAILED: self.failed,
         }
         return {node: self._wrapped(node, body) for node, body in bodies.items()}
@@ -91,9 +129,47 @@ class BuildPath:
                 self._node = node.value
                 self.say("started")
                 # Off the loop: the callables block on agents and git.
-                return await asyncio.to_thread(body, state)
+                return await asyncio.to_thread(self._step, node, body, state)
 
         return run
+
+    def _step(self, node: Node, body: Callable[[UnitRun], Update], state: UnitRun) -> Update:
+        # Between steps, never inside one: a held unit has finished the step it was in.
+        gated = (
+            node in GATED
+            or (node is Node.TIER1 and state.produced_nothing and not state.moved)
+            or (node is Node.PUSH and state.spent)
+        )
+        if gated and (why := self.upstream_changed(state)):
+            return self.hold(
+                PLANNED, f"held before {node.value}: {why}", f"held before {node.value} — {why}"
+            )
+        return body(state)
+
+    def upstream_changed(self, state: UnitRun) -> str:
+        """Why the unit should not go on yet: something upstream went back for
+        rework, or the base it was built on moved or was rewritten."""
+        unit, r = self.unit, self.runner
+        base = state.base or self.base
+        return r.upstream_incomplete(unit) or r.base_moved(
+            unit, base, tree=self.tree(), start=state.start
+        )
+
+    def hold(self, state: str, note: str, detail: str) -> Update:
+        """Stop the run for `held` to record: `state` is what the store is left in."""
+        self.say(f"held: {note}")
+        return {"held": detail, "hold_state": state, "hold_note": note}
+
+    def rebase(
+        self, state: UnitRun, why: str, *, base: str, lead: str = "base moved before its push"
+    ) -> Update:
+        """Go back to the restack now, once, rather than queue; a second time holds,
+        so a base that keeps moving cannot loop."""
+        note = f"{lead}: {why}"
+        if state.rebased:
+            return self.hold(PLANNED, note, note)
+        self.say(f"held: {note}; resuming at its restack on {base}")
+        return {"restack": True, "rebased": True, "base": base}
 
     def say(self, message: str) -> None:
         """A progress line, for the tick log and the unit's run log."""
@@ -106,10 +182,6 @@ class BuildPath:
         self.say(f"stopping: {reason}")
         return {"stopped": reason}
 
-    def not_yet(self, what: str) -> Update:
-        """The classic engine's handling of `what` is a later group of the change."""
-        return self.stop(f"{what} is not handled by the graph engine yet")
-
     def tree(self) -> Path:
         if self._tree is None:
             self._tree = self.runner.worktree(self.unit, local_ref(self.base))
@@ -121,12 +193,18 @@ class BuildPath:
     def prepare(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         branch = branch_name(unit)
+        base = state.base or self.base
         feedback = r.store.get(unit.id).feedback
         r.store.set_state(unit.id, "running", branch=branch)
+        # Made again: a trip back here may be onto a different base.
+        self._tree = None
         tree, ref = self.tree(), self.ref(state)
+        # Taken before the restack and any adapt, so a base rewritten during
+        # them is caught too: a parent restacked meanwhile keeps its name.
+        start = r.base_tip(tree, ref)
         existing = r.branch_commits(tree, ref)
         self.say(
-            f"on {self.base}, {existing} commit(s) already on the branch"
+            f"on {base}, {existing} commit(s) already on the branch"
             + (", with feedback to address" if feedback else "")
         )
         if existing:
@@ -138,16 +216,16 @@ class BuildPath:
             except (AgentRateLimited, AgentInterrupted):
                 raise
             except Exception as error:  # noqa: BLE001
-                why = f"restack onto {self.base} conflicted: {error}"
+                why = f"restack onto {base} conflicted: {error}"
                 waiting = r.store.get(unit.id).feedback
                 r.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
-                return self.stop(why)
+                return {**FRESH, **self.stop(why)}
             if restacked is not None:
                 if restacked.conflict:
-                    return self.not_yet("adapting a unit onto a base it conflicts with")
+                    return {**FRESH, "start": start, "head": r.head(tree), "conflict": restacked}
                 if restacked.resolved:
                     files = ", ".join(restacked.resolved)
-                    self.say(f"restacked onto {self.base}, resolving {files}")
+                    self.say(f"restacked onto {base}, resolving {files}")
                     r.store.set_predecessor_note(
                         unit.id,
                         PREDECESSOR_NOTE.format(
@@ -157,15 +235,121 @@ class BuildPath:
                         ),
                     )
                 else:
-                    self.say(f"restacked onto {self.base} cleanly")
+                    self.say(f"restacked onto {base} cleanly")
                 existing = r.branch_commits(tree, ref)
-        head = r.head(tree)
+        return {
+            **FRESH,
+            **self.standing(existing, feedback),
+            "start": start,
+            "tier2": unit.tier == "tier2",
+        }
+
+    def standing(self, existing: int, feedback: str) -> Update:
+        """What the branch holds, which is what the path from here is chosen on."""
+        r, unit = self.runner, self.unit
+        head = r.head(self.tree())
         return {
             "base_commits": existing,
             "had_feedback": bool(feedback),
             "head": head,
             "head_approved": bool(existing) and head == r.store.get(unit.id).approved,
         }
+
+    def adapt(self, state: UnitRun) -> Update:
+        """Port the unit onto a predecessor it could not be replayed onto.
+
+        The branch is reset to the new base, the old work kept under a ref, and
+        the rework model ports it, deciding for each previous test the port did
+        not carry over unchanged whether it still belongs. Those decisions are
+        checked here, then handed to the reviewer, who judges them.
+        """
+        r, unit = self.runner, self.unit
+        restacked = state.conflict
+        assert restacked is not None
+        tree, ref = self.tree(), self.ref(state)
+        change_dir, groups = r.scope(unit)
+        self.say(
+            f"adapt onto {restacked.onto_unit}, the restack could not be merged ({models().rework})"
+        )
+        keep = f"refs/spec-driven/pre-adapt/{unit.id}"
+        if r.head(tree) == state.head:
+            r.reset_to(tree, ref, keep)
+        # Otherwise a killed run already reset the branch: resetting again would
+        # overwrite `keep` with the half-ported tree and lose the old work.
+        answer = r.run_rework(
+            ADAPT_PROMPT.format(
+                change_dir=change_dir,
+                groups=groups,
+                onto_unit=restacked.onto_unit,
+                onto_intent=restacked.onto_intent,
+                conflict=restacked.conflict[:2000],
+                old_ref=keep,
+                old_base=restacked.old_base,
+                tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
+            ),
+            cwd=tree,
+        )
+        r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
+        # Only now does the tree hold what the agent carried over.
+        present = r.tests_in(tree)
+        changed = r.tests_changed(tree, keep)
+        required = tests_needing_decision(restacked.old_tests, present, changed)
+        decisions = parse_test_decisions(answer)
+        problems = check_test_decisions(required, decisions, present, changed)
+        # Put back to the agent, bounded: the code already landed with the commit above.
+        for _ in range(active().limits.max_adapt_rounds - 1):
+            if not problems:
+                break
+            answer = r.run_rework(
+                ADAPT_FOLLOWUP_PROMPT.format(problems="\n".join(f"- {p}" for p in problems)),
+                cwd=tree,
+            )
+            # Merged over the first answer's: an agent that answers only for the
+            # tests just named must not lose the decisions it already gave.
+            by_name = {d.name: d for d in decisions}
+            by_name.update({d.name: d for d in parse_test_decisions(answer)})
+            decisions = list(by_name.values())
+            problems = check_test_decisions(required, decisions, present, changed)
+        if problems:
+            why = "the adapt step did not account for its tests: " + "; ".join(problems)
+            outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
+            if outstanding:
+                why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
+            waiting = r.store.get(unit.id).feedback
+            r.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
+            return self.stop(why)
+        r.store.set_predecessor_note(unit.id, self.port_note(restacked, required, decisions))
+        counts = {k: sum(d.decision == k for d in decisions) for k in ("keep", "adapt", "retire")}
+        self.say(
+            f"adapted: {counts['keep']} kept, {counts['adapt']} adapted, {counts['retire']} retired"
+        )
+        feedback = r.store.get(unit.id).feedback
+        return {"conflict": None, **self.standing(r.branch_commits(tree, ref), feedback)}
+
+    @staticmethod
+    def port_note(restacked: Restacked, required: Any, decisions: Any) -> str:
+        rendered = "".join(
+            f"\n- `{d.name}`: {d.decision}" + (f" — {d.reason}" if d.reason else "")
+            for d in decisions
+        )
+        auto_kept = [name for name in restacked.old_tests if name not in required]
+        kept_note = (
+            "\n\nCarried over unchanged, so counted as kept without being asked about: "
+            + ", ".join(f"`{name}`" for name in auto_kept)
+            if auto_kept
+            else ""
+        )
+        return PREDECESSOR_NOTE.format(
+            onto_unit=restacked.onto_unit,
+            how="replaying this unit onto it conflicted, so its work was ported onto the "
+            "new version by hand",
+            decisions=(
+                f"The port decided, for its previous tests:{rendered}{kept_note}\n\nJudge "
+                "each decision, retirements especially. "
+            )
+            if decisions or auto_kept
+            else "",
+        )
 
     def tests(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -277,15 +461,43 @@ class BuildPath:
         weighed = r.weigh_review(unit, raw, judged=judged)
         update: Update = {"review_round": round_number + 1, "head": judged}
         if weighed.approved:
-            if unit.tier == "tier2":
-                return {**update, **self.not_yet("tier 2 after approval")}
             return {**update, "verdict": Verdict.APPROVED, "approved": judged, "fix_rounds": 0}
-        if weighed.verdict.needs_human or escalates(weighed.verdict, weighed.earlier_rounds):
-            return {**update, **self.not_yet("holding a unit for a person")}
-        if round_number == total - 1:
-            return {**update, **self.not_yet("a unit whose review rounds are spent")}
-        # Kept as feedback, so the rework addresses what this round asked for.
+        verdict = weighed.verdict
+        if verdict.needs_human:
+            # What is left is something the builder's environment refuses: asking
+            # again spends rounds on a change it can never make.
+            why = weighed.why
+            r.store.set_feedback(unit.id, why)
+            return {
+                **update,
+                **self.hold(HELD, f"needs a human: {why[:300]}", f"needs a human: {why[:200]}"),
+            }
+        if escalates(verdict, weighed.earlier_rounds):
+            # Another instance of a kind that cannot be enumerated, or a point
+            # raised again after the builder declined it: a person's call.
+            parts = [weighed.why]
+            if verdict.escalate == "disagreement":
+                parts.append(str(weighed.earlier_rounds[-1].get("response", "")).strip())
+            parts.append(verdict.reasoning)
+            r.store.set_feedback(unit.id, "\n\n".join(p for p in parts if p).strip())
+            label = (
+                "an open-ended class" if verdict.escalate == "class" else "a repeated disagreement"
+            )
+            reasoning = " ".join(verdict.reasoning.split())[:280]
+            return {
+                **update,
+                **self.hold(
+                    HELD,
+                    f"escalated — {label} ({verdict.escalate}): {reasoning}",
+                    f"escalated ({verdict.escalate}): {reasoning[:200]}",
+                ),
+            }
+        # Kept as feedback, so the rework addresses what this round asked for, or
+        # a person who inherits the branch reads what is outstanding.
         r.store.set_feedback(unit.id, weighed.why)
+        if round_number == total - 1:
+            # The last round's review is the verdict: a rework after it would never be reviewed.
+            return {**update, "spent": True}
         return {**update, "verdict": Verdict.CHANGES, "fix_rounds": 0}
 
     def rework(self, state: UnitRun) -> Update:
@@ -353,14 +565,82 @@ class BuildPath:
         if not ok:
             self.say(output)
             r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
-            return self.stop(
-                "tier 1 failed" if state.produced_nothing else f"tier 1 failed on {base}"
+            if state.moved:
+                return self.rebase(state, f"tier 1 failed on {base}", base=base)
+            return self.stop("tier 1 failed")
+        if (
+            state.moved
+            and not state.produced_nothing
+            and r.head(self.tree()) != r.store.get(unit.id).approved
+        ):
+            # Moved cleanly, but not as the same change: review has not read this commit.
+            return self.rebase(
+                state,
+                f"moving onto {base} changed what review approved, so it is read again",
+                base=base,
             )
-        if state.moved and r.head(self.tree()) != r.store.get(unit.id).approved:
-            return self.not_yet("a move that changed what review approved")
-        if state.produced_nothing:
-            return self.not_yet("a unit with nothing to add")
         return {}
+
+    def tier2(self, state: UnitRun) -> Update:
+        r, unit = self.runner, self.unit
+        base = state.base or self.base
+        self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
+        ok, snapshot = r.run_tier2(cwd=self.tree())
+        self.say(f"tier 2 {'passed' if ok else 'failed'}")
+        if ok:
+            return {"snapshot": snapshot}
+        # Kept, as tier 1's is: a failure that leaves no trace has to be reproduced by hand.
+        if state.moved:
+            r.store.set_feedback(unit.id, f"tier 2 failed:\n{snapshot}".strip())
+            return self.rebase(state, f"tier 2 failed on {base}", base=base)
+        waiting = r.store.get(unit.id).feedback
+        r.store.set_feedback(unit.id, f"{waiting}\n\ntier 2 failed:\n{snapshot}".strip())
+        return self.stop("tier 2 failed")
+
+    def satisfied(self, state: UnitRun) -> Update:
+        """Nothing of this unit's own on the branch, and what is at the tip passes:
+        the work its groups called for arrived another way. Judged on the branch
+        and the checks, never on a step's report of itself."""
+        r, unit = self.runner, self.unit
+        self.say("nothing to add and tier 1 passes — satisfied")
+        r.store.set_state(
+            unit.id, SATISFIED, note="already implemented; tier 1 passed", resume_from=""
+        )
+        # A satisfied unit is done: nothing here should look like a build in progress.
+        if r.store.get(unit.id).predecessor_note:
+            r.store.set_predecessor_note(unit.id, "")
+        if r.store.get(unit.id).review_rounds:
+            r.store.set_review_rounds(unit.id, ())
+        # The review feedback and its replies belong to a build this unit is no longer doing.
+        if r.store.get(unit.id).feedback:
+            r.store.set_feedback(unit.id, "")
+        if r.store.get(unit.id).pending_replies:
+            r.store.set_pending_replies(unit.id, ())
+        stored = r.store.get(unit.id)
+        if stored.pr:
+            # Posting and closing are one call, so the reason is never missing before the close.
+            try:
+                r.close_pr(unit, stored.pr, satisfied_reason(stored, graph=self.graph or [stored]))
+            except Exception as error:  # noqa: BLE001
+                # The unit stays satisfied, but the failure is recorded on the unit
+                # itself, or it looks like one whose close worked.
+                self.say(f"{unit.id}: pull request #{stored.pr} not closed — {error}")
+                r.store.set_state(
+                    unit.id,
+                    SATISFIED,
+                    note=(
+                        f"already implemented; tier 1 passed; PR #{stored.pr} not closed — {error}"
+                    ),
+                )
+        r.mark_tasks(unit, done=True)
+        return {"status": RunStatus.SATISFIED, "detail": "already implemented; tier 1 passed"}
+
+    def held(self, state: UnitRun) -> Update:
+        r, unit = self.runner, self.unit
+        # A hold that pushed (rounds spent) carries its pull request.
+        opened: dict[str, Any] = {"pr": state.pr, "resume_from": ""} if state.pr else {}
+        r.store.set_state(unit.id, state.hold_state, note=state.hold_note, **opened)
+        return {"status": RunStatus.HELD, "detail": state.held}
 
     def verify_base(self, state: UnitRun) -> Update:
         """The base as it is now, before anything is pushed against it."""
@@ -390,10 +670,10 @@ class BuildPath:
         except (AgentRateLimited, AgentInterrupted):
             raise
         except Exception as error:  # noqa: BLE001
-            return self.not_yet(f"a base that moved and needs resolution ({error})")
+            return self.rebase(state, f"moving onto {base} needed resolution: {error}", base=base)
         if moved is not None:
             if moved.conflict or moved.resolved:
-                return self.not_yet("a base that moved and needs resolution")
+                return self.rebase(state, f"moving onto {base} needed resolution", base=base)
             self.say(f"moved onto {base} cleanly; tier 1 again")
         return {"base": base, "moved": moved is not None}
 
@@ -402,7 +682,7 @@ class BuildPath:
         tree = self.tree()
         # The rule, checked where it matters: only the commit review approved leaves.
         head, approved = r.head(tree), r.store.get(unit.id).approved
-        if not approved or head != approved:
+        if not state.spent and (not approved or head != approved):
             return self.stop(
                 f"refusing to push {head[:9] or '?'}: review approved "
                 f"{approved[:9] or 'nothing'} on this branch"
@@ -413,8 +693,17 @@ class BuildPath:
         try:
             sha = r.push(branch, cwd=tree)
         except HostMoved as error:
-            return self.not_yet(f"a host branch that moved under the push ({error})")
+            if not state.spent:
+                # Not pushed: the tree holds the host's head, and review has to pass it first.
+                self.say(f"not pushed: {error}")
+                return self.hold(PLANNED, f"not pushed: {error}", f"re-reviewing: {error}")
+            # The adoption is recorded, so a second push holds the lease: this
+            # path pushes unapproved work for a person by design.
+            self.say(f"{error} — pushing again")
+            sha = r.push(branch, cwd=tree)
         self.say(f"pushed {branch} at {sha[:9]}")
+        if state.spent:
+            return {}
         # Only now, with the push confirmed: a follow-up recorded ahead of it
         # would describe work that never left the machine.
         deferred = r.store.get(unit.id).deferred
@@ -433,6 +722,8 @@ class BuildPath:
             stored,
             graph=self.graph or [stored],
             base=base,
+            tier2_snapshot=state.snapshot or None,
+            open_points=stored.feedback if state.spent else None,
             follow_ups=r.follow_ups_for(unit) or None,
             linear=r.linear(tree, local_ref(base)),
         )
@@ -444,8 +735,19 @@ class BuildPath:
                 base=base,
                 cwd=tree,
             )
-        except BaseMissing:
-            return self.not_yet("a base gone before its pull request")
+        except BaseMissing as error:
+            # Deleted between the check and the call, most often by its merge:
+            # ask again, and go on from whatever it is now.
+            try:
+                base = r.fresh_base(unit, base)
+            except Exception as asked:  # noqa: BLE001
+                self.say(f"could not ask the forge for the base: {asked}")
+            return self.rebase(
+                state, str(error), base=base, lead="base gone before its pull request"
+            )
+        if state.spent:
+            note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
+            return {"pr": pr, **self.hold(HELD, note, f"rounds spent, held as #{pr}")}
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
         # a comment it has already answered.
@@ -475,67 +777,128 @@ class BuildPath:
         return {"status": outcome.status, "detail": outcome.detail}
 
 
-def after_prepare(state: UnitRun) -> Node:
+def halted(state: UnitRun) -> Node | None:
+    """Where a run that has to stop goes, whatever node it stopped in."""
+    if state.held:
+        return Node.HELD
     if state.stopped:
         return Node.FAILED
+    return None
+
+
+def after_prepare(state: UnitRun) -> Node:
+    if stop := halted(state):
+        return stop
+    if state.conflict:
+        return Node.ADAPT
     if state.had_feedback:
         return Node.REWORK
     if not state.base_commits:
         return Node.TESTS
-    # Review approved exactly this commit: nothing was written since.
-    return Node.VERIFY_BASE if state.head_approved else Node.CHECKS
+    if state.head_approved:
+        # Review approved exactly this commit: nothing was written since.
+        return Node.TIER2 if state.tier2 else Node.VERIFY_BASE
+    return Node.CHECKS
 
 
 def after_implement(state: UnitRun) -> Node:
-    return Node.TIER1 if state.produced_nothing else Node.CHECKS
+    return halted(state) or (Node.TIER1 if state.produced_nothing else Node.CHECKS)
 
 
 def after_checks(state: UnitRun) -> Node:
-    if state.stopped:
-        return Node.FAILED
-    return Node.REVIEW if state.checks_ok else Node.FIX_CHECKS
+    return halted(state) or (Node.REVIEW if state.checks_ok else Node.FIX_CHECKS)
 
 
 def after_fix_checks(state: UnitRun) -> Node:
-    return Node.FAILED if state.stopped else Node.CHECKS
+    return halted(state) or Node.CHECKS
 
 
 def after_review(state: UnitRun) -> Node:
-    if state.stopped:
-        return Node.FAILED
-    return Node.VERIFY_BASE if state.verdict is Verdict.APPROVED else Node.REWORK
+    if stop := halted(state):
+        return stop
+    if state.spent:
+        return Node.PUSH
+    if state.verdict is not Verdict.APPROVED:
+        return Node.REWORK
+    return Node.TIER2 if state.tier2 else Node.VERIFY_BASE
 
 
 def after_rework(state: UnitRun) -> Node:
-    return Node.TIER1 if state.produced_nothing else Node.CHECKS
+    return halted(state) or (Node.TIER1 if state.produced_nothing else Node.CHECKS)
 
 
 def after_tier1(state: UnitRun) -> Node:
-    return Node.FAILED if state.stopped else Node.VERIFY_BASE
+    if stop := halted(state):
+        return stop
+    if state.restack:
+        return Node.PREPARE
+    if state.produced_nothing:
+        return Node.SATISFIED
+    return Node.TIER2 if state.moved and state.tier2 else Node.VERIFY_BASE
+
+
+def after_tier2(state: UnitRun) -> Node:
+    if stop := halted(state):
+        return stop
+    return Node.PREPARE if state.restack else Node.VERIFY_BASE
 
 
 def after_verify_base(state: UnitRun) -> Node:
-    if state.stopped:
-        return Node.FAILED
+    if stop := halted(state):
+        return stop
+    if state.restack:
+        return Node.PREPARE
     return Node.TIER1 if state.moved else Node.PUSH
 
 
 def after_push(state: UnitRun) -> Node:
-    return Node.FAILED if state.stopped else Node.OPEN_PR
+    return halted(state) or Node.OPEN_PR
+
+
+def after_open_pr(state: UnitRun) -> Node | str:
+    if stop := halted(state):
+        return stop
+    return Node.PREPARE if state.restack else END
 
 
 # Each node's router and the nodes it may name, which compiling checks.
-ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Node], tuple[Node, ...]]] = {
+Target = Node | str
+PREPARED: tuple[Target, ...] = (
+    Node.HELD,
+    Node.FAILED,
+    Node.ADAPT,
+    Node.REWORK,
+    Node.CHECKS,
+    Node.TESTS,
+    Node.TIER2,
+    Node.VERIFY_BASE,
+)
+ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = {
     Node.PREPARE: (
         after_prepare,
-        (Node.FAILED, Node.REWORK, Node.CHECKS, Node.TESTS, Node.VERIFY_BASE),
+        PREPARED,
     ),
-    Node.IMPLEMENT: (after_implement, (Node.TIER1, Node.CHECKS)),
-    Node.CHECKS: (after_checks, (Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
-    Node.FIX_CHECKS: (after_fix_checks, (Node.FAILED, Node.CHECKS)),
-    Node.REVIEW: (after_review, (Node.FAILED, Node.VERIFY_BASE, Node.REWORK)),
-    Node.REWORK: (after_rework, (Node.TIER1, Node.CHECKS)),
-    Node.TIER1: (after_tier1, (Node.FAILED, Node.VERIFY_BASE)),
-    Node.VERIFY_BASE: (after_verify_base, (Node.FAILED, Node.TIER1, Node.PUSH)),
-    Node.PUSH: (after_push, (Node.FAILED, Node.OPEN_PR)),
+    Node.ADAPT: (
+        after_prepare,
+        PREPARED,
+    ),
+    Node.IMPLEMENT: (after_implement, (Node.HELD, Node.TIER1, Node.CHECKS)),
+    Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
+    Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),
+    Node.REVIEW: (
+        after_review,
+        (Node.HELD, Node.FAILED, Node.PUSH, Node.TIER2, Node.VERIFY_BASE, Node.REWORK),
+    ),
+    Node.REWORK: (after_rework, (Node.HELD, Node.TIER1, Node.CHECKS)),
+    Node.TIER1: (
+        after_tier1,
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.SATISFIED, Node.TIER2, Node.VERIFY_BASE),
+    ),
+    Node.TIER2: (after_tier2, (Node.HELD, Node.FAILED, Node.PREPARE, Node.VERIFY_BASE)),
+    Node.VERIFY_BASE: (
+        after_verify_base,
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.TIER1, Node.PUSH),
+    ),
+    Node.PUSH: (after_push, (Node.HELD, Node.FAILED, Node.OPEN_PR)),
+    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, END)),
 }

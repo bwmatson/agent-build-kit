@@ -63,9 +63,9 @@ def compile_build_path(
     builder.add_edge(START, Node.PREPARE.value)
     for node, (router, targets) in ROUTES.items():
         builder.add_conditional_edges(
-            node.value, router, {target.value: target.value for target in targets}
+            node.value, router, {str(target): str(target) for target in targets}
         )
     builder.add_edge(Node.TESTS.value, Node.IMPLEMENT.value)
-    builder.add_edge(Node.OPEN_PR.value, END)
-    builder.add_edge(Node.FAILED.value, END)
+    for node in (Node.FAILED, Node.HELD, Node.SATISFIED):
+        builder.add_edge(node.value, END)
     return builder.compile(checkpointer=saver)

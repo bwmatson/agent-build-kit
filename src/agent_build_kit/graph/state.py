@@ -5,7 +5,13 @@ from __future__ import annotations
 from enum import StrEnum
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.stack_runner import EarlierAnswer, Finding, FollowUp, RunStatus
+from agent_build_kit.pipeline.stack_runner import (
+    EarlierAnswer,
+    Finding,
+    FollowUp,
+    Restacked,
+    RunStatus,
+)
 
 
 class Node(StrEnum):
@@ -79,6 +85,19 @@ class UnitRun(Frozen):
     checks_ok: bool = False
     produced_nothing: bool = False
     moved: bool = False  # `verify_base` moved the branch onto a new base
+    start: str = (
+        ""  # the base's tip when `prepare` began, which a held unit checks the base against
+    )
+    tier2: bool = False  # the unit is a tier 2 unit
+    conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port
+    spent: bool = False  # the review rounds ran out with points outstanding
+    snapshot: str = ""  # tier 2's results, for the pull request body
+    restack: bool = False  # go back to `prepare`: the base moved before the push
+    rebased: bool = False  # the run already went back once, so the next time it holds
+    # Why the run holds, and the state the store is left in.
+    held: str = ""
+    hold_state: str = ""
+    hold_note: str = ""
     # How the run ended, as `RunOutcome` reports it.
     status: RunStatus | None = None
     detail: str = ""

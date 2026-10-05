@@ -144,7 +144,7 @@ def test_a_second_run_on_a_finished_thread_starts_from_a_clean_state(tmp_path: P
     recorder.push_raises = HostMoved("host head moved")
     outcome = build(tmp_path, recorder)
 
-    assert outcome.status == "failed"
+    assert outcome.status == "held"
     assert outcome.pr is None, "the first run's pull request is not this run's"
 
 
@@ -227,18 +227,6 @@ def test_a_disagreement_the_builder_never_declined_is_an_ordinary_rejection(
     assert outcome.status == "open"
     assert recorder.events.count("claude:rework") == 2
     assert recorder.events.count("review") == 3
-
-
-def test_a_push_the_host_moved_under_ends_the_unit_and_opens_no_pull_request(
-    tmp_path: Path,
-) -> None:
-    recorder = fresh(tmp_path, push_raises=HostMoved("host head moved"))
-
-    outcome = build(tmp_path, recorder)
-
-    assert outcome.status == "failed"
-    assert "host head moved" in outcome.detail
-    assert recorder.prs == {}
 
 
 # --- the checks before a review -------------------------------------------------
