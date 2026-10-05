@@ -39,6 +39,7 @@ class EventKind(StrEnum):
     REWORK = "rework"
     BASE_MOVED = "base_moved"
     HOLD = "hold"
+    RELEASE = "release"
     MERGED = "merged"
     CLOSED = "closed"
     REQUEUE = "requeue"

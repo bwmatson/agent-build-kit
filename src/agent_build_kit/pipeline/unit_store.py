@@ -88,6 +88,10 @@ class StoredUnit(Unit):
     # stack; empty when it did, or was never asked. Advisory: nothing reads it
     # to decide anything.
     stack_refusal: str = ""
+    # Why the unit is held: `reviewer` (the hold label), `review` (the review
+    # loop), `depth` or `toolchain`; empty when it is not held, and in a record
+    # written before this was kept.
+    held_by: str = ""
     history: tuple[dict, ...] = ()
 
     @property

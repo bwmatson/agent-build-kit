@@ -828,6 +828,19 @@ def on_hold(
     return True
 
 
+def on_release(
+    pr: int,
+    *,
+    repo: str,
+    store: UnitStore,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> bool:
+    """The hold label has come off: a unit it held goes back to waiting for review."""
+    raise NotImplementedError
+
+
 def on_rework(
     pr: int,
     *,
