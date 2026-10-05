@@ -188,7 +188,7 @@ reference for each condition until this replaces them. The nodes:
 | `implement` | The implementation commit; nothing new against an exhausted window is a pause, not a failure | `run_claude`, `commit`, `may_start` |
 | `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run_rework`, `commit`, `may_start` |
-| `review` | One review round; records the verdict, findings, follow-ups and the approved commit | `run_review` / `run_rework_review` |
+| `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run_rework`, `commit` |
 | `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
 | `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
@@ -221,6 +221,7 @@ at fixed nodes, from the agent's *output*:
 | Read | New comments, review decisions, labels, check results, mergeability | the poller, which resumes `await_review` | the runner (`pr_poller`, the forge) |
 | Read | The reviewer's own words, fetched when a rework is queued | `events.on_rework`, saved as the unit's feedback | the runner |
 | Read | A failing check's log | the same, for a failing-checks rework | the runner |
+| Read | Its own pull request (`gh pr view`/`diff`, `az repos pr show`: the forge's read commands, nothing that writes) | the review | the review agent |
 | Into the agent | All of the above | placed in the `rework` / `fix_checks` prompt as text | the runner |
 | Write | The branch | `push`, the approved commit only, with a lease | the runner |
 | Write | The pull request: open or update, body, state labels | `open_pr` | the runner |

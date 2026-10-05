@@ -204,6 +204,7 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
     store.set_feedback(unit().id, "please double-check the edge case")
     store.set_pending_replies(unit().id, ("done",))
+    store.set_person_comments(unit().id, "[comment 1] rename")
 
     outcome = build(tmp_path, recorder, graph=[store.get(unit().id)], **empty_branch())
 
@@ -211,6 +212,7 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     stored = store.get(unit().id)
     assert stored.feedback == "", "a satisfied unit carries no review feedback"
     assert stored.pending_replies == (), "nor replies to a review it no longer has"
+    assert stored.person_comments == "", "nor the comments they answered"
     assert recorder.events.count("claude:rework") == 1
     for step in ("claude:tests", "claude:impl", "review"):
         assert step not in recorder.events

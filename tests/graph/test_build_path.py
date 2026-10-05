@@ -482,7 +482,7 @@ def test_a_rework_of_an_open_pr_posts_its_replies_after_the_push(tmp_path: Path)
     """After, so a reply describes code the reviewer can already see."""
     recorder = fresh(tmp_path)
     recorder.store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
-    recorder.store.set_feedback(unit().id, "[comment 11] a.py:3 — rename")
+    recorder.store.set_feedback(unit().id, "[comment 11] a.py:3 — rename", from_person=True)
     replies: list[dict] = []
 
     def reply(**kwargs: Any) -> None:
@@ -494,6 +494,19 @@ def test_a_rework_of_an_open_pr_posts_its_replies_after_the_push(tmp_path: Path)
     assert recorder.events.index("reply") > recorder.events.index("push")
     assert replies[0]["pr"] == 7 and replies[0]["answer_text"] == "done"
     assert recorder.store.get(unit().id).pending_replies == (), "cleared once posted"
+
+
+def test_a_review_after_a_persons_comments_in_the_graph_is_given_them_and_they_clear_on_push(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    recorder.store.set_feedback(unit().id, "[comment 11] a.py:3 — rename", from_person=True)
+
+    build(tmp_path, recorder)
+
+    assert "> [comment 11] a.py:3 — rename" in recorder.contexts[0]
+    assert recorder.store.get(unit().id).person_comments == ""
 
 
 def test_a_first_build_has_nobody_to_reply_to(tmp_path: Path) -> None:

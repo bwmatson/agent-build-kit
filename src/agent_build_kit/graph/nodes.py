@@ -548,6 +548,10 @@ class BuildPath:
             if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
                 r.store.set_pending_replies(unit.id, (*stored.pending_replies, answer))
+                if stored.feedback_from_person:
+                    r.store.set_person_comments(
+                        unit.id, f"{stored.person_comments}\n\n{feedback}".strip()
+                    )
         return {
             "verdict": None,
             "fix_rounds": 0,
@@ -618,6 +622,8 @@ class BuildPath:
             r.store.set_feedback(unit.id, "")
         if r.store.get(unit.id).pending_replies:
             r.store.set_pending_replies(unit.id, ())
+        if r.store.get(unit.id).person_comments:
+            r.store.set_person_comments(unit.id, "")
         stored = r.store.get(unit.id)
         if stored.pr:
             # Posting and closing are one call, so the reason is never missing before the close.
@@ -762,6 +768,8 @@ class BuildPath:
             r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha)
         if stored.pending_replies:
             r.store.set_pending_replies(unit.id, ())
+        if stored.person_comments:
+            r.store.set_person_comments(unit.id, "")
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
         r.store.set_state(unit.id, IN_REVIEW, pr=pr, resume_from="")

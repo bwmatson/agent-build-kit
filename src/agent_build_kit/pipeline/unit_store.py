@@ -65,6 +65,14 @@ class StoredUnit(Unit):
     # here, not in the run: a rework that writes its replies, then pauses for
     # usage before its push, would otherwise lose them with the process.
     pending_replies: tuple[str, ...] = ()
+    # The person's comments those replies answer, kept apart from `feedback`,
+    # which the review loop overwrites with its own findings between rounds.
+    # Cleared with the replies.
+    person_comments: str = ""
+    # Whether `feedback` is a person's words, fetched from the pull request when
+    # it was requeued, as opposed to anything the pipeline or the host wrote.
+    # Set only with the feedback (see `set_feedback`), so it never outlives it.
+    feedback_from_person: bool = False
     # Set when the unit was moved onto a predecessor that changed under it,
     # for the reviewer: which files needed resolving, or how its tests were
     # carried over. Cleared once the unit is back in review.
@@ -214,6 +222,8 @@ class UnitStore:
                 approved=existing.approved if existing else "",
                 deferred=existing.deferred if existing else (),
                 pending_replies=existing.pending_replies if existing else (),
+                person_comments=existing.person_comments if existing else "",
+                feedback_from_person=existing.feedback_from_person if existing else False,
                 predecessor_note=existing.predecessor_note if existing else "",
                 review_rounds=existing.review_rounds if existing else (),
                 run_log=existing.run_log if existing else "",
@@ -359,9 +369,16 @@ class UnitStore:
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
 
-    def set_feedback(self, unit_id: str, feedback: str) -> None:
-        """What review asked for, or `""` once a run has acted on it."""
-        self._update(unit_id, feedback=feedback)
+    def set_feedback(self, unit_id: str, feedback: str, *, from_person: bool = False) -> None:
+        """What review asked for, or `""` once a run has acted on it.
+
+        `from_person` is True only for words a person left on the pull request;
+        every feedback the pipeline writes itself leaves it False, and so does
+        clearing it.
+        """
+        self._update(
+            unit_id, feedback=feedback, feedback_from_person=from_person and bool(feedback)
+        )
 
     def record_step(self, unit_id: str, step: str) -> None:
         """The step a running unit is starting, so a run killed inside it
@@ -371,6 +388,9 @@ class UnitStore:
     def set_run_log(self, unit_id: str, name: str) -> None:
         """Name the unit's most recent run log. Not a state change."""
         self._update(unit_id, run_log=name)
+
+    def set_person_comments(self, unit_id: str, comments: str) -> None:
+        self._update(unit_id, person_comments=comments)
 
     def set_pending_replies(self, unit_id: str, replies: Sequence[str]) -> None:
         self._update(unit_id, pending_replies=tuple(replies))
