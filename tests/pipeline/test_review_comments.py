@@ -14,7 +14,7 @@ import pytest
 from agent_build_kit import forges
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
+from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, FAILING_CHECKS_REASON
 from agent_build_kit.pipeline.stack_runner import TIER1_FAILED
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
@@ -146,17 +146,36 @@ def test_a_review_following_a_failing_check_gets_no_comments_note(tmp_path: Path
 
 
 @pytest.mark.parametrize(
-    "feedback",
-    ["failing checks: ci\n\nlog line", f"{CONFLICT_REASON}: the branch has been moved"],
+    "reason",
+    [f"{FAILING_CHECKS_REASON}: ci", CONFLICT_REASON],
     ids=["failing checks", "merge conflict"],
 )
 def test_a_review_following_a_host_raised_rework_gets_no_comments_note(
-    tmp_path: Path, feedback: str
+    tmp_path: Path, reason: str
 ) -> None:
+    """Through `events.on_rework`, with a person's comment on the PR and in the
+    review fetch, so a branch that wrongly marks the feedback as theirs shows."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
-    store.set_feedback(unit().id, feedback)
+    pull = PullRequest(
+        number=4,
+        head=branch_name(unit()),
+        base="main",
+        state="open",
+        conversation=("c1",),
+        comment_bodies=("[comment 11] a.py:3 — rename it",),
+    )
+    events.on_rework(
+        4,
+        repo=unit().repo,
+        reason=reason,
+        pull=pull,
+        store=store,
+        fetch_review=lambda number: ["[comment 11] a.py:3 — rename it"],
+        fetch_checks=lambda pull: "log line",
+    )
+    assert store.get(unit().id).feedback_from_person is False
     recorder = ReplyingRecorder()
 
     make_runner(store, recorder, tmp_path).run(store.get(unit().id), base="main", graph=[])
