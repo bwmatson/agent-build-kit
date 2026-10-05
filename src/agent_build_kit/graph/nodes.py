@@ -72,6 +72,9 @@ FRESH: Update = {
     "snapshot": "",
 }
 
+# Lines of a failing tier 2's report written to the run log.
+TIER2_LOG_TAIL = 40
+
 # The nodes a unit is held before, at the boundary, when its upstream went back
 # for rework or its base moved: the ones that start work or leave the machine.
 GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.VERIFY_BASE})
@@ -250,7 +253,8 @@ class BuildPath:
         """A progress line, for the tick log and the unit's run log."""
         line = f"{self._node}: {message}"
         self.runner.log(line)
-        if self.run_log:
+        # The tick's logger already copies the line, stamped, into its run log.
+        if self.run_log and not self.runner.log_reaches_run_log:
             self.run_log.emit(line)
 
     def stop(self, reason: str) -> Update:
@@ -696,6 +700,9 @@ class BuildPath:
         self.say(f"tier 2 {'passed' if ok else 'failed'}")
         if ok:
             return {"snapshot": snapshot}
+        # The tail goes to the run log too: the run log is where a failed run is read.
+        for line in [line for line in snapshot.splitlines() if line.strip()][-TIER2_LOG_TAIL:]:
+            self.say(line)
         # Kept, as tier 1's is: a failure that leaves no trace has to be reproduced by hand.
         if state.moved:
             r.store.set_feedback(unit.id, f"tier 2 failed:\n{snapshot}".strip())

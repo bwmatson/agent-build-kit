@@ -1645,6 +1645,7 @@ def build_runner(
     installation: Installation,
     record_merge: Callable[[str, int], object] = lambda repo, pr: None,
     log: Callable[[str], None] = print,
+    log_reaches_run_log: bool = False,
 ) -> UnitRunner:
     """Assemble the runner for one unit, with every step bound to reality.
 
@@ -1736,4 +1737,5 @@ def build_runner(
         fetch=build_fetch(installation.checkouts, turn=lambda repo: repo_turn_of(repo)),
         fresh_base=build_fresh_base(store, record_merge=record_merge),
         log=log,
+        log_reaches_run_log=log_reaches_run_log,
     )

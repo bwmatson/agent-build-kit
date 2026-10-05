@@ -74,6 +74,28 @@ def test_each_nodes_progress_lines_reach_the_units_run_log(tmp_path: Path) -> No
         assert any(node in line for line in lines), f"nothing from {node} in the run log"
 
 
+def test_a_nodes_progress_line_appears_once_in_the_run_log_when_the_logger_copies_it(
+    tmp_path: Path,
+) -> None:
+    logs = tmp_path / "unit-logs"
+    run_log = RunLog(logs, unit(), step="build", model="m", base="main", started=datetime.now(UTC))
+
+    def log(message: str) -> None:
+        run_log.emit(f"[12:00:00] {message}")
+
+    run(tmp_path, run_log=run_log, tracer=None, log=log, log_reaches_run_log=True)
+
+    (written,) = logs.iterdir()
+    node_lines = [
+        line
+        for line in written.read_text().splitlines()
+        if any(f"{n}:" in line for n in BUILD_PATH)
+    ]
+    assert node_lines
+    # Each line is the logger's stamped copy; a second, plain one would start with the node.
+    assert all(line.startswith("[12:00:00] ") for line in node_lines)
+
+
 def test_a_usage_pause_says_why_in_the_units_run_log(tmp_path: Path) -> None:
     logs = tmp_path / "unit-logs"
     run_log = RunLog(logs, unit(), step="build", model="m", base="main", started=datetime.now(UTC))
