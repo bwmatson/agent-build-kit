@@ -59,7 +59,7 @@ BASE_UNITS = (
 )
 
 # What systemd accepts in a unit name. A checkout directory may be called
-# anything at all - `AI%20Accelerators` is a real one - so the name is made safe
+# anything at all - `My%20Project` is a valid one - so the name is made safe
 # rather than assumed to be.
 SAFE_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
 
