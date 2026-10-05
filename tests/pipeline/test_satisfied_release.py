@@ -14,10 +14,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import forges
+from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.restack import move_branch_onto
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED, base_of
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import git, init_repo
 from tests.factories import stored_unit as unit
@@ -31,11 +32,21 @@ class RecordingForge(StandInForge):
         super().__init__()
         self.order = order
         self.refuses = refuses
+        self.bases: dict[int, tuple[str, str]] = {}
+
+    def list_prs(self, repo, *, head_prefix: str = "") -> list[PullRequest]:
+        return [
+            PullRequest(number=number, head=head, base=base, state=IN_REVIEW)
+            for number, (head, base) in self.bases.items()
+            if head.startswith(head_prefix)
+        ]
 
     def update_pr(self, repo, pr: int, *, base: str = "", body: str = "") -> None:
         if pr == self.refuses:
             raise RuntimeError(f"host refused to retarget #{pr}")
         self.order.append(f"retarget #{pr}")
+        head, _ = self.bases[pr]
+        self.bases[pr] = (head, base)
         super().update_pr(repo, pr, base=base, body=body)
 
     def retargeted(self) -> list[tuple[int, str]]:
@@ -87,6 +98,8 @@ class World:
         self.store.upsert([unit(uid, depends_on=depends_on, **extra)])
         branch = f"spec/{uid}"
         self.store.set_state(uid, state, pr=pr, branch=branch if state != SATISFIED else None)
+        if pr:
+            self.forge.bases[pr] = (branch, f"spec/{depends_on[0]}" if depends_on else "main")
         if pr and state == IN_REVIEW:
             # Approved and pushed, as a unit waiting in review is.
             head = self.sha(branch)
@@ -110,17 +123,34 @@ class World:
         )
 
     def release(self, uid: str = "feature/2", **overrides) -> list[str]:
-        """Release the unit; returns the log lines."""
+        """Release the unit's dependents; returns the log lines and what could
+        not be moved."""
         lines: list[str] = []
         kwargs: dict = {
             "restack": self.restack(),
-            "remove_worktree": lambda repo, branch: self.order.append("worktree"),
-            "delete_branch": lambda repo, branch: self.order.append("branch"),
             "claim": events.build_claim(self.locks),
             "retarget": events.build_retarget(),
+            "settled": events.build_settled({"app": self.repo}),
             "log": lines.append,
         }
-        events.release_children(self.store.get(uid), store=self.store, **{**kwargs, **overrides})
+        self.unmoved = events.release_children(
+            self.store.get(uid), store=self.store, **{**kwargs, **overrides}
+        )
+        return lines
+
+    def remove(self, uid: str = "feature/2") -> list[str]:
+        """What the tick does once the run that found the unit satisfied has
+        left its tree."""
+        lines: list[str] = []
+        events.remove_satisfied(
+            self.store.get(uid),
+            store=self.store,
+            claim=events.build_claim(self.locks),
+            remove_worktree=lambda repo, branch: self.order.append("worktree"),
+            delete_branch=lambda repo, branch: self.order.append("branch"),
+            on_new_base=lambda child: events.pr_based_on(child, base_of(child, self.store.all())),
+            log=lines.append,
+        )
         return lines
 
 
@@ -155,6 +185,20 @@ def before_merge(world: World) -> World:
     world.commit("more.txt")
     git(world.repo, "push", "-q", "origin", "spec/feature/1")
     git(world.repo, "checkout", "-q", "main")
+    world.add("feature/1", IN_REVIEW, pr=1)
+    world.add("feature/2", SATISFIED, "feature/1", pr=2)
+    world.add("feature/3", IN_REVIEW, "feature/2", pr=3)
+    return world
+
+
+@pytest.fixture
+def cut_from_open_predecessor(world: World) -> World:
+    """As `before_merge`, with no commit on `feature/1` since the others were
+    cut from it: the satisfied unit added nothing, so every branch holds the
+    others' tips."""
+    world.branch("spec/feature/1", "main", file="one.txt")
+    world.branch("spec/feature/2", "spec/feature/1")
+    world.branch("spec/feature/3", "spec/feature/2", file="three.txt")
     world.add("feature/1", IN_REVIEW, pr=1)
     world.add("feature/2", SATISFIED, "feature/1", pr=2)
     world.add("feature/3", IN_REVIEW, "feature/2", pr=3)
@@ -263,20 +307,56 @@ def test_releasing_twice_moves_nothing_the_second_time(after_merge: World) -> No
     assert after_merge.forge.retargeted() == retargets, "no pull request retargeted"
 
 
+def test_a_dependent_already_holding_its_new_base_is_still_retargeted(
+    cut_from_open_predecessor: World,
+) -> None:
+    """The normal case: nothing to rebase, but the pull request is still on the
+    branch that is about to close."""
+    world = cut_from_open_predecessor
+
+    world.release()
+
+    assert world.forge.retargeted() == [(3, "spec/feature/1")]
+
+    world.release()
+
+    assert world.forge.retargeted() == [(3, "spec/feature/1")], "not again"
+
+
+def test_releasing_twice_tells_a_dependents_thread_once(
+    cut_from_open_predecessor: World,
+) -> None:
+    world = cut_from_open_predecessor
+    told: list[str] = []
+
+    def resume(unit, kind, reason, feedback, **kwargs) -> bool:
+        told.append(unit.id)
+        return True
+
+    world.release(resume=resume)
+    world.release(resume=resume)
+
+    assert told == ["feature/3"]
+    assert world.forge.retargeted() == [(3, "spec/feature/1")]
+
+
 # --- 1.2 the order, the branch a dependent builds on, a failed retarget ---------
 
 
 def test_the_dependents_move_then_the_pull_request_closes_then_the_branch_goes(
     after_merge: World,
 ) -> None:
-    after_merge.release(before_removal=lambda: after_merge.order.append("close"))
+    after_merge.release()
+    after_merge.order.append("close")
+    after_merge.remove()
 
     assert after_merge.order == ["retarget #3", "close", "worktree", "branch"]
 
 
 def test_a_branch_a_dependent_still_builds_on_is_kept(after_merge: World) -> None:
+    after_merge.release()
     with branch_lock("spec/feature/3", root=after_merge.locks):
-        lines = after_merge.release()
+        lines = after_merge.remove()
 
     assert "branch" not in after_merge.order
     assert any("spec/feature/2" in line and "kept" in line for line in lines)
@@ -290,9 +370,12 @@ def test_a_retarget_that_fails_leaves_the_unit_satisfied_and_moves_the_others(
     after_merge.forge.refuses = 3
 
     lines = after_merge.release()
+    after_merge.remove()
 
     assert after_merge.store.get("feature/2").state == SATISFIED
     assert after_merge.forge.retargeted() == [(4, "main")]
+    assert len(after_merge.unmoved) == 1
+    assert "feature/3" in after_merge.unmoved[0] and "host refused" in after_merge.unmoved[0]
     assert after_merge.own_commits("spec/feature/4", "origin/main") == ["add four.txt"]
     assert any("feature/3" in line and "host refused" in line for line in lines)
     assert "branch" not in after_merge.order, "feature/3 is still on it"

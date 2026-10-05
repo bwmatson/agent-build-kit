@@ -295,9 +295,11 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    leave a merged one: the same function moves each dependent onto the unit's
    own base (its open predecessor, or the trunk), retargets its PR, tells a
    running thread rather than rebasing under it, and hands a conflict to the
-   adapt step. A dependent that cannot be moved is logged and left, and the
-   rest still move; the unit's own worktree and branch stay until a merge or
-   close cleans up.
+   adapt step. A dependent that cannot be moved is logged, left and recorded
+   in the unit's note, and the rest still move. The unit's own worktree and
+   branch go last, once its run has left the tree, by the rules a merged
+   unit's removal follows: the branch stays while a dependent builds on it,
+   is held for depth or was not moved off it.
 7. **Tier 2**, for `tier2` units. If the repo has `dev_stack`, the unit's
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev

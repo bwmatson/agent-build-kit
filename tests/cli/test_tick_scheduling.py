@@ -1184,6 +1184,21 @@ def test_a_unit_a_live_process_holds_stays_running_through_a_pause(
     assert builder.started == []
 
 
+def test_a_unit_with_a_thread_to_resume_stays_running_through_a_pause(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Planned again, it would drop out of `resumable_units`, which only
+    picks up the running."""
+    refusing_usage(monkeypatch, [])
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    builder.store.upsert([stored("feature/1")])
+    builder.store.set_state("feature/1", RUNNING, branch="spec/feature/1")
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.store.get("feature/1").state == RUNNING
+
+
 def test_a_pause_with_nothing_stranded_leaves_the_store_as_it_was(
     builder: Builder,
     tmp_path: Path,

@@ -1322,6 +1322,27 @@ def test_a_rejected_commit_goes_back_to_the_build_run_s_own_agent(
     assert fixes == [runner.run_claude]
 
 
+def test_the_runner_releases_and_removes_a_satisfied_unit_for_real(tmp_path: Path) -> None:
+    """Not the no-ops the runner defaults to, which would leave a satisfied
+    unit's dependents on its closed branch and its worktree behind."""
+    from agent_build_kit.pipeline import wiring
+    from agent_build_kit.pipeline.stack_runner import UnitRunner
+
+    inst = make_installation(
+        tmp_path,
+        planning={"worktree_root": str(tmp_path.parent / "trees")},
+        repos={"app": {"path": str(tmp_path / "app"), "slug": "example/app"}},
+    )
+
+    runner = wiring.build_runner(
+        unit(repo="app"), store=UnitStore(tmp_path / "units.json"), installation=inst
+    )
+
+    fields = UnitRunner.model_fields
+    assert runner.release_dependents is not fields["release_dependents"].default
+    assert runner.remove_satisfied is not fields["remove_satisfied"].default
+
+
 def test_a_base_that_moved_while_the_unit_built_is_reported(tmp_path: Path) -> None:
     """Read from the store at each step: the poll that records a parent's
     merge runs between builds, while this one is still going."""

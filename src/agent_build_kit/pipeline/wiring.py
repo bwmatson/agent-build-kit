@@ -948,61 +948,59 @@ def build_fresh_base(
 
 def build_release_dependents(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
-) -> Callable[[Unit], None]:
+) -> Callable[[Unit], list[str]]:
     """Move what is stacked on a unit that has become satisfied onto its new
-    base, as `events.on_merged` does for a merged one, with the same restack
-    and retarget the merge handler is built with.
+    base, as `events.on_merged` does for a merged one, with the same moves the
+    merge handler is built with. Returns what it could not move, one line each.
 
     The unit's own worktree and branch are left alone: the run that found it
-    satisfied is still standing in that tree.
+    satisfied is still standing in that tree. See `build_remove_satisfied`.
     """
-    # Late: `events` imports this module.
-    from agent_build_kit.cli.pipeline import resume_thread
+    # Late: the cli package and `events` import this module.
+    from agent_build_kit.cli.pipeline import build_stack_moves
     from agent_build_kit.pipeline import events
 
-    checkouts = installation.checkouts
-    names = {path: repo for repo, path in checkouts.items()}
+    moves = build_stack_moves(store, installation)
 
-    def at_path[T](step: Callable[..., T]) -> Callable[..., T]:
-        def in_turn(path: Path, *args, **kwargs) -> T:
-            with file_lock(installation.state_dir / "locks" / f"repo-{names[path]}.lock"):
-                return step(path, *args, **kwargs)
-
-        return in_turn
-
-    def release(unit: Unit) -> None:
-        events.release_children(
+    def release(unit: Unit) -> list[str]:
+        return events.release_children(
             store.get(unit.id),
             store=store,
-            restack=events.build_restack(
-                repos=checkouts,
-                store=store,
-                root=installation.worktree_root,
-                posts_root=installation.state_dir,
-                move=at_path(resolved_move),
-                push=at_path(push_with_lease),
-            ),
-            remove_worktree=lambda repo, branch: None,
-            delete_branch=lambda repo, branch: None,
-            claim=events.build_claim(installation.state_dir / "locks"),
-            retarget=events.build_retarget(),
-            rebase_cap=installation.stack_depth_rebase_cap,
-            resume=lambda child, kind, reason, feedback, from_person=False: (
-                resume_thread(
-                    installation,
-                    child,
-                    kind,
-                    store=store,
-                    reason=reason,
-                    feedback=feedback,
-                    from_person=from_person,
-                )
-                is not None
-            ),
+            restack=moves["restack"],
+            claim=moves["claim"],
+            retarget=moves["retarget"],
+            rebase_cap=moves["rebase_cap"],
+            resume=moves["resume"],
+            settled=events.build_settled(installation.checkouts),
             log=log,
         )
 
     return release
+
+
+def build_remove_satisfied(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[[Unit], None]:
+    """Remove a satisfied unit's worktree and branch, for the run to call once
+    it has left the tree. See `events.remove_satisfied`."""
+    # Late: the cli package and `events` import this module.
+    from agent_build_kit.cli.pipeline import build_stack_moves
+    from agent_build_kit.pipeline import events
+
+    moves = build_stack_moves(store, installation)
+
+    def remove(unit: Unit) -> None:
+        events.remove_satisfied(
+            store.get(unit.id),
+            store=store,
+            claim=moves["claim"],
+            remove_worktree=moves["remove_worktree"],
+            delete_branch=moves["delete_branch"],
+            on_new_base=lambda child: events.pr_based_on(child, base_of(child, store.all())),
+            log=log,
+        )
+
+    return remove
 
 
 def build_close_pr(
@@ -1671,7 +1669,7 @@ def build_runner(
     # worktree and pushing both take git's own locks there, which fail rather
     # than wait — so those two steps take turns per repo. Everything else
     # happens inside the unit's own worktree and needs no turn-taking.
-    repo_turn = partial(file_lock, root / "locks" / f"repo-{unit.repo}.lock")
+    unit_repo_turn = partial(file_lock, root / "locks" / f"repo-{unit.repo}.lock")
 
     def repo_turn_of(name: str) -> AbstractContextManager[object]:
         return file_lock(root / "locks" / f"repo-{name}.lock")
@@ -1680,11 +1678,11 @@ def build_runner(
     push = build_push(store)
 
     def worktree_in_turn(unit: Unit, base: str) -> Path:
-        with repo_turn():
+        with unit_repo_turn():
             return worktree(unit, base)
 
     def push_in_turn(branch: str, *, cwd: Path) -> str:
-        with repo_turn():
+        with unit_repo_turn():
             return push(branch, cwd=cwd)
 
     forge = forges.get(repo.forge)
@@ -1732,6 +1730,7 @@ def build_runner(
         post_status=tier2.post,
         close_pr=build_close_pr(),
         release_dependents=build_release_dependents(store, installation, log=log),
+        remove_satisfied=build_remove_satisfied(store, installation, log=log),
         reply=build_post_replies(root=root, log=log),
         head=_head_sha,
         fetch=build_fetch(installation.checkouts, turn=lambda repo: repo_turn_of(repo)),
