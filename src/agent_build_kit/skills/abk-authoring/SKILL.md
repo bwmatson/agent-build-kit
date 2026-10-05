@@ -136,7 +136,7 @@ Its unit is ready without its predecessor, and the chain closes around it: the
 next group depends on the last unit before the independent one. It is never
 joined into a neighbouring unit. The reason is required, the first group cannot
 carry the line, and neither can an `[acceptance]`, `[contract]` or `[narrow]`
-group (a flagged group waits for every earlier unit); `abk tags` rejects each.
+group (a flagged group keeps the ordering rules its flag gives it); `abk tags` rejects each.
 
 ## Before committing a change
 

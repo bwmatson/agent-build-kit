@@ -105,11 +105,11 @@ removed and what depended on it depends on the earlier. A join is accepted only
 when `pipeline/joins.py` finds every rule held, else the round is refused: same
 repo and tier; a straight line (the later depends on the earlier, nothing else
 does, the later waits on nothing else unfinished); both unstarted; no
-`[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:`;
-the estimates together at or under `limits.max_unit_lines`. Joins are checked in
-order against a copy of the store (a group marked `Independent: <reason>` depends
-on no earlier group of its change, and is never joined into a neighbour's unit), so three units in a line can become one in a
-round. On the write each join is applied under both units' branch locks with
+`[acceptance]`, `[contract]` or `[narrow]` group; no group marked `Separate:` or
+`Independent:` (an `Independent: <reason>` group depends on no earlier unit of its
+change, and is never joined into a neighbour's unit); the estimates together at
+or under `limits.max_unit_lines`. Joins are checked in order against a copy of
+the store, so three units in a line can become one in a round. On the write each join is applied under both units' branch locks with
 "unstarted" read again; a unit that has started since drops that join alone, the
 rest of the plan is written, and the change is planned again next round. A group
 another unit carries counts as built when its change is planned again. Each join

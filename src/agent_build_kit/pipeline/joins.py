@@ -172,3 +172,5 @@ def _check_groups(
                 )
             if group.separate:
                 raise refuse(f"{member.change} group {number} is marked `Separate:`")
+            if group.independent:
+                raise refuse(f"{member.change} group {number} is marked `Independent:`")

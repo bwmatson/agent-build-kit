@@ -147,6 +147,7 @@ def parse_plan(
         carried = {number for join in joins if not join.unit for number in join.groups}
         _check_groups(units, groups, built or set(), carried)
         _check_acceptance(units, groups)
+        _check_independent(units, groups)
     _check_ceiling(units)
     if joins:
         if context is None:
@@ -310,6 +311,28 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
             )
 
 
+def _check_independent(units: list[Unit], groups: list[TaskGroup]) -> None:
+    """A group marked `Independent:` is a unit of its own that waits for no
+    other unit of its change — it was written to stand alone, so chaining it
+    behind its neighbours would only hold it up. What its `Needs:` lines name
+    belongs to other changes, and stays."""
+    independent = {g.number for g in groups if g.independent}
+    for unit in units:
+        if not independent & set(unit.groups):
+            continue
+        if set(unit.groups) - independent:
+            raise PlannerError(
+                f"unit {unit.id} combines an `Independent:` group with other work — it "
+                "stands alone, so it is a unit of its own"
+            )
+        own = [d for d in unit.depends_on if d.startswith(f"{unit.change}/")]
+        if own:
+            raise PlannerError(
+                f"unit {unit.id} holds an `Independent:` group but depends on "
+                f"{', '.join(own)} of its own change — it waits for nothing there"
+            )
+
+
 def _check_dependencies(units: list[Unit], known: set[str]) -> None:
     """`known` is the units the store already has.
 
@@ -397,6 +420,12 @@ Rules the graph must satisfy:
   consumer does. Give it a unit of its own, never combined with another group,
   and make that unit depend on every unit building the change's other groups
   (a `[narrow]` group aside, which comes after it).
+- A group with an `Independent: <reason>` line stands alone. Give it a unit of
+  its own, never combined with another group. That unit depends on no unit of
+  its own change; it still depends on what its `Needs:` lines name. The next
+  group's unit depends on the last unit before the independent one, as if the
+  independent group were not there. An `[acceptance]` or `[narrow]` unit also
+  depends on the independent unit.
 
 How the repos relate:
 {relationships}
@@ -422,7 +451,7 @@ rejected:
   on nothing else unfinished;
 - neither has started — never name a unit not marked unstarted;
 - no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
-  has a `Separate:` line;
+  has a `Separate:` or `Independent:` line;
 - the two estimates together stay at or under {max_lines} changed lines.
 A unit joined to may be joined to again, in order along the line, while it
 stays under that ceiling.

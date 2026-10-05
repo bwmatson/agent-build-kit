@@ -284,6 +284,9 @@ NEW_GROUP_REFUSED = {
     "over the ceiling": {"estimate": 950},
     "joined group is separate": {"feature_group": {"extra": "Separate: reviewed alone"}},
     "joined onto group is separate": {"base_group": {"extra": "Separate: reviewed alone"}},
+    "joined onto group is independent": {
+        "base_group": {"extra": "Independent: only adds a receiver"}
+    },
 }
 
 # The words of the rule each variation breaks, so a variation that one day trips
@@ -301,6 +304,7 @@ NEW_GROUP_REASON = {
     "over the ceiling": "over the ceiling",
     "joined group is separate": "marked `Separate:`",
     "joined onto group is separate": "marked `Separate:`",
+    "joined onto group is independent": "marked `Independent:`",
 }
 assert NEW_GROUP_REASON.keys() == NEW_GROUP_REFUSED.keys()
 
@@ -493,6 +497,8 @@ CHAIN_REFUSED = {
     "over the ceiling": {"b_estimate": 950},
     "earlier separate": {"a_group": {"extra": "Separate: reviewed alone"}},
     "later separate": {"b_group": {"extra": "Separate: reviewed alone"}},
+    "earlier independent": {"a_group": {"extra": "Independent: only adds a receiver"}},
+    "later independent": {"b_group": {"extra": "Independent: only adds a receiver"}},
 }
 
 CHAIN_REASON = {
@@ -508,6 +514,8 @@ CHAIN_REASON = {
     "over the ceiling": "over the ceiling",
     "earlier separate": "marked `Separate:`",
     "later separate": "marked `Separate:`",
+    "earlier independent": "marked `Independent:`",
+    "later independent": "marked `Independent:`",
 }
 assert CHAIN_REASON.keys() == CHAIN_REFUSED.keys()
 
