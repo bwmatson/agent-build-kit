@@ -113,6 +113,9 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         "review_decision": pull.review_decision,
         "labels": sorted(pull.labels),
         "failing_checks": sorted(pull.failing_checks),
+        # Apart from the failing ones: the host cancelling a check is not a
+        # verdict on the commit, so it is re-run, not reworked.
+        "cancelled_checks": sorted(pull.cancelled_checks),
         "head": pull.head,
         # True, False, or None while the host has not worked it out.
         "mergeable": pull.mergeable,
@@ -230,6 +233,8 @@ class Poller(BaseModel):
             return self.dispatch("merged", number, pull=pull)
         if current["state"] == CLOSED:
             return self.dispatch("closed", number, pull=pull)
+        if current["cancelled_checks"]:
+            self.dispatch("rerun_checks", number, pull=pull)
         if current["failing_checks"]:
             return self.dispatch(
                 "rework",
@@ -257,6 +262,13 @@ class Poller(BaseModel):
             # Closed without merging is a decision, not a defect: continuing
             # would rebuild work that was deliberately dropped.
             return self.dispatch("closed", number, pull=pull)
+
+        newly_cancelled = set(after["cancelled_checks"]) - set(before.get("cancelled_checks") or [])
+        if newly_cancelled:
+            # Before anything that returns, so a comment arriving with it does
+            # not swallow it. A check that is re-run leaves the list, so being
+            # cancelled again is new, which is how the handler counts to its bound.
+            self.dispatch("rerun_checks", number, pull=pull)
 
         labels_added = set(after["labels"]) - set(before.get("labels") or [])
         if HOLD_LABEL in labels_added:

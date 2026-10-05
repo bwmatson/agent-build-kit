@@ -49,6 +49,9 @@ class AzureHost:
             return _ok(args, self.policies.get(int(_flag(args, "--id") or 0), []))
         if args[1:4] == ["repos", "pr", "list"]:
             return _ok(args, self._listing(args))
+        if args[1:4] == ["pipelines", "runs", "show"]:
+            # The build behind a policy evaluation; these tests' builds failed.
+            return _ok(args, {"id": int(_flag(args, "--id") or 0), "result": "failed"})
         raise AssertionError(f"the stand-in host was not expecting {' '.join(args)}")
 
     def asked(self, word: str) -> list[list[str]]:

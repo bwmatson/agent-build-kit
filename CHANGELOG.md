@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A cancelled check is no longer a failing one. A host cancels a check when a runner never came or
+  a newer run superseded it, which says nothing about the commit, yet it sent the unit back for
+  rework. `PullRequest` gains `cancelled_checks` (GitHub `CANCELLED`; an Azure DevOps build policy
+  whose build ended `canceled`), the poller dispatches a new `rerun_checks` event, and the forge's
+  new `rerun_checks` operation runs them again with no agent, up to `limits.max_check_reruns`
+  (default 2) per head commit, counted on the stored unit. `FAILURE` and `TIMED_OUT` still rework.
+
 - Tier 1 type-checks `tests` in a unit's worktree. The pre-commit hook pinned pyrefly 1.2.0, which
   dropped the `tests` include in a worktree under the pipeline's state directory, so a unit's
   checks passed on test files CI then failed. The hook and the dev pin are 1.3.1.

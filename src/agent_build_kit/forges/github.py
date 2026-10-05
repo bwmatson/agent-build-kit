@@ -44,7 +44,8 @@ _FIELDS = (
     "number,headRefName,baseRefName,state,isDraft,mergedAt,labels,comments,"
     "statusCheckRollup,reviewDecision,reviews,mergeable"
 )
-_FAILING = ("FAILURE", "TIMED_OUT", "CANCELLED")
+_FAILING = ("FAILURE", "TIMED_OUT")
+_CANCELLED = ("CANCELLED",)
 _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 # A failed Actions run, and the timestamp prefix its log lines carry.
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
@@ -298,6 +299,13 @@ class GitHubForge:
                     if str(check.get("conclusion", "")).upper() in _FAILING
                 )
             ),
+            cancelled_checks=tuple(
+                sorted(
+                    str(check.get("name", ""))
+                    for check in checks
+                    if str(check.get("conclusion", "")).upper() in _CANCELLED
+                )
+            ),
             # UNKNOWN is what GitHub says until it has worked the answer out.
             mergeable=_MERGEABLE.get(str(pull.get("mergeable") or "")),
         )
@@ -391,7 +399,20 @@ class GitHubForge:
         return [node] if node else []
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
-        raise NotImplementedError
+        """Re-run the workflow runs behind the cancelled checks, their cancelled
+        jobs included."""
+        slug = key(repo)
+        raw = gh_json(
+            ["gh", "pr", "view", str(pull.number), "--repo", slug, "--json", "statusCheckRollup"],
+            default={},
+        )
+        checks = raw.get("statusCheckRollup") or [] if isinstance(raw, dict) else []
+        cancelled = [c for c in checks if str(c.get("conclusion", "")).upper() in _CANCELLED]
+        runs = sorted(
+            {m["run"] for c in cancelled if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
+        )
+        for run in runs:
+            gh(["gh", "run", "rerun", run, "--repo", slug, "--failed"], slug=slug)
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         """The failed CI jobs' logs, for the rework that fixes them.

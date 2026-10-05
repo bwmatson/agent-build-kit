@@ -576,6 +576,19 @@ def build_fetch_check_logs(
     return fetch
 
 
+def build_rerun_checks(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[..., None]:
+    """Ask a PR's host to run its cancelled checks again."""
+    for_repo = for_repo or forges.for_repo
+
+    def rerun(repo: str, pull: PullRequest) -> None:
+        forge, repo_id = for_repo(repo)
+        forge.rerun_checks(repo_id, pull)
+
+    return rerun
+
+
 def _reproduce_note(repo: str) -> str:
     """How to see locally what CI saw, from the repo's own toolchain profile.
 
@@ -773,8 +786,33 @@ def on_rerun_checks(
     log: Log = print,
 ) -> bool:
     """Ask the host to run a unit's cancelled checks again, without an agent,
-    up to `limits.max_check_reruns` times per head commit."""
-    raise NotImplementedError
+    up to `limits.max_check_reruns` times per head commit.
+
+    The count is on the stored unit, against the commit last pushed: it starts
+    again when the head moves. Past the bound nothing is asked for and the unit
+    is left in review: a host that keeps cancelling says nothing about the code.
+    """
+    from agent_build_kit.config import active
+
+    unit = _find(store, repo, pr)
+    if unit is None:
+        log(f"rerun #{pr}: no unit recorded for it in {repo}, ignoring")
+        return True
+
+    head = unit.pushed or ""
+    done = unit.check_reruns if unit.check_rerun_head == head else 0
+    limit = active().limits.max_check_reruns
+    names = ", ".join(pull.cancelled_checks)
+    if done >= limit:
+        log(
+            f"rerun #{pr}: {unit.id} at {head}: the host keeps cancelling the checks "
+            f"({names}) after {limit} re-runs, leaving them"
+        )
+        return True
+    store.record_check_rerun(unit.id, head, done + 1)
+    log(f"rerun #{pr}: {unit.id} at {head}: re-run {done + 1} of {limit} of {names}")
+    rerun(pull)
+    return True
 
 
 def _not_for_now(
@@ -1226,6 +1264,18 @@ def build_dispatch(
             if waiting_path:
                 _save_waiting(waiting_path, store, known)
             return taken
+        if event == "rerun_checks":
+            if rerun_checks is None or kwargs.get("pull") is None:
+                log(f"rerun #{number} in {repo}: no way to ask the host, leaving the checks")
+                return True
+            return on_rerun_checks(
+                number,
+                repo=repo,
+                pull=kwargs["pull"],
+                store=store,
+                rerun=lambda pull: rerun_checks(repo, pull),
+                log=log,
+            )
         log(f"unhandled poller event {event!r} for #{number} in {repo}")
         return True
 
