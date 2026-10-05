@@ -609,7 +609,7 @@ message.
 
 ## Test markers
 
-Two markers keep slow tests out of the default suite (`pytest`):
+Two markers keep slow tests out of the default suite (`pytest`), and a third keeps a test out of the parallel pass:
 
 - `integration` needs node (`npx`) and the network for the real OpenSpec CLI.
   Run with `pytest -m integration`.
@@ -618,6 +618,10 @@ Two markers keep slow tests out of the default suite (`pytest`):
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
   demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
   test-local-stack`).
+- `serial` marks a test that cannot share a process with others. `poe test`
+  runs the suite in parallel workers (pytest-xdist, capped at 8) without these
+  tests, then runs them alone in a serial pass. A plain `pytest <file>` runs
+  without workers.
 
 ## Open questions
 

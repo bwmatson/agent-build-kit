@@ -539,7 +539,7 @@ def build_tier1(
 
             for command in [lint_command, *test_commands]:
                 result = ran(command, where)
-                if result.returncode:
+                if not toolchain.tolerates_exit(command, result.returncode):
                     return False, _failure(command, result)
         return True, ""
 
