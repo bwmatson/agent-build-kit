@@ -128,12 +128,14 @@ flowchart TD
     checks -->|passed| review
     checks -->|failed, fix rounds left| fix_checks
     checks -->|failed, fix rounds spent| failed
+    adapt -->|tests not accounted for| failed
     fix_checks --> checks
     review -->|approved, tier 2 unit| tier2
     review -->|approved| verify_base
     review -->|changes asked| rework
     review -->|needs a person, escalated| held
-    implement & rework & review & verify_base -->|upstream went back, base moved| held
+    implement & fix_checks & rework & review & tier2 & verify_base -->|upstream went back, base moved| held
+    tier1 & push -->|upstream went back, base moved; on their conditions| held
     review -->|rounds spent| push
     rework --> checks
     tier1 -->|passed, no commits of its own| satisfied
@@ -198,7 +200,7 @@ reference for each condition until this replaces them. The nodes:
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue. A satisfied unit's thread is deleted, its groups ticked and an open pull request closed with the reason | `close_pr` for satisfied |
 
 Between steps a unit is held, not stopped: before `implement`, `fix_checks`,
-`review`, `rework`, `verify_base` (and `tier1` for a unit that produced nothing,
+`review`, `rework`, `tier2` (unless the branch just moved), `verify_base` (and `tier1` for a unit that produced nothing,
 and `push` when its rounds are spent) the run asks whether its upstream went back
 for rework or its base moved or was rewritten since `prepare` took the tip, and
 goes to `held` with the unit `planned` if so. A step already begun is finished.

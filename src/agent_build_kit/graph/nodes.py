@@ -140,6 +140,7 @@ class BuildPath:
             node in GATED
             or (node is Node.TIER1 and state.produced_nothing and not state.moved)
             or (node is Node.PUSH and state.spent)
+            or (node is Node.TIER2 and not state.moved)
         )
         if gated and (why := self.upstream_changed(state)):
             return self.hold(

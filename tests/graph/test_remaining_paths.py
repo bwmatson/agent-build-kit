@@ -94,6 +94,22 @@ def test_a_failing_tier_two_leaves_no_pull_request_and_keeps_its_output(tmp_path
     assert "the route 404s" in stored.feedback
 
 
+def test_a_tier_two_unit_is_held_at_the_boundary_before_tier_two(tmp_path: Path) -> None:
+    """Its upstream went back while it was in review: the live stack is not
+    brought up against a stale base."""
+    recorder = fresh(tmp_path, tier="tier2", tier2_ok=False)
+
+    outcome = build(
+        tmp_path,
+        recorder,
+        upstream_incomplete=lambda u: "upstream reworking" if "review" in recorder.events else "",
+    )
+
+    assert outcome.status == "held"
+    assert "tier2" not in recorder.events
+    assert recorder.store.get(unit().id).state == PLANNED
+
+
 def test_tier_two_follows_checks_that_were_fixed_first(tmp_path: Path) -> None:
     """No point occupying the one local stack to re-confirm a known failure."""
     recorder = fresh(tmp_path, tier="tier2")
@@ -752,11 +768,12 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
         tip[0] = "rewritten"  # the parent is restacked while the port runs
         return port(prompt, cwd=cwd)
 
+    wired: dict[str, Any] = {**overrides, "run_rework": adapt}
     outcome = build(
         tmp_path,
         recorder,
         base="spec/add-marker/0",
-        **{**overrides, "run_rework": adapt},
+        **wired,
         base_tip=lambda tree, ref: tip[0],
         base_moved=lambda u, base, *, tree, start: (
             f"its base {base} was rewritten" if start != tip[0] else ""
