@@ -72,10 +72,11 @@ FRESH: Update = {
     "snapshot": "",
 }
 
+# Lines of a failing tier 2's report written to the run log.
+TIER2_LOG_TAIL = 40
+
 # The nodes a unit is held before, at the boundary, when its upstream went back
 # for rework or its base moved: the ones that start work or leave the machine.
-TIER2_LOG_TAIL = 40  # lines of a failing tier 2's output written to the run log
-
 GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.VERIFY_BASE})
 # The nodes that start an agent: each asks the usage guard first.
 AGENT_NODES = frozenset(
@@ -699,7 +700,7 @@ class BuildPath:
         if ok:
             return {"snapshot": snapshot}
         # The tail goes to the run log too: the run log is where a failed run is read.
-        for line in snapshot.splitlines()[-TIER2_LOG_TAIL:]:
+        for line in [line for line in snapshot.splitlines() if line.strip()][-TIER2_LOG_TAIL:]:
             self.say(line)
         # Kept, as tier 1's is: a failure that leaves no trace has to be reproduced by hand.
         if state.moved:

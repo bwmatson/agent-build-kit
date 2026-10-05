@@ -10,16 +10,25 @@ from pathlib import Path
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.run_log import RunLog
+from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.factories import unit
 from tests.runner_fakes import Recorder, make_runner
 
-FAILURE = "\n".join(
-    [
-        "## Tier 2 results",
-        "FAILED tests/live/test_route.py::test_it - the route 404s",
-        "1 failed, 3 passed",
-    ]
+TAIL = [
+    "FAILED tests/live/test_route.py::test_it - the route 404s",
+    "1 failed, 3 passed",
+]
+FAILURE = build_snapshot(
+    Tier2Result(
+        sha="abcdef1234567",
+        passed=3,
+        failed=1,
+        skipped=0,
+        duration_seconds=1.5,
+        command="uv run pytest -m local_stack",
+        output="\n".join([*(f"line {n}" for n in range(1, 60)), *TAIL]),
+    )
 )
 
 
@@ -46,7 +55,10 @@ def test_a_failing_tier_two_writes_the_tail_of_its_output_to_the_run_log(tmp_pat
     (written,) = logs.iterdir()
     lines = written.read_text().splitlines()
     assert any("tier2: stopping: tier 2 failed" in line for line in lines), "\n".join(lines)
-    for output_line in FAILURE.splitlines():
+    for output_line in TAIL:
         assert any("tier2:" in line and output_line in line for line in lines), (
             f"{output_line!r} is not in the run log:\n" + "\n".join(lines)
         )
+    assert not any("tier2:" in line and line.endswith("line 1") for line in lines), (
+        "the head of the output is in the run log:\n" + "\n".join(lines)
+    )
