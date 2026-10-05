@@ -283,13 +283,6 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
     exercised = {g.number for g in groups if g.flag not in ("acceptance", "narrow")}
     index = {unit.id: unit for unit in units}
 
-    def upstream(unit_id: str, seen: set[str]) -> set[str]:
-        for dependency in index[unit_id].depends_on:
-            if dependency in index and dependency not in seen:
-                seen.add(dependency)
-                upstream(dependency, seen)
-        return seen
-
     for unit in units:
         if not accepting & set(unit.groups):
             continue
@@ -298,7 +291,7 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
                 f"unit {unit.id} combines the [acceptance] group with other work — it "
                 "exercises what the rest of the change built, so it is a unit of its own"
             )
-        waited_for = upstream(unit.id, set())
+        waited_for = _upstream(index, unit.id, set())
         missing = [
             other.id
             for other in units
@@ -311,13 +304,33 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
             )
 
 
+def _upstream(index: dict[str, Unit], unit_id: str, seen: set[str]) -> set[str]:
+    """Every unit of the plan `unit_id` waits for, directly or through others."""
+    for dependency in index[unit_id].depends_on:
+        if dependency in index and dependency not in seen:
+            seen.add(dependency)
+            _upstream(index, dependency, seen)
+    return seen
+
+
 def _check_independent(units: list[Unit], groups: list[TaskGroup]) -> None:
     """A group marked `Independent:` is a unit of its own that waits for no
     other unit of its change — it was written to stand alone, so chaining it
     behind its neighbours would only hold it up. What its `Needs:` lines name
     belongs to other changes, and stays."""
     independent = {g.number for g in groups if g.independent}
+    narrowing = {g.number for g in groups if g.flag == "narrow"}
+    index = {unit.id: unit for unit in units}
+    standing = [unit for unit in units if independent & set(unit.groups)]
     for unit in units:
+        if narrowing & set(unit.groups):
+            waited_for = _upstream(index, unit.id, set())
+            missing = [other.id for other in standing if other.id not in waited_for]
+            if missing:
+                raise PlannerError(
+                    f"narrowing unit {unit.id} does not wait for {', '.join(missing)} — it "
+                    "would remove the old half of the shape before that work is in"
+                )
         if not independent & set(unit.groups):
             continue
         if set(unit.groups) - independent:
