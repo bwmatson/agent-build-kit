@@ -213,6 +213,125 @@ def test_work_not_yet_pushed_is_kept_on_top_of_the_host_s_head(stack: Path, tmp_
     assert (stack / "rework.txt").exists()
 
 
+def _host_clone(tmp_path: Path, branch: str) -> Path:
+    other = tmp_path / "host"
+    subprocess.run(
+        ["git", "clone", "-q", "-b", "main", str(tmp_path / "remote.git"), str(other)], check=True
+    )
+    git(other, "config", "user.email", "o@o.o")
+    git(other, "config", "user.name", "o")
+    git(other, "checkout", "-q", branch)
+    return other
+
+
+def _host_rewords(tmp_path: Path, branch: str) -> str:
+    """The host rewrites the branch's tip to a different commit carrying the
+    same change (a message edited, as when a trailer is dropped) and
+    force-pushes it. Returns the new head."""
+    other = _host_clone(tmp_path, branch)
+    git(other, "commit", "-q", "--amend", "-m", "reworded by a person")
+    git(other, "push", "-q", "--force", "origin", branch)
+    return git(other, "rev-parse", "HEAD").strip()
+
+
+def _restack_onto_a_newer_trunk(repo: Path, branch: str) -> None:
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "trunk.txt", "landed on the trunk meanwhile")
+    git(repo, "push", "-q", "origin", "main")
+    git(repo, "rebase", "-q", "main", branch)
+    git(repo, "checkout", "-q", "main")
+
+
+def test_a_branch_the_host_rewrote_without_changing_the_work_is_adopted(
+    stack: Path, tmp_path: Path
+) -> None:
+    """Same change at different commits: the approved head stays, and the
+    caller records the host's head so the lease matches."""
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    host_head = _host_rewords(tmp_path, "spec/c/1")
+    assert host_head != pushed
+
+    adopt_host_head(
+        stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack, base="main"
+    )
+
+    assert git(stack, "rev-parse", "spec/c/1").strip() == pushed, "nothing reset or replayed"
+
+
+def test_a_restacked_local_branch_over_the_hosts_older_form_replays_nothing(
+    stack: Path, tmp_path: Path
+) -> None:
+    """The recorded push is no ancestor of the restacked branch, so counting
+    commits after it would replay the trunk's and the unit's own."""
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    host_head = _host_rewords(tmp_path, "spec/c/1")
+    _restack_onto_a_newer_trunk(stack, "spec/c/1")
+    restacked = git(stack, "rev-parse", "spec/c/1").strip()
+
+    adopt_host_head(
+        stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack, base="main"
+    )
+
+    assert git(stack, "rev-parse", "spec/c/1").strip() == restacked
+
+
+def test_only_the_work_the_host_lacks_is_replayed_after_a_restack(
+    stack: Path, tmp_path: Path
+) -> None:
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    host_head = _host_rewords(tmp_path, "spec/c/1")
+    _restack_onto_a_newer_trunk(stack, "spec/c/1")
+    git(stack, "checkout", "-q", "spec/c/1")
+    commit(stack, "rework.txt")
+
+    adopt_host_head(
+        stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack, base="main"
+    )
+
+    assert git(stack, "rev-parse", "spec/c/1~1").strip() == host_head
+    assert (stack / "rework.txt").exists()
+    assert not (stack / "trunk.txt").exists(), "the trunk's commit is not the unit's work"
+
+
+def test_a_host_change_that_does_not_combine_with_local_work_is_refused(
+    stack: Path, tmp_path: Path
+) -> None:
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    other = _host_clone(tmp_path, "spec/c/1")
+    commit(other, "parent.txt", "the host's edit")
+    git(other, "push", "-q", "origin", "spec/c/1")
+    host_head = git(other, "rev-parse", "HEAD").strip()
+    git(stack, "checkout", "-q", "spec/c/1")
+    commit(stack, "parent.txt", "our edit")
+    ours = git(stack, "rev-parse", "spec/c/1").strip()
+
+    with pytest.raises(StaleRemote, match=host_head[:9]):
+        adopt_host_head(
+            stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack, base="main"
+        )
+
+    assert git(stack, "rev-parse", "spec/c/1").strip() == ours, "nothing is changed"
+
+
+def test_a_host_head_that_descends_from_the_last_push_still_gets_local_work_replayed(
+    stack: Path, tmp_path: Path
+) -> None:
+    pushed = push_with_lease(stack, "spec/c/1", last_pushed=None)
+    other = _host_clone(tmp_path, "spec/c/1")
+    commit(other, "theirs.txt")
+    git(other, "push", "-q", "origin", "spec/c/1")
+    host_head = git(other, "rev-parse", "HEAD").strip()
+    git(stack, "checkout", "-q", "spec/c/1")
+    commit(stack, "rework.txt")
+
+    adopt_host_head(
+        stack, "spec/c/1", host_head=host_head, last_pushed=pushed, cwd=stack, base="main"
+    )
+
+    assert git(stack, "rev-parse", "spec/c/1~1").strip() == host_head
+    assert (stack / "rework.txt").exists()
+
+
 def test_a_blast_radius_note_says_what_moved_and_why() -> None:
     """A reviewer seeing a force-push needs to know what changed underneath
     without diffing the branch against its old self."""

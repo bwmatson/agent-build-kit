@@ -433,7 +433,13 @@ def remote_head(repo: Path, branch: str) -> str | None:
 
 
 def adopt_host_head(
-    repo: Path, branch: str, *, host_head: str, last_pushed: str | None, cwd: Path
+    repo: Path,
+    branch: str,
+    *,
+    host_head: str,
+    last_pushed: str | None,
+    cwd: Path,
+    base: str | None = None,
 ) -> str:
     """Bring the local branch to the host's head for it, keeping local work.
 

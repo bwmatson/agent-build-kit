@@ -196,6 +196,84 @@ def test_a_branch_the_host_moved_is_adopted_not_pushed(tmp_path: Path) -> None:
     assert store.get("add-marker/1").approved == ""
 
 
+def _unit_on_a_host(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A repo with a bare remote and `spec/add-marker/1` pushed once, one
+    commit past `main`. Returns the repo, a clone for the host's side, and the
+    pushed head."""
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    repo = init_repo(tmp_path / "repo")
+    git(repo, "remote", "add", "origin", str(remote))
+    (repo / "base.txt").write_text("base")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    git(repo, "push", "-q", "-u", "origin", "main")
+    git(repo, "checkout", "-qb", "spec/add-marker/1")
+    (repo / "marker.txt").write_text("marker")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "add marker\n\nTrailer: dropped later")
+    git(repo, "push", "-q", "origin", "spec/add-marker/1")
+    host = tmp_path / "host"
+    subprocess.run(["git", "clone", "-q", "-b", "main", str(remote), str(host)], check=True)
+    git(host, "config", "user.email", "o@o.o")
+    git(host, "config", "user.name", "o")
+    git(host, "checkout", "-q", "spec/add-marker/1")
+    return repo, host, git(repo, "rev-parse", "HEAD").strip()
+
+
+def test_a_branch_the_host_rewrote_without_changing_the_work_is_pushed_over_its_head(
+    tmp_path: Path,
+) -> None:
+    """A person dropped a commit-message trailer and force-pushed: the work is
+    unchanged, so the unit is not failed. The host's head becomes the last
+    push, the approval stands, and the approved head goes out leased on it."""
+    repo, host, pushed_head = _unit_on_a_host(tmp_path)
+    git(host, "commit", "-q", "--amend", "-m", "add marker")
+    git(host, "push", "-q", "--force", "origin", "spec/add-marker/1")
+    host_head = git(host, "rev-parse", "HEAD").strip()
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.record_push("add-marker/1", pushed_head)
+    store.record_approval("add-marker/1", pushed_head)
+    leased: list[str | None] = []
+
+    build_push(
+        store, push=lambda repo, branch, last_pushed: leased.append(last_pushed) or pushed_head
+    )("spec/add-marker/1", cwd=repo)
+
+    assert leased == [host_head]
+    assert store.get("add-marker/1").approved == pushed_head
+
+
+def test_a_restacked_branch_over_the_hosts_older_form_is_pushed_over_its_head(
+    tmp_path: Path,
+) -> None:
+    repo, host, pushed_head = _unit_on_a_host(tmp_path)
+    git(host, "commit", "-q", "--amend", "-m", "add marker")
+    git(host, "push", "-q", "--force", "origin", "spec/add-marker/1")
+    host_head = git(host, "rev-parse", "HEAD").strip()
+    git(repo, "checkout", "-q", "main")
+    (repo / "trunk.txt").write_text("trunk")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "trunk moves on")
+    git(repo, "rebase", "-q", "main", "spec/add-marker/1")
+    restacked = git(repo, "rev-parse", "HEAD").strip()
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.record_push("add-marker/1", pushed_head)
+    store.record_approval("add-marker/1", restacked)
+    leased: list[str | None] = []
+
+    build_push(
+        store, push=lambda repo, branch, last_pushed: leased.append(last_pushed) or restacked
+    )("spec/add-marker/1", cwd=repo)
+
+    assert leased == [host_head]
+    assert git(repo, "rev-parse", "spec/add-marker/1").strip() == restacked
+
+
 def test_a_push_whose_recording_was_lost_is_not_taken_for_a_host_move(tmp_path: Path) -> None:
     """A crash between a push and recording it: the host is ahead of the store
     but level with the local branch. Nobody moved it, so nothing is adopted
