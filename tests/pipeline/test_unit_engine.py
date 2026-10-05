@@ -1,7 +1,7 @@
 """The seam `build_unit` runs a unit through (docs/unit-graph.md).
 
 Without a setting, the classic engine runs it; with `ABK_ENGINE=graph`, the
-graph engine does, and the unit gets a thread named by its id.
+graph engine does (its thread is covered by tests/graph/test_graph_tick.py).
 """
 
 from __future__ import annotations
@@ -103,10 +103,14 @@ def test_a_graph_build_that_errors_is_recorded_and_does_not_raise(
     inst = make_installation(tmp_path, planning={"state_dir": "."})
     store = a_store(tmp_path)
     (inst.state_dir / "unit-graphs.sqlite").write_text("not a database")
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Rejected())
+    runner = Rejected()
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: runner)
     monkeypatch.setattr(settings, "engine", "graph")
 
     assert cli.build_unit(inst, store.get(UNIT), store=store) is True
 
-    assert UNIT + ": failed" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert UNIT + ": failed" in out
+    assert "DatabaseError" in out, "the checkpoint file's error, not the runner's"
+    assert runner.ran == [], "the graph engine never calls UnitRunner.run"
     assert store.get(UNIT).state == "failed"

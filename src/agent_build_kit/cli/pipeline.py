@@ -1391,6 +1391,7 @@ async def _on_thread(
     graph: list[StoredUnit],
     run_log: RunLog | None,
     event: ResumeEvent | None = None,
+    feedback: Callable[[], tuple[str, bool]] | None = None,
 ) -> RunOutcome:
     """Start or resume the unit's thread to its next wait, or deliver `event` to it."""
     # Late: the graph package imports the pipeline.
@@ -1403,7 +1404,13 @@ async def _on_thread(
             # Under the lock `build_graph` holds; a delivery takes its own.
             return await run_unit(runner, unit, saver=saver, **common)
         return await resume_unit(
-            runner, unit, saver=saver, event=event, locks=inst.state_dir / "locks", **common
+            runner,
+            unit,
+            saver=saver,
+            event=event,
+            feedback=feedback,
+            locks=inst.state_dir / "locks",
+            **common,
         )
 
 
@@ -1422,7 +1429,7 @@ def resume_thread(
     *,
     store: UnitStore,
     reason: str = "",
-    feedback: str = "",
+    feedback: str | Callable[[], tuple[str, bool]] = "",
     from_person: bool = False,
 ) -> Resumed | None:
     """Deliver an event to the unit's thread, which then waits for the tick.
@@ -1443,8 +1450,14 @@ def resume_thread(
     # Late: the graph package imports the pipeline.
     from agent_build_kit.graph.unit import NotWaiting
 
+    # A callable is asked for the words only once the delivery can take them.
+    lazy = feedback if callable(feedback) else None
+    words = "" if callable(feedback) else feedback
     event = ResumeEvent(
-        kind=EventKind(kind), reason=reason, feedback=feedback, from_person=from_person
+        kind=EventKind(kind),
+        reason=reason,
+        feedback=words,
+        from_person=from_person,
     )
     graph = store.all()
     base = base_of(unit, graph)
@@ -1461,7 +1474,9 @@ def resume_thread(
             log=say,
         )
         outcome = asyncio.run(
-            _on_thread(inst, runner, unit, base=base, graph=graph, run_log=None, event=event)
+            _on_thread(
+                inst, runner, unit, base=base, graph=graph, run_log=None, event=event, feedback=lazy
+            )
         )
     except NotWaiting as error:
         # The thread has ended: no node is running and none will route this.

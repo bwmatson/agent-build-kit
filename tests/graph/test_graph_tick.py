@@ -282,6 +282,27 @@ def test_a_requeue_of_a_held_unit_leaves_its_thread_at_prepare_and_the_tick_runs
     assert len(graph.recorder.remote) == pushed, "the work was not redone"
 
 
+def test_a_comment_on_a_held_unit_waits_and_is_delivered_once_the_tick_has_run_it_back(
+    graph: Setup,
+) -> None:
+    graph.tick()
+    assert graph.poll(("hold", {})) == [True]
+    comment = ("rework", {"reason": "new comment"})
+    assert graph.poll(comment) == [False], "held, so the poller reports it again"
+
+    args = argparse.Namespace(unit=UNIT, rework=False, restart=False)
+    assert cli.cmd_requeue(args, graph.inst) == 0
+    assert graph.next() == (Node.PREPARE,)
+    assert graph.poll(comment) == [False], "the thread has a node to run"
+
+    graph.tick()
+    assert graph.next() == (Node.AWAIT_REVIEW,)
+
+    assert graph.poll(comment) == [True]
+    assert graph.next() == (Node.REWORK,)
+    assert "rename the marker" in graph.store.get(UNIT).feedback
+
+
 def test_a_merged_parent_tells_its_childs_thread_its_base_moved(graph: Setup) -> None:
     restacked: list[dict[str, Any]] = []
     retargeted: list[tuple[str, str]] = []

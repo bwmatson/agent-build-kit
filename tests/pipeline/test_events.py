@@ -619,6 +619,39 @@ def test_feedback_with_no_comment_still_says_why(store: UnitStore) -> None:
     assert "failing checks: tier1" in store.get("add-marker/1").feedback
 
 
+def test_a_deferred_rework_fetches_nothing(store: UnitStore) -> None:
+    """A poll cannot afford requests for an event it will report again."""
+    fetched: list[str] = []
+
+    def busy(unit):
+        raise events.BranchBusy("being built")
+
+    def review(pr: int) -> list[str]:
+        fetched.append("review")
+        return ["words"]
+
+    def checks(pull) -> str:
+        fetched.append("checks")
+        return "log"
+
+    for reason in ("new comment", f"{events.FAILING_CHECKS_REASON}: tier1"):
+        taken = events.on_rework(
+            1,
+            repo="app",
+            reason=reason,
+            pull=bare_pull(),
+            store=store,
+            fetch_review=review,
+            fetch_checks=checks,
+            claim=busy,
+        )
+
+        assert taken is False
+
+    assert fetched == []
+    assert store.get("add-marker/1").state == IN_REVIEW
+
+
 def test_a_held_unit_is_not_requeued_by_a_comment(store: UnitStore) -> None:
     """Hold means a human has taken it over. Requeuing would have the agent
     push over the work they are in the middle of."""

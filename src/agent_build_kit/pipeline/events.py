@@ -87,11 +87,16 @@ Claim = Callable[[StoredUnit], AbstractContextManager[object]]
 # and the handler does what it always did, `BranchBusy` when the event cannot be
 # delivered now, because the branch is held or the thread has a node to run. It
 # is called without the claim, as the delivery takes the branch's lock itself.
+#
+# A rework hands `feedback` as a zero-argument callable returning `(words,
+# from_person)` rather than the words: what review said costs requests, and is
+# worth them only once the delivery holds the lock and the thread is waiting.
 Resume = Callable[..., bool]
+Feedback = Callable[[], tuple[str, bool]]
 
 
 def _no_thread(
-    unit: StoredUnit, kind: str, reason: str, feedback: str, *, from_person: bool = False
+    unit: StoredUnit, kind: str, reason: str, feedback: str | Feedback, *, from_person: bool = False
 ) -> bool:
     return False
 
@@ -238,13 +243,19 @@ def _record_merge(
                 try:
                     told = resume(child, "base_moved", new_base, "")
                 except BranchBusy:
-                    # The merge is consumed either way; say the thread missed
-                    # it, so a person can see why the child is not rebased.
+                    # The merge is consumed either way. Nothing re-tells the
+                    # thread: it moves onto the new base on its next rework or
+                    # conflict, so say so, and keep the old branch for it.
                     log(
                         f"{child.id}: its thread was not told the base is now {new_base}, "
-                        "the branch is busy"
+                        "the branch is busy; it moves on its next rework or conflict"
                     )
-                    raise
+                    building_on_it.append(child.id)
+                    try:
+                        retarget(child, new_base)
+                    except Exception as error:  # noqa: BLE001
+                        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+                    continue
                 if told:
                     log(f"{child.id}: its thread is told the base is now {new_base}")
                     # At once, as every other path here: a PR left on a branch merged
@@ -716,22 +727,35 @@ def on_rework(
             taken := _not_for_now(store.get(unit.id), pr=pr, reason=reason, waiting=heard, log=log)
         ) is not None:
             return taken
-        feedback, from_person = _feedback(
-            pr=pr, reason=reason, pull=pull, fetch_review=fetch_review, fetch_checks=fetch_checks
-        )
-        if resume(unit, "rework", reason, feedback, from_person=from_person):
+
+        def feedback() -> tuple[str, bool]:
+            return _feedback(
+                pr=pr,
+                reason=reason,
+                pull=pull,
+                fetch_review=fetch_review,
+                fetch_checks=fetch_checks,
+            )
+
+        if resume(unit, "rework", reason, feedback):
             log(f"rework #{pr}: {unit.id} resumed — {reason}")
             return True
         with claim(unit):
             # Re-read under the lock: a build that has just ended moved it.
+            current = store.get(unit.id)
+            if (
+                taken := _not_for_now(current, pr=pr, reason=reason, waiting=heard, log=log)
+            ) is not None:
+                return taken
+            # Only now, with the unit taking it: a deferred rework asks for nothing.
+            words, from_person = feedback()
             taken = _requeue(
-                store.get(unit.id),
+                current,
                 pr=pr,
                 reason=reason,
                 store=store,
-                feedback=feedback,
+                feedback=words,
                 from_person=from_person,
-                waiting=heard,
                 log=log,
             )
     except BranchBusy as error:
@@ -812,12 +836,9 @@ def _requeue(
     store: UnitStore,
     feedback: str,
     from_person: bool,
-    waiting: set[tuple[str, str]],
     log: Log,
 ) -> bool:
-    """Requeue `unit` for `reason`; whether it took the event."""
-    if (taken := _not_for_now(unit, pr=pr, reason=reason, waiting=waiting, log=log)) is not None:
-        return taken
+    """Requeue `unit`, which has taken the rework for `reason`."""
     store.set_feedback(unit.id, feedback, from_person=from_person)
     # New feedback outranks where a paused unit meant to pick up: resuming at
     # a review would skip the rework this feedback asks for, and a pass would
