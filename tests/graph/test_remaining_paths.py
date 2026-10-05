@@ -745,7 +745,7 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
         old_tests=("test_click",),
         present={"test_click"},
     )
-    overrides = adapting.overrides()
+    overrides: dict[str, Any] = adapting.overrides()
     port = overrides["run_rework"]
 
     def adapt(prompt: str, *, cwd: Path) -> str:
