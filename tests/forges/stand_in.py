@@ -55,6 +55,7 @@ class StandInForge:
         close_error: str = "",
         comment_error: bool = False,
         label_errors: Collection[str] = (),
+        draft_error: type[Exception] | None = None,
     ) -> None:
         self.existing = existing
         self.number = number
@@ -69,6 +70,11 @@ class StandInForge:
         self.comment_error = comment_error
         # Which label calls fail: any of "add", "set", "remove".
         self.label_errors = label_errors
+        # What `set_draft` raises, when it should.
+        self.draft_error = draft_error
+        # Every `set_draft` call, in order, and each pull request's state now.
+        self.drafts: list[tuple[int, bool]] = []
+        self.is_draft: dict[int, bool] = {}
         # What the repo knows as a label, and every creation of one, so a test
         # can tell "created once" from "created each time".
         self.repo_labels: dict[str, Label] = {}
@@ -220,6 +226,13 @@ class StandInForge:
         if "remove" in self.label_errors:
             raise RuntimeError("403 Forbidden")
         self.on_pr.setdefault(pr, set()).discard(name)
+
+    def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
+        if self.draft_error:
+            raise self.draft_error("the stand-in host refuses drafts")
+        self.drafts.append((pr, draft))
+        self.is_draft[pr] = draft
+        self.calls.append(("draft" if draft else "ready", pr))
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         if self.close_error:

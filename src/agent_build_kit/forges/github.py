@@ -542,6 +542,9 @@ class GitHubForge:
         slug = key(repo)
         gh_out(["gh", "pr", "edit", str(pr), "--repo", slug, "--remove-label", name], slug=slug)
 
+    def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
+        raise NotImplementedError
+
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.
 

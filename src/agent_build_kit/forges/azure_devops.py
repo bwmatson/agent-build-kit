@@ -791,6 +791,9 @@ class AzureDevOpsForge:
         values = answer.get("value") if isinstance(answer, dict) else None
         return [item for item in values or [] if isinstance(item, dict) and item.get("name")]
 
+    def set_draft(self, repo: RepoId, pr: int, draft: bool, *, run: Run | None = None) -> None:
+        raise NotImplementedError
+
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.
 
