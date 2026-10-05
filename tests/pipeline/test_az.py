@@ -283,3 +283,27 @@ def test_a_personal_access_token_is_never_fetched(monkeypatch: pytest.MonkeyPatc
         az.rest("GET", "https://dev.azure.com/acme/_apis/x", run=run, open_url=opener())
 
     assert calls == []
+
+
+def _fetches_over_three_calls(monkeypatch: pytest.MonkeyPatch, printed: str) -> int:
+    monkeypatch.setattr(settings, "ado_pat", "")
+    run, calls = recorded(printed)
+    for _ in range(3):
+        az.rest("GET", "https://dev.azure.com/acme/_apis/x", run=run, open_url=opener())
+    return len([c for c in calls if c["args"][:3] == ["az", "account", "get-access-token"]])
+
+
+def test_a_cli_printing_only_local_expires_on_is_still_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    printed = json.loads(azure_answers.access_token("a-token", seconds_left=3600))
+    del printed["expires_on"]
+
+    assert _fetches_over_three_calls(monkeypatch, json.dumps(printed)) == 1
+
+
+def test_a_token_with_no_expiry_is_never_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    printed = json.loads(azure_answers.access_token("a-token"))
+    del printed["expires_on"], printed["expiresOn"]
+
+    assert _fetches_over_three_calls(monkeypatch, json.dumps(printed)) == 3
