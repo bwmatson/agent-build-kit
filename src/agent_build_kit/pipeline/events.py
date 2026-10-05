@@ -822,23 +822,37 @@ def build_restack(
         elif remote and last_pushed and remote != last_pushed:
             # Adopted, not overwritten: the local branch is brought to the
             # host's head, so review sees what the host has and the next
-            # lease names it. The old approval was for a different commit.
-            adopt(repo, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd)
-            store.record_push(child.id, remote)
-            store.record_approval(child.id, "")
-            # Not moved here: the host already rebased it onto the trunk, so
-            # `old_base..branch` now spans trunk commits that are not the
-            # unit's, and replaying them only invites conflicts. If it was a
-            # person rather than a stack merge that moved it, the runner's own
-            # restack moves a branch that no longer holds its base.
-            store.set_state(
-                child.id,
-                PLANNED,
-                note=f"not restacked onto {new_base}: "
-                "the host moved its branch off the approved commit",
-                resume_from="rework_review",
+            # lease names it.
+            before = head_of(repo, branch)
+            adopted = adopt(
+                repo,
+                branch,
+                host_head=remote,
+                last_pushed=last_pushed,
+                cwd=cwd,
+                base=local_ref(new_base),
             )
-            return
+            store.record_push(child.id, remote)
+            if adopted == before:
+                # The host holds the same change, so what review approved
+                # stands: only the lease moves, and the restack goes on.
+                last_pushed = remote
+            else:
+                # The old approval was for a different commit.
+                store.record_approval(child.id, "")
+                # Not moved here: the host already rebased it onto the trunk, so
+                # `old_base..branch` now spans trunk commits that are not the
+                # unit's, and replaying them only invites conflicts. If it was a
+                # person rather than a stack merge that moved it, the runner's own
+                # restack moves a branch that no longer holds its base.
+                store.set_state(
+                    child.id,
+                    PLANNED,
+                    note=f"not restacked onto {new_base}: "
+                    "the host moved its branch off the approved commit",
+                    resume_from="rework_review",
+                )
+                return
 
         was_approved = bool(child.approved) and head_of(repo, branch) == child.approved
         diff_before = diff_id(repo, old_base, branch)

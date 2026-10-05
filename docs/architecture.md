@@ -442,6 +442,19 @@ unpushed local commits replayed on top, and recorded as the last push so the
 next lease holds — the old approval is dropped, and the unit goes back through
 review before anything is pushed.
 
+What the host holds is compared with the local branch by what each changes over
+the repo's trunk (the diff id). If it is the same change in different commits —
+a message edited, or an older restack of the same work — nothing is adopted: the
+host's head is recorded as the last push, the approval stands, and the approved
+head is pushed with a lease on it. Otherwise the local commits are replayed on
+the host's head. When the local branch still descends from the last push, the
+commits after it are replayed, which keeps a squashed predecessor's commits out;
+when a restack means it no longer descends, the commits the host lacks by patch
+(`git cherry` over the trunk) are. Either way a commit the host already holds by
+patch is skipped. If the replay does not apply, or the worktree has uncommitted
+changes that adopting would discard, the push stops with `StaleRemote` naming the
+host's head.
+
 ### 5. Post-merge verify
 
 Once every unit of a change is `merged` (or `unplanned`), `verify.py` deploys

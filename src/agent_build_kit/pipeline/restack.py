@@ -433,14 +433,35 @@ def remote_head(repo: Path, branch: str) -> str | None:
 
 
 def adopt_host_head(
-    repo: Path, branch: str, *, host_head: str, last_pushed: str | None, cwd: Path
+    repo: Path,
+    branch: str,
+    *,
+    host_head: str,
+    last_pushed: str | None,
+    cwd: Path,
+    base: str | None = None,
+    log: Callable[[str], None] = print,
 ) -> str:
     """Bring the local branch to the host's head for it, keeping local work.
 
     After this the next lease matches the host, and review judges what the
-    host has rather than what it replaced. Commits made here since the last
-    push — a rework not yet pushed — are replayed onto the host's head; if
-    they do not apply, nothing is changed and it is left for a human.
+    host has rather than what it replaced. Told apart by what each side changes
+    over `base`:
+
+    - the same change in different commits (a message edited, an older
+      restack): the local branch is left as it is, and so is its approval;
+    - a host with work the local branch lacks: the branch is brought to the
+      host's head, with the commits the host does not already hold replayed
+      on top;
+    - local commits that do not apply onto the host's head: `StaleRemote`,
+      nothing changed, left for a human.
+
+    The commits to replay are those made since `last_pushed` while the branch
+    still descends from it — which keeps a stacked unit's predecessor out of
+    the set, as the host may have squashed it into the trunk. A restacked
+    branch no longer descends from it, and then `git cherry` over `base` picks
+    the commits the host does not hold by patch. Without a `base`, the commits
+    after `last_pushed` are replayed.
     """
     here_head = git(repo, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
     if here_head == host_head:
@@ -448,29 +469,58 @@ def adopt_host_head(
         return here_head
 
     git(repo, "fetch", "-q", push_target(repo), f"refs/heads/{branch}")
+    if base is not None and diff_id(repo, base, host_head) == diff_id(repo, base, branch):
+        log(f"{branch}: the host holds the same change at {host_head[:9]}; keeping the local head")
+        return here_head
+
     here = git(cwd, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
     checked_out = here == branch
-    local_only = (
-        git(repo, "rev-list", f"{last_pushed}..{branch}", check=False).stdout.split()
-        if last_pushed
-        else []
+    descends = (
+        bool(last_pushed)
+        and not git(
+            repo, "merge-base", "--is-ancestor", last_pushed or "", branch, check=False
+        ).returncode
     )
+    if descends:
+        # `cherry` over `last_pushed` lists the same commits as `rev-list`, oldest
+        # first, and marks those the host holds by patch so they are not replayed.
+        cherry = git(
+            repo, "cherry", host_head, branch, last_pushed, check=False
+        ).stdout.splitlines()
+        local_only = [line[2:] for line in cherry if line.startswith("+ ")]
+    elif base is not None:
+        cherry = git(repo, "cherry", host_head, branch, base, check=False).stdout.splitlines()
+        local_only = [line[2:] for line in cherry if line.startswith("+ ")]
+    else:
+        local_only = []
+
+    if checked_out and git(cwd, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        # Both ways of adopting the host's head below reset the worktree.
+        raise StaleRemote(
+            f"the host moved {branch} to {host_head[:9]}, but the worktree has "
+            "uncommitted changes that adopting it would discard — commit or "
+            "remove them before pushing again."
+        )
 
     if not local_only:
+        log(f"{branch}: adopting the host's head {host_head[:9]}")
         if checked_out:
             git(cwd, "reset", "-q", "--hard", host_head)
         else:
             git(repo, "branch", "-f", branch, host_head)
         return git(repo, "rev-parse", branch).stdout.strip()
 
-    if checked_out and last_pushed:
-        result = git(cwd, "rebase", "-q", "--onto", host_head, last_pushed, check=False)
+    if checked_out:
+        log(f"{branch}: adopting {host_head[:9]}, replaying {len(local_only)} local commit(s)")
+        git(cwd, "reset", "-q", "--hard", host_head)
+        result = git(cwd, "cherry-pick", "--allow-empty", *local_only, check=False)
         if not result.returncode:
             return git(repo, "rev-parse", branch).stdout.strip()
-        git(cwd, "rebase", "--abort", check=False)
+        git(cwd, "cherry-pick", "--abort", check=False)
+        git(cwd, "reset", "-q", "--hard", here_head)
     raise StaleRemote(
         f"the host moved {branch} to {host_head[:9]}, and the {len(local_only)} "
-        "commit(s) made here since the last push do not apply onto it — include "
+        "local commit(s) the host does not hold do not apply onto it — include "
         "them by hand before pushing again."
     )
 
