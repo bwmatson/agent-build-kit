@@ -20,8 +20,8 @@ from agent_build_kit.settings import settings
 
 log = logging.getLogger(__name__)
 
-# Seconds an exporter may spend on one request, and so, with the final flush,
-# roughly how long shutdown() can take.
+# Seconds an exporter may spend on one request. shutdown() flushes the trace
+# and metric providers in turn, so it can take up to about two of these.
 EXPORT_TIMEOUT = 3.0
 METRIC_INTERVAL_MS = 30_000
 
@@ -163,7 +163,7 @@ def init() -> bool:
         traces = _endpoint(settings.otel_exporter_otlp_traces_endpoint, shared, "/v1/traces")
         metrics = _endpoint(settings.otel_exporter_otlp_metrics_endpoint, shared, "/v1/metrics")
         try:
-            tracer_provider = TracerProvider(resource=resource)
+            tracer_provider = TracerProvider(resource=resource, shutdown_on_exit=False)
             tracer_provider.add_span_processor(
                 BatchSpanProcessor(
                     SafeSpanExporter(endpoint=traces, timeout=EXPORT_TIMEOUT),
@@ -175,7 +175,9 @@ def init() -> bool:
                 export_interval_millis=METRIC_INTERVAL_MS,
                 export_timeout_millis=int(EXPORT_TIMEOUT * 1000),
             )
-            meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+            meter_provider = MeterProvider(
+                resource=resource, metric_readers=[reader], shutdown_on_exit=False
+            )
         except Exception as exc:
             log.warning("telemetry: could not start (%s); continuing without it", exc)
             return False

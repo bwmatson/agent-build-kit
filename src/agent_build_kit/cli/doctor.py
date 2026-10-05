@@ -500,12 +500,22 @@ def _skills(inst: Installation) -> list[Check]:
 # --- the run ---------------------------------------------------------------------------
 
 
-def _reachable(endpoint: str) -> bool:
-    parsed = urlparse(endpoint)
-    host = parsed.hostname
-    if not host:
-        return False
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+def _address(endpoint: str) -> tuple[str, int] | None:
+    """The host and port an http(s) endpoint names, or None when it is not a
+    valid http(s) URL (no host, another scheme, an unusable port)."""
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not host:
+        return None
+    return host, port or (443 if parsed.scheme == "https" else 80)
+
+
+def _reachable(address: tuple[str, int]) -> bool:
+    host, port = address
     try:
         with socket.create_connection((host, port), timeout=2):
             return True
@@ -535,7 +545,15 @@ def _telemetry() -> list[Check]:
                     "or OTEL_EXPORTER_OTLP_ENDPOINT",
                 )
             )
-        elif not _reachable(endpoint):
+        elif (address := _address(endpoint)) is None:
+            checks.append(
+                _warn(
+                    name,
+                    f"{endpoint} is not a valid http(s) URL",
+                    "write it as http://host:port, with a port from 1 to 65535",
+                )
+            )
+        elif not _reachable(address):
             checks.append(
                 _warn(
                     name, f"{endpoint} does not answer", "start the collector, or fix the endpoint"

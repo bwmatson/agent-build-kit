@@ -837,6 +837,22 @@ def test_telemetry_with_a_listening_endpoint_is_ok(
     assert {c.status for c in checks.values()} == {"ok"}
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://127.0.0.1:99999", "http://localhost:43l8", "localhost:4318", "ftp://127.0.0.1:21"],
+)
+def test_telemetry_with_a_malformed_endpoint_warns_instead_of_raising(
+    workspace: Path, telemetry_env, endpoint: str
+) -> None:
+    telemetry_env(ABK_OTEL_ENABLED="true", OTEL_EXPORTER_OTLP_ENDPOINT=endpoint)
+
+    checks = telemetry_checks(workspace)
+
+    assert set(checks) == {"telemetry traces", "telemetry metrics"}
+    assert {c.status for c in checks.values()} == {"warn"}
+    assert all("not a valid http(s) URL" in c.detail for c in checks.values())
+
+
 def test_a_per_signal_endpoint_overrides_the_shared_one(
     workspace: Path, telemetry_env, listening: str, closed: str
 ) -> None:

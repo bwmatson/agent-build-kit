@@ -154,6 +154,10 @@ def workspace(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monk
         "ABK_REWORK_MODEL",
         "ABK_REVIEW_MODEL",
         "ABK_REWORK_REVIEW_MODEL",
+        "ABK_OTEL_ENABLED",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     ):
         monkeypatch.delenv(key, raising=False)
     root = tmp_path_factory.mktemp("planning")
