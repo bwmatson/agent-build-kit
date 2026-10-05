@@ -14,7 +14,7 @@ from agent_build_kit.graph.nodes import BuildPath
 from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.run_log import RunLog
-from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitRunner
+from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit
 
@@ -55,4 +55,7 @@ async def run_unit(
     state = UnitRun.model_validate(await run_thread(compiled, start, unit.id))
     if state.status is None:
         raise RuntimeError(f"the thread for {unit.id} ended without a status")
+    if state.status == RunStatus.SATISFIED:
+        # A thread lasts until the unit merges, is closed or is satisfied.
+        await saver.adelete_thread(unit.id)
     return RunOutcome(status=state.status, detail=state.detail, pr=state.pr)

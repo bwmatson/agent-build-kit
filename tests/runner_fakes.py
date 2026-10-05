@@ -34,6 +34,8 @@ class Recorder:
         kill_after: str = "",
         push_raises: Exception | None = None,
         rework_answer: str = "done",
+        tier2_ok: bool = True,
+        close_error: str = "",
     ):
         self.store = store
         self.events: list[str] = []
@@ -45,6 +47,10 @@ class Recorder:
         self.kill_after = kill_after
         self.push_raises = push_raises
         self.rework_answer = rework_answer  # what the builder says of a review's ask
+        self.tier2_ok = tier2_ok
+        self.tier2_output = "## Tier 2 results\nfine"
+        self.close_error = close_error
+        self.closed: list[tuple[str, int, str]] = []  # (unit, pull request, reason)
         # Answers for successive tier 1 runs, in order; once spent, `tier1_ok`.
         self.tier1_results: list[tuple[bool, str]] = []
         self.made = 0
@@ -97,7 +103,7 @@ class Recorder:
 
     def tier2(self, *, cwd: Path) -> tuple[bool, str]:
         self.events.append("tier2")
-        return True, ""
+        return self.tier2_ok, self.tier2_output
 
     def push(self, branch: str, *, cwd: Path) -> str:
         if self.push_raises:
@@ -120,6 +126,12 @@ class Recorder:
 
     def post_status(self, sha: str, ok: bool) -> None:
         self.events.append("status")
+
+    def close_pr(self, unit, pr: int, reason: str) -> None:
+        self.events.append("close")
+        if self.close_error:
+            raise RuntimeError(self.close_error)
+        self.closed.append((unit.id, pr, reason))
 
     def log(self, message: str) -> None:
         self.logged.append(message)
@@ -156,6 +168,7 @@ def make_runner(
         push=recorder.push,
         open_pr=recorder.open_pr,
         post_status=recorder.post_status,
+        close_pr=recorder.close_pr,
         log=recorder.log,
     )
     return UnitRunner(**{**wired, **overrides})
