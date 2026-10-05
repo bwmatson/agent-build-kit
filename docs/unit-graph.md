@@ -140,7 +140,18 @@ flowchart TD
     held -->|merged / closed| finished
     satisfied --> finished
     failed -->|requeue| prepare
+
+    classDef agent fill:#fde68a,stroke:#b45309,color:#1c1917
+    classDef forge fill:#bfdbfe,stroke:#1d4ed8,color:#1c1917
+    class tests,implement,fix_checks,review,rework,adapt agent
+    class push,open_pr,await_review,satisfied forge
 ```
+
+Amber nodes run an agent. Blue nodes are where the unit meets the code host,
+and the runner does that itself, in code, without an agent. Unshaded nodes are
+git, tests and bookkeeping. Two nodes are not shaded but can call an agent: the
+restack in `prepare` and `verify_base` hands a conflict it cannot settle to the
+conflict resolver, and nothing else in them does.
 
 The edges are today's transitions; `stack_runner.py`'s docstrings are the
 reference for each condition until this replaces them. The nodes:
@@ -162,6 +173,42 @@ reference for each condition until this replaces them. The nodes:
 | `await_review` | **Interrupt.** Waits for the forge: rework, a merge, a close, a hold, a moved base | — |
 | `held` | **Interrupt.** Waits for a person: requeue, merge, close | — |
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue | `close_pr` for satisfied |
+
+### Who touches the code host
+
+An agent never changes anything on the code host. The runner does all of it,
+at fixed nodes, from the agent's *output*:
+
+| Direction | What | Where | Done by |
+|---|---|---|---|
+| Read | New comments, review decisions, labels, check results, mergeability | the poller, which resumes `await_review` | the runner (`pr_poller`, the forge) |
+| Read | The reviewer's own words, fetched when a rework is queued | `events.on_rework`, saved as the unit's feedback | the runner |
+| Read | A failing check's log | the same, for a failing-checks rework | the runner |
+| Into the agent | All of the above | placed in the `rework` / `fix_checks` prompt as text | the runner |
+| Write | The branch | `push`, the approved commit only, with a lease | the runner |
+| Write | The pull request: open or update, body, state labels | `open_pr` | the runner |
+| Write | Replies to review comments | `open_pr`, from the JSON the rework agent ends with (`{"replies": [...]}`) | the runner, after the push |
+| Write | Closing a pull request whose work already landed | `satisfied` | the runner |
+| Never | Merge, vote, approve, the raw API | refused on every repo by the policy hook and the ACP deny list | nobody; a person merges |
+
+So the agent hands back structured text and the runner posts it. The rework
+prompt tells the agent not to post and to end with that JSON, so the replies
+describe the code as the reviewer will see it once it is pushed.
+
+What an agent *may* run is narrower than it looks. A build agent is allowed its
+forge's read commands (`gh pr view` and `gh pr diff` on GitHub, `az repos pr
+show` on Azure DevOps) and nothing else on the host; the review agent has none,
+only `git diff`, `git log` and `git show`. No prompt tells a unit's agent to use
+them: the feedback it needs is already in the prompt. They are granted, not
+needed.
+
+The tracks (health, improve, recommend, propose) are different. Their prompts
+tell the agent to run `gh pr view <url> --json state` to see whether a PR in a
+follow-up list has merged. That is a forge read made by an agent, for a fact the
+runner could look up in code and hand over.
+
+Two things are not yet deterministic: that track read, and the unit agents'
+unused read commands.
 
 ### Checks before review
 
