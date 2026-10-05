@@ -28,7 +28,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from agent_build_kit import config, forges, runtimes
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
@@ -355,6 +355,9 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
         log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
+        # A pause builds nothing, so a unit no run holds should read `planned`
+        # for as long as it lasts. Not otherwise: a tick that goes on resumes it.
+        reclaim_stranded(inst, store_for(inst))
         return 0
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
@@ -372,6 +375,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
                 f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
                 f" — {decision.reason}"
             )
+            reclaim_stranded(inst, store_for(inst))
             return 0
         reason = decision.reason
     else:
@@ -433,6 +437,20 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         return 1
 
     return _schedule(inst, ready, store=store, only=only)
+
+
+def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
+    """Return to `planned` each unit marked `running` that no process holds
+    and no thread can resume: its run was killed before it reached a point to
+    resume from. One a live process holds, or with a thread, is left."""
+    for unit in store.all():
+        if (
+            unit.state == RUNNING
+            and not branch_is_held(inst, unit.branch or branch_name(unit))
+            and not has_thread(inst, unit.id)
+        ):
+            store.set_state(unit.id, PLANNED, note="requeued: its run ended without a thread")
+            log(f"{unit.id}: no run holds it — planned again")
 
 
 def resumable_units(
@@ -1048,54 +1066,72 @@ def fetch_all(inst: Installation) -> None:
     user's, and are left exactly where they are.
     """
     for repo, path in inst.checkouts.items():
-        with _repo_turn(inst, repo):
+        with repo_turn(inst, repo):
             result = git(path, "fetch", "-q", "--prune", "origin", check=False)
         if result.returncode:
             why = result.stderr.strip()
             log(f"fetch of {repo} failed — building on what it last fetched: {why}")
 
 
-def _repo_turn(inst: Installation, repo: str) -> AbstractContextManager[None]:
-    """The turn a repo's `.git` is taken by, the one `build_runner` takes
-    around a build's worktree add and push: git's own locks there fail
-    rather than wait."""
-    return file_lock(inst.state_dir / "locks" / f"repo-{repo}.lock")
+def repo_turn(installation: Installation, repo: str) -> AbstractContextManager[None]:
+    """The turn a repo's `.git` is taken by. Adding a worktree, pushing, moving
+    or removing a branch all take git's own locks there, which fail rather
+    than wait."""
+    return file_lock(installation.state_dir / "locks" / f"repo-{repo}.lock")
 
 
-def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
-    """What each poller event is handed to, every write to a repo's `.git` in
-    that repo's turn. Also how a merge the poll has not reported yet is recorded."""
-    checkouts = inst.checkouts
+class StackMoves(TypedDict):
+    """What moves and cleans up after a unit that leaves the stack, merged or
+    satisfied, by the names `build_dispatch` and `release_children`
+    both take."""
+
+    restack: Callable[..., None]
+    remove_worktree: Callable[..., None]
+    delete_branch: Callable[..., None]
+    claim: Callable[[StoredUnit], AbstractContextManager[object]]
+    retarget: Callable[[StoredUnit, str], None]
+    rebase_cap: int | None
+    resume: Callable[..., bool]
+
+
+def build_stack_moves(store: UnitStore, installation: Installation) -> StackMoves:
+    """The one place the merge handler and the satisfied path get what they
+    move a stack with, every write to a repo's `.git` in that repo's turn, so
+    the two cannot drift."""
+    checkouts = installation.checkouts
     names = {path: repo for repo, path in checkouts.items()}
 
     def named[T](step: Callable[..., T]) -> Callable[..., T]:
         def in_turn(repo: str, *args, **kwargs) -> T:
-            with _repo_turn(inst, repo):
+            with repo_turn(installation, repo):
                 return step(repo, *args, **kwargs)
 
         return in_turn
 
     def at_path[T](step: Callable[..., T]) -> Callable[..., T]:
         def in_turn(path: Path, *args, **kwargs) -> T:
-            with _repo_turn(inst, names[path]):
+            with repo_turn(installation, names[path]):
                 return step(path, *args, **kwargs)
 
         return in_turn
 
-    dispatch = build_dispatch(
-        store,
-        restack=build_restack(
+    return {
+        "restack": build_restack(
             repos=checkouts,
             store=store,
-            root=inst.worktree_root,
-            posts_root=inst.state_dir,
+            root=installation.worktree_root,
+            posts_root=installation.state_dir,
             move=at_path(resolved_move),
             push=at_path(push_with_lease),
         ),
-        remove_worktree=named(build_remove_worktree(checkouts, root=inst.worktree_root)),
-        resume=lambda unit, kind, reason, feedback, from_person=False: (
+        "remove_worktree": named(build_remove_worktree(checkouts, root=installation.worktree_root)),
+        "delete_branch": named(build_delete_branch(checkouts)),
+        "claim": build_claim(installation.state_dir / "locks"),
+        "retarget": build_retarget(),
+        "rebase_cap": installation.stack_depth_rebase_cap,
+        "resume": lambda unit, kind, reason, feedback, from_person=False: (
             resume_thread(
-                inst,
+                installation,
                 unit,
                 kind,
                 store=store,
@@ -1105,19 +1141,23 @@ def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
             )
             is not None
         ),
-        delete_branch=named(build_delete_branch(checkouts)),
+    }
+
+
+def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
+    """What each poller event is handed to, every write to a repo's `.git` in
+    that repo's turn. Also how a merge the poll has not reported yet is recorded."""
+    return build_dispatch(
+        store,
+        **build_stack_moves(store, inst),
         fetch_review=build_fetch_review(),
         fetch_checks=build_fetch_check_logs(),
         rerun_checks=build_rerun_checks(),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
-        claim=build_claim(inst.state_dir / "locks"),
-        retarget=build_retarget(),
-        rebase_cap=inst.stack_depth_rebase_cap,
         waiting_path=inst.state_dir / "held-waiting.json",
         log=log,
     )
-    return dispatch
 
 
 def poll_all(inst: Installation, *, store: UnitStore) -> None:

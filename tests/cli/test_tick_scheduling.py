@@ -42,6 +42,7 @@ from agent_build_kit.pipeline.wiring import (
     build_may_start,
     build_upstream_incomplete,
 )
+from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.settings import reload
 from tests.conftest import make_installation
 from tests.runtimes.selectable import SelectableRuntime, select
@@ -1150,3 +1151,66 @@ def test_a_rate_limit_without_a_reset_pauses_the_default_length_without_a_usage_
     state = pause.is_paused(tmp_path / "paused.json")
     assert state is not None
     assert state.until <= datetime.now(UTC) + pause.UNKNOWN_RETRY
+
+
+# --- a stranded unit is reclaimed before the usage check --------------------------
+
+
+def test_a_unit_no_run_holds_is_planned_after_a_tick_that_pauses(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refusing_usage(monkeypatch, [])
+    builder.store.upsert([stored("feature/1"), stored("feature/2")])
+    builder.store.set_state("feature/1", RUNNING, branch="spec/feature/1")
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.store.get("feature/1").state == PLANNED
+    assert builder.started == [], "the pause still starts nothing"
+
+
+def test_a_unit_a_live_process_holds_stays_running_through_a_pause(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refusing_usage(monkeypatch, [])
+    inst = workspace(tmp_path)
+    builder.store.upsert([stored("feature/1")])
+    builder.store.set_state("feature/1", RUNNING, branch="spec/feature/1")
+
+    with branch_lock("spec/feature/1", root=inst.state_dir / "locks"):
+        assert tick(inst) == 0
+
+    assert builder.store.get("feature/1").state == RUNNING
+    assert builder.started == []
+
+
+def test_a_unit_with_a_thread_to_resume_stays_running_through_a_pause(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Planned again, it would drop out of `resumable_units`, which only
+    picks up the running."""
+    refusing_usage(monkeypatch, [])
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    builder.store.upsert([stored("feature/1")])
+    builder.store.set_state("feature/1", RUNNING, branch="spec/feature/1")
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.store.get("feature/1").state == RUNNING
+
+
+def test_a_pause_with_nothing_stranded_leaves_the_store_as_it_was(
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    refusing_usage(monkeypatch, [])
+    builder.store.upsert([stored("feature/1"), stored("feature/2")])
+    builder.store.set_state("feature/2", IN_REVIEW, pr=2, branch="spec/feature/2")
+    before = builder.store.all()
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.store.all() == before
+    assert "session at 88%" in capsys.readouterr().out

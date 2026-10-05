@@ -964,6 +964,14 @@ class UnitRunner(BaseModel):
     # closes it. A no-op default: most units never reach `satisfied` holding
     # one. See `wiring.build_close_pr`.
     close_pr: Callable[[Unit, int, str], None] = lambda unit, pr, reason: None
+    # Moves what is stacked on a unit that has just become satisfied onto its
+    # new base and retargets their pull requests, as a merge does; called
+    # before `close_pr`. Returns what it could not move, one line each. A
+    # no-op default. See `wiring.build_release_dependents`.
+    release_dependents: Callable[[Unit], list[str]] = lambda unit: []
+    # Removes a satisfied unit's worktree and branch once its run has left the
+    # tree. A no-op default. See `wiring.build_remove_satisfied`.
+    remove_satisfied: Callable[[Unit], None] = lambda unit: None
     # Whether the branch in the tree still sits on its base ref, which the PR
     # body reports whichever host renders the stack. See `pr_body`.
     linear: Callable[[Path, str], bool] = lambda tree, base: True

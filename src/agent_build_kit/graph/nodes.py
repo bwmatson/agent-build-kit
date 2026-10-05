@@ -718,6 +718,12 @@ class BuildPath:
         if r.store.get(unit.id).feedback:
             r.store.set_feedback(unit.id, "")
         stored = r.store.get(unit.id)
+        # First: a dependent left on this unit's branch would be pointing at a
+        # closed pull request. One that cannot be moved is logged, not raised,
+        # and recorded on the unit, or it looks like a clean release.
+        note = "; ".join(["already implemented; tier 1 passed", *r.release_dependents(stored)])
+        if note != stored.note:
+            r.store.set_state(unit.id, SATISFIED, note=note)
         if stored.pr:
             # Posting and closing are one call, so the reason is never missing before the close.
             try:
@@ -727,11 +733,7 @@ class BuildPath:
                 # itself, or it looks like one whose close worked.
                 self.say(f"{unit.id}: pull request #{stored.pr} not closed — {error}")
                 r.store.set_state(
-                    unit.id,
-                    SATISFIED,
-                    note=(
-                        f"already implemented; tier 1 passed; PR #{stored.pr} not closed — {error}"
-                    ),
+                    unit.id, SATISFIED, note=f"{note}; PR #{stored.pr} not closed — {error}"
                 )
         r.mark_tasks(unit, done=True)
         return {

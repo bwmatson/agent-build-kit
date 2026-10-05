@@ -204,34 +204,61 @@ def on_merged(
     return True
 
 
-def _record_merge(
-    merged: StoredUnit,
+def release_children(
+    leaving: StoredUnit,
     *,
     store: UnitStore,
     restack: Restack,
-    remove_worktree: Callable[..., None],
-    delete_branch: Callable[..., None],
-    claim: Claim,
+    remove_worktree: Callable[..., None] | None = None,
+    delete_branch: Callable[..., None] | None = None,
+    claim: Claim = _unclaimed,
     retarget: Callable[[StoredUnit, str], None],
-    rebase_cap: int | None,
-    resume: Resume,
-    log: Log,
-) -> None:
-    store.set_state(merged.id, MERGED)
-    log(f"merged #{merged.pr}: {merged.id}")
+    rebase_cap: int | None = None,
+    resume: Resume = _no_thread,
+    settled: Callable[[StoredUnit, str], bool] = lambda child, base: False,
+    log: Log = print,
+) -> list[str]:
+    """Move what is stacked on a unit that has left the stack — merged or
+    satisfied, already recorded as such in the store — onto its new base, then,
+    when given the means, remove the unit's worktree and branch once nothing
+    builds on it.
 
+    `settled` says a child is already where this would put it, so a second
+    release of the same unit moves and tells nothing.
+
+    Returns what it could not move, one line each — the child, the branch it is
+    still on and why — for the caller to record on the unit that left.
+    """
     # Re-read: the children's new bases are worked out from the graph with the
-    # merge already applied, which is what makes a merged parent drop out of
+    # merge already applied, which is what makes a leaving parent drop out of
     # `base_of` instead of still being offered as a base.
     graph = store.all()
-    old_base = branch_name(merged)
+    old_base = branch_name(leaving)
     building_on_it: list[str] = []
     held_for_depth: list[str] = []
+    not_moved: list[str] = []
+    failures: list[str] = []
 
-    for child in _children_of(merged, graph):
+    def unmoved(child: StoredUnit, why: object) -> None:
+        if child.id not in not_moved:
+            not_moved.append(child.id)
+        failures.append(f"{child.id} not moved off {old_base} — {why}")
+
+    def retargeted(child: StoredUnit, new_base: str) -> bool:
+        try:
+            retarget(child, new_base)
+        except Exception as error:  # noqa: BLE001
+            log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+            unmoved(child, error)
+            return False
+        return True
+
+    for child in _children_of(leaving, graph):
         new_base = base_of(child, graph)
         if new_base == old_base:
             continue  # Nothing to do: it is not what this child sat on.
+        if settled(child, new_base):
+            continue  # Moved by an earlier release.
 
         depth = depth_of(child, graph)
         try:
@@ -251,24 +278,18 @@ def _record_merge(
                         "the branch is busy; it moves on its next rework or conflict"
                     )
                     building_on_it.append(child.id)
-                    try:
-                        retarget(child, new_base)
-                    except Exception as error:  # noqa: BLE001
-                        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+                    retargeted(child, new_base)
                     continue
                 if told:
                     log(f"{child.id}: its thread is told the base is now {new_base}")
                     # At once, as every other path here: a PR left on a branch merged
                     # away may be closed, and the thread only retargets when it runs.
-                    try:
-                        retarget(child, new_base)
-                    except Exception as error:  # noqa: BLE001
-                        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+                    retargeted(child, new_base)
                     continue
             with claim(child):
                 if rebase_cap is not None and depth > rebase_cap:
                     _hold_for_depth(
-                        store, child, new_base, old_base, depth, rebase_cap, retarget, log
+                        store, child, new_base, old_base, depth, rebase_cap, retargeted, log
                     )
                     held_for_depth.append(child.id)
                     continue
@@ -277,7 +298,7 @@ def _record_merge(
                     old_base=old_base,
                     new_base=new_base,
                     child=child,
-                    parent=merged,
+                    parent=leaving,
                 )
         except BranchBusy:
             # Its build is running in the tree a restack would rebase. The
@@ -287,36 +308,104 @@ def _record_merge(
             # no tree: one left on a deleted base may be closed.
             log(f"{child.id}: being built — its build moves it onto {new_base} when it resumes")
             building_on_it.append(child.id)
-            try:
-                retarget(child, new_base)
-            except Exception as error:  # noqa: BLE001
-                log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+            retargeted(child, new_base)
             continue
         except Exception as error:  # noqa: BLE001
             # Left where it is, still open, still based on the old branch. A
             # human resolves it; the rest of the stack is not held up for it.
             log(f"{child.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
+            unmoved(child, f"{type(error).__name__}: {error}")
             continue
 
         log(f"{child.id}: restacked onto {new_base}")
 
     if rebase_cap is not None:
         still_held = _reconsider_held(
-            merged, store=store, restack=restack, claim=claim, rebase_cap=rebase_cap, log=log
+            leaving, store=store, restack=restack, claim=claim, rebase_cap=rebase_cap, log=log
         )
         held_for_depth += [held for held in still_held if held not in held_for_depth]
 
-    # Last, and only the merged unit's own: a child still has an open PR and
+    if remove_worktree and delete_branch:
+        _remove_leaving(
+            leaving,
+            graph=graph,
+            claim=claim,
+            remove_worktree=remove_worktree,
+            delete_branch=delete_branch,
+            building_on_it=building_on_it,
+            held_for_depth=held_for_depth,
+            not_moved=not_moved,
+            log=log,
+        )
+    return failures
+
+
+def remove_satisfied(
+    leaving: StoredUnit,
+    *,
+    store: UnitStore,
+    claim: Claim = _unclaimed,
+    remove_worktree: Callable[..., None],
+    delete_branch: Callable[..., None],
+    on_new_base: Callable[[StoredUnit], bool],
+    log: Log = print,
+) -> None:
+    """Remove a satisfied unit's worktree and branch, once the run that found it
+    satisfied has left its tree, by the rules a merged unit's removal follows.
+
+    The release has already moved its dependents, so what keeps the branch is
+    read from the store and the host rather than remembered from that pass: a
+    dependent held for depth, one whose pull request is not yet on its new
+    base, or one that is being built.
+    """
+    graph = store.all()
+    old_base = branch_name(leaving)
+    children = {child.id for child in _children_of(leaving, graph)}
+    held_for_depth: list[str] = []
+    not_moved: list[str] = []
+    for dependent in _dependents_of(leaving, graph):
+        if dependent.state == HELD and _depth_hold_base(dependent) == old_base:
+            held_for_depth.append(dependent.id)
+        elif dependent.id in children and not on_new_base(dependent):
+            not_moved.append(dependent.id)
+    _remove_leaving(
+        leaving,
+        graph=graph,
+        claim=claim,
+        remove_worktree=remove_worktree,
+        delete_branch=delete_branch,
+        building_on_it=[],
+        held_for_depth=held_for_depth,
+        not_moved=not_moved,
+        log=log,
+    )
+
+
+def _remove_leaving(
+    leaving: StoredUnit,
+    *,
+    graph: list[StoredUnit],
+    claim: Claim,
+    remove_worktree: Callable[..., None],
+    delete_branch: Callable[..., None],
+    building_on_it: list[str],
+    held_for_depth: list[str],
+    not_moved: list[str],
+    log: Log,
+) -> None:
+    old_base = branch_name(leaving)
+
+    # Last, and only the leaving unit's own: a child still has an open PR and
     # may yet be restacked or reworked in its tree. Nothing else ever removes
     # one, so without this each unit leaves a full checkout behind for good.
     try:
-        remove_worktree(merged.repo, old_base)
+        remove_worktree(leaving.repo, old_base)
     except Exception as error:  # noqa: BLE001
         # `remove_worktree` refuses a dirty tree on purpose — uncommitted work
         # there may be the only copy. The merge already happened either way,
         # and the branch stays too: deleting it would strand that work on a
         # checkout with no ref pointing at it.
-        log(f"{merged.id}: worktree and branch left in place — {error}")
+        log(f"{leaving.id}: worktree and branch left in place — {error}")
         return
 
     # A build holds its lock and fixes its base ref while its unit still reads
@@ -325,7 +414,7 @@ def _record_merge(
     # probe sees the trunk from `base_of`, and one holding it now is exactly
     # one that may have taken this branch. It is not moved here — its own
     # resume restacks it.
-    for dependent in _dependents_of(merged, graph):
+    for dependent in _dependents_of(leaving, graph):
         if dependent.id in building_on_it:
             continue
         try:
@@ -340,7 +429,13 @@ def _record_merge(
 
     if held_for_depth:
         # Still based on this branch, and not moved: deleting it strands them.
-        log(f"{merged.id}: branch {old_base} kept — {', '.join(held_for_depth)} held for depth")
+        log(f"{leaving.id}: branch {old_base} kept — {', '.join(held_for_depth)} held for depth")
+        return
+
+    if not_moved:
+        # Still based on this branch, and left for a person: deleting it
+        # strands them.
+        log(f"{leaving.id}: branch {old_base} kept — {', '.join(not_moved)} not moved off it")
         return
 
     if building_on_it:
@@ -349,15 +444,45 @@ def _record_merge(
         # diffs and commit counts come back empty, and it fails as "produced
         # no commits" before its next step can hold it. A leftover local
         # branch is harmless; the child's resume moves it off by name.
-        log(f"{merged.id}: branch {old_base} kept — {', '.join(building_on_it)} building on it")
+        log(f"{leaving.id}: branch {old_base} kept — {', '.join(building_on_it)} building on it")
         return
 
     try:
         # Only now: a branch checked out in a worktree cannot be deleted, so
         # the order is a requirement rather than a preference.
-        delete_branch(merged.repo, old_base)
+        delete_branch(leaving.repo, old_base)
     except Exception as error:  # noqa: BLE001
-        log(f"{merged.id}: branch {old_base} left in place — {error}")
+        log(f"{leaving.id}: branch {old_base} left in place — {error}")
+
+
+def _record_merge(
+    merged: StoredUnit,
+    *,
+    store: UnitStore,
+    restack: Restack,
+    remove_worktree: Callable[..., None],
+    delete_branch: Callable[..., None],
+    claim: Claim,
+    retarget: Callable[[StoredUnit, str], None],
+    rebase_cap: int | None,
+    resume: Resume,
+    log: Log,
+) -> None:
+    store.set_state(merged.id, MERGED)
+    log(f"merged #{merged.pr}: {merged.id}")
+
+    release_children(
+        merged,
+        store=store,
+        restack=restack,
+        remove_worktree=remove_worktree,
+        delete_branch=delete_branch,
+        claim=claim,
+        retarget=retarget,
+        rebase_cap=rebase_cap,
+        resume=resume,
+        log=log,
+    )
 
 
 def _hold_for_depth(
@@ -367,7 +492,7 @@ def _hold_for_depth(
     old_base: str,
     depth: int,
     cap: int,
-    retarget: Callable[[StoredUnit, str], None],
+    retarget: Callable[[StoredUnit, str], bool],
     log: Log,
 ) -> None:
     note = DEPTH_HOLD.format(new_base=new_base, depth=depth, cap=cap)
@@ -376,10 +501,7 @@ def _hold_for_depth(
     # Only the PR moves, as for a child being built: it touches no tree, and
     # one left on the merged branch may be closed by the host, which would put
     # the unit out of reach of a later reconsideration.
-    try:
-        retarget(child, new_base)
-    except Exception as error:  # noqa: BLE001
-        log(f"{child.id}: PR not retargeted to {new_base} — {error}")
+    retarget(child, new_base)
 
 
 def _reconsider_held(
@@ -446,7 +568,9 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
     `parent` all the same, since the satisfied unit between them added no
     commits of its own — `through_satisfied` looks past it the same way
     `base_of` does, so a grandchild through one is restacked (or held) here
-    exactly as a direct child would be.
+    exactly as a direct child would be. A unit that names `parent` itself is
+    stacked on it even when `parent` is satisfied, for a unit built on its
+    branch before it was.
 
     A cross-repo dependent is never stacked on it — stacks can't span repos —
     so it has nothing to move; `ready_units` makes it wait for the merge
@@ -455,7 +579,7 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
     return [
         unit
         for unit in graph
-        if parent.id in through_satisfied(unit, graph)
+        if parent.id in (*unit.depends_on, *through_satisfied(unit, graph))
         and unit.repo == parent.repo
         and unit.state in IN_FLIGHT
         and unit.branch
@@ -472,7 +596,7 @@ def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUn
     return [
         unit
         for unit in graph
-        if parent.id in through_satisfied(unit, graph)
+        if parent.id in (*unit.depends_on, *through_satisfied(unit, graph))
         and unit.repo == parent.repo
         and unit.state not in (MERGED, CLOSED)
     ]
@@ -998,6 +1122,22 @@ def build_restack(
         worktree = worktree_path(repo, branch, root)
         cwd = worktree if worktree.exists() else repo
 
+        # A satisfied parent added no commits, so a branch that already holds
+        # its new base needs no move: it was cut from the parent's predecessor,
+        # or moved by an earlier release. Its PR still points at the satisfied
+        # unit's branch, which is closed next, so that moves, unless it already
+        # has.
+        if (
+            parent.state == SATISFIED
+            and git(
+                repo, "merge-base", "--is-ancestor", local_ref(new_base), branch, check=False
+            ).returncode
+            == 0
+        ):
+            if child.pr and not pr_based_on(child, new_base):
+                retarget(child.pr, new_base, repo=child.repo)
+            return
+
         # Retargeted before anything else, and whatever the adopt or the move
         # does: with its base branch merged away, a PR left pointing at it
         # would be closed by GitHub.
@@ -1167,6 +1307,38 @@ def build_retarget() -> Callable[[StoredUnit, str], None]:
             _default_retarget(unit.pr, new_base, repo=unit.repo)
 
     return retarget
+
+
+def pr_based_on(unit: StoredUnit, base: str) -> bool:
+    """Whether the unit's pull request already points at `base`, as the host
+    reports it. True when it has none, nothing then needing to move; False when
+    the host cannot say, so the caller moves it."""
+    if not unit.pr:
+        return True
+    try:
+        forge, repo_id = forges.for_repo(unit.repo)
+        pulls = forge.list_prs(repo_id, head_prefix=branch_name(unit))
+    except Exception:  # noqa: BLE001
+        return False
+    return any(pull.number == unit.pr and pull.base == base for pull in pulls)
+
+
+def build_settled(repos: dict[str, Path]) -> Callable[[StoredUnit, str], bool]:
+    """What `release_children` asks before moving a child: whether its branch
+    already holds `base` and its pull request already points there."""
+
+    def settled(child: StoredUnit, base: str) -> bool:
+        held = git(
+            repos[child.repo],
+            "merge-base",
+            "--is-ancestor",
+            local_ref(base),
+            branch_name(child),
+            check=False,
+        )
+        return held.returncode == 0 and pr_based_on(child, base)
+
+    return settled
 
 
 def _default_comment(pr: int, body: str, *, repo: str, posts_root: Path | None) -> None:

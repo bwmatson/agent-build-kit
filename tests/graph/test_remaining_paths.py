@@ -255,6 +255,52 @@ def test_a_failure_to_close_a_satisfied_units_pull_request_is_recorded_and_leave
     assert "404 gone" in stored.history[-1]["note"]
 
 
+def test_a_satisfied_unit_releases_its_dependents_before_its_pull_request_is_closed(
+    tmp_path: Path,
+) -> None:
+    """A dependent left on the branch while its pull request closes would be
+    closed with it; the worktree and branch go last, once the run has left."""
+    tasks_file(tmp_path)
+    recorder = fresh(tmp_path, commits_from_impl=0)
+    recorder.store.set_state(unit().id, IN_REVIEW, pr=4, branch=branch_name(unit()))
+    order: list[str] = []
+
+    def release(unit) -> list[str]:
+        order.append(f"release {unit.id}")
+        return []
+
+    outcome = build(
+        tmp_path,
+        recorder,
+        graph=[recorder.store.get(unit().id)],
+        release_dependents=release,
+        close_pr=lambda unit, pr, reason: order.append(f"close #{pr}"),
+        remove_satisfied=lambda unit: order.append(f"remove {unit.id}"),
+        **empty_branch(),
+    )
+
+    assert outcome.status == "satisfied"
+    assert order == [f"release {unit().id}", "close #4", f"remove {unit().id}"]
+
+
+def test_a_dependent_that_could_not_be_moved_is_recorded_on_the_satisfied_unit(
+    tmp_path: Path,
+) -> None:
+    tasks_file(tmp_path)
+    recorder = fresh(tmp_path, commits_from_impl=0)
+
+    build(
+        tmp_path,
+        recorder,
+        release_dependents=lambda unit: ["add-marker/3 not moved off spec/x — host refused"],
+        **empty_branch(),
+    )
+
+    stored = recorder.store.get(unit().id)
+    assert stored.state == SATISFIED
+    assert "add-marker/3" in stored.note and "host refused" in stored.note
+
+
 def test_nothing_asks_an_agent_anything_once_the_checks_have_judged_an_empty_branch(
     tmp_path: Path,
 ) -> None:

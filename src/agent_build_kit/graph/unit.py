@@ -265,4 +265,7 @@ async def run_unit(
     if outcome.status == RunStatus.SATISFIED:
         # A thread lasts until the unit merges, is closed or is satisfied.
         await saver.adelete_thread(unit.id)
+        # Now the run has left its tree: removing it earlier would pull the
+        # floor from under the node that found the unit satisfied.
+        runner.remove_satisfied(unit)
     return outcome
