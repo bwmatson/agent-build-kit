@@ -27,7 +27,7 @@ def never_opened(*args, **kwargs):
     pytest.fail("a label call went out over REST")
 
 
-def invoke(method: str, *route: str) -> list[str]:
+def invoke(method: str, *route: str, project: str = "Proj") -> list[str]:
     """The argv a label call is expected to send, less the body file."""
     return [
         "az",
@@ -38,7 +38,7 @@ def invoke(method: str, *route: str) -> list[str]:
         "--resource",
         "pullRequestLabels",
         "--route-parameters",
-        "project=Proj",
+        f"project={project}",
         "repositoryId=app",
         "pullRequestId=7",
         *route,
@@ -164,6 +164,24 @@ def test_a_refused_removal_raises() -> None:
 
     with pytest.raises(AzError, match="no rights"):
         remove(host, "bug")
+
+
+def test_a_project_with_a_space_is_one_unquoted_argument() -> None:
+    spaced = RepoId(forge="azure_devops", account="example", project="My Proj", name="app")
+    host = AzureLabelsHost({7: ["in-review"]})
+
+    FORGE.add_label(spaced, 7, HELD, run=host, open_url=never_opened)
+    FORGE.set_exclusive_label(spaced, 7, HELD, family=STATE_FAMILY, run=host, open_url=never_opened)
+    FORGE.remove_label(spaced, 7, "bug", run=host, open_url=never_opened)
+
+    for call in host.calls:
+        assert call.count("project=My Proj") == 1
+        assert not [arg for arg in call if "%20" in arg or '"' in arg or "'" in arg]
+    post = host.calls[0]
+    in_file = post.index("--in-file")
+    assert post[:in_file] + post[in_file + 2 :] == invoke("post", project="My Proj")
+    assert host.calls[1] == invoke("get", project="My Proj")
+    assert host.calls[-1] == invoke("delete", "labelIdOrName=bug", project="My Proj")
 
 
 def test_no_access_token_is_requested() -> None:
