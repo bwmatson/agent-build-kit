@@ -89,23 +89,11 @@
   posted since goes back to the agent. This costs one read before each push attempt, being the pull
   request's review notes and its conversation; a failed read is logged and the work pushes.
 
-- A tier-2 acceptance run for telemetry: `tests/integration/test_telemetry_stack.py` ticks a fixture
-  unit with telemetry on and finds its trace by unit id and its `abk.unit.duration` and
-  `abk.step.duration` series, without a unit id, in the shared stack's stores; with the endpoint
-  pointing at nothing the tick still finishes and writes nothing. It needs the stack's dev
-  instance up and the four `ABK_ACCEPTANCE_*` endpoint variables set (docs/agent-runtimes.md).
-
 - Time accounting: the usage ledger also takes `kind: span` lines with UTC `started`/`ended` and
   `duration_ms` for each node of a unit's graph (with the failure outcome when it raises), the
   wait for a build slot (`waited: slot`), a usage pause (`waited: usage_pause`, measured from the
   interrupt across processes) and each tier 1 command. Recording never affects a run. The usage
   reader ignores these lines.
-
-- `abk telemetry push-dashboard` pushes the framework's Grafana dashboard (shipped as package
-  data, querying only metrics the telemetry module emits) to the Grafana named by
-  `ABK_GRAFANA_URL` and `ABK_GRAFANA_TOKEN`, into the folder `ABK_GRAFANA_FOLDER` (default
-  `agent-build-kit`). It is idempotent: the folder is created if missing and the dashboard is
-  overwritten.
 
 - Infrastructure profiles (`infra/`), a second profile kind beside the toolchain profiles: a repo
   names one with `infra:` (`docker` or `none`, default `none`; an unknown name fails when
