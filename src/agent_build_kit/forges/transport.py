@@ -3,7 +3,9 @@ call, bounded retry, and the rules for answers that are not the expected one."""
 
 from __future__ import annotations
 
+import base64
 import random
+import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -115,7 +117,43 @@ def clear_credentials() -> None:
     forget_tokens()
 
 
+def forget_credential(forge: str, owner: str) -> None:
+    """Forget one owner's cached credential, so the next call reads it again
+    (an `az` access token expires partway through a long tick)."""
+    with _cache_lock:
+        _cache.pop((forge, owner), None)
+
+
+# Azure DevOps' own application id, the resource its `az` access token is for.
+AZURE_DEVOPS_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
+AZURE_PAT_SOURCE = "AZURE_DEVOPS_EXT_PAT"
+AZURE_CLI_SOURCE = "az account get-access-token"
+
+
+def _resolve_azure(owner: str, run: Run | None) -> Credentials:
+    """A PAT as the password of an empty user, else the `az` session's token."""
+    if settings.ado_pat:
+        pat = base64.b64encode(f":{settings.ado_pat}".encode()).decode()
+        return Credentials(scheme="Basic", token=pat, source=AZURE_PAT_SOURCE, owner=owner)
+    argv = [
+        "az", "account", "get-access-token", "--resource", AZURE_DEVOPS_RESOURCE,
+        "--query", "accessToken", "-o", "tsv",
+    ]  # fmt: skip
+    result = (run or subprocess.run)(
+        argv, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+    )
+    token = (result.stdout or "").strip()
+    if result.returncode or not token:
+        raise AuthError(
+            f"no credential for {owner}: tried {AZURE_PAT_SOURCE} (unset) and "
+            f"`az account get-access-token` (no token); set {AZURE_PAT_SOURCE} or run `az login`"
+        )
+    return Credentials(scheme="Bearer", token=token, source=AZURE_CLI_SOURCE, owner=owner)
+
+
 def _resolve(forge: str, owner: str, run: Run | None) -> Credentials:
+    if forge == "azure_devops":
+        return _resolve_azure(owner, run)
     if forge != "github":
         raise AuthError(f"no credential source for a {forge} repo of {owner}")
     found = credential_source(owner, run=run)

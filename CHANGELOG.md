@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Azure DevOps is reached over typed REST through the shared transport instead of `az`
+  subprocesses. A listing starts no process, reads every page (pull requests, policy
+  evaluations, an iteration's changes), and keeps its reads of open pull requests within a
+  bounded pool; results are unchanged. A PAT is sent as a Basic credential and, without one,
+  the `az` sign-in session's token as a Bearer, read again once the host rejects it (it expires), so
+  `az` is now only a credential source. A response that is not the document expected raises an
+  error naming the endpoint. `pipeline/az.py` and the `permitted_commands` carve-out for
+  `az repos pr update` are removed: nothing the pipeline does needs a command exception.
+
 - The build, rework and restack resolver prompts carry the `## Changelog` section of the built
   repo's own AGENTS.md; a repo without one is told nothing about the changelog. The resolver
   keeps both sides' bullets and folds two that describe one change when CHANGELOG.md conflicts
@@ -78,6 +87,7 @@
   difference. `planning.usage_page` (default `docs/unit_cost.md`) holds per-change totals and
   the most expensive units, rewritten on every store write without ever failing it. Archiving a
   change rolls its ledger lines into one `summary` line per unit, so its totals survive.
+
 - `forges/transport.py`: one HTTP transport for code hosts. Credentials come per owner (the
   `GH_TOKEN` setting, else `gh auth token --user <owner>`, cached once per owner), every call
   has a timeout, failures are retried with backoff and `Retry-After` (never a create-style
@@ -85,12 +95,6 @@
   New settings `ABK_FORGE_TIMEOUT_SECONDS` (30) and `ABK_FORGE_RETRIES` (3); `httpx` is now a
   direct dependency. `abk doctor` checks each GitHub repo's credential against the host and
   reports the account it acts as.
-
-- `abk telemetry push-dashboard` pushes the framework's Grafana dashboard (shipped as package
-  data, querying only metrics the telemetry module emits) to the Grafana named by
-  `ABK_GRAFANA_URL` and `ABK_GRAFANA_TOKEN`, into the folder `ABK_GRAFANA_FOLDER` (default
-  `agent-build-kit`). It is idempotent: the folder is created if missing and the dashboard is
-  overwritten.
 
 - A rework addresses comments added while it runs. Just before the push
   (including after a clean move onto a new base) the pull request's notes and conversation are

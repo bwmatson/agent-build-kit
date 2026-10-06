@@ -3,9 +3,9 @@
 Three things about this host shape everything below:
 
 **Three segments, decoded.** A repo is organisation / project / repo, and the
-remote percent-encodes any of them containing a space. `%20` handed to
-`az repos --project` names a project that does not exist, so the identity is
-decoded once, here, and every caller gets the readable form.
+remote percent-encodes any of them containing a space. The identity is decoded
+once, here, and quoted into each REST path, so a `%20` is never quoted a second
+time into a project that does not exist.
 
 **A merge is only a merge when `status` says so.** An open pull request
 carries `mergeStatus: succeeded` and a populated `lastMergeCommit` exactly as a
@@ -24,15 +24,31 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
+import httpx
+from pydantic import BaseModel, ValidationError
+
+from agent_build_kit.forges.azure_models import (
+    BuildDoc,
+    ChangesDoc,
+    EvaluationDoc,
+    IterationDoc,
+    LabelDoc,
+    PullRequestDoc,
+    RefDoc,
+    RefUpdateDoc,
+    ReviewerDoc,
+    StatusDoc,
+    ThreadDoc,
+)
 from agent_build_kit.forges.base import (
     BaseMissing,
     Label,
-    PermittedCommand,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -40,20 +56,38 @@ from agent_build_kit.forges.base import (
     Stack,
     StackRefused,
 )
-from agent_build_kit.pipeline import az, units
+from agent_build_kit.forges.transport import (
+    AZURE_CLI_SOURCE,
+    PAGE_EXCERPT,
+    AuthError,
+    NotFound,
+    Response,
+    Transport,
+    TransportError,
+    credential_for,
+    forget_credential,
+)
+from agent_build_kit.pipeline import units
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
 
-# The REST version the pull request PATCH is made against; `az devops invoke`
-# defaults to 5.0, which predates fields this relies on.
+_HOST = "https://dev.azure.com"
+# The REST version every call is made against, and the one policy evaluations
+# are only served under.
 _API = "7.1"
-# What `az repos pr create` says when a branch it was given is not on the host:
+_API_EVALUATIONS = "7.1-preview.1"
+# The most the list endpoints give a page of.
+_PAGE = 100
+# What creating a pull request says when a branch it was given is not on the host:
 # TF401028 a missing reference, TF401398 a source or target that no longer exists.
 _MISSING_REFERENCE = "TF401028"
 _MISSING_BRANCH = "TF401398"
-# What removing a label the pull request does not carry says.
-_LABEL_ABSENT = "could not be found"
+# The all-zero object id a ref is "updated" to when it is deleted.
+_NO_OBJECT = "0" * 40
+# What the host calls a comment's type, in a request: 1 is `text`, where the
+# default would be `unknown`.
+_TEXT_COMMENT = 1
 
 log = logging.getLogger(__name__)
 
@@ -129,9 +163,6 @@ class AzureDevOpsForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (
-        # Denied whole, bar `permitted_commands`: `--status completed`,
-        # `--auto-complete` and `--bypass-policy` all merge, so only the exact
-        # shapes listed there are let through.
         ("az", "repos", "pr", "update"),
         ("az", "repos", "pr", "set-vote"),
         ("az", "repos", "policy"),
@@ -144,25 +175,14 @@ class AzureDevOpsForge:
         ("az", "repos", "pr", "list"),
         ("az", "repos", "pr", "policy", "list"),
     )
-    # Abandoning or reopening a PR and toggling draft are the pipeline's own
-    # calls; each flag is spelled in full with the values it may carry.
-    permitted_commands: tuple[PermittedCommand, ...] = (
-        PermittedCommand(
-            prefix=("az", "repos", "pr", "update"),
-            flags=(
-                ("--id", r"\d+"),
-                ("--status", "abandoned|active"),
-                ("--draft", "true|false"),
-                ("--org", ".+"),
-                ("--organization", ".+"),
-                ("--detect", ".+"),
-                # `az.call` appends it to every call.
-                ("--output", "json"),
-            ),
-        ),
-    )
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
     ci_name: str = "Azure Pipelines"
+
+    def __init__(self, http: httpx.BaseTransport | None = None) -> None:
+        # The transport every REST call goes through; None is the network.
+        self.http = http
+        self._transports: dict[str, Transport] = {}
+        self._lock = threading.Lock()
 
     # --- identity -------------------------------------------------------------------
 
@@ -202,22 +222,65 @@ class AzureDevOpsForge:
         )
         return f"{base}/pullrequest/{pr}" if pr else base
 
+    # --- the wire -------------------------------------------------------------------
+
+    def _transport(self, account: str, run: Run | None) -> Transport:
+        """The connection for one organisation, rebuilt when its credential is
+        read again: `_call` drops an `az` token the host rejected, since it
+        expires, so the next read runs `az` for a fresh one."""
+        credentials = credential_for(self.name, account, run=run)
+        with self._lock:
+            held = self._transports.get(account)
+            if held is None or held.credentials is not credentials:
+                held = Transport(_HOST, credentials, transport=self.http)
+                self._transports[account] = held
+            return held
+
+    def _call(
+        self,
+        repo: RepoId,
+        method: str,
+        path: str,
+        *,
+        version: str = _API,
+        params: dict[str, str] | None = None,
+        json: Any = None,
+        run: Run | None = None,
+    ) -> Response:
+        """One REST call, `path` being under the project's `_apis/`.
+
+        A token from the `az` session that the host rejects has most likely
+        expired, so it is dropped and the call made once more with a fresh one.
+        A PAT stays cached: a rejected PAT is rejected again.
+        """
+        url = f"/{quote(repo.account)}/{quote(repo.project)}/_apis/{path}"
+        query = {"api-version": version, **(params or {})}
+        transport = self._transport(repo.account, run)
+        try:
+            return transport.request(method, url, json=json, params=query)
+        except AuthError:
+            if transport.credentials.source != AZURE_CLI_SOURCE:
+                raise
+        forget_credential(self.name, repo.account)
+        return self._transport(repo.account, run).request(method, url, json=json, params=query)
+
+    def _git(self, repo: RepoId, method: str, tail: str = "", **kwargs: Any) -> Response:
+        """One REST call on the repository itself."""
+        path = f"git/repositories/{quote(repo.name)}" + (f"/{tail}" if tail else "")
+        return self._call(repo, method, path, **kwargs)
+
     # --- access ---------------------------------------------------------------------
 
     def check_access(self, repo: RepoId, *, run: Run | None = None) -> str:
         """Whether this machine can read the repo it is configured for.
 
-        A real read of the named repo, not `az account show`: only that proves
-        the credential *and* the access to this repo, which is the question
-        the check exists to answer.
+        A real read of the named repo: only that proves the credential *and*
+        the access to this repo, which is the question the check exists to
+        answer.
         """
         try:
-            az.json_out(
-                ["repos", "show", "--project", repo.project, "--repository", repo.name],
-                org=az.org_url(repo.account),
-                run=run,
-            )
-        except az.AzError as error:
+            self._git(repo, "GET", run=run)
+        except TransportError as error:
             return f"cannot read {repo.name} in {repo.project}: {error}"
         return ""
 
@@ -235,114 +298,80 @@ class AzureDevOpsForge:
         thing between an agent and its own merge.
         """
         try:
-            found = az.json_out(
-                ["repos", "policy", "list", "--project", repo.project],
-                org=az.org_url(repo.account),
-                run=run,
-            )
-        except az.AzError as error:
+            found = self._call(repo, "GET", "policy/configurations", run=run)
+        except TransportError as error:
             return f"cannot tell what guards {branch}: {error}"
-        return "" if found else f"no branch policy guards {branch}"
-
-    def _api(self, repo: RepoId) -> str:
-        """The repository's REST root, with the spaces a project name may
-        carry encoded."""
-        return (
-            f"{az.org_url(repo.account)}/{quote(repo.project)}"
-            f"/_apis/git/repositories/{quote(repo.name)}"
-        )
-
-    def _rest(
-        self,
-        repo: RepoId,
-        resource: str,
-        *,
-        method: str = "GET",
-        payload: object = None,
-        run: Run | None = None,
-        **route: object,
-    ) -> object:
-        """One REST call through `az devops invoke`.
-
-        Not `az rest`: the extension implements PAT-else-`az login` itself,
-        and `az rest` in PAT mode wants the secret in argv, where `ps` can
-        read it.
-        """
-        args = [
-            "devops",
-            "invoke",
-            "--area",
-            "git",
-            "--resource",
-            resource,
-            "--route-parameters",
-            f"project={repo.project}",
-            f"repositoryId={repo.name}",
-            *(f"{name}={value}" for name, value in route.items()),
-            "--http-method",
-            method,
-            "--api-version",
-            _API,
-        ]
-        if payload is None:
-            return az.json_out(args, org=az.org_url(repo.account), run=run)
-        with az.body_file(payload) as body:
-            return az.json_out([*args, "--in-file", body], org=az.org_url(repo.account), run=run)
+        values = found.data.get("value") if isinstance(found.data, dict) else None
+        return "" if values else f"no branch policy guards {branch}"
 
     # --- pull requests --------------------------------------------------------------
 
     def list_prs(
         self, repo: RepoId, *, head_prefix: str = "", run: Run | None = None
     ) -> list[PullRequest]:
-        found = az.json_out(
-            [
-                "repos",
-                "pr",
-                "list",
-                "--project",
-                repo.project,
-                "--repository",
-                repo.name,
-                # Merged and abandoned included: a merge is precisely what the
-                # poller is waiting for, and it is only visible here.
-                "--status",
-                "all",
-                "--top",
-                "100",
-            ],
-            org=az.org_url(repo.account),
-            run=run,
-        )
-        if not isinstance(found, list):
-            raise az.AzError("expected a list of pull requests")
-        pulls = [_view(pull) for pull in found]
+        # Merged and abandoned included: a merge is precisely what the poller is
+        # waiting for, and it is only visible here.
+        docs = self._pull_docs(repo, {"searchCriteria.status": "all"}, run=run)
+        projects = {doc.pull_request_id: doc.repository.project.id for doc in docs}
+        pulls = [_view(doc) for doc in docs]
         if head_prefix:
             pulls = [p for p in pulls if p.head.startswith(head_prefix)]
-        # What was said is a second call per pull request, so only the open
-        # ones are asked: a merged or abandoned one is dispatched on its state,
-        # and nothing said on it afterwards changes what the pipeline does.
+        # What was said is a few calls per pull request, so only the open ones
+        # are asked: a merged or abandoned one is dispatched on its state, and
+        # nothing said on it afterwards changes what the pipeline does.
         # On a small pool, so a poll's latency stops scaling with the open PRs
-        # while the `az` process count stays bounded. `map` keeps listing order
+        # while the requests in flight stay bounded. `map` keeps listing order
         # and raises the first failure, so a failed read leaves no partial list.
         with ThreadPoolExecutor(max_workers=READ_POOL) as pool:
             return list(
                 pool.map(
-                    lambda p: p if p.state != "open" else self._said_on(repo, p, run=run), pulls
+                    lambda p: (
+                        p if p.state != "open" else self._said_on(repo, p, projects[p.number], run)
+                    ),
+                    pulls,
                 )
             )
 
-    def _said_on(self, repo: RepoId, pull: PullRequest, *, run: Run | None = None) -> PullRequest:
+    def _pull_docs(
+        self, repo: RepoId, criteria: dict[str, str], *, limit: int = 0, run: Run | None = None
+    ) -> list[PullRequestDoc]:
+        """The pull requests matching `criteria`, every page of them, or the
+        first `limit` when one is given."""
+        docs: list[PullRequestDoc] = []
+        while True:
+            page = _items(
+                self._git(
+                    repo,
+                    "GET",
+                    "pullrequests",
+                    params={**criteria, "$top": str(limit or _PAGE), "$skip": str(len(docs))},
+                    run=run,
+                ),
+                PullRequestDoc,
+                "GET pullrequests",
+            )
+            docs.extend(page)
+            if limit or len(page) < _PAGE:
+                return docs
+
+    def _pull_doc(self, repo: RepoId, pr: int, *, run: Run | None = None) -> PullRequestDoc:
+        route = f"pullrequests/{pr}"
+        return _parse(self._git(repo, "GET", route, run=run), PullRequestDoc, f"GET {route}")
+
+    def _said_on(
+        self, repo: RepoId, pull: PullRequest, project: str, run: Run | None = None
+    ) -> PullRequest:
         """The pull request with what was said on it, for the poller to diff."""
         notes = _notes(self._threads(repo, pull.number, run=run), live_only=False)
         failing_evaluations, cancelled_evaluations = self._split_evaluations(
-            repo, pull.number, run=run
+            repo, pull.number, project, run=run
         )
         failing = tuple(
             sorted(
                 [
                     _context(status)
                     for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
-                    if str(status.get("state") or "") in _FAILING
+                    if status.state in _FAILING
                 ]
                 + [_policy_name(item) for item in failing_evaluations]
             )
@@ -358,78 +387,70 @@ class AzureDevOpsForge:
         )
 
     def _split_evaluations(
-        self, repo: RepoId, pr: int, *, run: Run | None = None
-    ) -> tuple[list[dict], list[dict]]:
+        self, repo: RepoId, pr: int, project: str, *, run: Run | None = None
+    ) -> tuple[list[EvaluationDoc], list[EvaluationDoc]]:
         """The failing build evaluations, apart from those whose build was cancelled.
 
         Both are `rejected` on the policy; only the build says which it was.
         An evaluation with no build to ask about is a failure.
         """
-        failing: list[dict] = []
-        cancelled: list[dict] = []
-        for item in self._failing_evaluations(repo, pr, run=run):
-            build = (item.get("context") or {}).get("buildId")
+        failing: list[EvaluationDoc] = []
+        cancelled: list[EvaluationDoc] = []
+        for item in self._failing_evaluations(repo, pr, project, run=run):
+            build = item.context.build_id if item.context else None
             if build and self._build_result(repo, build, run=run) == _BUILD_CANCELLED:
                 cancelled.append(item)
             else:
                 failing.append(item)
         return failing, cancelled
 
-    def _build_result(self, repo: RepoId, build: object, *, run: Run | None = None) -> str:
-        found = az.json_out(
-            ["pipelines", "runs", "show", "--id", str(build), "--project", repo.project],
-            org=az.org_url(repo.account),
-            run=run,
-        )
-        return str(found.get("result") or "") if isinstance(found, dict) else ""
+    def _build_result(self, repo: RepoId, build: int, *, run: Run | None = None) -> str:
+        route = f"build/builds/{build}"
+        found = self._call(repo, "GET", route, run=run)
+        return _parse(found, BuildDoc, f"GET {route}").result or ""
 
-    def _failing_evaluations(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
+    def _failing_evaluations(
+        self, repo: RepoId, pr: int, project: str, *, run: Run | None = None
+    ) -> list[EvaluationDoc]:
         """The build policy evaluations this pull request is failing.
 
         A policy evaluation is a different resource from a status: a branch
-        policy's build reports here and never as a status.
+        policy's build reports here and never as a status. The list is paged by
+        `$top`/`$skip` (Policy Evaluations - List, 7.1-preview.1, documents no
+        continuation token), and a failing one may be on the last page.
         """
-        found = az.json_out(
-            ["repos", "pr", "policy", "list", "--id", str(pr)],
-            org=az.org_url(repo.account),
-            run=run,
-        )
+        artifact = f"vstfs:///CodeReview/CodeReviewId/{project}/{pr}"
+        found: list[EvaluationDoc] = []
+        while True:
+            answer = self._call(
+                repo,
+                "GET",
+                "policy/evaluations",
+                version=_API_EVALUATIONS,
+                params={"artifactId": artifact, "$top": str(_PAGE), "$skip": str(len(found))},
+                run=run,
+            )
+            page = _items(answer, EvaluationDoc, "GET policy/evaluations")
+            found += page
+            # An empty page, not a short one: the host may cap a page below `$top`.
+            if not page:
+                break
         return [
             item
-            for item in (found if isinstance(found, list) else [])
-            if isinstance(item, dict)
-            and str(item.get("status") or "") in _POLICY_FAILING
-            and _policy_type(item) == _BUILD_POLICY_TYPE
+            for item in found
+            if item.status in _POLICY_FAILING and item.configuration.type.id == _BUILD_POLICY_TYPE
         ]
 
     def find_pr(
         self, repo: RepoId, *, head: str, status: str = "all", run: Run | None = None
     ) -> int | None:
-        found = az.json_out(
-            [
-                "repos",
-                "pr",
-                "list",
-                "--project",
-                repo.project,
-                "--repository",
-                repo.name,
-                "--source-branch",
-                head,
-                "--status",
-                status,
-                "--top",
-                "1",
-            ],
-            org=az.org_url(repo.account),
+        found = self._pull_docs(
+            repo,
+            {"searchCriteria.sourceRefName": f"refs/heads/{head}", "searchCriteria.status": status},
+            limit=1,
             run=run,
         )
-        if not isinstance(found, list) or not found:
-            return None
-        try:
-            return int(found[0]["pullRequestId"])
-        except (KeyError, TypeError, ValueError):
-            return None
+        return found[0].pull_request_id if found else None
 
     def create_pr(
         self,
@@ -442,35 +463,25 @@ class AzureDevOpsForge:
         run: Run | None = None,
     ) -> int:
         try:
-            made = az.json_out(
-                [
-                    "repos",
-                    "pr",
-                    "create",
-                    "--project",
-                    repo.project,
-                    "--repository",
-                    repo.name,
-                    "--source-branch",
-                    head,
-                    "--target-branch",
-                    base,
-                    "--title",
-                    title,
-                    "--description",
-                    body,
-                ],
-                org=az.org_url(repo.account),
+            made = self._git(
+                repo,
+                "POST",
+                "pullrequests",
+                json={
+                    "sourceRefName": f"refs/heads/{head}",
+                    "targetRefName": f"refs/heads/{base}",
+                    "title": title,
+                    "description": body,
+                },
                 run=run,
             )
-        except az.AzError as error:
-            # The host's words only: the message also holds the title and body.
-            if _base_missing(error.stderr, base):
+        except TransportError as error:
+            # The host's words only: the request, which holds the title and
+            # body, is not in the error.
+            if _base_missing(str(error), base):
                 raise BaseMissing(str(error)) from error
             raise
-        if not isinstance(made, dict) or "pullRequestId" not in made:
-            raise az.AzError(f"creating a pull request for {head} answered without an id")
-        return int(made["pullRequestId"])
+        return _parse(made, PullRequestDoc, "POST pullrequests").pull_request_id
 
     def update_pr(
         self,
@@ -480,35 +491,23 @@ class AzureDevOpsForge:
         base: str = "",
         body: str = "",
         run: Run | None = None,
-        open_url: az.OpenUrl | None = None,
     ) -> None:
         """Change a PR's base or body.
 
-        The base goes through the REST API because `az repos pr update` has no
-        `--target-branch`, and a PR left pointing at a branch that merged away
-        shows a diff containing everything.
+        A PR left pointing at a branch that merged away shows a diff containing
+        everything, which is why the base is retargeted at all.
         """
+        route = f"pullrequests/{pr}"
         if base:
-            # Not through `az devops invoke`: it resolves `git/pullRequests` to
-            # the organisation-level location, which answers GET and refuses
-            # PATCH. There is no CLI command for this either - `az repos pr
-            # update` has no `--target-branch` - so the API is the only way.
-            #
             # Only when it differs. GitHub takes a retarget to the branch a PR
             # already has; Azure answers 400 "This pull request already
             # targets ...", which failed every rework of a PR the pipeline had
             # already opened on the right branch.
-            url = f"{self._api(repo)}/pullRequests/{pr}?api-version={_API}"
             target = f"refs/heads/{base}"
-            current = az.rest("GET", url, run=run, open_url=open_url)
-            if not isinstance(current, dict) or current.get("targetRefName") != target:
-                az.rest("PATCH", url, payload={"targetRefName": target}, run=run, open_url=open_url)
+            if self._pull_doc(repo, pr, run=run).target_ref_name != target:
+                self._git(repo, "PATCH", route, json={"targetRefName": target}, run=run)
         if body:
-            az.json_out(
-                ["repos", "pr", "update", "--id", str(pr), "--description", body],
-                org=az.org_url(repo.account),
-                run=run,
-            )
+            self._git(repo, "PATCH", route, json={"description": body}, run=run)
 
     # --- stacks ---------------------------------------------------------------------
 
@@ -521,8 +520,9 @@ class AzureDevOpsForge:
     def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
         raise StackRefused("Azure DevOps has no stacks")
 
-    def _threads(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
-        return _values(self._rest(repo, "pullRequestThreads", pullRequestId=pr, run=run))
+    def _threads(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[ThreadDoc]:
+        route = f"pullrequests/{pr}/threads"
+        return _items(self._git(repo, "GET", route, run=run), ThreadDoc, f"GET {route}")
 
     def pr_files(self, repo: RepoId, pr: int, run: Run | None = None) -> list[str]:
         """The paths this pull request touches.
@@ -530,27 +530,29 @@ class AzureDevOpsForge:
         Each push to the source branch makes an iteration, and what the change
         touches is what the newest one holds.
         """
-        found = _values(self._rest(repo, "pullRequestIterations", pullRequestId=pr, run=run))
-        numbers = [item["id"] for item in found if "id" in item]
-        if not numbers:
+        route = f"pullrequests/{pr}/iterations"
+        found = _items(self._git(repo, "GET", route, run=run), IterationDoc, f"GET {route}")
+        if not found:
             return []
-        changes = self._rest(
-            repo,
-            "pullRequestIterationChanges",
-            pullRequestId=pr,
-            iterationId=max(numbers),
-            run=run,
-        )
-        entries = changes.get("changeEntries") or [] if isinstance(changes, dict) else []
-        return sorted(
-            str(item.get("path") or "").lstrip("/")
-            for change in entries
-            if isinstance(change, dict) and not (item := change.get("item") or {}).get("isFolder")
-            if item.get("path")
-        )
+        route = f"{route}/{max(item.id for item in found)}/changes"
+        paths: list[str] = []
+        params: dict[str, str] = {}
+        while True:
+            changes = _parse(
+                self._git(repo, "GET", route, params=params, run=run), ChangesDoc, f"GET {route}"
+            )
+            paths += [
+                change.item.path.lstrip("/")
+                for change in changes.change_entries or []
+                if change.item and change.item.path and not change.item.is_folder
+            ]
+            if not changes.next_skip:
+                return sorted(paths)
+            params = {"$skip": str(changes.next_skip), "$top": str(changes.next_top)}
 
-    def _statuses(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[dict]:
-        return _values(self._rest(repo, "pullRequestStatuses", pullRequestId=pr, run=run))
+    def _statuses(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[StatusDoc]:
+        route = f"pullrequests/{pr}/statuses"
+        return _items(self._git(repo, "GET", route, run=run), StatusDoc, f"GET {route}")
 
     # --- cleanup --------------------------------------------------------------------
 
@@ -572,16 +574,17 @@ class AzureDevOpsForge:
         record, unlike GitHub, where a reply creates a bodyless review.
         """
         thread, _, comment = note_id.partition(".")
-        made = self._rest(
+        made = self._git(
             repo,
-            "pullRequestThreadComments",
-            method="POST",
-            # commentType 1 is `text`; the default would be `unknown`.
-            payload={"content": body, "parentCommentId": int(comment or 0), "commentType": 1},
-            pullRequestId=pr,
-            threadId=thread,
+            "POST",
+            f"pullrequests/{pr}/threads/{thread}/comments",
+            json={
+                "content": body,
+                "parentCommentId": int(comment or 0),
+                "commentType": _TEXT_COMMENT,
+            },
             run=run,
-        )
+        ).data
         if not isinstance(made, dict) or "id" not in made:
             return []
         return [f"{thread}.{made['id']}"]
@@ -591,14 +594,16 @@ class AzureDevOpsForge:
     ) -> list[str]:
         """Say something about the pull request rather than about one note,
         which here means opening a thread with no file behind it."""
-        made = self._rest(
+        made = self._git(
             repo,
-            "pullRequestThreads",
-            method="POST",
-            payload={"comments": [{"content": body, "commentType": 1}], "status": "active"},
-            pullRequestId=pr,
+            "POST",
+            f"pullrequests/{pr}/threads",
+            json={
+                "comments": [{"content": body, "commentType": _TEXT_COMMENT}],
+                "status": "active",
+            },
             run=run,
-        )
+        ).data
         if not isinstance(made, dict) or "id" not in made:
             return []
         comments = made.get("comments") or [{}]
@@ -635,7 +640,7 @@ class AzureDevOpsForge:
             "description": description[:_DESCRIPTION],
             "context": {"genre": genre or "abk", "name": name},
         }
-        self._rest(repo, "statuses", method="POST", payload=payload, commitId=sha, run=run)
+        self._git(repo, "POST", f"commits/{quote(sha)}/statuses", json=payload, run=run)
         if head:
             self._post_pr_status(repo, head, payload, run=run)
 
@@ -653,15 +658,8 @@ class AzureDevOpsForge:
         if number is None:
             return
         try:
-            self._rest(
-                repo,
-                "pullRequestStatuses",
-                method="POST",
-                payload=payload,
-                pullRequestId=number,
-                run=run,
-            )
-        except az.AzError as error:
+            self._git(repo, "POST", f"pullrequests/{number}/statuses", json=payload, run=run)
+        except TransportError as error:
             context = payload["context"]
             log.warning(
                 "could not show %s/%s %s on the pull request for %s: %s",
@@ -674,20 +672,15 @@ class AzureDevOpsForge:
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> None:
         """Queue the build policy evaluations whose build was cancelled again."""
-        _, cancelled = self._split_evaluations(repo, pull.number, run=run)
+        project = self._pull_doc(repo, pull.number, run=run).repository.project.id
+        _, cancelled = self._split_evaluations(repo, pull.number, project, run=run)
         for item in cancelled:
-            az.json_out(
-                [
-                    "repos",
-                    "pr",
-                    "policy",
-                    "queue",
-                    "--id",
-                    str(pull.number),
-                    "--evaluation-id",
-                    str(item.get("evaluationId")),
-                ],
-                org=az.org_url(repo.account),
+            evaluation = quote(item.evaluation_id, safe="")
+            self._call(
+                repo,
+                "PATCH",
+                f"policy/evaluations/{evaluation}",
+                version=_API_EVALUATIONS,
                 run=run,
             )
 
@@ -702,18 +695,19 @@ class AzureDevOpsForge:
         if not pull.failing_checks:
             return ""
         parts = [
-            f"{_context(status)} - {status.get('description') or 'failed'}"
-            + (f"\n{url}" if (url := status.get("targetUrl")) else "")
+            f"{_context(status)} - {status.description or 'failed'}"
+            + (f"\n{status.target_url}" if status.target_url else "")
             for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
-            if str(status.get("state") or "") in _FAILING
+            if status.state in _FAILING
         ]
-        failing, _ = self._split_evaluations(repo, pull.number, run=run)
+        project = self._pull_doc(repo, pull.number, run=run).repository.project.id
+        failing, _ = self._split_evaluations(repo, pull.number, project, run=run)
         for item in failing:
-            build = (item.get("context") or {}).get("buildId")
+            build = item.context.build_id if item.context else None
             parts.append(
-                f"{_policy_name(item)} - build policy {item.get('status')}"
+                f"{_policy_name(item)} - build policy {item.status}"
                 + (
-                    f"\n{az.org_url(repo.account)}/{quote(repo.project)}"
+                    f"\n{_HOST}/{quote(repo.account)}/{quote(repo.project)}"
                     f"/_build/results?buildId={build}"
                     if build
                     else ""
@@ -721,25 +715,10 @@ class AzureDevOpsForge:
             )
         return "\n\n".join(parts)
 
-    def add_label(
-        self,
-        repo: RepoId,
-        pr: int,
-        label: Label,
-        *,
-        run: Run | None = None,
-        open_url: az.OpenUrl | None = None,
-    ) -> None:
+    def add_label(self, repo: RepoId, pr: int, label: Label, *, run: Run | None = None) -> None:
         """Tag a pull request. Azure DevOps keeps no colour or description, so
         only the name is sent; a name already there, in any case, is kept."""
-        self._rest(
-            repo,
-            "pullRequestLabels",
-            method="post",
-            payload={"name": label.name},
-            run=run,
-            pullRequestId=pr,
-        )
+        self._git(repo, "POST", f"pullrequests/{pr}/labels", json={"name": label.name}, run=run)
 
     def set_exclusive_label(
         self,
@@ -749,77 +728,44 @@ class AzureDevOpsForge:
         *,
         family: Collection[str],
         run: Run | None = None,
-        open_url: az.OpenUrl | None = None,
     ) -> None:
         present = self._labels(repo, pr, run)
-        held = {item["name"].casefold() for item in present}
+        held = {item.name.casefold() for item in present}
         if label.name.casefold() not in held:
-            self.add_label(repo, pr, label, run=run, open_url=open_url)
+            self.add_label(repo, pr, label, run=run)
         wanted = {name.casefold() for name in family} - {label.name.casefold()}
         for item in present:
-            if item["name"].casefold() in wanted:
-                self.remove_label(repo, pr, item["name"], run=run, open_url=open_url)
+            if item.name.casefold() in wanted:
+                self.remove_label(repo, pr, item.name, run=run)
 
-    def remove_label(
-        self,
-        repo: RepoId,
-        pr: int,
-        name: str,
-        *,
-        run: Run | None = None,
-        open_url: az.OpenUrl | None = None,
-    ) -> None:
+    def remove_label(self, repo: RepoId, pr: int, name: str, *, run: Run | None = None) -> None:
         """Untag by name, one request with nothing looked up first. A label
         that is not there returns normally; any other refusal raises."""
+        label = quote(name, safe="")
         try:
-            self._rest(
-                repo,
-                "pullRequestLabels",
-                method="delete",
-                run=run,
-                pullRequestId=pr,
-                labelIdOrName=name,
-            )
-        except az.AzError as error:
-            if _LABEL_ABSENT not in error.stderr:
-                raise
+            self._git(repo, "DELETE", f"pullrequests/{pr}/labels/{label}", run=run)
+        except NotFound:
+            pass
 
-    def _labels(self, repo: RepoId, pr: int, run: Run | None) -> list[dict]:
+    def _labels(self, repo: RepoId, pr: int, run: Run | None) -> list[LabelDoc]:
         """The labels on a pull request, from the labels resource: the pull
         request document itself carries none."""
-        answer = self._rest(repo, "pullRequestLabels", method="get", run=run, pullRequestId=pr)
-        values = answer.get("value") if isinstance(answer, dict) else None
-        return [item for item in values or [] if isinstance(item, dict) and item.get("name")]
+        route = f"pullrequests/{pr}/labels"
+        return _items(self._git(repo, "GET", route, run=run), LabelDoc, f"GET {route}")
 
     def set_draft(self, repo: RepoId, pr: int, draft: bool, *, run: Run | None = None) -> None:
-        """Make a pull request a draft or publish it, writing only on a change.
-
-        The CLI call `permitted_commands` lets through, and `az.json_out`, which
-        raises `AzError` with the host's message on a refusal.
-        """
-        org = az.org_url(repo.account)
-        current = az.json_out(["repos", "pr", "show", "--id", str(pr)], org=org, run=run)
-        if isinstance(current, dict) and bool(current.get("isDraft")) == draft:
+        """Make a pull request a draft or publish it, writing only on a change."""
+        if self._pull_doc(repo, pr, run=run).is_draft == draft:
             return
-        az.json_out(
-            ["repos", "pr", "update", "--id", str(pr), "--draft", "true" if draft else "false"],
-            org=org,
-            run=run,
-        )
+        self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
 
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.
 
-        Through the CLI, which `permitted_commands` lets through for exactly
-        this shape, and `az.json_out`, which raises `AzError` on failure: a
-        close that did not happen must not read as one that did. Only the base
-        retarget in `update_pr` goes through REST, having no CLI flag.
+        A refusal raises: a close that did not happen must not read as one
+        that did.
         """
-        az.json_out(
-            ["repos", "pr", "update", "--id", str(pr), "--status", "abandoned"],
-            org=az.org_url(repo.account),
-            run=run,
-        )
+        self._git(repo, "PATCH", f"pullrequests/{pr}", json={"status": "abandoned"}, run=run)
 
     def delete_remote_branch(self, repo: RepoId, branch: str, run: Run | None = None) -> None:
         """Remove the source branch, which a merge here leaves behind.
@@ -829,31 +775,58 @@ class AzureDevOpsForge:
         not an error: the remote may have been cleaned up by hand, or by the
         completion itself when the PR asked for it.
         """
-        where = ["--project", repo.project, "--repository", repo.name]
-        found = az.json_out(
-            ["repos", "ref", "list", "--filter", f"heads/{branch}", *where],
-            org=az.org_url(repo.account),
-            run=run,
+        refs = _items(
+            self._git(repo, "GET", "refs", params={"filter": f"heads/{branch}"}, run=run),
+            RefDoc,
+            "GET refs",
         )
-        refs = found if isinstance(found, list) else []
         at = next(
-            (
-                str(ref.get("objectId"))
-                for ref in refs
-                if _branch(ref.get("name")) == branch and ref.get("objectId")
-            ),
-            "",
+            (ref.object_id for ref in refs if _branch(ref.name) == branch and ref.object_id), ""
         )
         if not at:
             return
-        az.json_out(
-            ["repos", "ref", "delete", "--name", f"heads/{branch}", "--object-id", at, *where],
-            org=az.org_url(repo.account),
+        answer = self._git(
+            repo,
+            "POST",
+            "refs",
+            json=[{"name": f"refs/heads/{branch}", "oldObjectId": at, "newObjectId": _NO_OBJECT}],
             run=run,
         )
+        # A refused delete is a 200 that says so per ref.
+        for update in _items(answer, RefUpdateDoc, "POST refs"):
+            if not update.success:
+                raise TransportError(
+                    f"POST refs: {update.name or branch} was not deleted: "
+                    f"{update.update_status or 'no reason given'}"
+                )
 
 
 FORGE = AzureDevOpsForge()
+
+
+def _parse[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> Doc:
+    """The body as `model`, or a `TransportError` naming the endpoint and
+    quoting the start of what came back."""
+    try:
+        return model.model_validate(response.data)
+    except ValidationError as error:
+        raise TransportError(_unexpected(endpoint, response)) from error
+
+
+def _items[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> list[Doc]:
+    """The documents in a list answer. Azure wraps one in `value`."""
+    data = response.data
+    values = data.get("value") if isinstance(data, dict) else None
+    if not isinstance(values, list):
+        raise TransportError(_unexpected(endpoint, response))
+    try:
+        return [model.model_validate(value) for value in values]
+    except ValidationError as error:
+        raise TransportError(_unexpected(endpoint, response)) from error
+
+
+def _unexpected(endpoint: str, response: Response) -> str:
+    return f"{endpoint}: not the document expected: {response.text[:PAGE_EXCERPT]}"
 
 
 def _branch(ref: object) -> str:
@@ -862,7 +835,7 @@ def _branch(ref: object) -> str:
     return str(ref or "").removeprefix("refs/heads/")
 
 
-def _decision(reviewers: list[dict]) -> str:
+def _decision(reviewers: list[ReviewerDoc]) -> str:
     """Whether anybody has asked for changes.
 
     Azure's scale is 10 approved, 5 approved with suggestions, 0 no vote, -5
@@ -875,18 +848,12 @@ def _decision(reviewers: list[dict]) -> str:
     group sitting at -5 would rework the unit forever.
     """
     for reviewer in reviewers:
-        if reviewer.get("isContainer"):
-            continue
-        try:
-            vote = int(reviewer.get("vote", 0))
-        except (TypeError, ValueError):
-            continue
-        if vote < 0:
+        if not reviewer.is_container and reviewer.vote < 0:
             return "changes_requested"
     return ""
 
 
-def _view(pull: dict) -> PullRequest:
+def _view(pull: PullRequestDoc) -> PullRequest:
     """One pull request as the pipeline needs to see it.
 
     `status` is the only field that says whether this was merged.
@@ -895,31 +862,28 @@ def _view(pull: dict) -> PullRequest:
     as proof would mark every open PR merged, restacking its children and
     deleting their branches.
     """
-    status = str(pull.get("status") or "")
     return PullRequest(
-        number=int(pull["pullRequestId"]),
-        head=_branch(pull.get("sourceRefName")),
-        base=_branch(pull.get("targetRefName")),
+        number=pull.pull_request_id,
+        head=_branch(pull.source_ref_name),
+        base=_branch(pull.target_ref_name),
         state=(
             units.MERGED
-            if status == "completed"
+            if pull.status == "completed"
             else units.CLOSED
-            if status == "abandoned"
+            if pull.status == "abandoned"
             else "open"
         ),
-        draft=bool(pull.get("isDraft")),
-        mergeable=_MERGEABLE.get(str(pull.get("mergeStatus") or "")),
+        draft=pull.is_draft,
+        mergeable=_MERGEABLE.get(pull.merge_status or ""),
         # `null`, not `[]`, when a pull request has none.
-        labels=tuple(sorted(str(label.get("name", "")) for label in pull.get("labels") or [])),
-        review_decision=_decision(pull.get("reviewers") or []),
-        # `conversation` and `failing_checks` stay empty until the review
-        # round-trip and the status checks land: both need a call per pull
-        # request, and an empty answer here means "nothing new", which is the
-        # safe reading while the forge is unfinished.
+        labels=tuple(sorted(label.name for label in pull.labels or [])),
+        review_decision=_decision(pull.reviewers),
+        # `conversation` and the checks are filled in for the open ones by
+        # `_said_on`: each needs calls per pull request.
     )
 
 
-def _notes(threads: list[dict], *, live_only: bool = False) -> list[ReviewNote]:
+def _notes(threads: list[ThreadDoc], *, live_only: bool = False) -> list[ReviewNote]:
     """Every human comment in these threads, oldest first.
 
     What is dropped is what the server wrote itself. Azure records "the
@@ -938,68 +902,53 @@ def _notes(threads: list[dict], *, live_only: bool = False) -> list[ReviewNote]:
     """
     notes = []
     for thread in threads:
-        number = thread.get("id")
-        context = thread.get("threadContext") or {}
-        start = context.get("rightFileStart") or {}
+        context = thread.thread_context
+        start = context.right_file_start if context else None
         # Nothing goes stale here on its own, the way GitHub reports
         # `line: null` once the code a comment sat on has changed. A thread
         # the reviewer resolved is the signal in its place.
-        live = str(thread.get("status") or "") == "active"
+        live = thread.status == "active"
         if live_only and not live:
             continue
-        for comment in thread.get("comments") or []:
-            if comment.get("commentType") == "system" or comment.get("isDeleted"):
+        for comment in thread.comments:
+            if comment.comment_type == "system" or comment.is_deleted:
                 continue
             notes.append(
                 ReviewNote(
-                    id=f"{number}.{comment.get('id')}",
-                    body=str(comment.get("content") or ""),
-                    path=str(context.get("filePath") or "").lstrip("/"),
-                    line=start.get("line"),
+                    id=f"{thread.id}.{comment.id}",
+                    body=comment.content or "",
+                    path=((context.file_path if context else None) or "").lstrip("/"),
+                    line=start.line if start else None,
                     live=live,
                 )
             )
     return notes
 
 
-def _values(answered: object) -> list[dict]:
-    """The list in a REST answer. Azure wraps one in `value`, and `az repos`
-    hands the bare list back - both shapes reach here."""
-    found = answered.get("value") if isinstance(answered, dict) else answered
-    return [item for item in found if isinstance(item, dict)] if isinstance(found, list) else []
-
-
-def _policy_type(evaluation: dict) -> str:
-    """The id of the policy type an evaluation is of."""
-    kind = (evaluation.get("configuration") or {}).get("type") or {}
-    return str(kind.get("id") or "")
-
-
-def _latest_statuses(statuses: list[dict]) -> list[dict]:
+def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:
     """The newest status of each genre and name.
 
     Every post is a status of its own and the listing returns them all; only
     the latest of a context is the one in force, so a failure a later result
     superseded is not a failing check.
     """
-    latest: dict[tuple[str, str], dict] = {}
-    for status in sorted(statuses, key=lambda s: int(s.get("id") or 0)):
-        context = status.get("context") or {}
-        latest[(str(context.get("genre") or ""), str(context.get("name") or ""))] = status
+    latest: dict[tuple[str, str], StatusDoc] = {}
+    for status in sorted(statuses, key=lambda s: s.id):
+        latest[(status.context.genre or "", status.context.name)] = status
     return list(latest.values())
 
 
-def _policy_name(evaluation: dict) -> str:
+def _policy_name(evaluation: EvaluationDoc) -> str:
     """A policy evaluation's name: the build it runs, else the policy's type."""
-    configuration = evaluation.get("configuration") or {}
-    settings = configuration.get("settings") or {}
-    kind = configuration.get("type") or {}
-    return str(settings.get("displayName") or kind.get("displayName") or "build policy")
+    configuration = evaluation.configuration
+    return str(
+        configuration.settings.get("displayName")
+        or configuration.type.display_name
+        or "build policy"
+    )
 
 
-def _context(status: dict) -> str:
+def _context(status: StatusDoc) -> str:
     """A status's name as one string, the way a branch policy names it."""
-    context = status.get("context") or {}
-    genre = str(context.get("genre") or "")
-    name = str(context.get("name") or "")
-    return f"{genre}/{name}" if genre else name
+    genre = status.context.genre or ""
+    return f"{genre}/{status.context.name}" if genre else status.context.name

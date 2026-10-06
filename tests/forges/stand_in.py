@@ -25,7 +25,7 @@ from agent_build_kit.forges import (
     Stack,
     StackRefused,
 )
-from agent_build_kit.forges.base import PermittedCommand, Run
+from agent_build_kit.forges.base import Run
 
 
 class StandInForge:
@@ -36,7 +36,6 @@ class StandInForge:
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = ()
-    permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ()
     ci_name: str = "the stand-in CI"
 

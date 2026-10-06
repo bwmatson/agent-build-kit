@@ -36,7 +36,6 @@ parts are free functions beside it rather than inherited behaviour.
 | `deletes_head_branch_on_merge` | `events` | whether the remote branch is ours to clean up |
 | `denied_commands` | `command_policy`, the deny flags | command prefixes no agent may run, on any repo |
 | `read_commands` | `wiring.allowed_tools`, the tracks' default allow-list | command prefixes an agent may run to read a PR; none may overlap any forge's `denied_commands` |
-| `permitted_commands` | `forges.denies` | exact command shapes allowed although a denied prefix covers them |
 | `requires` | `config.load` | the abk.yaml keys this forge cannot name a repo without |
 | `parse_remote(url)` | `abk init` | the repo an origin URL names, or None |
 | `identity(repo)` | everything | a `RepoId` from the repo's abk.yaml entry |
@@ -83,8 +82,7 @@ at their next state change; there is no backfill.
 Two free functions sit beside the Protocol rather than on it: `forges.key(repo)`
 is the canonical identity string (`owner/name`, or `org/project/repo`) that
 `own-posts.json` and the poller's state files are keyed on, and
-`forges.denies(tokens)` folds every registered forge's `denied_commands`, less
-their `permitted_commands`.
+`forges.denies(tokens)` folds every registered forge's `denied_commands`.
 
 `post_reply` and `post_comment` return ids because only the forge knows what an
 id looks like, and what they return must be what the next poll's
@@ -122,18 +120,10 @@ have to fail before an agent can merge its own pull request.
 A forge that adds a command here must add it to `denied_commands` only; both
 layers read from there.
 
-`permitted_commands` carves out the calls the pipeline itself makes under a
-denied prefix. Azure DevOps permits `az repos pr update` only when every flag is
-spelled in full and on its list, with a permitted value: `--id` (an integer),
-`--status` (`abandoned` or `active`), `--draft` (`true` or `false`), `--org`,
-`--organization` and `--detect` (any), and `--output json`, which `az.call`
-appends. A match is of the whole shape, not a prefix: any other flag
-(`--auto-complete`, `--bypass-policy`, `--title`, ...), an abbreviation, a
-repeated flag, a missing value or a stray positional keeps the command denied.
-`--flag=value` and `--flag value` are both read. `az rest` and `az devops
-invoke` have no exception, and GitHub's list is empty (`gh pr close` is not
-denied). Only the `denies` layer reads the list: the runtime's deny flags are
-prefixes and stay whole, so an agent is still refused these commands there.
+The pipeline's own Azure DevOps calls are REST requests, not `az` commands, so no
+command shape needs an exception: `az repos pr update`, `az rest` and `az devops
+invoke` are denied whole, and the same prefixes are refused by the runtime's deny
+flags.
 
 ## Adding a forge
 
@@ -201,7 +191,8 @@ of its own, whose id must be recorded or the poller reads it as feedback.
   say nothing about conflicts, so all four leave `mergeable` undetermined and
   the poller keeps its last definite answer. `status` still alone says merged.
 - **A branch policy's build is a policy evaluation, not a status.** Open pull
-  requests are asked for theirs (`az repos pr policy list`); `rejected` and
+  requests are asked for theirs (the policy evaluations of the pull request's artifact,
+  every page of them); `rejected` and
   `broken` are failing checks, while `running`, `queued`, `approved` and
   `notApplicable` are not. A completed or abandoned pull request makes no
   policy call.
@@ -226,11 +217,12 @@ of its own, whose id must be recorded or the poller reads it as feedback.
 - **An unauthenticated request is answered with a sign-in page and a 2xx.**
   Parsed leniently that is `{}`, which reads as "no pull requests": the
   poller's failure counter never trips and the pipeline goes quiet with a
-  clean log. `pipeline/az.py` treats a non-JSON body as an error for this
+  clean log. The transport treats a non-JSON body as an `AuthError` for this
   reason alone.
 - Branch names arrive as `refs/heads/x`; `labels` is `null`, not `[]`;
-  `az repos pr update` has no `--target-branch`, so retargeting is a REST
-  PATCH; and the source branch survives a merge, so it is ours to delete.
+  retargeting is a PATCH of `targetRefName`, made only when it differs, because the
+  host answers a retarget to the branch a pull request already has with a 400; and
+  the source branch survives a merge, so it is ours to delete.
 
 The pull request body names the repo's `default_branch` where it says what a
 unit assumes is already merged, and the CI that runs a tier 1 unit's checks is
@@ -267,10 +259,27 @@ both have to work, so a headless box and a workstation are both usable.
 variable, so a machine already set up for `az repos` needs nothing new — then
 `ABK_ADO_PAT`.
 
-Every `az` call goes through `pipeline/az.py`, which is to `az` what
-`pipeline/shell.py` is to `gh`: there is no second way to make one, so a new
-call site cannot forget what this one remembers. It names the organisation on
-every call rather than relying on `az devops configure --defaults` — global
-CLI state, and units run concurrently — and passes the token through the
-environment rather than argv, where `ps` would show it for the hours a build
-runs.
+Both resolve through `transport.credential_for("azure_devops", org)`: a PAT is sent
+as a Basic credential with an empty user, and without one the token of
+`az account get-access-token` (read again, once, when the host rejects it as expired) is sent as a Bearer. Either
+travels in a header, never in an argument list or a URL, so `ps` cannot show it for the
+hours a build runs. `az` is therefore needed only as a credential source.
+
+## Azure DevOps over REST
+
+`forges/azure_devops.py` talks to `https://dev.azure.com/<org>/<project>/_apis/` through
+the transport and starts no process. Every call carries `api-version=7.1`, except
+policy evaluations, which are served only under `7.1-preview.1`. The documents it reads
+are the models in `forges/azure_models.py`: only the fields the pipeline reads, an
+unknown field ignored, snake_case attributes aliased to the host's camelCase. A body
+that does not parse raises a `TransportError` naming the endpoint and quoting the start
+of what came back.
+
+Lists are read to the end: pull requests by `$top`/`$skip`, policy evaluations by
+`$top`/`$skip` (read until an empty page), an iteration's changes
+by `nextSkip`/`nextTop`. A poll reads a pull request's threads, statuses and evaluations
+only while it is open, on a pool of `READ_POOL` threads, so the requests in flight stay
+bounded; a build is read only behind a failing evaluation. A refused call raises what the
+transport raises (`AuthError`, `NotFound`, `TransportError` quoting the host's message),
+and `create_pr` turns the two refusals that mean the base branch is gone into
+`BaseMissing`.

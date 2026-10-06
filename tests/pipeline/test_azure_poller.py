@@ -8,27 +8,41 @@ the wiring between the two is what is tested.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
-from agent_build_kit.forges.azure_devops import FORGE
+import pytest
+
+from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.base import PullRequest, RepoId
+from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, Poller
+from agent_build_kit.settings import settings
 from tests.forges import azure_answers
-from tests.forges.azure_host import AzureHost
+from tests.forges.azure_rest_host import RestHost, listed
 
 REPO = RepoId(forge="azure_devops", account="acme", project="Some Project", name="Some Repo")
+
+
+@pytest.fixture(autouse=True)
+def pat(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setattr(settings, "ado_pat", "a-secret")
+    clear_credentials()
+    yield
+    clear_credentials()
 
 
 def watch(tmp_path: Path, *merge_statuses: str):
     """A poller over one Azure pull request whose `mergeStatus` is each of
     these in turn, the last repeating, and what it dispatched."""
-    host = AzureHost(azure_answers.pull(mergeStatus=merge_statuses[0]))
+    host = RestHost(azure_answers.pull(mergeStatus=merge_statuses[0]))
+    forge = AzureDevOpsForge(http=host)
     sent: list[tuple[str, int, str]] = []
     turn = iter(merge_statuses)
 
     def list_prs() -> list[PullRequest]:
-        host.pulls = [azure_answers.pull(mergeStatus=next(turn, merge_statuses[-1]))]
-        return FORGE.list_prs(REPO, run=host)
+        host.pulls = [listed(azure_answers.pull(mergeStatus=next(turn, merge_statuses[-1])))]
+        return forge.list_prs(REPO)
 
     poller = Poller(
         repo="app",
