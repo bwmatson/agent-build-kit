@@ -79,7 +79,10 @@ instance).
   delivered as a rework. Removing the label frees only a hold the label made;
   the unit records why it was held (`held_by`: `reviewer`, `review`, `depth` or
   `toolchain`), and the others stay held, the log saying so. A record from
-  before the cause was kept is read from its last note.
+  before the cause was kept is read from its last note. A depth hold the label
+  took over (a merge cannot free it while the label is on) goes back to being a
+  depth hold when the label comes off, or is restacked from the branch it was
+  still on if a merge meanwhile brought it within the cap.
 - The review loop's own hold: read the unit's `feedback` and its last
   `history` entry to see which of these it is. A change only a person can
   make (`needs_human`) or a repeated disagreement need a decision on the

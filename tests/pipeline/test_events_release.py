@@ -481,10 +481,10 @@ def test_the_label_added_and_removed_leaves_another_cause_of_the_hold_alone(
 
 @pytest.mark.parametrize(
     ("cause", "note"),
-    [(HeldBy.DEPTH, "held for depth"), (None, DEPTH_NOTE)],
+    [(HeldBy.DEPTH, DEPTH_NOTE), (None, DEPTH_NOTE)],
     ids=["recorded", "unrecorded"],
 )
-def test_the_label_takes_over_a_depth_hold_and_its_removal_frees_the_unit(
+def test_the_label_takes_over_a_depth_hold_and_its_removal_gives_it_back(
     store: UnitStore, logged: list[str], cause: HeldBy | None, note: str
 ) -> None:
     held_as(store, cause, note=note)
@@ -493,11 +493,14 @@ def test_the_label_takes_over_a_depth_hold_and_its_removal_frees_the_unit(
 
     stored = store.get(UNIT)
     assert (stored.state, stored.held_by) == (HELD, "reviewer")
-    assert stored.note == "held by a reviewer"
+    assert stored.note == note, "what the depth hold needs is kept"
 
     release(store, logged)
 
-    assert store.get(UNIT).state == IN_REVIEW
+    stored = store.get(UNIT)
+    assert (stored.state, stored.held_by) == (HELD, "depth")
+    assert stored.note == DEPTH_NOTE
+    assert events.held_for_depth(stored)
 
 
 def test_a_unit_stored_running_with_nothing_building_it_is_not_released(

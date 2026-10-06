@@ -24,7 +24,12 @@ from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.pipeline.check_failures import failed_check
-from agent_build_kit.pipeline.events import held_for_depth
+from agent_build_kit.pipeline.events import (
+    held_cause,
+    held_for_its_own_reason,
+    restore_depth_hold,
+    takeover_note,
+)
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -47,7 +52,7 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit
+from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -56,6 +61,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     Unit,
     branch_name,
+    depth_of,
     local_ref,
 )
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, SessionUnavailable
@@ -979,21 +985,41 @@ class BuildPath:
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
         elif event.kind is EventKind.HOLD:
-            if (current := r.store.get(unit.id)).state == HELD and not held_for_depth(current):
+            current = r.store.get(unit.id)
+            if held_for_its_own_reason(current):
                 # Held for a reason of its own (the toolchain, the review loop):
                 # the label did not make it, so its removal must not undo it. A
                 # depth hold a merge would free is taken over instead.
-                cause = current.held_by or "an unrecorded cause"
-                self.say(f"already held by {cause}, as it stands")
+                self.say(f"already held by {held_cause(current)}, as it stands")
                 return {"event": None}
-            r.store.set_state(
-                unit.id, HELD, note=event.reason or HELD_BY_A_REVIEWER, held_by=HeldBy.REVIEWER
-            )
+            if not current.held_by_the_label:
+                r.store.set_state(
+                    unit.id,
+                    HELD,
+                    note=takeover_note(current, event.reason),
+                    held_by=HeldBy.REVIEWER,
+                )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
         elif event.kind is EventKind.RELEASE:
-            if not r.store.get(unit.id).held_by_the_label:
+            current = r.store.get(unit.id)
+            if not current.held_by_the_label:
                 self.say("not held by the label, nothing to release")
                 return {"event": None}
+            if restore_depth_hold(r.store, current):
+                limits = active().limits
+                cap = limits.stack_depth_rebase_cap
+                cap = limits.stack_depth_build_cap if cap is None else cap
+                depth = depth_of(current, r.store.all())
+                if depth > cap:
+                    self.say(f"held for depth again: depth {depth} is beyond the rebase cap {cap}")
+                    return {"event": None}
+                # A merge during the label brought it within the cap: the run
+                # takes up at `prepare`, which moves it onto its base.
+                r.store.set_state(unit.id, RUNNING, note=f"depth {depth} is within the cap")
+                update.update(self.fresh_run())
+                update.update({"event": ResumeEvent(kind=EventKind.REQUEUE, reason="released")})
+                update["base"] = ""
+                return update
             r.store.set_state(unit.id, IN_REVIEW, note="hold label removed")
             update.update({"status": RunStatus.OPEN, "detail": "released"})
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
