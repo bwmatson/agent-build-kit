@@ -310,7 +310,9 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    under the one `runs/tier2.lock` queue, and the result is recorded with the
    commit, the command, counts and the stack-versions command's output
    (`verify.stack_versions_command`, else the repo's `infra:` profile's; see
-   [toolchain-profiles.md](toolchain-profiles.md)) for the PR body. Tier 2 runs from each member's directory with no
+   [toolchain-profiles.md](toolchain-profiles.md)) for the PR body. Tier 2 runs in each declared project (`projects:`), from its
+   directory and under its profile, as tier 1 does, and from the root when none
+   is declared; it runs each member's directory with no
    collection path, so it collects what the member's own pytest
    configuration (`testpaths`) selects. A stack-versions command that cannot
    start is logged and records nothing.

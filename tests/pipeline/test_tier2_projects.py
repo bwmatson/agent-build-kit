@@ -67,9 +67,7 @@ def test_a_project_in_a_subdirectory_runs_from_it(tmp_path: Path) -> None:
     assert calls[0][0] == PYTHON_UV.tier2_commands(root / "api", marker="local_stack")[0]
 
 
-def test_each_project_uses_its_own_profile(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_each_project_uses_its_own_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _checkout(tmp_path, "api", "web")
     monkeypatch.setattr(
         node_npm.PROFILE, "tier2_commands", lambda repo, *, marker: [["npm", "run", marker]]

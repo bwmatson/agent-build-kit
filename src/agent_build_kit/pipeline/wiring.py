@@ -1162,7 +1162,15 @@ class Tier2Session:
     def run(self, *, cwd: Path) -> tuple[bool, str]:
         if self._dev_stack is not None and (cwd / self._dev_stack).is_file():
             return self._run_on_dev_stack(cwd, self._dev_stack)
-        commands = self._profile.tier2_commands(cwd, marker=self._marker)
+        # The same entries tier 1 resolves, over the whole repo: tier 2 has no
+        # changed files to narrow to, and a project's `testpaths` decide what
+        # pytest collects only when it runs from that project's directory.
+        entries = [
+            (where, toolchain, toolchain.tier2_commands(where, marker=self._marker))
+            for where, toolchain, _ in _work(
+                cwd, "", True, self._projects, self._profile, lambda *_: []
+            )
+        ]
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
@@ -1171,29 +1179,37 @@ class Tier2Session:
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
         with stack_lock(self.lock, self._timeout):
-            for command in commands:
-                completed = self._run(command, cwd=cwd, **self._test_env)
-                out = f"{completed.stdout or ''}{completed.stderr or ''}"
-                p, f, s, d = self._profile.parse_test_summary(out)
-                # A zero exit code with no counts parsed is still a pass, and so
-                # is "no tests collected" — a member with no live-stack tests. Any
-                # other non-zero exit is a failure even if no summary printed.
-                nothing = self._profile.no_tests_collected_exit
-                if completed.returncode not in (0, nothing) and not f:
-                    f = 1
-                passed, failed, skipped, duration = (
-                    passed + p,
-                    failed + f,
-                    skipped + s,
-                    duration + d,
-                )
-                if f or completed.returncode not in (0, nothing):
-                    outputs.append(f"$ {' '.join(command)}\n{out}")
-                elif p:
-                    outputs.append(f"$ {' '.join(command)}\n{out[-1500:]}")
+            for where, toolchain, commands in entries:
+                # A project's output is labelled with it; a repo with no
+                # projects has nothing to say about where.
+                label = f" (in {where.relative_to(cwd)})" if where != cwd else ""
+                for command in commands:
+                    completed = self._run(command, cwd=where, **self._test_env)
+                    out = f"{completed.stdout or ''}{completed.stderr or ''}"
+                    p, f, s, d = toolchain.parse_test_summary(out)
+                    # A zero exit code with no counts parsed is still a pass, and so
+                    # is "no tests collected" — a member with no live-stack tests. Any
+                    # other non-zero exit is a failure even if no summary printed.
+                    nothing = toolchain.no_tests_collected_exit
+                    if completed.returncode not in (0, nothing) and not f:
+                        f = 1
+                    passed, failed, skipped, duration = (
+                        passed + p,
+                        failed + f,
+                        skipped + s,
+                        duration + d,
+                    )
+                    if f or completed.returncode not in (0, nothing):
+                        outputs.append(f"$ {' '.join(command)}{label}\n{out}")
+                    elif p:
+                        outputs.append(f"$ {' '.join(command)}{label}\n{out[-1500:]}")
 
         output = "\n\n".join(outputs)
-        command = " && ".join(" ".join(c) for c in commands)
+        command = " && ".join(
+            " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
+            for where, _, commands in entries
+            for c in commands
+        )
 
         self.result = Tier2Result(
             sha=sha,
@@ -1682,6 +1698,7 @@ def build_runner(
             installation.config.verify, infra.get(repo.infra)
         ),
         env=installation.verify_env(),
+        projects=repo.projects,
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a
