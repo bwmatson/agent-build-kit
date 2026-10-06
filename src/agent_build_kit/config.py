@@ -385,7 +385,10 @@ class VerifyConfig(Frozen):
 
 def stack_versions_for(verify: VerifyConfig, profile: ToolchainProfile) -> list[str] | None:
     """The command that records the live stack: the config's when set, else the profile's."""
-    raise NotImplementedError
+    command = verify.stack_versions_command
+    if command == "profile":
+        return list(profile.stack_versions_command) if profile.stack_versions_command else None
+    return command
 
 
 # The runtime whose usage windows the pause thresholds describe.

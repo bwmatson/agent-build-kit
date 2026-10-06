@@ -139,6 +139,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
         # values_from: .env
 
 verify:
+  # Absent = the repo's profile's command (python-uv, node-npm: the container
+  # listing `docker ps --format "{{.Names}}\t{{.Image}}"`); a list overrides
+  # it; null records nothing. A command that cannot start is logged, not fatal.
   stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
   env: {}                     # environment for the live tests, each value
                               # resolved by a provider at verify time:

@@ -260,10 +260,15 @@ repos:                          # ordered: deploy order is derived from
 
 verify:                         # post-merge verification (docs/architecture.md)
   stack_versions_command:       # recorded beside a tier-2 result so a
-    [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
                                 # reviewer can see what the stack was; one
-                                # `name<TAB>image` per line. null = record
-                                # nothing.
+                                # `name<TAB>image` per line. Absent = the
+                                # repo's toolchain profile's command (the
+                                # container listing
+                                # `docker ps --format "{{.Names}}\t{{.Image}}"`
+                                # for python-uv and node-npm); a list
+                                # overrides it; null = record nothing. A
+                                # command that cannot start is logged and
+                                # records nothing.
   env: {}                       # environment handed to the live-stack tests —
                                 # a unit's tier 2 and the check after a merge
                                 # alike — each value resolved by a provider

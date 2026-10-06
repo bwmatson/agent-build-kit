@@ -19,6 +19,7 @@ Two guarantees are enforced here rather than trusted to the prompt:
 from __future__ import annotations
 
 import ast
+import logging
 import os
 import re
 import shlex
@@ -32,7 +33,14 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_build_kit import forges, profiles, runtimes
-from agent_build_kit.config import ProjectConfig, RepoConfig, active, active_root, models
+from agent_build_kit.config import (
+    ProjectConfig,
+    RepoConfig,
+    active,
+    active_root,
+    models,
+    stack_versions_for,
+)
 from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -83,6 +91,8 @@ from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
+
+logger = logging.getLogger(__name__)
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -1275,7 +1285,11 @@ def _stack_versions(command: list[str] | None, *, run: Run | None = None) -> dic
     None records nothing."""
     if not command:
         return {}
-    result = (run or _run)(list(command))
+    try:
+        result = (run or _run)(list(command))
+    except (FileNotFoundError, PermissionError) as error:
+        logger.warning("stack versions not recorded: %s could not start: %s", command[0], error)
+        return {}
     versions: dict[str, str] = {}
     for line in result.stdout.splitlines():
         name, _, image = line.partition("\t")
@@ -1662,7 +1676,7 @@ def build_runner(
         profile=profile,
         marker=repo.tests.tier2_marker,
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
-        stack_versions_command=installation.config.verify.stack_versions_command,  # pyrefly: ignore[bad-argument-type]
+        stack_versions_command=stack_versions_for(installation.config.verify, profile),
         env=installation.verify_env(),
     )
     planning_repo = installation.root
