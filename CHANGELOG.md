@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk telemetry push-dashboard` pushes the framework's Grafana dashboard (shipped as package
+  data, querying only metrics the telemetry module emits) to the Grafana named by
+  `ABK_GRAFANA_URL` and `ABK_GRAFANA_TOKEN`, into the folder `ABK_GRAFANA_FOLDER` (default
+  `agent-build-kit`). It is idempotent: the folder is created if missing and the dashboard is
+  overwritten.
+
 - A task group can say `Independent: <reason>` to be built without waiting for the groups before
   it. Its unit has no dependency, the chain closes around it, it is never joined into a
   neighbouring unit, and `[acceptance]`/`[narrow]` units depend on every earlier unit. `abk tags`

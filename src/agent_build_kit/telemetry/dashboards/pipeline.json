@@ -1,0 +1,76 @@
+{
+  "uid": "abk-pipeline",
+  "title": "agent-build-kit pipeline",
+  "tags": ["agent-build-kit"],
+  "schemaVersion": 39,
+  "time": {"from": "now-24h", "to": "now"},
+  "refresh": "1m",
+  "templating": {
+    "list": [{"name": "datasource", "label": "Metrics", "type": "datasource", "query": "prometheus"}]
+  },
+  "panels": [
+    {
+      "id": 1, "title": "Units by state", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (state) (abk_units)", "legendFormat": "{{state}}"}]
+    },
+    {
+      "id": 2, "title": "Tick duration p95", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(abk_tick_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95"}]
+    },
+    {
+      "id": 3, "title": "Unit duration p95", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(abk_unit_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95"}]
+    },
+    {
+      "id": 4, "title": "Step duration p95 by step", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, step) (rate(abk_step_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{step}}"}]
+    },
+    {
+      "id": 5, "title": "Review rounds (mean)", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum(rate(abk_review_rounds_sum[$__rate_interval])) / sum(rate(abk_review_rounds_count[$__rate_interval]))", "legendFormat": "rounds"}]
+    },
+    {
+      "id": 6, "title": "Check failures by check", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (check) (increase(abk_checks_failures_total[$__rate_interval]))", "legendFormat": "{{check}}"}]
+    },
+    {
+      "id": 7, "title": "Agent turns (mean) by role", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (role) (rate(abk_agent_turns_sum[$__rate_interval])) / sum by (role) (rate(abk_agent_turns_count[$__rate_interval]))", "legendFormat": "{{role}}"}]
+    },
+    {
+      "id": 8, "title": "Agent tokens by kind", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_agent_tokens_total[$__rate_interval]))", "legendFormat": "{{kind}}"}]
+    },
+    {
+      "id": 9, "title": "Usage pauses", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 32, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_usage_pauses_total[$__rate_interval]))", "legendFormat": "{{kind}}"}]
+    },
+    {
+      "id": 10, "title": "Reclaimed units", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum(increase(abk_units_reclaimed_total[$__rate_interval]))", "legendFormat": "reclaimed"}]
+    }
+  ]
+}

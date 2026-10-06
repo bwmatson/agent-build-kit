@@ -14,7 +14,8 @@ repo and nowhere else. The framework knows nothing about any particular
 installation; a fact that belongs to one goes here, not in a prompt, a skill
 or a script. Machine-local values (tokens, a worktree root override, model
 overrides, `ABK_RUNTIME`, the telemetry switch `ABK_OTEL_ENABLED` and its
-`OTEL_*` endpoints) go in the planning repo's `.env`, which is not
+`OTEL_*` endpoints, and `ABK_GRAFANA_URL`/`ABK_GRAFANA_TOKEN`/`ABK_GRAFANA_FOLDER`
+for `abk telemetry push-dashboard`) go in the planning repo's `.env`, which is not
 committed.
 
 The schema is strict: an unknown key fails at load. `abk config --show`
