@@ -31,6 +31,7 @@ from agent_build_kit.pipeline.events import (
     restore_depth_hold,
     takeover_note,
 )
+from agent_build_kit.pipeline.gateway_usage import Spend, attribution
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -293,6 +294,22 @@ class BuildPath:
         the node runs from its start in a new one, as it would have without a
         recorded id.
         """
+        place = f"{self.unit.id}:{self._node}:{_round(Node(self._node), state)}"
+        token = attribution.set(place)
+        try:
+            return self._run_agent(run, args, cwd=cwd, state=state, inputs=inputs)
+        finally:
+            attribution.reset(token)
+
+    def _run_agent(
+        self,
+        run: Callable[..., str],
+        args: tuple[str, ...],
+        *,
+        cwd: Path,
+        state: UnitRun,
+        inputs: dict[str, str],
+    ) -> str:
         if state.session_id:
             self.say(f"continuing agent session {state.session_id}")
             try:
@@ -322,8 +339,19 @@ class BuildPath:
         unit, node = self.unit, self._node
         round_number = _round(Node(node), state)
 
-        def record(result: AgentResult, *, role: str, model: str | None, runtime: str) -> None:
-            usage = result.usage or Usage()
+        def record(
+            result: AgentResult,
+            *,
+            role: str,
+            model: str | None,
+            runtime: str,
+            gateway: Callable[[], Spend] | None = None,
+        ) -> None:
+            # What the gateway logged for the call's own key is exact; what the
+            # agent said is kept beside it, for the report to compare.
+            spent = gateway() if gateway else Spend()
+            exact = spent.usage is not None
+            usage = (spent.usage if exact else result.usage) or Usage()
             line = UsageRecord(
                 at=datetime.now(UTC).isoformat(),
                 unit=unit.id,
@@ -338,10 +366,12 @@ class BuildPath:
                 session_id=result.session_id,
                 resumed=resumed,
                 **usage.model_dump(),
-                cost_usd=result.cost_usd,
+                cost_usd=spent.cost_usd if exact else result.cost_usd,
                 turns=result.turns,
                 duration_ms=result.duration_ms,
-                usage_source=result.usage_source,
+                usage_source="gateway" if exact else result.usage_source,
+                reported=result.usage if exact else None,
+                reported_cost_usd=result.cost_usd if exact else None,
                 outcome="ok" if result.succeeded else "failed",
             )
             record_call(line, self.say)

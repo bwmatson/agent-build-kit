@@ -24,6 +24,7 @@ class StandInRuntime:
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
     supports_session_resume: bool = False
+    passes_env: bool = False
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = ()
     default_models: ModelsConfig = ModelsConfig()

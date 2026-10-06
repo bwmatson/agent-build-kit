@@ -13,7 +13,10 @@ should know about how they relate — lives in `abk.yaml` in the planning
 repo and nowhere else. The framework knows nothing about any particular
 installation; a fact that belongs to one goes here, not in a prompt, a skill
 or a script. Machine-local values (tokens, a worktree root override, model
-overrides, `ABK_RUNTIME`, the telemetry switch `ABK_OTEL_ENABLED` and its
+overrides, `ABK_RUNTIME`, the gateway pair `ABK_GATEWAY_URL` and
+`ABK_GATEWAY_MASTER_KEY` (set both or neither: each agent call then gets a
+key of its own and its usage is read from the gateway's records), the
+telemetry switch `ABK_OTEL_ENABLED` and its
 `OTEL_*` endpoints, and `ABK_GRAFANA_URL`/`ABK_GRAFANA_TOKEN`/`ABK_GRAFANA_FOLDER`
 for `abk telemetry push-dashboard`) go in the planning repo's `.env`, which is not
 committed.

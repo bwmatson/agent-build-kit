@@ -1107,6 +1107,7 @@ class AcpRuntime:
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
     supports_session_resume: bool = False
+    passes_env: bool = True
     # There is no default agent to spawn.
     requires: tuple[str, ...] = ("command",)
     agent_command: tuple[str, ...] = ()
@@ -1191,6 +1192,7 @@ class AcpRuntime:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=request.cwd,
+                env={**os.environ, **request.env} if request.env else None,
                 limit=LINE_LIMIT,
                 start_new_session=True,
             )

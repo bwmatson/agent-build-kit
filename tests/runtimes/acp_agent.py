@@ -161,6 +161,11 @@ DEFAULT_MODEL = MODELS[0]
 # can look up with `requests()` like any other.
 MODEL_AT_PROMPT = "test/model_at_prompt"
 
+# The agent's own environment as it started, for the variables a test names: a
+# pseudo-method line like the above, `{"ABK_GATEWAY_KEY": value-or-null}`.
+ENVIRONMENT = "test/environment"
+WATCHED_ENV = ("ABK_GATEWAY_KEY", "ABK_TEST_INHERITED")
+
 # Messages arrive in pieces, as a model's output streams: the preamble a word
 # at a time, the final answer — which the review step parses as JSON — in two.
 PREAMBLE = "I'll add the marker to the app module."
@@ -884,6 +889,7 @@ def main() -> None:
         usage=args.usage,
         cost=args.cost,
     )
+    agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
     # Only the methods these tests drive: the rest answer "method not found".
     asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))
 

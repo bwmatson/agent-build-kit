@@ -44,6 +44,7 @@ from agent_build_kit.config import (
 from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies
 from agent_build_kit.pipeline.restack import (
     HostMoved,
@@ -96,7 +97,8 @@ logger = logging.getLogger(__name__)
 
 Run = Callable[..., subprocess.CompletedProcess]
 
-# Told a finished agent call: `(result, *, role, model, runtime)`.
+# Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
+# (a function giving the run's `Spend`) when a gateway key was minted for it.
 AgentCallback = Callable[..., None]
 
 # The code host is read-only for agents: the forge names the commands that read
@@ -194,6 +196,8 @@ def build_run_claude(
     """
     specs = _specs_dir(planning_repo)
     model = model or models().implement
+    # Half-configured gateway settings already said, once for this runner.
+    warned: set[str] = set()
 
     def run_claude(
         prompt: str,
@@ -208,35 +212,61 @@ def build_run_claude(
             raise SessionUnavailable(f"{agent.name} cannot continue a session")
         branch = _unit_branch(cwd)
         before = remote_head(cwd, branch) if branch else None
-        result = agent.run(
-            AgentRequest(
-                # A continued session holds the original prompt already.
-                prompt=INTERRUPTED_PROMPT if resume_session else prompt,
-                resume_session=resume_session,
-                on_session=on_session,
-                on_result=(
-                    partial(on_result, role=role, model=model, runtime=agent.name)
-                    if on_result
-                    else None
-                ),
-                role=role,
-                cwd=cwd,
-                # The specs, and nothing else in the planning repo. The unit
-                # is built in the target repo's worktree but its spec lives
-                # here, so some access is required — while the planning repo
-                # holds the run log, the unit store and the pipeline's own
-                # source, none of which is an agent's business. In the pilot,
-                # before worktrees moved out of this repo, unit 2's agent
-                # reached into unit 1's worktree through this and committed
-                # there under an invented unit id.
-                add_dirs=(specs,),
-                model=model,
-                allowed_tools=allowed_tools or BASE_TOOLS,
-                permission_mode="edit",
-                policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
-                on_event=log or print,
+        # A key of its own for this call, where a gateway is configured: its
+        # totals reach the callback beside what the agent reports, and it is
+        # revoked however the call ends.
+        place = attribution.get()
+        source = configured_source(log or print, warned) if on_result and place else None
+        if source is not None and not agent.passes_env:
+            (log or print)(
+                f"gateway: {agent.name} cannot pass a key to its agent; "
+                "the gateway source is skipped"
             )
+            source = None
+        env: dict[str, str] = {}
+        handle: object = None
+        if source is not None:
+            env, handle = source.begin(place)
+        spent: list[Spend] = []
+
+        def spend() -> Spend:
+            if source is not None and not spent:
+                spent.append(source.finish(handle))
+            return spent[0] if spent else Spend()
+
+        gateway = {"gateway": spend} if source is not None else {}
+        request = AgentRequest(
+            # A continued session holds the original prompt already.
+            prompt=INTERRUPTED_PROMPT if resume_session else prompt,
+            resume_session=resume_session,
+            on_session=on_session,
+            on_result=(
+                partial(on_result, role=role, model=model, runtime=agent.name, **gateway)
+                if on_result
+                else None
+            ),
+            role=role,
+            cwd=cwd,
+            env=env,
+            # The specs, and nothing else in the planning repo. The unit
+            # is built in the target repo's worktree but its spec lives
+            # here, so some access is required — while the planning repo
+            # holds the run log, the unit store and the pipeline's own
+            # source, none of which is an agent's business. In the pilot,
+            # before worktrees moved out of this repo, unit 2's agent
+            # reached into unit 1's worktree through this and committed
+            # there under an invented unit id.
+            add_dirs=(specs,),
+            model=model,
+            allowed_tools=allowed_tools or BASE_TOOLS,
+            permission_mode="edit",
+            policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
+            on_event=log or print,
         )
+        try:
+            result = agent.run(request)
+        finally:
+            spend()
         if branch and (after := _agent_pushed(cwd, branch, before)):
             # Only the pipeline pushes. A commit made in this worktree that
             # reached the remote during an agent step was pushed by the

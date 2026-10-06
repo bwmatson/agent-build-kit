@@ -32,6 +32,16 @@
   `session_id` and `usage_source`, and its `tokens` is now derived from `usage`, so the `acp`
   runtime reports tokens too. See docs/architecture.md.
 
+- Gateway usage attribution: with `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, each agent
+  call of a unit's graph runs on a gateway key of its own (alias `abk:<unit>:<node>:<round>:...`,
+  handed over in `ABK_GATEWAY_KEY`), the totals the gateway logged for it are recorded in the
+  usage ledger with `usage_source` `gateway`, and the agent's own report is kept beside them
+  (`reported`, `reported_cost_usd`). The key is revoked however the call ends; any gateway
+  failure falls back to the agent's figures with one warning. `AgentRequest` gains `env` (added
+  to an `acp` agent's environment). Spend rows are waited for up to `ABK_GATEWAY_SETTLE_SECONDS`
+  (30) and until they have stopped growing for `ABK_GATEWAY_QUIET_SECONDS` (10), since a gateway
+  writes its logs in batches.
+
 - A task group can say `Independent: <reason>` to be built without waiting for the groups before
   it. Its unit has no dependency, the chain closes around it, it is never joined into a
   neighbouring unit, and `[acceptance]`/`[narrow]` units depend on every earlier unit. `abk tags`

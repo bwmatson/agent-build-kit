@@ -65,6 +65,17 @@ class Settings(BaseSettings):
     review_model: str | None = None
     rework_review_model: str | None = None
 
+    # The gateway in front of the model, and the master key that may mint keys
+    # on it (pipeline/gateway_usage.py). Neither set: no key is minted.
+    gateway_url: str = ""
+    gateway_master_key: str = ""
+    # How long after a call ends its spend rows are waited for: a gateway writes
+    # its logs in periodic batches, so they land after the request does.
+    gateway_settle_seconds: float = 30.0
+    # How long the rows must have stopped growing before they are taken as
+    # complete: at least the gateway's flush interval.
+    gateway_quiet_seconds: float = 10.0
+
     # Telemetry (telemetry.py): off unless this is set. The endpoint and
     # resource settings keep their standard OpenTelemetry names, so any
     # collector setup works unchanged; the per-signal endpoints override the
