@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A task group can say `Independent: <reason>` to be built without waiting for the groups before
+  it. Its unit has no dependency, the chain closes around it, it is never joined into a
+  neighbouring unit, and `[acceptance]`/`[narrow]` units depend on every earlier unit. `abk tags`
+  rejects the line with no reason, on group 1, or beside a flag. A change without the line plans
+  as before.
+
 - A cancelled check is no longer a failing one. A host cancels a check when a runner never came or
   a newer run superseded it, which says nothing about the commit, yet it sent the unit back for
   rework. `PullRequest` gains `cancelled_checks` (GitHub `CANCELLED`; an Azure DevOps build policy

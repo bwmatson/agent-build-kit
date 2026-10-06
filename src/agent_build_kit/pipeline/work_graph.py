@@ -93,6 +93,10 @@ NEEDS_LINE = re.compile(
 # what review agrees to, as with `Acceptance: none`.
 SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 
+# "Independent: only adds a receiver", inside a group: it depends on no earlier
+# group of its change. The reason is what review agrees to.
+INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
+
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
@@ -112,6 +116,9 @@ class TaskGroup(Frozen):
     # A `Separate: <reason>` line in the group: never carried by another
     # change's unit, and no other change's groups are added to its unit.
     separate: bool = False
+    # An `Independent: <reason>` line in the group: it depends on no earlier
+    # group of its change.
+    independent: bool = False
 
 
 class ValidationError(Frozen):
@@ -141,6 +148,7 @@ def validate_tasks(
     tasks_seen: list[int] = []
     heading_lines: list[int] = []
     separate: set[int] = set()
+    independent: dict[int, int] = {}
     current: int | None = None
 
     for index, text in enumerate(lines, start=1):
@@ -172,6 +180,17 @@ def validate_tasks(
                         ValidationError(
                             line=index,
                             message="`Separate:` needs a reason after it — the reason is "
+                            "what review agrees to",
+                        )
+                    )
+            if current is not None and (free := INDEPENDENT_LINE.match(text.strip())):
+                if free["reason"]:
+                    independent[current] = index
+                else:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Independent:` needs a reason after it — the reason is "
                             "what review agrees to",
                         )
                     )
@@ -253,9 +272,26 @@ def validate_tasks(
             task_count=counts[g.line],
             flag=g.flag,
             separate=g.line in separate,
+            independent=g.line in independent,
         )
         for g in groups
     ]
+
+    for position, group in enumerate(groups):
+        if group.line not in independent:
+            continue
+        if position == 0:
+            problem = "it is the first group, with nothing to be independent of"
+        elif group.flag:
+            problem = f"a [{group.flag}] group is ordered after the others by what it is"
+        else:
+            continue
+        errors.append(
+            ValidationError(
+                line=independent[group.line],
+                message=f"group {group.number} says `Independent:` but {problem}",
+            )
+        )
 
     if not heading_lines:
         errors.append(

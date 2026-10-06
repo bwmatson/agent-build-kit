@@ -380,6 +380,145 @@ def test_the_prompt_says_how_to_place_the_acceptance_group() -> None:
     assert "[acceptance]" in captured["prompt"]
 
 
+# --- the independent group ---
+
+INDEPENDENT = [
+    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
+    TaskGroup(number=2, repo="app", tier="tier1", title="B", line=9, task_count=2),
+    TaskGroup(
+        number=3,
+        repo="app",
+        tier="tier1",
+        title="Receiver",
+        line=15,
+        task_count=1,
+        independent=True,
+    ),
+]
+
+
+def test_an_independent_group_does_not_wait_for_its_changes_other_units() -> None:
+    output = graph_json(
+        [
+            planned(id="c/1", groups=[1]),
+            planned(id="c/2", groups=[2], depends_on=["c/1"]),
+            planned(id="c/3", groups=[3]),
+        ]
+    )
+
+    assert [u.id for u in parse_graph(output, groups=INDEPENDENT)] == ["c/1", "c/2", "c/3"]
+
+
+def test_an_independent_groups_unit_cannot_depend_on_its_changes_units() -> None:
+    output = graph_json(
+        [
+            planned(id="c/1", groups=[1]),
+            planned(id="c/2", groups=[2], depends_on=["c/1"]),
+            planned(id="c/3", groups=[3], depends_on=["c/2"]),
+        ]
+    )
+
+    with pytest.raises(PlannerError, match="Independent"):
+        parse_graph(output, groups=INDEPENDENT)
+
+
+def test_an_independent_group_is_not_combined_with_another() -> None:
+    output = graph_json([planned(id="c/1", groups=[1]), planned(id="c/2", groups=[2, 3])])
+
+    with pytest.raises(PlannerError, match="Independent"):
+        parse_graph(output, groups=INDEPENDENT)
+
+
+NARROWING = [
+    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2, flag="contract"),
+    TaskGroup(number=2, repo="app", tier="tier1", title="B", line=9, task_count=2),
+    TaskGroup(
+        number=3, repo="app", tier="tier1", title="C", line=15, task_count=1, independent=True
+    ),
+    TaskGroup(number=4, repo="app", tier="tier1", title="D", line=21, task_count=1, flag="narrow"),
+]
+
+
+def narrowing_plan(narrow_depends_on: list[str]) -> str:
+    return graph_json(
+        [
+            planned(id="c/1", groups=[1]),
+            planned(id="c/2", groups=[2], depends_on=["c/1"]),
+            planned(id="c/3", groups=[3]),
+            planned(id="c/4", groups=[4], depends_on=narrow_depends_on),
+        ]
+    )
+
+
+def test_a_narrowing_unit_waits_for_the_independent_groups_unit() -> None:
+    with pytest.raises(PlannerError, match="c/3"):
+        parse_graph(narrowing_plan(["c/2"]), groups=NARROWING)
+
+    units = parse_graph(narrowing_plan(["c/2", "c/3"]), groups=NARROWING)
+    assert [u.id for u in units] == ["c/1", "c/2", "c/3", "c/4"]
+
+
+def test_a_narrowing_unit_need_not_wait_for_an_independent_group_already_merged() -> None:
+    output = graph_json(
+        [
+            planned(id="c/1", groups=[1]),
+            planned(id="c/2", groups=[2], depends_on=["c/1"]),
+            planned(id="c/4", groups=[4], depends_on=["c/2"]),
+        ]
+    )
+
+    assert parse_graph(output, groups=NARROWING, built={3})[-1].id == "c/4"
+
+
+ACCEPTING_INDEPENDENT = [
+    TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
+    TaskGroup(
+        number=2, repo="app", tier="tier1", title="B", line=9, task_count=2, independent=True
+    ),
+    TaskGroup(number=3, repo="app", tier="tier1", title="C", line=15, task_count=1),
+    TaskGroup(
+        number=4,
+        repo="app",
+        tier="tier2",
+        title="Drive it",
+        line=21,
+        task_count=1,
+        flag="acceptance",
+    ),
+]
+
+
+def accepting_plan(acceptance_depends_on: list[str]) -> str:
+    return graph_json(
+        [
+            planned(id="c/1", groups=[1]),
+            planned(id="c/2", groups=[2]),
+            planned(id="c/3", groups=[3], depends_on=["c/1"]),
+            planned(id="c/4", groups=[4], tier="tier2", depends_on=acceptance_depends_on),
+        ]
+    )
+
+
+def test_an_acceptance_unit_waits_for_the_independent_groups_unit_as_well() -> None:
+    with pytest.raises(PlannerError, match="does not wait for c/2"):
+        parse_graph(accepting_plan(["c/3"]), groups=ACCEPTING_INDEPENDENT)
+
+    units = parse_graph(accepting_plan(["c/2", "c/3"]), groups=ACCEPTING_INDEPENDENT)
+    assert [u.id for u in units] == ["c/1", "c/2", "c/3", "c/4"]
+
+
+def test_the_prompt_says_how_to_place_an_independent_group() -> None:
+    captured: dict = {}
+
+    plan_round(
+        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        in_flight=[],
+        run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
+    )
+
+    assert "Independent:" in captured["prompt"]
+
+
 # --- the ceiling on a unit's size ---
 
 

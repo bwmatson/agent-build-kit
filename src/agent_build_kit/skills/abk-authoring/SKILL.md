@@ -123,6 +123,21 @@ pull request when it is small and in line with unstarted work in the same repo
 and tier. `[acceptance]`, `[contract]` and `[narrow]` groups are never joined
 and need no `Separate:` line.
 
+## `Independent:` lines
+
+Groups of a change are built in order: each unit depends on the one before. A
+group that needs nothing the earlier ones build says so on a line inside it:
+
+```
+Independent: <reason>
+```
+
+Its unit is ready without its predecessor, and the chain closes around it: the
+next group depends on the last unit before the independent one. It is never
+joined into a neighbouring unit. The reason is required, the first group cannot
+carry the line, and neither can an `[acceptance]`, `[contract]` or `[narrow]`
+group (a flagged group keeps the ordering rules its flag gives it); `abk tags` rejects each.
+
 ## Before committing a change
 
 ```

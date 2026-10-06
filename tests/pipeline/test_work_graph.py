@@ -391,3 +391,57 @@ def test_a_separate_line_without_a_reason_is_rejected(tmp_path: Path) -> None:
     assert len(errors) == 1
     assert "Separate" in errors[0].message
     assert errors[0].line == 2
+
+
+# --- groups that do not wait for the ones before them ---------------------
+
+
+def test_an_independent_line_marks_only_its_own_group(tmp_path: Path) -> None:
+    groups, errors = parse(
+        "## 1. [app] [tier1] A\n- [ ] 1.1 x\n\n"
+        "## 2. [platform] [tier1] B\n"
+        "Independent: only adds a receiver\n"
+        "- [ ] 2.1 y\n",
+        tmp_path,
+    )
+
+    assert errors == []
+    assert [g.independent for g in groups] == [False, True]
+
+
+def test_an_independent_line_without_a_reason_is_rejected(tmp_path: Path) -> None:
+    _, errors = parse(
+        "## 1. [app] [tier1] A\n- [ ] 1.1 x\n\n"
+        "## 2. [platform] [tier1] B\nIndependent:\n- [ ] 2.1 y\n",
+        tmp_path,
+    )
+
+    assert len(errors) == 1
+    assert "Independent" in errors[0].message
+    assert "reason" in errors[0].message
+    assert errors[0].line == 5
+
+
+def test_the_first_group_cannot_be_independent(tmp_path: Path) -> None:
+    _, errors = parse(
+        "## 1. [app] [tier1] A\nIndependent: nothing before it\n- [ ] 1.1 x\n", tmp_path
+    )
+
+    assert len(errors) == 1
+    assert "Independent" in errors[0].message
+    assert "nothing to be independent of" in errors[0].message
+
+
+@pytest.mark.parametrize("flag", ["contract", "narrow", "acceptance"])
+def test_an_independent_group_cannot_carry_a_flag(flag: str, tmp_path: Path) -> None:
+    tier = "tier2" if flag == "acceptance" else "tier1"
+    text = (
+        "## 1. [app] [tier1] A\n- [ ] 1.1 x\n\n"
+        f"## 2. [platform] [{tier}] [{flag}] B\nIndependent: a reason\n- [ ] 2.1 y\n"
+    )
+    if flag == "contract":
+        text += "\n## 3. [platform] [tier1] [narrow] C\n- [ ] 3.1 z\n"
+
+    _, errors = parse(text, tmp_path)
+
+    assert [e for e in errors if "Independent" in e.message], errors

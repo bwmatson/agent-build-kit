@@ -147,6 +147,7 @@ def parse_plan(
         carried = {number for join in joins if not join.unit for number in join.groups}
         _check_groups(units, groups, built or set(), carried)
         _check_acceptance(units, groups)
+        _check_independent(units, groups)
     _check_ceiling(units)
     if joins:
         if context is None:
@@ -282,13 +283,6 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
     exercised = {g.number for g in groups if g.flag not in ("acceptance", "narrow")}
     index = {unit.id: unit for unit in units}
 
-    def upstream(unit_id: str, seen: set[str]) -> set[str]:
-        for dependency in index[unit_id].depends_on:
-            if dependency in index and dependency not in seen:
-                seen.add(dependency)
-                upstream(dependency, seen)
-        return seen
-
     for unit in units:
         if not accepting & set(unit.groups):
             continue
@@ -297,7 +291,7 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
                 f"unit {unit.id} combines the [acceptance] group with other work — it "
                 "exercises what the rest of the change built, so it is a unit of its own"
             )
-        waited_for = upstream(unit.id, set())
+        waited_for = _upstream(index, unit.id, set())
         missing = [
             other.id
             for other in units
@@ -307,6 +301,48 @@ def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
             raise PlannerError(
                 f"acceptance unit {unit.id} does not wait for {', '.join(missing)} — it would "
                 "exercise the change before that work is in"
+            )
+
+
+def _upstream(index: dict[str, Unit], unit_id: str, seen: set[str]) -> set[str]:
+    """Every unit of the plan `unit_id` waits for, directly or through others."""
+    for dependency in index[unit_id].depends_on:
+        if dependency in index and dependency not in seen:
+            seen.add(dependency)
+            _upstream(index, dependency, seen)
+    return seen
+
+
+def _check_independent(units: list[Unit], groups: list[TaskGroup]) -> None:
+    """A group marked `Independent:` is a unit of its own that waits for no
+    other unit of its change — it was written to stand alone, so chaining it
+    behind its neighbours would only hold it up. What its `Needs:` lines name
+    belongs to other changes, and stays."""
+    independent = {g.number for g in groups if g.independent}
+    narrowing = {g.number for g in groups if g.flag == "narrow"}
+    index = {unit.id: unit for unit in units}
+    standing = [unit for unit in units if independent & set(unit.groups)]
+    for unit in units:
+        if narrowing & set(unit.groups):
+            waited_for = _upstream(index, unit.id, set())
+            missing = [other.id for other in standing if other.id not in waited_for]
+            if missing:
+                raise PlannerError(
+                    f"narrowing unit {unit.id} does not wait for {', '.join(missing)} — it "
+                    "would remove the old half of the shape before that work is in"
+                )
+        if not independent & set(unit.groups):
+            continue
+        if set(unit.groups) - independent:
+            raise PlannerError(
+                f"unit {unit.id} combines an `Independent:` group with other work — it "
+                "stands alone, so it is a unit of its own"
+            )
+        own = [d for d in unit.depends_on if d.startswith(f"{unit.change}/")]
+        if own:
+            raise PlannerError(
+                f"unit {unit.id} holds an `Independent:` group but depends on "
+                f"{', '.join(own)} of its own change — it waits for nothing there"
             )
 
 
@@ -397,6 +433,12 @@ Rules the graph must satisfy:
   consumer does. Give it a unit of its own, never combined with another group,
   and make that unit depend on every unit building the change's other groups
   (a `[narrow]` group aside, which comes after it).
+- A group with an `Independent: <reason>` line stands alone. Give it a unit of
+  its own, never combined with another group. That unit depends on no unit of
+  its own change; it still depends on what its `Needs:` lines name. The next
+  group's unit depends on the last unit before the independent one, as if the
+  independent group were not there. An `[acceptance]` or `[narrow]` unit also
+  depends on the independent unit.
 
 How the repos relate:
 {relationships}
@@ -422,7 +464,7 @@ rejected:
   on nothing else unfinished;
 - neither has started — never name a unit not marked unstarted;
 - no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
-  has a `Separate:` line;
+  has a `Separate:` or `Independent:` line;
 - the two estimates together stay at or under {max_lines} changed lines.
 A unit joined to may be joined to again, in order along the line, while it
 stays under that ceiling.
