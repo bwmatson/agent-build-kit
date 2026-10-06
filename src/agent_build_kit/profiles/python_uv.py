@@ -27,8 +27,6 @@ NO_TESTS_COLLECTED = 5
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 XDIST = "pytest-xdist"
-# Where the red run's JUnit report is written inside its worktree.
-REPORT_FILE = ".abk-red-report.xml"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
 
 
@@ -179,11 +177,13 @@ class PythonUvProfile:
 
     def red_command(self, files: list[str]) -> str:
         # The report is printed after the console so it outlives the worktree
-        # the command runs in; the exit status is pytest's own.
+        # the command runs in; the exit status is pytest's own. It goes to a
+        # fresh temp file, so a file already in the tree is never read as it.
         pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
         return (
-            f"{pytest} --junitxml={REPORT_FILE}; status=$?; "
-            f"echo '{REPORT_MARK}'; cat {REPORT_FILE} 2>/dev/null; exit $status"
+            f'report=$(mktemp); {pytest} --junitxml="$report"; status=$?; '
+            f'echo \'{REPORT_MARK}\'; cat "$report" 2>/dev/null; rm -f "$report"; '
+            "exit $status"
         )
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:

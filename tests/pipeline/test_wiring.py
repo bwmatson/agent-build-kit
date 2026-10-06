@@ -72,7 +72,10 @@ def test_a_claude_run_streams_and_answers_with_the_result_text(tmp_path: Path) -
     """Streamed so the tick log can show progress; the caller still gets the
     plain answer, which the review step parses as JSON."""
     recorder = Recorder()
-    recorder.stdout = '{"type": "result", "result": "{\\"approved\\": true}"}\n'
+    recorder.stdout = (
+        '{"type": "result", "subtype": "success", "is_error": false, '
+        '"result": "{\\"approved\\": true}"}\n'
+    )
 
     answer = build_run_claude(run=recorder)("do the thing", cwd=tmp_path)
 

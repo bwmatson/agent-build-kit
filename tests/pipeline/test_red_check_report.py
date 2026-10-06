@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.red_check import judge_red, red_check
+from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, red_check
 from agent_build_kit.profiles.python_uv import PROFILE
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
@@ -98,3 +98,32 @@ def test_the_python_profile_asks_pytest_for_the_report() -> None:
 
     assert "--junitxml=" in command
     assert "tests/test_thing.py" in command
+
+
+STDERR_NOTICE = (
+    "warning: `VIRTUAL_ENV=/x/.venv` does not match the project environment path `.venv` "
+    "and will be ignored\n"
+)
+
+
+def test_stderr_after_the_report_does_not_hide_it(caplog: pytest.LogCaptureFixture) -> None:
+    """The gate hands the profile stdout + stderr, so a `uv run` notice lands after the XML."""
+    console = "E   AssertionError\nFAILED test_case.py::test_new\n1 failed in 0.01s\n"
+    output = f"{console}{REPORT_MARK}\n{recorded('fixture_error')}\n{STDERR_NOTICE}"
+
+    with caplog.at_level(logging.WARNING):
+        ok, problems = PROFILE.interpret_red(output, 1)
+
+    assert not ok
+    assert any("test_new" in problem for problem in problems)
+    assert "fallback" not in caplog.text.lower()
+
+
+def test_a_fixture_that_raises_not_implemented_at_setup_is_red() -> None:
+    report = (
+        '<testsuites><testsuite tests="1" errors="1"><testcase classname="t" name="test_new">'
+        '<error message="failed on setup with &quot;NotImplementedError&quot;">'
+        "t.py:3: NotImplementedError</error></testcase></testsuite></testsuites>"
+    )
+
+    assert red_check(report).verdict == "accepted"

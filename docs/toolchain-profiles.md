@@ -84,9 +84,11 @@ And what it knows:
   must be only `pass`, `raise NotImplementedError`, or a constant (after a
   docstring). Unparseable is a violation. Other languages get no opinion.
 - `interpret_red` reads pytest's JUnit report (`red_command` writes it with
-  `--junitxml` and prints it after the console output), judging each failing
+  `--junitxml` to a temp file and prints it after the console output; only
+  the `<testsuites>` span is read, so stderr after it is ignored), judging each failing
   test by its exception: a collection error, a missing fixture, a broken
-  conftest, `SyntaxError`/`IndentationError` or a passing test disqualify the
+  conftest (a fixture that raises `NotImplementedError` at setup is red, as
+  it is calling the stub), `SyntaxError`/`IndentationError` or a passing test disqualify the
   run; an assertion, `NotImplementedError`, `ModuleNotFoundError`,
   `ImportError` or `AttributeError` in a test body is red for the right reason.
   When no report can be read, the console summary is matched instead and a

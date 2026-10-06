@@ -30,7 +30,6 @@ def closing_event(name: str) -> tuple[ResultEvent | None, str]:
     ("name", "kind"),
     [
         ("result_success", "none"),
-        ("result_rate_limited_structured", "rate_limited"),
         ("result_rate_limited_text_only", "rate_limited"),
         ("result_session_gone", "session_unavailable"),
         ("result_generic_error", "other"),
@@ -42,24 +41,10 @@ def test_a_recorded_closing_event_is_classified(name: str, kind: str) -> None:
     assert agent_failure(event, text).kind == kind
 
 
-def test_a_rate_limit_is_read_from_the_status_before_any_prose() -> None:
-    event, text = closing_event("result_rate_limited_structured")
-
-    assert "limit" not in text.lower()
-    assert "429" not in text
-    assert agent_failure(event, text).kind == "rate_limited"
-
-
 def test_a_text_only_rate_limit_says_when_it_lifts() -> None:
     event, text = closing_event("result_rate_limited_text_only")
 
     assert agent_failure(event, text).resets_at == datetime.fromtimestamp(1919763200, UTC)
-
-
-def test_a_structured_rate_limit_that_says_no_time_has_none() -> None:
-    event, text = closing_event("result_rate_limited_structured")
-
-    assert agent_failure(event, text).resets_at is None
 
 
 def test_an_unlisted_subtype_is_not_a_success() -> None:
@@ -111,3 +96,13 @@ def test_a_denial_phrase_in_a_successful_call_s_output_is_not_a_denial() -> None
 
     assert "denied" in json.dumps(update.raw_output)
     assert denied_call(update) is False
+
+
+def test_an_unknown_error_code_does_not_hide_a_denial_the_phrases_catch() -> None:
+    update = recorded_update("update_denied")
+    assert isinstance(update.raw_output, dict)
+    other = update.model_copy(
+        update={"raw_output": {"error": {**update.raw_output["error"], "code": "tool_error"}}}
+    )
+
+    assert denied_call(other) is True

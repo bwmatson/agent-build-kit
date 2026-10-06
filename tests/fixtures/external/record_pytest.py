@@ -5,8 +5,9 @@
 Each fixture is the JUnit report pytest wrote for one tiny test file in a
 temporary directory: a test that raises `NotImplementedError`, one whose module
 imports something that does not exist, one asking for a fixture nobody defines,
-and one whose assertion fails. Only the temporary path and timings are
-redacted; the header names the tool version and the command.
+and one whose assertion fails. Only the temporary path, the interpreter's
+and home directories, and timings are redacted; the header names the tool version and
+the command.
 """
 
 import re
@@ -46,6 +47,9 @@ def main() -> None:
             report = (root / "report.xml").read_text()
         report = re.sub(r' (time|timestamp|hostname)="[^"]*"', "", report)
         report = report.replace(tmp, "/tmp/case")
+        # The interpreter's own paths name the machine that recorded them.
+        report = report.replace(sys.base_prefix, "/opt/python")
+        report = report.replace(str(Path.home()), "~")
         header = f"<!-- tool: {tool}\n     command: {' '.join(command)} --junitxml=<path> -->\n"
         (OUT / f"{name}.xml").write_text(header + report + "\n")
 

@@ -44,7 +44,7 @@ from agent_build_kit.runtimes.base import (
     SessionUnavailable,
     UsageStatus,
 )
-from agent_build_kit.runtimes.claude_output import agent_failure
+from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.traced import traced
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
@@ -240,14 +240,19 @@ class ClaudeCodeRuntime:
         # then hand back the whole transcript; that belongs in `raw` alone.
         text = "" if ended is not None and ended.result is None else final_text(result.stdout)
         stop_reason = ended.subtype if ended is not None else ""
-        if result.returncode:
-            # Only what the CLI said about the ending, never the transcript:
-            # see `claude_stream.own_words`.
-            said = f"{own_words(result.stdout)}\n{result.stderr}".strip()
-            failure = agent_failure(ended, said)
-            if failure.kind == "none":
-                # A non-zero exit contradicts a success event: read the words.
-                failure = agent_failure(None, said)
+        # Only what the CLI said about the ending, never the transcript:
+        # see `claude_stream.own_words`.
+        said = f"{own_words(result.stdout)}\n{result.stderr}".strip()
+        # A clean exit with no closing event (a plain-text call) is a success.
+        failure = (
+            agent_failure(ended, said)
+            if ended is not None or result.returncode
+            else AgentFailure(kind="none")
+        )
+        if result.returncode and failure.kind == "none":
+            # A non-zero exit contradicts a success event: read the words.
+            failure = agent_failure(None, said)
+        if result.returncode or failure.kind != "none":
             if request.resume_session and failure.kind == "session_unavailable":
                 raise SessionUnavailable(said)
             failed = AgentResult(

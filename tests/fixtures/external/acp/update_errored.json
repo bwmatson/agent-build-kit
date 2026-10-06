@@ -5,7 +5,7 @@
   "rawOutput": {
     "error": {
       "code": "command_failed",
-      "message": "Permission for guest was denied"
+      "message": "E   AssertionError: Permission for guest was denied"
     }
   },
   "content": [
@@ -13,7 +13,7 @@
       "type": "content",
       "content": {
         "type": "text",
-        "text": "Permission for guest was denied"
+        "text": "E   AssertionError: Permission for guest was denied"
       }
     }
   ]

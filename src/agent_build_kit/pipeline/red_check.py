@@ -114,12 +114,19 @@ REPORT_MARK = "--- abk junit report ---"
 
 LOG = logging.getLogger(__name__)
 
+_REPORT_SPAN = re.compile(r"<testsuites\b.*?</testsuites>", re.DOTALL)
+
 
 def split_report(output: str) -> tuple[str | None, str]:
     """The JUnit report a red command printed after `REPORT_MARK`, or None when
     it printed none, and the console output before it."""
-    console, found, report = output.partition(REPORT_MARK)
-    return (report.strip() or None, console) if found else (None, output)
+    console, found, after = output.partition(REPORT_MARK)
+    if not found:
+        return None, output
+    # Whatever the shell printed to stderr after the report is not part of it.
+    span = _REPORT_SPAN.search(after)
+    report = span.group(0) if span else after.strip()
+    return report or None, console
 
 
 def red_check(report: str) -> RedResult:
@@ -148,7 +155,8 @@ def red_check(report: str) -> RedResult:
         for element in bad:
             said = f"{element.get('message') or ''}\n{element.text or ''}"
             if element.tag == "error":
-                problems.append(f"{name}: {_error_reason(element, said)}")
+                if reason := _error_reason(element, said):
+                    problems.append(f"{name}: {reason}")
             elif reasons := [why for marker, why in REJECTED.items() if marker in said]:
                 problems.extend(f"{name}: {why}" for why in reasons)
             elif not any(marker in said for marker in ACCEPTED):
@@ -171,12 +179,17 @@ def red_check(report: str) -> RedResult:
     )
 
 
-def _error_reason(element: ElementTree.Element, said: str) -> str:
+def _error_reason(element: ElementTree.Element, said: str) -> str | None:
+    """Why an `<error>` disqualifies the run, or None when it is red: a fixture
+    that calls a stub and raises `NotImplementedError` at setup is the missing
+    implementation, not a broken fixture."""
     if element.get("message") == "collection failure":
         return "the test module could not be collected, so no test failed for the missing behaviour"
     for marker, why in REJECTED.items():
         if marker in said:
             return why
+    if "NotImplementedError" in said:
+        return None
     return "an error outside the test body is not a missing implementation"
 
 

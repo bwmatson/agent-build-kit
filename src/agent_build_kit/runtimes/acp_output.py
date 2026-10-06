@@ -1,8 +1,8 @@
 """What an ACP agent's tool call update means: the one place it is read.
 
-A refusal is read from the update's status and the error its raw output
-carries first; the phrase list decides only when the update carries no such
-error, since the protocol does not say why a call failed.
+A refusal is read from the update's status and a denial code its raw output
+carries; the phrase list decides whenever there is no such code, since the
+protocol does not say why a call failed and no agent is recorded sending one.
 """
 
 import json
@@ -66,6 +66,6 @@ def denied_call(update: ToolCallProgress) -> bool:
         return False
     raw = update.raw_output
     error = raw.get("error") if isinstance(raw, dict) else None
-    if isinstance(error, dict) and error.get("code"):
-        return error["code"] in DENIAL_CODES
+    if isinstance(error, dict) and error.get("code") in DENIAL_CODES:
+        return True
     return refusal_line(output_of(update)) is not None
