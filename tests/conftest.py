@@ -19,9 +19,12 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import config as config_module
+from agent_build_kit.cli import doctor
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
+from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes import claude_code
+from tests.forges.mock_host import MockHost, recorded
 
 
 @pytest.fixture(autouse=True)
@@ -122,6 +125,21 @@ def no_real_gh(monkeypatch: pytest.MonkeyPatch) -> None:
         return real(args, *rest, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", run)
+
+
+@pytest.fixture(autouse=True)
+def no_real_forge_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`abk doctor` asks GitHub who each repo's credential is. A test that
+    means to choose the answer passes `transport=`; any other call gets the
+    recorded account, so no doctor caller reaches api.github.com."""
+    real = doctor.Transport
+
+    def build(base_url, credentials, *, transport=None, **kwargs):
+        host = transport or MockHost(recorded("user_200"))
+        return real(base_url, credentials, transport=host, **kwargs)
+
+    clear_credentials()
+    monkeypatch.setattr(doctor, "Transport", build)
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:

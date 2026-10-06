@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
+import httpx
 import yaml
 
 from agent_build_kit import (
@@ -35,6 +36,13 @@ from agent_build_kit import (
     timers,
 )
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
+from agent_build_kit.forges.constants import GITHUB_API
+from agent_build_kit.forges.transport import (
+    PAGE_EXCERPT,
+    Transport,
+    TransportError,
+    credential_for,
+)
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
 from agent_build_kit.installation import Installation, _resolve, load_config
@@ -113,18 +121,54 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
-def _forge_access(inst: Installation, run: Run) -> list[Check]:
+def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTransport | None) -> str:
+    """The account this repo's credential acts as, from the cheapest
+    authenticated endpoint. Raises `TransportError` naming what failed."""
+    credentials = credential_for(repo.forge, repo.account, run=run)
+    try:
+        with Transport(GITHUB_API, credentials, transport=transport) as host:
+            answer = host.request("GET", "/user")
+    except TransportError as error:
+        raise TransportError(f"{error} (credential from {credentials.source})") from error
+    login = answer.data.get("login") if isinstance(answer.data, dict) else None
+    if not login:
+        raise TransportError(
+            f"GET /user: no login in the answer: {answer.text[:PAGE_EXCERPT]} "
+            f"(credential from {credentials.source})"
+        )
+    return f"{login} via {credentials.source}"
+
+
+def _forge_access(
+    inst: Installation,
+    run: Run,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> list[Check]:
     """Whether each repo's host will answer for it.
 
     Per repo rather than per account: "can we act here" is the question the
     pipeline actually asks, and it is the same question on every host, where
     "which accounts does this workspace touch" was a GitHub owner's shape.
+    A GitHub repo is checked with its real credential, and the check names the
+    account it acts as.
     """
     checks = []
     for name in sorted(inst.repos):
         forge, repo = inst.forge_of(name)
-        problem = forge.check_access(repo, run=run)
         title = f"forge {name}"
+        if repo.forge == "github":
+            try:
+                checks.append(
+                    _ok(
+                        title,
+                        f"github {forges.key(repo)} as {_github_account(repo, run, transport)}",
+                    )
+                )
+            except TransportError as error:
+                checks.append(_fail(title, str(error), forge.access_fix(repo)))
+            continue
+        problem = forge.check_access(repo, run=run)
         if problem:
             checks.append(_fail(title, problem, forge.access_fix(repo)))
         else:
@@ -749,6 +793,7 @@ def run_doctor(
     run: Run | None = None,
     which: Which | None = None,
     units: Path | None = None,
+    transport: httpx.BaseTransport | None = None,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which
@@ -768,7 +813,7 @@ def run_doctor(
     inst.activate()
 
     checks += _repos(inst, run)
-    checks += _forge_access(inst, run)
+    checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)

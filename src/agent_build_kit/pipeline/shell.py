@@ -18,10 +18,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Callable
 from functools import cache
 from pathlib import Path
 
 from agent_build_kit.config import active
+from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
 from agent_build_kit.settings import settings
 
 
@@ -53,13 +55,42 @@ def git_out(repo: Path, *args: str) -> str:
 # --- gh -----------------------------------------------------------------------
 
 
+Run = Callable[..., subprocess.CompletedProcess]
+
+
+def cli_token(owner: str, *, run: Run | None = None) -> str | None:
+    """What `gh auth token --user <owner>` prints, or None when `gh` holds none.
+    `run` stands in for subprocess.run."""
+    result = (run or subprocess.run)(
+        ["gh", "auth", "token", "--user", owner], capture_output=True, text=True, check=False
+    )
+    return (None if result.returncode else (result.stdout or "").strip()) or None
+
+
 @cache
 def token_for(owner: str) -> str | None:
     """The `gh` token for the account `owner`, or None when `gh` holds none."""
-    result = subprocess.run(
-        ["gh", "auth", "token", "--user", owner], capture_output=True, text=True, check=False
-    )
-    return result.stdout.strip() or None
+    return cli_token(owner)
+
+
+def forget_tokens() -> None:
+    """Forget the `gh` tokens read so far (after a re-login, and between tests)."""
+    token_for.cache_clear()
+
+
+def credential_source(owner: str, *, run: Run | None = None) -> tuple[str, str] | None:
+    """The token calls for `owner`'s repos use, and where it came from.
+
+    The one definition of the order, for `gh` subprocesses and HTTP calls alike:
+    an explicitly configured token wins (one account may well have access to
+    both repos, and saying so is simpler than inferring it), then the `gh`
+    login for that owner. None when neither holds a token. A `run` reads the
+    login afresh instead of through the cache.
+    """
+    if settings.gh_token:
+        return settings.gh_token, GH_TOKEN_SOURCE
+    token = token_for(owner) if run is None else cli_token(owner, run=run)
+    return (token, f"gh auth token --user {owner}") if token else None
 
 
 def gh_env(slug: str) -> dict[str, str]:
@@ -68,12 +99,10 @@ def gh_env(slug: str) -> dict[str, str]:
     Selecting the token per owner rather than switching the active account
     keeps it stateless, which matters because units run concurrently.
     """
-    # An explicitly configured token wins: one account may well have access to
-    # both repos, and saying so is simpler than inferring it.
-    token = settings.gh_token or token_for(slug.split("/")[0])
+    found = credential_source(slug.split("/")[0])
     # The whole environment, not just the token: `gh` needs PATH and HOME, and
     # a partial env is the kind of thing that works until it runs under systemd.
-    return {**os.environ, "GH_TOKEN": token} if token else dict(os.environ)
+    return {**os.environ, "GH_TOKEN": found[0]} if found else dict(os.environ)
 
 
 def slug_in(args: list[str]) -> str:

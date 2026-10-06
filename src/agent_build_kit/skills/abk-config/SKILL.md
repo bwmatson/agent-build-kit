@@ -16,6 +16,7 @@ or a script. Machine-local values (tokens, a worktree root override, model
 overrides, `ABK_RUNTIME`, the gateway pair `ABK_GATEWAY_URL` and
 `ABK_GATEWAY_MASTER_KEY` (set both or neither: each agent call then gets a
 key of its own and its usage is read from the gateway's records), the
+code-host call bounds `ABK_FORGE_TIMEOUT_SECONDS` and `ABK_FORGE_RETRIES`, the
 telemetry switch `ABK_OTEL_ENABLED` and its
 `OTEL_*` endpoints, and `ABK_GRAFANA_URL`/`ABK_GRAFANA_TOKEN`/`ABK_GRAFANA_FOLDER`
 for `abk telemetry push-dashboard`) go in the planning repo's `.env`, which is not
