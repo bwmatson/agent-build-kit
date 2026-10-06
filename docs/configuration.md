@@ -317,6 +317,9 @@ loaded (`abk init` writes `.env.example` to copy).
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | per-signal full URLs, overriding the shared endpoint (traces and metrics usually have different intake ports) | unset |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | passed to the resource (`k=v,k2=v2`) | `agent-build-kit`, unset |
 
+| `ABK_GRAFANA_URL`, `ABK_GRAFANA_TOKEN` | the Grafana and service-account token `abk telemetry push-dashboard` pushes the pipeline's dashboard (package data) to; the command names whichever is missing and exits non-zero | unset |
+| `ABK_GRAFANA_FOLDER` | the folder the dashboard goes into, created when missing; pushing again overwrites the one dashboard | `agent-build-kit` |
+
 A bad collector cannot fail or slow a run: exports are batched, a failure is
 at most a warning, and `shutdown()` is bounded. `abk doctor` warns when
 telemetry is enabled with no endpoint or one that does not answer.
