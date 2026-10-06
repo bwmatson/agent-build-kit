@@ -14,7 +14,7 @@ from agent_build_kit import forges
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.vocabulary import change_label
 from tests.conftest import make_installation
 from tests.factories import stored_unit as unit
@@ -63,6 +63,22 @@ def test_the_store_the_cli_builds_labels_a_pull_request_as_its_unit_changes(
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
 
     assert {"in-review", change_label("add-marker").name} <= forge.on_pr[PR]
+
+
+def test_the_store_the_cli_builds_makes_a_pull_request_a_draft_while_its_unit_runs(
+    inst: Installation, forge: StandInForge
+) -> None:
+    store = cli.store_for(inst)
+    store.upsert([unit(UNIT)])
+    store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
+
+    store.set_state(UNIT, RUNNING)
+    assert forge.is_draft[PR] is True
+
+    store.set_state(UNIT, IN_REVIEW)
+    assert forge.is_draft[PR] is False
+    # Both writers hang off the one hook.
+    assert "in-review" in forge.on_pr[PR]
 
 
 def test_the_poll_the_cli_runs_takes_a_rework_label_off_once_it_has_acted(

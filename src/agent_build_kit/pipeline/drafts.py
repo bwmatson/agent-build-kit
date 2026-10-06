@@ -8,11 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from agent_build_kit.forges import Forge, RepoId
+from agent_build_kit.pipeline.labels import ForRepo
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
-
-ForRepo = Callable[[str], tuple[Forge, RepoId]]
 
 
 class StateDrafts:

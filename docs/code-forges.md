@@ -63,7 +63,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `remove_label(repo, pr, name)` | the poller | take `agent-rework` off once acted on |
 | `set_draft(repo, pr, draft)` | state drafts | make the pull request a draft or publish it; reads the current state first and writes only when it differs; raises if the host refuses |
 
-A host without labels raises `NotImplementedError` from all three. That is said
+A host without labels raises `NotImplementedError` from all three label methods. That is said
 once ("this host keeps no labels") rather than logged as a failure on every
 call; any other error is logged as one.
 

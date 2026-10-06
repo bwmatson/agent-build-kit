@@ -414,16 +414,17 @@ truth, a pull request wearing a stale label does not change its unit, and a
 label that cannot be written is logged and changes nothing about the unit.
 Azure DevOps keeps labels (it calls them tags) but no colour or description, so
 a state is told apart by its name there; state labels, change labels and the
-removal of `agent-rework` work as on GitHub. A pull request is also a **draft** while its unit is `running` and
-published when it is `in_review`, written from the same state-change hook; other
-states leave it alone, and a refused write is logged without touching the unit.
-A host that keeps no labels says so once
-per store and once per poll ("this host keeps no labels"), not as a failure on
-each state change. A state label is
-written when the unit's own state changes, so a dependent's derived state
-(`blocked`, `paused-rework`) is refreshed on its own next transition, not when
-its parent's changes. `agent-rework` added to a held unit's pull request is
-ignored and removed all the same.
+removal of `agent-rework` work as on GitHub. A host that keeps no labels says
+so once per store and once per poll ("this host keeps no labels"), not as a
+failure on each state change. A state label is written when the unit's own
+state changes, so a dependent's derived state (`blocked`, `paused-rework`) is
+refreshed on its own next transition, not when its parent's changes.
+`agent-rework` added to a held unit's pull request is ignored and removed all
+the same.
+
+A pull request is also a **draft** while its unit is `running` and published
+when it is `in_review`, written from the same state-change hook; other states
+leave it alone, and a refused write is logged without touching the unit.
 
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does
