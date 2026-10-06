@@ -112,6 +112,12 @@ class AgentResult(Frozen):
     usage_source: UsageSource = "none"
 
     @property
+    def succeeded(self) -> bool:
+        """Whether the call did its work: it ended `ok` and not on an error result.
+        A run that exits cleanly can still close on `error_max_turns`."""
+        return self.ok and not self.stop_reason.startswith("error")
+
+    @property
     def tokens(self) -> dict[str, int]:
         """Tokens spent by kind (`input`, `output`, `cache`), from `usage`;
         empty when the runtime reported no counts, and no kind it omits."""

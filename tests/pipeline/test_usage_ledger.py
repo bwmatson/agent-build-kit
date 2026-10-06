@@ -86,6 +86,16 @@ def test_a_new_session_for_the_same_node_and_round_is_spend_of_its_own(tmp_path:
     assert {r.session_id: r.cost_usd for r in records} == {"sess-1": 0.5, "sess-2": 0.7}
 
 
+def test_calls_with_no_session_id_in_one_node_and_round_are_each_counted(tmp_path: Path) -> None:
+    ledger = write(
+        tmp_path / "usage-ledger.jsonl",
+        line(session_id=None, cost_usd=0.2, at="2026-01-01T10:00:00+00:00"),
+        line(session_id=None, cost_usd=0.3, at="2026-01-01T10:05:00+00:00"),
+    )
+
+    assert sum(r.cost_usd or 0 for r in read_ledger(ledger)) == 0.5
+
+
 def test_a_line_from_before_a_field_existed_loads_with_that_field_absent(tmp_path: Path) -> None:
     old = {
         "at": "2025-06-01T09:00:00+00:00",

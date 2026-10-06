@@ -155,6 +155,22 @@ def test_a_failed_call_is_recorded_with_its_figures(
     assert record["outcome"] == "failed"
 
 
+def test_a_run_that_exits_cleanly_on_an_error_result_is_recorded_as_failed(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    *events, closing = finished_build(tmp_path, "done").splitlines()
+    ended = json.loads(closing) | {"subtype": "error_max_turns", "is_error": True}
+    del ended["result"]
+    capped = FakeClaude(stdout="\n".join([*events, json.dumps(ended)]) + "\n", returncode=0)
+
+    with contextlib.suppress(RuntimeError):
+        tick(tmp_path, fresh(tmp_path), **agents(tmp_path, build=capped))
+
+    (record,) = [r for r in ledger_lines(workspace) if r["node"] == "tests"]
+    assert record["usage_source"] == "reported"
+    assert record["outcome"] == "failed"
+
+
 def test_a_runtime_that_reports_nothing_leaves_a_record_of_none_with_the_figures_absent(
     tmp_path: Path, workspace: Installation
 ) -> None:

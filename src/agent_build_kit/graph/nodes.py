@@ -342,7 +342,7 @@ class BuildPath:
                 turns=result.turns,
                 duration_ms=result.duration_ms,
                 usage_source=result.usage_source,
-                outcome="ok" if result.ok else "failed",
+                outcome="ok" if result.succeeded else "failed",
             )
             record_call(line, self.say)
 

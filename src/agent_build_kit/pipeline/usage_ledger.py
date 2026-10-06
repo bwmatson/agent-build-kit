@@ -96,16 +96,19 @@ def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
 
 def read_ledger(path: Path) -> list[UsageRecord]:
     """The ledger's records, one per unit, node, round and session: the last
-    one written. A line that is not a record (half written) is skipped."""
+    one written. Calls with no session id cannot be told apart from a re-run,
+    so each stays a record of its own. A line that is not a record (half
+    written) is skipped."""
     try:
         lines = path.read_text().splitlines()
     except FileNotFoundError:
         return []
-    latest: dict[tuple[str, str, int, str | None], UsageRecord] = {}
+    latest: dict[tuple[str, str, int, str], UsageRecord] = {}
     for line in lines:
         try:
             record = UsageRecord.model_validate(json.loads(line))
         except (ValueError, ValidationError):
             continue
-        latest[(record.unit, record.node, record.round, record.session_id)] = record
+        session = record.session_id or f"unnamed@{record.at}"
+        latest[(record.unit, record.node, record.round, session)] = record
     return list(latest.values())
