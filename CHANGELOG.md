@@ -87,6 +87,7 @@
   difference. `planning.usage_page` (default `docs/unit_cost.md`) holds per-change totals and
   the most expensive units, rewritten on every store write without ever failing it. Archiving a
   change rolls its ledger lines into one `summary` line per unit, so its totals survive.
+
 - `forges/transport.py`: one HTTP transport for code hosts. Credentials come per owner (the
   `GH_TOKEN` setting, else `gh auth token --user <owner>`, cached once per owner), every call
   has a timeout, failures are retried with backoff and `Retry-After` (never a create-style
@@ -94,12 +95,6 @@
   New settings `ABK_FORGE_TIMEOUT_SECONDS` (30) and `ABK_FORGE_RETRIES` (3); `httpx` is now a
   direct dependency. `abk doctor` checks each GitHub repo's credential against the host and
   reports the account it acts as.
-
-- `abk telemetry push-dashboard` pushes the framework's Grafana dashboard (shipped as package
-  data, querying only metrics the telemetry module emits) to the Grafana named by
-  `ABK_GRAFANA_URL` and `ABK_GRAFANA_TOKEN`, into the folder `ABK_GRAFANA_FOLDER` (default
-  `agent-build-kit`). It is idempotent: the folder is created if missing and the dashboard is
-  overwritten.
 
 - A rework addresses comments added while it runs. Just before the push
   (including after a clean move onto a new base) the pull request's notes and conversation are
