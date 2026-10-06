@@ -609,6 +609,9 @@ def test_a_line_appended_while_a_change_archives_is_not_lost(tmp_path: Path) -> 
         writer = threading.Thread(target=append_late)
         writer.start()
         assert not appended.wait(0.3), "an append waits for the roll-up's lock"
+        assert rolling.is_alive(), "the roll-up waits for the ledger lock"
+        held = {x["kind"] for x in ledger_lines(ledger) if x["unit"].startswith("add-marker")}
+        assert held != {"summary"}, "the ledger is untouched while the lock is held"
     rolling.join(10)
     writer.join(10)
 
