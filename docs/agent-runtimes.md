@@ -622,6 +622,12 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
   demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
   test-local-stack`).
+- The same build run (`tests/integration/test_acp_build_unit.py`) also checks
+  the usage report: `abk report --unit` for the built unit has one agent record
+  per agent call in its run log, and its tokens and agent time equal the sums of
+  the unit's usage-ledger records, with each figure's source named in the JSON
+  and the table. It needs nothing beyond the agent above. Run with `uv run
+  pytest -m local_stack tests/integration/test_acp_build_unit.py`.
 - The telemetry acceptance run (`tests/integration/test_telemetry_stack.py`,
   also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on and reads
   the trace and the duration series back from the shared stack's stores. It
