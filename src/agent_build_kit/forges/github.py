@@ -15,6 +15,8 @@ import subprocess
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING
 
+import httpx
+
 from agent_build_kit.forges.base import (
     BaseMissing,
     Label,
@@ -77,6 +79,10 @@ class GitHubForge:
     read_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "view"), ("gh", "pr", "diff"))
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
+
+    def __init__(self, http: httpx.BaseTransport | None = None) -> None:
+        # The transport every API call goes through; None is the network.
+        self.http = http
 
     def parse_remote(self, url: str) -> RepoId | None:
         match = _ORIGIN.match(url.strip())
