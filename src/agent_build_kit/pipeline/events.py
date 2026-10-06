@@ -34,13 +34,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, FAILING_CHECKS_REASON
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
@@ -699,14 +700,11 @@ def build_delete_branch(repos: dict[str, Path]) -> Callable[..., None]:
     return delete
 
 
-class ReviewLines(list[str]):
+class Review(Frozen):
     """The reviewer's words, and the id of every note they were read from, outdated or not."""
 
-    ids: tuple[str, ...]
-
-    def __init__(self, lines: Iterable[str] = (), ids: Iterable[str] = ()) -> None:
-        super().__init__(lines)
-        self.ids = tuple(ids)
+    lines: list[str] = []
+    ids: tuple[str, ...] = ()
 
 
 def review_lines(notes: list[ReviewNote]) -> list[str]:
@@ -749,7 +747,7 @@ def note_words(note: ReviewNote) -> str:
 
 def build_fetch_review(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
-) -> Callable[..., list[str]]:
+) -> Callable[..., Review]:
     """The reviewer's words on a PR, asked of whichever host it lives on.
 
     Fetched only when a rework is already being dispatched: asking during the
@@ -757,10 +755,10 @@ def build_fetch_review(
     """
     for_repo = for_repo or forges.for_repo
 
-    def fetch(repo: str, pr: int) -> list[str]:
+    def fetch(repo: str, pr: int) -> Review:
         forge, repo_id = for_repo(repo)
         notes = forge.review_notes(repo_id, pr)
-        return ReviewLines(review_lines(notes), (n.id for n in notes))
+        return Review(lines=review_lines(notes), ids=tuple(n.id for n in notes))
 
     return fetch
 
@@ -1072,7 +1070,7 @@ def on_rework(
     reason: str,
     pull: PullRequest | None = None,
     store: UnitStore,
-    fetch_review: Callable[[int], list[str]] | None = None,
+    fetch_review: Callable[[int], Review] | None = None,
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
     claim: Claim = _unclaimed,
     waiting: set[tuple[str, str]] | None = None,
@@ -1216,7 +1214,7 @@ def _feedback(
     pr: int,
     reason: str,
     pull: PullRequest | None,
-    fetch_review: Callable[[int], list[str]] | None,
+    fetch_review: Callable[[int], Review] | None,
     fetch_checks: Callable[[PullRequest | None], str] | None,
 ) -> tuple[str, bool, tuple[str, ...]]:
     """What a rework hands the agent, whether it is a person's words, and the ids of the
@@ -1244,15 +1242,14 @@ def _feedback(
             False,
             (),
         )
-    words = fetch_review(pr) if fetch_review else []
-    said = "\n".join([*words, _latest_comment(pull)]).strip()
+    review = fetch_review(pr) if fetch_review else Review()
+    said = "\n".join([*review.lines, _latest_comment(pull)]).strip()
     # What the words were built from: the poller's listing and the notes just read, so a
     # comment posted since is not taken as given.
     listed = pull.conversation if pull else ()
-    read = words.ids if isinstance(words, ReviewLines) else ()
     # The one place a person's words enter feedback; the reason alone is
     # the host's.
-    return said or reason, bool(said), (*listed, *read)
+    return said or reason, bool(said), (*listed, *review.ids)
 
 
 def _requeue(
@@ -1285,8 +1282,8 @@ def _check_fetcher(
 
 
 def _review_fetcher(
-    store: UnitStore, repo: str, pr: int, fetch: Callable[..., list[str]] | None
-) -> Callable[[int], list[str]] | None:
+    store: UnitStore, repo: str, pr: int, fetch: Callable[..., Review] | None
+) -> Callable[[int], Review] | None:
     """Bind the fetcher to the repo the PR's unit lives in."""
     if fetch is None:
         return None
@@ -1624,7 +1621,7 @@ def build_dispatch(
     restack: Restack,
     remove_worktree: Callable[..., None] | None = None,
     delete_branch: Callable[..., None] | None = None,
-    fetch_review: Callable[..., list[str]] | None = None,
+    fetch_review: Callable[..., Review] | None = None,
     fetch_checks: Callable[..., str] | None = None,
     rerun_checks: Callable[..., None] | None = None,
     claim: Claim = _unclaimed,

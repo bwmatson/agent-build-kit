@@ -24,6 +24,7 @@ from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, R
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
+from tests.forges.stand_in import StandInForge, lookup
 
 
 @pytest.fixture
@@ -626,9 +627,9 @@ def test_a_deferred_rework_fetches_nothing(store: UnitStore) -> None:
     def busy(unit):
         raise events.BranchBusy("being built")
 
-    def review(pr: int) -> list[str]:
+    def review(pr: int) -> events.Review:
         fetched.append("review")
-        return ["words"]
+        return events.Review(lines=["words"])
 
     def checks(pull) -> str:
         fetched.append("checks")
@@ -790,9 +791,11 @@ def test_rework_carries_the_reviewer_s_inline_words(store: UnitStore) -> None:
         reason="review: changes requested",
         pull=bare_pull(),
         store=store,
-        fetch_review=lambda number: [
-            "shared/tests/test_x.py:28 — This should be a StrEnum so it can be used as keys."
-        ],
+        fetch_review=lambda number: events.Review(
+            lines=[
+                "shared/tests/test_x.py:28 — This should be a StrEnum so it can be used as keys."
+            ]
+        ),
     )
 
     feedback = store.get("add-marker/1").feedback
@@ -816,11 +819,51 @@ def test_a_delivered_rework_names_the_comments_its_words_were_built_from(
         reason="review: changes requested",
         pull=pull,
         store=store,
-        fetch_review=lambda number: events.ReviewLines(["[comment n1] a.py:3 — fix"], ["n1", "n2"]),
+        fetch_review=lambda number: events.Review(
+            lines=["[comment n1] a.py:3 — fix"], ids=("n1", "n2")
+        ),
         resume=lambda unit, kind, reason, feedback: asked.append(feedback()) or True,
     )
 
     assert asked == [("[comment n1] a.py:3 — fix", True, ("c1", "rv1", "n1", "n2"))]
+
+
+def test_the_fetched_review_names_every_note_it_read_outdated_ones_included() -> None:
+    """The ids are what lets a rework tell a note it was given from a new one: an
+    outdated note's words are left out, but its id is not."""
+    notes = [
+        ReviewNote(id="n1", body="rename", path="a.py", line=3),
+        ReviewNote(id="n2", body="old", path="a.py", line=None, live=False),
+        ReviewNote(id="n3", body="", path="", line=None),
+    ]
+
+    fetch = events.build_fetch_review(for_repo=lookup(StandInForge(notes=notes)))
+    review = fetch("app", 1)
+
+    assert review.lines == events.review_lines(notes)
+    assert review.lines == ["[comment n1] a.py:3 — rename"]
+    assert review.ids == ("n1", "n2", "n3")
+
+
+def test_the_ids_of_the_fetched_review_reach_the_rework_feedback(store: UnitStore) -> None:
+    notes = [
+        ReviewNote(id="n1", body="rename", path="a.py", line=3),
+        ReviewNote(id="n2", body="old", path="a.py", line=None, live=False),
+    ]
+    fetch = events.build_fetch_review(for_repo=lookup(StandInForge(notes=notes)))
+    asked: list[tuple[str, bool, tuple[str, ...]]] = []
+
+    events.on_rework(
+        1,
+        repo="app",
+        reason="review: changes requested",
+        pull=bare_pull(),
+        store=store,
+        fetch_review=lambda number: fetch("app", number),
+        resume=lambda unit, kind, reason, feedback: asked.append(feedback()) or True,
+    )
+
+    assert asked[0][2] == ("n1", "n2")
 
 
 def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStore) -> None:
@@ -831,7 +874,7 @@ def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStor
         reason="failing checks: tier1",
         pull=bare_pull(),
         store=store,
-        fetch_review=lambda number: [],
+        fetch_review=lambda number: events.Review(),
     )
 
     assert "failing checks: tier1" in store.get("add-marker/1").feedback
@@ -1067,7 +1110,7 @@ def test_a_ci_failure_is_reworked_from_its_log_not_the_old_review(tmp_path: Path
         reason="failing checks: config-check",
         pull=rework_pull("an old, answered review comment"),
         store=store,
-        fetch_review=lambda pr: ["an old review"],
+        fetch_review=lambda pr: events.Review(lines=["an old review"]),
         fetch_checks=lambda pull: "AssertionError: container names left on profiled services",
         log=lambda m: None,
     )
@@ -1092,7 +1135,7 @@ def test_a_conflict_is_reworked_as_a_conflict_not_the_old_review(tmp_path: Path)
         reason=CONFLICT_REASON,
         pull=rework_pull("an old, answered comment"),
         store=store,
-        fetch_review=lambda pr: asked.append(pr) or ["an old review body"],
+        fetch_review=lambda pr: asked.append(pr) or events.Review(lines=["an old review body"]),
         log=lambda m: None,
     )
 
@@ -1429,9 +1472,9 @@ def test_the_review_is_fetched_from_the_repo_the_event_was_reported_for(
     repo for a review of a pull request that was never its own."""
     asked: list[tuple[str, int]] = []
 
-    def fetch(repo: str, number: int) -> list[str]:
+    def fetch(repo: str, number: int) -> events.Review:
         asked.append((repo, number))
-        return []
+        return events.Review()
 
     events.build_dispatch(
         shared_number, restack=Recorder(), fetch_review=fetch, log=lambda m: None

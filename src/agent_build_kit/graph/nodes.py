@@ -878,7 +878,9 @@ class BuildPath:
         if not words:
             return {"seen_comments": seen}
         # Given with this pass, so the poller does not report them again after the push.
-        # Ids taken in with no words among them were not given and are left to the poller.
+        # When a pass carries words, every id it took in is given, including GitHub's body-less
+        # review for an inline comment; a pass with no words gives nothing and leaves those ids
+        # to the poller.
         given = (*state.given_comments, *(c.id for c in new))
         self.say(f"{len(new)} new comment(s) on #{pr}: back to rework")
         r.store.set_feedback(unit.id, words, from_person=True)
