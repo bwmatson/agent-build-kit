@@ -41,6 +41,7 @@ from pathlib import Path
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, FAILING_CHECKS_REASON
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
@@ -1435,7 +1436,11 @@ def build_restack(
             )
             return
 
-        passed, output = tier1(cwd=cwd, base=local_ref(new_base))
+        context = spans.current_unit.set((child.id, child.change, "restack", 0))
+        try:
+            passed, output = tier1(cwd=cwd, base=local_ref(new_base))
+        finally:
+            spans.current_unit.reset(context)
         if not passed:
             raise RuntimeError(
                 f"{branch} moved onto {new_base} but its checks fail — "

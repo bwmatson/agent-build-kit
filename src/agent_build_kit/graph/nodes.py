@@ -181,7 +181,9 @@ class BuildPath:
             outcome = "error"
             with span as current:
                 self._node = node.value
-                spans.current_unit.set((self.unit.id, self.unit.change))
+                context = spans.current_unit.set(
+                    (self.unit.id, self.unit.change, node.value, _round(node, state))
+                )
                 self.say("started")
                 try:
                     # Off the loop: the callables block on agents and git.
@@ -203,6 +205,7 @@ class BuildPath:
                         telemetry.failed(current)
                     raise
                 finally:
+                    spans.current_unit.reset(context)
                     spans.record_span(
                         mark,
                         self.say,

@@ -86,7 +86,6 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
-    depth_of,
     held_for_base,
     in_progress,
     in_progress_label,
@@ -94,7 +93,6 @@ from agent_build_kit.pipeline.units import (
     ready_units,
     start_room,
     trunk_of,
-    waiting_on,
 )
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
@@ -543,6 +541,7 @@ def _evaluate(
     building: set[str],
     only: frozenset[str],
     enforce_limit: bool = True,
+    max_concurrent: int | None = None,
 ) -> list[Unit]:
     """What this pass may start now.
 
@@ -564,7 +563,7 @@ def _evaluate(
         view.append(unit)
     ready = ready_units(
         view,
-        max_concurrent=inst.max_concurrent_stacks,
+        max_concurrent=max_concurrent or inst.max_concurrent_stacks,
         depth_cap=inst.stack_depth_build_cap,
         max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
     )
@@ -690,20 +689,19 @@ def _schedule(
     ) as pool:
 
         def note_queued(units: list[StoredUnit], ready: list[Unit], in_flight: set[str]) -> None:
-            """Start the clock on each unit that could build but for the slots,
-            which are all taken once `ready` is submitted."""
-            if len(in_flight) + len(ready) < inst.max_concurrent_stacks:
-                return
+            """Start the clock on each unit that could build but for the slots:
+            the ones the readiness rules return with the concurrency cap lifted
+            and that are neither in `ready` nor building."""
             taken = in_flight | {unit.id for unit in ready}
-            for unit in units:
-                if (
-                    unit.state == PLANNED
-                    and unit.id not in started
-                    and unit.id not in taken
-                    and (not only or unit.id in only)
-                    and not waiting_on(unit, units)
-                    and depth_of(unit, units) <= inst.stack_depth_build_cap
-                ):
+            for unit in _evaluate(
+                inst,
+                units,
+                started=set(started),
+                building=in_flight,
+                only=only,
+                max_concurrent=len(units) + 1,
+            ):
+                if unit.id not in taken:
                     queued.setdefault(unit.id, spans.Mark())
 
         def submit(units: list[Unit]) -> None:
@@ -717,7 +715,7 @@ def _schedule(
                     inst,
                     unit,
                     store=store,
-                    queued=queued.pop(unit.id, None) or spans.Mark(),
+                    queued=queued.pop(unit.id, None),
                 )
                 building[pool.submit(work.run, run)] = unit
 
@@ -1399,14 +1397,6 @@ def _build_unit(
         try:
             with ExitStack() as held:
                 held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
-                if queued is not None:
-                    spans.record_span(
-                        queued,
-                        say,
-                        unit=unit.id,
-                        change=unit.change,
-                        waited=spans.SLOT,
-                    )
                 # Re-read under the lock. `ready` comes from the pass's latest
                 # evaluation, and ticks overlap to build in parallel: by the time
                 # this one reaches a unit, another may have built it and opened its
@@ -1425,6 +1415,14 @@ def _build_unit(
                 if unit.state not in (PLANNED, RUNNING):
                     end(f"skipped, it is now {unit.state}", "skipped")
                     return True
+                if queued is not None:
+                    spans.record_span(
+                        queued,
+                        say,
+                        unit=unit.id,
+                        change=unit.change,
+                        waited=spans.SLOT,
+                    )
                 # The base too, from the store rather than that evaluation: a
                 # parent may have merged since, and `base_moved` compares against
                 # this.

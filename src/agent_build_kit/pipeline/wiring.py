@@ -638,13 +638,14 @@ def build_tier1(
         started = time.monotonic()
         mark = spans.Mark()
         result = run(command, cwd=where)
-        unit, change = spans.current_unit.get()
+        unit, change, node, round_number = spans.current_unit.get()
         spans.record_span(
             mark,
             log or (lambda message: None),
             unit=unit,
             change=change,
-            node="tier1",
+            node=node,
+            round_number=round_number,
             outcome="ok" if result.returncode == 0 else f"exit {result.returncode}",
             command=" ".join(command),
         )

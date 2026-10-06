@@ -95,4 +95,32 @@ def test_a_unit_submitted_while_every_slot_is_busy_records_the_wait_as_slot(
     assert datetime.fromisoformat(waited["started"]) == START
     assert datetime.fromisoformat(waited["ended"]) == START + timedelta(seconds=30)
     assert waited["change"] == second.partition("/")[0]
-    assert all(s["duration_ms"] == 0 for s in waits if s["unit"] == first)
+    assert first not in {s["unit"] for s in waits}, "a unit that never waited records none"
+
+
+def test_a_unit_queued_behind_another_ticks_running_build_records_the_slot_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = install(monkeypatch)
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [stored("other/1", "app"), stored("first/1", "app"), stored("second/1", "platform")]
+    )
+    # Another tick's build: running in the store, not built by this pass.
+    store.set_state("other/1", RUNNING, branch="spec/other/1")
+    build = Build(store, clock, seconds=30)
+    monkeypatch.setattr(cli, "build_runner", build)
+    monkeypatch.setattr(cli, "resumable_units", lambda *a, **k: [])
+
+    assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
+
+    first, second = build.started
+    waits = [s for s in span_lines(inst) if s.get("waited") == "slot"]
+    (waited,) = [s for s in waits if s["unit"] == second]
+    assert waited["duration_ms"] == 30_000
+    assert first not in {s["unit"] for s in waits}

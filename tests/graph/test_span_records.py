@@ -5,6 +5,7 @@ Time is a fake clock the agent callables advance; the thread is the real one."""
 
 from __future__ import annotations
 
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunStatus
+from agent_build_kit.pipeline.wiring import build_tier1
 from tests.factories import unit
 from tests.fake_clock import START, FakeClock, install, span_lines
 from tests.graph_driver import fresh, tick
@@ -128,3 +130,40 @@ def test_a_node_that_raises_raises_the_same_error_when_the_ledger_cannot_be_writ
         tick(tmp_path, recorder, run_claude=timed(recorder, clock, tests=2, raises=True))
 
     assert [line for line in recorder.logged if "ledger" in line.lower()], "and it said so"
+
+
+def tier_one_commands(tmp_path: Path, workspace: Installation, clock: FakeClock, **overrides: Any):
+    tree = tmp_path / "tree"
+    (tree / "tests").mkdir(parents=True)
+    (tree / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+
+    def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+        clock.advance(2)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    recorder = fresh(tmp_path)
+    tier1 = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])
+    tick(tmp_path, recorder, run_tier1=tier1, **overrides)
+    return [s for s in span_lines(workspace) if s.get("command")]
+
+
+def test_a_tier_one_command_run_by_the_checks_node_carries_its_node_and_round(
+    tmp_path: Path, workspace: Installation, clock: FakeClock
+) -> None:
+    commands = tier_one_commands(tmp_path, workspace, clock)
+
+    assert commands
+    assert {(s["unit"], s["change"], s["node"], s["round"]) for s in commands} == {
+        ("add-marker/1", unit().change, "checks", 1)
+    }
+
+
+def test_a_tier_one_command_run_by_the_tier_one_node_carries_that_node(
+    tmp_path: Path, workspace: Installation, clock: FakeClock
+) -> None:
+    commands = tier_one_commands(tmp_path, workspace, clock, branch_commits=lambda cwd, base: 0)
+
+    assert commands
+    assert {(s["unit"], s["change"], s["node"], s["round"]) for s in commands} == {
+        ("add-marker/1", unit().change, "tier1", 0)
+    }

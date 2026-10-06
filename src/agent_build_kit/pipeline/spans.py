@@ -12,8 +12,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict
-
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import record_line
 
 SLOT = "slot"
@@ -40,17 +39,17 @@ class SystemClock:
 
 clock: Clock = SystemClock()
 
-# The unit and change whose node is running, for what runs inside it (a tier 1
-# command) and cannot be told them otherwise.
-current_unit: ContextVar[tuple[str, str]] = ContextVar("span_unit", default=("", ""))
+# The unit, change, node and round whose step is running, for what runs inside
+# it (a tier 1 command) and cannot be told them otherwise.
+current_unit: ContextVar[tuple[str, str, str, int]] = ContextVar(
+    "span_unit", default=("", "", "", 0)
+)
 
 
-class Span(BaseModel):
+class Span(Frozen):
     """A `span` line of the ledger: a stretch of a unit's time. `waited` names
     the bucket of a stretch spent waiting (`slot`, `usage_pause`) and is empty
     for work; `command` names the tier 1 command a stretch ran."""
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
 
     kind: str = "span"
     at: str
