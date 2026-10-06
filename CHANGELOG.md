@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-- The changelog convention is written once, in AGENTS.md, and the build, rework and restack
-  resolver prompts carry it (the resolver also keeps both sides' bullets and folds two that
-  describe one change). `tests/test_changelog.py` fails tier 1 on a conflict marker, bullets
-  run together or repeated, a bullet outside a section or headings out of order, and the
-  reviewer no longer raises the changelog's form or wording, only a claim the code does not
-  support.
+- The build, rework and restack resolver prompts carry the `## Changelog` section of the built
+  repo's own AGENTS.md; a repo without one is told nothing about the changelog. The resolver
+  keeps both sides' bullets and folds two that describe one change when CHANGELOG.md conflicts
+  or the repo has the section. The reviewer leaves the changelog's form and wording to the
+  repo's own checks only where the repo states a convention. `tests/test_changelog.py` fails
+  tier 1 in this repo on a conflict marker, bullets run together or repeated, a bullet outside a
+  section or headings out of order.
 
 - A push is read in one place, `pipeline/git_output.py`: it runs with `--porcelain` and a fixed
   locale, and only a stale lease is reported as someone else's push. A remote's refusal (a hook,
