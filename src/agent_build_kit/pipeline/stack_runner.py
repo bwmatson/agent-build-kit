@@ -420,10 +420,10 @@ Do not post to GitHub yourself. Finish with JSON and nothing after it; the
 pipeline posts it once your work is pushed, so it can describe the code as the
 reviewer will see it:
 
-{{"replies": [{{"comment_id": <N from a "[comment N]" line>, "body": "..."}}],
+{{"replies": [{{"comment_id": <the id in a line's "[comment <id>]" tag>, "body": "..."}}],
  "summary": "..."}}
 
-One reply per `[comment N]` you changed something for or answered: what you
+One reply per `[comment <id>]` you changed something for or answered: what you
 did, or your answer, in a sentence or two — not a restatement of the comment.
 `summary` is for feedback with no comment id (a review's overall text) or a
 point that spans several comments; leave it empty otherwise.
@@ -923,6 +923,14 @@ class Weighed(Frozen):
     deferred: tuple[str, ...] = ()
 
 
+class Comment(Frozen):
+    """One comment on a pull request, as the check before a push reads it."""
+
+    id: str
+    words: str = ""  # what to hand an agent: the comment's body, live or outdated
+    own: bool = False  # the pipeline's own post, which is never feedback
+
+
 class UnitRunner(BaseModel):
     """Runs one unit, given the ways to do each step.
 
@@ -978,6 +986,12 @@ class UnitRunner(BaseModel):
     # Posts a rework's replies to the review threads it answered, after the
     # push. See `pr_replies`.
     reply: Callable[..., None] = lambda **kwargs: None
+    # Every comment on a unit's pull request now, given the repo name, number and branch
+    # (`events.build_fetch_comments`); what a rework checks for new ones before it pushes.
+    fetch_comments: Callable[[str, int, str], tuple[Comment, ...]] = lambda repo, pr, branch: ()
+    # Records comment ids a run gave its agent, so the poller does not report them as new
+    # once the run has pushed. See `wiring.build_runner`.
+    record_given: Callable[[str, int, list[str]], None] = lambda repo, pr, ids: None
     # The worktree's HEAD. Required, with no default: a stand-in that always
     # answered "" would match an unset approval and wave every push through.
     head: Callable[[Path], str]

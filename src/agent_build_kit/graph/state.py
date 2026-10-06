@@ -21,6 +21,7 @@ class Node(StrEnum):
     TIER1 = "tier1"
     TIER2 = "tier2"
     VERIFY_BASE = "verify_base"
+    NEW_COMMENTS = "new_comments"
     PUSH = "push"
     OPEN_PR = "open_pr"
     AWAIT_REVIEW = "await_review"
@@ -50,6 +51,9 @@ class ResumeEvent(Frozen):
     reason: str = ""
     feedback: str = ""
     from_person: bool = False  # the feedback is words a person left on the pull request
+    # The ids of every comment the dispatch built that feedback from (the poller's listing and
+    # the notes it read), which is all the agent is given. None when the dispatch named none.
+    comment_ids: tuple[str, ...] | None = None
 
 
 class UnitRun(Frozen):
@@ -65,6 +69,14 @@ class UnitRun(Frozen):
     # push that makes them true.
     pending_replies: tuple[str, ...] = ()
     person_comments: str = ""
+    # Ids of every comment a rework covers: those it was delivered with, and those it has
+    # taken in since. None when no rework is checking comments, which an empty tuple (a
+    # pull request nobody had commented on) is not.
+    seen_comments: tuple[str, ...] | None = None
+    # The ids of those the agent was actually given, which the poller must not report
+    # again once the push is made: the delivered ones, and the words each pass took in.
+    given_comments: tuple[str, ...] = ()
+    comments_pending: bool = False  # `new_comments` found words for the rework to address
     commits: tuple[str, ...] = ()
     verdict: Verdict | None = None
     stopped: str = ""

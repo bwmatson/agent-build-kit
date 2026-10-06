@@ -22,6 +22,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.events import Review
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
 from agent_build_kit.pipeline.wiring import CommitRejected
@@ -113,7 +114,9 @@ def ticks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exported: Collector) 
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
-    monkeypatch.setattr(cli, "build_fetch_review", lambda: lambda repo, pr: ["rename the marker"])
+    monkeypatch.setattr(
+        cli, "build_fetch_review", lambda: lambda repo, pr: Review(lines=["rename the marker"])
+    )
     monkeypatch.setattr(cli, "build_restack", lambda **kw: lambda **a: None)
     monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
     return Ticks(inst, recorder, options)

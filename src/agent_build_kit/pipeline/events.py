@@ -41,6 +41,7 @@ from pathlib import Path
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, FAILING_CHECKS_REASON
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
@@ -55,7 +56,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE
+from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
 from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -91,10 +92,11 @@ Claim = Callable[[StoredUnit], AbstractContextManager[object]]
 # is called without the claim, as the delivery takes the branch's lock itself.
 #
 # A rework hands `feedback` as a zero-argument callable returning `(words,
-# from_person)` rather than the words: what review said costs requests, and is
-# worth them only once the delivery holds the lock and the thread is waiting.
+# from_person, comment_ids)` rather than the words: what review said costs requests, and is
+# worth them only once the delivery holds the lock and the thread is waiting. The ids are
+# those of the comments the words were built from, which are the only ones the agent is given.
 Resume = Callable[..., bool]
-Feedback = Callable[[], tuple[str, bool]]
+Feedback = Callable[[], tuple[str, bool, tuple[str, ...]]]
 
 
 def _no_thread(
@@ -698,6 +700,13 @@ def build_delete_branch(repos: dict[str, Path]) -> Callable[..., None]:
     return delete
 
 
+class Review(Frozen):
+    """The reviewer's words, and the id of every note they were read from, outdated or not."""
+
+    lines: list[str] = []
+    ids: tuple[str, ...] = ()
+
+
 def review_lines(notes: list[ReviewNote]) -> list[str]:
     """The reviewer's words, skipping anything the host says is stale.
 
@@ -720,17 +729,25 @@ def review_lines(notes: list[ReviewNote]) -> list[str]:
         body = note.body.strip()
         if not body or MARKER in body:
             continue
-        if note.line is None and not note.path:
-            out.append(body)
-        elif note.live:
-            tag = f"[comment {note.id}] " if note.id else ""
-            out.append(f"{tag}{note.path or '?'}:{note.line} — {body}")
+        if (note.line is None and not note.path) or note.live:
+            out.append(note_words(note))
     return out
+
+
+def note_words(note: ReviewNote) -> str:
+    """One note as the rework reads it: the tagged `path:line — body` line, or the bare body
+    for a note anchored nowhere. The tag is how a reply finds its thread, so every
+    place that hands a note to the agent writes it here."""
+    body = note.body.strip()
+    if note.line is None and not note.path:
+        return body
+    tag = f"[comment {note.id}] " if note.id else ""
+    return f"{tag}{note.path or '?'}:{note.line} — {body}"
 
 
 def build_fetch_review(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
-) -> Callable[..., list[str]]:
+) -> Callable[..., Review]:
     """The reviewer's words on a PR, asked of whichever host it lives on.
 
     Fetched only when a rework is already being dispatched: asking during the
@@ -738,9 +755,50 @@ def build_fetch_review(
     """
     for_repo = for_repo or forges.for_repo
 
-    def fetch(repo: str, pr: int) -> list[str]:
+    def fetch(repo: str, pr: int) -> Review:
         forge, repo_id = for_repo(repo)
-        return review_lines(forge.review_notes(repo_id, pr))
+        notes = forge.review_notes(repo_id, pr)
+        return Review(lines=review_lines(notes), ids=tuple(n.id for n in notes))
+
+    return fetch
+
+
+def build_fetch_comments(
+    *,
+    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
+    own: Callable[[str, int], set[str]] = lambda repo, pr: set(),
+) -> Callable[[str, int, str], tuple[Comment, ...]]:
+    """Every comment on a PR now, by id, for a rework to tell what is new.
+
+    Liveness is not consulted: an outdated note is still the person's. `own` names
+    the ids the pipeline posted (`pr_replies.own_posts`); a body carrying
+    `pr_replies.MARKER` is the pipeline's too. The PR is looked up by its branch: a host
+    may do work for every PR a listing returns."""
+    for_repo = for_repo or forges.for_repo
+
+    def fetch(repo: str, pr: int, branch: str) -> tuple[Comment, ...]:
+        forge, repo_id = for_repo(repo)
+        mine = own(repo, pr)
+        found: dict[str, Comment] = {}
+        for note in forge.review_notes(repo_id, pr):
+            found[note.id] = Comment(
+                id=note.id,
+                words=note_words(note) if note.body.strip() else "",
+                own=note.id in mine or MARKER in note.body,
+            )
+        pull = next(
+            (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
+        )
+        if pull is not None:
+            # The host lists comments before reviews, so the bodies line up with the first ids.
+            bodies = dict(zip(pull.conversation, pull.comment_bodies, strict=False))
+            for comment_id in pull.conversation:
+                if comment_id not in found:
+                    body = bodies.get(comment_id, "")
+                    found[comment_id] = Comment(
+                        id=comment_id, words=body, own=comment_id in mine or MARKER in body
+                    )
+        return tuple(found.values())
 
     return fetch
 
@@ -1012,7 +1070,7 @@ def on_rework(
     reason: str,
     pull: PullRequest | None = None,
     store: UnitStore,
-    fetch_review: Callable[[int], list[str]] | None = None,
+    fetch_review: Callable[[int], Review] | None = None,
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
     claim: Claim = _unclaimed,
     waiting: set[tuple[str, str]] | None = None,
@@ -1042,7 +1100,7 @@ def on_rework(
         ) is not None:
             return taken
 
-        def feedback() -> tuple[str, bool]:
+        def feedback() -> tuple[str, bool, tuple[str, ...]]:
             return _feedback(
                 pr=pr,
                 reason=reason,
@@ -1062,7 +1120,7 @@ def on_rework(
             ) is not None:
                 return taken
             # Only now, with the unit taking it: a deferred rework asks for nothing.
-            words, from_person = feedback()
+            words, from_person, _ = feedback()
             taken = _requeue(
                 current,
                 pr=pr,
@@ -1156,11 +1214,11 @@ def _feedback(
     pr: int,
     reason: str,
     pull: PullRequest | None,
-    fetch_review: Callable[[int], list[str]] | None,
+    fetch_review: Callable[[int], Review] | None,
     fetch_checks: Callable[[PullRequest | None], str] | None,
-) -> tuple[str, bool]:
-    """What a rework hands the agent, and whether it is a person's words,
-    fetched only now there is something to act on."""
+) -> tuple[str, bool, tuple[str, ...]]:
+    """What a rework hands the agent, whether it is a person's words, and the ids of the
+    comments those words came from, fetched only now there is something to act on."""
     # A poll cannot afford a second request per PR, so the reviewer's actual
     # words are fetched only now, when there is something to act on. They are
     # often the only content there is: a review's bodies can both be empty,
@@ -1171,7 +1229,7 @@ def _feedback(
         # review comments on the PR were answered already, and replaying them
         # would have the rework redo old work instead of fixing the build.
         logs = fetch_checks(pull) if fetch_checks else ""
-        return f"{reason}\n\n{logs}".strip(), False
+        return f"{reason}\n\n{logs}".strip(), False, ()
     if reason == CONFLICT_REASON:
         # Nor a reviewer: the branch no longer merges into its base, and the
         # restack at the start of the run does the rebase. Replaying the
@@ -1182,12 +1240,16 @@ def _feedback(
             "behaviour and its tests pass, and do not rebase or reset the "
             "branch yourself.",
             False,
+            (),
         )
-    words = list(fetch_review(pr)) if fetch_review else []
-    said = "\n".join([*words, _latest_comment(pull)]).strip()
+    review = fetch_review(pr) if fetch_review else Review()
+    said = "\n".join([*review.lines, _latest_comment(pull)]).strip()
+    # What the words were built from: the poller's listing and the notes just read, so a
+    # comment posted since is not taken as given.
+    listed = pull.conversation if pull else ()
     # The one place a person's words enter feedback; the reason alone is
     # the host's.
-    return said or reason, bool(said)
+    return said or reason, bool(said), (*listed, *review.ids)
 
 
 def _requeue(
@@ -1220,8 +1282,8 @@ def _check_fetcher(
 
 
 def _review_fetcher(
-    store: UnitStore, repo: str, pr: int, fetch: Callable[..., list[str]] | None
-) -> Callable[[int], list[str]] | None:
+    store: UnitStore, repo: str, pr: int, fetch: Callable[..., Review] | None
+) -> Callable[[int], Review] | None:
     """Bind the fetcher to the repo the PR's unit lives in."""
     if fetch is None:
         return None
@@ -1559,7 +1621,7 @@ def build_dispatch(
     restack: Restack,
     remove_worktree: Callable[..., None] | None = None,
     delete_branch: Callable[..., None] | None = None,
-    fetch_review: Callable[..., list[str]] | None = None,
+    fetch_review: Callable[..., Review] | None = None,
     fetch_checks: Callable[..., str] | None = None,
     rerun_checks: Callable[..., None] | None = None,
     claim: Claim = _unclaimed,

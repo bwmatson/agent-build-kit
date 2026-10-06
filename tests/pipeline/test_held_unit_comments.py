@@ -54,7 +54,7 @@ class Harness:
         handle = events.build_dispatch(
             self.store,
             restack=lambda **_: None,
-            fetch_review=lambda repo, number: [WORDS],
+            fetch_review=lambda repo, number: events.Review(lines=[WORDS]),
             waiting_path=self.waiting_path,
             log=self.logged.append,
         )

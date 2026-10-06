@@ -66,7 +66,7 @@ from agent_build_kit.pipeline.planning_repo import (
     restore_default_branch,
 )
 from agent_build_kit.pipeline.pr_poller import Poller, state_path, unmergeable
-from agent_build_kit.pipeline.pr_replies import own_posts
+from agent_build_kit.pipeline.pr_replies import ignored
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
@@ -1310,7 +1310,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
                 event, number, repo=repo, **kwargs
             ),
             list_prs=lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
-            ignore=lambda number, slug=slug: own_posts(inst.state_dir, slug, number),
+            ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
             log=log,
         ).poll()
@@ -1589,7 +1589,7 @@ async def _on_thread(
     graph: list[StoredUnit],
     run_log: RunLog | None,
     event: ResumeEvent | None = None,
-    feedback: Callable[[], tuple[str, bool]] | None = None,
+    feedback: Callable[[], tuple[str, bool, tuple[str, ...]]] | None = None,
 ) -> RunOutcome:
     """Start or resume the unit's thread to its next wait, or deliver `event` to it."""
     # Late: the graph package imports the pipeline.
@@ -1627,7 +1627,7 @@ def resume_thread(
     *,
     store: UnitStore,
     reason: str = "",
-    feedback: str | Callable[[], tuple[str, bool]] = "",
+    feedback: str | Callable[[], tuple[str, bool, tuple[str, ...]]] = "",
     from_person: bool = False,
 ) -> Resumed | None:
     """Deliver an event to the unit's thread, which then waits for the tick.

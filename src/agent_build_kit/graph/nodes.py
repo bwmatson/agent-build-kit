@@ -149,6 +149,7 @@ class BuildPath:
             Node.TIER1: self.tier1,
             Node.TIER2: self.tier2,
             Node.VERIFY_BASE: self.verify_base,
+            Node.NEW_COMMENTS: self.new_comments,
             Node.PUSH: self.push,
             Node.OPEN_PR: self.open_pr,
             Node.AWAIT_REVIEW: self.await_review,
@@ -447,7 +448,7 @@ class BuildPath:
         start = r.base_tip(tree, ref)
         existing = r.branch_commits(tree, ref)
         self.say(
-            f"on {base}, {existing} commit(s) already on the branch"
+            f"on {base}, {existing} commit(s) on the branch"
             + (", with feedback to address" if feedback else "")
         )
         if existing:
@@ -786,8 +787,10 @@ class BuildPath:
         failed_check = feedback.startswith(TIER1_FAILED)
         in_loop = state.verdict is Verdict.CHANGES
         kept: Update = {}
-        # An empty head is a thread converted from the engine before the switch: no node
-        # has recorded the branch's tip, so nothing is known to be done.
+        # An empty head is a thread converted from the engine before the switch, or a rework
+        # just delivered by an event: no node has recorded the branch's tip, so nothing is
+        # known to be done. `new_comments` records the tip, which is the worktree's HEAD,
+        # so its rework runs and a resume after the agent's commit sees a different head.
         if state.head and r.head(tree) != state.head:
             self.say("the rework commit is already on the branch")
         elif in_loop:
@@ -806,6 +809,11 @@ class BuildPath:
             # One run on the review model, not the tests-then-implementation
             # pair: both are already on the branch.
             self.say(f"rework from feedback ({models().rework})")
+            if stored.pr and not failed_check and state.seen_comments is None:
+                # A requeued rework, which no event delivered: its feedback was fixed at the
+                # requeue, so these ids are only marked seen. None is known to have reached the
+                # agent, and the poller reports again any it was not given.
+                kept["seen_comments"] = self.covered(stored.pr)
             answer = self.agent(
                 r.run_rework,
                 CHECKS_PROMPT.format(
@@ -833,10 +841,57 @@ class BuildPath:
                     kept["person_comments"] = f"{state.person_comments}\n\n{feedback}".strip()
         return {
             **kept,
+            "comments_pending": False,
             "verdict": None,
             "fix_rounds": 0,
             "head": r.head(tree),
             "produced_nothing": r.branch_commits(tree, ref) == 0,
+        }
+
+    def covered(self, pr: int) -> tuple[str, ...] | None:
+        """Every comment id on the pull request now, or None when the host could not say."""
+        try:
+            return tuple(
+                c.id for c in self.runner.fetch_comments(self.unit.repo, pr, branch_name(self.unit))
+            )
+        except Exception as error:  # noqa: BLE001
+            self.say(f"could not read the comments on #{pr}: {error}")
+            return None
+
+    def new_comments(self, state: UnitRun) -> Update:
+        """Before the push, comments the rework was not given go back to it."""
+        r, unit = self.runner, self.unit
+        pr = r.store.get(unit.id).pr
+        # No `seen_comments` means no rework of a unit with a pull request is under way (or
+        # the delivery could not read the host, and nothing was recorded as given).
+        if not pr or state.seen_comments is None:
+            return {}
+        try:
+            now = r.fetch_comments(unit.repo, pr, branch_name(unit))
+        except Exception as error:  # noqa: BLE001
+            # The work is done and reviewed: a host that did not answer does not hold it back.
+            self.say(f"could not read the comments on #{pr} again, pushing: {error}")
+            return {}
+        new = [c for c in now if c.id not in state.seen_comments and not c.own]
+        words = "\n".join(c.words for c in new if c.words)
+        seen = (*state.seen_comments, *(c.id for c in new))
+        if not words:
+            return {"seen_comments": seen}
+        # Given with this pass, so the poller does not report them again after the push.
+        # When a pass carries words, every id it took in is given, including GitHub's body-less
+        # review for an inline comment; a pass with no words gives nothing and leaves those ids
+        # to the poller.
+        given = (*state.given_comments, *(c.id for c in new))
+        self.say(f"{len(new)} new comment(s) on #{pr}: back to rework")
+        r.store.set_feedback(unit.id, words, from_person=True)
+        return {
+            "seen_comments": seen,
+            "given_comments": given,
+            "comments_pending": True,
+            "verdict": None,
+            "review_round": 0,
+            "fix_rounds": 0,
+            "head": r.head(self.tree()),
         }
 
     def tier1(self, state: UnitRun) -> Update:
@@ -927,6 +982,8 @@ class BuildPath:
             "review_rounds": (),
             "pending_replies": (),
             "person_comments": "",
+            "seen_comments": None,
+            "given_comments": (),
         }
 
     def verify_base(self, state: UnitRun) -> Update:
@@ -1046,6 +1103,8 @@ class BuildPath:
             r.post_status(sha, True)
         for answer in state.pending_replies:
             r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha)
+        if state.given_comments:
+            r.record_given(unit.repo, pr, list(state.given_comments))
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
         r.store.set_state(unit.id, IN_REVIEW, pr=pr)
@@ -1061,6 +1120,8 @@ class BuildPath:
             # Said and no longer owed: the loop that asked for them is over.
             "pending_replies": (),
             "person_comments": "",
+            "seen_comments": None,
+            "given_comments": (),
             "review_rounds": (),
         }
 
@@ -1095,6 +1156,18 @@ class BuildPath:
             )
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
+            if pr := r.store.get(unit.id).pr:
+                # Recorded here, not when the node runs: a comment posted while the thread
+                # waits for a slot is new.
+                if event.from_person:
+                    # Only what the dispatch built the feedback from was given to the agent:
+                    # a comment posted since its reads is new, and goes back to the rework.
+                    update["seen_comments"] = given = event.comment_ids or ()
+                    update["given_comments"] = given
+                else:
+                    # A CI log or a conflict text gives the agent no comment, so none of
+                    # those on the pull request was given; they were answered before.
+                    update["seen_comments"] = self.covered(pr)
         elif event.kind is EventKind.HOLD:
             current = r.store.get(unit.id)
             if held_for_its_own_reason(current):
@@ -1164,6 +1237,10 @@ class BuildPath:
             "produced_nothing": False,
             "moved": False,
             "head_approved": False,
+            "head": "",
+            "seen_comments": None,
+            "given_comments": (),
+            "comments_pending": False,
             "had_feedback": had_feedback,
             "held": "",
             "hold_state": "",
@@ -1245,7 +1322,7 @@ def after_tier1(state: UnitRun) -> Node:
         return Node.SATISFIED
     if state.moved:
         # verify_base already moved the unit onto the base: nothing left to check there.
-        return Node.TIER2 if state.tier2 else Node.PUSH
+        return Node.TIER2 if state.tier2 else Node.NEW_COMMENTS
     return Node.VERIFY_BASE
 
 
@@ -1254,7 +1331,7 @@ def after_tier2(state: UnitRun) -> Node:
         return stop
     if state.restack:
         return Node.PREPARE
-    return Node.PUSH if state.moved else Node.VERIFY_BASE
+    return Node.NEW_COMMENTS if state.moved else Node.VERIFY_BASE
 
 
 def after_verify_base(state: UnitRun) -> Node:
@@ -1262,7 +1339,11 @@ def after_verify_base(state: UnitRun) -> Node:
         return stop
     if state.restack:
         return Node.PREPARE
-    return Node.TIER1 if state.moved else Node.PUSH
+    return Node.TIER1 if state.moved else Node.NEW_COMMENTS
+
+
+def after_new_comments(state: UnitRun) -> Node:
+    return halted(state) or (Node.REWORK if state.comments_pending else Node.PUSH)
 
 
 def after_push(state: UnitRun) -> Node:
@@ -1335,17 +1416,18 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
             Node.SATISFIED,
             Node.TIER2,
             Node.VERIFY_BASE,
-            Node.PUSH,
+            Node.NEW_COMMENTS,
         ),
     ),
     Node.TIER2: (
         after_tier2,
-        (Node.HELD, Node.FAILED, Node.PREPARE, Node.VERIFY_BASE, Node.PUSH),
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.VERIFY_BASE, Node.NEW_COMMENTS),
     ),
     Node.VERIFY_BASE: (
         after_verify_base,
-        (Node.HELD, Node.FAILED, Node.PREPARE, Node.TIER1, Node.PUSH),
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.TIER1, Node.NEW_COMMENTS),
     ),
+    Node.NEW_COMMENTS: (after_new_comments, (Node.HELD, Node.FAILED, Node.REWORK, Node.PUSH)),
     Node.PUSH: (after_push, (Node.HELD, Node.FAILED, Node.OPEN_PR)),
     Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW)),
     Node.AWAIT_REVIEW: (

@@ -53,12 +53,14 @@ def tick(
     event: ResumeEvent | None = None,
     tracer: FakeTracer | None = None,
     run_log: RunLog | None = None,
+    tier: str = "tier1",
     **overrides: Any,
 ) -> RunOutcome:
     """Start or resume the unit's thread, or deliver `event` to it, as the
     tick does: a run under the branch's lock (`build_graph`'s), a delivery
     taking it itself."""
     runner = make_runner(recorder.store, recorder, tmp_path, **overrides)
+    subject = unit(tier=tier)
     common: dict[str, Any] = dict(base="main", graph=[], run_log=run_log, tracer=tracer)
     locks = tmp_path / "locks"
 
@@ -66,9 +68,9 @@ def tick(
         async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
             if event is None:
                 with branch_lock(branch_name(unit()), root=locks):
-                    return await run_unit(runner, unit(), saver=saver, **common)
+                    return await run_unit(runner, subject, saver=saver, **common)
             return await resume_unit(
-                runner, unit(), saver=saver, event=event, locks=locks, **common
+                runner, subject, saver=saver, event=event, locks=locks, **common
             )
 
     return asyncio.run(go())

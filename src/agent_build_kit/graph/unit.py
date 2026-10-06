@@ -150,7 +150,7 @@ async def resume_unit(
     saver: BaseCheckpointSaver,
     event: ResumeEvent,
     locks: Path,
-    feedback: Callable[[], tuple[str, bool]] | None = None,
+    feedback: Callable[[], tuple[str, bool, tuple[str, ...]]] | None = None,
     run_log: RunLog | None = None,
     tracer: Tracer | None = None,
 ) -> RunOutcome:
@@ -170,9 +170,10 @@ async def resume_unit(
     on here either: the event is refused with `BranchBusy`, for the caller to
     keep and deliver again once the tick has run the thread to a wait.
 
-    `feedback`, when given, supplies the event's feedback and whether it is a
-    person's words, and is called only once the lock is held and the thread is
-    waiting to take it: a delivery refused fetches nothing."""
+    `feedback`, when given, supplies the event's feedback, whether it is a
+    person's words, and the ids of the comments it was built from, and is called only
+    once the lock is held and the thread is waiting to take it: a delivery refused
+    fetches nothing."""
     path = BuildPath(runner, unit, base=base, graph=graph, run_log=run_log, tracer=tracer)
     compiled = _compiled(saver, path)
     with branch_lock(branch_name(unit), root=locks):
@@ -185,7 +186,7 @@ async def _deliver(
     unit: Unit,
     saver: BaseCheckpointSaver,
     event: ResumeEvent,
-    feedback: Callable[[], tuple[str, bool]] | None = None,
+    feedback: Callable[[], tuple[str, bool, tuple[str, ...]]] | None = None,
 ) -> RunOutcome:
     where = _position(await compiled.aget_state(_config(unit.id)))
     ended = where.state
@@ -208,8 +209,10 @@ async def _deliver(
         raise BranchBusy(f"{unit.id} has {names} to run; {event.kind.value} is kept for later")
     if waiting:
         if feedback is not None:
-            words, from_person = await asyncio.to_thread(feedback)
-            event = event.model_copy(update={"feedback": words, "from_person": from_person})
+            words, from_person, ids = await asyncio.to_thread(feedback)
+            event = event.model_copy(
+                update={"feedback": words, "from_person": from_person, "comment_ids": ids}
+            )
         command = Command(resume=event.model_dump(mode="json"))
         await run_thread(compiled, command, unit.id, interrupt_after=list(WAITS))
     elif event.kind is EventKind.REQUEUE:
