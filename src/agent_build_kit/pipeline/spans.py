@@ -12,6 +12,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Protocol
 
+from agent_build_kit import telemetry
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import record_line
 
@@ -90,21 +91,30 @@ def record_span(
     be kept is told once through `say`."""
     try:
         ended = clock.now()
-        record_line(
-            Span(
-                at=ended.isoformat(),
-                unit=unit,
-                change=change,
-                node=node,
-                round=round_number,
-                started=mark.at.isoformat(),
-                ended=ended.isoformat(),
-                duration_ms=max(0, round((clock.monotonic() - mark.tick) * 1000)),
-                outcome=outcome,
-                waited=waited,
-                command=command,
-            ),
-            say,
+        span = Span(
+            at=ended.isoformat(),
+            unit=unit,
+            change=change,
+            node=node,
+            round=round_number,
+            started=mark.at.isoformat(),
+            ended=ended.isoformat(),
+            duration_ms=max(0, round((clock.monotonic() - mark.tick) * 1000)),
+            outcome=outcome,
+            waited=waited,
+            command=command,
         )
+        record_line(span, say)
+        export_span(span)
     except Exception as error:  # noqa: BLE001 — a span is never a run's to lose
         say(f"the usage ledger is not recording spans ({error})")
+
+
+def export_span(span: Span) -> None:
+    """Add a span's time to the metrics: a wait under its bucket, work under its
+    node. A tier 1 command's span is inside its node's, so it adds nothing."""
+    seconds = span.duration_ms / 1000
+    if span.waited:
+        telemetry.duration("abk.wait.duration", seconds, bucket=span.waited)
+    elif not span.command:
+        telemetry.duration("abk.node.duration", seconds, node=span.node)

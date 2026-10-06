@@ -676,6 +676,14 @@ outcome and, for a failed check, its kind.
 | `abk.usage.pauses` | counter | kind (usage, rate_limit) |
 | `abk.units.reclaimed` | counter | |
 | `abk.units` | gauge | state |
+| `abk.agent.cost` | counter (USD) | repo, tier, node, role, model, source (measured, estimated) |
+| `abk.agent.tokens` | counter | as above plus kind (input, output, cache_read, cache_creation); the runtime's own series has no source |
+| `abk.node.duration` | histogram (s) | node |
+| `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause) |
+
+The last four are the usage ledger's figures, exported by the recorder that writes a ledger
+line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds
+nothing, and with telemetry off nothing is exported.
 
 Unit ids and change names are on spans only, never on a metric. Tokens are recorded where the
 runtime's output carries them: Claude Code's result event, and the `usage` of an `acp` agent's
