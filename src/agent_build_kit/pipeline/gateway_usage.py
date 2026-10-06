@@ -57,9 +57,11 @@ class GatewayUsage:
 
     A gateway writes its spend logs in periodic batches and files each row under
     the hash of the key, which it also accepts the raw key for. So `finish`
-    asks by the raw key and, while nothing is there yet, asks again every
-    `poll_seconds` for up to `settle_seconds` before saying the key logged
-    nothing.
+    asks by the raw key and keeps asking every `poll_seconds` until the rows
+    have stopped growing for `quiet_seconds` (the gateway's flush interval, or
+    more), since earlier rows are usually flushed already and the last
+    requests' are not. The whole wait is bounded by `settle_seconds`; a key
+    with nothing logged by then, or rows still arriving at the bound, is said.
     """
 
     def __init__(
@@ -69,12 +71,14 @@ class GatewayUsage:
         say: Callable[[str], None],
         *,
         settle_seconds: float = 30.0,
+        quiet_seconds: float = 10.0,
         poll_seconds: float = 1.0,
     ) -> None:
         self.url = url.rstrip("/")
         self.master_key = master_key
         self.say = say
         self.settle_seconds = settle_seconds
+        self.quiet_seconds = quiet_seconds
         self.poll_seconds = poll_seconds
 
     def _call(self, method: str, path: str, body: dict | None = None) -> Any:
@@ -114,13 +118,28 @@ class GatewayUsage:
                 self.say(f"gateway: could not revoke a run's key ({error})")
 
     def _rows(self, key: str) -> list[dict]:
-        """The rows logged for `key`, waiting for a batched write to land."""
-        deadline = time.monotonic() + self.settle_seconds
+        """The rows logged for `key`, once batched writes have stopped landing."""
+        start = time.monotonic()
+        deadline = start + self.settle_seconds
+        seen: tuple[int, frozenset] = (0, frozenset())
+        grew_at = start
         while True:
             rows = self._call("GET", "/spend/logs?" + urllib.parse.urlencode({"api_key": key}))
-            if rows or time.monotonic() >= deadline:
-                return rows or []
-            time.sleep(self.poll_seconds)
+            rows = rows or []
+            now = time.monotonic()
+            latest = (len(rows), frozenset(str(row.get("request_id")) for row in rows))
+            if latest != seen:
+                seen, grew_at = latest, now
+            if rows and now - grew_at >= self.quiet_seconds:
+                return rows
+            if now >= deadline:
+                if rows:
+                    self.say(
+                        f"gateway: a run's spend rows were still arriving after "
+                        f"{self.settle_seconds:g}s; its totals may be incomplete"
+                    )
+                return rows
+            time.sleep(max(0.0, min(self.poll_seconds, deadline - now)))
 
     def _spend(self, key: str) -> Spend:
         try:
@@ -160,4 +179,10 @@ def configured_source(say: Callable[[str], None], warned: set[str]) -> SpendSour
             warned.add(missing)
             say(f"gateway: {missing} is not set, so no gateway key is minted")
         return None
-    return GatewayUsage(url, master_key, say, settle_seconds=settings.gateway_settle_seconds)
+    return GatewayUsage(
+        url,
+        master_key,
+        say,
+        settle_seconds=settings.gateway_settle_seconds,
+        quiet_seconds=settings.gateway_quiet_seconds,
+    )

@@ -742,9 +742,11 @@ key are read and recorded with `usage_source` `gateway`, the agent's own report 
 them (`reported`, `reported_cost_usd`) for a report to compare, and the key is revoked however the
 call ended. A gateway that cannot be reached, a refused mint or unreadable totals is said in the
 unit's log once per call and the call goes on as without a gateway: no key, and the agent's own
-figures as before. A gateway writes its spend logs in batches, so the read repeats until rows
-appear, for up to `ABK_GATEWAY_SETTLE_SECONDS` (30); a key that still has none says so in the log
-and the record keeps the agent's figures. The gateway's `prompt_tokens` is recorded as
+figures as before. A gateway writes its spend logs in batches, so the read repeats until the rows
+have stopped growing for `ABK_GATEWAY_QUIET_SECONDS` (10, at least the gateway's flush interval),
+bounded by `ABK_GATEWAY_SETTLE_SECONDS` (30); rows still arriving at the bound are used and the log
+says the totals may be incomplete, and a key with none says so and the record keeps the agent's
+figures. The gateway's `prompt_tokens` is recorded as
 `input_tokens` and includes cached input, which the rows do not break out, so a `gateway` record's
 `input_tokens` can exceed the agent's `reported.input_tokens` by the cache. Only calls with an
 attribution place and a result callback get a key. The seam is `pipeline/gateway_usage.SpendSource`.

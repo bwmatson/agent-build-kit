@@ -328,7 +328,8 @@ loaded (`abk init` writes `.env.example` to copy).
 | Variable | Meaning | Default |
 |---|---|---|
 | `ABK_CONFIG` | the `abk.yaml` to use, when it is not the nearest one above the working directory | unset |
-| `ABK_GATEWAY_SETTLE_SECONDS` | how long after a call ends its gateway spend rows are waited for, since a gateway writes its logs in batches | `30` |
+| `ABK_GATEWAY_SETTLE_SECONDS` | how long after a call ends its gateway spend rows are waited for, since a gateway writes its logs in batches; the bound on the whole wait | `30` |
+| `ABK_GATEWAY_QUIET_SECONDS` | how long a call's gateway spend rows must have stopped growing before they are taken as complete; set it to at least the gateway's flush interval. Rows still arriving at the settle bound are used and the log says the totals may be incomplete | `10` |
 | `GH_TOKEN` (or `ABK_GH_TOKEN`) | one GitHub token for every `gh` call, instead of the per-owner lookup `gh auth token --user <owner>`. Read from `.env`, since pydantic-settings does not export to the environment and a bare `GH_TOKEN=` there would never reach a subprocess otherwise. | unset: per-owner lookup |
 | `ABK_WORKTREE_ROOT` | overrides `planning.worktree_root` on this machine | unset |
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |

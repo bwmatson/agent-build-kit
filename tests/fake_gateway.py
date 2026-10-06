@@ -4,8 +4,9 @@ against it (`GET /spend/logs?api_key=`) and a key is revoked with
 `POST /key/delete`.
 
 Like such a gateway, it writes its spend logs in batches — a row is readable
-only `row_delay` seconds after the request it records — and files each row under
-the hash of the key, not the key; the lookup takes the raw key and hashes it.
+only `row_delay` seconds (or its own `delay`) after the request it records — and
+files each row under the hash of the key, not the key; the lookup takes the raw
+key and hashes it.
 
 A test plays the model traffic with `spend`. The rows carry what a gateway logs
 beyond the figures a client reads (request id, model, times, metadata), and the
@@ -38,7 +39,7 @@ class FakeGateway:
         self.refuse_mint = False
         self.fail_reads = False
         self.row_delay = 0.0  # seconds before a spent row can be read back
-        self._written: dict[str, list[float]] = {}
+        self._written: dict[str, list[tuple[float, float | None]]] = {}
         self._lock = threading.Lock()
         self.url = ""
 
@@ -57,18 +58,20 @@ class FakeGateway:
             now = time.monotonic()
             return [
                 row
-                for row, at in zip(
+                for row, (at, delay) in zip(
                     self.rows.get(token, []), self._written.get(token, []), strict=True
                 )
-                if now - at >= self.row_delay
+                if now - at >= (self.row_delay if delay is None else delay)
             ]
 
-    def spend(self, key: str, *, prompt: int, completion: int, cost: float) -> None:
-        """One request the model served for `key`."""
+    def spend(
+        self, key: str, *, prompt: int, completion: int, cost: float, delay: float | None = None
+    ) -> None:
+        """One request the model served for `key`; `delay` overrides `row_delay` for its row."""
         with self._lock:
             token = self.hashed(key)
             logged = self.rows.setdefault(token, [])
-            self._written.setdefault(token, []).append(time.monotonic())
+            self._written.setdefault(token, []).append((time.monotonic(), delay))
             logged.append(
                 {
                     "request_id": f"chatcmpl-{len(logged)}",

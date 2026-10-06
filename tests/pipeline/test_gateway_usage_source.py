@@ -29,8 +29,10 @@ def gateway() -> Iterator[FakeGateway]:
         yield fake
 
 
-def source(url: str, said: list[str], settle: float = 0.3) -> GatewayUsage:
-    return GatewayUsage(url, MASTER, said.append, settle_seconds=settle, poll_seconds=0.02)
+def source(url: str, said: list[str], settle: float = 0.3, quiet: float = 0.1) -> GatewayUsage:
+    return GatewayUsage(
+        url, MASTER, said.append, settle_seconds=settle, quiet_seconds=quiet, poll_seconds=0.02
+    )
 
 
 def test_begin_mints_a_key_aliased_with_the_place_and_hands_it_over_in_the_environment(
@@ -92,6 +94,42 @@ def test_rows_the_gateway_writes_after_a_delay_within_the_bound_are_still_read(
     assert (spent.usage.input_tokens, spent.usage.output_tokens) == (1200, 300)
     assert spent.cost_usd == 0.25
     assert said == []
+    assert gateway.revoked == [env[KEY_ENV]]
+
+
+def test_a_row_flushed_after_earlier_ones_were_read_is_still_counted(
+    gateway: FakeGateway,
+) -> None:
+    said: list[str] = []
+    client = source(gateway.url, said, settle=2.0, quiet=0.5)
+    env, handle = client.begin("add-marker/1:implement:0")
+    gateway.spend(env[KEY_ENV], prompt=1200, completion=300, cost=0.25, delay=0.0)
+    gateway.spend(env[KEY_ENV], prompt=800, completion=50, cost=0.125, delay=0.2)
+
+    spent = client.finish(handle)
+
+    assert spent.usage is not None
+    assert (spent.usage.input_tokens, spent.usage.output_tokens) == (2000, 350)
+    assert spent.cost_usd == 0.375
+    assert said == []
+
+
+def test_rows_still_arriving_at_the_bound_are_used_and_the_totals_said_incomplete(
+    gateway: FakeGateway,
+) -> None:
+    said: list[str] = []
+    client = source(gateway.url, said, settle=0.3, quiet=0.15)
+    env, handle = client.begin("add-marker/1:implement:0")
+    gateway.spend(env[KEY_ENV], prompt=1200, completion=300, cost=0.25, delay=0.0)
+    for n in range(1, 8):
+        gateway.spend(env[KEY_ENV], prompt=1, completion=1, cost=0.0, delay=0.05 * n)
+
+    spent = client.finish(handle)
+
+    assert spent.usage is not None
+    assert (spent.usage.input_tokens or 0) >= 1200
+    assert len(said) == 1
+    assert "incomplete" in said[0]
     assert gateway.revoked == [env[KEY_ENV]]
 
 

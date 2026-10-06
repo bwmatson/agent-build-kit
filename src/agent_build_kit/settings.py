@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     # How long after a call ends its spend rows are waited for: a gateway writes
     # its logs in periodic batches, so they land after the request does.
     gateway_settle_seconds: float = 30.0
+    # How long the rows must have stopped growing before they are taken as
+    # complete: at least the gateway's flush interval.
+    gateway_quiet_seconds: float = 10.0
 
     # Telemetry (telemetry.py): off unless this is set. The endpoint and
     # resource settings keep their standard OpenTelemetry names, so any
