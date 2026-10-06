@@ -8,6 +8,7 @@ from pathlib import Path
 
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.pipeline.stack_runner import RunStatus
+from agent_build_kit.pipeline.unit_store import HeldBy
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW
 from tests.factories import unit
 from tests.graph_driver import FakeTracer, fresh, position, tick
@@ -84,7 +85,7 @@ def test_a_hold_the_label_did_not_make_stays_when_the_label_comes_and_goes(
     removed neither takes the hold over nor releases it."""
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder)
-    recorder.store.set_state(unit().id, HELD, note="held for depth", held_by="depth")
+    recorder.store.set_state(unit().id, HELD, note="held for depth", held_by=HeldBy.DEPTH)
     before = recorder.store.history(unit().id)
 
     tick(tmp_path, recorder, event=HOLD)

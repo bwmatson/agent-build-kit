@@ -55,7 +55,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -498,7 +498,7 @@ def _hold_for_depth(
 ) -> None:
     note = DEPTH_HOLD.format(new_base=new_base, depth=depth, cap=cap)
     store.set_state(
-        child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base), held_by="depth"
+        child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base), held_by=HeldBy.DEPTH
     )
     log(f"{child.id}: held — {note}")
     # Only the PR moves, as for a child being built: it touches no tree, and
@@ -830,7 +830,7 @@ def on_hold(
                 cause = current.held_by or "an unrecorded cause"
                 log(f"hold #{pr}: {unit.id} is already held by {cause}, leaving it as it is")
                 return True
-            store.set_state(unit.id, HELD, held_by="reviewer")
+            store.set_state(unit.id, HELD, held_by=HeldBy.REVIEWER)
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
     log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")

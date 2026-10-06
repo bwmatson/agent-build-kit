@@ -24,8 +24,9 @@ import json
 import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -36,10 +37,18 @@ from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit
 # may already have an open PR, and the runner needs to see that the plan moved.
 UNPLANNED = "unplanned"
 
-# Why a unit is held: `reviewer` (the hold label), `review` (the review loop),
-# `depth` (the stack depth cap) or `toolchain`; empty when it is not held, and in
-# a record written before this was kept.
-HeldBy = Literal["", "reviewer", "review", "depth", "toolchain"]
+
+class HeldBy(StrEnum):
+    """Why a unit is held: `REVIEWER` (the hold label), `REVIEW` (the review
+    loop), `DEPTH` (the stack depth cap) or `TOOLCHAIN`; `NONE` when it is not
+    held, and in a record written before this was kept."""
+
+    NONE = ""
+    REVIEWER = "reviewer"
+    REVIEW = "review"
+    DEPTH = "depth"
+    TOOLCHAIN = "toolchain"
+
 
 # What the label handler wrote as a hold's note before the cause was kept.
 HELD_BY_A_REVIEWER = "held by a reviewer"
@@ -97,7 +106,7 @@ class StoredUnit(Unit):
     # to decide anything.
     stack_refusal: str = ""
     # Why the unit is held (see `HeldBy`).
-    held_by: HeldBy = ""
+    held_by: HeldBy = HeldBy.NONE
     history: tuple[dict, ...] = ()
 
     @property
@@ -125,7 +134,7 @@ class StoredUnit(Unit):
         if self.state != HELD:
             return False
         if self.held_by:
-            return self.held_by == "reviewer"
+            return self.held_by == HeldBy.REVIEWER
         return self.note == HELD_BY_A_REVIEWER
 
 
@@ -359,7 +368,7 @@ class UnitStore:
         pr: int | None = None,
         branch: str | None = None,
         note: str = "",
-        held_by: HeldBy = "",
+        held_by: HeldBy = HeldBy.NONE,
     ) -> None:
         """Record a state, optionally with why.
 
@@ -394,7 +403,7 @@ class UnitStore:
                 "state": state,
                 "pr": pr if pr is not None else unit.pr,
                 "branch": branch if branch is not None else unit.branch,
-                "held_by": held_by if state == HELD else "",
+                "held_by": held_by if state == HELD else HeldBy.NONE,
                 "history": (
                     *unit.history,
                     {"state": state, "at": _now(), **({"note": note} if note else {})},

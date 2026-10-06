@@ -231,7 +231,13 @@ class BuildPath:
         )
 
     def hold(
-        self, state: str, note: str, detail: str, *, pr: int | None = None, held_by: HeldBy = ""
+        self,
+        state: str,
+        note: str,
+        detail: str,
+        *,
+        pr: int | None = None,
+        held_by: HeldBy = HeldBy.NONE,
     ) -> Update:
         """Stop the run in `held`, with the store left in `state`.
 
@@ -620,7 +626,7 @@ class BuildPath:
                     HELD,
                     f"needs a human: {why[:300]}",
                     f"needs a human: {why[:200]}",
-                    held_by="review",
+                    held_by=HeldBy.REVIEW,
                 ),
             }
         if escalates(verdict, weighed.earlier_rounds):
@@ -641,7 +647,7 @@ class BuildPath:
                     HELD,
                     f"escalated — {label} ({verdict.escalate}): {reasoning}",
                     f"escalated ({verdict.escalate}): {reasoning[:200]}",
-                    held_by="review",
+                    held_by=HeldBy.REVIEW,
                 ),
             }
         # Kept as feedback, so the rework addresses what this round asked for, or
@@ -909,7 +915,9 @@ class BuildPath:
             )
         if state.spent:
             note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
-            return self.hold(HELD, note, f"rounds spent, held as #{pr}", pr=pr, held_by="review")
+            return self.hold(
+                HELD, note, f"rounds spent, held as #{pr}", pr=pr, held_by=HeldBy.REVIEW
+            )
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
         # a comment it has already answered.
@@ -978,7 +986,7 @@ class BuildPath:
                 self.say(f"already held by {cause}, as it stands")
                 return {"event": None}
             r.store.set_state(
-                unit.id, HELD, note=event.reason or HELD_BY_A_REVIEWER, held_by="reviewer"
+                unit.id, HELD, note=event.reason or HELD_BY_A_REVIEWER, held_by=HeldBy.REVIEWER
             )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
         elif event.kind is EventKind.RELEASE:

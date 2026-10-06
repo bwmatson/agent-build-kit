@@ -72,7 +72,7 @@ from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.tier2 import stack_lock
-from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import UNPLANNED, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     FAILED,
     HELD,
@@ -1398,7 +1398,7 @@ def _build_unit(
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
             end(f"held — {error}", "held")
-            store.set_state(unit.id, HELD, note=str(error), held_by="toolchain")
+            store.set_state(unit.id, HELD, note=str(error), held_by=HeldBy.TOOLCHAIN)
             return True
         except Interrupted as error:
             # Left `running`, with the lock released as the `with` exits: the next
