@@ -9,6 +9,7 @@ reads as absent, and a damaged ledger still reads.
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.archive import archive_ready_changes
+from agent_build_kit.pipeline.usage_ledger import UsageRecord, append_record, ledger_lock
 from agent_build_kit.pipeline.usage_report import (
     GROUPINGS,
     Report,
@@ -23,6 +25,7 @@ from agent_build_kit.pipeline.usage_report import (
     build_report,
     render_json,
     render_table,
+    roll_up_change,
 )
 from tests.factories import stored_unit
 from tests.ledger_lines import agent_line, fixture_ledger, span_line, write_ledger
@@ -572,3 +575,43 @@ def test_archiving_with_no_ledger_still_archives_and_keeps_the_detail_of_a_chang
     assert {x["kind"] for x in ledger_lines(ledger) if x["unit"].startswith("add-marker")} == {
         "summary"
     }
+
+
+# --- a damaged or contended ledger -------------------------------------------------
+
+
+def test_a_line_cut_off_inside_a_multibyte_character_is_skipped_and_the_rest_read(
+    tmp_path: Path,
+) -> None:
+    ledger = write_ledger(tmp_path / "ledger.jsonl", agent_line(cost_usd=2.5))
+    with ledger.open("ab") as handle:
+        handle.write(b'{"kind":"agent","outcome":"\xe2\x80')
+
+    report = build_report(ledger, UNITS, group_by="unit")
+
+    assert row_of(report, "add-marker/1").measured.cost_usd == pytest.approx(2.5)
+
+
+def test_a_line_appended_while_a_change_archives_is_not_lost(tmp_path: Path) -> None:
+    ledger = archive_ledger(tmp_path)
+    late = UsageRecord.model_validate(
+        agent_line(unit="feature/1", change="feature", session_id="sess-late", cost_usd=8.0)
+    )
+    appended = threading.Event()
+
+    def append_late() -> None:
+        append_record(ledger, late)
+        appended.set()
+
+    with ledger_lock(ledger):
+        rolling = threading.Thread(target=roll_up_change, args=(ledger, "add-marker"))
+        rolling.start()
+        writer = threading.Thread(target=append_late)
+        writer.start()
+        assert not appended.wait(0.3), "an append waits for the roll-up's lock"
+    rolling.join(10)
+    writer.join(10)
+
+    lines = ledger_lines(ledger)
+    assert "sess-late" in [x.get("session_id") for x in lines]
+    assert {x["kind"] for x in lines if x["unit"].startswith("add-marker")} == {"summary"}

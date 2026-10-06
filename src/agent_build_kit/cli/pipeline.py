@@ -140,7 +140,7 @@ def store_for(inst: Installation) -> UnitStore:
     def refresh_usage(units: list[StoredUnit]) -> None:
         try:
             usage_report.write_page(units, inst.state_dir / LEDGER_NAME, inst.usage_page)
-        except OSError as error:
+        except Exception as error:  # noqa: BLE001
             log(f"usage page not refreshed — {type(error).__name__}: {error}")
 
     def refresh_pages(units: list[StoredUnit]) -> None:

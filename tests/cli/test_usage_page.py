@@ -67,6 +67,34 @@ def test_the_page_comes_from_the_configured_path(tmp_path: Path) -> None:
     assert not (tmp_path / "docs" / "unit_cost.md").exists()
 
 
+def test_a_ledger_line_cut_off_inside_a_multibyte_character_does_not_fail_the_store_write(
+    installation: Installation,
+) -> None:
+    ledger = write_ledger(installation.state_dir / "usage-ledger.jsonl", agent_line(cost_usd=6.5))
+    with ledger.open("ab") as handle:
+        handle.write(b'{"kind":"agent","outcome":"\xe2\x80')
+    store = store_for(installation)
+
+    store.upsert([unit("add-marker/1")])
+
+    assert [u.id for u in store.all()] == ["add-marker/1"]
+    assert "6.50" in installation.usage_page.read_text()
+
+
+def test_a_page_that_fails_for_any_reason_does_not_fail_the_store_write(
+    installation: Installation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("the page could not be built")
+
+    monkeypatch.setattr("agent_build_kit.pipeline.usage_report.write_page", broken)
+    store = store_for(installation)
+
+    store.upsert([unit("add-marker/1")])
+
+    assert [u.id for u in store.all()] == ["add-marker/1"]
+
+
 def test_an_unwritable_page_does_not_fail_the_store_write_and_is_reported_once(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

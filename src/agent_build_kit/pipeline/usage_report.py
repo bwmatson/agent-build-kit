@@ -23,8 +23,14 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_ledger
+from agent_build_kit.pipeline.usage_ledger import (
+    UsageRecord,
+    ledger_lock,
+    read_lines,
+    records_in,
+)
 
 GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "day")
 
@@ -195,9 +201,9 @@ def _span_row(raw: dict) -> ReportRow | None:
         return None
     if raw.get("command"):
         return _time_row(checks_ms=duration)
-    if raw.get("waited") == "slot":
+    if raw.get("waited") == spans.SLOT:
         return _time_row(slot_wait_ms=duration)
-    if raw.get("waited") == "usage_pause":
+    if raw.get("waited") == spans.USAGE_PAUSE:
         return _time_row(pause_wait_ms=duration)
     # The node's own span repeats its agent call, and no bucket takes it twice.
     return None
@@ -217,9 +223,9 @@ def _group_key(entry: _Entry, group_by: str) -> str:
     return getattr(entry, group_by) or NONE
 
 
-def _ledger_entries(ledger: Path, units: dict[str, StoredUnit]) -> list[_Entry]:
-    """Every contribution the ledger holds: calls (one per unit, node, round and
-    session), spans that are a bucket of time, and summaries."""
+def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
+    """Every contribution the ledger's lines hold: calls (one per unit, node,
+    round and session), spans that are a bucket of time, and summaries."""
 
     def meta(unit: str, change: str, repo: str) -> dict[str, str]:
         stored = units.get(unit)
@@ -238,12 +244,8 @@ def _ledger_entries(ledger: Path, units: dict[str, StoredUnit]) -> list[_Entry]:
             at=_when(r.at),
             row=_call_row(r),
         )
-        for r in read_ledger(ledger)
+        for r in records_in(lines)
     ]
-    try:
-        lines = ledger.read_text().splitlines()
-    except FileNotFoundError:
-        return entries
     for line in lines:
         try:
             raw = json.loads(line)
@@ -301,6 +303,14 @@ def _finish(row: ReportRow, include_estimates: bool) -> ReportRow:
     return row.model_copy(update={"measured": _add_figures(row.measured, row.estimated)})
 
 
+def _all_entries(ledger: Path, units: list[StoredUnit]) -> list[_Entry]:
+    """The ledger's contributions, read once, and the review waits the store holds
+    for the units the ledger knows."""
+    entries = _entries_in(read_lines(ledger), {u.id: u for u in units})
+    known = {e.unit for e in entries}
+    return entries + [wait for u in units if u.id in known for wait in _review_waits(u)]
+
+
 def build_report(
     ledger: Path,
     units: list[StoredUnit],
@@ -312,12 +322,27 @@ def build_report(
     include_estimates: bool = False,
 ) -> Report:
     """The ledger's rows grouped by `group_by`, filtered by date, change or unit."""
+    return _report_of(
+        _all_entries(ledger, units),
+        group_by=group_by,
+        since=since,
+        change=change,
+        unit=unit,
+        include_estimates=include_estimates,
+    )
+
+
+def _report_of(
+    entries: list[_Entry],
+    *,
+    group_by: str,
+    since: datetime | None = None,
+    change: str | None = None,
+    unit: str | None = None,
+    include_estimates: bool = False,
+) -> Report:
     if group_by not in GROUPINGS:
         raise ValueError(f"cannot group by {group_by!r}; choose from {', '.join(GROUPINGS)}")
-    entries = _ledger_entries(ledger, {u.id: u for u in units})
-    # Review waits come from the store, for the units the ledger knows.
-    known = {e.unit for e in entries}
-    entries += [wait for u in units if u.id in known for wait in _review_waits(u)]
     if since is not None:
         floor = since if since.tzinfo else since.replace(tzinfo=UTC)
         entries = [e for e in entries if e.at is not None and e.at >= floor]
@@ -449,9 +474,10 @@ def _page(by_change: Report, by_unit: Report) -> str:
 def write_page(units: list[StoredUnit], ledger: Path, out: Path) -> None:
     """Rewrite the summary page at `out` (per-change totals and the most
     expensive units); raises `OSError` when it cannot."""
+    entries = _all_entries(ledger, units)
     page = _page(
-        build_report(ledger, units, group_by="change"),
-        build_report(ledger, units, group_by="unit"),
+        _report_of(entries, group_by="change"),
+        _report_of(entries, group_by="unit"),
     )
     if out.exists() and out.read_text() == page:
         return
@@ -460,37 +486,42 @@ def write_page(units: list[StoredUnit], ledger: Path, out: Path) -> None:
 
 
 def roll_up_change(ledger: Path, change: str) -> None:
-    """Replace the change's detail lines with one `summary` line per unit."""
+    """Replace the change's detail lines with one `summary` line per unit.
+
+    Holds the ledger's lock from the read to the swap, so a line appended
+    meanwhile waits and lands in the new file rather than being dropped."""
     if not ledger.exists():
         return
-    by_unit: dict[str, list[_Entry]] = {}
-    for entry in _ledger_entries(ledger, {}):
-        if entry.change == change:
-            by_unit.setdefault(entry.unit, []).append(entry)
-    summaries = []
-    for unit, group in sorted(by_unit.items()):
-        stamps = [e.at for e in group if e.at is not None]
-        summaries.append(
-            {
-                "kind": "summary",
-                "at": (max(stamps) if stamps else datetime.now(UTC)).isoformat(),
-                "unit": unit,
-                "change": change,
-                "repo": next((e.repo for e in group if e.repo), ""),
-                **_combine(unit, (e.row for e in group)).model_dump(exclude={"key"}),
-            }
-        )
+    with ledger_lock(ledger):
+        lines = read_lines(ledger)
+        by_unit: dict[str, list[_Entry]] = {}
+        for entry in _entries_in(lines, {}):
+            if entry.change == change:
+                by_unit.setdefault(entry.unit, []).append(entry)
+        summaries = []
+        for unit, group in sorted(by_unit.items()):
+            stamps = [e.at for e in group if e.at is not None]
+            summaries.append(
+                {
+                    "kind": "summary",
+                    "at": (max(stamps) if stamps else datetime.now(UTC)).isoformat(),
+                    "unit": unit,
+                    "change": change,
+                    "repo": next((e.repo for e in group if e.repo), ""),
+                    **_combine(unit, (e.row for e in group)).model_dump(exclude={"key"}),
+                }
+            )
 
-    kept = []
-    for line in ledger.read_text().splitlines():
-        try:
-            raw = json.loads(line)
-            ours = (raw.get("change") or str(raw["unit"]).split("/")[0]) == change
-        except (ValueError, AttributeError, KeyError):
-            ours = False
-        if line and not ours:
-            kept.append(line)
-    kept += [json.dumps(s) for s in summaries]
-    scratch = ledger.with_name(ledger.name + ".tmp")
-    scratch.write_text("".join(f"{line}\n" for line in kept))
-    os.replace(scratch, ledger)
+        kept = []
+        for line in lines:
+            try:
+                raw = json.loads(line)
+                ours = (raw.get("change") or str(raw["unit"]).split("/")[0]) == change
+            except (ValueError, AttributeError, KeyError):
+                ours = False
+            if line and not ours:
+                kept.append(line)
+        kept += [json.dumps(s) for s in summaries]
+        scratch = ledger.with_name(ledger.name + ".tmp")
+        scratch.write_text("".join(f"{line}\n" for line in kept))
+        os.replace(scratch, ledger)
