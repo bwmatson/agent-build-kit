@@ -14,7 +14,7 @@ from typing import cast
 
 import pytest
 
-from agent_build_kit.pipeline.claude_stream import result_event
+from agent_build_kit.pipeline.claude_stream import final_text, result_event
 from agent_build_kit.usage import Usage
 from tests.runtimes.claude_cli import SESSION, finished_build, record
 
@@ -93,3 +93,51 @@ def test_a_field_the_reader_does_not_know_changes_nothing_it_does() -> None:
     assert (usage.input_tokens, usage.output_tokens) == (4, 212)
     assert event.total_cost_usd == 0.4127
     assert event.session_id == SESSION
+
+
+@pytest.mark.parametrize("input_tokens", [4.5, "lots"])
+def test_a_figure_that_does_not_validate_is_absent_and_the_event_and_other_figures_stay(
+    input_tokens: float | str,
+) -> None:
+    payload = closing(record("done"))
+    payload["usage"]["input_tokens"] = input_tokens
+    payload["duration_ms"] = "soon"
+    payload["total_cost_usd"] = "free"
+    payload["session_id"] = 7
+    stdout = json.dumps(payload) + "\n"
+
+    event = result_event(stdout)
+
+    assert event is not None
+    assert event.result == "done"
+    assert event.num_turns == 3
+    usage = cast(Usage, event.usage)
+    assert usage.input_tokens is None
+    assert usage.output_tokens == 212
+    assert usage.cache_read_input_tokens == 14671
+    assert event.duration_ms is None
+    assert event.total_cost_usd is None
+    assert event.session_id is None
+    assert final_text(stdout) == "done"
+
+
+def test_a_usage_that_is_not_an_object_reads_as_absent() -> None:
+    payload = closing(record("done"))
+    payload["usage"] = "lots"
+
+    event = result_event(json.dumps(payload) + "\n")
+
+    assert event is not None
+    assert event.usage is None
+    assert event.result == "done"
+
+
+def test_a_negative_count_reads_as_absent_and_leaves_the_others() -> None:
+    payload = closing(record("done"))
+    payload["usage"] = {"input_tokens": -3, "output_tokens": 90}
+
+    event = result_event(json.dumps(payload) + "\n")
+
+    assert event is not None
+    usage = cast(Usage, event.usage)
+    assert (usage.input_tokens, usage.output_tokens) == (None, 90)

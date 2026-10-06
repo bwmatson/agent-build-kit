@@ -104,10 +104,11 @@ def test_an_unknown_field_leaves_the_known_figures_recorded(tmp_path: Path, work
     assert told_about_usage(lines) == []
 
 
+@pytest.mark.parametrize("usage", ["malformed", "uncounted", "empty", "negative"])
 def test_a_malformed_payload_degrades_to_none_and_says_so_once(
-    tmp_path: Path, worktree: Path
+    usage: str, tmp_path: Path, worktree: Path
 ) -> None:
-    result, _, lines = call(worktree, "malformed", tmp_path)
+    result, _, lines = call(worktree, usage, tmp_path)
 
     assert result.ok
     assert result.usage is None

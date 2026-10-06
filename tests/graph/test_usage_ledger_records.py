@@ -13,14 +13,17 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunStatus
+from agent_build_kit.pipeline.usage_ledger import read_ledger
 from agent_build_kit.pipeline.wiring import build_run_claude, build_run_review
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.factories import unit
 from tests.graph_driver import fresh, tick
-from tests.runner_fakes import approving
+from tests.runner_fakes import Killed, approving
 from tests.runtimes.claude_cli import SESSION, FakeClaude, finished_build
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -35,6 +38,32 @@ class Silent(StandInRuntime):
 
     def run(self, request: AgentRequest) -> AgentResult:
         result = super().run(request)
+        if request.on_result is not None:
+            request.on_result(result)
+        return result
+
+
+class KilledInImplement(StandInRuntime):
+    """A runtime that numbers its sessions, reports each call it finishes, and
+    dies in the second call (the implement node) once it has announced its session."""
+
+    name = "killable"
+    supports_session_resume = True
+
+    def __init__(self) -> None:
+        super().__init__(answer="done")
+        self.act = self.behave
+        self.session: str | None = None
+
+    def behave(self, request: AgentRequest) -> None:
+        self.session = request.resume_session or f"sess-{len(self.requests)}"
+        if request.on_session:
+            request.on_session(self.session)
+        if len(self.requests) == 2 and not request.resume_session:
+            raise Killed("power loss")
+
+    def run(self, request: AgentRequest) -> AgentResult:
+        result = super().run(request).model_copy(update={"session_id": self.session})
         if request.on_result is not None:
             request.on_result(result)
         return result
@@ -166,3 +195,26 @@ def test_a_ledger_that_cannot_be_written_leaves_the_run_unchanged_and_is_reporte
     assert workspace.state_dir.read_text() == "not a directory"
     told = [line for line in recorder.logged if "ledger" in line.lower()]
     assert len(told) == 1, "three calls failed to record; the failure is reported once"
+
+
+def test_a_node_killed_and_resumed_leaves_one_record_marked_resumed(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    runtime = KilledInImplement()
+    recorder = fresh(tmp_path)
+    run_claude = build_run_claude(runtime=runtime, model="m")
+    with pytest.raises(Killed):
+        tick(tmp_path, recorder, run_claude=run_claude)
+    assert [r["node"] for r in ledger_lines(workspace)] == ["tests"], "a killed call writes none"
+
+    tick(tmp_path, recorder, run_claude=run_claude)
+
+    records = ledger_lines(workspace)
+    (tests,) = [r for r in records if r["node"] == "tests"]
+    assert tests["resumed"] is False
+    (implement,) = [r for r in records if r["node"] == "implement"]
+    assert implement["resumed"] is True
+    assert implement["round"] == 0
+    assert implement["session_id"] == "sess-2"
+    read = read_ledger(workspace.state_dir / "usage-ledger.jsonl")
+    assert [(r.round, r.session_id) for r in read if r.node == "implement"] == [(0, "sess-2")]

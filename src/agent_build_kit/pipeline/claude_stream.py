@@ -19,11 +19,11 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from agent_build_kit.usage import Usage
+from agent_build_kit.usage import Salvaged, Usage
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 
@@ -50,10 +50,11 @@ class ResultEvent(BaseModel):
     # How many turns the run took, and the tokens it spent, when it says.
     num_turns: int | None = None
     # Absent when the event carries none: a count it omits is None, never zero.
-    usage: Usage | None = None
-    total_cost_usd: float | None = None
-    duration_ms: int | None = None
-    session_id: str | None = None
+    # A figure of the wrong type is None: it must not lose the event.
+    usage: Annotated[Usage | None, Salvaged] = None
+    total_cost_usd: Annotated[float | None, Salvaged] = None
+    duration_ms: Annotated[int | None, Salvaged] = None
+    session_id: Annotated[str | None, Salvaged] = None
 
 
 def stream_run(

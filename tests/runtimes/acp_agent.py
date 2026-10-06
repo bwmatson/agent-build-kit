@@ -43,9 +43,11 @@ reports. What it did, and what the client answered, is appended to RECORD as
     [--act ACTIONS] [--probe terminal|ask] [--unasked PREFIX]
     [--only PREFIX] [--split] [--offer KIND,...]
 
-`--usage reported|extra|malformed` has the prompt's response carry a `usage`
-payload: the protocol's own counts, the same with fields no client knows, or
-counts that are not numbers. Without it the response carries none.
+`--usage reported|extra|malformed|uncounted|empty|negative` has the prompt's
+response carry a `usage` payload: the protocol's own counts, the same with
+fields no client knows, counts that are not numbers, a payload with none of
+the four counts, an empty one, or a negative count. Without it the response
+carries none.
 `--cost USD|EUR` has the agent send a `usage_update` before the answer, with
 the session's cumulative cost in that currency, as the protocol's own update
 carries it.
@@ -186,6 +188,9 @@ USAGE_PAYLOADS: dict[str, dict[str, Any]] = {
     "reported": REPORTED_USAGE,
     "extra": {**REPORTED_USAGE, "serviceTier": "priority", "_meta": {"billing": {"plan": "x"}}},
     "malformed": {"totalTokens": "lots", "inputTokens": None, "outputTokens": [1]},
+    "uncounted": {"totalTokens": 9200},
+    "empty": {},
+    "negative": {"inputTokens": -1, "outputTokens": 1500},
 }
 
 # What `--cost` reports: the session's cumulative spend so far.

@@ -27,7 +27,9 @@ _told_lock = threading.Lock()
 
 
 class UsageRecord(BaseModel):
-    """A line of the ledger. Read with `extra="ignore"` so older lines load."""
+    """A line of the ledger. Every field after `unit`/`node`/`at` has a default,
+    so a line written before a field existed loads; `extra="ignore"` lets a line
+    a later version wrote, with fields this one does not know, load too."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 

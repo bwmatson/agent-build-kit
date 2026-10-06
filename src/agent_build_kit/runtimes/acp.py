@@ -1073,9 +1073,9 @@ def _spent(raw: Any, session: _Session) -> dict:
     counts = (
         {name: raw.get(key) for name, key in USAGE_KEYS.items()} if isinstance(raw, dict) else {}
     )
-    if not counts or any(
-        n is not None and (isinstance(n, bool) or not isinstance(n, int)) for n in counts.values()
-    ):
+    # Counts are non-negative integers; a payload with none of them carries no figure.
+    present = [n for n in counts.values() if n is not None]
+    if not present or any(isinstance(n, bool) or not isinstance(n, int) or n < 0 for n in present):
         session.notice("the agent's usage was not in a shape abk reads; recording none")
         return spent
     return spent | {"usage": Usage(**counts), "usage_source": "reported"}
