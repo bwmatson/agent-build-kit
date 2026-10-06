@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `abk report` reads the usage ledger and the unit store and reports tokens by kind, cost and
+  time by bucket grouped by unit, change, node, role, model, repo or day, filtered with
+  `--since`, `--change` and `--unit`, as a table or `--json`. Estimates have their own columns
+  and stay out of totals unless `--include-estimates`; a figure never recorded reads as absent;
+  each row shows its sources and, where the gateway and the agent both reported, the
+  difference. `planning.usage_page` (default `docs/unit_cost.md`) holds per-change totals and
+  the most expensive units, rewritten on every store write without ever failing it. Archiving a
+  change rolls its ledger lines into one `summary` line per unit, so its totals survive.
+
 - A tier-2 acceptance run for telemetry: `tests/integration/test_telemetry_stack.py` ticks a fixture
   unit with telemetry on and finds its trace by unit id and its `abk.unit.duration` and
   `abk.step.duration` series, without a unit id, in the shared stack's stores; with the endpoint

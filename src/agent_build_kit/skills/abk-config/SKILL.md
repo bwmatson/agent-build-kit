@@ -37,6 +37,7 @@ planning:
   state_dir: runs             # relative to the planning root unless absolute
   specs_dir: openspec
   graph_page: docs/unit_graph.md
+  usage_page: docs/unit_cost.md   # cost summary from the usage ledger (`abk report`)
   worktree_root: null         # where unit worktrees go; never inside the
                               # planning repo; null = a per-user data dir
                               # named after the planning directory

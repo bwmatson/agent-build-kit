@@ -3,13 +3,36 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.usage_report import GROUPINGS
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
+from agent_build_kit.pipeline.usage_report import (
+    GROUPINGS,
+    build_report,
+    render_json,
+    render_table,
+)
 
 
 def cmd_report(args: argparse.Namespace, inst: Installation) -> int:
-    raise NotImplementedError
+    try:
+        since = datetime.fromisoformat(args.since) if args.since else None
+    except ValueError:
+        print(f"--since: {args.since!r} is not a date (YYYY-MM-DD)")
+        return 2
+    report = build_report(
+        inst.state_dir / LEDGER_NAME,
+        UnitStore(inst.state_dir / "units.json").all(),
+        group_by=args.by,
+        since=since,
+        change=args.change,
+        unit=args.unit,
+        include_estimates=args.include_estimates,
+    )
+    print(render_json(report) if args.json else render_table(report))
+    return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:

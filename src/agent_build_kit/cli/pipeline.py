@@ -37,7 +37,7 @@ from agent_build_kit import config, forges, runtimes, telemetry
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline import diagram, spans
+from agent_build_kit.pipeline import diagram, spans, usage_report
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -103,6 +103,7 @@ from agent_build_kit.pipeline.usage_guard import (
     may_start_unit,
     threshold_at,
 )
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import (
     CommitRejected,
@@ -136,6 +137,16 @@ def store_for(inst: Installation) -> UnitStore:
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
 
+    def refresh_usage(units: list[StoredUnit]) -> None:
+        try:
+            usage_report.write_page(units, inst.state_dir / LEDGER_NAME, inst.usage_page)
+        except OSError as error:
+            log(f"usage page not refreshed — {type(error).__name__}: {error}")
+
+    def refresh_pages(units: list[StoredUnit]) -> None:
+        refresh_graph(units)
+        refresh_usage(units)
+
     labels = StateLabels(inst.forge_of, log=log)
     drafts = StateDrafts(inst.forge_of, log=log)
 
@@ -145,7 +156,7 @@ def store_for(inst: Installation) -> UnitStore:
 
     return UnitStore(
         inst.state_dir / "units.json",
-        on_write=refresh_graph,
+        on_write=refresh_pages,
         on_state=follow,
     )
 
@@ -333,6 +344,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
+        usage_ledger=inst.state_dir / LEDGER_NAME,
     ):
         print(f"archived {change}")
     return 0
@@ -466,6 +478,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         may_archive=may_archive,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
+        usage_ledger=inst.state_dir / LEDGER_NAME,
     )
     for change in archived:
         log(f"archived {change}")

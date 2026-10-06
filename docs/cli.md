@@ -81,6 +81,21 @@ Prints whether the pipeline is paused (until when, why), the usage reading
 Rewrites `planning.graph_page` from `runs/units.json`. The tick does this on
 every store write; this is for a page that went missing. Exit 0.
 
+### `abk report [--by GROUPING] [--since DATE] [--change CHANGE] [--unit UNIT] [--include-estimates] [--json]`
+
+Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,
+review wait) from the usage ledger and the unit store, grouped `--by` unit (default),
+change, node, role, model, repo or day. `--since` (a date) keeps calls on or after it;
+`--change` and `--unit` narrow to one. Estimated figures sit in their own columns and
+stay out of the totals unless `--include-estimates`; a figure never recorded prints as
+`-`, never `0`. The source column says whether figures were `reported`, from the
+`gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported
+figures differ by more than 10%. `--json` prints the same rows, with the difference.
+A change archived by the pipeline is read from its per-unit summary, so its totals do
+not change, but its nodes, roles and models read as `(summary)`. Exit 0.
+
+The same figures are written to `planning.usage_page` on every store write.
+
 ### `abk verify CHANGE`
 
 Verifies one change by hand — after fixing what made the automatic
