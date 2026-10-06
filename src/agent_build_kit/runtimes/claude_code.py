@@ -20,6 +20,7 @@ from agent_build_kit.config import ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
 from agent_build_kit.pipeline.claude_stream import (
     STREAM_FLAGS,
+    ResultEvent,
     describe,
     final_text,
     own_words,
@@ -45,6 +46,7 @@ from agent_build_kit.runtimes.base import (
     UsageStatus,
 )
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.usage import Usage
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
 # shape. `on_event` is called with each JSON event as it is printed, and is
@@ -178,7 +180,7 @@ def build_argv(request: AgentRequest) -> list[str]:
         argv += ["--model", request.model]
     if request.resume_session:
         argv += ["--resume", request.resume_session]
-    if request.on_event is not None or request.on_session is not None:
+    if request.on_event or request.on_session or request.on_result:
         argv += STREAM_FLAGS
     elif request.keep_record:
         argv += ["--output-format", "json"]
@@ -221,6 +223,14 @@ class ClaudeCodeRuntime:
     def _run(self, request: AgentRequest) -> AgentResult:
         execute = self._execute or spawn
         result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request))
+        outcome = self._finish(request, result)
+        if request.on_result is not None:
+            request.on_result(outcome)
+        return outcome
+
+    def _finish(
+        self, request: AgentRequest, result: subprocess.CompletedProcess[str]
+    ) -> AgentResult:
 
         if result.returncode < 0:
             raise AgentInterrupted(f"claude was killed by signal {-result.returncode}")
@@ -245,6 +255,7 @@ class ClaudeCodeRuntime:
                 error=f"claude exited {result.returncode}: {said}",
                 stop_reason=stop_reason,
                 turns=ended.num_turns if ended is not None else None,
+                **_spent(ended),
             )
         return AgentResult(
             ok=True,
@@ -252,7 +263,8 @@ class ClaudeCodeRuntime:
             raw=result.stdout,
             stop_reason=stop_reason,
             turns=ended.num_turns if ended is not None else None,
-            tokens=_tokens(ended.usage) if ended is not None else {},
+            tokens=_tokens(ended.usage) if ended is not None and ended.usage else {},
+            **_spent(ended),
         )
 
     def get_usage_status(self) -> UsageStatus | None:
@@ -274,13 +286,30 @@ class ClaudeCodeRuntime:
         return PolicyReport(ok=True)
 
 
-def _tokens(usage: dict) -> dict[str, int]:
+def _spent(ended: ResultEvent | None) -> dict:
+    """What the result event says the run spent, as `AgentResult`'s fields."""
+    if ended is None:
+        return {}
+    reported = any(
+        figure is not None
+        for figure in (ended.usage, ended.total_cost_usd, ended.duration_ms, ended.session_id)
+    )
+    return {
+        "usage": ended.usage,
+        "cost_usd": ended.total_cost_usd,
+        "duration_ms": ended.duration_ms,
+        "session_id": ended.session_id,
+        "usage_source": "reported" if reported else "none",
+    }
+
+
+def _tokens(usage: Usage) -> dict[str, int]:
     """The tokens a result event's usage reports, by kind; nothing it omits."""
     counts: dict[str, int | None] = {
-        "input": usage.get("input_tokens"),
-        "output": usage.get("output_tokens"),
+        "input": usage.input_tokens,
+        "output": usage.output_tokens,
     }
-    cached = [usage.get("cache_creation_input_tokens"), usage.get("cache_read_input_tokens")]
+    cached = [usage.cache_creation_input_tokens, usage.cache_read_input_tokens]
     if any(isinstance(n, int) for n in cached):
         counts["cache"] = sum(n for n in cached if isinstance(n, int))
     return {kind: n for kind, n in counts.items() if isinstance(n, int)}

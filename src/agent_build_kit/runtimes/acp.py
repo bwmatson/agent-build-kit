@@ -97,6 +97,7 @@ from agent_build_kit.runtimes.base import (
     ToolPolicy,
 )
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.usage import Usage
 
 NAME = "acp"
 
@@ -1027,6 +1028,45 @@ class _Session:
             pass
 
 
+USAGE_KEYS = {
+    "input_tokens": "inputTokens",
+    "output_tokens": "outputTokens",
+    "cache_read_input_tokens": "cachedReadTokens",
+    "cache_creation_input_tokens": "cachedWriteTokens",
+}
+
+
+def _wire_usage(raw_lines: list[str]) -> Any:
+    """The `usage` of the prompt's response as it came over the wire. The
+    library hands a payload it cannot read back as no usage at all, which would
+    hide a malformed one from the notice below."""
+    for line in reversed(raw_lines):
+        message = json.loads(line)
+        result = message.get("result") if isinstance(message, dict) else None
+        if isinstance(result, dict) and "stopReason" in result:
+            return result.get("usage")
+    return None
+
+
+def _spent(raw: Any, session: _Session) -> dict:
+    """What a prompt response says the turn spent, as `AgentResult`'s fields.
+
+    The protocol reports tokens and no cost. A response without usage is
+    `none`; one whose counts are not numbers is too, and is said once.
+    """
+    if raw is None:
+        return {}
+    counts = (
+        {name: raw.get(key) for name, key in USAGE_KEYS.items()} if isinstance(raw, dict) else {}
+    )
+    if not counts or any(
+        n is not None and (isinstance(n, bool) or not isinstance(n, int)) for n in counts.values()
+    ):
+        session.notice("the agent's usage was not in a shape abk reads; recording none")
+        return {}
+    return {"usage": Usage(**counts), "usage_source": "reported"}
+
+
 def _offered(option: SessionConfigOptionSelect) -> list[str]:
     values: list[str] = []
     for entry in option.options:
@@ -1075,6 +1115,12 @@ class AcpRuntime:
         return traced(NAME, request, lambda: self._call(request))
 
     def _call(self, request: AgentRequest) -> AgentResult:
+        result = self._attempt(request)
+        if request.on_result is not None:
+            request.on_result(result)
+        return result
+
+    def _attempt(self, request: AgentRequest) -> AgentResult:
         if request.worktree:
             # Running it in cwd instead would put a track phase in the
             # planning checkout.
@@ -1157,7 +1203,8 @@ class AcpRuntime:
         )
         ended_already = False
         try:
-            stop_reason = await self._turn(conn, session, request)
+            response = await self._turn(conn, session, request)
+            stop_reason = str(response.stop_reason)
         except RequestError as exc:
             return AgentResult(
                 ok=False,
@@ -1195,6 +1242,7 @@ class AcpRuntime:
             if not ended_already:
                 await _ended(process, stderr)
 
+        spent = _spent(_wire_usage(raw_lines), session)
         if stop_reason == "cancelled":
             if session.refused_cancel is not None:
                 # abk's own doing, not something to reclaim: offered no
@@ -1219,12 +1267,17 @@ class AcpRuntime:
                 error=error,
                 stop_reason=stop_reason,
                 raw="\n".join(raw_lines),
+                **spent,
             )
         return AgentResult(
-            ok=True, text=session.answer, stop_reason=stop_reason, raw="\n".join(raw_lines)
+            ok=True,
+            text=session.answer,
+            stop_reason=stop_reason,
+            raw="\n".join(raw_lines),
+            **spent,
         )
 
-    async def _turn(self, conn: Any, session: _Session, request: AgentRequest) -> str:
+    async def _turn(self, conn: Any, session: _Session, request: AgentRequest) -> Any:
         initialized = await conn.initialize(
             protocol_version=PROTOCOL_VERSION,
             client_capabilities=_capabilities(request.policy),
@@ -1248,7 +1301,7 @@ class AcpRuntime:
         response = await conn.prompt(
             session_id=opened.session_id, prompt=[text_block(request.prompt)]
         )
-        return str(response.stop_reason)
+        return response
 
     def _roots(
         self, initialized: InitializeResponse, session: _Session, request: AgentRequest

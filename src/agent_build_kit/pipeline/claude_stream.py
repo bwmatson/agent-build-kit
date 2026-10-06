@@ -19,9 +19,11 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from agent_build_kit.usage import Usage
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 
@@ -32,9 +34,8 @@ WIDTH = 160
 class ResultEvent(BaseModel):
     """The `result` event that closes a run: the fields abk reads from it.
 
-    Not `model.Frozen`: the event also carries a session id, token counts,
-    costs and whatever a later claude adds, none of which abk reads, and a new
-    key there is no reason to lose the one event that says how the run ended.
+    Not `model.Frozen`: the event also carries whatever a later claude adds,
+    and a new key there is no reason to lose the one event that says how the run ended.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
@@ -48,12 +49,11 @@ class ResultEvent(BaseModel):
     errors: list[str] = []
     # How many turns the run took, and the tokens it spent, when it says.
     num_turns: int | None = None
-    usage: dict[str, Any] = {}
-    # Stubs: declared, not yet read from the event (`validation_alias` names a
-    # key no event carries).
-    total_cost_usd: float | None = Field(None, validation_alias="_unread_cost")
-    duration_ms: int | None = Field(None, validation_alias="_unread_duration")
-    session_id: str | None = Field(None, validation_alias="_unread_session")
+    # Absent when the event carries none: a count it omits is None, never zero.
+    usage: Usage | None = None
+    total_cost_usd: float | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
 
 
 def stream_run(

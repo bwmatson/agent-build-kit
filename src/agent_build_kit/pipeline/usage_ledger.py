@@ -7,9 +7,10 @@ session, so a re-run or a resumed session counts once.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from agent_build_kit.usage import UsageSource
 
@@ -45,6 +46,25 @@ class UsageRecord(BaseModel):
     outcome: str = ""
 
 
+def append_record(path: Path, record: UsageRecord) -> None:
+    """Add `record` as a line of the ledger. Raises `OSError` when it cannot."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as ledger:
+        ledger.write(record.model_dump_json() + "\n")
+
+
 def read_ledger(path: Path) -> list[UsageRecord]:
-    """The ledger's records, one per unit, node, round and session."""
-    raise NotImplementedError
+    """The ledger's records, one per unit, node, round and session: the last
+    one written. A line that is not a record (half written) is skipped."""
+    try:
+        lines = path.read_text().splitlines()
+    except FileNotFoundError:
+        return []
+    latest: dict[tuple[str, str, int, str | None], UsageRecord] = {}
+    for line in lines:
+        try:
+            record = UsageRecord.model_validate(json.loads(line))
+        except (ValueError, ValidationError):
+            continue
+        latest[(record.unit, record.node, record.round, record.session_id)] = record
+    return list(latest.values())
