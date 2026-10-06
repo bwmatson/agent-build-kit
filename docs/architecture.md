@@ -441,7 +441,9 @@ leave it alone, and a refused write is logged without touching the unit.
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does
 not send a unit back for answering itself, and a rework is never handed its
-own summary as review.
+own summary as review. The ids of a person's comments a rework was given and
+addressed before its push are kept apart, in `runs/given-comments.json`: the
+poller skips them too, but they are never read back as the pipeline's own.
 
 **Restack** (`restack.py`) moves a child branch with
 `git rebase --onto <new base> <old base>`. Its git invocations carry
@@ -704,6 +706,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |
 | `own-posts.json` | ids of the pipeline's own PR comments and reviews. | a unit reworked over its own reply. |
+| `given-comments.json` | ids of a person's comments a rework addressed before its push. | the same comments reported as a second rework after the push. |
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below). Gitignored. | the spend history, not the work. |

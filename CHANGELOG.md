@@ -69,9 +69,11 @@
   (including after a clean move onto a new base) the pull request's notes and conversation are
   read again; any comment the rework was not given, other than the pipeline's own, goes back to
   the rework agent, is reviewed, and is answered in its thread, all in the same push. Comments given to
-  the agent this way are not reported again by the poller after the push. This costs a read when
-  the rework is delivered and one before each push attempt, each being the pull request's review
-  notes and its conversation; a failed read is logged and the work pushes.
+  the agent this way are not reported again by the poller after the push; they are kept in
+  `given-comments.json`, apart from the pipeline's own posts. A person's rework counts as given only
+  the comments its feedback was built from (the poller's listing and the notes the dispatch read), so one
+  posted since goes back to the agent. This costs one read before each push attempt, being the pull
+  request's review notes and its conversation; a failed read is logged and the work pushes.
 
 - A tier-2 acceptance run for telemetry: `tests/integration/test_telemetry_stack.py` ticks a fixture
   unit with telemetry on and finds its trace by unit id and its `abk.unit.duration` and

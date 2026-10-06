@@ -809,7 +809,7 @@ class BuildPath:
             # One run on the review model, not the tests-then-implementation
             # pair: both are already on the branch.
             self.say(f"rework from feedback ({models().rework})")
-            if stored.pr and not failed_check and not state.seen_comments:
+            if stored.pr and not failed_check and state.seen_comments is None:
                 # A requeued rework, which no event delivered: its feedback was fixed at the
                 # requeue, so these ids are only marked seen. None is known to have reached the
                 # agent, and the poller reports again any it was not given.
@@ -848,22 +848,23 @@ class BuildPath:
             "produced_nothing": r.branch_commits(tree, ref) == 0,
         }
 
-    def covered(self, pr: int) -> tuple[str, ...]:
-        """Every comment id on the pull request as a rework is delivered: what it is given."""
+    def covered(self, pr: int) -> tuple[str, ...] | None:
+        """Every comment id on the pull request now, or None when the host could not say."""
         try:
             return tuple(
                 c.id for c in self.runner.fetch_comments(self.unit.repo, pr, branch_name(self.unit))
             )
         except Exception as error:  # noqa: BLE001
             self.say(f"could not read the comments on #{pr}: {error}")
-            return ()
+            return None
 
     def new_comments(self, state: UnitRun) -> Update:
         """Before the push, comments the rework was not given go back to it."""
         r, unit = self.runner, self.unit
         pr = r.store.get(unit.id).pr
-        # Nothing in `seen_comments` means no rework of a unit with a pull request is under way.
-        if not pr or not state.seen_comments:
+        # No `seen_comments` means no rework of a unit with a pull request is under way (or
+        # the delivery could not read the host, and nothing was recorded as given).
+        if not pr or state.seen_comments is None:
             return {}
         try:
             now = r.fetch_comments(unit.repo, pr, branch_name(unit))
@@ -979,7 +980,7 @@ class BuildPath:
             "review_rounds": (),
             "pending_replies": (),
             "person_comments": "",
-            "seen_comments": (),
+            "seen_comments": None,
             "given_comments": (),
         }
 
@@ -1117,7 +1118,7 @@ class BuildPath:
             # Said and no longer owed: the loop that asked for them is over.
             "pending_replies": (),
             "person_comments": "",
-            "seen_comments": (),
+            "seen_comments": None,
             "given_comments": (),
             "review_rounds": (),
         }
@@ -1154,13 +1155,17 @@ class BuildPath:
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
             if pr := r.store.get(unit.id).pr:
-                # Recorded here, under the lock the dispatch's feedback was read in, not when
-                # the node runs: a comment posted while the thread waits for a slot is new.
-                update["seen_comments"] = seen = self.covered(pr)
+                # Recorded here, not when the node runs: a comment posted while the thread
+                # waits for a slot is new.
                 if event.from_person:
-                    # Only a person's words are the feedback; a CI log or a conflict text
-                    # gives the agent no comment, so none of these was given.
-                    update["given_comments"] = seen
+                    # Only what the dispatch built the feedback from was given to the agent:
+                    # a comment posted since its reads is new, and goes back to the rework.
+                    update["seen_comments"] = given = event.comment_ids or ()
+                    update["given_comments"] = given
+                else:
+                    # A CI log or a conflict text gives the agent no comment, so none of
+                    # those on the pull request was given; they were answered before.
+                    update["seen_comments"] = self.covered(pr)
         elif event.kind is EventKind.HOLD:
             current = r.store.get(unit.id)
             if held_for_its_own_reason(current):
@@ -1231,7 +1236,7 @@ class BuildPath:
             "moved": False,
             "head_approved": False,
             "head": "",
-            "seen_comments": (),
+            "seen_comments": None,
             "given_comments": (),
             "comments_pending": False,
             "had_feedback": had_feedback,

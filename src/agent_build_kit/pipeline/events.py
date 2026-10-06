@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
@@ -91,10 +91,11 @@ Claim = Callable[[StoredUnit], AbstractContextManager[object]]
 # is called without the claim, as the delivery takes the branch's lock itself.
 #
 # A rework hands `feedback` as a zero-argument callable returning `(words,
-# from_person)` rather than the words: what review said costs requests, and is
-# worth them only once the delivery holds the lock and the thread is waiting.
+# from_person, comment_ids)` rather than the words: what review said costs requests, and is
+# worth them only once the delivery holds the lock and the thread is waiting. The ids are
+# those of the comments the words were built from, which are the only ones the agent is given.
 Resume = Callable[..., bool]
-Feedback = Callable[[], tuple[str, bool]]
+Feedback = Callable[[], tuple[str, bool, tuple[str, ...]]]
 
 
 def _no_thread(
@@ -698,6 +699,16 @@ def build_delete_branch(repos: dict[str, Path]) -> Callable[..., None]:
     return delete
 
 
+class ReviewLines(list[str]):
+    """The reviewer's words, and the id of every note they were read from, outdated or not."""
+
+    ids: tuple[str, ...]
+
+    def __init__(self, lines: Iterable[str] = (), ids: Iterable[str] = ()) -> None:
+        super().__init__(lines)
+        self.ids = tuple(ids)
+
+
 def review_lines(notes: list[ReviewNote]) -> list[str]:
     """The reviewer's words, skipping anything the host says is stale.
 
@@ -748,7 +759,8 @@ def build_fetch_review(
 
     def fetch(repo: str, pr: int) -> list[str]:
         forge, repo_id = for_repo(repo)
-        return review_lines(forge.review_notes(repo_id, pr))
+        notes = forge.review_notes(repo_id, pr)
+        return ReviewLines(review_lines(notes), (n.id for n in notes))
 
     return fetch
 
@@ -1090,7 +1102,7 @@ def on_rework(
         ) is not None:
             return taken
 
-        def feedback() -> tuple[str, bool]:
+        def feedback() -> tuple[str, bool, tuple[str, ...]]:
             return _feedback(
                 pr=pr,
                 reason=reason,
@@ -1110,7 +1122,7 @@ def on_rework(
             ) is not None:
                 return taken
             # Only now, with the unit taking it: a deferred rework asks for nothing.
-            words, from_person = feedback()
+            words, from_person, _ = feedback()
             taken = _requeue(
                 current,
                 pr=pr,
@@ -1206,9 +1218,9 @@ def _feedback(
     pull: PullRequest | None,
     fetch_review: Callable[[int], list[str]] | None,
     fetch_checks: Callable[[PullRequest | None], str] | None,
-) -> tuple[str, bool]:
-    """What a rework hands the agent, and whether it is a person's words,
-    fetched only now there is something to act on."""
+) -> tuple[str, bool, tuple[str, ...]]:
+    """What a rework hands the agent, whether it is a person's words, and the ids of the
+    comments those words came from, fetched only now there is something to act on."""
     # A poll cannot afford a second request per PR, so the reviewer's actual
     # words are fetched only now, when there is something to act on. They are
     # often the only content there is: a review's bodies can both be empty,
@@ -1219,7 +1231,7 @@ def _feedback(
         # review comments on the PR were answered already, and replaying them
         # would have the rework redo old work instead of fixing the build.
         logs = fetch_checks(pull) if fetch_checks else ""
-        return f"{reason}\n\n{logs}".strip(), False
+        return f"{reason}\n\n{logs}".strip(), False, ()
     if reason == CONFLICT_REASON:
         # Nor a reviewer: the branch no longer merges into its base, and the
         # restack at the start of the run does the rebase. Replaying the
@@ -1230,12 +1242,17 @@ def _feedback(
             "behaviour and its tests pass, and do not rebase or reset the "
             "branch yourself.",
             False,
+            (),
         )
-    words = list(fetch_review(pr)) if fetch_review else []
+    words = fetch_review(pr) if fetch_review else []
     said = "\n".join([*words, _latest_comment(pull)]).strip()
+    # What the words were built from: the poller's listing and the notes just read, so a
+    # comment posted since is not taken as given.
+    listed = pull.conversation if pull else ()
+    read = words.ids if isinstance(words, ReviewLines) else ()
     # The one place a person's words enter feedback; the reason alone is
     # the host's.
-    return said or reason, bool(said)
+    return said or reason, bool(said), (*listed, *read)
 
 
 def _requeue(

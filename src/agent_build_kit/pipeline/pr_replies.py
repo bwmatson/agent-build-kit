@@ -20,6 +20,10 @@ What is posted here must not come back as review. Two guards:
 - The poller keys "a new comment" on ids, and a reply creates a review of its
   own with an empty body — nothing to mark. So the ids of everything posted
   are recorded in `OWN_POSTS`, and the poller skips them.
+
+A person's comment a rework addressed before its push is not the pipeline's own
+post, and is recorded apart in `GIVEN_COMMENTS`; the poller skips those too
+(`ignored`), but they are never read back as `own`.
 """
 
 from __future__ import annotations
@@ -38,6 +42,8 @@ MARKER = "<!-- spec-driven:reply -->"
 # The pipeline's own posts, per PR: {"<owner>/<repo>#<n>": [node ids]}.
 # Machine-local, like the poller's own state.
 OWN_POSTS = "own-posts.json"
+# A person's comments a rework was given and addressed, per PR, in the same shape.
+GIVEN_COMMENTS = "given-comments.json"
 
 
 class Reply(BaseModel):
@@ -97,16 +103,16 @@ def parse_answer(text: str) -> Answer | None:
         return None
 
 
-def own_posts(root: Path, slug: str, pr: int) -> set[str]:
+def _recorded(root: Path, name: str, slug: str, pr: int) -> set[str]:
     try:
-        recorded = json.loads((root / OWN_POSTS).read_text())
+        recorded = json.loads((root / name).read_text())
     except (OSError, ValueError):
         return set()
     return set(recorded.get(f"{slug}#{pr}", []))
 
 
-def record_posts(root: Path, slug: str, pr: int, ids: list[str]) -> None:
-    path = root / OWN_POSTS
+def _record(root: Path, name: str, slug: str, pr: int, ids: list[str]) -> None:
+    path = root / name
     try:
         recorded = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -114,6 +120,28 @@ def record_posts(root: Path, slug: str, pr: int, ids: list[str]) -> None:
     key = f"{slug}#{pr}"
     recorded[key] = sorted({*recorded.get(key, []), *ids})
     path.write_text(json.dumps(recorded, indent=2) + "\n")
+
+
+def own_posts(root: Path, slug: str, pr: int) -> set[str]:
+    return _recorded(root, OWN_POSTS, slug, pr)
+
+
+def record_posts(root: Path, slug: str, pr: int, ids: list[str]) -> None:
+    _record(root, OWN_POSTS, slug, pr, ids)
+
+
+def given_comments(root: Path, slug: str, pr: int) -> set[str]:
+    return _recorded(root, GIVEN_COMMENTS, slug, pr)
+
+
+def record_given_comments(root: Path, slug: str, pr: int, ids: list[str]) -> None:
+    _record(root, GIVEN_COMMENTS, slug, pr, ids)
+
+
+def ignored(root: Path, slug: str, pr: int) -> set[str]:
+    """What the poller does not report as a new comment: the pipeline's own posts, and the
+    comments a rework was given and addressed."""
+    return own_posts(root, slug, pr) | given_comments(root, slug, pr)
 
 
 def _signed(body: str, sha: str) -> str:

@@ -46,7 +46,12 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
-from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies, own_posts, record_posts
+from agent_build_kit.pipeline.pr_replies import (
+    MARKER,
+    build_post_replies,
+    own_posts,
+    record_given_comments,
+)
 from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
@@ -1835,7 +1840,7 @@ def build_runner(
         fetch_comments=build_fetch_comments(
             own=lambda repo, pr: own_posts(root, forges.key(forges.for_repo(repo)[1]), pr)
         ),
-        record_given=lambda repo, pr, ids: record_posts(
+        record_given=lambda repo, pr, ids: record_given_comments(
             root, forges.key(forges.for_repo(repo)[1]), pr, ids
         ),
         head=_head_sha,

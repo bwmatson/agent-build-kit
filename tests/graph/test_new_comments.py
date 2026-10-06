@@ -18,7 +18,13 @@ from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.graph.unit import seed_thread, thread_position
 from agent_build_kit.pipeline.events import build_fetch_comments
 from agent_build_kit.pipeline.pr_poller import FAILING_CHECKS_REASON, Poller
-from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies, own_posts, record_posts
+from agent_build_kit.pipeline.pr_replies import (
+    MARKER,
+    build_post_replies,
+    given_comments,
+    ignored,
+    record_given_comments,
+)
 from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.units import branch_name
 from tests.factories import unit
@@ -75,6 +81,7 @@ class Scene:
         own: Collection[str] = (),
         top_level: list[list[tuple[str, str]]] | None = None,
         tier: str = "tier1",
+        conversation: tuple[str, ...] = ("c1",),
     ) -> None:
         self.tmp_path = tmp_path
         self.arrives = list(arrives or [])
@@ -90,7 +97,7 @@ class Scene:
                     head="spec/add-marker/1",
                     base="main",
                     state="open",
-                    conversation=("c1",),
+                    conversation=conversation,
                 )
             ],
             existing=7,
@@ -101,7 +108,7 @@ class Scene:
             fetch_comments=build_fetch_comments(
                 for_repo=lookup(self.host), own=lambda repo, pr: set(own)
             ),
-            record_given=lambda repo, pr, ids: record_posts(tmp_path, SLUG, pr, ids),
+            record_given=lambda repo, pr, ids: record_given_comments(tmp_path, SLUG, pr, ids),
             reply=build_post_replies(
                 root=tmp_path, for_repo=lookup(self.host), log=self.recorder.log
             ),
@@ -110,6 +117,18 @@ class Scene:
         self.reads_of_the_first_build = self.host.reads
         self.delivered = list(delivered)
         self.host.notes = list(self.delivered)
+        self.review_ids_of(self.delivered)
+
+    def review_ids_of(self, notes: Collection[ReviewNote]) -> None:
+        """On GitHub an inline comment also creates a review with no body, and the poller
+        lists its id in the conversation after the comments'. The comment bodies are left."""
+        pr = self.host.prs[0]
+        reviews = tuple(f"rv-{n.id}" for n in notes)
+        self.host.prs[0] = pr.model_copy(update={"conversation": (*pr.conversation, *reviews)})
+
+    def listed(self) -> tuple[str, ...]:
+        """Every id on the pull request now: what a dispatch that read it now was built from."""
+        return (*self.host.prs[0].conversation, *(n.id for n in self.host.notes))
 
     def move_base_once(self) -> None:
         """The next time the branch is moved onto its base, the move is clean."""
@@ -121,6 +140,7 @@ class Scene:
         self.recorder.claude(prompt, **kwargs)
         if self.runs < len(self.arrives):
             self.host.notes = [*self.host.notes, *self.arrives[self.runs]]
+            self.review_ids_of(self.arrives[self.runs])
         if self.runs < len(self.top_level):
             pr = self.host.prs[0]
             added = self.top_level[self.runs]
@@ -142,6 +162,7 @@ class Scene:
             reason="comment",
             feedback=said(*self.delivered),
             from_person=True,
+            comment_ids=self.listed(),
         )
         self.recorder.logged.clear()
         self.before = list(self.recorder.events)
@@ -329,7 +350,11 @@ def test_comments_recorded_by_an_earlier_run_are_not_kept_when_a_rework_is_deliv
     stale = thread_state(tmp_path).model_copy(update={"seen_comments": ("c1", "n1")})
     asyncio.run(seed(tmp_path, stale))
     event = ResumeEvent(
-        kind=EventKind.REWORK, reason="comment", feedback=said(late), from_person=True
+        kind=EventKind.REWORK,
+        reason="comment",
+        feedback=said(late),
+        from_person=True,
+        comment_ids=scene.listed(),
     )
     scene.before = list(scene.recorder.events)
 
@@ -362,6 +387,7 @@ def test_a_rework_after_new_comments_cut_short_once_the_agent_committed_does_not
         reason="comment",
         feedback=said(*scene.delivered),
         from_person=True,
+        comment_ids=scene.listed(),
     )
     scene.before = list(scene.recorder.events)
     tick(tmp_path, scene.recorder, event=event, **scene.overrides)
@@ -412,6 +438,7 @@ def test_a_comment_posted_after_delivery_but_before_the_thread_runs_is_addressed
         reason="comment",
         feedback=said(*scene.delivered),
         from_person=True,
+        comment_ids=scene.listed(),
     )
     scene.before = list(scene.recorder.events)
     tick(tmp_path, scene.recorder, event=event, **scene.overrides)
@@ -437,7 +464,7 @@ def polled(scene: Scene, tmp_path: Path) -> tuple[Poller, list[str]]:
         state_path=tmp_path / "poll.json",
         dispatch=dispatch,
         list_prs=lambda: scene.host.list_prs(scene.host.repo_id()),
-        ignore=lambda number: own_posts(tmp_path, SLUG, number),
+        ignore=lambda number: ignored(tmp_path, SLUG, number),
     )
     return poller, seen
 
@@ -503,7 +530,7 @@ def test_a_requeued_rework_does_not_hide_a_comment_it_was_never_given_from_the_p
 
     tick(tmp_path, scene.recorder, **scene.overrides)
 
-    assert "c5" not in own_posts(tmp_path, SLUG, 7)
+    assert "c5" not in ignored(tmp_path, SLUG, 7)
     poller.poll()
     assert seen == ["rework"], "the poller reports it, as the agent was never given it"
 
@@ -526,9 +553,78 @@ def test_a_failing_checks_rework_does_not_hide_a_comment_it_was_never_given_from
 
     tick(tmp_path, scene.recorder, **scene.overrides)
 
-    assert "c5" not in own_posts(tmp_path, SLUG, 7)
+    assert "c5" not in ignored(tmp_path, SLUG, 7)
     poller.poll()
     assert seen == ["rework"], "the CI agent never saw it, so the poller reports it"
+
+
+def test_a_comment_posted_after_the_poller_listed_it_is_addressed_not_taken_as_given(
+    tmp_path: Path,
+) -> None:
+    scene = Scene(tmp_path, delivered=[note("n1", "remove this line")])
+    poller, seen = polled(scene, tmp_path)
+    poller.poll()
+    listed = scene.listed()
+    # Posted after the poller's list and the dispatch's reads, before the delivery tick.
+    comment_arrives(scene, "c5", "please also add a docstring")
+    event = ResumeEvent(
+        kind=EventKind.REWORK,
+        reason="comment",
+        feedback=said(*scene.delivered),
+        from_person=True,
+        comment_ids=listed,
+    )
+    scene.before = list(scene.recorder.events)
+    tick(tmp_path, scene.recorder, event=event, **scene.overrides)
+
+    tick(tmp_path, scene.recorder, **scene.overrides)
+
+    assert scene.agent_runs == 2
+    assert "please also add a docstring" in scene.recorder.prompts[-1]
+    assert scene.pushes == 1
+    assert "c5" in given_comments(tmp_path, SLUG, 7)
+    poller.poll()
+    assert seen == [], "c5 was addressed in this push"
+
+
+def test_a_note_arriving_during_a_rework_on_a_pull_request_with_no_comments_is_addressed(
+    tmp_path: Path,
+) -> None:
+    scene = Scene(tmp_path, conversation=(), arrives=[[note("n1", "please rename this")]])
+    event = ResumeEvent(
+        kind=EventKind.REWORK,
+        reason=f"{FAILING_CHECKS_REASON}: tier1",
+        feedback=f"{FAILING_CHECKS_REASON}: tier1\n\nboom",
+        from_person=False,
+    )
+    scene.before = list(scene.recorder.events)
+    tick(tmp_path, scene.recorder, event=event, **scene.overrides)
+
+    tick(tmp_path, scene.recorder, **scene.overrides)
+
+    assert scene.runs == 2, "the CI fix, then the note that arrived while it ran"
+    assert "please rename this" in scene.recorder.prompts[-1]
+    assert scene.pushes == 1
+
+
+def test_an_inline_comment_addressed_before_the_push_is_not_reported_as_a_second_rework(
+    tmp_path: Path,
+) -> None:
+    scene = Scene(
+        tmp_path,
+        delivered=[note("n1", "remove this line")],
+        arrives=[[note("n3", "and drop this one too", line=12)]],
+    )
+    poller, seen = polled(scene, tmp_path)
+    poller.poll()
+
+    scene.rework()
+
+    assert scene.agent_runs == 2
+    assert scene.pushes == 1
+    assert "rv-n3" in scene.host.prs[0].conversation
+    poller.poll()
+    assert seen == [], "n3 and the review GitHub made for it were both given"
 
 
 def thread_state(tmp_path: Path) -> Any:

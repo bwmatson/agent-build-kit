@@ -28,11 +28,18 @@ def test_a_rework_is_run_though_the_branch_is_ahead_of_the_tip_the_thread_record
     # A previous run moved the branch after the thread last recorded its tip.
     recorder.made += 1
 
+    rework_prompts: list[str] = []
+
+    def agent(prompt: str, **kwargs: Any) -> str:
+        rework_prompts.append(prompt)
+        return recorder.claude(prompt, **kwargs)
+
     tick(tmp_path, recorder, event=rework_event())
-    tick(tmp_path, recorder)
+    tick(tmp_path, recorder, run_rework=agent)
 
     assert recorder.events.count("claude:rework") == 1, "the agent ran on the feedback"
-    assert FEEDBACK in recorder.prompts[-1] or "remove this line" in "".join(recorder.prompts)
+    assert len(rework_prompts) == 1
+    assert FEEDBACK in rework_prompts[0]
     assert not any("already on the branch" in line for line in recorder.logged)
 
 

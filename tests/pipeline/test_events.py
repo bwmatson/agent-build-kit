@@ -800,6 +800,29 @@ def test_rework_carries_the_reviewer_s_inline_words(store: UnitStore) -> None:
     assert "test_x.py:28" in feedback
 
 
+def test_a_delivered_rework_names_the_comments_its_words_were_built_from(
+    store: UnitStore,
+) -> None:
+    """The ids are the poller's listing and the notes just read: a comment posted after
+    those reads is in neither, so the thread does not take it as given."""
+    pull = PullRequest(
+        number=1, head="spec/add-marker/1", base="main", state="open", conversation=("c1", "rv1")
+    )
+    asked: list[tuple[str, bool, tuple[str, ...]]] = []
+
+    events.on_rework(
+        1,
+        repo="app",
+        reason="review: changes requested",
+        pull=pull,
+        store=store,
+        fetch_review=lambda number: events.ReviewLines(["[comment n1] a.py:3 — fix"], ["n1", "n2"]),
+        resume=lambda unit, kind, reason, feedback: asked.append(feedback()) or True,
+    )
+
+    assert asked == [("[comment n1] a.py:3 — fix", True, ("c1", "rv1", "n1", "n2"))]
+
+
 def test_rework_falls_back_to_the_reason_when_there_are_no_words(store: UnitStore) -> None:
     """A failing check dispatches rework too and has no review behind it."""
     events.on_rework(
