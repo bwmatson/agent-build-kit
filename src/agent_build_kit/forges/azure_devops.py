@@ -29,6 +29,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
+import httpx
+
 from agent_build_kit.forges.base import (
     BaseMissing,
     Label,
@@ -163,6 +165,10 @@ class AzureDevOpsForge:
     )
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
     ci_name: str = "Azure Pipelines"
+
+    def __init__(self, http: httpx.BaseTransport | None = None) -> None:
+        # The transport every REST call goes through; None is the network.
+        self.http = http
 
     # --- identity -------------------------------------------------------------------
 
