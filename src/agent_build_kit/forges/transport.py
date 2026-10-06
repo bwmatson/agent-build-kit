@@ -11,9 +11,9 @@ from typing import Any, Literal
 
 import httpx
 
+from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import (
-    GH_TOKEN_SOURCE,
     Run,
     credential_source,
     forget_tokens,

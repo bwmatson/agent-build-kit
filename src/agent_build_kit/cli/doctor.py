@@ -36,6 +36,7 @@ from agent_build_kit import (
     timers,
 )
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
+from agent_build_kit.forges.constants import GITHUB_API
 from agent_build_kit.forges.transport import (
     PAGE_EXCERPT,
     Transport,
@@ -118,9 +119,6 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
         scope = "repo-local" if identity("email", local=True) else "this machine's global"
         checks.append(_ok(f"repo {name}", f"{path}, commits as {email} ({scope})"))
     return checks
-
-
-GITHUB_API = "https://api.github.com"
 
 
 def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTransport | None) -> str:

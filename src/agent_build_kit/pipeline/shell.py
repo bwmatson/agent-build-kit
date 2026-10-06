@@ -23,6 +23,7 @@ from functools import cache
 from pathlib import Path
 
 from agent_build_kit.config import active
+from agent_build_kit.forges.constants import GH_TOKEN_SOURCE
 from agent_build_kit.settings import settings
 
 
@@ -55,8 +56,6 @@ def git_out(repo: Path, *args: str) -> str:
 
 
 Run = Callable[..., subprocess.CompletedProcess]
-
-GH_TOKEN_SOURCE = "GH_TOKEN"
 
 
 def cli_token(owner: str, *, run: Run | None = None) -> str | None:
