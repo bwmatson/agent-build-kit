@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- GitHub is reached over its REST and GraphQL APIs through `githubkit` (a new dependency,
+  pinned to one minor version; it brings `httpx`, which the transport already used) instead
+  of `gh` subprocesses, with one client per repo owner built from that owner's credential,
+  HTTP caching off and a timeout and a bounded retry on every call.
+  Listing pull requests is one query per page and reads every page, no operation starts a
+  process, and results are unchanged. `gh` is now only a credential source (and the agent's
+  own `gh pr view`); `shell.gh`, `gh_out` and `gh_json` are removed. Taking a label off a
+  pull request now raises on a 404 that is not "label does not exist", so a credential that
+  cannot see the repository is no longer read as success. A refused host call
+  raises a `TransportError`, now a `RuntimeError`, that carries the host's status and body,
+  and `Forge.client` may be left unset by a forge that needs no command on the machine.
+
 - Azure DevOps is reached over typed REST through the shared transport instead of `az`
   subprocesses. A listing starts no process, reads every page (pull requests, policy
   evaluations, an iteration's changes), and keeps its reads of open pull requests within a

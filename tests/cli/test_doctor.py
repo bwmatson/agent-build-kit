@@ -11,16 +11,17 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agent_build_kit import __version__, skills
+from agent_build_kit import __version__, forges, skills
 from agent_build_kit.cli import doctor, main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
+from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from agent_build_kit.settings import reload, settings
 from tests.factories import git, init_repo
-from tests.forges.mock_host import MockHost, recorded
+from tests.forges.mock_host import MockHost, ok, recorded
 from tests.runtimes.selectable import SelectableRuntime, select
 
 
@@ -32,12 +33,10 @@ class Answers:
         *,
         owners: set[str] | None = None,
         openspec_ok: bool = True,
-        protection: bool = False,
         scheduled: bool = True,
     ):
         self.owners = {"example"} if owners is None else owners
         self.openspec_ok = openspec_ok
-        self.protection = protection
         self.scheduled = scheduled
         self.commands: list[list[str]] = []
 
@@ -50,9 +49,6 @@ class Answers:
                 "enabled\n" if self.scheduled else "disabled\n",
                 "",
             )
-        if argv[:2] == ["gh", "api"] and argv[-1].endswith("/protection"):
-            body = '{"required_pull_request_reviews": {}}' if self.protection else ""
-            return subprocess.CompletedProcess(argv, 0 if self.protection else 1, body, "")
         if argv[0] == "gh":
             owner = argv[-1]
             ok = owner in self.owners
@@ -595,9 +591,10 @@ def test_a_default_branch_nothing_guards_is_reported(workspace: Path) -> None:
 
 
 def test_a_protected_default_branch_is_not_a_warning(workspace: Path) -> None:
-    checks = by_name(
-        run_doctor(workspace / "abk.yaml", run=Answers(protection=True), which=which_all)
-    )
+    forges.register(GitHubForge(http=MockHost(ok({"required_pull_request_reviews": {}}))))
+    forges.register(GitHubForge(http=MockHost(ok({"required_pull_request_reviews": {}}))))
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
 
     assert checks["merge guard app"].status == "ok"
 

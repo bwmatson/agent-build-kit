@@ -248,10 +248,11 @@ GitHub repo, calls `GET /user` and reports the account, or the source that faile
 
 ## Authentication
 
-GitHub selects a token per repo owner (`pipeline/shell.py`), because `gh` has
-one active account at a time and a call against another account's private repo
-reports it as *nonexistent* — indistinguishable, from the caller's side, from
-a repo with no pull requests.
+GitHub selects a token per repo owner (`transport.credential_for`, with the
+lookup order in `pipeline/shell.py`), because a call against another account's
+private repo reports it as *nonexistent* — indistinguishable, from the caller's
+side, from a repo with no pull requests. The token travels in a header; `gh` is
+needed only as a credential source, and for the agent's own `gh pr view`.
 
 Azure DevOps uses a PAT when one is set and the `az` sign-in session otherwise;
 both have to work, so a headless box and a workstation are both usable.
@@ -283,3 +284,41 @@ bounded; a build is read only behind a failing evaluation. A refused call raises
 transport raises (`AuthError`, `NotFound`, `TransportError` quoting the host's message),
 and `create_pr` turns the two refusals that mean the base branch is gone into
 `BaseMissing`.
+
+## GitHub over REST and GraphQL
+
+`forges/github.py` talks to `https://api.github.com` through
+`githubkit` and starts no process. A forge holds
+one `githubkit.GitHub` client per repo owner, built with that owner's credential
+(`TokenAuthStrategy`), so units for two owners run side by side and a client is never
+shared across owners. HTTP caching is off, every call has `forge_timeout_seconds`, a
+redirect is not followed (a job log's signed link is fetched by the forge, without the
+credential), and githubkit's `auto_retry` is a bounded policy: a rate limit is repeated,
+a 5xx or a failed connection only for a call that is safe to repeat (never a create-style
+POST), at most `forge_retries` times and never after a wait longer than the transport's
+ceiling. A test passes its `httpx.MockTransport` as `transport=`. The documents it reads
+are the models in `forges/github_models.py`: only the fields the pipeline reads, an
+unknown field ignored.
+
+The dependency is pinned to one minor version (`githubkit>=0.16.1,<0.17`): it has one
+maintainer, and everything it is used for sits behind this module, so a replacement
+touches this file only. githubkit depends on `httpx`, which is why the framework's
+transport still uses `httpx`; moving to its successor waits for a githubkit release that
+supports it.
+
+Listing is one GraphQL query per page of a hundred pull requests, read by cursor to the
+end, carrying the labels, issue comments, submitted reviews (a pending one is left out),
+the newest commit's check runs, the review decision and mergeability. Everything else is
+REST: pull requests, review notes (two paged lists), replies (the reply and the review it
+makes), issue comments, labels (the repo's copy is created, recoloured or re-described
+before it is put on a pull request), statuses, branch protection, and the stack
+endpoints, where a 409 is reported as concurrent. Drafting is the two GraphQL mutations,
+after reading the pull request's state. The failed-job log is the run's jobs and each
+failed job's log, which the host answers with a redirect to storage that is fetched
+without the credential.
+
+A refusal (githubkit's `RequestFailed`) raises a `TransportError` (a `RuntimeError`) that
+carries the host's `status` and whole `body`; `create_pr` reads the body to tell a missing base branch
+(`BaseMissing`) from any other 422. `update_pr`, `delete_remote_branch`, `post_comment`,
+`post_reply` and `post_status` keep their best-effort behaviour: a failure is logged, not
+raised. `Forge.client` is optional: a forge reached over HTTP alone names no command.

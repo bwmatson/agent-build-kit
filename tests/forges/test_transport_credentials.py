@@ -115,21 +115,19 @@ def test_no_credential_names_the_owner_and_the_sources_tried() -> None:
     assert "GH_TOKEN" in message
 
 
-def test_clearing_credentials_also_forgets_what_gh_subprocesses_use(
+def test_clearing_credentials_reads_the_login_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """After a re-login both the HTTP calls and `gh` calls act as the new token."""
+    """After a re-login the calls act as the new token."""
     tokens = ["tok-old"]
 
     def gh(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 0, f"{tokens[0]}\n", "")
 
     monkeypatch.setattr(shell.subprocess, "run", gh)
-    assert shell.gh_env("example/app")["GH_TOKEN"] == "tok-old"
     assert credential_for("github", "example").token == "tok-old"
 
     tokens[0] = "tok-new"
     clear_credentials()
 
-    assert shell.gh_env("example/app")["GH_TOKEN"] == "tok-new"
     assert credential_for("github", "example").token == "tok-new"

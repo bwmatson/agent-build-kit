@@ -154,7 +154,7 @@ READ_POOL = 4
 class AzureDevOpsForge:
     name: str = "azure_devops"
     implemented: bool = True
-    client: str = "az"
+    client: str | None = "az"
     # Azure DevOps keeps the source branch unless the PR asked for it to go,
     # so the remote branch is ours to delete.
     deletes_head_branch_on_merge: bool = False

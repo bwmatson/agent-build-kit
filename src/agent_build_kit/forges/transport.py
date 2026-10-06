@@ -29,8 +29,14 @@ MAX_DELAY = 60.0
 PAGE_EXCERPT = 200
 
 
-class TransportError(Exception):
-    """Base of every error the transport raises."""
+class TransportError(RuntimeError):
+    """Base of every error the transport raises. A RuntimeError, as the failure
+    of a host call has always been to the callers that catch one. A refusal
+    carries the host's `status` and whole `body`; the message quotes only the
+    start of it."""
+
+    status: int | None = None
+    body: str = ""
 
 
 class AuthError(TransportError):
@@ -282,16 +288,23 @@ class Transport:
     ) -> Response:
         status = reply.status_code
         who = self._identity()
-        if status in (401, 403):
-            raise AuthError(f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
-        if status == 404:
-            raise NotFound(
-                f"{method} {path}: not found {who}",
-                account=self.credentials.owner,
-                source=self.credentials.source,
-            )
         if status >= 400:
-            raise TransportError(f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+            refused: TransportError
+            if status in (401, 403):
+                refused = AuthError(f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+            elif status == 404:
+                refused = NotFound(
+                    f"{method} {path}: not found {who}",
+                    account=self.credentials.owner,
+                    source=self.credentials.source,
+                )
+            else:
+                refused = TransportError(
+                    f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}"
+                )
+            refused.status = status
+            refused.body = reply.text
+            raise refused
         headers = dict(reply.headers)
         if expect == "text" or not reply.content:
             return Response(status=status, headers=headers, text=reply.text)
