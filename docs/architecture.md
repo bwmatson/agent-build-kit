@@ -731,6 +731,9 @@ unwritable) is dropped, never fails a run, and is reported once per process for 
 reader (`usage_ledger.read_ledger`) keeps the last line for each unit, node, round and session,
 so a node run again with the same session counts once while two calls in different sessions both
 count; a call with no session id cannot be told apart from another and stays a record of its own.
+A resumed call keeps its session id and its result reports that call's figures, not a running
+total (checked live against Claude Code), so a `resumed` line adds to the call it resumed instead
+of replacing it.
 An `acp` agent's `thoughtTokens` are not read: only `outputTokens` is recorded, and whether it
 includes reasoning tokens depends on the agent. Move the ignore line if `planning.state_dir` is changed.
 

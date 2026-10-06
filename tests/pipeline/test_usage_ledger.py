@@ -86,6 +86,24 @@ def test_a_new_session_for_the_same_node_and_round_is_spend_of_its_own(tmp_path:
     assert {r.session_id: r.cost_usd for r in records} == {"sess-1": 0.5, "sess-2": 0.7}
 
 
+def test_a_resumed_call_adds_to_the_call_it_resumed_and_a_rerun_replaces_it(
+    tmp_path: Path,
+) -> None:
+    resumed = write(
+        tmp_path / "resumed.jsonl",
+        line(node="review", round=1, session_id="S", resumed=False, cost_usd=0.40),
+        line(node="review", round=1, session_id="S", resumed=True, cost_usd=0.05),
+    )
+    rerun = write(
+        tmp_path / "rerun.jsonl",
+        line(node="review", round=1, session_id="S", resumed=False, cost_usd=0.40),
+        line(node="review", round=1, session_id="S", resumed=False, cost_usd=0.05),
+    )
+
+    assert sum(r.cost_usd or 0 for r in read_ledger(resumed)) == pytest.approx(0.45)
+    assert sum(r.cost_usd or 0 for r in read_ledger(rerun)) == 0.05
+
+
 def test_calls_with_no_session_id_in_one_node_and_round_are_each_counted(tmp_path: Path) -> None:
     ledger = write(
         tmp_path / "usage-ledger.jsonl",

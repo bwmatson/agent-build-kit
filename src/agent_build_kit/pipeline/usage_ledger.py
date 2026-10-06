@@ -2,7 +2,8 @@
 
 Best-effort: a write that fails is dropped and reported once, and never
 affects a run. The reader keeps the last record per unit, node, round and
-session; a call with no session id stays a record of its own.
+session, adding a resumed call's figures to the call it resumed; a call with
+no session id stays a record of its own.
 """
 
 from __future__ import annotations
@@ -94,21 +95,52 @@ def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
     say(f"the usage ledger is not recording ({problem})")
 
 
+_FIGURES = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+    "cost_usd",
+    "turns",
+    "duration_ms",
+)
+
+
+def _combine(parts: list[UsageRecord]) -> UsageRecord:
+    """The last part, carrying each figure summed over the parts that report it."""
+    if len(parts) == 1:
+        return parts[0]
+    summed: dict[str, float | int | None] = {}
+    for name in _FIGURES:
+        reported = [v for p in parts if (v := getattr(p, name)) is not None]
+        summed[name] = sum(reported) if reported else None
+    return parts[-1].model_copy(update=summed)
+
+
 def read_ledger(path: Path) -> list[UsageRecord]:
-    """The ledger's records, one per unit, node, round and session: the last
-    one written. Calls with no session id cannot be told apart from a re-run,
-    so each stays a record of its own. A line that is not a record (half
-    written) is skipped."""
+    """The ledger's records, one per unit, node, round and session.
+
+    A resumed call keeps its session id and reports the figures of that call
+    alone, not a running total, so a record with `resumed` set adds to the
+    record of the call it resumed (a call cut off by a usage limit and resumed
+    reports both). A record that is not resumed is a re-run of the same call
+    and replaces what came before it. Calls with no session id cannot be told
+    apart from a re-run, so each stays a record of its own. A line that is not
+    a record (half written) is skipped."""
     try:
         lines = path.read_text().splitlines()
     except FileNotFoundError:
         return []
-    latest: dict[tuple[str, str, int, str], UsageRecord] = {}
+    calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
     for line in lines:
         try:
             record = UsageRecord.model_validate(json.loads(line))
         except (ValueError, ValidationError):
             continue
         session = record.session_id or f"unnamed@{record.at}"
-        latest[(record.unit, record.node, record.round, session)] = record
-    return list(latest.values())
+        key = (record.unit, record.node, record.round, session)
+        if record.resumed and key in calls:
+            calls[key].append(record)
+        else:
+            calls[key] = [record]
+    return [_combine(parts) for parts in calls.values()]
