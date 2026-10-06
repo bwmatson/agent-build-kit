@@ -272,22 +272,34 @@ def test_a_hold_that_needs_a_human_is_left_alone(tmp_path: Path) -> None:
     assert store.get("c/4").state == HELD
 
 
-def test_a_depth_hold_a_reviewer_then_also_holds_is_still_the_depths(tmp_path: Path) -> None:
-    """The label did not make the hold, so it does not take it over: the unit
-    keeps its cause and is reconsidered by the next merge like any depth hold.
-    So a later merge restacks it to `in_review` while the label is still on its
-    pull request, and nothing then holds it: whether both causes should be kept
-    is for a person to settle (see the change's follow-ups)."""
+def test_a_depth_hold_a_reviewer_then_also_holds_is_the_labels_and_a_merge_leaves_it(
+    tmp_path: Path,
+) -> None:
+    """The label takes the hold over, so a later merge that would free the unit
+    for depth leaves it held while the label is on its pull request."""
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     events.on_hold(4, repo="app", store=store)
-    assert store.get("c/4").held_by == "depth"
+    assert store.get("c/4").held_by == "reviewer"
     store.set_state("c/2", MERGED)
     recorder = Recorder()
 
     merge(store, 9, cap=2, recorder=recorder, deleted=[])
 
-    assert recorder.branches == ["spec/c/4"]
+    assert recorder.restacked == []
+    assert store.get("c/4").state == HELD
+    assert store.get("c/4").held_by == "reviewer"
+
+
+def test_releasing_a_depth_hold_the_label_took_over_returns_the_unit_to_review(
+    tmp_path: Path,
+) -> None:
+    store = deep_store(tmp_path)
+    merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
+    events.on_hold(4, repo="app", store=store)
+
+    events.on_release(4, repo="app", store=store)
+
     assert store.get("c/4").state == IN_REVIEW
 
 

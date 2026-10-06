@@ -57,6 +57,11 @@ def held_as(store: UnitStore, held_by: str | None, *, note: str = "") -> None:
     store.path.write_text(json.dumps(raw))
 
 
+DEPTH_NOTE = events.DEPTH_HOLD.format(new_base="main", depth=3, cap=2) + (
+    events.DEPTH_HOLD_BASE.format(old_base="spec/c/1")
+)
+
+
 def release(store: UnitStore, logged: list[str], **kwargs) -> bool:
     return events.on_release(1, repo="app", store=store, log=logged.append, **kwargs)
 
@@ -111,12 +116,23 @@ def test_a_replan_keeps_a_depth_hold(store: UnitStore) -> None:
 def test_a_hold_on_a_unit_with_a_thread_names_the_cause_it_really_has(
     store: UnitStore, logged: list[str]
 ) -> None:
+    store.set_state(UNIT, HELD, note="rounds spent", held_by=HeldBy.REVIEW)
+
+    events.on_hold(1, repo="app", store=store, resume=lambda *a: True, log=logged.append)
+
+    assert any("already held by review" in line for line in logged)
+    assert not any("the pipeline will not touch it" in line for line in logged)
+
+
+def test_a_hold_on_a_depth_held_unit_with_a_thread_says_the_label_has_it(
+    store: UnitStore, logged: list[str]
+) -> None:
     store.set_state(UNIT, HELD, note="too deep", held_by=HeldBy.DEPTH)
 
     events.on_hold(1, repo="app", store=store, resume=lambda *a: True, log=logged.append)
 
-    assert any("already held by depth" in line for line in logged)
-    assert not any("the pipeline will not touch it" in line for line in logged)
+    assert not any("already held by" in line for line in logged)
+    assert any("the pipeline will not touch it" in line for line in logged)
 
 
 def test_a_stored_unit_with_no_recorded_cause_still_loads(store: UnitStore) -> None:
@@ -441,12 +457,11 @@ def test_a_comment_already_answered_is_not_delivered_again_after_the_release(
 @pytest.mark.parametrize(
     ("cause", "note"),
     [
-        ("depth", "held for depth"),
         ("review", "rounds spent with work outstanding: rename the flag"),
         ("toolchain", "the toolchain cannot build it"),
         (None, "rounds spent with work outstanding: rename the flag"),
     ],
-    ids=["depth", "review", "toolchain", "unrecorded"],
+    ids=["review", "toolchain", "unrecorded"],
 )
 def test_the_label_added_and_removed_leaves_another_cause_of_the_hold_alone(
     store: UnitStore, logged: list[str], cause: str | None, note: str
@@ -462,6 +477,27 @@ def test_the_label_added_and_removed_leaves_another_cause_of_the_hold_alone(
     assert stored.held_by == (cause or "")
     assert store.history(UNIT) == before, "neither event wrote the record"
     assert any("already held by" in line for line in logged)
+
+
+@pytest.mark.parametrize(
+    ("cause", "note"),
+    [(HeldBy.DEPTH, "held for depth"), (None, DEPTH_NOTE)],
+    ids=["recorded", "unrecorded"],
+)
+def test_the_label_takes_over_a_depth_hold_and_its_removal_frees_the_unit(
+    store: UnitStore, logged: list[str], cause: HeldBy | None, note: str
+) -> None:
+    held_as(store, cause, note=note)
+
+    events.on_hold(1, repo="app", store=store, log=logged.append)
+
+    stored = store.get(UNIT)
+    assert (stored.state, stored.held_by) == (HELD, "reviewer")
+    assert stored.note == "held by a reviewer"
+
+    release(store, logged)
+
+    assert store.get(UNIT).state == IN_REVIEW
 
 
 def test_a_unit_stored_running_with_nothing_building_it_is_not_released(

@@ -24,6 +24,7 @@ from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.pipeline.check_failures import failed_check
+from agent_build_kit.pipeline.events import held_for_depth
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -978,10 +979,10 @@ class BuildPath:
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
         elif event.kind is EventKind.HOLD:
-            if (current := r.store.get(unit.id)).state == HELD:
-                # Held for a reason of its own (the depth cap, the toolchain, the
-                # review loop): the label did not make it, so its removal must not
-                # undo it.
+            if (current := r.store.get(unit.id)).state == HELD and not held_for_depth(current):
+                # Held for a reason of its own (the toolchain, the review loop):
+                # the label did not make it, so its removal must not undo it. A
+                # depth hold a merge would free is taken over instead.
                 cause = current.held_by or "an unrecorded cause"
                 self.say(f"already held by {cause}, as it stands")
                 return {"event": None}

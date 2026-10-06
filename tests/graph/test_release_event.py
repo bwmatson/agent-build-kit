@@ -78,20 +78,39 @@ def test_a_released_thread_can_be_held_again(tmp_path: Path) -> None:
     assert recorder.store.get(unit().id).held_by == "reviewer"
 
 
-def test_a_hold_the_label_did_not_make_stays_when_the_label_comes_and_goes(
+def test_a_depth_hold_is_taken_over_by_the_label_and_released_with_it(
     tmp_path: Path,
 ) -> None:
-    """Held for depth while the thread still waits for review: the label added and
-    removed neither takes the hold over nor releases it."""
+    """Held for depth while the thread still waits for review: the label takes the
+    hold over, so a merge cannot free it with the label on, and its removal does."""
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder)
     recorder.store.set_state(unit().id, HELD, note="held for depth", held_by=HeldBy.DEPTH)
+
+    tick(tmp_path, recorder, event=HOLD)
+
+    stored = recorder.store.get(unit().id)
+    assert (stored.state, stored.held_by) == (HELD, "reviewer")
+
+    tick(tmp_path, recorder, event=RELEASE)
+
+    assert recorder.store.get(unit().id).state == IN_REVIEW
+
+
+def test_a_hold_the_label_did_not_make_stays_when_the_label_comes_and_goes(
+    tmp_path: Path,
+) -> None:
+    """Held by the review loop while the thread still waits for review: the label
+    added and removed neither takes the hold over nor releases it."""
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    recorder.store.set_state(unit().id, HELD, note="rounds spent", held_by=HeldBy.REVIEW)
     before = recorder.store.history(unit().id)
 
     tick(tmp_path, recorder, event=HOLD)
     tick(tmp_path, recorder, event=RELEASE)
 
     stored = recorder.store.get(unit().id)
-    assert (stored.state, stored.held_by) == (HELD, "depth")
+    assert (stored.state, stored.held_by) == (HELD, "review")
     assert recorder.store.history(unit().id) == before
     assert position(tmp_path).next == (Node.AWAIT_REVIEW,)

@@ -125,6 +125,16 @@ def _depth_hold_base(unit: StoredUnit) -> str | None:
     return found["base"] if found else None
 
 
+def held_for_depth(unit: StoredUnit) -> bool:
+    """Held for the stack depth cap, which a later merge may free: by the cause the
+    record keeps, or for one from before that, by the note the restack wrote."""
+    if unit.state != HELD:
+        return False
+    if unit.held_by:
+        return unit.held_by == HeldBy.DEPTH
+    return _depth_hold_base(unit) is not None
+
+
 def _unclaimed(unit: StoredUnit) -> AbstractContextManager[object]:
     return nullcontext()
 
@@ -804,6 +814,10 @@ def on_hold(
 ) -> bool:
     """A reviewer has taken the unit over. Nothing automatic touches it again.
 
+    A unit held for depth is taken over too, since a merge would free it with the
+    label still on; one the review loop or the toolchain holds keeps its cause,
+    because nothing automatic frees those.
+
     A satisfied unit is left as it is — see `on_closed` for why its own
     OPEN→CLOSED is not the only transition that can arrive after it is
     already done.
@@ -819,7 +833,11 @@ def on_hold(
             return True
         if resume(unit, "hold", "", ""):
             current = store.get(unit.id)
-            if current.state == HELD and not current.held_by_the_label:
+            if (
+                current.state == HELD
+                and not current.held_by_the_label
+                and not held_for_depth(current)
+            ):
                 cause = current.held_by or "an unrecorded cause"
                 log(f"hold #{pr}: {unit.id} is already held by {cause}, leaving it as it is")
             else:
@@ -829,9 +847,10 @@ def on_hold(
             if store.get(unit.id).state == SATISFIED:
                 log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
                 return True
-            if (current := store.get(unit.id)).state == HELD:
+            if (current := store.get(unit.id)).state == HELD and not held_for_depth(current):
                 # Held for a reason of its own, which the label did not make and
-                # its removal must not undo.
+                # its removal must not undo. A depth hold is the exception: a
+                # merge frees it, so the label takes it over.
                 cause = current.held_by or "an unrecorded cause"
                 log(f"hold #{pr}: {unit.id} is already held by {cause}, leaving it as it is")
                 return True
@@ -864,15 +883,17 @@ def on_release(
         return True
 
     try:
-        if (taken := _release_refused(store.get(unit.id), pr, log)) is not None:
-            return taken
+        if (refusal := _release_refused(store.get(unit.id), pr)) is not None:
+            log(refusal)
+            return True
         if resume(unit, "release", "", ""):
             log(f"release #{pr}: {unit.id} is waiting for review again")
             return True
         with claim(unit):
             current = store.get(unit.id)
-            if (taken := _release_refused(current, pr, log, under_claim=True)) is not None:
-                return taken
+            if (refusal := _release_refused(current, pr, under_claim=True)) is not None:
+                log(refusal)
+                return True
             store.set_state(unit.id, IN_REVIEW, note="hold label removed")
     except BranchBusy as error:
         return _deferred(f"release #{pr}", unit, error, log)
@@ -880,10 +901,8 @@ def on_release(
     return True
 
 
-def _release_refused(
-    unit: StoredUnit, pr: int, log: Log, *, under_claim: bool = False
-) -> bool | None:
-    """Why a release changes nothing, as the handler's answer; None when it applies.
+def _release_refused(unit: StoredUnit, pr: int, *, under_claim: bool = False) -> str | None:
+    """The log line saying why a release changes nothing; None when it applies.
 
     Before the claim a unit being built passes, so the claim defers the event
     and the poller reports it again; under the claim nothing is building it, so a
@@ -892,13 +911,11 @@ def _release_refused(
     if unit.state == RUNNING and not under_claim:
         return None
     if unit.state != HELD:
-        log(f"release #{pr}: {unit.id} is {unit.state}, not held, nothing to release")
-        return True
+        return f"release #{pr}: {unit.id} is {unit.state}, not held, nothing to release"
     if unit.held_by_the_label:
         return None
     cause = unit.held_by or "an unrecorded cause"
-    log(f"release #{pr}: {unit.id} is held by {cause}, not the label's, leaving it held")
-    return True
+    return f"release #{pr}: {unit.id} is held by {cause}, not the label's, leaving it held"
 
 
 def on_rework(
