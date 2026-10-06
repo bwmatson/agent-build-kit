@@ -298,6 +298,15 @@ class Forge(RegistersStacks, Protocol):
         """Take a label off a pull request. Raises where the host refuses."""
         ...
 
+    def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
+        """Make a pull request a draft, or publish it for review.
+
+        Reads the pull request's current state first and writes only when it
+        differs from `draft`. Raises where the host refuses, and raises
+        `NotImplementedError` for a forge with no drafts.
+        """
+        ...
+
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request,
         once the reason has been posted on it.

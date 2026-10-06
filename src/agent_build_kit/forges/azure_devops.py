@@ -791,6 +791,22 @@ class AzureDevOpsForge:
         values = answer.get("value") if isinstance(answer, dict) else None
         return [item for item in values or [] if isinstance(item, dict) and item.get("name")]
 
+    def set_draft(self, repo: RepoId, pr: int, draft: bool, *, run: Run | None = None) -> None:
+        """Make a pull request a draft or publish it, writing only on a change.
+
+        The CLI call `permitted_commands` lets through, and `az.json_out`, which
+        raises `AzError` with the host's message on a refusal.
+        """
+        org = az.org_url(repo.account)
+        current = az.json_out(["repos", "pr", "show", "--id", str(pr)], org=org, run=run)
+        if isinstance(current, dict) and bool(current.get("isDraft")) == draft:
+            return
+        az.json_out(
+            ["repos", "pr", "update", "--id", str(pr), "--draft", "true" if draft else "false"],
+            org=org,
+            run=run,
+        )
+
     def close_pr(self, repo: RepoId, pr: int, *, run: Run | None = None) -> None:
         """Abandon without merging - a satisfied unit's stale pull request.
 
