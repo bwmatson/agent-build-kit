@@ -36,8 +36,9 @@ Every field, with its default. A key at its default can be left out;
 version: 1
 
 planning:
-  state_dir: runs               # pipeline state and run logs. Relative to the
-                                # planning root unless absolute.
+  state_dir: runs               # pipeline state, run logs and the usage ledger
+                                # (usage-ledger.jsonl, gitignored; docs/architecture.md).
+                                # Relative to the planning root unless absolute.
   specs_dir: openspec           # the OpenSpec store; changes are read from
                                 # <specs_dir>/changes/*/tasks.md.
   graph_page: docs/unit_graph.md

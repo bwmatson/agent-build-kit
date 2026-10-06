@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.usage import Usage, UsageSource
 
 if TYPE_CHECKING:
     # config imports this package to check a selection at load.
@@ -90,6 +91,9 @@ class AgentRequest(Frozen):
     resume_session: str = ""
     # Told the session's id as soon as the runtime knows it.
     on_session: Callable[[str], None] | None = None
+    # Called by the runtime with the finished result, as `on_session` is with
+    # the session.
+    on_result: Callable[[AgentResult], None] | None = None
 
 
 class AgentResult(Frozen):
@@ -101,9 +105,32 @@ class AgentResult(Frozen):
     error: str = ""  # set when ok is False
     stop_reason: str = ""  # the runtime's own word for why the turn ended, for diagnostics
     turns: int | None = None  # how many turns the run took, when the runtime counts them
-    # Tokens spent by kind (`input`, `output`, `cache`); empty when the runtime's
-    # output carries no counts.
-    tokens: dict[str, int] = {}
+    usage: Usage | None = None
+    cost_usd: float | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
+    usage_source: UsageSource = "none"
+
+    @property
+    def succeeded(self) -> bool:
+        """Whether the call did its work: it ended `ok` and not on an error result.
+        A run that exits cleanly can still close on `error_max_turns`."""
+        return self.ok and not self.stop_reason.startswith("error")
+
+    @property
+    def tokens(self) -> dict[str, int]:
+        """Tokens spent by kind (`input`, `output`, `cache`), from `usage`;
+        empty when the runtime reported no counts, and no kind it omits."""
+        if self.usage is None:
+            return {}
+        counts: dict[str, int | None] = {
+            "input": self.usage.input_tokens,
+            "output": self.usage.output_tokens,
+        }
+        cached = [self.usage.cache_creation_input_tokens, self.usage.cache_read_input_tokens]
+        if any(isinstance(n, int) for n in cached):
+            counts["cache"] = sum(n for n in cached if isinstance(n, int))
+        return {kind: n for kind, n in counts.items() if isinstance(n, int)}
 
 
 class PolicyReport(Frozen):

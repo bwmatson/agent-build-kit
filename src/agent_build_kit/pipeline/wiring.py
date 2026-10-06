@@ -96,6 +96,9 @@ logger = logging.getLogger(__name__)
 
 Run = Callable[..., subprocess.CompletedProcess]
 
+# Told a finished agent call: `(result, *, role, model, runtime)`.
+AgentCallback = Callable[..., None]
+
 # The code host is read-only for agents: the forge names the commands that read
 # a PR (`read_commands`). What they have to say on a PR the pipeline posts after
 # the push (see `pr_replies`), as the account that owns the repo. The
@@ -198,6 +201,7 @@ def build_run_claude(
         cwd: Path,
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
+        on_result: AgentCallback | None = None,
     ) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
         if resume_session and not agent.supports_session_resume:
@@ -210,6 +214,11 @@ def build_run_claude(
                 prompt=INTERRUPTED_PROMPT if resume_session else prompt,
                 resume_session=resume_session,
                 on_session=on_session,
+                on_result=(
+                    partial(on_result, role=role, model=model, runtime=agent.name)
+                    if on_result
+                    else None
+                ),
                 role=role,
                 cwd=cwd,
                 # The specs, and nothing else in the planning repo. The unit
@@ -406,6 +415,7 @@ def build_run_review(
         context: str = "",
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
+        on_result: AgentCallback | None = None,
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
@@ -414,6 +424,7 @@ def build_run_review(
             cwd=cwd,
             resume_session=resume_session,
             on_session=on_session,
+            on_result=on_result,
         )
 
     return run_review

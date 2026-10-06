@@ -11,6 +11,7 @@ import asyncio
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -64,7 +65,14 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     local_ref,
 )
-from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, SessionUnavailable
+from agent_build_kit.pipeline.usage_ledger import UsageRecord, record_call
+from agent_build_kit.runtimes.base import (
+    AgentInterrupted,
+    AgentRateLimited,
+    AgentResult,
+    SessionUnavailable,
+)
+from agent_build_kit.usage import Usage
 
 Update = dict[str, Any]
 
@@ -293,6 +301,7 @@ class BuildPath:
                     cwd=cwd,
                     resume_session=state.session_id,
                     on_session=self.on_session,
+                    on_result=self._recorder(state, resumed=True),
                     **inputs,
                 )
             except SessionUnavailable as error:
@@ -300,7 +309,44 @@ class BuildPath:
                     f"session {state.session_id} cannot be continued ({error}); "
                     "running the node from its start in a new session"
                 )
-        return run(*args, cwd=cwd, on_session=self.on_session, **inputs)
+        return run(
+            *args,
+            cwd=cwd,
+            on_session=self.on_session,
+            on_result=self._recorder(state, resumed=False),
+            **inputs,
+        )
+
+    def _recorder(self, state: UnitRun, *, resumed: bool) -> Callable[..., None]:
+        """What an agent call tells when it finishes: one line for the usage ledger."""
+        unit, node = self.unit, self._node
+        round_number = _round(Node(node), state)
+
+        def record(result: AgentResult, *, role: str, model: str | None, runtime: str) -> None:
+            usage = result.usage or Usage()
+            line = UsageRecord(
+                at=datetime.now(UTC).isoformat(),
+                unit=unit.id,
+                node=node,
+                round=round_number,
+                change=unit.change,
+                repo=unit.repo,
+                tier=unit.tier,
+                role=role,
+                model=model,
+                runtime=runtime,
+                session_id=result.session_id,
+                resumed=resumed,
+                **usage.model_dump(),
+                cost_usd=result.cost_usd,
+                turns=result.turns,
+                duration_ms=result.duration_ms,
+                usage_source=result.usage_source,
+                outcome="ok" if result.succeeded else "failed",
+            )
+            record_call(line, self.say)
+
+        return record
 
     def say(self, message: str) -> None:
         """A progress line, for the tick log and the unit's run log."""

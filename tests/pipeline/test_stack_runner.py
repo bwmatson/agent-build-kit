@@ -62,6 +62,7 @@ class Recorder:
         cwd: Path,
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
+        on_result: Callable[..., None] | None = None,
     ) -> str:
         self.prompts.append(prompt)
         if "checks (lint" in prompt:
@@ -83,6 +84,7 @@ class Recorder:
         context: str = "",
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
+        on_result: Callable[..., None] | None = None,
     ) -> str:
         """Takes `context` as the real review does: a fake that did not hid
         that the real one did not, and a review crashed in the field."""

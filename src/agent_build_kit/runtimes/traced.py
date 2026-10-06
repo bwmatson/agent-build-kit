@@ -46,7 +46,7 @@ def traced(runtime: str, request: AgentRequest, call: Callable[[], AgentResult])
         else:
             # A run that exits cleanly can still close on an error result
             # (`error_max_turns`): the span says so, as the caller reads the text.
-            outcome = "ok" if result.ok and not result.stop_reason.startswith("error") else "failed"
+            outcome = "ok" if result.succeeded else "failed"
             if result.turns is not None:
                 span.set_attribute("turns", result.turns)
                 telemetry.observe("abk.agent.turns", result.turns, role=role, model=model)

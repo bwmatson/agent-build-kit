@@ -19,9 +19,11 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from agent_build_kit.usage import Salvaged, Usage
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 
@@ -32,9 +34,8 @@ WIDTH = 160
 class ResultEvent(BaseModel):
     """The `result` event that closes a run: the fields abk reads from it.
 
-    Not `model.Frozen`: the event also carries a session id, token counts,
-    costs and whatever a later claude adds, none of which abk reads, and a new
-    key there is no reason to lose the one event that says how the run ended.
+    Not `model.Frozen`: the event also carries whatever a later claude adds,
+    and a new key there is no reason to lose the one event that says how the run ended.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
@@ -48,7 +49,12 @@ class ResultEvent(BaseModel):
     errors: list[str] = []
     # How many turns the run took, and the tokens it spent, when it says.
     num_turns: int | None = None
-    usage: dict[str, Any] = {}
+    # Absent when the event carries none: a count it omits is None, never zero.
+    # A figure of the wrong type is None: it must not lose the event.
+    usage: Annotated[Usage | None, Salvaged] = None
+    total_cost_usd: Annotated[float | None, Salvaged] = None
+    duration_ms: Annotated[int | None, Salvaged] = None
+    session_id: Annotated[str | None, Salvaged] = None
 
 
 def stream_run(

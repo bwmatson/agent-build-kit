@@ -613,7 +613,13 @@ class Adapting:
         self.changed_asked_after_commit: list[bool] = []
 
     def run_rework(
-        self, prompt: str, *, cwd: Path, resume_session: str = "", on_session: object = None
+        self,
+        prompt: str,
+        *,
+        cwd: Path,
+        resume_session: str = "",
+        on_session: object = None,
+        on_result: object = None,
     ) -> str:
         self.prompts.append(prompt)
         return self.answers[min(len(self.prompts), len(self.answers)) - 1]
@@ -648,6 +654,7 @@ def reviewers(recorder: Recorder) -> tuple[list[str], dict[str, Any]]:
             context: str = "",
             resume_session: str = "",
             on_session: object = None,
+            on_result: object = None,
         ) -> str:
             who.append(name)
             return recorder.review(cwd=cwd, context=context)
@@ -840,7 +847,12 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
     port = overrides["run_rework"]
 
     def adapt(
-        prompt: str, *, cwd: Path, resume_session: str = "", on_session: object = None
+        prompt: str,
+        *,
+        cwd: Path,
+        resume_session: str = "",
+        on_session: object = None,
+        on_result: object = None,
     ) -> str:
         tip[0] = "rewritten"  # the parent is restacked while the port runs
         return port(prompt, cwd=cwd, resume_session=resume_session, on_session=on_session)
