@@ -647,3 +647,14 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   be a real case for one repo building under one agent while another builds
   under a different one? Nothing today suggests it, and `ABK_RUNTIME` covers
   trialling; the `abk.yaml` shape above assumes not.
+
+## Spend through a gateway
+
+A runtime that reaches its model through a gateway gives exact figures that do not depend on
+what the agent reports. With `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, the agent step
+mints a key per call and passes it in `AgentRequest.env` (`ABK_GATEWAY_KEY`); the `acp` runtime
+starts its agent with that environment on top of its own, so an agent that reads its key from
+the environment at start spends through it. The runtime itself does nothing more: the call's
+totals are read from the gateway when it ends (`pipeline/gateway_usage.py`) and recorded
+beside what the runtime reported. An agent that takes its key some other way gets one minted
+for nothing, and its figures stay its own.

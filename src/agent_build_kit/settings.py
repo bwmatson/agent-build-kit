@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     review_model: str | None = None
     rework_review_model: str | None = None
 
+    # The gateway in front of the model, and the master key that may mint keys
+    # on it (pipeline/gateway_usage.py). Neither set: no key is minted.
+    gateway_url: str = ""
+    gateway_master_key: str = ""
+
     # Telemetry (telemetry.py): off unless this is set. The endpoint and
     # resource settings keep their standard OpenTelemetry names, so any
     # collector setup works unchanged; the per-signal endpoints override the

@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from agent_build_kit import config
 from agent_build_kit.installation import Installation
-from agent_build_kit.usage import UsageSource
+from agent_build_kit.usage import Usage, UsageSource
 
 LEDGER_NAME = "usage-ledger.jsonl"
 
@@ -55,6 +55,10 @@ class UsageRecord(BaseModel):
     turns: int | None = None
     duration_ms: int | None = None
     usage_source: UsageSource = "none"
+    # What the agent itself reported, kept beside the gateway's figures above
+    # when both exist, so a report can show the difference.
+    reported: Usage | None = None
+    reported_cost_usd: float | None = None
     outcome: str = ""
 
 
@@ -103,6 +107,7 @@ _FIGURES = (
     "cost_usd",
     "turns",
     "duration_ms",
+    "reported_cost_usd",
 )
 
 
@@ -114,7 +119,19 @@ def _combine(parts: list[UsageRecord]) -> UsageRecord:
     for name in _FIGURES:
         reported = [v for p in parts if (v := getattr(p, name)) is not None]
         summed[name] = sum(reported) if reported else None
-    return parts[-1].model_copy(update=summed)
+    reported = [p.reported for p in parts if p.reported is not None]
+    return parts[-1].model_copy(
+        update=summed | {"reported": _combine_usage(reported) if reported else None}
+    )
+
+
+def _combine_usage(parts: list[Usage]) -> Usage:
+    """Each token count summed over the parts that report it."""
+    summed: dict[str, int | None] = {}
+    for name in Usage.model_fields:
+        counts = [v for p in parts if (v := getattr(p, name)) is not None]
+        summed[name] = sum(counts) if counts else None
+    return Usage(**summed)
 
 
 def read_ledger(path: Path) -> list[UsageRecord]:

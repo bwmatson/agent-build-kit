@@ -94,6 +94,10 @@ class AgentRequest(Frozen):
     # Called by the runtime with the finished result, as `on_session` is with
     # the session.
     on_result: Callable[[AgentResult], None] | None = None
+    # Added to the spawned agent's environment: where a per-run gateway key goes.
+    env: dict[str, str] = {}
+    # Where the call is made, `<unit>:<node>:<round>`, for naming its gateway key.
+    attribution: str = ""
 
 
 class AgentResult(Frozen):

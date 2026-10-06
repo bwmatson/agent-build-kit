@@ -7,9 +7,9 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, WrapValidator
 from pydantic_core.core_schema import ValidatorFunctionWrapHandler
 
-# Where a figure came from: the agent's own report, an approximation flagged as
-# one, or nothing at all.
-UsageSource = Literal["reported", "estimated", "none"]
+# Where a figure came from: the gateway's own records for the run's key, the
+# agent's own report, an approximation flagged as one, or nothing at all.
+UsageSource = Literal["gateway", "reported", "estimated", "none"]
 
 
 def _salvage(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:

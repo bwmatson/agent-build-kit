@@ -1191,6 +1191,7 @@ class AcpRuntime:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=request.cwd,
+                env={**os.environ, **request.env} if request.env else None,
                 limit=LINE_LIMIT,
                 start_new_session=True,
             )

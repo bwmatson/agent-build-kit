@@ -104,6 +104,34 @@ def test_a_resumed_call_adds_to_the_call_it_resumed_and_a_rerun_replaces_it(
     assert sum(r.cost_usd or 0 for r in read_ledger(rerun)) == 0.05
 
 
+def test_a_resumed_call_adds_what_the_agent_reported_beside_the_gateways_figures_too(
+    tmp_path: Path,
+) -> None:
+    ledger = write(
+        tmp_path / "usage-ledger.jsonl",
+        line(
+            session_id="S",
+            usage_source="gateway",
+            reported={"input_tokens": 9, "output_tokens": None},
+            reported_cost_usd=0.4,
+        ),
+        line(
+            session_id="S",
+            resumed=True,
+            usage_source="gateway",
+            reported={"input_tokens": 1, "output_tokens": None},
+            reported_cost_usd=0.1,
+        ),
+    )
+
+    (record,) = read_ledger(ledger)
+
+    assert record.reported is not None
+    assert record.reported.input_tokens == 10
+    assert record.reported.output_tokens is None
+    assert record.reported_cost_usd == pytest.approx(0.5)
+
+
 def test_calls_with_no_session_id_in_one_node_and_round_are_each_counted(tmp_path: Path) -> None:
     ledger = write(
         tmp_path / "usage-ledger.jsonl",

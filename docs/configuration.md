@@ -333,6 +333,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
 | `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |
 | `ABK_IMPLEMENT_MODEL`, `ABK_REWORK_MODEL`, `ABK_REVIEW_MODEL`, `ABK_REWORK_REVIEW_MODEL` | per-machine overrides of `models.*` | unset: the file's |
+| `ABK_GATEWAY_URL`, `ABK_GATEWAY_MASTER_KEY` | the model gateway and the master key that may mint keys on it. Set both and each agent call gets a key of its own, its usage is read from the gateway's records and the key is revoked afterwards; set neither for no gateway; one alone is said once and mints nothing | unset |
 | `ABK_OTEL_ENABLED` | the one switch for telemetry (traces and metrics, see `telemetry.py`); nothing OpenTelemetry is imported while it is false. Needs the `telemetry` extra (`pip install agent-build-kit[telemetry]`); without it one line says so and the run carries on | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | the OTLP/HTTP collector base URL; `/v1/traces` and `/v1/metrics` are appended | unset |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | per-signal full URLs, overriding the shared endpoint (traces and metrics usually have different intake ports) | unset |
