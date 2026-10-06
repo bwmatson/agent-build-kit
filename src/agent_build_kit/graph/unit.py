@@ -15,6 +15,7 @@ from langgraph.constants import START
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
 
+from agent_build_kit import telemetry
 from agent_build_kit.graph.build import BUILD_NODES, compile_build_path
 from agent_build_kit.graph.nodes import WAITS, BuildPath
 from agent_build_kit.graph.run import run_thread
@@ -31,7 +32,12 @@ class Tracer(Protocol):
     """The part of an OpenTelemetry tracer a node's span uses."""
 
     def start_as_current_span(
-        self, name: str, *, attributes: Mapping[str, str] | None = None
+        self,
+        name: str,
+        *,
+        attributes: Mapping[str, str | int] | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
     ) -> AbstractContextManager[object]: ...
 
 
@@ -262,6 +268,15 @@ async def run_unit(
     )
     await run_thread(compiled, start, unit.id)
     outcome = await _outcome(compiled, unit.id)
+    if outcome.status != RunStatus.PAUSED:
+        # A paused run has more rounds to come; this is the count of one that ended.
+        ended = _position(await compiled.aget_state(_config(unit.id))).state
+        telemetry.observe(
+            "abk.review.rounds",
+            ended.review_round if ended else 0,
+            repo=unit.repo,
+            outcome=str(outcome.status),
+        )
     if outcome.status == RunStatus.SATISFIED:
         # A thread lasts until the unit merges, is closed or is satisfied.
         await saver.adelete_thread(unit.id)

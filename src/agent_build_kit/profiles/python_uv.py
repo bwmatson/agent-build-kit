@@ -30,6 +30,15 @@ XDIST = "pytest-xdist"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
 
 
+# The pre-commit hooks that are the type checker, by id.
+TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
+_PYTEST = re.compile(r"\bpytest\b")
+# pre-commit prints `<hook name>....Passed|Failed|(no files to check)Skipped` for every
+# hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
+# change, the id is what a hook is called in the config, so the id decides.
+_HOOK_FAILED = re.compile(r"^\S.*?\.{3,}Failed[ \t]*\n- hook id: (?P<id>\S+)[ \t]*$", re.MULTILINE)
+
+
 def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
@@ -203,6 +212,20 @@ class PythonUvProfile:
         if returncode == 0:
             return True
         return returncode == NO_TESTS_COLLECTED and _is_serial_pass(command)
+
+    def failure_kind(self, output: str) -> str:
+        """Which check failed, from the command in the failure's `$` header: a
+        pytest command is `test`; the pre-commit run is `types` when a type
+        checker's hook is among those that `Failed` (its passing hooks are
+        listed too, so only the failed blocks count; each is matched by the `hook id`
+        line under it). The output is the tail pre-commit printed, so a type
+        checker's failed block followed by more than the kept tail of a later
+        hook's output reads as `lint`; the usual hook order puts the type checker last."""
+        header = output.lstrip().split("\n", 1)[0]
+        if header.startswith("$ ") and "pre-commit" not in header and _PYTEST.search(header):
+            return "test"
+        failed = {m.group("id") for m in _HOOK_FAILED.finditer(output)}
+        return "types" if failed & TYPE_HOOKS else "lint"
 
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.

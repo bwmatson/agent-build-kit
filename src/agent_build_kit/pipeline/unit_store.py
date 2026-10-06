@@ -81,6 +81,9 @@ class StoredUnit(Unit):
     # The file name of this unit's most recent run log (see `run_log`); empty
     # until it has run.
     run_log: str = ""
+    # Where this unit's most recent run is in the traces (`telemetry.reference`),
+    # so a later run links back to it; empty until a run has been traced.
+    trace: str = ""
     # Why the host last refused to register this unit's pull request in a
     # stack; empty when it did, or was never asked. Advisory: nothing reads it
     # to decide anything.
@@ -242,6 +245,7 @@ class UnitStore:
                 feedback_from_person=existing.feedback_from_person if existing else False,
                 predecessor_note=existing.predecessor_note if existing else "",
                 run_log=existing.run_log if existing else "",
+                trace=existing.trace if existing else "",
                 stack_refusal=existing.stack_refusal if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
@@ -395,6 +399,10 @@ class UnitStore:
     def set_run_log(self, unit_id: str, name: str) -> None:
         """Name the unit's most recent run log. Not a state change."""
         self._update(unit_id, run_log=name)
+
+    def set_trace(self, unit_id: str, trace: str) -> None:
+        """Name where the unit's most recent run is in the traces. Not a state change."""
+        self._update(unit_id, trace=trace)
 
     def clear_converted(self, unit_id: str) -> None:
         """Forget the step and the in-run progress a store written before the

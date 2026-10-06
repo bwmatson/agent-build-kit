@@ -49,6 +49,9 @@ class NodeNpmProfile:
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
         return returncode == 0
 
+    def failure_kind(self, output: str) -> str:
+        return self._todo("failure_kind")
+
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         return self._todo("tier2_commands")
 

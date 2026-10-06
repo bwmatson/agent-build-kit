@@ -96,6 +96,7 @@ from agent_build_kit.runtimes.base import (
     PolicyReport,
     ToolPolicy,
 )
+from agent_build_kit.runtimes.traced import traced
 
 NAME = "acp"
 
@@ -1071,6 +1072,9 @@ class AcpRuntime:
         self._no_roots_told = False
 
     def run(self, request: AgentRequest) -> AgentResult:
+        return traced(NAME, request, lambda: self._call(request))
+
+    def _call(self, request: AgentRequest) -> AgentResult:
         if request.worktree:
             # Running it in cwd instead would put a track phase in the
             # planning checkout.
@@ -1087,6 +1091,9 @@ class AcpRuntime:
             return AgentResult(ok=False, text="", error=f"runtimes.{NAME}.command is not set")
         before = _snapshot(request.cwd) if _is_read_only(request) else None
         result = asyncio.run(self._run(command, request))
+        if result.ok:
+            # One prompt, one turn: the protocol counts no more than that, and no tokens.
+            result = result.model_copy(update={"turns": 1})
         if before is None or (after := _snapshot(request.cwd)) is None:
             return result
         if (changed := _changed(before, after)) is None:

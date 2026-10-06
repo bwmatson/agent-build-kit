@@ -100,6 +100,10 @@ class AgentResult(Frozen):
     raw: str = ""  # everything, for diagnostics a caller doesn't otherwise need
     error: str = ""  # set when ok is False
     stop_reason: str = ""  # the runtime's own word for why the turn ended, for diagnostics
+    turns: int | None = None  # how many turns the run took, when the runtime counts them
+    # Tokens spent by kind (`input`, `output`, `cache`); empty when the runtime's
+    # output carries no counts.
+    tokens: dict[str, int] = {}
 
 
 class PolicyReport(Frozen):

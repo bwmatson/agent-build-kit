@@ -39,7 +39,12 @@ class FakeTracer:
 
     @contextmanager
     def start_as_current_span(
-        self, name: str, *, attributes: Mapping[str, str] | None = None
+        self,
+        name: str,
+        *,
+        attributes: Mapping[str, str | int] | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
     ) -> Iterator[None]:
         self.spans.append((name, dict(attributes or {})))
         yield
