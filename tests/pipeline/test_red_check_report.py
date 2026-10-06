@@ -120,10 +120,7 @@ def test_stderr_after_the_report_does_not_hide_it(caplog: pytest.LogCaptureFixtu
 
 
 def test_a_fixture_that_raises_not_implemented_at_setup_is_red() -> None:
-    report = (
-        '<testsuites><testsuite tests="1" errors="1"><testcase classname="t" name="test_new">'
-        '<error message="failed on setup with &quot;NotImplementedError&quot;">'
-        "t.py:3: NotImplementedError</error></testcase></testsuite></testsuites>"
-    )
+    result = red_check(recorded("fixture_not_implemented"))
 
-    assert red_check(report).verdict == "accepted"
+    assert result.verdict == "accepted"
+    assert any("test_new" in named for named in result.tests)

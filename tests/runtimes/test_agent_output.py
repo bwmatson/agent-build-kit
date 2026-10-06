@@ -13,8 +13,9 @@ import pytest
 from acp.schema import ToolCallProgress
 
 from agent_build_kit.pipeline.claude_stream import ResultEvent, own_words, result_event
+from agent_build_kit.pipeline.usage_guard import rate_limit_reset
 from agent_build_kit.runtimes.acp_output import denied_call
-from agent_build_kit.runtimes.claude_output import agent_failure
+from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "external"
 
@@ -31,6 +32,7 @@ def closing_event(name: str) -> tuple[ResultEvent | None, str]:
     [
         ("result_success", "none"),
         ("result_rate_limited_text_only", "rate_limited"),
+        ("result_rate_limited_structured", "rate_limited"),
         ("result_session_gone", "session_unavailable"),
         ("result_generic_error", "other"),
     ],
@@ -45,6 +47,30 @@ def test_a_text_only_rate_limit_says_when_it_lifts() -> None:
     event, text = closing_event("result_rate_limited_text_only")
 
     assert agent_failure(event, text).resets_at == datetime.fromtimestamp(1919763200, UTC)
+
+
+def test_a_structured_rate_limit_is_read_without_its_prose() -> None:
+    event, text = closing_event("result_rate_limited_structured")
+    assert event is not None
+    assert event.api_error_status == 429
+    assert rate_limit_reset(text) is False
+
+    assert agent_failure(event, text) == AgentFailure(kind="rate_limited")
+
+
+def test_a_structured_rate_limit_still_says_when_it_lifts_if_the_words_do() -> None:
+    event, _ = closing_event("result_rate_limited_structured")
+
+    failure = agent_failure(event, "usage limit reached|1919763200")
+
+    assert failure.resets_at == datetime.fromtimestamp(1919763200, UTC)
+
+
+def test_a_successful_run_is_not_a_rate_limit_whatever_its_status() -> None:
+    event, text = closing_event("result_success")
+    assert event is not None
+
+    assert agent_failure(event.model_copy(update={"api_error_status": 429}), text).kind == "none"
 
 
 def test_an_unlisted_subtype_is_not_a_success() -> None:

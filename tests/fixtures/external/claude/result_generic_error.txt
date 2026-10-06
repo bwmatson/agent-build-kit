@@ -1,8 +1,10 @@
-# tool: claude_code_version 2.1.4 (the closing `result` event of stream-json)
-# command: claude -p --output-format stream-json --verbose, run failed
+# tool: claude_code_version 2.1.285 (the closing `result` event of stream-json)
+# command: claude -p 'hi' --model haiku --output-format stream-json --verbose, run failed
 # returncode: 1
-# provenance: the event shape that version prints, with every field it carries;
-#   not captured from a live run. Re-record by running the command, keeping the last line.
+# provenance: built from the live 2.1.285 event in result_session_gone.txt, not a live recording:
+#   the claude CLI could not be run where this was written. Only these fields were edited:
+#   errors (one generic message instead of the missing-session one).
+#   Every other field is as recorded. Replace it with a recording when one is captured.
 --- stdout
-{"type": "result", "subtype": "error_during_execution", "is_error": true, "duration_ms": 412, "duration_api_ms": 0, "num_turns": 1, "errors": ["Execution error"], "session_id": "3f1c2a9e-5b7d-4e2f-9a61-0c8d7e4b2a15", "total_cost_usd": 0.0, "usage": {"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0, "service_tier": null}, "permission_denials": [], "uuid": "9a4e2c71-8b3d-4f6a-a5e0-7c1b9d2f8e63"}
+{"type":"result","subtype":"error_during_execution","duration_ms":0,"duration_api_ms":0,"is_error":true,"num_turns":0,"stop_reason":null,"session_id":"7c2e4290-1d5a-4b8f-8e3c-5a9b0d1f2e64","total_cost_usd":0,"usage":{"output_tokens_details":{"thinking_tokens":0},"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard","fallback_credit":null},"modelUsage":{},"permission_denials":[],"uuid":"c7fb525b-30a1-4567-96b0-d7b814147988","errors":["Execution error"],"result_index":0}
 --- stderr

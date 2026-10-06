@@ -22,16 +22,16 @@ otherwise "by the agent's own configuration", a best-effort attribution, since
 the protocol does not say why a call failed. That reading is `runtimes/acp_output.py`'s
 `denied_call`: a failed update is a denial when the `error.code` in its raw output is a
 known denial code, and otherwise when the phrase list reads it as one. The stop-reason strings are the
-SDK's `StopReason` type.
+SDK's `StopReason` type. This document specifies the whole shape, so that adding
+a second runtime is writing an adapter against a fixed Protocol, not another
+round of the same subprocess plumbing.
 
 The `claude` CLI's closing event is read the same way in `runtimes/claude_output.py`'s
 `agent_failure`: only an explicit set of subtypes (`success`) without `is_error` is a
-success, whatever the exit status; the event's own words then decide a rate limit, a lost
+success, whatever the exit status; an `api_error_status` of 429 then says it is a rate limit
+without reading any prose, and otherwise the event's own words decide a rate limit, a lost
 session or a plain failure. A non-zero exit with a success event is read by its words too.
 Recorded events and updates live under `tests/fixtures/external/claude/` and `.../acp/`.
-This document specifies the whole shape, so that adding a second runtime is
-writing an adapter against a fixed Protocol, not another round of the same
-subprocess plumbing.
 
 The second adapter is not another product's SDK. It is **ACP, the Agent Client
 Protocol** ([agentclientprotocol.com](https://agentclientprotocol.com)) — a

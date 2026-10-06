@@ -36,7 +36,8 @@
   branch protection) or a non-fast-forward is now an ordinary push failure carrying the remote's
   message, where it used to be reported as a stale lease. The rerere replay notice is read there
   too. A failed `claude` run comes from the closing event's `is_error` and subtype, whatever
-  the exit status (only an explicit success subtype is a success), and a denied ACP tool call
+  the exit status (only an explicit success subtype is a success), a closing event with an
+  `api_error_status` of 429 is a rate limit without reading its words, and a denied ACP tool call
   from its status and a known denial code, with the phrase lists as the fallback. The red check
   judges each failing test's exception from pytest's JUnit report, ignoring stderr around it,
   and says in the log when it falls back to the console. Recorded output under
