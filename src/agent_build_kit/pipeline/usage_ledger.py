@@ -11,12 +11,14 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from agent_build_kit import config
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.usage import Usage, UsageSource
 
 LEDGER_NAME = "usage-ledger.jsonl"
@@ -62,10 +64,16 @@ class UsageRecord(BaseModel):
     outcome: str = ""
 
 
+def ledger_lock(path: Path) -> AbstractContextManager[None]:
+    """The lock appends and the archive roll-up take, so a rewrite of the ledger
+    never drops a line appended meanwhile."""
+    return file_lock(path.with_name(f"{path.name}.lock"))
+
+
 def append_record(path: Path, record: BaseModel) -> None:
     """Add `record` as a line of the ledger. Raises `OSError` when it cannot."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as ledger:
+    with ledger_lock(path), path.open("a") as ledger:
         ledger.write(record.model_dump_json() + "\n")
 
 
@@ -139,7 +147,22 @@ def _combine_usage(parts: list[Usage]) -> Usage:
     return Usage(**summed)
 
 
+def read_lines(path: Path) -> list[str]:
+    """The ledger's lines; none when there is no ledger. A line cut off inside a
+    multibyte character decodes with a replacement character, so it fails to
+    parse and is skipped like any half-written line instead of failing the read."""
+    try:
+        return path.read_text(errors="replace").splitlines()
+    except FileNotFoundError:
+        return []
+
+
 def read_ledger(path: Path) -> list[UsageRecord]:
+    """The ledger's agent records; see `records_in`."""
+    return records_in(read_lines(path))
+
+
+def records_in(lines: list[str]) -> list[UsageRecord]:
     """The ledger's records, one per unit, node, round and session.
 
     A resumed call keeps its session id and reports the figures of that call
@@ -149,10 +172,6 @@ def read_ledger(path: Path) -> list[UsageRecord]:
     and replaces what came before it. Calls with no session id cannot be told
     apart from a re-run, so each stays a record of its own. A line that is not
     a record (half written) is skipped."""
-    try:
-        lines = path.read_text().splitlines()
-    except FileNotFoundError:
-        return []
     calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
     for line in lines:
         try:

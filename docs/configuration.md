@@ -44,6 +44,10 @@ planning:
   graph_page: docs/unit_graph.md
                                 # the mermaid unit graph, rewritten on every
                                 # state change.
+  usage_page: docs/unit_cost.md
+                                # per-change totals and the most expensive units
+                                # from the usage ledger, rewritten on every store
+                                # write; a failed write is reported, never fatal.
   worktree_root: null           # where per-unit worktrees are checked out:
                                 # <root>/<repo dir name>/<branch>. Never inside
                                 # the planning repo (refused at load). null =
@@ -360,7 +364,7 @@ Claude Code stores under `~/.claude`, and Claude Code's own cache in
 ## Reaching the config from code
 
 `Installation` (`installation.py`) loads the file and derives every path from
-it: `state_dir`, `specs_dir`, `changes_dir`, `graph_page`, `worktree_root`,
+it: `state_dir`, `specs_dir`, `changes_dir`, `graph_page`, `usage_page`, `worktree_root`,
 `checkouts`, `deploy_order`, `dev_stack_base`, `verify_env`. The CLI passes
 that object to every command. Leaf modules that need one scalar — a limit, a
 prefix, a model — call `config.active()`, set once by `Installation.activate()`

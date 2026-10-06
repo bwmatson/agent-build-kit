@@ -28,6 +28,7 @@ from agent_build_kit import openspec
 from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
+from agent_build_kit.pipeline.usage_report import roll_up_change
 
 # A subprocess.run-like callable, for tests to record the OpenSpec CLI call
 # instead of making it.
@@ -88,6 +89,7 @@ def archive_ready_changes(
     may_archive: Callable[[str], bool] = lambda change: True,
     specs_dir: str = "openspec",
     run_logs: Path | None = None,
+    usage_ledger: Path | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change
@@ -110,6 +112,13 @@ def archive_ready_changes(
         # A conflict raises rather than being auto-resolved.
         openspec.archive(change, cwd=planning_repo, run=run)
         archived.append(change)
+        if usage_ledger is not None:
+            try:
+                roll_up_change(usage_ledger, change)
+            except OSError:
+                # The ledger is a record, never a reason to stop archiving; the
+                # detail stays and is rolled up by nothing, but still reports.
+                pass
         if run_logs is not None:
             remove_change_logs(run_logs, change)
 

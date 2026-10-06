@@ -1247,7 +1247,9 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
     monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
     archiving: list[bool] = []
 
-    def archive(units, *, planning_repo, may_archive, specs_dir="openspec", run_logs=None):
+    def archive(
+        units, *, planning_repo, may_archive, specs_dir="openspec", run_logs=None, usage_ledger=None
+    ):
         archiving.append(may_archive("c") and not may_archive("other"))
         return ["c"]
 

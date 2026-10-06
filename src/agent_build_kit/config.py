@@ -45,6 +45,7 @@ class PlanningConfig(Frozen):
     state_dir: str = "runs"
     specs_dir: str = "openspec"
     graph_page: str = "docs/unit_graph.md"
+    usage_page: str = "docs/unit_cost.md"
     # Where per-unit worktrees are checked out. Never inside the planning root:
     # an agent reached a sibling unit's worktree through `--add-dir` when they
     # were, and a type checker resolved a code repo's imports against the
