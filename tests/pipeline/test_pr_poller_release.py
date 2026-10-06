@@ -146,5 +146,4 @@ def test_a_cancelled_check_arriving_with_the_release_is_delivered_by_the_next_po
     for _ in range(4):
         instance.poll()
 
-    assert ("release", 4) in seen
-    assert seen.count(("rerun_checks", 4)) >= 1
+    assert seen == [("rerun_checks", 4), ("release", 4), ("rerun_checks", 4)]

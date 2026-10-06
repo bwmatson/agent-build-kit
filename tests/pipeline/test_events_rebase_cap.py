@@ -274,7 +274,10 @@ def test_a_hold_that_needs_a_human_is_left_alone(tmp_path: Path) -> None:
 
 def test_a_depth_hold_a_reviewer_then_also_holds_is_still_the_depths(tmp_path: Path) -> None:
     """The label did not make the hold, so it does not take it over: the unit
-    keeps its cause and is reconsidered by the next merge like any depth hold."""
+    keeps its cause and is reconsidered by the next merge like any depth hold.
+    So a later merge restacks it to `in_review` while the label is still on its
+    pull request, and nothing then holds it: whether both causes should be kept
+    is for a person to settle (see the change's follow-ups)."""
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     events.on_hold(4, repo="app", store=store)

@@ -276,6 +276,7 @@ class UnitStore:
                 run_log=existing.run_log if existing else "",
                 trace=existing.trace if existing else "",
                 stack_refusal=existing.stack_refusal if existing else "",
+                held_by=existing.held_by if existing else HeldBy.NONE,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and existing.joined and not fresh.joined:

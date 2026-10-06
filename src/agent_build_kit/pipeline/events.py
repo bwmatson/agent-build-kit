@@ -55,7 +55,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE
-from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -818,7 +818,12 @@ def on_hold(
             log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
             return True
         if resume(unit, "hold", "", ""):
-            log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
+            current = store.get(unit.id)
+            if current.state == HELD and not current.held_by_the_label:
+                cause = current.held_by or "an unrecorded cause"
+                log(f"hold #{pr}: {unit.id} is already held by {cause}, leaving it as it is")
+            else:
+                log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
             return True
         with claim(unit):
             if store.get(unit.id).state == SATISFIED:
@@ -830,7 +835,7 @@ def on_hold(
                 cause = current.held_by or "an unrecorded cause"
                 log(f"hold #{pr}: {unit.id} is already held by {cause}, leaving it as it is")
                 return True
-            store.set_state(unit.id, HELD, held_by=HeldBy.REVIEWER)
+            store.set_state(unit.id, HELD, note=HELD_BY_A_REVIEWER, held_by=HeldBy.REVIEWER)
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
     log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")

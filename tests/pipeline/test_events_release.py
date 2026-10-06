@@ -16,7 +16,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.pr_poller import Poller
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
@@ -79,6 +79,44 @@ def test_a_unit_leaving_held_forgets_why_it_was_held(store: UnitStore) -> None:
     store.set_state(UNIT, PLANNED, note="requeued")
 
     assert store.get(UNIT).held_by == ""
+
+
+def test_the_hold_label_notes_that_a_reviewer_held_the_unit(store: UnitStore) -> None:
+    events.on_hold(1, repo="app", store=store, log=lambda m: None)
+
+    assert store.get(UNIT).note == "held by a reviewer"
+
+
+def test_a_replan_keeps_the_label_hold_and_its_release_still_applies(
+    store: UnitStore, logged: list[str]
+) -> None:
+    events.on_hold(1, repo="app", store=store, log=lambda m: None)
+
+    store.upsert([unit(UNIT)])
+
+    assert store.get(UNIT).held_by == "reviewer"
+    release(store, logged)
+    assert store.get(UNIT).state == IN_REVIEW
+
+
+def test_a_replan_keeps_a_depth_hold(store: UnitStore) -> None:
+    store.set_state(UNIT, HELD, note="too deep", held_by=HeldBy.DEPTH)
+
+    store.upsert([unit(UNIT)])
+
+    assert store.get(UNIT).state == HELD
+    assert store.get(UNIT).held_by == "depth"
+
+
+def test_a_hold_on_a_unit_with_a_thread_names_the_cause_it_really_has(
+    store: UnitStore, logged: list[str]
+) -> None:
+    store.set_state(UNIT, HELD, note="too deep", held_by=HeldBy.DEPTH)
+
+    events.on_hold(1, repo="app", store=store, resume=lambda *a: True, log=logged.append)
+
+    assert any("already held by depth" in line for line in logged)
+    assert not any("the pipeline will not touch it" in line for line in logged)
 
 
 def test_a_stored_unit_with_no_recorded_cause_still_loads(store: UnitStore) -> None:
