@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.usage import Usage, UsageSource
 
 if TYPE_CHECKING:
     # config imports this package to check a selection at load.
@@ -90,6 +91,9 @@ class AgentRequest(Frozen):
     resume_session: str = ""
     # Told the session's id as soon as the runtime knows it.
     on_session: Callable[[str], None] | None = None
+    # Called by the runtime with the finished result, as `on_session` is with
+    # the session.
+    on_result: Callable[[AgentResult], None] | None = None
 
 
 class AgentResult(Frozen):
@@ -104,6 +108,11 @@ class AgentResult(Frozen):
     # Tokens spent by kind (`input`, `output`, `cache`); empty when the runtime's
     # output carries no counts.
     tokens: dict[str, int] = {}
+    usage: Usage | None = None
+    cost_usd: float | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
+    usage_source: UsageSource = "none"
 
 
 class PolicyReport(Frozen):

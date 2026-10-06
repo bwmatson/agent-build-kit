@@ -43,6 +43,10 @@ reports. What it did, and what the client answered, is appended to RECORD as
     [--act ACTIONS] [--probe terminal|ask] [--unasked PREFIX]
     [--only PREFIX] [--split] [--offer KIND,...]
 
+`--usage reported|extra|malformed` has the prompt's response carry a `usage`
+payload: the protocol's own counts, the same with fields no client knows, or
+counts that are not numbers. Without it the response carries none.
+
 `--act` names a JSON file holding a list of actions, taken in order:
 
 - `{"terminal": COMMAND, "args": [...]}` has the client run a command through
@@ -162,6 +166,23 @@ STDERR_LINE = "fake-agent: the model endpoint refused the connection"
 # Far longer than any exit grace a test gives the adapter.
 HANG_SECONDS = 60
 
+# What `--usage` puts in the prompt response, as it goes on the wire
+# (`PromptResponse.usage`): the protocol's own names, then the same with a
+# field no client knows yet, then one whose counts are not numbers.
+REPORTED_USAGE = {
+    "totalTokens": 9200,
+    "inputTokens": 7000,
+    "outputTokens": 1500,
+    "thoughtTokens": 300,
+    "cachedReadTokens": 400,
+    "cachedWriteTokens": 0,
+}
+USAGE_PAYLOADS: dict[str, dict[str, Any]] = {
+    "reported": REPORTED_USAGE,
+    "extra": {**REPORTED_USAGE, "serviceTier": "priority", "_meta": {"billing": {"plan": "x"}}},
+    "malformed": {"totalTokens": "lots", "inputTokens": None, "outputTokens": [1]},
+}
+
 # The permission options it offers, as a real agent words them: the ids are
 # its own, so only the kinds say which option refuses.
 OPTIONS = {
@@ -206,7 +227,9 @@ class FakeAgent:
         only: str | None = None,
         split: bool = False,
         offer: list[str] | None = None,
+        usage: str | None = None,
     ) -> None:
+        self._usage = usage
         self._record = record
         self._stop = stop
         self._additional_dirs = additional_dirs
@@ -329,7 +352,7 @@ class FakeAgent:
                 return PromptResponse(stop_reason="cancelled")
             for chunk in ANSWER_CHUNKS:
                 await send(update_agent_message_text(chunk))
-            return PromptResponse(stop_reason=self._stop)
+            return self._response()
         await send(
             start_tool_call(
                 "call_01",
@@ -355,7 +378,17 @@ class FakeAgent:
         )
         for chunk in ANSWER_CHUNKS:
             await send(update_agent_message_text(chunk))
-        return PromptResponse(stop_reason=self._stop)
+        return self._response()
+
+    def _response(self) -> PromptResponse:
+        """The prompt's answer, carrying the usage `--usage` asks for. Built
+        without validation, so a payload the library itself would refuse
+        (`malformed`) still goes out on the wire as an agent could send it."""
+        if self._usage is None:
+            return PromptResponse(stop_reason=self._stop)
+        return PromptResponse.model_construct(
+            stop_reason=self._stop, usage=USAGE_PAYLOADS[self._usage]
+        )
 
     def _leave_child(self, *, new_session: bool) -> None:
         """Start a child that holds this agent's stderr for `HANG_SECONDS`."""
@@ -707,6 +740,7 @@ def command(
     only: str | None = None,
     split: bool = False,
     offer: list[str] | None = None,
+    usage: str | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -731,6 +765,8 @@ def command(
         argv.append("--split")
     if offer:
         argv += ["--offer", ",".join(offer)]
+    if usage:
+        argv += ["--usage", usage]
     return argv
 
 
@@ -747,6 +783,7 @@ def use_agent(
     only: str | None = None,
     split: bool = False,
     offer: list[str] | None = None,
+    usage: str | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -763,6 +800,7 @@ def use_agent(
             only=only,
             split=split,
             offer=offer,
+            usage=usage,
         )
     )
 
@@ -800,6 +838,7 @@ def main() -> None:
     parser.add_argument("--only")
     parser.add_argument("--split", action="store_true")
     parser.add_argument("--offer")
+    parser.add_argument("--usage", choices=sorted(USAGE_PAYLOADS))
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -813,6 +852,7 @@ def main() -> None:
         only=args.only,
         split=args.split,
         offer=args.offer.split(",") if args.offer else None,
+        usage=args.usage,
     )
     # Only the methods these tests drive: the rest answer "method not found".
     asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))

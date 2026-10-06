@@ -21,7 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
 
@@ -49,6 +49,11 @@ class ResultEvent(BaseModel):
     # How many turns the run took, and the tokens it spent, when it says.
     num_turns: int | None = None
     usage: dict[str, Any] = {}
+    # Stubs: declared, not yet read from the event (`validation_alias` names a
+    # key no event carries).
+    total_cost_usd: float | None = Field(None, validation_alias="_unread_cost")
+    duration_ms: int | None = Field(None, validation_alias="_unread_duration")
+    session_id: str | None = Field(None, validation_alias="_unread_session")
 
 
 def stream_run(
