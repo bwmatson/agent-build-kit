@@ -198,6 +198,8 @@ class ClaudeCodeRuntime:
     supports_streaming: bool = True
     # `--resume <id>`, with the id its init event reports.
     supports_session_resume: bool = True
+    # It starts `claude` with its own environment and never reads `request.env`.
+    passes_env: bool = False
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = AGENT_COMMAND

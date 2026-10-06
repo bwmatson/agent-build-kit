@@ -23,6 +23,7 @@ class SelectableRuntime:
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
     supports_session_resume: bool = False
+    passes_env: bool = False
 
     def __init__(
         self,

@@ -67,6 +67,18 @@ def test_finish_reads_the_totals_logged_for_the_key_and_revokes_it(
     assert gateway.revoked == [env[KEY_ENV]]
 
 
+def test_a_key_with_no_logged_traffic_reads_as_absent_and_is_still_revoked(
+    gateway: FakeGateway,
+) -> None:
+    client = source(gateway.url, [])
+    env, handle = client.begin(request())
+
+    spent = client.finish(handle)
+
+    assert spent == Spend()
+    assert gateway.revoked == [env[KEY_ENV]]
+
+
 def test_runs_going_at_once_get_different_keys_and_each_reads_only_its_own(
     gateway: FakeGateway,
 ) -> None:

@@ -35,6 +35,7 @@ class Modelled(StandInRuntime):
     spent."""
 
     name = "modelled"
+    passes_env = True
 
     def __init__(
         self,
@@ -173,6 +174,46 @@ def test_an_agent_that_reports_nothing_leaves_nothing_beside_the_gateways_figure
     assert record["usage_source"] == "gateway"
     assert record["reported"] is None
     assert record["reported_cost_usd"] is None
+
+
+def test_an_agent_that_never_spends_through_its_key_keeps_its_own_figures(
+    tmp_path: Path, workspace: Installation, gateway: FakeGateway
+) -> None:
+    class Silent(Modelled):
+        def run(self, request: AgentRequest) -> AgentResult:
+            request = request.model_copy(update={"env": {}})
+            return super().run(request)
+
+    runtime = Silent(gateway, reported=Usage(input_tokens=900, output_tokens=90), reported_cost=0.4)
+
+    build(tmp_path, runtime, [])
+
+    record = ledger(workspace)["tests"]
+    assert record["usage_source"] == "reported"
+    assert record["input_tokens"] == 900
+    assert record["reported"] is None
+    assert gateway.revoked == [m["key"] for m in gateway.minted]
+
+
+def test_a_runtime_that_cannot_pass_env_is_skipped_with_a_line(
+    tmp_path: Path, workspace: Installation, gateway: FakeGateway
+) -> None:
+    class NoEnv(Modelled):
+        name = "no-env"
+        passes_env = False
+
+    runtime = NoEnv(gateway, reported=Usage(input_tokens=900, output_tokens=90))
+    lines: list[str] = []
+
+    build(tmp_path, runtime, lines)
+
+    assert gateway.calls == []
+    assert all(KEY_ENV not in r.env for r in runtime.requests)
+    skips = [line for line in lines if "no-env" in line and "skipped" in line]
+    assert len(skips) == len(runtime.requests)
+    record = ledger(workspace)["tests"]
+    assert record["usage_source"] == "reported"
+    assert record["input_tokens"] == 900
 
 
 def test_an_unreachable_gateway_leaves_the_run_unchanged_and_warns_once_per_run(

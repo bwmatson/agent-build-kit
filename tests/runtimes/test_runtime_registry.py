@@ -32,6 +32,7 @@ class _Double:
     supports_usage_tracking = False
     supports_streaming = False
     supports_session_resume = False
+    passes_env = False
     requires: tuple[str, ...] = ()
     agent_command: tuple[str, ...] = ()
     default_models = ModelsConfig()

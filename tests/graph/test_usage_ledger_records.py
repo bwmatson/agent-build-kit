@@ -49,6 +49,7 @@ class KilledInImplement(StandInRuntime):
 
     name = "killable"
     supports_session_resume = True
+    passes_env = False
 
     def __init__(self) -> None:
         super().__init__(answer="done")

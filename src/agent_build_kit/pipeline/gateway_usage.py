@@ -32,7 +32,7 @@ class Spend(Frozen):
     cost_usd: float | None = None
 
 
-class UsageSource(Protocol):
+class SpendSource(Protocol):
     """Where a run's usage can be read from besides what the agent reports."""
 
     def begin(self, request: AgentRequest) -> tuple[dict[str, str], object]:
@@ -45,7 +45,7 @@ class UsageSource(Protocol):
 
 
 class GatewayUsage:
-    """A `UsageSource` over a gateway's key and spend endpoints.
+    """A `SpendSource` over a gateway's key and spend endpoints.
 
     Every failure is said once and leaves the run as it would have been without
     a gateway: no key, no figures.
@@ -92,6 +92,10 @@ class GatewayUsage:
     def _spend(self, key: str) -> Spend:
         try:
             rows = self._call("GET", "/spend/logs?" + urllib.parse.urlencode({"api_key": key}))
+            if not rows:
+                # Nothing logged for the key: the agent never spent through it,
+                # which is no evidence it spent nothing.
+                return Spend()
             usage = Usage(
                 input_tokens=sum(int(row.get("prompt_tokens") or 0) for row in rows),
                 output_tokens=sum(int(row.get("completion_tokens") or 0) for row in rows),
@@ -102,7 +106,7 @@ class GatewayUsage:
             return Spend()
 
 
-def configured_source(say: Callable[[str], None]) -> UsageSource | None:
+def configured_source(say: Callable[[str], None]) -> SpendSource | None:
     """The gateway source the settings name, or None when they name none."""
     url, master_key = settings.gateway_url, settings.gateway_master_key
     if not url and not master_key:

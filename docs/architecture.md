@@ -742,7 +742,7 @@ key are read and recorded with `usage_source` `gateway`, the agent's own report 
 them (`reported`, `reported_cost_usd`) for a report to compare, and the key is revoked however the
 call ended. A gateway that cannot be reached, a refused mint or unreadable totals is said in the
 unit's log once per call and the call goes on as without a gateway: no key, and the agent's own
-figures as before. The seam is `pipeline/gateway_usage.UsageSource`.
+figures as before. The seam is `pipeline/gateway_usage.SpendSource`.
 
 An `acp` agent's `thoughtTokens` are not read: only `outputTokens` is recorded, and whether it
 includes reasoning tokens depends on the agent. Move the ignore line if `planning.state_dir` is changed.

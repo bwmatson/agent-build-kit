@@ -214,6 +214,12 @@ def build_run_claude(
         # totals reach the callback beside what the agent reports, and it is
         # revoked however the call ends.
         source = configured_source(log or print)
+        if source is not None and not agent.passes_env:
+            (log or print)(
+                f"gateway: {agent.name} cannot pass a key to its agent; "
+                "the gateway source is skipped"
+            )
+            source = None
         env: dict[str, str] = {}
         handle: object = None
         if source is not None:

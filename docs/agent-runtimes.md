@@ -121,6 +121,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
 | `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable` |
+| `passes_env` | attr | whether `AgentRequest.env` reaches the agent the runtime starts. One that does not is never minted a gateway key (see Spend through a gateway) |
 | `requires` | attr | the `runtimes.<name>` keys it cannot run without; a selection missing one fails at load |
 | `agent_command` | attr | the argv that starts its agent when `runtimes.<name>.command` is unset; a set `command` replaces it in every run and in `abk doctor`'s PATH check alike |
 | `default_models` | attr | its own model names for a role nothing in the file or the environment names |
@@ -264,6 +265,7 @@ class AgentRuntime(Protocol):
     supports_usage_tracking: bool
     supports_streaming: bool
     supports_session_resume: bool
+    passes_env: bool
     requires: tuple[str, ...]
     agent_command: tuple[str, ...]
     default_models: ModelsConfig
@@ -654,7 +656,9 @@ A runtime that reaches its model through a gateway gives exact figures that do n
 what the agent reports. With `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, the agent step
 mints a key per call and passes it in `AgentRequest.env` (`ABK_GATEWAY_KEY`); the `acp` runtime
 starts its agent with that environment on top of its own, so an agent that reads its key from
-the environment at start spends through it. The runtime itself does nothing more: the call's
+the environment at start spends through it. A runtime that cannot hand its agent an
+environment declares `passes_env = False` and is skipped with one log line per call: no key
+is minted and the figures stay the agent's own. The runtime itself does nothing more: the call's
 totals are read from the gateway when it ends (`pipeline/gateway_usage.py`) and recorded
 beside what the runtime reported. An agent that takes its key some other way gets one minted
 for nothing, and its figures stay its own.
