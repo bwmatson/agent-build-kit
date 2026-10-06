@@ -78,3 +78,18 @@ def test_every_metric_the_dashboard_queries_is_one_the_framework_emits() -> None
 
     assert queried, "the dashboard queries no abk_ metric"
     assert queried <= emitted, sorted(queried - emitted)
+
+
+def test_the_dashboard_shows_the_ledger_cost_tokens_node_and_wait_durations() -> None:
+    queried = {
+        _base(name)
+        for expression in _expressions(_dashboard())
+        for name in QUERIED.findall(expression)
+    }
+
+    assert {
+        "abk_agent_cost",
+        "abk_agent_tokens",
+        "abk_node_duration",
+        "abk_wait_duration",
+    } <= queried
