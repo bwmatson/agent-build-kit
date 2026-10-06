@@ -4,8 +4,11 @@ that reached it."""
 from __future__ import annotations
 
 import json as jsonlib
+from pathlib import Path
 
 import httpx
+
+RECORDED = Path(__file__).parent / "recorded"
 
 Reply = httpx.Response | Exception
 
@@ -16,8 +19,17 @@ def ok(body: object, status: int = 200, **headers: str) -> httpx.Response:
     return httpx.Response(status, content=jsonlib.dumps(body), headers={**JSON, **headers})
 
 
-def failure(status: int, message: str, **headers: str) -> httpx.Response:
-    return ok({"message": message}, status, **headers)
+def recorded(name: str, **headers: str) -> httpx.Response:
+    """A response recorded from the host (names neutralised to fixture owners):
+    status, headers and body from recorded/<name>.json. `headers` override the
+    recorded ones, for the values that were only true when it was recorded, such
+    as an epoch-second reset time."""
+    answer = jsonlib.loads((RECORDED / f"{name}.json").read_text())
+    return httpx.Response(
+        answer["status"],
+        content=jsonlib.dumps(answer["body"]),
+        headers={**answer["headers"], **headers},
+    )
 
 
 def sign_in_page() -> httpx.Response:

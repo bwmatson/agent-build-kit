@@ -123,9 +123,10 @@ def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTranspor
     authenticated endpoint. Raises `TransportError` naming what failed."""
     credentials = credential_for(repo.forge, repo.account, run=run)
     try:
-        answer = Transport(GITHUB_API, credentials, transport=transport).request("GET", "/user")
+        with Transport(GITHUB_API, credentials, transport=transport) as host:
+            answer = host.request("GET", "/user")
     except TransportError as error:
-        raise type(error)(f"{error} (credential from {credentials.source})") from error
+        raise TransportError(f"{error} (credential from {credentials.source})") from error
     return f"{answer.data['login']} via {credentials.source}"
 
 
@@ -134,7 +135,6 @@ def _forge_access(
     run: Run,
     *,
     transport: httpx.BaseTransport | None = None,
-    live: bool = False,
 ) -> list[Check]:
     """Whether each repo's host will answer for it.
 
@@ -148,7 +148,7 @@ def _forge_access(
     for name in sorted(inst.repos):
         forge, repo = inst.forge_of(name)
         title = f"forge {name}"
-        if live and repo.forge == "github":
+        if repo.forge == "github":
             try:
                 checks.append(
                     _ok(
@@ -786,9 +786,6 @@ def run_doctor(
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> list[Check]:
-    # A stand-in `run` without a stand-in transport is a test of something else:
-    # it must not reach a real host.
-    live = transport is not None or run is None
     run = run or subprocess.run
     which = which or shutil.which
     try:
@@ -807,7 +804,7 @@ def run_doctor(
     inst.activate()
 
     checks += _repos(inst, run)
-    checks += _forge_access(inst, run, transport=transport, live=live)
+    checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)

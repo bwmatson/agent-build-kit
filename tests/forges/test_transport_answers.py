@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from agent_build_kit.forges.transport import AuthError, Credentials, NotFound, Transport
-from tests.forges.mock_host import MockHost, failure, sign_in_page
+from tests.forges.mock_host import MockHost, recorded, sign_in_page
 
 CREDENTIALS = Credentials(scheme="Bearer", token="tok-example", source="setting", owner="example")
 
@@ -32,7 +32,7 @@ def test_a_sign_in_page_with_a_200_is_an_authentication_error() -> None:
 
 
 def test_a_not_found_names_the_account_used() -> None:
-    host = MockHost(failure(404, "Not Found"))
+    host = MockHost(recorded("repo_404"))
 
     with pytest.raises(NotFound) as caught:
         transport(host).request("GET", "/repos/example/app")
@@ -42,9 +42,9 @@ def test_a_not_found_names_the_account_used() -> None:
     assert len(host.requests) == 1
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_a_refusal_is_an_authentication_error(status: int) -> None:
-    host = MockHost(failure(status, "Bad credentials"))
+@pytest.mark.parametrize("answer", ["bad_credentials_401", "bad_credentials_403"])
+def test_a_refusal_is_an_authentication_error(answer: str) -> None:
+    host = MockHost(recorded(answer))
 
     with pytest.raises(AuthError):
         transport(host).request("GET", "/repos/example/app")

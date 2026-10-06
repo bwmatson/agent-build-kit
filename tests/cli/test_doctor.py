@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from agent_build_kit import __version__, skills
-from agent_build_kit.cli import main
+from agent_build_kit.cli import doctor, main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
 from agent_build_kit.forges.transport import clear_credentials
@@ -20,6 +20,7 @@ from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from agent_build_kit.settings import reload, settings
 from tests.factories import git, init_repo
+from tests.forges.mock_host import MockHost, recorded
 from tests.runtimes.selectable import SelectableRuntime, select
 
 
@@ -870,12 +871,24 @@ def test_a_per_signal_endpoint_overrides_the_shared_one(
     assert checks["telemetry metrics"].status == "warn"
 
 
-def _github_account(login: str) -> httpx.MockTransport:
-    def answer(request: httpx.Request) -> httpx.Response:
-        assert request.headers["authorization"].endswith("tok")
-        return httpx.Response(200, json=dict(login=login, id=7, type="User"))
+def _github_account() -> httpx.BaseTransport:
+    """GitHub answering GET /user as the account `example-bot`, as recorded."""
+    return MockHost(recorded("user_200"))
 
-    return httpx.MockTransport(answer)
+
+@pytest.fixture(autouse=True)
+def github_answers(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Doctor always asks GitHub who the credential is: unless a test brings
+    its own host, it is the recorded account, never the network."""
+    real = doctor.Transport
+
+    def build(base_url, credentials, *, transport=None, **kwargs):
+        return real(base_url, credentials, transport=transport or _github_account(), **kwargs)
+
+    clear_credentials()
+    monkeypatch.setattr(doctor, "Transport", build)
+    yield
+    clear_credentials()
 
 
 @pytest.fixture
@@ -892,7 +905,7 @@ def test_doctor_reports_the_account_each_repo_credential_acts_as(
             workspace / "abk.yaml",
             run=Answers(),
             which=which_all,
-            transport=_github_account("example-bot"),
+            transport=_github_account(),
         )
     )
 
@@ -909,10 +922,33 @@ def test_doctor_on_a_logged_out_machine_names_the_sources_tried(
             workspace / "abk.yaml",
             run=Answers(owners=set()),
             which=which_all,
-            transport=_github_account("example-bot"),
+            transport=_github_account(),
         )
     )
 
     assert checks["forge app"].status == "FAIL"
     text = f"{checks['forge app'].detail} {checks['forge app'].fix}"
-    assert "gh auth token" in text and "example" in text
+    assert "GH_TOKEN" in text
+    assert "gh auth token --user example" in text
+
+
+@pytest.mark.parametrize("answer", ["rate_limit_429", "repo_404"])
+def test_doctor_reports_a_failing_account_call_as_a_failure_naming_the_source(
+    workspace: Path,
+    logged_out_settings: None,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: str,
+) -> None:
+    monkeypatch.setattr(settings, "forge_retries", 0)
+
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=which_all,
+            transport=MockHost(recorded(answer)),
+        )
+    )
+
+    assert checks["forge app"].status == "FAIL"
+    assert "gh auth token --user example" in checks["forge app"].detail

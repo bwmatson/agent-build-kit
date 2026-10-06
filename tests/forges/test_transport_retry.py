@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
 from agent_build_kit.forges.transport import (
+    MAX_DELAY,
+    AuthError,
     Credentials,
     HostError,
     RateLimited,
     Transport,
 )
 from agent_build_kit.settings import settings
-from tests.forges.mock_host import MockHost, ok
+from tests.forges.mock_host import MockHost, ok, recorded
 
 CREDENTIALS = Credentials(scheme="Bearer", token="tok-example", source="setting", owner="example")
 
@@ -95,3 +99,83 @@ def test_the_credential_is_sent_as_the_authorization_header() -> None:
     transport(host, []).request("GET", "/a")
 
     assert host.requests[0].headers["authorization"] == "Bearer tok-example"
+
+
+@pytest.mark.parametrize(
+    "answer, hint",
+    [("rate_limit_secondary_403", 60), ("rate_limit_429", 30)],
+)
+def test_a_rate_limit_with_retry_after_is_retried_then_typed(answer: str, hint: int) -> None:
+    host = MockHost(recorded(answer))
+    sleeps: list[float] = []
+
+    with pytest.raises(RateLimited) as caught:
+        transport(host, sleeps).request("GET", "/repos/example/app")
+
+    assert caught.value.retry_after == hint
+    assert len(host.requests) == 3
+    assert all(s >= hint for s in sleeps)
+
+
+def test_a_primary_rate_limit_403_takes_its_hint_from_the_reset_time() -> None:
+    reset = str(int(time.time()) + 30)
+    host = MockHost(recorded("rate_limit_primary_403", **{"x-ratelimit-reset": reset}))
+    sleeps: list[float] = []
+
+    with pytest.raises(RateLimited) as caught:
+        transport(host, sleeps).request("GET", "/repos/example/app")
+
+    assert caught.value.retry_after is not None and 25 <= caught.value.retry_after <= 30
+    assert len(host.requests) == 3
+    assert all(s >= 25 for s in sleeps)
+
+
+def test_a_rate_limit_then_a_200_succeeds_on_retry() -> None:
+    host = MockHost(recorded("rate_limit_primary_403", **{"x-ratelimit-reset": "0"}), ok({"id": 1}))
+
+    response = transport(host, []).request("GET", "/repos/example/app")
+
+    assert response.data == {"id": 1}
+    assert len(host.requests) == 2
+
+
+def test_a_plain_403_is_a_refusal_not_a_rate_limit() -> None:
+    host = MockHost(recorded("bad_credentials_403"))
+
+    with pytest.raises(AuthError):
+        transport(host, []).request("GET", "/repos/example/app")
+
+    assert len(host.requests) == 1
+
+
+def test_a_429_hint_beyond_the_ceiling_fails_at_once_instead_of_sleeping() -> None:
+    host = MockHost(httpx.Response(429, headers={"retry-after": "3600"}))
+    sleeps: list[float] = []
+
+    with pytest.raises(RateLimited) as caught:
+        transport(host, sleeps).request("GET", "/repos/example/app")
+
+    assert caught.value.retry_after == 3600
+    assert len(host.requests) == 1
+    assert all(s <= MAX_DELAY for s in sleeps)
+
+
+def test_a_503_hint_beyond_the_ceiling_fails_at_once_instead_of_sleeping() -> None:
+    host = MockHost(httpx.Response(503, headers={"retry-after": "3600"}))
+    sleeps: list[float] = []
+
+    with pytest.raises(HostError) as caught:
+        transport(host, sleeps).request("GET", "/repos/example/app")
+
+    assert caught.value.retry_after == 3600
+    assert len(host.requests) == 1
+    assert all(s <= MAX_DELAY for s in sleeps)
+
+
+def test_a_closed_transport_makes_no_more_calls() -> None:
+    host = MockHost(ok({}))
+    with transport(host, []) as t:
+        t.request("GET", "/a")
+
+    with pytest.raises(RuntimeError):
+        t.request("GET", "/a")

@@ -4,7 +4,6 @@ call, bounded retry, and the rules for answers that are not the expected one."""
 from __future__ import annotations
 
 import random
-import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -13,11 +12,16 @@ from typing import Any, Literal
 import httpx
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.shell import (
+    GH_TOKEN_SOURCE,
+    Run,
+    credential_source,
+    forget_tokens,
+)
 from agent_build_kit.settings import settings
 
-Run = Callable[..., subprocess.CompletedProcess]
-
-# Longest single wait between attempts, unless the host's own Retry-After asks for more.
+# Longest single wait between attempts. A host that asks for longer is not waited
+# for: the call fails at once with the hint, so a tick never stalls on it.
 MAX_DELAY = 60.0
 # How much of a page an error quotes.
 PAGE_EXCERPT = 200
@@ -41,7 +45,9 @@ class NotFound(TransportError):
 
 
 class RateLimited(TransportError):
-    """The host kept answering 429 after the retry bound."""
+    """The host rate-limited the call (a 429, or a 403 carrying GitHub's rate
+    limit headers) and kept doing so after the retry bound, or asked for a
+    longer wait than the transport will make."""
 
     def __init__(self, message: str, *, retry_after: float | None):
         super().__init__(message)
@@ -49,7 +55,12 @@ class RateLimited(TransportError):
 
 
 class HostError(TransportError):
-    """The host kept failing after the retry bound, or answered 5xx."""
+    """The host kept failing after the retry bound, or answered 5xx.
+    `retry_after` is the host's own hint, when it gave one."""
+
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class Credentials(Frozen):
@@ -67,20 +78,30 @@ class Response(Frozen):
 
 
 _cache: dict[tuple[str, str], Credentials] = {}
+_locks: dict[tuple[str, str], threading.Lock] = {}
 _cache_lock = threading.Lock()
 
 
-def credential_for(forge: str, owner: str, *, run: Run = subprocess.run) -> Credentials:
+def credential_for(forge: str, owner: str, *, run: Run | None = None) -> Credentials:
     """The credential `owner`'s repos on `forge` are called with.
 
-    The explicit setting wins, then the host CLI's logged-in token for that
-    owner, read once and cached. Nothing global is switched, so units for
-    different owners can run concurrently.
+    The order is `pipeline.shell.credential_source`'s: the explicit setting,
+    then the host CLI's logged-in token for that owner, read once and cached.
+    Nothing global is switched, so units for different owners can run
+    concurrently, and each owner's lookup waits only for its own.
     """
+    key = (forge, owner)
     with _cache_lock:
-        cached = _cache.get((forge, owner))
+        cached = _cache.get(key)
+        lock = _locks.setdefault(key, threading.Lock())
+    if cached is not None:
+        return cached
+    with lock:
+        cached = _cache.get(key)
         if cached is None:
-            cached = _cache[(forge, owner)] = _resolve(forge, owner, run)
+            cached = _resolve(forge, owner, run)
+            with _cache_lock:
+                _cache[key] = cached
         return cached
 
 
@@ -88,26 +109,21 @@ def clear_credentials() -> None:
     """Forget every cached credential (after a re-login, and between tests)."""
     with _cache_lock:
         _cache.clear()
+    forget_tokens()
 
 
-def _resolve(forge: str, owner: str, run: Run) -> Credentials:
+def _resolve(forge: str, owner: str, run: Run | None) -> Credentials:
     if forge != "github":
         raise AuthError(f"no credential source for a {forge} repo of {owner}")
-    if settings.gh_token:
-        return Credentials(scheme="Bearer", token=settings.gh_token, source="GH_TOKEN", owner=owner)
-    result = run(
-        ["gh", "auth", "token", "--user", owner], capture_output=True, text=True, check=False
-    )
-    token = "" if result.returncode else (result.stdout or "").strip()
-    if not token:
+    found = credential_source(owner, run=run)
+    if found is None:
         raise AuthError(
-            f"no credential for {owner}: tried GH_TOKEN (unset) and "
-            f"`gh auth token --user {owner}` (no token); set GH_TOKEN or "
+            f"no credential for {owner}: tried {GH_TOKEN_SOURCE} (unset) and "
+            f"`gh auth token --user {owner}` (no token); set {GH_TOKEN_SOURCE} or "
             f"run `gh auth login` as {owner}"
         )
-    return Credentials(
-        scheme="Bearer", token=token, source=f"gh auth token --user {owner}", owner=owner
-    )
+    token, source = found
+    return Credentials(scheme="Bearer", token=token, source=source, owner=owner)
 
 
 def _seconds(value: str | None) -> float | None:
@@ -117,8 +133,29 @@ def _seconds(value: str | None) -> float | None:
         return None
 
 
+def _rate_limit_hint(headers: httpx.Headers) -> float | None:
+    """Seconds the host asks us to wait: Retry-After, else the time to
+    x-ratelimit-reset (an epoch second)."""
+    hint = _seconds(headers.get("retry-after"))
+    if hint is None:
+        reset = _seconds(headers.get("x-ratelimit-reset"))
+        hint = max(reset - time.time(), 0.0) if reset is not None else None
+    return hint
+
+
+def _is_rate_limit(reply: httpx.Response) -> bool:
+    """429, or GitHub's 403: the primary limit says `x-ratelimit-remaining: 0`,
+    the secondary one sends `retry-after`. A plain 403 is a refusal."""
+    if reply.status_code == 429:
+        return True
+    return reply.status_code == 403 and (
+        "retry-after" in reply.headers or reply.headers.get("x-ratelimit-remaining") == "0"
+    )
+
+
 class Transport:
-    """Calls to one code host as one account."""
+    """Calls to one code host as one account. Use as a context manager, or
+    `close()` it, to release the connection pool."""
 
     def __init__(
         self,
@@ -143,6 +180,15 @@ class Transport:
             },
         )
 
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> Transport:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def request(
         self,
         method: str,
@@ -166,16 +212,20 @@ class Transport:
             except httpx.TransportError as error:
                 failure: TransportError = HostError(f"{method} {path}: {error!r}")
             else:
-                hint = _seconds(reply.headers.get("retry-after"))
-                if reply.status_code == 429:
+                if _is_rate_limit(reply):
+                    hint = _rate_limit_hint(reply.headers)
                     failure = RateLimited(f"{method} {path}: rate limited", retry_after=hint)
                 elif reply.status_code >= 500:
-                    failure = HostError(f"{method} {path}: host answered {reply.status_code}")
+                    hint = _seconds(reply.headers.get("retry-after"))
+                    failure = HostError(
+                        f"{method} {path}: host answered {reply.status_code}", retry_after=hint
+                    )
                 else:
                     return self._answer(method, path, reply, expect)
-            # A 429 was refused before it did anything, so repeating it is safe.
+            # A rate-limited call was refused before it did anything, so
+            # repeating it is safe.
             safe = idempotent or isinstance(failure, RateLimited)
-            if not safe or attempt >= self.retries:
+            if not safe or attempt >= self.retries or (hint or 0.0) > MAX_DELAY:
                 raise failure
             backoff = min(0.5 * 2**attempt * random.uniform(0.5, 1.5), MAX_DELAY)
             self._sleep(max(backoff, hint or 0.0))

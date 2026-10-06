@@ -14,6 +14,7 @@ from agent_build_kit.forges.transport import (
     clear_credentials,
     credential_for,
 )
+from agent_build_kit.pipeline import shell
 from agent_build_kit.settings import settings
 from tests.forges.mock_host import MockHost, ok
 
@@ -112,3 +113,23 @@ def test_no_credential_names_the_owner_and_the_sources_tried() -> None:
     assert "acme" in message
     assert "gh auth token" in message
     assert "GH_TOKEN" in message
+
+
+def test_clearing_credentials_also_forgets_what_gh_subprocesses_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a re-login both the HTTP calls and `gh` calls act as the new token."""
+    tokens = ["tok-old"]
+
+    def gh(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, f"{tokens[0]}\n", "")
+
+    monkeypatch.setattr(shell.subprocess, "run", gh)
+    assert shell.gh_env("example/app")["GH_TOKEN"] == "tok-old"
+    assert credential_for("github", "example").token == "tok-old"
+
+    tokens[0] = "tok-new"
+    clear_credentials()
+
+    assert shell.gh_env("example/app")["GH_TOKEN"] == "tok-new"
+    assert credential_for("github", "example").token == "tok-new"
