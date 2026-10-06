@@ -172,6 +172,17 @@ def test_a_passing_check_is_not_an_event(poller) -> None:
     assert seen == []
 
 
+def test_a_pull_request_listed_as_a_draft_after_being_ready_is_not_an_event(poller) -> None:
+    """The pipeline toggles drafts itself; a toggle waking it would loop."""
+    instance, seen = poller([[pr()], [pr(draft=True)], [pr()]])
+    instance.poll()
+
+    instance.poll()
+    instance.poll()
+
+    assert seen == []
+
+
 def test_the_hold_label_stops_a_stack_advancing(poller) -> None:
     instance, seen = poller([[pr()], [pr(labels=("agent-hold",))]])
     instance.poll()
