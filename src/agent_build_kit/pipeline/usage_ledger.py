@@ -62,7 +62,7 @@ class UsageRecord(BaseModel):
     outcome: str = ""
 
 
-def append_record(path: Path, record: UsageRecord) -> None:
+def append_record(path: Path, record: BaseModel) -> None:
     """Add `record` as a line of the ledger. Raises `OSError` when it cannot."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as ledger:
@@ -76,7 +76,12 @@ def forget_told() -> None:
 
 
 def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
-    """Add `record` to the active installation's ledger, never raising.
+    """Add `record` to the active installation's ledger, never raising."""
+    record_line(record, say)
+
+
+def record_line(record: BaseModel, say: Callable[[str], None]) -> None:
+    """Add any line (an agent call, a span) to the ledger, never raising.
 
     A record that cannot be kept — no workspace is loaded, or the write
     fails — is dropped, and `say` is told once per process for each distinct
@@ -151,8 +156,11 @@ def read_ledger(path: Path) -> list[UsageRecord]:
     calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
     for line in lines:
         try:
-            record = UsageRecord.model_validate(json.loads(line))
-        except (ValueError, ValidationError):
+            raw = json.loads(line)
+            if raw.get("kind", "agent") != "agent":
+                continue
+            record = UsageRecord.model_validate(raw)
+        except (ValueError, AttributeError, ValidationError):
             continue
         session = record.session_id or f"unnamed@{record.at}"
         key = (record.unit, record.node, record.round, session)

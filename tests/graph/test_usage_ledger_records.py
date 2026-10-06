@@ -84,7 +84,8 @@ def ledger_lines(workspace: Installation) -> list[dict]:
     path = workspace.state_dir / "usage-ledger.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line]
+    lines = [json.loads(line) for line in path.read_text().splitlines() if line]
+    return [line for line in lines if line.get("kind", "agent") == "agent"]
 
 
 def absent(record: dict, field: str) -> bool:

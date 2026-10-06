@@ -21,6 +21,7 @@ from agent_build_kit.graph.nodes import WAITS, BuildPath
 from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -59,6 +60,7 @@ class Position(Frozen):
     next: tuple[Node, ...] = ()
     state: UnitRun | None = None
     pause: Pause | None = None
+    paused_since: datetime | None = None
 
 
 async def _nothing(state: UnitRun) -> dict[str, Any]:
@@ -67,18 +69,21 @@ async def _nothing(state: UnitRun) -> dict[str, Any]:
 
 def _position(snapshot: StateSnapshot) -> Position:
     pause = None
+    since = None
     for task in snapshot.tasks:
         for waiting in task.interrupts:
             value = waiting.value
             if isinstance(value, dict) and "reason" in value:
-                until = value.get("until")
+                until, began = value.get("until"), value.get("at")
                 pause = Pause(
                     reason=value["reason"], until=datetime.fromisoformat(until) if until else None
                 )
+                since = datetime.fromisoformat(began) if began else None
     return Position(
         next=tuple(Node(name) for name in snapshot.next),
         state=UnitRun.model_validate(snapshot.values) if snapshot.values else None,
         pause=pause,
+        paused_since=since,
     )
 
 
@@ -255,6 +260,8 @@ async def run_unit(
     compiled = _compiled(saver, path)
     _record_sessions(path, compiled, unit.id)
     where = _position(await compiled.aget_state(_config(unit.id)))
+    if where.paused_since:
+        path.paused_since = spans.Mark(where.paused_since)
     # A thread with a node still to run was interrupted: it carries on from
     # there, with no new input. One waiting for review or a person, or
     # ended, takes a new run of the unit.

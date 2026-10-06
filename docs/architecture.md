@@ -751,6 +751,23 @@ figures. The gateway's `prompt_tokens` is recorded as
 `input_tokens` can exceed the agent's `reported.input_tokens` by the cache. Only calls with an
 attribution place and a result callback get a key. The seam is `pipeline/gateway_usage.SpendSource`.
 
+#### Spans
+
+The same file carries `kind: span` lines, stretches of a unit's time stamped in UTC with
+`started`, `ended` and a monotonic `duration_ms` (`pipeline/spans.py`; a test replaces
+`spans.clock`). Each has the `unit`, `change`, `node` and `round` it belongs to, an `outcome`,
+and for waits a `waited` bucket:
+
+| span | written by | `waited` |
+|---|---|---|
+| a node's run | the graph's node wrapper, when the node returns or raises (`outcome` is its status, or `error`) | empty |
+| the wait for a build slot | the tick: from the unit's being ready while every slot was taken to its worker taking the branch lock | `slot` |
+| a usage pause | the gate, once the guard lets the paused node start: from the interrupt (stamped in its payload, so a later process measures it) | `usage_pause` |
+| a tier 1 command | `build_tier1`, one per command, under `command` | empty |
+
+Recording is as best-effort as the agent lines and shares their once-per-process report. The
+usage reader skips every line that is not an agent call.
+
 An `acp` agent's `thoughtTokens` are not read: only `outputTokens` is recorded, and whether it
 includes reasoning tokens depends on the agent. Move the ignore line if `planning.state_dir` is changed.
 

@@ -43,6 +43,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies
@@ -635,7 +636,18 @@ def build_tier1(
 
     def ran(command: list[str], where: Path) -> subprocess.CompletedProcess:
         started = time.monotonic()
+        mark = spans.Mark()
         result = run(command, cwd=where)
+        unit, change = spans.current_unit.get()
+        spans.record_span(
+            mark,
+            log or (lambda message: None),
+            unit=unit,
+            change=change,
+            node="tier1",
+            outcome="ok" if result.returncode == 0 else f"exit {result.returncode}",
+            command=" ".join(command),
+        )
         if log is not None:
             outcome = "passed" if result.returncode == 0 else f"exit {result.returncode}"
             seconds = time.monotonic() - started

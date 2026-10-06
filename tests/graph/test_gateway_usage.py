@@ -86,7 +86,7 @@ def ledger(workspace: Installation) -> dict[str, dict]:
     """The agent calls of the unit's build, by node."""
     path = workspace.state_dir / "usage-ledger.jsonl"
     lines = [json.loads(line) for line in path.read_text().splitlines() if line]
-    return {line["node"]: line for line in lines}
+    return {line["node"]: line for line in lines if line.get("kind", "agent") == "agent"}
 
 
 def build(tmp_path: Path, runtime: Modelled, lines: list[str]) -> RunStatus:

@@ -37,7 +37,7 @@ from agent_build_kit import config, forges, runtimes, telemetry
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline import diagram
+from agent_build_kit.pipeline import diagram, spans
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -86,6 +86,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
+    depth_of,
     held_for_base,
     in_progress,
     in_progress_label,
@@ -93,6 +94,7 @@ from agent_build_kit.pipeline.units import (
     ready_units,
     start_room,
     trunk_of,
+    waiting_on,
 )
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
@@ -679,11 +681,30 @@ def _schedule(
     rebuilt: dict[str, int] = {}
     readmitted: set[str] = set()
     building: dict[Future[bool], Unit] = {}
+    # Units that could build but for the slots, from when they were first seen so.
+    queued: dict[str, spans.Mark] = {}
     stopping = False
     refused = False
     with ThreadPoolExecutor(
         max_workers=inst.max_concurrent_stacks, thread_name_prefix="unit"
     ) as pool:
+
+        def note_queued(units: list[StoredUnit], ready: list[Unit], in_flight: set[str]) -> None:
+            """Start the clock on each unit that could build but for the slots,
+            which are all taken once `ready` is submitted."""
+            if len(in_flight) + len(ready) < inst.max_concurrent_stacks:
+                return
+            taken = in_flight | {unit.id for unit in ready}
+            for unit in units:
+                if (
+                    unit.state == PLANNED
+                    and unit.id not in started
+                    and unit.id not in taken
+                    and (not only or unit.id in only)
+                    and not waiting_on(unit, units)
+                    and depth_of(unit, units) <= inst.stack_depth_build_cap
+                ):
+                    queued.setdefault(unit.id, spans.Mark())
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
@@ -691,9 +712,16 @@ def _schedule(
                 # The tick's span goes into the worker by its context: a
                 # pool's threads do not inherit it.
                 work = contextvars.copy_context()
-                run = partial(build_unit, inst, unit, store=store)
+                run = partial(
+                    build_unit,
+                    inst,
+                    unit,
+                    store=store,
+                    queued=queued.pop(unit.id, None) or spans.Mark(),
+                )
                 building[pool.submit(work.run, run)] = unit
 
+        note_queued(store.all(), ready, set())
         submit(ready)
         # Each round waits for a build to finish or for REFRESH_SECONDS,
         # whichever is first, then refreshes and fills free slots. The pass
@@ -735,6 +763,7 @@ def _schedule(
                 if unit.id in readmitted:
                     readmitted.discard(unit.id)
                     rebuilt[unit.id] = rebuilt.get(unit.id, 0) + 1
+            note_queued(units, ready, in_flight)
             if ready:
                 log(f"ready: {', '.join(unit.id for unit in ready)}")
                 if _refuse_unconfigured(inst, ready):
@@ -1279,8 +1308,13 @@ class _Run:
     outcome = "interrupted"
 
 
-def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
+def build_unit(
+    inst: Installation, unit: Unit, *, store: UnitStore, queued: spans.Mark | None = None
+) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
+
+    `queued` is when the tick submitted the unit: the time to its branch lock
+    is recorded as its wait for a slot.
 
     A unit that has run before links to where that was, so its life across ticks
     can be followed: each run is its own trace, as a pause or a review wait can
@@ -1301,7 +1335,9 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
         "unit", attributes=attributes, links=telemetry.links(earlier), **telemetry.SPAN_OPTIONS
     ) as span:
         try:
-            return _build_unit(inst, unit, store=store, run=run, trace=telemetry.reference(span))
+            return _build_unit(
+                inst, unit, store=store, run=run, trace=telemetry.reference(span), queued=queued
+            )
         except BaseException:
             telemetry.failed(span)
             raise
@@ -1319,7 +1355,13 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
 
 
 def _build_unit(
-    inst: Installation, unit: Unit, *, store: UnitStore, run: _Run, trace: str = ""
+    inst: Installation,
+    unit: Unit,
+    *,
+    store: UnitStore,
+    run: _Run,
+    trace: str = "",
+    queued: spans.Mark | None = None,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the tick should stop.
@@ -1357,6 +1399,14 @@ def _build_unit(
         try:
             with ExitStack() as held:
                 held.enter_context(branch_lock(branch, root=inst.state_dir / "locks"))
+                if queued is not None:
+                    spans.record_span(
+                        queued,
+                        say,
+                        unit=unit.id,
+                        change=unit.change,
+                        waited=spans.SLOT,
+                    )
                 # Re-read under the lock. `ready` comes from the pass's latest
                 # evaluation, and ticks overlap to build in parallel: by the time
                 # this one reaches a unit, another may have built it and opened its
