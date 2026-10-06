@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
-from agent_build_kit.forges.transport import AuthError, Credentials, NotFound, Transport
+from agent_build_kit.forges.transport import (
+    AuthError,
+    Credentials,
+    HostError,
+    NotFound,
+    Transport,
+    TransportError,
+)
 from tests.forges.mock_host import MockHost, recorded, sign_in_page
 
 CREDENTIALS = Credentials(scheme="Bearer", token="tok-example", source="setting", owner="example")
@@ -48,3 +56,51 @@ def test_a_refusal_is_an_authentication_error(answer: str) -> None:
 
     with pytest.raises(AuthError):
         transport(host).request("GET", "/repos/example/app")
+
+
+ENV_CREDENTIALS = Credentials(scheme="Bearer", token="tok-env", source="GH_TOKEN", owner="example")
+
+
+def env_transport(host: MockHost) -> Transport:
+    return Transport(
+        "https://api.example.test",
+        ENV_CREDENTIALS,
+        transport=host,
+        retries=0,
+        sleep=lambda _: None,
+    )
+
+
+def test_a_not_found_names_the_credential_source_as_well_as_the_owner() -> None:
+    host = MockHost(recorded("repo_404"))
+
+    with pytest.raises(NotFound) as caught:
+        env_transport(host).request("GET", "/repos/other/app")
+
+    assert "GH_TOKEN" in str(caught.value)
+    assert "example" in str(caught.value)
+    assert caught.value.source == "GH_TOKEN"
+    assert caught.value.account == "example"
+
+
+@pytest.mark.parametrize("answer", ["bad_credentials_401", "bad_credentials_403"])
+def test_a_refusal_names_the_credential_source_as_well_as_the_owner(answer: str) -> None:
+    host = MockHost(recorded(answer))
+
+    with pytest.raises(AuthError) as caught:
+        env_transport(host).request("GET", "/repos/other/app")
+
+    assert "GH_TOKEN" in str(caught.value)
+    assert "example" in str(caught.value)
+
+
+def test_a_truncated_json_body_is_a_transport_error() -> None:
+    host = MockHost(
+        httpx.Response(200, content='{"trunc', headers={"content-type": "application/json"})
+    )
+
+    with pytest.raises(TransportError) as caught:
+        transport(host).request("GET", "/user")
+
+    assert isinstance(caught.value, HostError)
+    assert '{"trunc' in str(caught.value)

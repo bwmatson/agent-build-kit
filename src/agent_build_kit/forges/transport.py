@@ -36,12 +36,15 @@ class AuthError(TransportError):
 
 
 class NotFound(TransportError):
-    """A 404, carrying the account the call was made as: a private repo seen
-    from the wrong account is reported as missing, not forbidden."""
+    """A 404, carrying whose credential the call used: a private repo seen
+    from the wrong account is reported as missing, not forbidden. `account` is
+    the owner the credential was resolved for and `source` where its token came
+    from (a GH_TOKEN token may belong to a different account than `account`)."""
 
-    def __init__(self, message: str, *, account: str):
+    def __init__(self, message: str, *, account: str, source: str):
         super().__init__(message)
         self.account = account
+        self.source = source
 
 
 class RateLimited(TransportError):
@@ -231,17 +234,26 @@ class Transport:
             self._sleep(max(backoff, hint or 0.0))
             attempt += 1
 
+    def _identity(self) -> str:
+        """Whose credential a call used: the owner it was resolved for and where
+        the token came from, since the token's own account may differ."""
+        return f"with the credential for {self.credentials.owner} from {self.credentials.source}"
+
     def _answer(
         self, method: str, path: str, reply: httpx.Response, expect: Literal["json", "text"]
     ) -> Response:
         status = reply.status_code
-        who = self.credentials.owner
+        who = self._identity()
         if status in (401, 403):
-            raise AuthError(f"{method} {path}: {status} as {who}: {reply.text[:PAGE_EXCERPT]}")
+            raise AuthError(f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
         if status == 404:
-            raise NotFound(f"{method} {path}: not found as account {who}", account=who)
+            raise NotFound(
+                f"{method} {path}: not found {who}",
+                account=self.credentials.owner,
+                source=self.credentials.source,
+            )
         if status >= 400:
-            raise TransportError(f"{method} {path}: {status} as {who}: {reply.text[:PAGE_EXCERPT]}")
+            raise TransportError(f"{method} {path}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
         headers = dict(reply.headers)
         if expect == "text" or not reply.content:
             return Response(status=status, headers=headers, text=reply.text)
@@ -250,6 +262,12 @@ class Transport:
             # A sign-in page with a 200 is an authentication failure that looks
             # like success; it must not come back as an empty result.
             raise AuthError(
-                f"{method} {path}: expected JSON as {who}, got {kind}: {reply.text[:PAGE_EXCERPT]}"
+                f"{method} {path}: expected JSON {who}, got {kind}: {reply.text[:PAGE_EXCERPT]}"
             )
-        return Response(status=status, headers=headers, data=reply.json(), text=reply.text)
+        try:
+            data = reply.json()
+        except ValueError as error:
+            raise HostError(
+                f"{method} {path}: unreadable JSON {who}: {reply.text[:PAGE_EXCERPT]}"
+            ) from error
+        return Response(status=status, headers=headers, data=data, text=reply.text)

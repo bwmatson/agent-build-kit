@@ -36,7 +36,12 @@ from agent_build_kit import (
     timers,
 )
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
-from agent_build_kit.forges.transport import Transport, TransportError, credential_for
+from agent_build_kit.forges.transport import (
+    PAGE_EXCERPT,
+    Transport,
+    TransportError,
+    credential_for,
+)
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
 from agent_build_kit.installation import Installation, _resolve, load_config
@@ -127,7 +132,13 @@ def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTranspor
             answer = host.request("GET", "/user")
     except TransportError as error:
         raise TransportError(f"{error} (credential from {credentials.source})") from error
-    return f"{answer.data['login']} via {credentials.source}"
+    login = answer.data.get("login") if isinstance(answer.data, dict) else None
+    if not login:
+        raise TransportError(
+            f"GET /user: no login in the answer: {answer.text[:PAGE_EXCERPT]} "
+            f"(credential from {credentials.source})"
+        )
+    return f"{login} via {credentials.source}"
 
 
 def _forge_access(
