@@ -61,10 +61,19 @@ parts are free functions beside it rather than inherited behaviour.
 | `add_label(repo, pr, label)` | state labels | put the label on, creating it in the repo first if missing; raises if the host refuses |
 | `set_exclusive_label(repo, pr, label, family)` | state labels | put the label on and take off the rest of `family` only |
 | `remove_label(repo, pr, name)` | the poller | take `agent-rework` off once acted on |
+| `set_draft(repo, pr, draft)` | state drafts | make the pull request a draft or publish it; reads the current state first and writes only when it differs; raises if the host refuses |
 
-A host without labels raises `NotImplementedError` from all three. That is said
+A host without labels raises `NotImplementedError` from all three label methods. That is said
 once ("this host keeps no labels") rather than logged as a failure on every
 call; any other error is logged as one.
+
+**Drafts.** A pull request is a draft while its unit is `running` and published
+when the unit is `in_review`; every other state, and the change that first records
+the pull request, leaves it as it is, so a unit that fails mid-run stays a draft.
+A new forge implements `set_draft`. A host with no drafts raises
+`NotImplementedError`, said once ("this host keeps no drafts"); any other error
+is logged. Drafts are cosmetic and never read back, and the poller does not treat
+a pull request turning draft as an event.
 
 Azure DevOps keeps labels (it calls them tags) but no colour or description, so
 a state is told apart by its name there; the colour and description a caller
@@ -140,10 +149,12 @@ prefixes and stay whole, so an agent is still refused these commands there.
 3. **Say what a repo needs.** `requires` names the abk.yaml keys, and
    `config_entry` writes them. `abk init` then drafts a file that loads, and a
    repo missing a key fails at load rather than once every unit is held.
-4. **Deny every way of merging.** Not just the obvious command: a host may
+4. **Implement `set_draft`.** Read the pull request's draft state, write only
+   when it differs, and raise when the host refuses.
+5. **Deny every way of merging.** Not just the obvious command: a host may
    complete a pull request through an update, a vote, a policy change and a
    raw API escape, and all of them belong in `denied_commands`.
-5. **Say how an agent reads its PR.** `read_commands` lists the command
+6. **Say how an agent reads its PR.** `read_commands` lists the command
    prefixes (`az repos pr show`, `gh pr view`); `wiring.allowed_tools` and the
    tracks' default allow-list are composed from them. A test fails if one
    overlaps any forge's `denied_commands`, so a read command can never be a

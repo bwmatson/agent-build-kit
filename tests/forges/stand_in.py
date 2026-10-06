@@ -72,8 +72,9 @@ class StandInForge:
         self.label_errors = label_errors
         # What `set_draft` raises, when it should.
         self.draft_error = draft_error
-        # Every `set_draft` call, in order, and each pull request's state now.
-        self.drafts: list[tuple[int, bool]] = []
+        # Each pull request's draft state now. The calls themselves are in
+        # `calls`: this stand-in logs calls, not host writes, so a call to the
+        # state a pull request is already in is logged too.
         self.is_draft: dict[int, bool] = {}
         # What the repo knows as a label, and every creation of one, so a test
         # can tell "created once" from "created each time".
@@ -91,9 +92,10 @@ class StandInForge:
         self.statuses: list[dict] = []
         self.deleted: list[str] = []
         self.closed: list[int] = []
-        # Every post and close, in the order they happened — a post and a
-        # close each land in their own list too, but those don't tell apart a
-        # close that came first from one that came after.
+        # Every post, close and draft call ("draft" or "ready"), in the order
+        # they happened — a post and a close each land in their own list too,
+        # but those don't tell apart a close that came first from one that
+        # came after.
         self.calls: list[tuple[str, int]] = []
 
     # --- identity -----------------------------------------------------------
@@ -230,7 +232,6 @@ class StandInForge:
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
         if self.draft_error:
             raise self.draft_error("the stand-in host refuses drafts")
-        self.drafts.append((pr, draft))
         self.is_draft[pr] = draft
         self.calls.append(("draft" if draft else "ready", pr))
 
