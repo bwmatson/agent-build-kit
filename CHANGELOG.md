@@ -38,7 +38,8 @@
   usage ledger with `usage_source` `gateway`, and the agent's own report is kept beside them
   (`reported`, `reported_cost_usd`). The key is revoked however the call ends; any gateway
   failure falls back to the agent's figures with one warning. `AgentRequest` gains `env` (added
-  to an `acp` agent's environment).
+  to an `acp` agent's environment). Spend rows are waited for up to `ABK_GATEWAY_SETTLE_SECONDS`
+  (30), since a gateway writes its logs in batches.
 
 - A task group can say `Independent: <reason>` to be built without waiting for the groups before
   it. Its unit has no dependency, the chain closes around it, it is never joined into a

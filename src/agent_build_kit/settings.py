@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # on it (pipeline/gateway_usage.py). Neither set: no key is minted.
     gateway_url: str = ""
     gateway_master_key: str = ""
+    # How long after a call ends its spend rows are waited for: a gateway writes
+    # its logs in periodic batches, so they land after the request does.
+    gateway_settle_seconds: float = 30.0
 
     # Telemetry (telemetry.py): off unless this is set. The endpoint and
     # resource settings keep their standard OpenTelemetry names, so any

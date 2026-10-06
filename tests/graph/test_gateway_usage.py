@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.wiring import build_run_claude
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.settings import settings
 from agent_build_kit.usage import Usage
-from tests.fake_gateway import MASTER, FakeGateway, serving, unreachable_url
+from tests.fake_gateway import MASTER, FakeGateway, answering_garbage, serving, unreachable_url
 from tests.graph_driver import fresh, tick
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -78,6 +78,7 @@ def gateway(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeGateway]:
     with serving() as fake:
         monkeypatch.setattr(settings, "gateway_url", fake.url)
         monkeypatch.setattr(settings, "gateway_master_key", MASTER)
+        monkeypatch.setattr(settings, "gateway_settle_seconds", 0.1)
         yield fake
 
 
@@ -270,3 +271,19 @@ def test_a_gateway_that_cannot_be_read_falls_back_and_still_revokes_the_key(
     assert gateway.revoked == [m["key"] for m in gateway.minted]
     warnings = [line for line in lines if "gateway" in line.lower()]
     assert len(warnings) == len(runtime.requests)
+
+
+def test_a_gateway_that_speaks_garbage_leaves_the_run_status_unchanged(
+    tmp_path: Path, workspace: Installation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with answering_garbage() as url:
+        monkeypatch.setattr(settings, "gateway_url", url)
+        monkeypatch.setattr(settings, "gateway_master_key", MASTER)
+        runtime = Modelled(None, reported=Usage(input_tokens=900, output_tokens=90))
+        lines: list[str] = []
+
+        status = build(tmp_path, runtime, lines)
+
+    assert status == RunStatus.OPEN
+    assert all(KEY_ENV not in r.env for r in runtime.requests)
+    assert ledger(workspace)["tests"]["usage_source"] == "reported"

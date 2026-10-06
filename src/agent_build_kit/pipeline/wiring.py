@@ -196,6 +196,8 @@ def build_run_claude(
     """
     specs = _specs_dir(planning_repo)
     model = model or models().implement
+    # Half-configured gateway settings already said, once for this runner.
+    warned: set[str] = set()
 
     def run_claude(
         prompt: str,
@@ -213,7 +215,8 @@ def build_run_claude(
         # A key of its own for this call, where a gateway is configured: its
         # totals reach the callback beside what the agent reports, and it is
         # revoked however the call ends.
-        source = configured_source(log or print)
+        place = attribution.get()
+        source = configured_source(log or print, warned) if on_result and place else None
         if source is not None and not agent.passes_env:
             (log or print)(
                 f"gateway: {agent.name} cannot pass a key to its agent; "
@@ -223,7 +226,7 @@ def build_run_claude(
         env: dict[str, str] = {}
         handle: object = None
         if source is not None:
-            env, handle = source.begin(attribution.get())
+            env, handle = source.begin(place)
         spent: list[Spend] = []
 
         def spend() -> Spend:

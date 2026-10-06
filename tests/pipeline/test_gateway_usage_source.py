@@ -18,10 +18,9 @@ from agent_build_kit.pipeline.gateway_usage import (
     GatewayUsage,
     Spend,
     configured_source,
-    forget_warnings,
 )
 from agent_build_kit.settings import settings
-from tests.fake_gateway import MASTER, FakeGateway, serving, unreachable_url
+from tests.fake_gateway import MASTER, FakeGateway, answering_garbage, serving, unreachable_url
 
 
 @pytest.fixture
@@ -30,13 +29,8 @@ def gateway() -> Iterator[FakeGateway]:
         yield fake
 
 
-@pytest.fixture(autouse=True)
-def fresh_warnings() -> None:
-    forget_warnings()
-
-
-def source(url: str, said: list[str]) -> GatewayUsage:
-    return GatewayUsage(url, MASTER, said.append)
+def source(url: str, said: list[str], settle: float = 0.3) -> GatewayUsage:
+    return GatewayUsage(url, MASTER, said.append, settle_seconds=settle, poll_seconds=0.02)
 
 
 def test_begin_mints_a_key_aliased_with_the_place_and_hands_it_over_in_the_environment(
@@ -68,16 +62,96 @@ def test_finish_reads_the_totals_logged_for_the_key_and_revokes_it(
     assert gateway.revoked == [env[KEY_ENV]]
 
 
-def test_a_key_with_no_logged_traffic_reads_as_absent_and_is_still_revoked(
+def test_a_key_with_no_logged_traffic_reads_as_absent_says_so_once_and_is_still_revoked(
     gateway: FakeGateway,
 ) -> None:
-    client = source(gateway.url, [])
+    said: list[str] = []
+    client = source(gateway.url, said)
     env, handle = client.begin("add-marker/1:implement:0")
 
     spent = client.finish(handle)
 
     assert spent == Spend()
+    assert len(said) == 1
+    assert "no spend was logged" in said[0]
     assert gateway.revoked == [env[KEY_ENV]]
+
+
+def test_rows_the_gateway_writes_after_a_delay_within_the_bound_are_still_read(
+    gateway: FakeGateway,
+) -> None:
+    gateway.row_delay = 0.15
+    said: list[str] = []
+    client = source(gateway.url, said, settle=2.0)
+    env, handle = client.begin("add-marker/1:implement:0")
+    gateway.spend(env[KEY_ENV], prompt=1200, completion=300, cost=0.25)
+
+    spent = client.finish(handle)
+
+    assert spent.usage is not None
+    assert (spent.usage.input_tokens, spent.usage.output_tokens) == (1200, 300)
+    assert spent.cost_usd == 0.25
+    assert said == []
+    assert gateway.revoked == [env[KEY_ENV]]
+
+
+def test_rows_that_land_after_the_bound_fall_back_with_one_line_and_the_key_is_revoked(
+    gateway: FakeGateway,
+) -> None:
+    gateway.row_delay = 5.0
+    said: list[str] = []
+    client = source(gateway.url, said, settle=0.2)
+    env, handle = client.begin("add-marker/1:implement:0")
+    gateway.spend(env[KEY_ENV], prompt=1200, completion=300, cost=0.25)
+
+    spent = client.finish(handle)
+
+    assert spent == Spend()
+    assert len(said) == 1
+    assert gateway.revoked == [env[KEY_ENV]]
+
+
+def test_the_gateway_files_rows_under_the_keys_hash_and_the_lookup_still_finds_them(
+    gateway: FakeGateway,
+) -> None:
+    client = source(gateway.url, [])
+    env, handle = client.begin("add-marker/1:implement:0")
+    gateway.spend(env[KEY_ENV], prompt=10, completion=5, cost=0.01)
+
+    assert all(row["api_key"] != env[KEY_ENV] for rows in gateway.rows.values() for row in rows)
+    spent = client.finish(handle)
+
+    assert spent.usage is not None
+    assert spent.usage.input_tokens == 10
+
+
+def test_a_gateway_answering_with_a_malformed_status_line_never_raises() -> None:
+    with answering_garbage() as url:
+        said: list[str] = []
+        client = source(url, said)
+
+        env, handle = client.begin("add-marker/1:implement:0")
+        spent = client.finish(handle)
+
+    assert (env, handle) == ({}, None)
+    assert spent == Spend()
+    assert len(said) == 1
+
+
+def test_a_gateway_that_garbles_its_replies_after_minting_never_raises_from_the_read_or_the_revoke(
+    gateway: FakeGateway,
+) -> None:
+    client = source(gateway.url, [])
+    env, handle = client.begin("add-marker/1:implement:0")
+    with answering_garbage() as url:
+        said: list[str] = []
+        broken = source(url, said)
+
+        spent = broken.finish(handle)
+
+    assert spent == Spend()
+    assert len(said) == 2  # the read and the revoke each say so
+    assert env[KEY_ENV] == handle
 
 
 def test_runs_going_at_once_get_different_keys_and_each_reads_only_its_own(
@@ -153,7 +227,7 @@ def test_with_neither_setting_there_is_no_source_and_nothing_is_said(
     monkeypatch.setattr(settings, "gateway_master_key", "")
     said: list[str] = []
 
-    assert configured_source(said.append) is None
+    assert configured_source(said.append, set()) is None
 
     assert said == []
     assert gateway.calls == []
@@ -166,18 +240,22 @@ def test_a_master_key_with_no_url_is_no_source_and_says_so_once(
     monkeypatch.setattr(settings, "gateway_master_key", MASTER)
     said: list[str] = []
 
-    assert configured_source(said.append) is None
+    warned: set[str] = set()
+
+    assert configured_source(said.append, warned) is None
 
     assert len(said) == 1
-    assert configured_source(said.append) is None
+    assert configured_source(said.append, warned) is None
     assert len(said) == 1
+    assert configured_source(said.append, set()) is None
+    assert len(said) == 2
 
 
 def test_both_settings_make_a_source(gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "gateway_url", gateway.url)
     monkeypatch.setattr(settings, "gateway_master_key", MASTER)
 
-    client = configured_source([].append)
+    client = configured_source([].append, set())
 
     assert client is not None
     env, handle = client.begin("add-marker/1:implement:0")

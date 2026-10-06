@@ -3,6 +3,10 @@ key mints keys (`POST /key/generate`), every request made with a key is logged
 against it (`GET /spend/logs?api_key=`) and a key is revoked with
 `POST /key/delete`.
 
+Like such a gateway, it writes its spend logs in batches — a row is readable
+only `row_delay` seconds after the request it records — and files each row under
+the hash of the key, not the key; the lookup takes the raw key and hashes it.
+
 A test plays the model traffic with `spend`. The rows carry what a gateway logs
 beyond the figures a client reads (request id, model, times, metadata), and the
 minted key's reply carries its own extras, so a client that insists on only the
@@ -11,9 +15,11 @@ fields it needs is not what is being tested.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,9 +34,11 @@ class FakeGateway:
         self.minted: list[dict[str, Any]] = []  # {"key", "alias", "auth", "body"}
         self.revoked: list[str] = []
         self.calls: list[tuple[str, str]] = []  # (method, path) of every request
-        self.rows: dict[str, list[dict[str, Any]]] = {}
+        self.rows: dict[str, list[dict[str, Any]]] = {}  # by the key's hash
         self.refuse_mint = False
         self.fail_reads = False
+        self.row_delay = 0.0  # seconds before a spent row can be read back
+        self._written: dict[str, list[float]] = {}
         self._lock = threading.Lock()
         self.url = ""
 
@@ -38,15 +46,34 @@ class FakeGateway:
     def aliases(self) -> list[str]:
         return [m["alias"] for m in self.minted]
 
+    @staticmethod
+    def hashed(key: str) -> str:
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    def readable(self, key: str) -> list[dict[str, Any]]:
+        """The rows a lookup of `key` (raw, or already hashed) finds right now."""
+        token = self.hashed(key) if key.startswith("sk-") else key
+        with self._lock:
+            now = time.monotonic()
+            return [
+                row
+                for row, at in zip(
+                    self.rows.get(token, []), self._written.get(token, []), strict=True
+                )
+                if now - at >= self.row_delay
+            ]
+
     def spend(self, key: str, *, prompt: int, completion: int, cost: float) -> None:
         """One request the model served for `key`."""
         with self._lock:
-            logged = self.rows.setdefault(key, [])
+            token = self.hashed(key)
+            logged = self.rows.setdefault(token, [])
+            self._written.setdefault(token, []).append(time.monotonic())
             logged.append(
                 {
                     "request_id": f"chatcmpl-{len(logged)}",
                     "call_type": "acompletion",
-                    "api_key": key,
+                    "api_key": token,
                     "spend": cost,
                     "total_tokens": prompt + completion,
                     "prompt_tokens": prompt,
@@ -124,7 +151,7 @@ class FakeGateway:
                     return self._reply(401, {"error": {"message": "invalid master key"}})
                 if parsed.path == "/spend/logs" and not gateway.fail_reads:
                     key = parse_qs(parsed.query).get("api_key", [""])[0]
-                    return self._reply(200, gateway.rows.get(key, []))
+                    return self._reply(200, gateway.readable(key))
                 self._reply(500 if gateway.fail_reads else 404, {"error": "unavailable"})
 
         return Handler
@@ -150,3 +177,34 @@ def unreachable_url() -> str:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     return f"http://127.0.0.1:{port}"
+
+
+@contextmanager
+def answering_garbage() -> Iterator[str]:
+    """The URL of a port that answers every request with a malformed status line."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    stop = threading.Event()
+
+    def answer() -> None:
+        while not stop.is_set():
+            try:
+                client, _ = server.accept()
+            except OSError:
+                return
+            with client:
+                client.settimeout(2)
+                try:
+                    client.recv(65536)
+                    client.sendall(b"garbage\r\n")
+                except OSError:
+                    pass
+
+    thread = threading.Thread(target=answer, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.getsockname()[1]}"
+    finally:
+        stop.set()
+        server.close()
