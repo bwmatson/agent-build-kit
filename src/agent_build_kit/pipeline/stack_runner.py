@@ -35,6 +35,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.changelog_convention import CHANGELOG_NOTE
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.task_progress import mark_groups
@@ -145,6 +146,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + CHANGELOG_NOTE
     + PIPELINE_PUSHES_NOTE
     + NO_REWRITE_NOTE
 )
@@ -437,6 +439,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + CHANGELOG_NOTE
     + PIPELINE_PUSHES_NOTE
     + NO_REWRITE_NOTE
 )
@@ -453,6 +456,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + CHANGELOG_NOTE
     + PIPELINE_PUSHES_NOTE
 )
 

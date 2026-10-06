@@ -24,7 +24,6 @@ wrong once:
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from collections.abc import Callable
@@ -34,6 +33,12 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
+from agent_build_kit.pipeline.changelog_convention import CHANGELOG_NOTE
+from agent_build_kit.pipeline.git_output import (
+    git_push_outcome,
+    replayed_files,
+    untranslated_env,
+)
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
@@ -50,21 +55,6 @@ CONFLICT_MARKERS = ("<<<<<<<", ">>>>>>>", "=======")
 # path stays unmerged until something stages it, so the resolver still has to
 # look at what it's confirming rather than trust a cache blindly.
 RERERE = ("-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=false")
-
-
-def _untranslated_env() -> dict[str, str]:
-    """The environment for the one git call whose *output* we parse.
-
-    rerere's replay notice ("Resolved '<path>' using previous resolution.")
-    goes through gettext, so a translated locale would silently break the
-    match in `_replayed_files` below. This forces it back to the one string we
-    match. Built fresh at call time, not once at import: a copy taken at
-    import would freeze out any environment change made afterwards (HOME,
-    GIT_*, PATH — including what a test fixture sets up after this module is
-    imported), and this is the only call in the module that would otherwise
-    disagree with the live environment every other call sees.
-    """
-    return {**os.environ, "LC_ALL": "C", "LANGUAGE": "C"}
 
 
 def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
@@ -110,7 +100,8 @@ class ConflictContext(Frozen):
     onto_intent: str
 
 
-RESOLVE_PROMPT = """\
+RESOLVE_PROMPT = (
+    """\
 A rebase conflict needs resolving. Both sides are deliberate work, so the
 resolution should keep both unless they genuinely cannot coexist.
 
@@ -127,7 +118,12 @@ conflict marker. Change **only the conflict**: a rebase is not the place for
 improvements, and anything beyond the conflict is unreviewed work smuggled
 into someone else's diff. If the two intents truly contradict each other,
 leave the markers in place — stopping is better than guessing.
+
+In `CHANGELOG.md` the intents always coexist: keep both sides' bullets, every
+bullet, and where two bullets describe one change, fold them into one.
 """
+    + CHANGELOG_NOTE
+)
 
 REPLAYED_NOTE = """
 These paths arrived with a resolution replayed from an earlier run of this
@@ -228,22 +224,13 @@ def conflicted_files(repo: Path) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
-REPLAYED_NOTICE = re.compile(r"^Resolved '(.+)' using previous resolution\.$", re.MULTILINE)
-
-
 def _replayed_files(output: str, files: list[str]) -> list[str]:
-    """Which of `files` arrived with a rerere replay, from positive evidence
-    in `output` — the text `git rebase` prints (via rerere, in the untranslated
-    locale `_UNTRANSLATED_ENV` forces) when it fills a path from its cache.
+    """Which of `files` arrived with a rerere replay, from positive evidence in `output`.
 
-    Not `git rerere remaining`: that command lists paths rerere did *not*
-    resolve, and absence from it was read as "resolved by a replay" — but a
-    conflict rerere never tracks at all, such as a binary conflict, is neither
-    PUNTED nor added to MERGE_RR, so it is absent from `remaining` too, with
-    an empty cache and nothing replayed. Absence proves nothing; only the
-    replay notice itself does.
+    Not `git rerere remaining`: absence from it proves nothing, since a conflict
+    rerere never tracks (a binary one) is absent too. Only the replay notice does.
     """
-    replayed = set(REPLAYED_NOTICE.findall(output))
+    replayed = set(replayed_files(output))
     return [name for name in files if name in replayed]
 
 
@@ -287,7 +274,7 @@ def move_branch_onto(
         old_base,
         branch,
         check=False,
-        env=_untranslated_env(),
+        env=untranslated_env(),
     )
     if result.returncode == 0:
         return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -586,26 +573,37 @@ def push_with_lease(repo: Path, branch: str, *, last_pushed: str | None) -> str:
         # noise, and nothing here reads tracking refs — the leases are
         # explicit precisely so they don't have to.
         upstream = ["-u"] if target == "origin" else []
-        result = git(repo, "push", "-q", *upstream, target, branch, check=False)
+        result = git(
+            repo,
+            "push",
+            "--porcelain",
+            *upstream,
+            target,
+            branch,
+            check=False,
+            env=untranslated_env(),
+        )
     else:
         result = git(
             repo,
             "push",
+            "--porcelain",
             f"--force-with-lease={branch}:{last_pushed}",
             target,
             branch,
             check=False,
+            env=untranslated_env(),
         )
 
     if result.returncode != 0:
-        combined = f"{result.stdout}\n{result.stderr}"
-        if "stale info" in combined or "rejected" in combined:
+        outcome = git_push_outcome(result)
+        if outcome.kind == "stale_lease":
             raise StaleRemote(
                 f"{branch} on the remote is not the commit we last pushed — "
                 "someone else has pushed to it. Fetch, include their work, and "
-                f"re-run the checks before pushing again.\n{combined}"
+                f"re-run the checks before pushing again.\n{outcome.message}"
             )
-        raise RuntimeError(f"pushing {branch} failed:\n{combined}")
+        raise RuntimeError(f"pushing {branch} failed:\n{outcome.message}")
 
     return git(repo, "rev-parse", branch).stdout.strip()
 

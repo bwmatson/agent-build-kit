@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The changelog convention is written once, in AGENTS.md, and the build, rework and restack
+  resolver prompts carry it (the resolver also keeps both sides' bullets and folds two that
+  describe one change). `tests/test_changelog.py` fails tier 1 on a conflict marker, bullets
+  run together or repeated, a bullet outside a section or headings out of order, and the
+  reviewer no longer raises the changelog's form or wording, only a claim the code does not
+  support.
+
+- A push is read in one place, `pipeline/git_output.py`: it runs with `--porcelain` and a fixed
+  locale, and only a stale lease is reported as someone else's push. A remote's refusal (a hook,
+  branch protection) or a non-fast-forward is now an ordinary push failure carrying the remote's
+  message, where it used to be reported as a stale lease. The rerere replay notice is read there
+  too, and recorded git output under `tests/fixtures/external/git/` pins both.
+
 - `CHANGELOG.md` merges with git's union driver (`.gitattributes`), so two units that each add an
   entry under Unreleased no longer conflict on it, and the restack that used to resolve it by hand
   keeps both. Existing entries were also consolidated: bullets that described one change in
@@ -350,14 +363,20 @@ First release.
 - `abk` CLI: `tick`, `status`, `graph`, `verify`, `tags`, `check`, `archive`,
   `openspec`, `gate`, `init`, `install-skills`, `doctor`, `config`,
   `scrub-check`, `track`.
+
 - Every installation fact — repos, owners, deploy rules, relationships,
   limits, models — comes from the planning repo's `abk.yaml`; nothing is
   derived from where the framework's source sits.
+
 - Toolchain profiles: `python-uv` implemented; `node-npm` declared.
+
 - Deploy conventions: test and documentation paths deploy nothing; a change
   in a workspace library redeploys the members that declare it as a
   dependency.
+
 - The OpenSpec CLI runs through `npx`, pinned by `settings.openspec_version`.
+
 - The policy hook is registered as `<interpreter> -m agent_build_kit.hooks.policy --specs <dir>`.
+
 - One tier-2 lock, in the state directory, shared by tier 2 and the
   post-merge verify (they used to lock different files).

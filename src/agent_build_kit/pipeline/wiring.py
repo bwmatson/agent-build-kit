@@ -309,6 +309,10 @@ Hold it to the bar of work you would approve, not perfection. Style already
 enforced by the linter is not worth a round trip, and nor is a preference you
 could not justify to the person who wrote this.
 
+The changelog's form and wording are checked by tier 1 before you see the
+branch, so do not raise them while that check passes. A changelog entry that
+makes a claim the code does not support is still in scope: report it.
+
 Every round you ask for costs a rework and another review, so:
 
 - **Find everything in one pass.** Report every problem you can see now. Do

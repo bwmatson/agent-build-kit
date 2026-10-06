@@ -276,6 +276,12 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    is kept as feedback, so the retry is one scoped rework rather than a
    rebuild (`abk requeue --rework`; a plain requeue resumes at this check and
    meets the same failure). It runs before review (step 5) and not after it.
+   It includes `tests/test_changelog.py`, which fails a `CHANGELOG.md` with a
+   conflict marker, bullets run together or repeated, a bullet outside a
+   section or headings out of order; the convention it checks is the
+   `## Changelog` section of AGENTS.md, which the build, rework and restack
+   resolver prompts carry, and the reviewer is told not to raise the changelog's
+   form or wording while it passes.
    It runs only where the branch is judged on it alone or has changed since:
    for a unit that produced nothing, and on a branch moved cleanly onto a new
    base, before the push. A move with conflicts goes through the adapt step,
