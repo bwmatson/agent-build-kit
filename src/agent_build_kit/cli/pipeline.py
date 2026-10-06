@@ -37,7 +37,7 @@ from agent_build_kit import config, forges, runtimes, telemetry
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline import diagram
+from agent_build_kit.pipeline import diagram, spans
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -541,6 +541,7 @@ def _evaluate(
     building: set[str],
     only: frozenset[str],
     enforce_limit: bool = True,
+    max_concurrent: int | None = None,
 ) -> list[Unit]:
     """What this pass may start now.
 
@@ -562,7 +563,7 @@ def _evaluate(
         view.append(unit)
     ready = ready_units(
         view,
-        max_concurrent=inst.max_concurrent_stacks,
+        max_concurrent=max_concurrent or inst.max_concurrent_stacks,
         depth_cap=inst.stack_depth_build_cap,
         max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
     )
@@ -679,11 +680,33 @@ def _schedule(
     rebuilt: dict[str, int] = {}
     readmitted: set[str] = set()
     building: dict[Future[bool], Unit] = {}
+    # Units that could build but for the slots, from when they were first seen so.
+    queued: dict[str, spans.Mark] = {}
     stopping = False
     refused = False
     with ThreadPoolExecutor(
         max_workers=inst.max_concurrent_stacks, thread_name_prefix="unit"
     ) as pool:
+
+        def note_queued(units: list[StoredUnit], ready: list[Unit], in_flight: set[str]) -> None:
+            """Start the clock on each unit that could build but for the slots:
+            the ones the readiness rules return with the concurrency cap lifted
+            and that are neither in `ready` nor building."""
+            taken = in_flight | {unit.id for unit in ready}
+            evaluated = _evaluate(
+                inst,
+                units,
+                started=set(started),
+                building=in_flight,
+                only=only,
+                max_concurrent=len(units) + 1,
+            )
+            # A unit that stopped being ready restarts its clock when it is again.
+            for unit_id in set(queued) - {unit.id for unit in evaluated}:
+                del queued[unit_id]
+            for unit in evaluated:
+                if unit.id not in taken:
+                    queued.setdefault(unit.id, spans.Mark())
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
@@ -691,9 +714,16 @@ def _schedule(
                 # The tick's span goes into the worker by its context: a
                 # pool's threads do not inherit it.
                 work = contextvars.copy_context()
-                run = partial(build_unit, inst, unit, store=store)
+                run = partial(
+                    build_unit,
+                    inst,
+                    unit,
+                    store=store,
+                    queued=queued.pop(unit.id, None),
+                )
                 building[pool.submit(work.run, run)] = unit
 
+        note_queued(store.all(), ready, set())
         submit(ready)
         # Each round waits for a build to finish or for REFRESH_SECONDS,
         # whichever is first, then refreshes and fills free slots. The pass
@@ -735,6 +765,7 @@ def _schedule(
                 if unit.id in readmitted:
                     readmitted.discard(unit.id)
                     rebuilt[unit.id] = rebuilt.get(unit.id, 0) + 1
+            note_queued(units, ready, in_flight)
             if ready:
                 log(f"ready: {', '.join(unit.id for unit in ready)}")
                 if _refuse_unconfigured(inst, ready):
@@ -1279,8 +1310,14 @@ class _Run:
     outcome = "interrupted"
 
 
-def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
+def build_unit(
+    inst: Installation, unit: Unit, *, store: UnitStore, queued: spans.Mark | None = None
+) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
+
+    `queued` is when the tick first saw the unit ready but for a free slot (see
+    `note_queued`): the time from then to its branch lock is recorded as its
+    slot wait.
 
     A unit that has run before links to where that was, so its life across ticks
     can be followed: each run is its own trace, as a pause or a review wait can
@@ -1301,7 +1338,9 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
         "unit", attributes=attributes, links=telemetry.links(earlier), **telemetry.SPAN_OPTIONS
     ) as span:
         try:
-            return _build_unit(inst, unit, store=store, run=run, trace=telemetry.reference(span))
+            return _build_unit(
+                inst, unit, store=store, run=run, trace=telemetry.reference(span), queued=queued
+            )
         except BaseException:
             telemetry.failed(span)
             raise
@@ -1319,7 +1358,13 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
 
 
 def _build_unit(
-    inst: Installation, unit: Unit, *, store: UnitStore, run: _Run, trace: str = ""
+    inst: Installation,
+    unit: Unit,
+    *,
+    store: UnitStore,
+    run: _Run,
+    trace: str = "",
+    queued: spans.Mark | None = None,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the tick should stop.
@@ -1375,6 +1420,14 @@ def _build_unit(
                 if unit.state not in (PLANNED, RUNNING):
                     end(f"skipped, it is now {unit.state}", "skipped")
                     return True
+                if queued is not None:
+                    spans.record_span(
+                        queued,
+                        say,
+                        unit=unit.id,
+                        change=unit.change,
+                        waited=spans.SLOT,
+                    )
                 # The base too, from the store rather than that evaluation: a
                 # parent may have merged since, and `base_moved` compares against
                 # this.

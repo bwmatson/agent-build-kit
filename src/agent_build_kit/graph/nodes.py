@@ -24,6 +24,7 @@ from agent_build_kit import telemetry
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.events import (
     held_cause,
@@ -128,6 +129,9 @@ class BuildPath:
         # Told each session id a running agent reports; set by whoever drives
         # the thread, as writing it into the thread's state is theirs to do.
         self.on_session: Callable[[str], None] | None = None
+        # When the thread's usage pause began, set by whoever resumes a paused
+        # thread; the gate records the pause once the guard lets the node start.
+        self.paused_since: spans.Mark | None = None
         self._tree: Path | None = None
         self._node = ""
 
@@ -157,7 +161,7 @@ class BuildPath:
     def _wrapped(self, node: Node, body: Callable[[UnitRun], Update]):
         async def run(state: UnitRun) -> Update:
             if node in AGENT_NODES:
-                await self.gate(node)
+                await self.gate(node, state)
             attributes: dict[str, str | int] = {
                 "unit": self.unit.id,
                 "change": self.unit.change,
@@ -173,9 +177,13 @@ class BuildPath:
                 else nullcontext()
             )
             started = time.monotonic()
+            mark = spans.Mark()
             outcome = "error"
             with span as current:
                 self._node = node.value
+                context = spans.current_unit.set(
+                    (self.unit.id, self.unit.change, node.value, _round(node, state))
+                )
                 self.say("started")
                 try:
                     # Off the loop: the callables block on agents and git.
@@ -197,6 +205,16 @@ class BuildPath:
                         telemetry.failed(current)
                     raise
                 finally:
+                    spans.current_unit.reset(context)
+                    spans.record_span(
+                        mark,
+                        self.say,
+                        unit=self.unit.id,
+                        change=self.unit.change,
+                        node=node.value,
+                        round_number=_round(node, state),
+                        outcome=outcome,
+                    )
                     if current is not None:
                         current.set_attribute("outcome", outcome)
                     telemetry.duration(
@@ -208,7 +226,7 @@ class BuildPath:
 
         return run
 
-    async def gate(self, node: Node) -> None:
+    async def gate(self, node: Node, state: UnitRun) -> None:
         """Interrupt before an agent step the usage guard refuses.
 
         At the node's boundary and never inside it: a step that is running is
@@ -217,11 +235,28 @@ class BuildPath:
         """
         allowed, why = await asyncio.to_thread(self.runner.may_start)
         if allowed:
+            if self.paused_since is not None:
+                self._node = node.value
+                spans.record_span(
+                    self.paused_since,
+                    self.say,
+                    unit=self.unit.id,
+                    change=self.unit.change,
+                    node=node.value,
+                    round_number=_round(node, state),
+                    waited=spans.USAGE_PAUSE,
+                )
+                self.paused_since = None
             return
         until = await asyncio.to_thread(self.runner.resume_at)
         self._node = node.value
         self.say(f"paused before the agent step: {why}")
-        interrupt({"reason": why, "until": until.isoformat() if until else None})
+        # Carried in the interrupt, which outlives the process: the run that
+        # resumes the thread is a later one, and measures the pause from it.
+        began = self.paused_since.at if self.paused_since else spans.clock.now()
+        interrupt(
+            {"reason": why, "until": until.isoformat() if until else None, "at": began.isoformat()}
+        )
 
     def _step(self, node: Node, body: Callable[[UnitRun], Update], state: UnitRun) -> Update:
         # Between steps, never inside one: a held unit has finished the step it was in.

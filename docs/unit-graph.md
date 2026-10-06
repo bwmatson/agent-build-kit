@@ -470,6 +470,11 @@ a new session and says so in the run log.
   round for the steps that go in rounds. It sits below the unit's span and the
   tick's, and agent spans nest under it; each node also records its duration
   and outcome (docs/architecture.md, Telemetry).
+- **A span record per node** in the usage ledger: UTC start and end, duration,
+  outcome and round, written when the node returns or raises. A usage pause
+  (`usage_pause`) and the wait for a build slot (`slot`) are recorded as waits
+  with their bucket, and each tier 1 command with its duration
+  (docs/architecture.md, Spans).
 - **Progress lines** reach the unit's run log (`runs/unit-logs/`) through
   `RunLog.emit`, called by the nodes. Stream events (`get_stream_writer`) are
   not built yet.

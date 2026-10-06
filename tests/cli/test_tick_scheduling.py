@@ -400,6 +400,8 @@ def test_no_more_than_the_concurrency_cap_build_at_once(
     def evaluate(graph, **kwargs):
         nonlocal handed_out
         ready = ready_units(graph, **kwargs)
+        if kwargs["max_concurrent"] > inst.max_concurrent_stacks:
+            return ready  # the look at who is only waiting for a slot hands nothing out
         in_flight = handed_out - len(builder.finished)
         at_each_evaluation.append(in_flight + len(ready))
         handed_out += len(ready)
@@ -580,7 +582,8 @@ def test_each_evaluation_refreshes_from_the_code_host_first(
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: order.append("poll"))
 
     def evaluate(graph, **kwargs):
-        order.append("evaluate")
+        if kwargs["max_concurrent"] <= inst.max_concurrent_stacks:
+            order.append("evaluate")
         return ready_units(graph, **kwargs)
 
     monkeypatch.setattr(cli, "ready_units", evaluate)
