@@ -122,6 +122,17 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
     }
 
 
+def _keep_unseen(before: dict, after: dict, labels: list[str]) -> None:
+    """Record `before` as what the poll saw, with `labels`, in place of `after`.
+
+    The next poll then diffs every other field against what it was before the
+    hold or its release, so nothing that happened meanwhile is lost.
+    """
+    after.clear()
+    after.update(before)
+    after["labels"] = labels
+
+
 class Poller(BaseModel):
     """One repo's worth of watching.
 
@@ -263,34 +274,33 @@ class Poller(BaseModel):
             # would rebuild work that was deliberately dropped.
             return self.dispatch("closed", number, pull=pull)
 
+        before_labels = list(before.get("labels") or [])
         newly_cancelled = set(after["cancelled_checks"]) - set(before.get("cancelled_checks") or [])
         if newly_cancelled:
             # Before anything that returns, so a comment arriving with it does
             # not swallow it. A check that is re-run leaves the list, so being
             # cancelled again is new, which is how the handler counts to its bound.
             self.dispatch("rerun_checks", number, pull=pull)
+            if HOLD_LABEL in after["labels"]:
+                # A held unit's checks are left alone and that is reported as
+                # handled: recorded as seen, the check would stay cancelled after
+                # the release, with nothing left to ask the host again.
+                after["cancelled_checks"] = before.get("cancelled_checks") or []
 
-        labels_added = set(after["labels"]) - set(before.get("labels") or [])
+        labels_added = set(after["labels"]) - set(before_labels)
         if HOLD_LABEL in labels_added:
-            # A comment arriving with the hold is not delivered by it, so it
-            # stays new: recorded as seen, it would be lost once the unit is
-            # released, and no later poll would report it.
-            if "comment_ids" in before:
-                after["comment_ids"] = before["comment_ids"]
-            else:
-                after.pop("comment_ids", None)
-            after["last_comment"] = before.get("last_comment")
+            # Nothing else on the PR is delivered by the hold, so all of it stays
+            # new: recorded as seen, it would be lost once the unit is released,
+            # and no later poll would report it.
+            _keep_unseen(before, after, [*before_labels, HOLD_LABEL])
             return self.dispatch("hold", number, pull=pull)
 
-        if HOLD_LABEL in set(before.get("labels") or []) - set(after["labels"]):
+        if HOLD_LABEL in before_labels and HOLD_LABEL not in after["labels"]:
             # The release is the poll's one event. What arrived during the hold
             # was not delivered by it, so it stays new: recorded as seen, the
-            # unit would wait on words nobody has read.
-            for key in ("comment_ids", "last_comment", "failing_checks", "cancelled_checks"):
-                if key in before:
-                    after[key] = before[key]
-                else:
-                    after.pop(key, None)
+            # unit would wait on words nobody has read, a conflict nobody has
+            # resolved or a change request nobody has acted on.
+            _keep_unseen(before, after, [name for name in before_labels if name != HOLD_LABEL])
             return self.dispatch("release", number, pull=pull)
 
         if REWORK_LABEL in labels_added:

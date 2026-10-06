@@ -25,7 +25,7 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -35,6 +35,14 @@ from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
 UNPLANNED = "unplanned"
+
+# Why a unit is held: `reviewer` (the hold label), `review` (the review loop),
+# `depth` (the stack depth cap) or `toolchain`; empty when it is not held, and in
+# a record written before this was kept.
+HeldBy = Literal["", "reviewer", "review", "depth", "toolchain"]
+
+# What the label handler wrote as a hold's note before the cause was kept.
+HELD_BY_A_REVIEWER = "held by a reviewer"
 
 
 def corrupt_store_message(path: Path) -> str:
@@ -88,10 +96,8 @@ class StoredUnit(Unit):
     # stack; empty when it did, or was never asked. Advisory: nothing reads it
     # to decide anything.
     stack_refusal: str = ""
-    # Why the unit is held: `reviewer` (the hold label), `review` (the review
-    # loop), `depth` or `toolchain`; empty when it is not held, and in a record
-    # written before this was kept.
-    held_by: str = ""
+    # Why the unit is held (see `HeldBy`).
+    held_by: HeldBy = ""
     history: tuple[dict, ...] = ()
 
     @property
@@ -111,6 +117,16 @@ class StoredUnit(Unit):
     def note(self) -> str:
         """Why the unit is in its present state, as its latest history entry says."""
         return str(self.history[-1].get("note", "")) if self.history else ""
+
+    @property
+    def held_by_the_label(self) -> bool:
+        """Held, and by a reviewer's hold label; a record from before the cause was
+        kept is read by the note the label handler wrote."""
+        if self.state != HELD:
+            return False
+        if self.held_by:
+            return self.held_by == "reviewer"
+        return self.note == HELD_BY_A_REVIEWER
 
 
 # The in-run fields a unit used to carry here, which now live in its thread.
@@ -343,7 +359,7 @@ class UnitStore:
         pr: int | None = None,
         branch: str | None = None,
         note: str = "",
-        held_by: str = "",
+        held_by: HeldBy = "",
     ) -> None:
         """Record a state, optionally with why.
 
@@ -368,7 +384,7 @@ class UnitStore:
         pr: int | None,
         branch: str | None,
         note: str,
-        held_by: str,
+        held_by: HeldBy,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         stored = self._read()
         unit = stored[unit_id]

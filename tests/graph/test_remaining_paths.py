@@ -334,6 +334,7 @@ def test_a_change_only_a_person_can_make_holds_the_unit_instead_of_spending_roun
     stored = recorder.store.get(unit().id)
     assert stored.state == HELD
     assert stored.feedback == "exclude the file from check-yaml"
+    assert stored.held_by == "review"
     assert "push" not in recorder.events
 
 
@@ -353,6 +354,7 @@ def test_an_open_ended_class_holds_the_unit_with_the_reasoning(tmp_path: Path) -
     stored = recorder.store.get(unit().id)
     assert stored.state == HELD
     assert reasoning in stored.feedback
+    assert stored.held_by == "review"
     assert "The approach needs changing" in stored.history[-1]["note"]
     assert stored.approved == ""
     assert "push" not in recorder.events
@@ -376,6 +378,7 @@ def test_a_point_raised_again_after_the_builder_declined_it_holds_the_unit(
     stored = recorder.store.get(unit().id)
     assert stored.state == HELD
     assert builder in stored.feedback and reviewer in stored.feedback
+    assert stored.held_by == "review"
     assert "disagree" in stored.history[-1]["note"].lower()
     assert stored.approved == ""
 
@@ -405,6 +408,7 @@ def test_spent_rounds_push_the_branch_report_the_points_and_hold_the_unit(
     stored = recorder.store.get(unit().id)
     assert (stored.state, stored.pr) == (HELD, 7)
     assert "rounds spent" in stored.history[-1]["note"]
+    assert stored.held_by == "review"
     assert "the lock is still not released" in stored.feedback
     assert stored.approved == ""
     assert len(recorder.remote) == 1, "pushed though never approved, for a person to inherit"

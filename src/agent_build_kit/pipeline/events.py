@@ -102,9 +102,6 @@ def _no_thread(
     return False
 
 
-# What the label handler wrote as a hold's note before the cause was kept.
-_HELD_BY_A_REVIEWER = "held by a reviewer"
-
 # What a hold for depth says, so a later merge can find what it held and which
 # branch it still sits on.
 DEPTH_HOLD = "restack onto {new_base} skipped: depth {depth} is beyond the rebase cap {cap}"
@@ -827,6 +824,12 @@ def on_hold(
             if store.get(unit.id).state == SATISFIED:
                 log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
                 return True
+            if (current := store.get(unit.id)).state == HELD:
+                # Held for a reason of its own, which the label did not make and
+                # its removal must not undo.
+                cause = current.held_by or "an unrecorded cause"
+                log(f"hold #{pr}: {unit.id} is already held by {cause}, leaving it as it is")
+                return True
             store.set_state(unit.id, HELD, held_by="reviewer")
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
@@ -863,7 +866,7 @@ def on_release(
             return True
         with claim(unit):
             current = store.get(unit.id)
-            if (taken := _release_refused(current, pr, log)) is not None:
+            if (taken := _release_refused(current, pr, log, under_claim=True)) is not None:
                 return taken
             store.set_state(unit.id, IN_REVIEW, note="hold label removed")
     except BranchBusy as error:
@@ -872,25 +875,25 @@ def on_release(
     return True
 
 
-def _release_refused(unit: StoredUnit, pr: int, log: Log) -> bool | None:
+def _release_refused(
+    unit: StoredUnit, pr: int, log: Log, *, under_claim: bool = False
+) -> bool | None:
     """Why a release changes nothing, as the handler's answer; None when it applies.
 
-    A unit being built defers it, so the poller reports it again.
+    Before the claim a unit being built passes, so the claim defers the event
+    and the poller reports it again; under the claim nothing is building it, so a
+    unit still stored `running` was never held and there is nothing to release.
     """
-    if unit.state == RUNNING:
+    if unit.state == RUNNING and not under_claim:
         return None
     if unit.state != HELD:
         log(f"release #{pr}: {unit.id} is {unit.state}, not held, nothing to release")
         return True
-    if unit.held_by == "reviewer" or (not unit.held_by and _HELD_BY_A_REVIEWER in _last_note(unit)):
+    if unit.held_by_the_label:
         return None
     cause = unit.held_by or "an unrecorded cause"
     log(f"release #{pr}: {unit.id} is held by {cause}, not the label's, leaving it held")
     return True
-
-
-def _last_note(unit: StoredUnit) -> str:
-    return str(unit.history[-1].get("note", "")) if unit.history else ""
 
 
 def on_rework(

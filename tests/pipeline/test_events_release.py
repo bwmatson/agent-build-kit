@@ -369,3 +369,165 @@ def test_a_release_for_a_unit_being_built_is_reported_again_by_a_later_poll(
     poller.poll()
 
     assert store.get(UNIT).state == IN_REVIEW
+
+
+def test_a_comment_already_answered_is_not_delivered_again_after_the_release(
+    tmp_path: Path, store: UnitStore, locks: Path
+) -> None:
+    commented = {"conversation": ("c1",), "comment_bodies": ("rename the flag",)}
+    poller = poller_over(
+        tmp_path,
+        store,
+        locks,
+        [pull(), pull(**commented), pull(labels=HOLD, **commented), pull(**commented)]
+        + [pull(**commented)],
+    )
+    poller.poll()
+    poller.poll()
+    store.set_state(UNIT, IN_REVIEW)
+    feedback = store.get(UNIT).feedback
+    poller.poll()
+    poller.poll()
+    assert store.get(UNIT).state == IN_REVIEW
+
+    poller.poll()
+
+    stored = store.get(UNIT)
+    assert stored.state == IN_REVIEW
+    assert stored.feedback == feedback
+
+
+# --- a hold the label did not make is not the label's to release -----------------------
+
+
+@pytest.mark.parametrize(
+    ("cause", "note"),
+    [
+        ("depth", "held for depth"),
+        ("review", "rounds spent with work outstanding: rename the flag"),
+        ("toolchain", "the toolchain cannot build it"),
+        (None, "rounds spent with work outstanding: rename the flag"),
+    ],
+    ids=["depth", "review", "toolchain", "unrecorded"],
+)
+def test_the_label_added_and_removed_leaves_another_cause_of_the_hold_alone(
+    store: UnitStore, logged: list[str], cause: str | None, note: str
+) -> None:
+    held_as(store, cause, note=note)
+    before = store.history(UNIT)
+
+    events.on_hold(1, repo="app", store=store, log=logged.append)
+    release(store, logged)
+
+    stored = store.get(UNIT)
+    assert stored.state == HELD
+    assert stored.held_by == (cause or "")
+    assert store.history(UNIT) == before, "neither event wrote the record"
+    assert any("already held by" in line for line in logged)
+
+
+def test_a_unit_stored_running_with_nothing_building_it_is_not_released(
+    store: UnitStore, locks: Path, logged: list[str]
+) -> None:
+    """Both events were deferred while it built; the build died. Under the claim
+    `running` no longer means being built, and the unit was never held."""
+    store.set_state(UNIT, RUNNING)
+    before = store.history(UNIT)
+
+    handled = release(store, logged, claim=events.build_claim(locks))
+
+    assert handled
+    assert store.get(UNIT).state == RUNNING
+    assert store.history(UNIT) == before
+
+
+@pytest.mark.parametrize(
+    "arrival",
+    [{"mergeable": False}, {"review_decision": "changes_requested"}, {"labels": ("agent-rework",)}],
+    ids=["conflict", "changes-requested", "rework-label"],
+)
+def test_what_arrived_during_the_hold_is_reworked_once_the_unit_is_released(
+    tmp_path: Path, store: UnitStore, locks: Path, arrival: dict
+) -> None:
+    held = {**arrival, "labels": (*HOLD, *arrival.get("labels", ()))}
+    released = {**arrival, "labels": arrival.get("labels", ())}
+    poller = poller_over(
+        tmp_path,
+        store,
+        locks,
+        [pull(mergeable=True), pull(labels=HOLD, mergeable=True), pull(**held), pull(**released)]
+        + [pull(**released)],
+    )
+    for _ in range(4):
+        poller.poll()
+    assert store.get(UNIT).state == IN_REVIEW
+
+    poller.poll()
+
+    assert store.get(UNIT).state == PLANNED
+
+
+def test_a_conflict_arriving_with_the_label_is_reworked_once_the_unit_is_released(
+    tmp_path: Path, store: UnitStore, locks: Path
+) -> None:
+    poller = poller_over(
+        tmp_path,
+        store,
+        locks,
+        [
+            pull(mergeable=True),
+            pull(labels=HOLD, mergeable=False),
+            pull(mergeable=False),
+            pull(mergeable=False),
+        ],
+    )
+    for _ in range(3):
+        poller.poll()
+    assert store.get(UNIT).state == IN_REVIEW
+
+    poller.poll()
+
+    assert store.get(UNIT).state == PLANNED
+
+
+def test_a_cancelled_check_first_seen_under_the_hold_is_rerun_once_after_the_release(
+    tmp_path: Path, store: UnitStore, locks: Path
+) -> None:
+    store.record_push(UNIT, "aaa1111")
+    cancelled = {"cancelled_checks": ("CI",)}
+    queue = iter(
+        [
+            pull(),
+            pull(labels=HOLD),
+            pull(labels=HOLD, **cancelled),
+            pull(**cancelled),
+            pull(**cancelled),
+        ]
+    )
+    reran: list[str] = []
+
+    def rerun(repo: str, pull: PullRequest) -> None:
+        reran.append(store.get(UNIT).state)
+
+    poller = Poller(
+        repo="example/app",
+        state_path=tmp_path / "prs-app.json",
+        list_prs=lambda: [next(queue)],
+        dispatch=partial(
+            events.build_dispatch(
+                store,
+                restack=lambda **kw: None,
+                rerun_checks=rerun,
+                claim=events.build_claim(locks),
+                log=lambda m: None,
+            ),
+            repo="app",
+        ),
+    )
+    for _ in range(4):
+        poller.poll()
+    assert reran == []
+
+    poller.poll()
+
+    assert reran == [IN_REVIEW]

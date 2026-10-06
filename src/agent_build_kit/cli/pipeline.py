@@ -1398,7 +1398,7 @@ def _build_unit(
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
             end(f"held — {error}", "held")
-            store.set_state(unit.id, "held", note=str(error))
+            store.set_state(unit.id, HELD, note=str(error), held_by="toolchain")
             return True
         except Interrupted as error:
             # Left `running`, with the lock released as the `with` exits: the next

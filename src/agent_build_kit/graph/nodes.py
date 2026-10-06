@@ -46,7 +46,7 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -231,7 +231,7 @@ class BuildPath:
         )
 
     def hold(
-        self, state: str, note: str, detail: str, *, pr: int | None = None, held_by: str = ""
+        self, state: str, note: str, detail: str, *, pr: int | None = None, held_by: HeldBy = ""
     ) -> Update:
         """Stop the run in `held`, with the store left in `state`.
 
@@ -620,7 +620,7 @@ class BuildPath:
                     HELD,
                     f"needs a human: {why[:300]}",
                     f"needs a human: {why[:200]}",
-                    held_by="toolchain",
+                    held_by="review",
                 ),
             }
         if escalates(verdict, weighed.earlier_rounds):
@@ -970,11 +970,21 @@ class BuildPath:
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
         elif event.kind is EventKind.HOLD:
+            if (current := r.store.get(unit.id)).state == HELD:
+                # Held for a reason of its own (the depth cap, the toolchain, the
+                # review loop): the label did not make it, so its removal must not
+                # undo it.
+                cause = current.held_by or "an unrecorded cause"
+                self.say(f"already held by {cause}, as it stands")
+                return {"event": None}
             r.store.set_state(
-                unit.id, HELD, note=event.reason or "held by a reviewer", held_by="reviewer"
+                unit.id, HELD, note=event.reason or HELD_BY_A_REVIEWER, held_by="reviewer"
             )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
         elif event.kind is EventKind.RELEASE:
+            if not r.store.get(unit.id).held_by_the_label:
+                self.say("not held by the label, nothing to release")
+                return {"event": None}
             r.store.set_state(unit.id, IN_REVIEW, note="hold label removed")
             update.update({"status": RunStatus.OPEN, "detail": "released"})
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):

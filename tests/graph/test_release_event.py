@@ -75,3 +75,22 @@ def test_a_released_thread_can_be_held_again(tmp_path: Path) -> None:
     assert outcome.status == RunStatus.HELD
     assert position(tmp_path).next == (Node.HELD,)
     assert recorder.store.get(unit().id).held_by == "reviewer"
+
+
+def test_a_hold_the_label_did_not_make_stays_when_the_label_comes_and_goes(
+    tmp_path: Path,
+) -> None:
+    """Held for depth while the thread still waits for review: the label added and
+    removed neither takes the hold over nor releases it."""
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    recorder.store.set_state(unit().id, HELD, note="held for depth", held_by="depth")
+    before = recorder.store.history(unit().id)
+
+    tick(tmp_path, recorder, event=HOLD)
+    tick(tmp_path, recorder, event=RELEASE)
+
+    stored = recorder.store.get(unit().id)
+    assert (stored.state, stored.held_by) == (HELD, "depth")
+    assert recorder.store.history(unit().id) == before
+    assert position(tmp_path).next == (Node.AWAIT_REVIEW,)
