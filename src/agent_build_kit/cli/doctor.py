@@ -36,6 +36,7 @@ from agent_build_kit import (
     timers,
 )
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
+from agent_build_kit.forges.transport import Transport, TransportError, credential_for
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
 from agent_build_kit.installation import Installation, _resolve, load_config
@@ -114,18 +115,51 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
-def _forge_access(inst: Installation, run: Run) -> list[Check]:
+GITHUB_API = "https://api.github.com"
+
+
+def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTransport | None) -> str:
+    """The account this repo's credential acts as, from the cheapest
+    authenticated endpoint. Raises `TransportError` naming what failed."""
+    credentials = credential_for(repo.forge, repo.account, run=run)
+    try:
+        answer = Transport(GITHUB_API, credentials, transport=transport).request("GET", "/user")
+    except TransportError as error:
+        raise type(error)(f"{error} (credential from {credentials.source})") from error
+    return f"{answer.data['login']} via {credentials.source}"
+
+
+def _forge_access(
+    inst: Installation,
+    run: Run,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    live: bool = False,
+) -> list[Check]:
     """Whether each repo's host will answer for it.
 
     Per repo rather than per account: "can we act here" is the question the
     pipeline actually asks, and it is the same question on every host, where
     "which accounts does this workspace touch" was a GitHub owner's shape.
+    A GitHub repo is checked with its real credential, and the check names the
+    account it acts as.
     """
     checks = []
     for name in sorted(inst.repos):
         forge, repo = inst.forge_of(name)
-        problem = forge.check_access(repo, run=run)
         title = f"forge {name}"
+        if live and repo.forge == "github":
+            try:
+                checks.append(
+                    _ok(
+                        title,
+                        f"github {forges.key(repo)} as {_github_account(repo, run, transport)}",
+                    )
+                )
+            except TransportError as error:
+                checks.append(_fail(title, str(error), forge.access_fix(repo)))
+            continue
+        problem = forge.check_access(repo, run=run)
         if problem:
             checks.append(_fail(title, problem, forge.access_fix(repo)))
         else:
@@ -752,6 +786,9 @@ def run_doctor(
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> list[Check]:
+    # A stand-in `run` without a stand-in transport is a test of something else:
+    # it must not reach a real host.
+    live = transport is not None or run is None
     run = run or subprocess.run
     which = which or shutil.which
     try:
@@ -770,7 +807,7 @@ def run_doctor(
     inst.activate()
 
     checks += _repos(inst, run)
-    checks += _forge_access(inst, run)
+    checks += _forge_access(inst, run, transport=transport, live=live)
     checks += _merge_guards(inst, run)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)

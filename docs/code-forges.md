@@ -236,6 +236,24 @@ The pull request body names the repo's `default_branch` where it says what a
 unit assumes is already merged, and the CI that runs a tier 1 unit's checks is
 the forge's `ci_name` ("GitHub Actions" on GitHub, "Azure Pipelines" here).
 
+## The HTTP transport
+
+`forges/transport.py` is the one way a forge makes an HTTP call. `credential_for(forge,
+owner)` resolves the credential - the repo's setting (`GH_TOKEN`), else the host CLI's
+logged-in token for that owner (`gh auth token --user <owner>`) - once per owner, cached
+for the process, and never in an argument list. A `Transport(base_url, credentials)`
+puts a timeout on every call and retries connection errors, timeouts, 429 and 5xx with
+backoff, honouring `Retry-After`, up to a bound. A write is repeated only when it is
+idempotent by nature (PUT, DELETE) or the caller passes `idempotent=True`; a create-style
+POST is never retried blindly.
+
+Answers that are not the expected one are errors: `AuthError` for 401/403, a missing
+credential, or an HTML page where JSON was expected (quoting its first characters);
+`NotFound` carrying the account the call was made as; `RateLimited` with the host's
+hint; `HostError` once the retry bound is spent. A test passes an `httpx.MockTransport`
+as `transport=` and never reaches a network. `abk doctor` resolves a credential for each
+GitHub repo, calls `GET /user` and reports the account, or the source that failed.
+
 ## Authentication
 
 GitHub selects a token per repo owner (`pipeline/shell.py`), because `gh` has
