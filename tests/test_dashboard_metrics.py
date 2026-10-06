@@ -78,3 +78,33 @@ def test_every_metric_the_dashboard_queries_is_one_the_framework_emits() -> None
 
     assert queried, "the dashboard queries no abk_ metric"
     assert queried <= emitted, sorted(queried - emitted)
+
+
+def test_the_dashboard_shows_the_ledger_cost_tokens_node_and_wait_durations() -> None:
+    queried = {
+        _base(name)
+        for expression in _expressions(_dashboard())
+        for name in QUERIED.findall(expression)
+    }
+
+    assert {
+        "abk_agent_cost",
+        "abk_agent_tokens",
+        "abk_node_duration",
+        "abk_wait_duration",
+    } <= queried
+
+
+def test_no_dashboard_query_sums_both_series_of_the_token_counter() -> None:
+    """The runtime and the ledger both write `abk_agent_tokens_total`, the ledger
+    with a `source`; a query must pick one or it counts every call twice."""
+    selecting = re.compile(r"abk_agent_tokens_total\{[^}]*source\s*!?=")
+    grouped = re.compile(r"by\s*\([^)]*\bsource\b[^)]*\)")
+    unselected = [
+        expression
+        for expression in _expressions(_dashboard())
+        if "abk_agent_tokens" in expression
+        and not (selecting.search(expression) or grouped.search(expression))
+    ]
+
+    assert not unselected, unselected

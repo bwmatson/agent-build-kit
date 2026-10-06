@@ -217,7 +217,7 @@ def observe(name: str, value: float, **attributes: str) -> None:
     _safely(lambda: meter().create_histogram(name).record(value, attributes))
 
 
-def count(name: str, value: int = 1, **attributes: str | int | Callable[[], str | int]) -> None:
+def count(name: str, value: float = 1, **attributes: str | int | Callable[[], str | int]) -> None:
     """Add `value` to the counter `name`.
 
     An attribute may be a callable, called only inside the guard: one that is

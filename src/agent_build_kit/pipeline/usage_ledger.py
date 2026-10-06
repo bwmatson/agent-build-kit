@@ -16,7 +16,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from agent_build_kit import config
+from agent_build_kit import config, telemetry
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.usage import Usage, UsageSource
@@ -84,8 +84,37 @@ def forget_told() -> None:
 
 
 def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
-    """Add `record` to the active installation's ledger, never raising."""
+    """Add `record` to the active installation's ledger, never raising, and
+    export its figures as metrics when telemetry is on."""
     record_line(record, say)
+    export_call(record)
+
+
+def export_call(record: UsageRecord) -> None:
+    """Add an agent record's cost and tokens to the metrics, by bounded
+    attributes only: never a unit, change or session. A figure the record does
+    not have adds nothing; measured and estimated figures are separate series."""
+    source = "estimated" if record.usage_source == "estimated" else "measured"
+    attributes = {
+        "repo": record.repo,
+        "tier": record.tier,
+        "node": record.node,
+        "role": record.role,
+        "model": record.model or "default",
+        "source": source,
+    }
+    if record.usage_source == "none":
+        return
+    if record.cost_usd is not None:
+        telemetry.count("abk.agent.cost", record.cost_usd, **attributes)
+    for kind, tokens in (
+        ("input", record.input_tokens),
+        ("output", record.output_tokens),
+        ("cache_read", record.cache_read_input_tokens),
+        ("cache_creation", record.cache_creation_input_tokens),
+    ):
+        if tokens is not None:
+            telemetry.count("abk.agent.tokens", tokens, **attributes, kind=kind)
 
 
 def record_line(record: BaseModel, say: Callable[[str], None]) -> None:

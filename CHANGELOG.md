@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The usage ledger's figures are exported as metrics when telemetry is on: `abk.agent.cost`,
+  `abk.agent.tokens` (with a `source`), `abk.node.duration` and `abk.wait.duration`, with
+  bounded attributes only and never a unit id or change name. Measured and estimated figures
+  are separate series. The pipeline dashboard gains panels for them.
+
 - `abk report` reads the usage ledger and the unit store and reports tokens by kind, cost and
   time by bucket grouped by unit, change, node, role, model, repo or day, filtered with
   `--since`, `--change` and `--unit`, as a table or `--json`. Estimates have their own columns

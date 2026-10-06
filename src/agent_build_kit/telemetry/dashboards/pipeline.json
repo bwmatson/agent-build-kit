@@ -58,7 +58,7 @@
       "id": 8, "title": "Agent tokens by kind", "type": "timeseries",
       "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_agent_tokens_total[$__rate_interval]))", "legendFormat": "{{kind}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_agent_tokens_total{source=\"\"}[$__rate_interval]))", "legendFormat": "{{kind}}"}]
     },
     {
       "id": 9, "title": "Usage pauses", "type": "timeseries",
@@ -71,6 +71,30 @@
       "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [{"refId": "A", "expr": "sum(increase(abk_units_reclaimed_total[$__rate_interval]))", "legendFormat": "reclaimed"}]
+    },
+    {
+      "id": 11, "title": "Agent cost by role and source", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 40, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (role, source) (increase(abk_agent_cost_total[$__rate_interval]))", "legendFormat": "{{role}} {{source}}"}]
+    },
+    {
+      "id": 12, "title": "Ledger tokens by kind and source", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 40, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "sum by (kind, source) (increase(abk_agent_tokens_total{source!=\"\"}[$__rate_interval]))", "legendFormat": "{{kind}} {{source}}"}]
+    },
+    {
+      "id": 13, "title": "Node duration p95", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 48, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, node) (rate(abk_node_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{node}}"}]
+    },
+    {
+      "id": 14, "title": "Wait duration p95 by bucket", "type": "timeseries",
+      "gridPos": {"x": 12, "y": 48, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, bucket) (rate(abk_wait_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{bucket}}"}]
     }
   ]
 }
