@@ -268,7 +268,6 @@ def test_rules_newer_than_the_framework_say_to_upgrade(workspace: Path, monkeypa
 def test_information_is_not_a_warning_and_does_not_fail_the_run(
     workspace: Path, monkeypatch, capsys
 ) -> None:
-    from agent_build_kit.cli import doctor
 
     monkeypatch.setattr(
         doctor,
@@ -330,7 +329,6 @@ def test_stale_skills_warn(workspace: Path, tmp_path: Path) -> None:
 def test_the_command_prints_and_exits_one_on_a_failure(
     workspace: Path, monkeypatch, capsys
 ) -> None:
-    from agent_build_kit.cli import doctor
 
     monkeypatch.setattr(
         doctor,
@@ -458,7 +456,6 @@ def test_a_runtime_that_is_not_implemented_fails(
 def test_the_acp_runtime_is_checked_rather_than_called_not_implemented(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from agent_build_kit.cli import doctor
     from agent_build_kit.runtimes import acp
 
     probed: list[object] = []
@@ -876,25 +873,20 @@ def _github_account() -> httpx.BaseTransport:
     return MockHost(recorded("user_200"))
 
 
-@pytest.fixture(autouse=True)
-def github_answers(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Doctor always asks GitHub who the credential is: unless a test brings
-    its own host, it is the recorded account, never the network."""
-    real = doctor.Transport
-
-    def build(base_url, credentials, *, transport=None, **kwargs):
-        return real(base_url, credentials, transport=transport or _github_account(), **kwargs)
-
-    clear_credentials()
-    monkeypatch.setattr(doctor, "Transport", build)
-    yield
-    clear_credentials()
-
-
 @pytest.fixture
 def logged_out_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_credentials()
     monkeypatch.setattr(settings, "gh_token", "")
+
+
+def test_doctor_without_a_transport_asks_the_substituted_host(
+    workspace: Path, logged_out_settings: None
+) -> None:
+    """The suite's conftest puts the recorded account where GitHub would be, so
+    a caller that passes no `transport` never reaches the network."""
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert "example-bot" in checks["forge app"].detail
 
 
 def test_doctor_reports_the_account_each_repo_credential_acts_as(
