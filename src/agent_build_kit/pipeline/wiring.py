@@ -32,7 +32,7 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from agent_build_kit import forges, profiles, runtimes
+from agent_build_kit import forges, infra, profiles, runtimes
 from agent_build_kit.config import (
     ProjectConfig,
     RepoConfig,
@@ -1676,7 +1676,9 @@ def build_runner(
         profile=profile,
         marker=repo.tests.tier2_marker,
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
-        stack_versions_command=stack_versions_for(installation.config.verify, profile),
+        stack_versions_command=stack_versions_for(
+            installation.config.verify, infra.get(repo.infra)
+        ),
         env=installation.verify_env(),
     )
     planning_repo = installation.root

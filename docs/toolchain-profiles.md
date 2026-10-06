@@ -25,7 +25,6 @@ implemented.
 | `detect_markers` | `abk init` | files whose presence in a repo root suggest this profile |
 | `allowed_tools` | every build run | tool patterns to allow beyond the base list, in `--allowedTools` syntax; no effect under the `acp` runtime (docs/agent-runtimes.md) |
 | `prompt_words` | the build prompts | `verify` ("what the checks pass means") and `stub` ("what a permitted stub looks like") |
-| `stack_versions_command` | tier 2 | the command listing the live stack, recorded beside a result; `None` for no such stack. `verify.stack_versions_command` overrides it (python-uv and node-npm: the container listing) |
 | `no_tests_collected_exit` | tier 2, verify | the runner's exit status when nothing was selected — a pass, not a failure |
 | `lint_command(base)` | tier 1 | lint scoped to the diff since `base` |
 | `lint_command_all_files()` | tier 1 | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |
@@ -136,3 +135,33 @@ There is no plugin discovery: the registry is filled in-process by
 Every fact about a toolchain — commands, exit codes, what a test path is,
 what a stub may contain, prompt wording — belongs in the profile, not in the
 pipeline modules that call it.
+
+## Infrastructure profiles
+
+A second profile kind, built the same way, covers what a repo runs on rather
+than what it is written in, so container tooling is not tied to the language.
+A repo names it in `abk.yaml` (`infra:`, default `none`):
+
+```yaml
+repos:
+  app:
+    profile: python-uv
+    infra: docker
+```
+
+`infra/base.py` defines `InfraProfile` as a `Protocol` (`name`,
+`detect_markers`, `stack_versions_command`); `infra.get(name)` and
+`infra.names()` mirror `profiles`. An unknown name fails when `abk.yaml`
+loads, naming the registered ones. Two ship:
+
+| Profile | Markers (`abk init`) | `stack_versions_command` |
+|---|---|---|
+| `docker` | a compose file (`compose.yaml`, `docker-compose.yml`, ...) or `Dockerfile` | `docker ps --format "{{.Names}}\t{{.Image}}"` |
+| `none` | none | none: nothing is recorded or run |
+
+Tier 2 records the command's output beside its result, resolved by
+`config.stack_versions_for`: `verify.stack_versions_command` when a list
+(installation-wide override), else the repo's infra profile's command; an
+explicit `null` records nothing. To add a profile: `infra/<name>.py` with a
+module-level `PROFILE`, registered in `infra._load_builtin`, tests in
+`tests/infra/`.

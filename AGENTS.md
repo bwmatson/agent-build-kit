@@ -74,6 +74,7 @@ src/agent_build_kit/
                    gh_poller, restack, verify, archive, tier2, usage_guard, gate, ...
   hooks/policy.py  the Claude Code PreToolUse hook every agent run carries
   profiles/        toolchain profiles (python-uv today; node-npm declared)
+  infra/           infrastructure profiles (docker, none): what a repo runs on
   tracks/          the scheduled health/improve/recommend/implement tracks and their prompts
   init/            abk init: detection, scaffolding, research, proposal
   recommendations/ built-in code-standard seeds per language

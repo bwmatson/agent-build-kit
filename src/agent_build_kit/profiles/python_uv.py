@@ -110,12 +110,6 @@ class PythonUvProfile:
         stub="a signature whose body is only `raise NotImplementedError`, or a model field",
     )
     no_tests_collected_exit: int = NO_TESTS_COLLECTED
-    stack_versions_command: tuple[str, ...] | None = (
-        "docker",
-        "ps",
-        "--format",
-        "{{.Names}}\t{{.Image}}",
-    )
 
     # --- workspace shape -------------------------------------------------------
 

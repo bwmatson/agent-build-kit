@@ -131,6 +131,7 @@ def draft_config(
                 **named,
                 "default_branch": detection.default_branch,
                 "profile": detection.profile,
+                "infra": detection.infra,
                 "languages": list(detection.languages),
                 "projects": [
                     ProjectConfig(

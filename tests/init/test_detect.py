@@ -88,6 +88,23 @@ def test_languages_and_profile_from_tooling_files(tmp_path: Path) -> None:
     assert detection.profile == "python-uv"
 
 
+@pytest.mark.parametrize("marker", ["compose.yaml", "docker-compose.yml", "Dockerfile"])
+def test_a_container_marker_in_the_root_detects_the_docker_infrastructure(
+    tmp_path: Path, marker: str
+) -> None:
+    repo = init_repo(tmp_path / "app")
+    (repo / marker).write_text("")
+
+    assert detect_repo(repo).infra == "docker"
+
+
+def test_a_repo_with_no_container_marker_detects_no_infrastructure(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "app")
+    (repo / "pyproject.toml").write_text('[project]\nname = "app"\n')
+
+    assert detect_repo(repo).infra == "none"
+
+
 def test_a_javascript_only_repo_gets_the_node_profile(tmp_path: Path) -> None:
     repo = init_repo(tmp_path / "web")
     (repo / "package.json").write_text("{}")

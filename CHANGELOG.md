@@ -8,6 +8,21 @@
   `agent-build-kit`). It is idempotent: the folder is created if missing and the dashboard is
   overwritten.
 
+- Infrastructure profiles (`infra/`), a second profile kind beside the toolchain profiles: a repo
+  names one with `infra:` (`docker` or `none`, default `none`; an unknown name fails when
+  `abk.yaml` loads) and `abk init` writes `docker` when the repo root has a compose file or a
+  `Dockerfile`. The stack-versions command resolves as `verify.stack_versions_command` when a
+  list, else the repo's infra profile's, with an explicit `null` recording nothing. **Behaviour
+  change:** the key no longer defaults to the `docker ps` listing, so a repo that does not name
+  `infra: docker` stops recording the stack in PR bodies; add `infra: docker` to each repo (or
+  re-run `abk init`), or set `verify.stack_versions_command` to the old listing to keep it. A
+  stack-versions command that cannot start (missing executable, no permission) is logged and
+  records nothing instead of failing the unit.
+
+- Tier 2 runs each workspace member from its own directory with no collection path
+  (`uv run --directory <member> ... pytest -m <marker> -v`), so the member's own `testpaths`
+  decides what is collected.
+
 - A task group can say `Independent: <reason>` to be built without waiting for the groups before
   it. Its unit has no dependency, the chain closes around it, it is never joined into a
   neighbouring unit, and `[acceptance]`/`[narrow]` units depend on every earlier unit. `abk tags`

@@ -33,8 +33,6 @@ class ToolchainProfile(Protocol):
     prompt_words: PromptWords
     # The test runner's exit status when nothing was selected.
     no_tests_collected_exit: int
-    # What lists the live stack beside a tier 2 result; None for no such stack.
-    stack_versions_command: tuple[str, ...] | None
 
     def lint_command(self, base: str) -> list[str]: ...
 
