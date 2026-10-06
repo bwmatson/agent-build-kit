@@ -368,7 +368,7 @@ class FakeAgent:
             time.sleep(HANG_SECONDS)
         if self._acts is not None or self._probe is not None:
             if not await self._work(session_id, prompt):
-                return PromptResponse(stop_reason="cancelled")
+                return self._response("cancelled")
             for chunk in ANSWER_CHUNKS:
                 await send(update_agent_message_text(chunk))
             return self._response()
@@ -399,15 +399,14 @@ class FakeAgent:
             await send(update_agent_message_text(chunk))
         return self._response()
 
-    def _response(self) -> PromptResponse:
+    def _response(self, stop: StopReason | None = None) -> PromptResponse:
         """The prompt's answer, carrying the usage `--usage` asks for. Built
         without validation, so a payload the library itself would refuse
         (`malformed`) still goes out on the wire as an agent could send it."""
+        stop = stop or self._stop
         if self._usage is None:
-            return PromptResponse(stop_reason=self._stop)
-        return PromptResponse.model_construct(
-            stop_reason=self._stop, usage=USAGE_PAYLOADS[self._usage]
-        )
+            return PromptResponse(stop_reason=stop)
+        return PromptResponse.model_construct(stop_reason=stop, usage=USAGE_PAYLOADS[self._usage])
 
     def _leave_child(self, *, new_session: bool) -> None:
         """Start a child that holds this agent's stderr for `HANG_SECONDS`."""

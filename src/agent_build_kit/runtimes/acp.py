@@ -1274,7 +1274,7 @@ class AcpRuntime:
                     f"was cancelled rather than permitted: {session.refused_cancel}",
                     stop_reason=stop_reason,
                     raw="\n".join(raw_lines),
-                    **_spent(None, session),
+                    **spent,
                 )
             raise AgentInterrupted("the agent's turn was cancelled")
         if stop_reason != "end_turn":

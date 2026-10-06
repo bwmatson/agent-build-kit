@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.runtimes import AgentRequest, AgentResult
+from agent_build_kit.runtimes import AgentRequest, AgentResult, ToolPolicy
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.usage import Usage
 from tests.runtimes.acp_agent import ANSWER, COST_AMOUNT, SESSION, use_agent
@@ -148,4 +148,34 @@ def test_a_failed_turn_carries_its_session_too(tmp_path: Path, worktree: Path) -
     )
 
     assert not result.ok
+    assert result.session_id == SESSION
+
+
+def test_a_refused_cancel_carries_the_usage_the_response_reported(
+    tmp_path: Path, worktree: Path
+) -> None:
+    use_agent(
+        tmp_path / "record.jsonl",
+        usage="reported",
+        act=[
+            {
+                "ask": "execute",
+                "command": "git commit --amend --no-edit",
+                "options": ["allow_once", "allow_always"],
+            }
+        ],
+    )
+
+    result = AcpRuntime().run(
+        AgentRequest(
+            prompt="Implement group 1.",
+            role="implement",
+            cwd=worktree,
+            policy=ToolPolicy(),
+        )
+    )
+
+    assert result.ok is False
+    assert result.usage == REPORTED
+    assert result.usage_source == "reported"
     assert result.session_id == SESSION
