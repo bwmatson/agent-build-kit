@@ -22,9 +22,10 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.units import PLANNED, RUNNING
+from agent_build_kit.pipeline.units import PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
 from agent_build_kit.pipeline.wiring import CommitRejected
+from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.runtimes import AgentRequest, claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.conftest import make_installation
@@ -235,6 +236,48 @@ def test_a_unit_resumed_in_a_later_tick_links_to_its_earlier_trace(
     assert earlier.links == (), "the first run has nothing to link to"
 
 
+def test_a_tick_that_skips_a_unit_leaves_the_trace_of_the_run_that_built_it(
+    ticks: Ticks, exported: Collector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticks.agents()
+    ticks.options["may_start"] = lambda: (False, "session usage at 88%")
+    ticks.options["resume_at"] = lambda: datetime.now(UTC) + timedelta(hours=1)
+    ticks.tick()
+    first = one(exported.spans(), "unit")
+    built = ticks.store.get(UNIT).trace
+    assert built.startswith(first.trace_id)
+    ticks.options["may_start"] = lambda: (True, "usage fine")
+    # The pass's evaluation lags the store: it offers a unit another tick holds.
+    evaluated = cli.ready_units
+    stale = [True]
+    monkeypatch.setattr(
+        cli,
+        "ready_units",
+        lambda graph, **kw: (
+            [u for u in graph if u.id == UNIT] if stale[0] else evaluated(graph, **kw)
+        ),
+    )
+
+    with branch_lock(branch_name(ticks.store.get(UNIT)), root=ticks.inst.state_dir / "locks"):
+        ticks.tick()
+
+    skipped = [s for s in exported.spans() if s.name == "unit" and s.span_id != first.span_id]
+    assert [s.attributes["outcome"] for s in skipped] == ["skipped"]
+    assert ticks.store.get(UNIT).trace == built
+
+    stale[0] = False
+    ticks.tick()
+
+    last = [
+        s
+        for s in exported.spans()
+        if s.name == "unit" and s.span_id not in {first.span_id, skipped[0].span_id}
+    ]
+    assert len(last) == 1
+    assert first.trace_id in last[0].links
+    assert skipped[0].trace_id not in last[0].links
+
+
 # --- what is never attached ----------------------------------------------------------
 
 
@@ -409,6 +452,32 @@ def test_a_run_refused_by_the_agents_rate_limit_counts_a_rate_limit_pause(
     ticks.tick()
 
     assert [p.attributes for p in exported.metric("abk.usage.pauses")] == [{"kind": "rate_limit"}]
+
+
+def test_a_step_refused_by_the_agents_rate_limit_is_not_an_error(
+    ticks: Ticks, exported: Collector
+) -> None:
+    calls: list[str] = []
+    claude = ticks.recorder.claude
+
+    def refused(*args: Any, **kwargs: Any) -> str:
+        # The tests agent goes through; the implement agent is refused.
+        calls.append("agent")
+        if len(calls) == 1:
+            return claude(*args, **kwargs)
+        raise RateLimited("usage limit reached", resets_at=datetime.now(UTC) + timedelta(hours=2))
+
+    ticks.options["run_claude"] = refused
+
+    ticks.tick()
+
+    implement = next(s for s in steps(exported.spans()) if s.attributes["step"] == "implement")
+    assert implement.status_code == 0
+    assert implement.attributes["outcome"] == "rate_limited"
+    (point,) = [
+        p for p in exported.metric("abk.step.duration") if p.attributes["step"] == "implement"
+    ]
+    assert point.attributes["outcome"] == "rate_limited"
 
 
 def test_a_unit_no_run_holds_is_counted_when_the_tick_reclaims_it(

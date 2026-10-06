@@ -217,9 +217,18 @@ def observe(name: str, value: float, **attributes: str) -> None:
     _safely(lambda: meter().create_histogram(name).record(value, attributes))
 
 
-def count(name: str, value: int = 1, **attributes: str | int) -> None:
-    """Add `value` to the counter `name`."""
-    _safely(lambda: meter().create_counter(name).add(value, attributes))
+def count(name: str, value: int = 1, **attributes: str | int | Callable[[], str | int]) -> None:
+    """Add `value` to the counter `name`.
+
+    An attribute may be a callable, called only inside the guard: one that is
+    costly or may raise is not run with telemetry off, and cannot fail the run
+    when it is on."""
+
+    def add() -> None:
+        resolved = {k: v() if callable(v) else v for k, v in attributes.items()}
+        meter().create_counter(name).add(value, resolved)
+
+    _safely(add)
 
 
 def level(name: str, value: int, **attributes: str) -> None:

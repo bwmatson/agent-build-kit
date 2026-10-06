@@ -358,7 +358,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     if not has_work(inst, store_for(inst)):
         return 0
 
-    telemetry.init()
+    recording = telemetry.init()
     tick = _Tick()
     started = time.monotonic()
     try:
@@ -373,7 +373,8 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         raise
     finally:
         telemetry.duration("abk.tick.duration", time.monotonic() - started, outcome=tick.outcome)
-        _record_unit_states(inst)
+        if recording:
+            _record_unit_states(inst)
         # Before returning: a tick is a short-lived process, and what it
         # recorded would be lost at exit.
         telemetry.shutdown()
@@ -1299,17 +1300,14 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
     with telemetry.tracer().start_as_current_span(
         "unit", attributes=attributes, links=telemetry.links(earlier), **telemetry.SPAN_OPTIONS
     ) as span:
-        if here := telemetry.reference(span):
-            try:
-                store.set_trace(unit.id, here)
-            except KeyError:
-                pass
         try:
-            return _build_unit(inst, unit, store=store, run=run)
+            return _build_unit(inst, unit, store=store, run=run, trace=telemetry.reference(span))
         except BaseException:
             telemetry.failed(span)
             raise
         finally:
+            if run.outcome == "failed":
+                telemetry.failed(span)
             span.set_attribute("outcome", run.outcome)
             telemetry.duration(
                 "abk.unit.duration",
@@ -1320,7 +1318,9 @@ def build_unit(inst: Installation, unit: Unit, *, store: UnitStore) -> bool:
             )
 
 
-def _build_unit(inst: Installation, unit: Unit, *, store: UnitStore, run: _Run) -> bool:
+def _build_unit(
+    inst: Installation, unit: Unit, *, store: UnitStore, run: _Run, trace: str = ""
+) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the tick should stop.
 
@@ -1331,6 +1331,10 @@ def _build_unit(inst: Installation, unit: Unit, *, store: UnitStore, run: _Run) 
     Nothing in here may raise. A tick runs unattended on a timer, so a
     traceback is not a report — it is a unit left in `running` forever and no
     log line saying which one.
+
+    `trace` is where this run is in the traces; it is recorded on the unit only
+    once the run is going ahead, so a run that skips never replaces the trace
+    of the one that is building the unit.
     """
     branch = branch_name(unit)
     run_log: RunLog | None = None
@@ -1374,6 +1378,8 @@ def _build_unit(inst: Installation, unit: Unit, *, store: UnitStore, run: _Run) 
                 # The base too, from the store rather than that evaluation: a
                 # parent may have merged since, and `base_moved` compares against
                 # this.
+                if trace:
+                    store.set_trace(unit.id, trace)
                 graph = store.all()
                 base = base_of(unit, graph)
                 run_log = _start_run_log(inst, unit, store=store, base=base)

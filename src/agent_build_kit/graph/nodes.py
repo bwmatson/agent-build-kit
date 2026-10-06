@@ -158,7 +158,7 @@ class BuildPath:
             )
             started = time.monotonic()
             outcome = "error"
-            with span as active:
+            with span as current:
                 self._node = node.value
                 self.say("started")
                 try:
@@ -170,13 +170,19 @@ class BuildPath:
                 except GraphInterrupt:
                     outcome = "waiting"
                     raise
+                except AgentRateLimited:
+                    outcome = "rate_limited"
+                    raise
+                except AgentInterrupted:
+                    outcome = "interrupted"
+                    raise
                 except BaseException:
-                    if active is not None:
-                        telemetry.failed(active)
+                    if current is not None:
+                        telemetry.failed(current)
                     raise
                 finally:
-                    if active is not None:
-                        active.set_attribute("outcome", outcome)
+                    if current is not None:
+                        current.set_attribute("outcome", outcome)
                     telemetry.duration(
                         "abk.step.duration",
                         time.monotonic() - started,
@@ -520,7 +526,7 @@ class BuildPath:
         self.say(output)
         telemetry.count(
             "abk.checks.failures",
-            check=failed_check(output, unit.repo),
+            check=lambda: failed_check(output, unit.repo),
             round=state.fix_rounds + 1,
         )
         # Kept before anything can stop the run, so a retry addresses this output.
@@ -712,7 +718,9 @@ class BuildPath:
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)
-            telemetry.count("abk.checks.failures", check=failed_check(output, unit.repo), round=0)
+            telemetry.count(
+                "abk.checks.failures", check=lambda: failed_check(output, unit.repo), round=0
+            )
             r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
             if state.moved:
                 return self.rebase(state, f"tier 1 failed on {base}", base=base)
