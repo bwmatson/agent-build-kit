@@ -40,6 +40,7 @@ from agent_build_kit.pipeline.archive import (
     archive_ready_changes,
     is_ready_to_archive,
 )
+from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.events import (
     build_claim,
     build_delete_branch,
@@ -133,10 +134,16 @@ def store_for(inst: Installation) -> UnitStore:
             log(f"graph not refreshed — {type(error).__name__}: {error}")
 
     labels = StateLabels(inst.forge_of, log=log)
+    drafts = StateDrafts(inst.forge_of, log=log)
+
+    def follow(unit: StoredUnit, units: list[StoredUnit], opened: bool) -> None:
+        labels.follow(unit, units, opened=opened)
+        drafts.follow(unit, units, opened=opened)
+
     return UnitStore(
         inst.state_dir / "units.json",
         on_write=refresh_graph,
-        on_state=lambda unit, units, opened: labels.follow(unit, units, opened=opened),
+        on_state=follow,
     )
 
 

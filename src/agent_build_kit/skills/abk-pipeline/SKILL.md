@@ -132,6 +132,10 @@ written is logged and the unit carries on. Azure DevOps keeps labels (it calls
 them tags) but no colour or description, so a state is told apart by its name
 there; everything above works the same.
 
+A **draft** pull request means the pipeline is working on it: it is made a draft
+while its unit runs and published when the unit is back in review, so a reviewer
+reads a draft as "not yet" and a ready pull request as theirs to review.
+
 ## A change's lifecycle
 
 1. The change is authored in `openspec/changes/<change>/` and committed
