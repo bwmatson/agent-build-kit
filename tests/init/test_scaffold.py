@@ -9,9 +9,9 @@ import pytest
 import yaml
 
 from agent_build_kit import openspec
-from agent_build_kit.config import load
+from agent_build_kit.config import dump, load
 from agent_build_kit.forges import RepoId
-from agent_build_kit.init.detect import ProjectDetection, RepoDetection
+from agent_build_kit.init.detect import ProjectDetection, RepoDetection, detect_repo
 from agent_build_kit.init.scaffold import (
     RULES_HEADER,
     ScaffoldError,
@@ -172,6 +172,24 @@ def test_context_mentions_each_repo_once_with_its_facts(tmp_path: Path) -> None:
     assert context.count("**app**") == 1
     assert "example/app" in context
     assert "languages: python" in context
+
+
+def test_a_repo_detected_with_containers_is_written_with_infra_docker(tmp_path: Path) -> None:
+    compose = tmp_path / "app"
+    compose.mkdir()
+    (compose / "compose.yaml").write_text("")
+
+    detected = detect_repo(compose).model_copy(update={"slug": "example/app"})
+    config = draft_config({"app": detected}, planning_dir=tmp_path / "planning")
+
+    assert config.repos["app"].infra == "docker"
+    assert yaml.safe_load(dump(config))["repos"]["app"]["infra"] == "docker"
+
+
+def test_a_repo_without_container_markers_is_drafted_with_infra_none(tmp_path: Path) -> None:
+    config = draft_config({"app": detection("app", tmp_path)}, planning_dir=tmp_path)
+
+    assert config.repos["app"].infra == "none"
 
 
 def test_the_draft_lists_each_project_in_the_repo(tmp_path: Path) -> None:

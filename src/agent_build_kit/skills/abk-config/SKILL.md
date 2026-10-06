@@ -114,6 +114,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     slug: owner/name          # GitHub; the owner picks the gh account
     default_branch: main
     profile: python-uv        # toolchain profile: python-uv or node-npm
+    infra: none               # infrastructure profile: docker or none; docker
+                              # records the container listing beside a tier 2
+                              # result (init writes it when a compose file or
+                              # Dockerfile is in the root)
     languages: []             # e.g. [python]
     description: ""           # one paragraph, for prompts and context
     consumes: []              # repos this one depends on: deploy order,
@@ -121,7 +125,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
-      tier2_marker: local_stack
+      tier2_marker: local_stack  # tier 2 runs each member from its own directory
+                                 # with no path, so the member's pytest config,
+                                 # `testpaths` included, decides what is collected
       dev_stack_marker: dev_stack
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; tier 2 runs on it, not live
@@ -139,7 +145,13 @@ repos:                        # ordered; a task group's [repo] tag is a key here
         # values_from: .env
 
 verify:
-  stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
+  # Resolved in order: a list here (an override for every repo) > the repo's
+  # `infra:` profile's command (docker: the container listing
+  # `docker ps --format "{{.Names}}\t{{.Image}}"`; none: nothing) > nothing.
+  # Leaving the key out is not `null`, which records nothing for every repo.
+  # A command that cannot start is logged, not fatal. A repo that relied on the
+  # old built-in default now gets `none`: name `infra: docker` to record again.
+  # stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
   env: {}                     # environment for the live tests, each value
                               # resolved by a provider at verify time:
     # VAR: {from: literal, value: x}

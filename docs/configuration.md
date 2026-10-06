@@ -194,6 +194,14 @@ repos:                          # ordered: deploy order is derived from
     profile: python-uv          # toolchain profile: python-uv, or node-npm
                                 # (declared, not implemented). The repo-wide
                                 # default; a project below may set its own.
+    infra: none                 # infrastructure profile: docker or none
+                                # (infra/). What the repo runs on, apart from
+                                # its language; `docker` records the container
+                                # listing beside a tier-2 result, `none`
+                                # (the default) records nothing. `abk init`
+                                # writes `docker` when the root has a compose
+                                # file or Dockerfile. An unknown name fails
+                                # when abk.yaml loads.
     projects: []                # where each project inside the repo lives, so
                                 # tier 1 runs its checks *inside* it:
                                 #   - path: services/api
@@ -259,11 +267,23 @@ repos:                          # ordered: deploy order is derived from
           run: []
 
 verify:                         # post-merge verification (docs/architecture.md)
-  stack_versions_command:       # recorded beside a tier-2 result so a
-    [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
+  # stack_versions_command: [docker, ps, --format, "{{.Names}}\t{{.Image}}"]
+                                # recorded beside a tier-2 result so a
                                 # reviewer can see what the stack was; one
-                                # `name<TAB>image` per line. null = record
-                                # nothing.
+                                # `name<TAB>image` per line. Resolved in
+                                # order: a list here (an override for every
+                                # repo) > the repo's `infra:` profile's
+                                # command (`docker`: the container listing
+                                # `docker ps --format "{{.Names}}\t{{.Image}}"`;
+                                # `none`: nothing) > nothing. Leaving the key
+                                # out is not the same as `null`, which
+                                # records nothing whatever the repo's
+                                # profile. A command that cannot start is
+                                # logged and records nothing. An
+                                # installation that relied on the old
+                                # built-in default now gets `none` and stops
+                                # recording until each repo names
+                                # `infra: docker`.
   env: {}                       # environment handed to the live-stack tests —
                                 # a unit's tier 2 and the check after a merge
                                 # alike — each value resolved by a provider

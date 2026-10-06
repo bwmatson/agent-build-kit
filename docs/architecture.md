@@ -308,8 +308,12 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    `origin/<default_branch>`, never the user's own checkout. Without a dev
    stack the profile's tier-2 commands run against the live stack. Either way
    under the one `runs/tier2.lock` queue, and the result is recorded with the
-   commit, the command, counts and `verify.stack_versions_command`'s output
-   for the PR body.
+   commit, the command, counts and the stack-versions command's output
+   (`verify.stack_versions_command`, else the repo's `infra:` profile's; see
+   [toolchain-profiles.md](toolchain-profiles.md)) for the PR body. Tier 2 runs from each member's directory with no
+   collection path, so it collects what the member's own pytest
+   configuration (`testpaths`) selects. A stack-versions command that cannot
+   start is logged and records nothing.
    A run that starts with commits on its branch fetches its repo first (a
    failed fetch is logged, not fatal), then restacks.
 8. **Check the base, then push.** Just before the push the repo is fetched

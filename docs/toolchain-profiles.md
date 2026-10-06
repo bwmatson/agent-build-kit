@@ -68,7 +68,7 @@ What it runs, exactly:
 | `test_commands`, workspace | per chosen member with a `tests/` dir: `uv run --package <name> --isolated pytest <member> -q` (the two xdist passes above instead, when the member's own `pyproject.toml` declares `pytest-xdist`). Chosen: the members a changed path is under — or **every** member when a non-`.md` path outside all members changed (the root `pyproject.toml` is where a marker gets registered). Plus, when such an outside path or `tests/` changed and a repo-root `tests/` exists: `uv run --no-project --isolated --with pytest [--with <root_extras>...] pytest tests -q` (the two xdist passes instead, when `root_extras` names `pytest-xdist`) |
 | `test_commands_all(repo, root_extras)` | every testable member plus the root `tests/`, whatever changed — tier 1 uses it only for a unit with no commits of its own |
 | `tier2_commands(marker)`, single-package | `uv run pytest -m <marker> -v` |
-| `tier2_commands(marker)`, workspace | per member with `tests/`: `uv run --package <name> --isolated pytest <member> -m <marker> -v` |
+| `tier2_commands(marker)`, workspace | per member with `tests/`: `uv run --directory <member> --package <name> --isolated pytest -m <marker> -v` (no path: the member's own pytest configuration, `testpaths` included, decides what is collected) |
 | `acceptance_commands(...)` | the existing `.py` paths under `tests/integration/` among the changed paths, grouped by member: `uv run --package <name> --isolated pytest -m "<marker> and not <exclude_marker>" <files...>`; root files with the `--no-project --isolated --with ...` head instead |
 
 And what it knows:
@@ -135,3 +135,33 @@ There is no plugin discovery: the registry is filled in-process by
 Every fact about a toolchain — commands, exit codes, what a test path is,
 what a stub may contain, prompt wording — belongs in the profile, not in the
 pipeline modules that call it.
+
+## Infrastructure profiles
+
+A second profile kind, built the same way, covers what a repo runs on rather
+than what it is written in, so container tooling is not tied to the language.
+A repo names it in `abk.yaml` (`infra:`, default `none`):
+
+```yaml
+repos:
+  app:
+    profile: python-uv
+    infra: docker
+```
+
+`infra/base.py` defines `InfraProfile` as a `Protocol` (`name`,
+`detect_markers`, `stack_versions_command`); `infra.get(name)` and
+`infra.names()` mirror `profiles`. An unknown name fails when `abk.yaml`
+loads, naming the registered ones. Two ship:
+
+| Profile | Markers (`abk init`) | `stack_versions_command` |
+|---|---|---|
+| `docker` | a compose file (`compose.yaml`, `docker-compose.yml`, ...) or `Dockerfile` | `docker ps --format "{{.Names}}\t{{.Image}}"` |
+| `none` | none | none: nothing is recorded or run |
+
+Tier 2 records the command's output beside its result, resolved by
+`config.stack_versions_for`: `verify.stack_versions_command` when a list
+(installation-wide override), else the repo's infra profile's command; an
+explicit `null` records nothing. To add a profile: `infra/<name>.py` with a
+module-level `PROFILE`, registered in `infra._load_builtin`, tests in
+`tests/infra/`.

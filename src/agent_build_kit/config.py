@@ -26,7 +26,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
-from agent_build_kit import forges, runtimes
+from agent_build_kit import forges, infra, runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
@@ -323,6 +323,9 @@ class RepoConfig(Frozen):
     azure_devops: AzureDevOpsConfig = AzureDevOpsConfig()
     # The toolchain profile (profiles/): how to lint, test and read results.
     profile: str = "python-uv"
+    # The infrastructure profile (infra/): what the repo runs on, apart from
+    # its language. `none` records nothing about a live stack.
+    infra: str = "none"
     languages: list[str] = []
     # Every project found in the checkout, root first.
     projects: list[ProjectConfig] = []
@@ -375,16 +378,20 @@ Provider = Annotated[
 
 class VerifyConfig(Frozen):
     # Recorded beside a tier-2 result so a reviewer can see what the stack
-    # was. None records nothing.
-    stack_versions_command: list[str] | None = [
-        "docker",
-        "ps",
-        "--format",
-        "{{.Names}}\t{{.Image}}",
-    ]
+    # was. "profile" (not set) asks the repo's profile; None records nothing.
+    stack_versions_command: list[str] | Literal["profile"] | None = "profile"
     # Environment handed to the live-stack tests, each value resolved by a
     # provider at verify time.
     env: dict[str, Provider] = {}
+
+
+def stack_versions_for(verify: VerifyConfig, profile: infra.InfraProfile) -> list[str] | None:
+    """The command that records the live stack: the config's when set, else the
+    repo's infrastructure profile's."""
+    command = verify.stack_versions_command
+    if command == "profile":
+        return list(profile.stack_versions_command) if profile.stack_versions_command else None
+    return command
 
 
 # The runtime whose usage windows the pause thresholds describe.
@@ -456,7 +463,17 @@ def load(path: Path) -> WorkspaceConfig:
         raise ConfigError(f"{path} does not match the schema:\n{error}") from error
     _check_runtime(loaded, path)
     _check_forges(loaded, path)
+    _check_infra(loaded, path)
     return loaded
+
+
+def _check_infra(config: WorkspaceConfig, path: Path) -> None:
+    """An unknown infrastructure profile fails here, naming the registered ones."""
+    for name, repo in config.repos.items():
+        try:
+            infra.get(repo.infra)
+        except KeyError as error:
+            raise ConfigError(f"{path}: repo {name!r}: {error.args[0]}") from None
 
 
 def _check_forges(config: WorkspaceConfig, path: Path) -> None:

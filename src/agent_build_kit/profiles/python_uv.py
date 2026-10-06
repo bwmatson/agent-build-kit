@@ -308,11 +308,12 @@ class PythonUvProfile:
             [
                 "uv",
                 "run",
+                "--directory",
+                member,
                 "--package",
                 package_name(repo / member),
                 "--isolated",
                 "pytest",
-                member,
                 "-m",
                 marker,
                 "-v",

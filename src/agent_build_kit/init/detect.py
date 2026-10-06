@@ -21,7 +21,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from agent_build_kit import forges
+from agent_build_kit import forges, infra
 from agent_build_kit.forges import RepoId
 from agent_build_kit.model import Frozen
 
@@ -89,6 +89,8 @@ class RepoDetection(Frozen):
     default_branch: str
     languages: list[str]
     profile: str
+    # The infrastructure profile whose markers the repo root carries.
+    infra: str = "none"
     # Every project found, root first, in scan order. Defaulted so a hand-built
     # detection - the tests, a recorded answer - need only give what it asserts on.
     projects: list[ProjectDetection] = []
@@ -244,6 +246,14 @@ def _languages(projects: list[ProjectDetection]) -> tuple[list[str], str]:
     return languages, profile
 
 
+def _infra_of(path: Path) -> str:
+    """The first registered infrastructure profile with a marker in the repo root."""
+    for profile in infra.profiles():
+        if any((path / marker).exists() for marker in profile.detect_markers):
+            return profile.name
+    return "none"
+
+
 def _dependency_refs(pyproject: dict, package: dict) -> list[str]:
     refs: list[str] = []
     sources = pyproject.get("tool", {}).get("uv", {}).get("sources", {})
@@ -353,6 +363,7 @@ def detect_repo(
         default_branch=default_branch,
         languages=languages,
         profile=profile,
+        infra=_infra_of(path),
         projects=projects,
         has_code=has_code,
         service_dirs=_service_dirs(path),
