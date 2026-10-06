@@ -1,5 +1,5 @@
 # tool: git version 2.34.1
-# command: git push --porcelain origin b (LC_ALL=C), remote with a pre-receive hook that exits 1
+# command: git push --porcelain origin b, remote with a pre-receive hook that exits 1 (LC_ALL=C)
 # returncode: 1
 --- stdout
 To /srv/git/hook.git

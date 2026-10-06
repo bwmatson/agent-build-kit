@@ -44,6 +44,7 @@ from agent_build_kit.config import (
 from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.pr_replies import (
@@ -309,10 +310,6 @@ Hold it to the bar of work you would approve, not perfection. Style already
 enforced by the linter is not worth a round trip, and nor is a preference you
 could not justify to the person who wrote this.
 
-The changelog's form and wording are checked by tier 1 before you see the
-branch, so do not raise them while that check passes. A changelog entry that
-makes a claim the code does not support is still in scope: report it.
-
 Every round you ask for costs a rework and another review, so:
 
 - **Find everything in one pass.** Report every problem you can see now. Do
@@ -459,8 +456,9 @@ def build_run_review(
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
+        prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd)
         return inner(
-            f"{context}\n\n{REVIEW_PROMPT}" if context else REVIEW_PROMPT,
+            f"{context}\n\n{prompt}" if context else prompt,
             cwd=cwd,
             resume_session=resume_session,
             on_session=on_session,

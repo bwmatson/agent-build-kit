@@ -1,5 +1,5 @@
 # tool: git version 2.34.1
-# command: git push --porcelain origin b (LC_ALL=C), remote that does not exist
+# command: git push --porcelain origin b, remote that does not exist (LC_ALL=C)
 # returncode: 128
 --- stdout
 --- stderr

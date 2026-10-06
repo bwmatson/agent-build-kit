@@ -4,14 +4,12 @@
 --- stdout
 Auto-merging conflicted.py
 CONFLICT (content): Merge conflict in conflicted.py
-Resolved 'conflicted.py' using previous resolution.
-Auto-merging other.py
-CONFLICT (content): Merge conflict in other.py
-Recorded preimage for 'other.py'
-error: could not apply 4f2c1ab... add feature
+--- stderr
+Rebasing (1/1)
+error: could not apply <sha>... add feature
 hint: Resolve all conflicts manually, mark them as resolved with
 hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
 hint: You can instead skip this commit: run "git rebase --skip".
 hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
-Could not apply 4f2c1ab... add feature
---- stderr
+Resolved 'conflicted.py' using previous resolution.
+Could not apply <sha>... add feature

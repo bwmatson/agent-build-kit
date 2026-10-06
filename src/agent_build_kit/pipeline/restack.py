@@ -33,7 +33,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
-from agent_build_kit.pipeline.changelog_convention import CHANGELOG_NOTE
+from agent_build_kit.pipeline.changelog_convention import changelog_note, resolver_changelog_rule
 from agent_build_kit.pipeline.git_output import (
     git_push_outcome,
     replayed_files,
@@ -100,8 +100,7 @@ class ConflictContext(Frozen):
     onto_intent: str
 
 
-RESOLVE_PROMPT = (
-    """\
+RESOLVE_PROMPT = """\
 A rebase conflict needs resolving. Both sides are deliberate work, so the
 resolution should keep both unless they genuinely cannot coexist.
 
@@ -118,12 +117,7 @@ conflict marker. Change **only the conflict**: a rebase is not the place for
 improvements, and anything beyond the conflict is unreviewed work smuggled
 into someone else's diff. If the two intents truly contradict each other,
 leave the markers in place — stopping is better than guessing.
-
-In `CHANGELOG.md` the intents always coexist: keep both sides' bullets, every
-bullet, and where two bullets describe one change, fold them into one.
-"""
-    + CHANGELOG_NOTE
-)
+{changelog_rule}{changelog}"""
 
 REPLAYED_NOTE = """
 These paths arrived with a resolution replayed from an earlier run of this
@@ -303,6 +297,8 @@ def move_branch_onto(
         if replayed
         else "",
         diff=git(repo, "diff", check=False).stdout[:8000],
+        changelog_rule=resolver_changelog_rule(repo, files),
+        changelog=changelog_note(repo),
     )
 
     try:
