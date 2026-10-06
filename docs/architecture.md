@@ -730,7 +730,9 @@ Writes are best-effort: a record that cannot be kept (no workspace loaded, the s
 unwritable) is dropped, never fails a run, and is reported once per process for each reason. The
 reader (`usage_ledger.read_ledger`) keeps the last line for each unit, node, round and session,
 so a node run again with the same session counts once while two calls in different sessions both
-count. Move the ignore line if `planning.state_dir` is changed.
+count; a call with no session id cannot be told apart from another and stays a record of its own.
+An `acp` agent's `thoughtTokens` are not read: only `outputTokens` is recorded, and whether it
+includes reasoning tokens depends on the agent. Move the ignore line if `planning.state_dir` is changed.
 
 ## Why it is shaped this way
 

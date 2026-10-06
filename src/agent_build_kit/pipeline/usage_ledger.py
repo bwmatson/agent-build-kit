@@ -2,7 +2,7 @@
 
 Best-effort: a write that fails is dropped and reported once, and never
 affects a run. The reader keeps the last record per unit, node, round and
-session, so a re-run or a resumed session counts once.
+session; a call with no session id stays a record of its own.
 """
 
 from __future__ import annotations
@@ -81,12 +81,12 @@ def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
     if root is None:
         problem = "no workspace is loaded"
     else:
-        path = Installation(config.active(), root).state_dir / LEDGER_NAME
         try:
+            path = Installation(config.active(), root).state_dir / LEDGER_NAME
             append_record(path, record)
             return
         except Exception as error:  # noqa: BLE001 — a ledger is never a run's to lose
-            problem = f"{path} could not be written: {error}"
+            problem = f"the ledger could not be written: {error}"
     with _told_lock:
         if problem in _told:
             return
