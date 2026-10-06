@@ -1662,7 +1662,7 @@ def build_runner(
         profile=profile,
         marker=repo.tests.tier2_marker,
         dev_stack=repo.dev_stack.script if repo.dev_stack else None,
-        stack_versions_command=installation.config.verify.stack_versions_command,
+        stack_versions_command=installation.config.verify.stack_versions_command,  # pyrefly: ignore[bad-argument-type]
         env=installation.verify_env(),
     )
     planning_repo = installation.root

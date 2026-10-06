@@ -1053,37 +1053,101 @@ def _workspace(tmp_path: Path) -> Path:
 
 def test_tier_two_runs_each_member_on_its_own_as_tier_one_does(tmp_path: Path) -> None:
     """A rooted run puts every member's `src` in one environment, so
-    collection fails before a test runs."""
+    collection fails before a test runs. Each runs from its own directory with
+    no path, so the member's own pytest configuration decides what is collected."""
     from agent_build_kit.profiles.python_uv import PROFILE
 
     commands = PROFILE.tier2_commands(_workspace(tmp_path), marker="local_stack")
 
-    assert commands == [
-        [
-            "uv",
-            "run",
-            "--package",
-            "svc-a",
-            "--isolated",
-            "pytest",
-            "svc-a",
-            "-m",
-            "local_stack",
-            "-v",
-        ],
-        [
-            "uv",
-            "run",
-            "--package",
-            "example-svc-b",
-            "--isolated",
-            "pytest",
-            "svc-b",
-            "-m",
-            "local_stack",
-            "-v",
-        ],
+    assert len(commands) == 2
+    for command, member, package in zip(
+        commands, ("svc-a", "svc-b"), ("svc-a", "example-svc-b"), strict=True
+    ):
+        assert command[:2] == ["uv", "run"]
+        assert command[command.index("--directory") + 1] == member
+        assert command[command.index("--package") + 1] == package
+        assert "--isolated" in command
+        after_pytest = command[command.index("pytest") + 1 :]
+        assert after_pytest == ["-m", "local_stack", "-v"]
+
+
+def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
+    from agent_build_kit.profiles.python_uv import PROFILE
+
+    repo = _workspace(tmp_path)
+    (repo / "svc-b" / "tests").rmdir()
+
+    commands = PROFILE.tier2_commands(repo, marker="local_stack")
+
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("--directory") + 1] == "svc-a"
+
+
+def test_tier_two_without_members_runs_once_from_the_root(tmp_path: Path) -> None:
+    from agent_build_kit.profiles.python_uv import PROFILE
+
+    assert PROFILE.tier2_commands(tmp_path, marker="local_stack") == [
+        ["uv", "run", "pytest", "-m", "local_stack", "-v"]
     ]
+
+
+def _tier_two_with_stack_versions(
+    tmp_path: Path, error: Exception | None, *, stdout: str = "", returncode: int = 0
+) -> tuple[Tier2Session, list[str]]:
+    """A session whose stack-versions command is run by a runner at the process
+    boundary: it raises what `subprocess.run` raises for a missing executable."""
+    ran: list[str] = []
+
+    def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+        ran.append(command[0])
+        if command[0] == "no-such-tool":
+            if error:
+                raise error
+            return subprocess.CompletedProcess(command, returncode, stdout, "")
+        return subprocess.CompletedProcess(command, 0, "3 passed in 4.00s", "")
+
+    session = Tier2Session(
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        run=run,
+        sha=lambda cwd: "abc1234",
+        stack_versions_command=["no-such-tool", "ps"],
+    )
+    return session, ran
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError(2, "No such file or directory", "no-such-tool"),
+        PermissionError(13, "Permission denied", "no-such-tool"),
+    ],
+)
+def test_a_stack_versions_command_that_cannot_start_records_nothing(
+    tmp_path: Path, error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    session, ran = _tier_two_with_stack_versions(tmp_path, error)
+
+    ok, _ = session.run(cwd=_workspace(tmp_path))
+
+    assert ok
+    assert "no-such-tool" in ran
+    assert session.result is not None
+    assert session.result.stack_versions == {}
+    lines = [r for r in caplog.records if "no-such-tool" in r.getMessage()]
+    assert len(lines) == 1
+
+
+def test_a_stack_versions_command_that_fails_with_no_output_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    session, _ = _tier_two_with_stack_versions(tmp_path, None, returncode=1)
+
+    ok, _ = session.run(cwd=_workspace(tmp_path))
+
+    assert ok
+    assert session.result is not None
+    assert session.result.stack_versions == {}
 
 
 def test_a_member_with_no_live_stack_tests_does_not_fail_tier_two(tmp_path: Path) -> None:

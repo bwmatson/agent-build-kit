@@ -26,6 +26,7 @@ class NodeNpmProfile:
         stub='a signature whose body is only `throw new Error("not implemented")`',
     )
     no_tests_collected_exit: int = 0
+    stack_versions_command: tuple[str, ...] | None = None
 
     def _todo(self, what: str):
         raise NotImplementedError(

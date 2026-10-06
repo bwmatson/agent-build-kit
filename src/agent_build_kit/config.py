@@ -28,6 +28,7 @@ from pydantic import Field, ValidationError, model_validator
 
 from agent_build_kit import forges, runtimes
 from agent_build_kit.model import Frozen
+from agent_build_kit.profiles.base import ToolchainProfile
 
 CONFIG_FILENAME = "abk.yaml"
 CONFIG_ENV = "ABK_CONFIG"
@@ -375,16 +376,16 @@ Provider = Annotated[
 
 class VerifyConfig(Frozen):
     # Recorded beside a tier-2 result so a reviewer can see what the stack
-    # was. None records nothing.
-    stack_versions_command: list[str] | None = [
-        "docker",
-        "ps",
-        "--format",
-        "{{.Names}}\t{{.Image}}",
-    ]
+    # was. "profile" (not set) asks the repo's profile; None records nothing.
+    stack_versions_command: list[str] | Literal["profile"] | None = "profile"
     # Environment handed to the live-stack tests, each value resolved by a
     # provider at verify time.
     env: dict[str, Provider] = {}
+
+
+def stack_versions_for(verify: VerifyConfig, profile: ToolchainProfile) -> list[str] | None:
+    """The command that records the live stack: the config's when set, else the profile's."""
+    raise NotImplementedError
 
 
 # The runtime whose usage windows the pause thresholds describe.
