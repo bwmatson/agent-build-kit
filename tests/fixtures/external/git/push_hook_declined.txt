@@ -1,0 +1,10 @@
+# tool: git version 2.34.1
+# command: git push --porcelain origin b (LC_ALL=C), remote with a pre-receive hook that exits 1
+# returncode: 1
+--- stdout
+To /srv/git/hook.git
+!	refs/heads/b:refs/heads/b	[remote rejected] (pre-receive hook declined)
+Done
+--- stderr
+remote: commit message must reference a ticket
+error: failed to push some refs to '/srv/git/hook.git'

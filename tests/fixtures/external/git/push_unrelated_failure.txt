@@ -1,0 +1,10 @@
+# tool: git version 2.34.1
+# command: git push --porcelain origin b (LC_ALL=C), remote that does not exist
+# returncode: 128
+--- stdout
+--- stderr
+fatal: '/srv/git/nowhere.git' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.

@@ -1,0 +1,11 @@
+# tool: git version 2.34.1
+# command: git push --porcelain --force origin b (LC_ALL=C), remote host's branch protection
+# returncode: 1
+--- stdout
+To git@host.example:example/app.git
+!	refs/heads/b:refs/heads/b	[remote rejected] (protected branch hook declined)
+Done
+--- stderr
+remote: error: GH006: Protected branch update failed for refs/heads/b.
+remote: error: Cannot force-push to this branch
+error: failed to push some refs to 'host.example:example/app.git'
