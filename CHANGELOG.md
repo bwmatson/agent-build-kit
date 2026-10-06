@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A tier-2 acceptance run for telemetry: `tests/integration/test_telemetry_stack.py` ticks a fixture
+  unit with telemetry on and finds its trace by unit id and its `abk.unit.duration` and
+  `abk.step.duration` series, without a unit id, in the shared stack's stores; with the endpoint
+  pointing at nothing the tick still finishes and writes nothing. It needs the stack's dev
+  instance up and the four `ABK_ACCEPTANCE_*` endpoint variables set (docs/agent-runtimes.md).
+
 - `abk telemetry push-dashboard` pushes the framework's Grafana dashboard (shipped as package
   data, querying only metrics the telemetry module emits) to the Grafana named by
   `ABK_GRAFANA_URL` and `ABK_GRAFANA_TOKEN`, into the folder `ABK_GRAFANA_FOLDER` (default
