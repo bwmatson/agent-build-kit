@@ -58,7 +58,7 @@
       "id": 8, "title": "Agent tokens by kind", "type": "timeseries",
       "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_agent_tokens_total[$__rate_interval]))", "legendFormat": "{{kind}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_agent_tokens_total{source=\"\"}[$__rate_interval]))", "legendFormat": "{{kind}}"}]
     },
     {
       "id": 9, "title": "Usage pauses", "type": "timeseries",

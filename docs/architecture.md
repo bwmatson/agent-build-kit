@@ -672,12 +672,11 @@ outcome and, for a failed check, its kind.
 | `abk.review.rounds` | histogram | repo, outcome |
 | `abk.checks.failures` | counter | check (lint, test, types), round |
 | `abk.agent.turns` | histogram | role, model |
-| `abk.agent.tokens` | counter | role, model, kind (input, output, cache) |
+| `abk.agent.tokens` | counter | two series, told apart by `source`: the runtime's (role, model, kind input/output/cache; no `source`) and the ledger's (repo, tier, node, role, model, source, kind input/output/cache_read/cache_creation). Each call is in both, so a query must select one with `source=""` or `source!=""`; summing without it counts every call twice |
 | `abk.usage.pauses` | counter | kind (usage, rate_limit) |
 | `abk.units.reclaimed` | counter | |
 | `abk.units` | gauge | state |
 | `abk.agent.cost` | counter (USD) | repo, tier, node, role, model, source (measured, estimated) |
-| `abk.agent.tokens` | counter | as above plus kind (input, output, cache_read, cache_creation); the runtime's own series has no source |
 | `abk.node.duration` | histogram (s) | node |
 | `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause) |
 

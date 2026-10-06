@@ -100,7 +100,7 @@ def export_call(record: UsageRecord) -> None:
         "tier": record.tier,
         "node": record.node,
         "role": record.role,
-        "model": record.model or "",
+        "model": record.model or "default",
         "source": source,
     }
     if record.usage_source == "none":

@@ -57,11 +57,21 @@ def record_agent(**fields: object) -> None:
     record_call(UsageRecord.model_validate(agent_line(**fields)), print)
 
 
-def record_span_of(seconds: float, node: str = "implement", waited: str = "") -> None:
+def record_span_of(
+    seconds: float, node: str = "implement", waited: str = "", command: str = ""
+) -> None:
     """A span of `seconds`, written through the same recorder a node's run uses."""
     mark = Mark()
     spans.clock.advance(seconds)  # type: ignore[attr-defined]
-    record_span(mark, print, unit="add-marker/7", change="add-marker", node=node, waited=waited)
+    record_span(
+        mark,
+        print,
+        unit="add-marker/7",
+        change="add-marker",
+        node=node,
+        waited=waited,
+        command=command,
+    )
 
 
 def exported_tokens(collector: Collector) -> list[Point]:
@@ -191,3 +201,22 @@ def test_with_telemetry_off_the_ledger_is_written_and_nothing_is_exported(
     ledger = workspace.state_dir / LEDGER_NAME
     assert len(ledger.read_text().splitlines()) == 3
     assert {r.session_id for r in read_ledger(ledger)} == {"off-1", "on-1"}
+
+
+def test_a_tier_1_command_span_adds_no_time_of_its_own(
+    workspace: Installation, exported: Collector
+) -> None:
+    record_span_of(2.0, node="implement", command="test")
+    telemetry.shutdown()
+
+    assert exported.metric("abk.node.duration") == []
+    assert exported.metric("abk.wait.duration") == []
+
+
+def test_an_agent_record_with_no_model_is_labelled_default(
+    workspace: Installation, exported: Collector
+) -> None:
+    record_agent(usage_source="gateway", model="")
+    telemetry.shutdown()
+
+    assert {p.attributes["model"] for p in exported_tokens(exported)} == {"default"}
