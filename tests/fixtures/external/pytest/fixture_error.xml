@@ -1,0 +1,9 @@
+<!-- tool: pytest 9.1.1
+     command: pytest test_case.py -p no:cacheprovider --tb=line -q --junitxml=<path> -->
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1"><testcase classname="test_case" name="test_new"><error message="failed on setup with &quot;file /tmp/case/test_case.py, line 1&#10;  def test_new(db):&#10;E       fixture 'db' not found&#10;&gt;       available fixtures: anyio_backend, anyio_backend_name, anyio_backend_options, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, doctest_namespace, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, monkeypatch, platformdirs_isolated, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, subtests, testrun_uid, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, worker_id&#10;&gt;       use 'pytest --fixtures [testpath]' for help on them.&#10;&#10;/tmp/case/test_case.py:1&quot;">file /tmp/case/test_case.py, line 1
+  def test_new(db):
+E       fixture 'db' not found
+&gt;       available fixtures: anyio_backend, anyio_backend_name, anyio_backend_options, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, doctest_namespace, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, monkeypatch, platformdirs_isolated, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, subtests, testrun_uid, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, worker_id
+&gt;       use 'pytest --fixtures [testpath]' for help on them.
+
+/tmp/case/test_case.py:1</error></testcase></testsuite></testsuites>

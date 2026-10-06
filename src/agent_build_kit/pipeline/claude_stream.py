@@ -43,6 +43,10 @@ class ResultEvent(BaseModel):
     type: Literal["result"]
     # `success`, or an error subtype: `error_during_execution`, `error_max_turns`.
     subtype: str = ""
+    # The run ended in an error, whatever the subtype says; and the HTTP status
+    # of the API error behind it, when there was one.
+    is_error: bool = False
+    api_error_status: int | None = None
     # A `success` result's answer; an error subtype has none.
     result: str | None = None
     # What went wrong, on an error subtype.

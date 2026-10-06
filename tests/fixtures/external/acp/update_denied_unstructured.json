@@ -1,0 +1,14 @@
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx",
+  "status": "failed",
+  "content": [
+    {
+      "type": "content",
+      "content": {
+        "type": "text",
+        "text": "Blocked by the user-defined deny rule Bash(git reset:*)"
+      }
+    }
+  ]
+}

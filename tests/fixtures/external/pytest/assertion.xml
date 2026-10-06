@@ -1,0 +1,3 @@
+<!-- tool: pytest 9.1.1
+     command: pytest test_case.py -p no:cacheprovider --tb=line -q --junitxml=<path> -->
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1"><testcase classname="test_case" name="test_new"><failure message="assert 1 == 2">E   assert 1 == 2</failure></testcase></testsuite></testsuites>

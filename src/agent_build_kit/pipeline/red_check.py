@@ -24,6 +24,9 @@ defeat the point.
 from __future__ import annotations
 
 import re
+from typing import Literal
+
+from agent_build_kit.model import Frozen
 
 # "1 failed, 2 passed in 0.06s" / "3 passed in 0.10s"
 COUNT = re.compile(r"(\d+) (passed|failed|error|errors|skipped)")
@@ -95,3 +98,22 @@ def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
         )
 
     return not problems, problems
+
+
+class RedResult(Frozen):
+    """The verdict on a tests commit's run, and the failing tests it names."""
+
+    verdict: Literal["accepted", "rejected"]
+    tests: tuple[str, ...] = ()
+    problems: tuple[str, ...] = ()
+
+
+def red_check(report: str) -> RedResult:
+    """Judge a run from pytest's JUnit report, by each failing test's exception."""
+    raise NotImplementedError
+
+
+def judge_red(report: str | None, output: str, exit_code: int) -> RedResult:
+    """Judge a run from its `report`, or from the console `output` (logging
+    that it did) when the report could not be written."""
+    raise NotImplementedError

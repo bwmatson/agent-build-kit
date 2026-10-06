@@ -1,0 +1,20 @@
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx",
+  "status": "failed",
+  "rawOutput": {
+    "error": {
+      "code": "command_failed",
+      "message": "Permission for guest was denied"
+    }
+  },
+  "content": [
+    {
+      "type": "content",
+      "content": {
+        "type": "text",
+        "text": "Permission for guest was denied"
+      }
+    }
+  ]
+}

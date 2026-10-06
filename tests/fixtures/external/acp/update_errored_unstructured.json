@@ -1,0 +1,14 @@
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx",
+  "status": "failed",
+  "content": [
+    {
+      "type": "content",
+      "content": {
+        "type": "text",
+        "text": "ls: cannot open directory '/root': Permission denied"
+      }
+    }
+  ]
+}

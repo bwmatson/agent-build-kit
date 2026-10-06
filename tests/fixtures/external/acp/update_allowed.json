@@ -1,0 +1,19 @@
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx",
+  "status": "completed",
+  "rawOutput": {
+    "exit_code": 0,
+    "stdout": "Permission for guest was denied\n",
+    "stderr": ""
+  },
+  "content": [
+    {
+      "type": "content",
+      "content": {
+        "type": "text",
+        "text": "Permission for guest was denied\n"
+      }
+    }
+  ]
+}
