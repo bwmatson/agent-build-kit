@@ -171,6 +171,7 @@ flowchart TD
     await_review -->|hold| held
     await_review -->|merged / closed| finished((end))
     held -->|requeue| prepare
+    held -->|release| await_review
     held -->|merged / closed| finished
     satisfied --> finished
     failed -->|requeue| prepare
@@ -205,7 +206,7 @@ are the reference for each condition. The nodes:
 | `push` | Pushes only the approved commit | the push gate, `push` |
 | `open_pr` | Opens or updates the pull request, posts replies and the PR body | `open_pr`, replies, labels |
 | `await_review` | **Interrupt.** Waits for the forge: rework, a merge, a close, a hold, a moved base | — |
-| `held` | **Interrupt.** Waits for a person: requeue, merge, close. The store state the hold leaves (`held`, or `planned` for a unit held before a step) is recorded by the node that held, not by this one, which runs again from its start when resumed | — |
+| `held` | **Interrupt.** Waits for a person: requeue, release, merge, close. The store state the hold leaves (`held`, or `planned` for a unit held before a step) is recorded by the node that held, not by this one, which runs again from its start when resumed | — |
 | `satisfied`, `failed` | Terminal for this thread; `failed` waits for a requeue. A satisfied unit's thread is deleted, its groups ticked and an open pull request closed with the reason | `close_pr` for satisfied |
 
 Between steps a unit is held, not stopped: before `implement`, `fix_checks`,
@@ -334,6 +335,7 @@ unit's thread with a command:
 | A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict | `rework{reason, feedback}` | `await_review` → `rework` |
 | The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node) |
 | `agent-hold` | `hold` | → `held` |
+| `agent-hold` removed | `release` | `held` → `await_review`, for a hold the label made |
 | Merged | `merged` | → end; `units.json` records the merge, and a child waiting in review (stored `in_review`, within the rebase cap) is sent `base_moved{new_base}` and its PR is retargeted at once, instead of being restacked by the handler; every other child, with a thread or without, is handled by the handler itself (restacked, held for depth, or left alone) |
 | Closed unmerged | `closed` | → end |
 | `abk requeue` | `requeue{mode}` | `held` / `failed` → `prepare`. `resume` (the default) goes back where it stopped; `restart` drops the saved failure and rounds but keeps the branch's commits (it does not start a fresh thread); `rework` keeps the work and the saved failure, and so enters at the agent with the failure in hand (`fix_checks` for a failed check) |

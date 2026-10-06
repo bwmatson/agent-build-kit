@@ -55,7 +55,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -63,6 +63,7 @@ from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     MERGED,
     PLANNED,
+    RUNNING,
     SATISFIED,
     base_of,
     branch_name,
@@ -122,6 +123,46 @@ def _depth_hold_base(unit: StoredUnit) -> str | None:
     note = unit.history[-1].get("note", "") if unit.history else ""
     found = _DEPTH_HOLD.fullmatch(note)
     return found["base"] if found else None
+
+
+def held_for_depth(unit: StoredUnit) -> bool:
+    """Held for the stack depth cap, which a later merge may free: by the cause the
+    record keeps, or for one from before that, by the note the restack wrote."""
+    if unit.state != HELD:
+        return False
+    if unit.held_by:
+        return unit.held_by == HeldBy.DEPTH
+    return _depth_hold_base(unit) is not None
+
+
+def held_for_its_own_reason(unit: StoredUnit) -> bool:
+    """Held for a reason the hold label did not make and its removal must not undo:
+    the review loop, the toolchain, a cause not recorded. A depth hold is not one,
+    since a merge frees it, so the label takes it over; and a unit the label
+    already holds is not held for another reason."""
+    return unit.state == HELD and not unit.held_by_the_label and not held_for_depth(unit)
+
+
+def held_cause(unit: StoredUnit) -> str:
+    return unit.held_by or "an unrecorded cause"
+
+
+def takeover_note(unit: StoredUnit, reason: str = "") -> str:
+    """The note the label's hold on `unit` is recorded with. A depth hold keeps its
+    own, which says which branch the unit is still on, so the hold can be found
+    again when the label comes off or a merge frees it."""
+    if _depth_hold_base(unit) is not None:
+        return unit.note
+    return reason or HELD_BY_A_REVIEWER
+
+
+def restore_depth_hold(store: UnitStore, unit: StoredUnit) -> bool:
+    """Give a unit the label took a depth hold from back to that hold, as its note
+    kept it. False when the label's hold was not over a depth hold."""
+    if _depth_hold_base(unit) is None:
+        return False
+    store.set_state(unit.id, HELD, note=unit.note, held_by=HeldBy.DEPTH)
+    return True
 
 
 def _unclaimed(unit: StoredUnit) -> AbstractContextManager[object]:
@@ -496,7 +537,9 @@ def _hold_for_depth(
     log: Log,
 ) -> None:
     note = DEPTH_HOLD.format(new_base=new_base, depth=depth, cap=cap)
-    store.set_state(child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base))
+    store.set_state(
+        child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base), held_by=HeldBy.DEPTH
+    )
     log(f"{child.id}: held — {note}")
     # Only the PR moves, as for a child being built: it touches no tree, and
     # one left on the merged branch may be closed by the host, which would put
@@ -528,36 +571,65 @@ def _reconsider_held(
         old_base = _depth_hold_base(unit)
         if old_base is None:
             continue  # Held by a person or the toolchain, not for depth.
-        depth = depth_of(unit, graph)
-        new_base = base_of(unit, graph)
-        parent = next((u for u in graph if branch_name(u) == old_base), None)
-        if depth > rebase_cap or parent is None:
+        if unit.held_by_the_label:
+            # A reviewer has it, over a depth hold: not restacked while the label
+            # is on, and still on its old base.
             if old_base == branch_name(merged):
                 still_held.append(unit.id)
             continue
-        try:
-            with claim(unit):
-                store.set_state(unit.id, IN_REVIEW, note=f"depth {depth} is within the cap")
-                restack(
-                    branch=branch_name(unit),
-                    old_base=old_base,
-                    new_base=new_base,
-                    child=unit,
-                    parent=parent,
-                )
-        except BranchBusy:
-            # The claim failed before anything was written: it is still held,
-            # its record as it was, and the next merge tries again.
-            if old_base == branch_name(merged):
-                still_held.append(unit.id)
-            continue
-        except Exception as error:  # noqa: BLE001
-            # Left in review on its old base, as a failed restack is for a
-            # child in the merge itself.
-            log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
-            continue
-        log(f"{unit.id}: restacked onto {new_base}")
+        if reconsider_depth_hold(
+            unit,
+            old_base,
+            graph,
+            store=store,
+            restack=restack,
+            claim=claim,
+            rebase_cap=rebase_cap,
+            log=log,
+        ) and old_base == branch_name(merged):
+            still_held.append(unit.id)
     return still_held
+
+
+def reconsider_depth_hold(
+    unit: StoredUnit,
+    old_base: str,
+    graph: list[StoredUnit],
+    *,
+    store: UnitStore,
+    restack: Restack,
+    claim: Claim,
+    rebase_cap: int,
+    log: Log,
+) -> bool:
+    """Restack a unit held for depth if its depth is now within the cap, from the
+    branch it is still on. True when it is still held, on that branch."""
+    depth = depth_of(unit, graph)
+    new_base = base_of(unit, graph)
+    parent = next((u for u in graph if branch_name(u) == old_base), None)
+    if depth > rebase_cap or parent is None:
+        return True
+    try:
+        with claim(unit):
+            store.set_state(unit.id, IN_REVIEW, note=f"depth {depth} is within the cap")
+            restack(
+                branch=branch_name(unit),
+                old_base=old_base,
+                new_base=new_base,
+                child=unit,
+                parent=parent,
+            )
+    except BranchBusy:
+        # The claim failed before anything was written: it is still held,
+        # its record as it was, and the next merge tries again.
+        return True
+    except Exception as error:  # noqa: BLE001
+        # Left in review on its old base, as a failed restack is for a
+        # child in the merge itself.
+        log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
+        return False
+    log(f"{unit.id}: restacked onto {new_base}")
+    return False
 
 
 def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
@@ -801,6 +873,10 @@ def on_hold(
 ) -> bool:
     """A reviewer has taken the unit over. Nothing automatic touches it again.
 
+    A unit held for depth is taken over too, since a merge would free it with the
+    label still on; one the review loop or the toolchain holds keeps its cause,
+    because nothing automatic frees those.
+
     A satisfied unit is left as it is — see `on_closed` for why its own
     OPEN→CLOSED is not the only transition that can arrive after it is
     already done.
@@ -815,17 +891,117 @@ def on_hold(
             log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
             return True
         if resume(unit, "hold", "", ""):
-            log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
+            current = store.get(unit.id)
+            if held_for_its_own_reason(current):
+                log(
+                    f"hold #{pr}: {unit.id} is already held by {held_cause(current)}, "
+                    "leaving it as it is"
+                )
+            else:
+                log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
             return True
         with claim(unit):
             if store.get(unit.id).state == SATISFIED:
                 log(f"hold #{pr}: {unit.id} is satisfied, leaving it as it is")
                 return True
-            store.set_state(unit.id, HELD)
+            current = store.get(unit.id)
+            if held_for_its_own_reason(current):
+                log(
+                    f"hold #{pr}: {unit.id} is already held by {held_cause(current)}, "
+                    "leaving it as it is"
+                )
+                return True
+            if not current.held_by_the_label:
+                store.set_state(unit.id, HELD, note=takeover_note(current), held_by=HeldBy.REVIEWER)
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
     log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
     return True
+
+
+def on_release(
+    pr: int,
+    *,
+    repo: str,
+    store: UnitStore,
+    claim: Claim = _unclaimed,
+    restack: Restack | None = None,
+    rebase_cap: int | None = None,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> bool:
+    """The hold label has come off: a unit it held goes back to waiting for review.
+
+    Only a hold the label caused. One the review loop, a depth cap or the
+    toolchain made has nothing to do with it, and stays. A depth hold the label
+    took over goes back to being one: held for depth again, or, when a merge
+    during the label brought it within the cap, restacked from the branch it
+    was still on. What arrived during the hold is not touched here: the poller
+    delivers it as it would to any unit waiting for review.
+    """
+    unit = _find(store, repo, pr)
+    if unit is None:
+        log(f"release #{pr}: no unit recorded for it in {repo}, ignoring")
+        return True
+
+    restored: StoredUnit | None = None
+    try:
+        if (refusal := _release_refused(store.get(unit.id), pr)) is not None:
+            log(refusal)
+            return True
+        if resume(unit, "release", "", ""):
+            log(f"release #{pr}: {unit.id} is waiting for review again")
+            return True
+        with claim(unit):
+            current = store.get(unit.id)
+            if (refusal := _release_refused(current, pr, under_claim=True)) is not None:
+                log(refusal)
+                return True
+            if restore_depth_hold(store, current):
+                restored = current
+            else:
+                store.set_state(unit.id, IN_REVIEW, note="hold label removed")
+        if restored is not None:
+            old_base = _depth_hold_base(restored)
+            assert old_base is not None
+            if (
+                rebase_cap is None
+                or restack is None
+                or reconsider_depth_hold(
+                    restored,
+                    old_base,
+                    store.all(),
+                    store=store,
+                    restack=restack,
+                    claim=claim,
+                    rebase_cap=rebase_cap,
+                    log=log,
+                )
+            ):
+                log(f"release #{pr}: {unit.id} is held for depth again")
+                return True
+    except BranchBusy as error:
+        return _deferred(f"release #{pr}", unit, error, log)
+    log(f"release #{pr}: {unit.id} is waiting for review again")
+    return True
+
+
+def _release_refused(unit: StoredUnit, pr: int, *, under_claim: bool = False) -> str | None:
+    """The log line saying why a release changes nothing; None when it applies.
+
+    Before the claim a unit being built passes, so the claim defers the event
+    and the poller reports it again; under the claim nothing is building it, so a
+    unit still stored `running` was never held and there is nothing to release.
+    """
+    if unit.state == RUNNING and not under_claim:
+        return None
+    if unit.state != HELD:
+        return f"release #{pr}: {unit.id} is {unit.state}, not held, nothing to release"
+    if unit.held_by_the_label:
+        return None
+    return (
+        f"release #{pr}: {unit.id} is held by {held_cause(unit)}, not the label's, leaving it held"
+    )
 
 
 def on_rework(
@@ -1427,6 +1603,17 @@ def build_dispatch(
             return on_closed(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
         if event == "hold":
             return on_hold(number, repo=repo, store=store, claim=claim, resume=resume, log=log)
+        if event == "release":
+            return on_release(
+                number,
+                repo=repo,
+                store=store,
+                claim=claim,
+                restack=restack,
+                rebase_cap=rebase_cap,
+                resume=resume,
+                log=log,
+            )
         if event == "rework":
             known = _load_waiting(waiting_path) if waiting_path else waiting
             taken = on_rework(

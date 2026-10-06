@@ -24,6 +24,12 @@ from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.pipeline.check_failures import failed_check
+from agent_build_kit.pipeline.events import (
+    held_cause,
+    held_for_its_own_reason,
+    restore_depth_hold,
+    takeover_note,
+)
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -46,7 +52,7 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -55,6 +61,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     Unit,
     branch_name,
+    depth_of,
     local_ref,
 )
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, SessionUnavailable
@@ -230,7 +237,15 @@ class BuildPath:
             unit, base, tree=self.tree(), start=state.start
         )
 
-    def hold(self, state: str, note: str, detail: str, *, pr: int | None = None) -> Update:
+    def hold(
+        self,
+        state: str,
+        note: str,
+        detail: str,
+        *,
+        pr: int | None = None,
+        held_by: HeldBy = HeldBy.NONE,
+    ) -> Update:
         """Stop the run in `held`, with the store left in `state`.
 
         Recorded here and not by the `held` node, which waits: a node that waits
@@ -239,7 +254,7 @@ class BuildPath:
         """
         self.say(f"held: {note}")
         opened: dict[str, Any] = {"pr": pr} if pr else {}
-        self.runner.store.set_state(self.unit.id, state, note=note, **opened)
+        self.runner.store.set_state(self.unit.id, state, note=note, held_by=held_by, **opened)
         update: Update = {
             "held": detail,
             "hold_state": state,
@@ -614,7 +629,12 @@ class BuildPath:
             r.store.set_feedback(unit.id, why)
             return {
                 **update,
-                **self.hold(HELD, f"needs a human: {why[:300]}", f"needs a human: {why[:200]}"),
+                **self.hold(
+                    HELD,
+                    f"needs a human: {why[:300]}",
+                    f"needs a human: {why[:200]}",
+                    held_by=HeldBy.REVIEW,
+                ),
             }
         if escalates(verdict, weighed.earlier_rounds):
             # Another instance of a kind that cannot be enumerated, or a point
@@ -634,6 +654,7 @@ class BuildPath:
                     HELD,
                     f"escalated — {label} ({verdict.escalate}): {reasoning}",
                     f"escalated ({verdict.escalate}): {reasoning[:200]}",
+                    held_by=HeldBy.REVIEW,
                 ),
             }
         # Kept as feedback, so the rework addresses what this round asked for, or
@@ -901,7 +922,9 @@ class BuildPath:
             )
         if state.spent:
             note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
-            return self.hold(HELD, note, f"rounds spent, held as #{pr}", pr=pr)
+            return self.hold(
+                HELD, note, f"rounds spent, held as #{pr}", pr=pr, held_by=HeldBy.REVIEW
+            )
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
         # a comment it has already answered.
@@ -962,8 +985,43 @@ class BuildPath:
             r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
             update.update(self.fresh_run(had_feedback=True))
         elif event.kind is EventKind.HOLD:
-            r.store.set_state(unit.id, HELD, note=event.reason or "held by a reviewer")
+            current = r.store.get(unit.id)
+            if held_for_its_own_reason(current):
+                # Held for a reason of its own (the toolchain, the review loop):
+                # the label did not make it, so its removal must not undo it. A
+                # depth hold a merge would free is taken over instead.
+                self.say(f"already held by {held_cause(current)}, as it stands")
+                return {"event": None}
+            if not current.held_by_the_label:
+                r.store.set_state(
+                    unit.id,
+                    HELD,
+                    note=takeover_note(current, event.reason),
+                    held_by=HeldBy.REVIEWER,
+                )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
+        elif event.kind is EventKind.RELEASE:
+            current = r.store.get(unit.id)
+            if not current.held_by_the_label:
+                self.say("not held by the label, nothing to release")
+                return {"event": None}
+            if restore_depth_hold(r.store, current):
+                limits = active().limits
+                cap = limits.stack_depth_rebase_cap
+                cap = limits.stack_depth_build_cap if cap is None else cap
+                depth = depth_of(current, r.store.all())
+                if depth > cap:
+                    self.say(f"held for depth again: depth {depth} is beyond the rebase cap {cap}")
+                    return {"event": None}
+                # A merge during the label brought it within the cap: the run
+                # takes up at `prepare`, which moves it onto its base.
+                r.store.set_state(unit.id, RUNNING, note=f"depth {depth} is within the cap")
+                update.update(self.fresh_run())
+                update.update({"event": ResumeEvent(kind=EventKind.REQUEUE, reason="released")})
+                update["base"] = ""
+                return update
+            r.store.set_state(unit.id, IN_REVIEW, note="hold label removed")
+            update.update({"status": RunStatus.OPEN, "detail": "released"})
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
             if event.kind is EventKind.REQUEUE and event.reason == "restart":
                 r.store.set_feedback(unit.id, "")
@@ -1121,6 +1179,8 @@ def after_held(state: UnitRun) -> Node | str:
     kind = state.event.kind if state.event else None
     if kind is EventKind.REQUEUE:
         return Node.PREPARE
+    if kind is EventKind.RELEASE:
+        return Node.AWAIT_REVIEW
     if kind in (EventKind.MERGED, EventKind.CLOSED):
         return END
     return Node.HELD
@@ -1181,5 +1241,5 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_await_review,
         (Node.REWORK, Node.PREPARE, Node.HELD, Node.AWAIT_REVIEW, END),
     ),
-    Node.HELD: (after_held, (Node.PREPARE, Node.HELD, END)),
+    Node.HELD: (after_held, (Node.PREPARE, Node.AWAIT_REVIEW, Node.HELD, END)),
 }

@@ -24,17 +24,34 @@ import json
 import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import PLANNED, Join, Member, Unit
+from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
 UNPLANNED = "unplanned"
+
+
+class HeldBy(StrEnum):
+    """Why a unit is held: `REVIEWER` (the hold label), `REVIEW` (the review
+    loop), `DEPTH` (the stack depth cap) or `TOOLCHAIN`; `NONE` when it is not
+    held, and in a record written before this was kept."""
+
+    NONE = ""
+    REVIEWER = "reviewer"
+    REVIEW = "review"
+    DEPTH = "depth"
+    TOOLCHAIN = "toolchain"
+
+
+# What the label handler wrote as a hold's note before the cause was kept.
+HELD_BY_A_REVIEWER = "held by a reviewer"
 
 
 def corrupt_store_message(path: Path) -> str:
@@ -88,6 +105,8 @@ class StoredUnit(Unit):
     # stack; empty when it did, or was never asked. Advisory: nothing reads it
     # to decide anything.
     stack_refusal: str = ""
+    # Why the unit is held (see `HeldBy`).
+    held_by: HeldBy = HeldBy.NONE
     history: tuple[dict, ...] = ()
 
     @property
@@ -107,6 +126,16 @@ class StoredUnit(Unit):
     def note(self) -> str:
         """Why the unit is in its present state, as its latest history entry says."""
         return str(self.history[-1].get("note", "")) if self.history else ""
+
+    @property
+    def held_by_the_label(self) -> bool:
+        """Held, and by a reviewer's hold label; a record from before the cause was
+        kept is read by the note the label handler wrote."""
+        if self.state != HELD:
+            return False
+        if self.held_by:
+            return self.held_by == HeldBy.REVIEWER
+        return self.note == HELD_BY_A_REVIEWER
 
 
 # The in-run fields a unit used to carry here, which now live in its thread.
@@ -247,6 +276,7 @@ class UnitStore:
                 run_log=existing.run_log if existing else "",
                 trace=existing.trace if existing else "",
                 stack_refusal=existing.stack_refusal if existing else "",
+                held_by=existing.held_by if existing else HeldBy.NONE,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and existing.joined and not fresh.joined:
@@ -339,15 +369,18 @@ class UnitStore:
         pr: int | None = None,
         branch: str | None = None,
         note: str = "",
+        held_by: HeldBy = HeldBy.NONE,
     ) -> None:
         """Record a state, optionally with why.
 
         The note matters where the state does not change — review asking for
         rework leaves a unit open — because without it the entry says only
         that something happened.
+
+        `held_by` is why a unit is held; any other state forgets it.
         """
         unit, everything, opened = self._record_state(
-            unit_id, state, pr=pr, branch=branch, note=note
+            unit_id, state, pr=pr, branch=branch, note=note, held_by=held_by
         )
         if self.on_state:
             self.on_state(unit, everything, opened)
@@ -361,6 +394,7 @@ class UnitStore:
         pr: int | None,
         branch: str | None,
         note: str,
+        held_by: HeldBy,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         stored = self._read()
         unit = stored[unit_id]
@@ -370,6 +404,7 @@ class UnitStore:
                 "state": state,
                 "pr": pr if pr is not None else unit.pr,
                 "branch": branch if branch is not None else unit.branch,
+                "held_by": held_by if state == HELD else HeldBy.NONE,
                 "history": (
                     *unit.history,
                     {"state": state, "at": _now(), **({"note": note} if note else {})},

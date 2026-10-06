@@ -90,6 +90,7 @@ def test_the_hold_names_the_depth_and_the_cap(tmp_path: Path) -> None:
 
     last = store.get("c/4").history[-1]
     assert last["state"] == HELD
+    assert store.get("c/4").held_by == "depth"
     assert "depth 3" in last["note"] and "cap 2" in last["note"]
     assert last["note"] == (
         events.DEPTH_HOLD.format(new_base="spec/c/3", depth=3, cap=2)
@@ -271,10 +272,15 @@ def test_a_hold_that_needs_a_human_is_left_alone(tmp_path: Path) -> None:
     assert store.get("c/4").state == HELD
 
 
-def test_a_depth_hold_a_reviewer_then_also_holds_is_left_alone(tmp_path: Path) -> None:
+def test_a_depth_hold_a_reviewer_then_also_holds_is_the_labels_and_a_merge_leaves_it(
+    tmp_path: Path,
+) -> None:
+    """The label takes the hold over, so a later merge that would free the unit
+    for depth leaves it held while the label is on its pull request."""
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     events.on_hold(4, repo="app", store=store)
+    assert store.get("c/4").held_by == "reviewer"
     store.set_state("c/2", MERGED)
     recorder = Recorder()
 
@@ -282,6 +288,62 @@ def test_a_depth_hold_a_reviewer_then_also_holds_is_left_alone(tmp_path: Path) -
 
     assert recorder.restacked == []
     assert store.get("c/4").state == HELD
+    assert store.get("c/4").held_by == "reviewer"
+
+
+def test_releasing_a_depth_hold_the_label_took_over_restores_the_depth_hold(
+    tmp_path: Path,
+) -> None:
+    store = deep_store(tmp_path)
+    merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
+    held_note = store.get("c/4").note
+    events.on_hold(4, repo="app", store=store)
+
+    events.on_release(4, repo="app", store=store, restack=Recorder(), rebase_cap=2)
+
+    stored = store.get("c/4")
+    assert (stored.state, stored.held_by) == (HELD, "depth")
+    assert stored.note == held_note
+    assert events.held_for_depth(stored)
+
+
+def test_a_depth_hold_the_label_took_over_is_restacked_by_a_merge_after_its_release(
+    tmp_path: Path,
+) -> None:
+    store = deep_store(tmp_path)
+    merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
+    events.on_hold(4, repo="app", store=store)
+    events.on_release(4, repo="app", store=store)
+    store.set_state("c/2", MERGED)
+    recorder = Recorder()
+
+    merge(store, 2, cap=2, recorder=recorder, deleted=[])
+
+    moved = [
+        {key: call[key] for key in ("branch", "old_base", "new_base")}
+        for call in recorder.restacked
+    ]
+    assert {"branch": "spec/c/4", "old_base": "spec/c/1", "new_base": "spec/c/3"} in moved
+    assert store.get("c/4").state == IN_REVIEW
+
+
+def test_a_release_after_a_merge_brought_the_unit_within_the_cap_restacks_it(
+    tmp_path: Path,
+) -> None:
+    store = deep_store(tmp_path)
+    merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
+    events.on_hold(4, repo="app", store=store)
+    store.set_state("c/2", MERGED)
+    recorder = Recorder()
+    merge(store, 9, cap=2, recorder=recorder, deleted=[])
+    assert recorder.restacked == [], "the label's hold is not freed by the merge"
+
+    events.on_release(4, repo="app", store=store, restack=recorder, rebase_cap=2)
+
+    assert recorder.branches == ["spec/c/4"]
+    assert recorder.restacked[0]["old_base"] == "spec/c/1"
+    assert recorder.restacked[0]["new_base"] == "spec/c/3"
+    assert store.get("c/4").state == IN_REVIEW
 
 
 def test_a_restack_that_raises_leaves_the_unit_in_review_and_the_others_reconsidered(

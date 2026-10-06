@@ -397,6 +397,24 @@ class Exploding:
         raise RuntimeError("git exploded")
 
 
+class Unimplemented:
+    def run(self, unit, *, base, graph):
+        raise NotImplementedError("the node-npm profile has no test runner yet")
+
+
+def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Unimplemented())
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    held = store.get("add-marker/1")
+    assert (held.state, held.held_by) == ("held", "toolchain")
+
+
 class Pausing:
     def run(self, unit, *, base, graph):
         return RunOutcome(status="paused", detail="session usage at 71%")
