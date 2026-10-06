@@ -1,21 +1,24 @@
-"""GitHub, through the `gh` CLI.
+"""GitHub, over its REST and GraphQL APIs.
 
-Everything here was in the pipeline before the forges existed, and is moved
-rather than rewritten: the origin pattern from `init/detect.py`, and in the
-stages that follow, the `gh` calls from `wiring`, `events`, `pr_replies`,
-`tier2` and the poller. `pipeline/shell.py` stays the only way to run `gh`, so
-this module calls it and never `subprocess` directly.
+One client per repo owner, built with that owner's credential
+(`transport.credential_for`), so units for different owners run side by side
+and no account is ever switched. Nothing here starts a process: the host's
+answers are parsed into the typed documents of `github_models`, and a refusal
+is a `TransportError` carrying what the host said.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
-import subprocess
+import threading
 from collections.abc import Collection, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.base import (
     BaseMissing,
@@ -28,34 +31,103 @@ from agent_build_kit.forges.base import (
     StackRefused,
     key,
 )
+from agent_build_kit.forges.github_models import (
+    CheckNode,
+    ChecksPull,
+    FileDoc,
+    InlineCommentDoc,
+    JobsDoc,
+    LabelDoc,
+    NodeIdDoc,
+    NumberDoc,
+    PullConnection,
+    PullDoc,
+    PullNode,
+    ReviewDoc,
+    StackDoc,
+)
+from agent_build_kit.forges.transport import (
+    PAGE_EXCERPT,
+    AuthError,
+    NotFound,
+    Response,
+    Transport,
+    TransportError,
+    credential_for,
+)
 from agent_build_kit.pipeline import units
-from agent_build_kit.pipeline.shell import GhError, gh, gh_json, gh_out
+from agent_build_kit.settings import settings
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
 
-# What `gh pr create` says when the base branch is not on the host.
+log = logging.getLogger(__name__)
+
+_HOST = "https://api.github.com"
+# The most the list endpoints give a page of.
+_PAGE = 100
+# What creating a pull request says, in the older wording, when the base branch
+# is not on the host. The current one is an error on the `base` field.
 _BASE_MISSING = ("Base ref must be a branch", "Base sha can't be blank")
 
-# What `gh pr list` must return for a PullRequest to be built. `reviewDecision`
-# and `reviews` are here because `comments` alone misses a normal review
-# entirely: it returns issue-level comments only, so a reviewer who leaves
-# inline notes and submits CHANGES_REQUESTED registers as silence.
-_FIELDS = (
-    "number,headRefName,baseRefName,state,isDraft,mergedAt,labels,comments,"
-    "statusCheckRollup,reviewDecision,reviews,mergeable"
+# The checks of one pull request's newest commit. A commit status comes through
+# the same rollup as a check run, and is told apart by what it lacks.
+_CHECKS = """
+commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+  __typename
+  ... on CheckRun { name conclusion detailsUrl }
+} } } } } }
+"""
+
+# What a PullRequest is made of. `comments` alone misses a normal review
+# entirely: it holds issue-level comments only, so a reviewer who leaves inline
+# notes and submits CHANGES_REQUESTED registers as silence - hence `reviews` and
+# `reviewDecision`.
+_LISTING = (
+    """
+query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number headRefName baseRefName state isDraft mergedAt mergeable reviewDecision
+        labels(first: 100) { nodes { name } }
+        comments(first: 100) { nodes { id body } }
+        reviews(first: 100) { nodes { id state } }
+"""
+    + _CHECKS
+    + """
+      }
+    }
+  }
+}
+"""
 )
+_CHECKS_OF_ONE = (
+    """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+"""
+    + _CHECKS
+    + """
+    }
+  }
+}
+"""
+)
+_DRAFT = {True: "convertPullRequestToDraft", False: "markPullRequestReadyForReview"}
+
 _FAILING = ("FAILURE", "TIMED_OUT")
 _CANCELLED = ("CANCELLED",)
 _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
-# A failed Actions run, and the timestamp prefix its log lines carry.
+# A failed Actions run, named in a check's link.
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
-_LOG_PREFIX = re.compile(r"^[^\t]*\t[^\t]*\t\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 _LOG_CHARS = 6000
-# One job of that run, and a bare job log's lines: a timestamp and nothing else.
-_JOB_URL = re.compile(r"/job/(?P<job>\d+)")
-_JOB_LINE = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+# A job log's lines: a byte order mark, a timestamp and nothing else.
+_JOB_LINE = re.compile(r"^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 _ERROR_LINE = "##[error]"
+_FAILED_JOB = ("failure", "timed_out")
 
 # `git@github.com:owner/name.git`, `https://github.com/owner/name`,
 # `ssh://git@github.com/owner/name.git`, `alias:owner/name.git` (an ssh host
@@ -69,7 +141,9 @@ _ORIGIN = re.compile(
 class GitHubForge:
     name: str = "github"
     implemented: bool = True
-    client: str = "gh"
+    # Only the agent's own reads, and the login a credential may come from, need
+    # `gh`; no operation of this forge runs it.
+    client: str | None = "gh"
     # GitHub deletes the head branch on merge, so only the local one is ours.
     deletes_head_branch_on_merge: bool = True
     supports_stacks: bool = True
@@ -83,6 +157,8 @@ class GitHubForge:
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every API call goes through; None is the network.
         self.http = http
+        self._transports: dict[str, Transport] = {}
+        self._lock = threading.Lock()
 
     def parse_remote(self, url: str) -> RepoId | None:
         match = _ORIGIN.match(url.strip())
@@ -102,22 +178,80 @@ class GitHubForge:
         base = f"https://github.com/{repo.account}/{repo.name}"
         return f"{base}/pull/{pr}" if pr else base
 
+    # --- the wire -------------------------------------------------------------------
+
+    def _transport(self, account: str, run: Run | None = None) -> Transport:
+        """The connection for one owner, rebuilt when its credential is read again."""
+        credentials = credential_for(self.name, account, run=run)
+        with self._lock:
+            held = self._transports.get(account)
+            if held is None or held.credentials is not credentials:
+                held = Transport(_HOST, credentials, transport=self.http)
+                self._transports[account] = held
+            return held
+
+    def _call(
+        self,
+        repo: RepoId,
+        method: str,
+        path: str = "",
+        *,
+        params: dict[str, str] | None = None,
+        json: Any = None,
+        run: Run | None = None,
+    ) -> Response:
+        """One REST call, `path` being under the repository's own resource."""
+        return self._transport(repo.account, run).request(
+            method, f"/repos/{key(repo)}{path}", json=json, params=params
+        )
+
+    def _pages[Doc: BaseModel](
+        self, repo: RepoId, path: str, model: type[Doc], params: dict[str, str] | None = None
+    ) -> list[Doc]:
+        """Every page of a list, following the host's `next` link."""
+        found: list[Doc] = []
+        page = 1
+        while True:
+            reply = self._call(
+                repo,
+                "GET",
+                path,
+                params={**(params or {}), "per_page": str(_PAGE), "page": str(page)},
+            )
+            found += _items(reply, model, f"GET {path}")
+            if 'rel="next"' not in reply.headers.get("link", ""):
+                return found
+            page += 1
+
+    def _graphql(self, repo: RepoId, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """One GraphQL call. Its failures come back with a 200, in `errors`.
+
+        A query and the draft mutations are both safe to repeat, so a failed
+        attempt is retried like a read."""
+        reply = self._transport(repo.account).request(
+            "POST", "/graphql", json={"query": query, "variables": variables}, idempotent=True
+        )
+        data = reply.data if isinstance(reply.data, dict) else {}
+        found = data.get("data")
+        errors = data.get("errors")
+        if errors or not isinstance(found, dict):
+            said = "; ".join(str(e.get("message", "")) for e in errors or [] if isinstance(e, dict))
+            raise TransportError(f"POST graphql: {said or _unexpected('graphql', reply)}")
+        return found
+
+    # --- access ---------------------------------------------------------------------
+
     def check_access(self, repo: RepoId, *, run: Run | None = None) -> str:
-        """Whether `gh` holds a token for this repo's owner.
+        """Whether a credential is held for this repo's owner.
 
         The owner decides which account's token is used, and a call against
         another account's private repo reports it as nonexistent rather than
         forbidden - indistinguishable from a repo with no PRs.
         """
-        run = run or (lambda args, **kw: gh(args))
-        result = run(
-            ["gh", "auth", "token", "--user", repo.account],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode or not result.stdout.strip():
-            return f"gh holds no token for {repo.account}"
+        try:
+            credential_for(self.name, repo.account, run=run)
+        except AuthError as error:
+            return str(error)
         return ""
 
     def access_fix(self, repo: RepoId) -> str:
@@ -130,72 +264,50 @@ class GitHubForge:
         is honestly "nothing" - which is worth saying out loud, because the
         policy hook is then the only thing between an agent and its own merge.
         """
-        argv = ["gh", "api", f"repos/{key(repo)}/branches/{branch}/protection"]
-        if run is None:
-            found = gh_json(argv, slug=key(repo), default={})
-        else:
-            result = run(argv, capture_output=True, text=True, check=False)
-            try:
-                found = json.loads(result.stdout or "{}") if not result.returncode else {}
-            except ValueError:
-                found = {}
-        return "" if found else f"no branch protection on {branch}"
+        try:
+            found = self._call(
+                repo, "GET", f"/branches/{quote(branch, safe='/')}/protection", run=run
+            )
+        except (NotFound, AuthError):
+            # 404 where there is none, 403 where the plan has no such thing.
+            return f"no branch protection on {branch}"
+        except TransportError as error:
+            return f"cannot tell what guards {branch}: {error}"
+        return "" if found.data else f"no branch protection on {branch}"
 
     # --- pull requests --------------------------------------------------------------
 
     def find_pr(self, repo: RepoId, *, head: str) -> int | None:
-        # `--repo` explicitly: without it gh infers the repo from the working
-        # directory's remote, which is right by luck rather than by design, and
-        # wrong the moment this is called from anywhere but the worktree.
-        found = gh_json(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--repo",
-                key(repo),
-                "--head",
-                head,
-                "--state",
-                "all",
-                "--json",
-                "number",
-                "--limit",
-                "1",
-            ],
-            default=[],
-        )
+        # The owner qualifies the branch, as the API asks: a bare name matches
+        # nothing on a fork's or another owner's.
         try:
-            return int(found[0]["number"]) if isinstance(found, list) and found else None
-        except (KeyError, TypeError, ValueError):
+            found = self._call(
+                repo,
+                "GET",
+                "/pulls",
+                params={"head": f"{repo.account}:{head}", "state": "all", "per_page": "1"},
+            )
+            return _items(found, NumberDoc, "GET pulls")[0].number
+        except (TransportError, IndexError):
+            # Could not tell reads as no pull request yet.
             return None
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         try:
-            url = gh_out(
-                [
-                    "gh",
-                    "pr",
-                    "create",
-                    "--repo",
-                    key(repo),
-                    "--base",
-                    base,
-                    "--head",
-                    head,
-                    "--title",
-                    title,
-                    "--body",
-                    body,
-                ]
+            made = self._call(
+                repo,
+                "POST",
+                "/pulls",
+                json={"head": head, "base": base, "title": title, "body": body},
             )
-        except GhError as error:
-            # The host's words only: the message also holds the title and body.
-            if any(text in error.stderr for text in _BASE_MISSING):
-                raise BaseMissing(str(error)) from error
+        except TransportError as error:
+            # The host's words only: the request holds the title and body.
+            if error.status == 422 and _base_missing(error):
+                raise BaseMissing(_reason(error)) from error
+            if error.status == 422:
+                raise TransportError(f"POST pulls: {_reason(error)}") from error
             raise
-        # gh prints the PR's URL; its last segment is the number.
-        return int(url.strip().rstrip("/").rsplit("/", 1)[-1])
+        return _parse(made, NumberDoc, "POST pulls").number
 
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
         """Change a PR's base or body, never raising.
@@ -206,24 +318,37 @@ class GitHubForge:
         when GitHub already has - and not worth failing a restack over when it
         does not work.
         """
-        changes = ["--base", base] if base else []
-        changes += ["--body", body] if body else []
+        changes = {**({"base": base} if base else {}), **({"body": body} if body else {})}
         if not changes:
             return
-        gh(["gh", "pr", "edit", str(pr), "--repo", key(repo), *changes])
+        try:
+            self._call(repo, "PATCH", f"/pulls/{pr}", json=changes)
+        except TransportError as error:
+            log.warning("could not update pull request %s of %s: %s", pr, key(repo), error)
 
     # --- stacks ---------------------------------------------------------------------
 
     def stack_of(self, repo: RepoId, pr: int) -> Stack | None:
-        found = _stacks_api(repo, "GET", "", ["-F", f"pull_request={pr}"])
+        found = self._stacks(repo, "GET", params={"pull_request": str(pr)})
         stacks = [_stack(item) for item in found] if isinstance(found, list) else []
         return next((stack for stack in stacks if pr in stack.pulls), None)
 
     def create_stack(self, repo: RepoId, pulls: Sequence[int]) -> Stack:
-        return _stack(_stacks_api(repo, "POST", "", _pull_fields(pulls)))
+        # Bottom first: GitHub checks each pull request's base against the head
+        # of the one before it.
+        return _stack(self._stacks(repo, "POST", json={"pull_requests": list(pulls)}))
 
     def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
-        return _stack(_stacks_api(repo, "POST", f"/{stack}/add", _pull_fields(pulls)))
+        found = self._stacks(repo, "POST", f"/{stack}/add", json={"pull_requests": list(pulls)})
+        return _stack(found)
+
+    def _stacks(self, repo: RepoId, method: str, path: str = "", **kwargs: Any) -> object:
+        """One call to the pull request stacks API, or StackRefused saying why not."""
+        try:
+            return self._call(repo, method, f"/stacks{path}", **kwargs).data
+        except TransportError as error:
+            # 409: another request is changing the same stack right now.
+            raise StackRefused(_reason(error), concurrent=error.status == 409) from error
 
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
@@ -233,95 +358,37 @@ class GitHubForge:
         Called after the push: GitHub rejects a status for a commit it has not
         seen. 139 characters is GitHub's own limit for the description.
         """
-        gh(
-            [
-                "gh",
-                "api",
-                "-X",
-                "POST",
-                f"repos/{key(repo)}/statuses/{sha}",
-                "-f",
-                f"state={'success' if ok else 'failure'}",
-                "-f",
-                f"context={context}",
-                "-f",
-                f"description={description[:139]}",
-            ],
-            slug=key(repo),
-        )
+        payload = {
+            "state": "success" if ok else "failure",
+            "context": context,
+            "description": description[:139],
+        }
+        try:
+            self._call(repo, "POST", f"/statuses/{quote(sha)}", json=payload)
+        except TransportError as error:
+            log.warning("could not post %s on %s of %s: %s", context, sha, key(repo), error)
 
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
-        raw = gh_out(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--repo",
-                key(repo),
-                "--state",
-                "all",
-                "--limit",
-                "100",
-                "--json",
-                _FIELDS,
-            ]
-        )
-        found = json.loads(raw)
-        if not isinstance(found, list):
-            raise ValueError("expected a list of pull requests")
-        pulls = [self._view(pull) for pull in found]
+        """Every pull request of the repo, one query to a page."""
+        nodes: list[PullNode] = []
+        cursor: str | None = None
+        while True:
+            data = self._graphql(
+                repo, _LISTING, {"owner": repo.account, "name": repo.name, "cursor": cursor}
+            )
+            listed = (data.get("repository") or {}).get("pullRequests")
+            if listed is None:
+                raise TransportError(f"POST graphql: no repository {key(repo)} in the answer")
+            page = _model(PullConnection, listed, "pull requests")
+            nodes += page.nodes
+            if not page.page_info.has_next_page or not page.page_info.end_cursor:
+                break
+            cursor = page.page_info.end_cursor
+        pulls = [_view(node) for node in nodes]
         return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
 
-    @staticmethod
-    def _view(pull: dict) -> PullRequest:
-        checks = pull.get("statusCheckRollup") or []
-        return PullRequest(
-            number=int(pull["number"]),
-            head=str(pull.get("headRefName") or ""),
-            base=str(pull.get("baseRefName") or ""),
-            state=(
-                units.MERGED
-                if pull.get("mergedAt")
-                else units.CLOSED
-                if pull.get("state") == "CLOSED"
-                else "open"
-            ),
-            draft=bool(pull.get("isDraft")),
-            labels=tuple(sorted(str(label.get("name", "")) for label in pull.get("labels") or [])),
-            conversation=tuple(_conversation(pull)),
-            comment_bodies=tuple(
-                str(item.get("body") or "") for item in pull.get("comments") or []
-            ),
-            review_decision=(
-                "changes_requested" if pull.get("reviewDecision") == "CHANGES_REQUESTED" else ""
-            ),
-            failing_checks=tuple(
-                sorted(
-                    str(check.get("name", ""))
-                    for check in checks
-                    if str(check.get("conclusion", "")).upper() in _FAILING
-                )
-            ),
-            cancelled_checks=tuple(
-                sorted(
-                    str(check.get("name", ""))
-                    for check in checks
-                    if str(check.get("conclusion", "")).upper() in _CANCELLED
-                )
-            ),
-            # UNKNOWN is what GitHub says until it has worked the answer out.
-            mergeable=_MERGEABLE.get(str(pull.get("mergeable") or "")),
-        )
-
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
-        slug = key(repo)
-        result = gh(
-            ["gh", "pr", "view", str(pr), "--repo", slug, "--json", "files",
-             "--jq", ".files[].path"]
-        )  # fmt: skip
-        if result.returncode:
-            raise RuntimeError(f"gh pr view {pr} ({slug}): {result.stderr.strip()}")
-        return result.stdout.split()
+        return [item.filename for item in self._pages(repo, f"/pulls/{pr}/files", FileDoc)]
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         """The reviewer's words: review bodies, then inline comments.
@@ -332,29 +399,19 @@ class GitHubForge:
         what `live` records - after a rework that is precisely the comment the
         rework addressed.
         """
-        slug = key(repo)
-
-        # The repo is named in the path, not with --repo, so the slug is passed
-        # explicitly - otherwise the call runs as whichever account is active.
-        def items(kind: str) -> list[dict]:
-            found = gh_json(
-                ["gh", "api", "--paginate", f"repos/{slug}/pulls/{pr}/{kind}"], slug=slug
-            )
-            return found if isinstance(found, list) else []
-
         notes = [
-            ReviewNote(id=str(review.get("id", "")), body=str(review.get("body") or ""))
-            for review in items("reviews")
+            ReviewNote(id=str(review.id), body=review.body or "", live=False)
+            for review in self._pages(repo, f"/pulls/{pr}/reviews", ReviewDoc)
         ]
         notes += [
             ReviewNote(
-                id=str(comment.get("id", "")),
-                body=str(comment.get("body") or ""),
-                path=str(comment.get("path", "")),
-                line=comment.get("line"),
-                live=comment.get("line") is not None,
+                id=str(comment.id),
+                body=comment.body or "",
+                path=comment.path,
+                line=comment.line,
+                live=comment.line is not None,
             )
-            for comment in items("comments")
+            for comment in self._pages(repo, f"/pulls/{pr}/comments", InlineCommentDoc)
         ]
         return notes
 
@@ -365,67 +422,66 @@ class GitHubForge:
         poller would otherwise read as new feedback - so both ids come back to
         be recorded as the pipeline's own.
         """
-        slug = key(repo)
-        made = gh_json(
-            [
-                "gh",
-                "api",
-                "-X",
-                "POST",
-                f"repos/{slug}/pulls/{pr}/comments/{note_id}/replies",
-                "-f",
-                f"body={body}",
-            ],
-            slug=slug,
-            default={},
-        )
-        if not isinstance(made, dict):
+        route = f"/pulls/{pr}/comments/{note_id}/replies"
+        try:
+            made = _parse(
+                self._call(repo, "POST", route, json={"body": body}), InlineCommentDoc, "POST reply"
+            )
+        except TransportError as error:
+            log.warning("could not reply to %s on %s of %s: %s", note_id, pr, key(repo), error)
             return []
-        review = gh_json(
-            ["gh", "api", f"repos/{slug}/pulls/{pr}/reviews/{made.get('pull_request_review_id')}"],
-            slug=slug,
-            default={},
-        )
-        ids = [str(made.get("node_id", ""))]
-        if isinstance(review, dict):
-            ids.append(str(review.get("node_id", "")))
+        ids = [made.node_id]
+        if made.pull_request_review_id is not None:
+            route = f"/pulls/{pr}/reviews/{made.pull_request_review_id}"
+            try:
+                ids.append(
+                    _parse(self._call(repo, "GET", route), NodeIdDoc, f"GET {route}").node_id
+                )
+            except TransportError as error:
+                log.warning("could not read the review a reply to %s made: %s", note_id, error)
         return [i for i in ids if i]
 
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
-        slug = key(repo)
-        made = gh_json(
-            ["gh", "api", "-X", "POST", f"repos/{slug}/issues/{pr}/comments", "-f", f"body={body}"],
-            slug=slug,
-            default={},
+        try:
+            made = _parse(
+                self._call(repo, "POST", f"/issues/{pr}/comments", json={"body": body}),
+                NodeIdDoc,
+                "POST comment",
+            )
+        except TransportError as error:
+            log.warning("could not comment on %s of %s: %s", pr, key(repo), error)
+            return []
+        return [made.node_id] if made.node_id else []
+
+    # --- checks ---------------------------------------------------------------------
+
+    def _runs_with(
+        self, repo: RepoId, pr: int, conclusions: Collection[str]
+    ) -> tuple[list[CheckNode], list[str]]:
+        """The checks of a pull request that ended as one of `conclusions`, and
+        the workflow runs they belong to."""
+        data = self._graphql(
+            repo, _CHECKS_OF_ONE, {"owner": repo.account, "name": repo.name, "number": pr}
         )
-        node = str(made.get("node_id", "")) if isinstance(made, dict) else ""
-        return [node] if node else []
+        found = (data.get("repository") or {}).get("pullRequest")
+        if found is None:
+            raise TransportError(f"POST graphql: no pull request {pr} in {key(repo)}")
+        checks = _rollup(_model(ChecksPull, found, "pull request checks").commits)
+        ended = [c for c in checks if (c.conclusion or "").upper() in conclusions]
+        runs = sorted({m["run"] for c in ended if (m := _RUN_URL.search(c.details_url or ""))})
+        return ended, runs
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
         """Re-run the workflow runs behind the cancelled checks, their cancelled
         jobs included."""
-        slug = key(repo)
-        _, runs = self._runs_with(slug, pull.number, _CANCELLED)
+        _, runs = self._runs_with(repo, pull.number, _CANCELLED)
         for run in runs:
-            result = gh(["gh", "run", "rerun", run, "--repo", slug, "--failed"], slug=slug)
-            if result.returncode:
-                raise RuntimeError(f"gh run rerun {run} ({slug}): {result.stderr.strip()}")
-
-    def _runs_with(
-        self, slug: str, pr: int, conclusions: Collection[str]
-    ) -> tuple[list[dict], list[str]]:
-        """The checks of a pull request that ended as one of `conclusions`, and
-        the workflow runs they belong to."""
-        raw = gh_json(
-            ["gh", "pr", "view", str(pr), "--repo", slug, "--json", "statusCheckRollup"],
-            default={},
-        )
-        checks = raw.get("statusCheckRollup") or [] if isinstance(raw, dict) else []
-        found = [c for c in checks if str(c.get("conclusion", "")).upper() in conclusions]
-        runs = sorted(
-            {m["run"] for c in found if (m := _RUN_URL.search(str(c.get("detailsUrl", ""))))}
-        )
-        return found, runs
+            try:
+                self._call(repo, "POST", f"/actions/runs/{run}/rerun-failed-jobs")
+            except TransportError as error:
+                raise TransportError(
+                    f"rerun of run {run} ({key(repo)}): {_reason(error)}"
+                ) from error
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         """The failed CI jobs' logs, for the rework that fixes them.
@@ -435,201 +491,270 @@ class GitHubForge:
         """
         if not pull.failing_checks:
             return ""
-        slug = key(repo)
-        failed, runs = self._runs_with(slug, pull.number, _FAILING)
-        names = ", ".join(str(c.get("name")) for c in failed)
+        failed, runs = self._runs_with(repo, pull.number, _FAILING)
+        names = ", ".join(str(c.name) for c in failed)
         parts = []
         for run in runs:
-            result = gh(["gh", "run", "view", run, "--repo", slug, "--log-failed"], slug=slug)
-            text = "\n".join(_LOG_PREFIX.sub("", line) for line in result.stdout.splitlines())
-            if not text.strip():
-                # A run still in progress has no log as a whole, though a job
-                # that has finished does: the check fails in a minute and the
-                # slowest job takes several, and the poller reports the failure
-                # at once. Asked for the run, the rework got an empty block and
-                # said so.
-                text = self._failed_job_logs(slug, run, failed)
+            # A run still in progress has no log as a whole, though a job that
+            # has finished does: the check fails in a minute and the slowest
+            # job takes several, and the poller reports the failure at once.
+            text = self._failed_job_logs(repo, run)
             if not text.strip():
                 parts.append(
                     f"CI run {run} ({names}) failed, but its log could not be fetched "
                     "(the run may still be in progress)."
                 )
                 continue
-            parts.append(
-                f"CI run {run} ({names}), end of its failed log:\n```\n{text[-_LOG_CHARS:]}\n```"
-            )
+            parts.append(f"CI run {run} ({names}), end of its failed log:\n```\n{text}\n```")
         return "\n\n".join(parts)
 
-    def _failed_job_logs(self, slug: str, run: str, failed: list[dict]) -> str:
+    def _failed_job_logs(self, repo: RepoId, run: str) -> str:
         """The log of each failed job of `run`, up to where the job reported its error.
 
         A job's whole log ends in the runner's clean-up, so the tail of it says
         nothing; the failure is in the lines before the last `##[error]`.
         """
+        route = f"/actions/runs/{run}/jobs"
+        try:
+            jobs = _parse(
+                self._call(repo, "GET", route, params={"per_page": str(_PAGE)}),
+                JobsDoc,
+                f"GET {route}",
+            ).jobs
+        except TransportError:
+            return ""
         out = []
-        for check in failed:
-            details = str(check.get("detailsUrl", ""))
-            match = _JOB_URL.search(details)
-            if not match or f"/runs/{run}/" not in details:
+        for job in jobs:
+            if (job.conclusion or "") not in _FAILED_JOB:
                 continue
-            result = gh(
-                [
-                    "gh", "api", f"repos/{slug}/actions/jobs/{match['job']}/logs",
-                    "--allow-escape-sequences",
-                ],
-                slug=slug,
-            )  # fmt: skip
-            lines = [_JOB_LINE.sub("", line) for line in result.stdout.splitlines()]
+            lines = [_JOB_LINE.sub("", line) for line in self._job_log(repo, job.id).splitlines()]
             errors = [i for i, line in enumerate(lines) if _ERROR_LINE in line]
             if errors:
                 lines = lines[: errors[-1] + 1]
             text = "\n".join(lines).strip()
             if text:
-                out.append(f"{check.get('name')}:\n{text[-_LOG_CHARS:]}")
+                out.append(f"{job.name}:\n{text[-_LOG_CHARS:]}")
         return "\n\n".join(out)
 
-    def _ensure_label(self, slug: str, label: Label) -> None:
+    def _job_log(self, repo: RepoId, job: int) -> str:
+        """A job's log, or "" when it cannot be had.
+
+        The host answers with a redirect to the storage the log lives in. That
+        is fetched without our credential: it is another host's, and the link
+        is signed.
+        """
+        try:
+            reply = self._call(repo, "GET", f"/actions/jobs/{job}/logs")
+            location = reply.headers.get("location")
+            if not location:
+                return reply.text
+            with httpx.Client(
+                transport=self.http, timeout=settings.forge_timeout_seconds
+            ) as storage:
+                stored = storage.get(location)
+            return stored.text if stored.is_success else ""
+        except (TransportError, httpx.HTTPError):
+            return ""
+
+    # --- labels ---------------------------------------------------------------------
+
+    def _ensure_label(self, repo: RepoId, label: Label) -> None:
         """Make the repo's label what `label` says: created when missing, and
         recoloured or re-described when the repo's copy has drifted, so a
         change to the vocabulary reaches a repo that already has the label."""
-        known = gh_json(
-            [
-                "gh", "label", "list", "--repo", slug,
-                "--json", "name,color,description", "--limit", "1000",
-            ],
-            slug=slug,
-        )  # fmt: skip
         # The host matches names without regard to case, so `Running` already
         # there means creating `running` would fail every time.
         wanted = label.name.casefold()
-        for item in known:  # type: ignore[union-attr]
-            name = str(item.get("name", ""))
-            if name.casefold() != wanted:
+        for item in self._pages(repo, "/labels", LabelDoc):
+            if item.name.casefold() != wanted:
                 continue
-            same_colour = str(item.get("color", "")).casefold() == label.color.casefold()
-            if not same_colour or (item.get("description") or "") != label.description:
-                gh_out(
-                    [
-                        "gh", "label", "edit", name, "--repo", slug,
-                        "--color", label.color, "--description", label.description,
-                    ],
-                    slug=slug,
-                )  # fmt: skip
+            same_colour = item.color.casefold() == label.color.casefold()
+            if not same_colour or (item.description or "") != label.description:
+                self._call(
+                    repo,
+                    "PATCH",
+                    f"/labels/{quote(item.name, safe='')}",
+                    json={"color": label.color, "description": label.description},
+                )
             return
-        gh_out(
-            [
-                "gh", "label", "create", label.name, "--repo", slug,
-                "--color", label.color, "--description", label.description,
-            ],
-            slug=slug,
-        )  # fmt: skip
+        self._call(
+            repo,
+            "POST",
+            "/labels",
+            json={"name": label.name, "color": label.color, "description": label.description},
+        )
 
     def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
-        slug = key(repo)
-        self._ensure_label(slug, label)
-        gh_out(["gh", "pr", "edit", str(pr), "--repo", slug, "--add-label", label.name], slug=slug)
+        self._ensure_label(repo, label)
+        self._call(repo, "POST", f"/issues/{pr}/labels", json={"labels": [label.name]})
 
     def set_exclusive_label(
         self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
     ) -> None:
-        slug = key(repo)
-        self._ensure_label(slug, label)
-        view = gh_out(["gh", "pr", "view", str(pr), "--repo", slug, "--json", "labels"], slug=slug)
-        present = {item["name"] for item in json.loads(view or "{}").get("labels", [])}
-        argv = ["gh", "pr", "edit", str(pr), "--repo", slug, "--add-label", label.name]
+        self._ensure_label(repo, label)
+        present = {item.name for item in self._pages(repo, f"/issues/{pr}/labels", LabelDoc)}
+        self._call(repo, "POST", f"/issues/{pr}/labels", json={"labels": [label.name]})
         for name in sorted((present & set(family)) - {label.name}):
-            argv += ["--remove-label", name]
-        gh_out(argv, slug=slug)
+            self.remove_label(repo, pr, name)
 
     def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
-        slug = key(repo)
-        gh_out(["gh", "pr", "edit", str(pr), "--repo", slug, "--remove-label", name], slug=slug)
+        """Take a label off by name. One that is not on the pull request returns
+        normally; any other refusal raises."""
+        try:
+            self._call(repo, "DELETE", f"/issues/{pr}/labels/{quote(name, safe='')}")
+        except NotFound:
+            pass
+
+    # --- state ----------------------------------------------------------------------
 
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
         """Make a pull request a draft or publish it, writing only on a change.
 
-        Through `gh_out`, which raises with the host's message on a refusal.
+        A refusal raises with the host's message.
         """
-        slug = key(repo)
-        view = gh_out(["gh", "pr", "view", str(pr), "--repo", slug, "--json", "isDraft"], slug=slug)
-        if bool(json.loads(view or "{}").get("isDraft")) == draft:
+        route = f"/pulls/{pr}"
+        current = _parse(self._call(repo, "GET", route), PullDoc, f"GET {route}")
+        if current.draft == draft:
             return
-        argv = ["gh", "pr", "ready", str(pr), "--repo", slug]
-        gh_out([*argv, "--undo"] if draft else argv, slug=slug)
+        mutation = _DRAFT[draft]
+        self._graphql(
+            repo,
+            f"mutation($id: ID!) {{ {mutation}(input: {{pullRequestId: $id}}) "
+            "{ pullRequest { id isDraft } } }",
+            {"id": current.node_id},
+        )
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.
 
-        Through `gh_out`, which raises on failure, unlike `update_pr`'s silent
-        `gh()`: a close that did not happen must not read as one that did.
+        A refusal raises, unlike `update_pr`: a close that did not happen must
+        not read as one that did.
         """
-        gh_out(["gh", "pr", "close", str(pr), "--repo", key(repo)], slug=key(repo))
+        self._call(repo, "PATCH", f"/pulls/{pr}", json={"state": "closed"})
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         """Not reached in practice: GitHub deletes the head branch on merge,
         so `deletes_head_branch_on_merge` keeps callers away from this."""
-        gh(
-            ["gh", "api", "-X", "DELETE", f"repos/{key(repo)}/git/refs/heads/{branch}"],
-            slug=key(repo),
-        )
+        try:
+            self._call(repo, "DELETE", f"/git/refs/heads/{quote(branch, safe='/')}")
+        except TransportError as error:
+            log.warning("could not delete %s of %s: %s", branch, key(repo), error)
 
 
 FORGE = GitHubForge()
 
-_HTTP_STATUS = re.compile(r"\(HTTP (?P<status>\d{3})\)")
+
+def _unexpected(endpoint: str, response: Response) -> str:
+    return f"{endpoint}: not the document expected: {response.text[:PAGE_EXCERPT]}"
 
 
-def _pull_fields(pulls: Sequence[int]) -> list[str]:
-    # Bottom first: GitHub checks each pull request's base against the head of
-    # the one before it.
-    return [arg for pull in pulls for arg in ("-F", f"pull_requests[]={pull}")]
-
-
-def _stacks_api(repo: RepoId, method: str, path: str, fields: list[str]) -> object:
-    """One call to the pull request stacks API, or StackRefused saying why not."""
-    slug = key(repo)
+def _model[Doc: BaseModel](model: type[Doc], found: object, what: str) -> Doc:
     try:
-        result = gh(["gh", "api", "-X", method, f"repos/{slug}/stacks{path}", *fields], slug=slug)
-    except (OSError, subprocess.SubprocessError) as error:
-        raise StackRefused(f"could not reach the stacks API: {error}") from error
-    if not result.returncode:
-        try:
-            return json.loads(result.stdout or "null")
-        except ValueError as error:
-            raise StackRefused(
-                f"unreadable answer from the stacks API: {result.stdout!r:.200}"
-            ) from error
-    match = _HTTP_STATUS.search(result.stderr)
-    status = match["status"] if match else ""
+        return model.model_validate(found)
+    except ValidationError as error:
+        excerpt = str(found)[:PAGE_EXCERPT]
+        raise TransportError(f"{what}: not the document expected: {excerpt}") from error
+
+
+def _parse[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> Doc:
     try:
-        body = json.loads(result.stdout or "{}")
+        return model.model_validate(response.data)
+    except ValidationError as error:
+        raise TransportError(_unexpected(endpoint, response)) from error
+
+
+def _items[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> list[Doc]:
+    if not isinstance(response.data, list):
+        raise TransportError(_unexpected(endpoint, response))
+    try:
+        return [model.model_validate(item) for item in response.data]
+    except ValidationError as error:
+        raise TransportError(_unexpected(endpoint, response)) from error
+
+
+def _said(error: TransportError) -> tuple[str, list[dict]]:
+    """What the host said in a refusal: its message, and its `errors` entries."""
+    try:
+        body = json.loads(error.body or "{}")
     except ValueError:
-        body = {}
-    body = body if isinstance(body, dict) else {}
-    details = [str(e.get("message", "")) for e in body.get("errors") or [] if isinstance(e, dict)]
-    message = "; ".join(part for part in [str(body.get("message") or ""), *details] if part)
-    reason = f"HTTP {status}: {message}" if status else message or result.stderr.strip()
-    # 409: another request is changing the same stack right now.
-    raise StackRefused(reason, concurrent=status == "409")
+        return "", []
+    if not isinstance(body, dict):
+        return "", []
+    errors = [e for e in body.get("errors") or [] if isinstance(e, dict)]
+    return str(body.get("message") or ""), errors
+
+
+def _reason(error: TransportError) -> str:
+    """A refusal in the host's words: the status, its message and the messages of
+    its `errors`; the transport's own text when it was no refusal."""
+    if error.status is None:
+        return str(error)
+    message, errors = _said(error)
+    details = [str(e.get("message", "")) for e in errors]
+    said = "; ".join(part for part in [message, *details] if part)
+    return f"HTTP {error.status}: {said or error}"
+
+
+def _base_missing(error: TransportError) -> bool:
+    """Whether a 422 says the base branch is not on the host: an error on the
+    `base` field, or the older wording. Only what the host said counts."""
+    message, errors = _said(error)
+    words = " ".join([message, *(str(e.get("message", "")) for e in errors)])
+    return any(e.get("field") == "base" for e in errors) or any(t in words for t in _BASE_MISSING)
 
 
 def _stack(found: object) -> Stack:
     # Any answer not shaped like a stack is a refusal, not a crash: the step
     # that asks has already opened the pull request, and must not fail it.
-    unexpected = StackRefused(f"unexpected answer from the stacks API: {found!r:.200}")
-    if not isinstance(found, dict):
-        raise unexpected
     try:
-        return Stack(
-            number=int(found["number"]),
-            open=bool(found.get("open")),
-            pulls=tuple(int(pull["number"]) for pull in found.get("pull_requests") or []),
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise unexpected from error
+        doc = StackDoc.model_validate(found)
+    except ValidationError as error:
+        raise StackRefused(f"unexpected answer from the stacks API: {found!r:.200}") from error
+    return Stack(
+        number=doc.number,
+        open=doc.open,
+        pulls=tuple(pull.number for pull in doc.pull_requests or []),
+    )
 
 
-def _conversation(pull: dict) -> list[str]:
+def _rollup(commits: Any) -> list[CheckNode]:
+    """The check runs on a pull request's newest commit. A commit status is in
+    the rollup too, and is not a check."""
+    return [
+        check
+        for edge in (commits.nodes if commits else [])
+        if (rollup := edge.commit.status_check_rollup) and rollup.contexts
+        for check in rollup.contexts.nodes
+        if check.typename == "CheckRun"
+    ]
+
+
+def _named(checks: list[CheckNode], conclusions: Collection[str]) -> tuple[str, ...]:
+    return tuple(sorted(str(c.name) for c in checks if (c.conclusion or "").upper() in conclusions))
+
+
+def _view(pull: PullNode) -> PullRequest:
+    checks = _rollup(pull.commits)
+    return PullRequest(
+        number=pull.number,
+        head=pull.head_ref_name,
+        base=pull.base_ref_name,
+        state=(
+            units.MERGED if pull.merged_at else units.CLOSED if pull.state == "CLOSED" else "open"
+        ),
+        draft=pull.is_draft,
+        labels=tuple(sorted(label.name for label in pull.labels.nodes)) if pull.labels else (),
+        conversation=tuple(_conversation(pull)),
+        comment_bodies=tuple(c.body or "" for c in pull.comments.nodes) if pull.comments else (),
+        review_decision="changes_requested" if pull.review_decision == "CHANGES_REQUESTED" else "",
+        failing_checks=_named(checks, _FAILING),
+        cancelled_checks=_named(checks, _CANCELLED),
+        # UNKNOWN is what GitHub says until it has worked the answer out.
+        mergeable=_MERGEABLE.get(pull.mergeable or ""),
+    )
+
+
+def _conversation(pull: PullNode) -> list[str]:
     """Every comment and submitted review on the PR, by id.
 
     Not a PENDING review: that is a draft the reviewer has not submitted.
@@ -637,10 +762,7 @@ def _conversation(pull: dict) -> list[str]:
     review still being written would count as new and send the unit back for
     rework with nothing to act on.
     """
-    ids = [str(item["id"]) for item in (pull.get("comments") or []) if item.get("id")]
-    ids += [
-        str(item["id"])
-        for item in (pull.get("reviews") or [])
-        if item.get("id") and item.get("state") != "PENDING"
-    ]
+    ids = [c.id for c in pull.comments.nodes if c.id] if pull.comments else []
+    if pull.reviews:
+        ids += [r.id for r in pull.reviews.nodes if r.id and r.state != "PENDING"]
     return ids

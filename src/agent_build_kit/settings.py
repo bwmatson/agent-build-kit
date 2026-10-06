@@ -26,14 +26,14 @@ class Settings(BaseSettings):
     # directory (config.locate).
     config: Path | None = None
 
-    # One token for every `gh` call, overriding the per-owner lookup in
-    # shell.gh_env. Left empty by default: relying on one account's access to
-    # another's repo fails in the worst way if that grant is withdrawn, since
-    # GitHub reports an inaccessible private repo as nonexistent.
+    # One token for every GitHub call, overriding the per-owner lookup in
+    # shell.credential_source. Left empty by default: relying on one account's
+    # access to another's repo fails in the worst way if that grant is
+    # withdrawn, since GitHub reports an inaccessible private repo as
+    # nonexistent.
     #
     # Read from `.env` rather than the ambient environment, because
-    # pydantic-settings does not export to os.environ: a bare GH_TOKEN= line
-    # there would never reach a subprocess otherwise.
+    # pydantic-settings does not export to os.environ.
     gh_token: str = Field("", validation_alias=AliasChoices("GH_TOKEN", "ABK_GH_TOKEN"))
 
     # The personal access token Azure DevOps calls are made with. The

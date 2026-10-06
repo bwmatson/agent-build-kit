@@ -129,7 +129,8 @@ def needed_tools(inst: Installation) -> list[str]:
     command = config.runtime_entry(inst.config).command or list(runtimes.get(name).agent_command)
     tools = ["uv", *command[:1]]
     for repo in inst.repos:
-        tools.append(inst.forge_of(repo)[0].client)
+        if client := inst.forge_of(repo)[0].client:
+            tools.append(client)
     return list(dict.fromkeys(tool for tool in tools if tool))
 
 

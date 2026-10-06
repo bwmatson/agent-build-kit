@@ -1,22 +1,15 @@
-"""Every shell-out the pipeline makes to git and gh, in one place.
+"""Every shell-out the pipeline makes to git, in one place, and the one lookup
+of a GitHub token from the `gh` login.
 
-There were twelve private wrappers across the package — five `_git`, four `_gh`
-and a `_run` that special-cased gh — and the repetition was not the problem.
-The problem was what each `gh` copy had to remember: the two code repos live on
-two GitHub accounts, `gh` has one active account at a time, and a call against
-the other account's private repo reports it as *nonexistent*. From the caller's
-side that is indistinguishable from a repo with no PRs, so the poller can run
-clean while seeing nothing of one repo at all.
-
-So `gh()` always selects the token for the repo it names, and there is no way
-to call gh here without it. A new call site cannot forget, because there is no
-second way to write one.
+Nothing else runs `gh`: GitHub is reached over HTTP (`forges/github.py`), and
+the credential a call carries is chosen per repo owner by `credential_source`.
+A call against another account's private repo reports it as *nonexistent*,
+which from the caller's side is indistinguishable from a repo with no PRs, so
+the token is never left to whichever account is active.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import subprocess
 from collections.abc import Callable
 from functools import cache
@@ -52,7 +45,7 @@ def git_out(repo: Path, *args: str) -> str:
     return git(repo, *args).stdout.strip()
 
 
-# --- gh -----------------------------------------------------------------------
+# --- the gh login -------------------------------------------------------------
 
 
 Run = Callable[..., subprocess.CompletedProcess]
@@ -81,83 +74,12 @@ def forget_tokens() -> None:
 def credential_source(owner: str, *, run: Run | None = None) -> tuple[str, str] | None:
     """The token calls for `owner`'s repos use, and where it came from.
 
-    The one definition of the order, for `gh` subprocesses and HTTP calls alike:
-    an explicitly configured token wins (one account may well have access to
-    both repos, and saying so is simpler than inferring it), then the `gh`
-    login for that owner. None when neither holds a token. A `run` reads the
-    login afresh instead of through the cache.
+    The one definition of the order: an explicitly configured token wins (one
+    account may well have access to both repos, and saying so is simpler than
+    inferring it), then the `gh` login for that owner. None when neither holds
+    a token. A `run` reads the login afresh instead of through the cache.
     """
     if settings.gh_token:
         return settings.gh_token, GH_TOKEN_SOURCE
     token = token_for(owner) if run is None else cli_token(owner, run=run)
     return (token, f"gh auth token --user {owner}") if token else None
-
-
-def gh_env(slug: str) -> dict[str, str]:
-    """The environment a `gh` call against `slug` needs.
-
-    Selecting the token per owner rather than switching the active account
-    keeps it stateless, which matters because units run concurrently.
-    """
-    found = credential_source(slug.split("/")[0])
-    # The whole environment, not just the token: `gh` needs PATH and HOME, and
-    # a partial env is the kind of thing that works until it runs under systemd.
-    return {**os.environ, "GH_TOKEN": found[0]} if found else dict(os.environ)
-
-
-def slug_in(args: list[str]) -> str:
-    """The `--repo owner/name` a gh command names, if it names one."""
-    for flag, value in zip(args, args[1:], strict=False):
-        if flag == "--repo":
-            return value
-    return ""
-
-
-def gh(args: list[str], *, slug: str = "", **kwargs) -> subprocess.CompletedProcess[str]:
-    """Run gh as the account that owns the repo, never raising on exit status.
-
-    `slug` is for commands that name their repo in a path rather than with
-    `--repo` — `gh api repos/<owner>/<name>/...`.
-    """
-    return subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=gh_env(slug or slug_in(args)),
-        **kwargs,
-    )
-
-
-class GhError(RuntimeError):
-    """A gh command that failed. `stderr` is the host's answer alone: the
-    message also carries the command line, which can hold a title or body."""
-
-    def __init__(self, message: str, *, stderr: str = "") -> None:
-        super().__init__(message)
-        self.stderr = stderr
-
-
-def gh_out(args: list[str], *, slug: str = "") -> str:
-    """stdout of a gh command that must succeed, or GhError naming why."""
-    result = gh(args, slug=slug)
-    if result.returncode:
-        detail = result.stderr.strip()
-        raise GhError(f"{' '.join(args)} failed: {detail}", stderr=detail)
-    return result.stdout
-
-
-def gh_json(args: list[str], *, slug: str = "", default: object = None) -> object:
-    """Parsed JSON from gh, or `default` if the call or the parse failed.
-
-    For reads where "could not tell" and "nothing there" lead to the same
-    action. Callers that must distinguish them use `gh_out`.
-    """
-    fallback = [] if default is None else default
-    result = gh(args, slug=slug)
-    if result.returncode:
-        return fallback
-    try:
-        return json.loads(result.stdout or "null") or fallback
-    except ValueError:
-        return fallback

@@ -14,17 +14,21 @@ build their own `Installation` and activate it.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit import config as config_module
+from agent_build_kit import forges
 from agent_build_kit.cli import doctor
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
+from agent_build_kit.forges import github
+from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes import claude_code
-from tests.forges.mock_host import MockHost, recorded
+from tests.forges.mock_host import MockHost, ok, recorded
 
 
 @pytest.fixture(autouse=True)
@@ -125,6 +129,16 @@ def no_real_gh(monkeypatch: pytest.MonkeyPatch) -> None:
         return real(args, *rest, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", run)
+
+
+@pytest.fixture(autouse=True)
+def no_real_github() -> Iterator[None]:
+    """The registered GitHub forge answers from a stand-in host, so no caller
+    of `forges.get("github")` reaches api.github.com."""
+    forges.names()  # load the built-ins before one is replaced
+    forges.register(GitHubForge(http=MockHost(ok({"message": "Not Found"}, 404))))
+    yield
+    forges.register(github.FORGE)
 
 
 @pytest.fixture(autouse=True)

@@ -31,7 +31,7 @@ from agent_build_kit.forges.base import Run
 class StandInForge:
     name: str = "stand_in"
     implemented: bool = True
-    client: str = ""
+    client: str | None = None
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
