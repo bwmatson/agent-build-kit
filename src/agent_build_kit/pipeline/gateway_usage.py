@@ -11,7 +11,6 @@ from contextvars import ContextVar
 from typing import Any, Protocol
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.runtimes.base import AgentRequest
 from agent_build_kit.settings import settings
 from agent_build_kit.usage import Usage
 
@@ -35,8 +34,8 @@ class Spend(Frozen):
 class SpendSource(Protocol):
     """Where a run's usage can be read from besides what the agent reports."""
 
-    def begin(self, request: AgentRequest) -> tuple[dict[str, str], object]:
-        """The environment to start the agent with, and a handle for `finish`."""
+    def begin(self, place: str) -> tuple[dict[str, str], object]:
+        """The environment to start the agent with for the call at `place`, and a handle."""
         ...
 
     def finish(self, handle: object) -> Spend:
@@ -69,8 +68,8 @@ class GatewayUsage:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as reply:
             return json.loads(reply.read() or b"null")
 
-    def begin(self, request: AgentRequest) -> tuple[dict[str, str], object]:
-        alias = f"abk:{request.attribution}:{uuid.uuid4().hex[:12]}"
+    def begin(self, place: str) -> tuple[dict[str, str], object]:
+        alias = f"abk:{place}:{uuid.uuid4().hex[:12]}"
         try:
             key = self._call("POST", "/key/generate", {"key_alias": alias})["key"]
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -106,6 +105,16 @@ class GatewayUsage:
             return Spend()
 
 
+# Half-configured settings already warned about, so the line is said once per
+# process rather than once per agent call.
+_warned: set[str] = set()
+
+
+def forget_warnings() -> None:
+    """Let the next half-configured call warn again (a process says each once)."""
+    _warned.clear()
+
+
 def configured_source(say: Callable[[str], None]) -> SpendSource | None:
     """The gateway source the settings name, or None when they name none."""
     url, master_key = settings.gateway_url, settings.gateway_master_key
@@ -113,6 +122,8 @@ def configured_source(say: Callable[[str], None]) -> SpendSource | None:
         return None
     if not url or not master_key:
         missing = "gateway_url" if not url else "gateway_master_key"
-        say(f"gateway: {missing} is not set, so no gateway key is minted")
+        if missing not in _warned:
+            _warned.add(missing)
+            say(f"gateway: {missing} is not set, so no gateway key is minted")
         return None
     return GatewayUsage(url, master_key, say)

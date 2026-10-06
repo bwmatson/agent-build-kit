@@ -223,7 +223,7 @@ def build_run_claude(
         env: dict[str, str] = {}
         handle: object = None
         if source is not None:
-            env, handle = source.begin(AgentRequest(prompt="", attribution=attribution.get()))
+            env, handle = source.begin(attribution.get())
         spent: list[Spend] = []
 
         def spend() -> Spend:

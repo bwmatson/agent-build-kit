@@ -18,8 +18,8 @@ from agent_build_kit.pipeline.gateway_usage import (
     GatewayUsage,
     Spend,
     configured_source,
+    forget_warnings,
 )
-from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.settings import settings
 from tests.fake_gateway import MASTER, FakeGateway, serving, unreachable_url
 
@@ -30,8 +30,9 @@ def gateway() -> Iterator[FakeGateway]:
         yield fake
 
 
-def request(place: str = "add-marker/1:implement:0") -> AgentRequest:
-    return AgentRequest(prompt="Implement group 1.", role="implement", attribution=place)
+@pytest.fixture(autouse=True)
+def fresh_warnings() -> None:
+    forget_warnings()
 
 
 def source(url: str, said: list[str]) -> GatewayUsage:
@@ -41,7 +42,7 @@ def source(url: str, said: list[str]) -> GatewayUsage:
 def test_begin_mints_a_key_aliased_with_the_place_and_hands_it_over_in_the_environment(
     gateway: FakeGateway,
 ) -> None:
-    env, _ = source(gateway.url, []).begin(request("add-marker/1:review:2"))
+    env, _ = source(gateway.url, []).begin("add-marker/1:review:2")
 
     (minted,) = gateway.minted
     assert env == {KEY_ENV: minted["key"]}
@@ -53,7 +54,7 @@ def test_finish_reads_the_totals_logged_for_the_key_and_revokes_it(
     gateway: FakeGateway,
 ) -> None:
     client = source(gateway.url, [])
-    env, handle = client.begin(request())
+    env, handle = client.begin("add-marker/1:implement:0")
     gateway.spend(env[KEY_ENV], prompt=1200, completion=300, cost=0.25)
     gateway.spend(env[KEY_ENV], prompt=800, completion=50, cost=0.125)
 
@@ -71,7 +72,7 @@ def test_a_key_with_no_logged_traffic_reads_as_absent_and_is_still_revoked(
     gateway: FakeGateway,
 ) -> None:
     client = source(gateway.url, [])
-    env, handle = client.begin(request())
+    env, handle = client.begin("add-marker/1:implement:0")
 
     spent = client.finish(handle)
 
@@ -89,7 +90,7 @@ def test_runs_going_at_once_get_different_keys_and_each_reads_only_its_own(
     keys: dict[int, str] = {}
 
     def one(n: int) -> None:
-        env, handle = client.begin(request(f"add-marker/{n}:implement:0"))
+        env, handle = client.begin(f"add-marker/{n}:implement:0")
         keys[n] = env[KEY_ENV]
         everyone_has_a_key.wait(timeout=10)
         gateway.spend(env[KEY_ENV], prompt=1000 * (n + 1), completion=10 * (n + 1), cost=n + 1)
@@ -121,7 +122,7 @@ def test_a_key_that_cannot_be_minted_says_so_once_and_the_run_goes_on_without_on
     said: list[str] = []
     client = source(unreachable_url() if fault == "unreachable" else gateway.url, said)
 
-    env, handle = client.begin(request())
+    env, handle = client.begin("add-marker/1:implement:0")
     spent = client.finish(handle)
 
     assert env == {}
@@ -137,7 +138,7 @@ def test_totals_that_cannot_be_read_say_so_once_and_the_key_is_revoked_all_the_s
     said: list[str] = []
     client = source(gateway.url, said)
 
-    env, handle = client.begin(request())
+    env, handle = client.begin("add-marker/1:implement:0")
     spent = client.finish(handle)
 
     assert spent == Spend()
@@ -168,6 +169,8 @@ def test_a_master_key_with_no_url_is_no_source_and_says_so_once(
     assert configured_source(said.append) is None
 
     assert len(said) == 1
+    assert configured_source(said.append) is None
+    assert len(said) == 1
 
 
 def test_both_settings_make_a_source(gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,6 +180,6 @@ def test_both_settings_make_a_source(gateway: FakeGateway, monkeypatch: pytest.M
     client = configured_source([].append)
 
     assert client is not None
-    env, handle = client.begin(request())
+    env, handle = client.begin("add-marker/1:implement:0")
     client.finish(handle)
     assert env == {KEY_ENV: gateway.minted[0]["key"]}
