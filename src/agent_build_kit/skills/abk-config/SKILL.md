@@ -125,7 +125,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
-      tier2_marker: local_stack  # tier 2 runs each member from its own directory
+      tier2_marker: local_stack  # tier 2 runs in each declared project, as tier 1 does, and
+                                 # each member from its own directory
                                  # with no path, so the member's pytest config,
                                  # `testpaths` included, decides what is collected
       dev_stack_marker: dev_stack
