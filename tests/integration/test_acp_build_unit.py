@@ -3,8 +3,8 @@
 The runtime is chosen by the per-machine override (`ABK_RUNTIME`), the agent is
 a real one on this host, and `abk tick` is the real CLI run as a process — so
 what is asserted is what an operator would see: the branch on the remote, the
-order of its commits, the unit's run log, and the tick's own output arriving
-while the run works.
+order of its commits, the unit's run log, the tick's own output arriving
+while the run works, and what `abk report` says the unit used.
 
 Needs an agent speaking the protocol, named by `ABK_ACCEPTANCE_ACP_COMMAND`
 (a command line), node for the OpenSpec CLI, and uv. Only `gh` is faked, at
@@ -15,6 +15,7 @@ excluded from the default suite.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -33,6 +34,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
 from tests.factories import git, init_repo, scratch_app
 from tests.factories import who_pushed as reflog_and_pushes
 
@@ -358,3 +360,77 @@ def test_a_forbidden_command_is_refused_and_the_refusal_names_its_layer(
     pushed_commits(scratch, ticked)
     main = git(scratch.remote, "rev-parse", "main").strip()
     assert git(scratch.remote, "merge-base", "main", BRANCH).strip() == main
+
+
+# A run log line that begins an agent call names its model in brackets; these
+# are the node messages that start one.
+AGENT_STEP = re.compile(
+    r"\b(?:tests|implement|fix_checks|review|rework): "
+    r"(?:write the tests|implement|fix the failing checks|review round \d+"
+    r"|address review round \d+|rework from feedback) \("
+)
+SOURCES = {"reported", "gateway", "estimated", "none"}
+
+
+def abk_report(scratch: Scratch, *args: str) -> str:
+    """`abk report` for the unit, as an operator runs it."""
+    done = subprocess.run(
+        [str(Path(sys.executable).parent / "abk"), "report", "--unit", UNIT_ID, *args],
+        cwd=scratch.planning,
+        env=scratch.env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    return done.stdout
+
+
+def calls_of(row: dict) -> int:
+    return row["measured"]["calls"] + row["estimated"]["calls"]
+
+
+def summed(values: list[int | None]) -> int | None:
+    present = [v for v in values if v is not None]
+    return sum(present) if present else None
+
+
+def test_the_report_has_one_agent_record_per_call_in_the_run_log(
+    built: tuple[Scratch, Ticked],
+) -> None:
+    scratch, ticked = built
+
+    assert ticked.returncode == 0, output_of(ticked)
+    pushed_commits(scratch, ticked)
+    log = run_log(scratch)
+    calls = [line for line in log.splitlines() if AGENT_STEP.search(line)]
+    assert calls, f"the run log shows no agent call:\n{log}"
+    report = json.loads(abk_report(scratch, "--by", "node", "--json", "--include-estimates"))
+    assert calls_of(report["total"]) == len(calls), f"{report['rows']}\n{calls}"
+    assert sum(calls_of(row) for row in report["rows"]) == len(calls)
+
+
+def test_the_report_totals_equal_the_ledger_and_name_each_figures_source(
+    built: tuple[Scratch, Ticked],
+) -> None:
+    scratch, ticked = built
+
+    assert ticked.returncode == 0, output_of(ticked)
+    records = [r for r in read_ledger(scratch.state / LEDGER_NAME) if r.unit == UNIT_ID]
+    assert records, "the ledger holds no record of the unit's calls"
+    report = json.loads(abk_report(scratch, "--by", "unit", "--json", "--include-estimates"))
+    [row] = report["rows"]
+    assert row["key"] == UNIT_ID
+    measured = row["measured"]
+
+    assert measured["calls"] == len(records)
+    assert measured["input_tokens"] == summed([r.input_tokens for r in records])
+    assert measured["output_tokens"] == summed([r.output_tokens for r in records])
+    assert row["agent_ms"] == summed([r.duration_ms for r in records])
+    assert report["total"]["measured"]["input_tokens"] == measured["input_tokens"]
+    # Each figure's source is shown: the row names every source its calls had,
+    # in the JSON and in the table.
+    assert set(row["sources"]) == {r.usage_source for r in records}
+    assert set(row["sources"]) <= SOURCES
+    table = abk_report(scratch)
+    assert all(source in table for source in row["sources"]), table
