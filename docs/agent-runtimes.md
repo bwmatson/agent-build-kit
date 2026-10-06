@@ -622,6 +622,17 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
   demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
   test-local-stack`).
+- The telemetry acceptance run (`tests/integration/test_telemetry_stack.py`,
+  also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on and reads
+  the trace and the duration series back from the shared stack's stores. It
+  needs the stack's dev instance up, plus node, uv and the agent above, and
+  these set to the instance's published ports:
+  `ABK_ACCEPTANCE_TRACES_ENDPOINT` and `ABK_ACCEPTANCE_METRICS_ENDPOINT` (the
+  OTLP/HTTP intake URLs), `ABK_ACCEPTANCE_TRACES_URL` (the trace store's search
+  API) and `ABK_ACCEPTANCE_METRICS_URL` (the metrics store's query API). Each
+  run uses a service name of its own, so earlier runs in the stores do not
+  answer for it. Run with `uv run pytest -m local_stack
+  tests/integration/test_telemetry_stack.py`.
 - `serial` marks a test that cannot share a process with others. `poe test`
   runs the suite in parallel workers (pytest-xdist, capped at 8) without these
   tests, then runs them alone in a serial pass. A plain `pytest <file>` runs
