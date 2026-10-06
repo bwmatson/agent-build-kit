@@ -7,8 +7,10 @@ from `azure_answers`, wrapped as the service wraps a list (`{"value": [...],
 
 - lists pull requests by `searchCriteria.status` and `searchCriteria.sourceRefName`,
   a page at a time (`$top`/`$skip`, never more than `PAGE` a page);
-- pages policy evaluations by continuation token, in the
-  `x-ms-continuationtoken` response header and the `continuationToken` query;
+- pages policy evaluations by `$top`/`$skip`, never more than `policy_page` a
+  page, and sends no continuation token (the reference documents none);
+- answers 401 to a Bearer token in `rejected_tokens`, as for an expired one;
+- answers a ref delete with `success: false` and `ref_status` when one is set;
 - pages an iteration's changes by `$top`/`$skip`, saying where the next page
   starts in `nextSkip`/`nextTop` (zero once there is none);
 - keeps every status posted, each with an id of its own, and labels
@@ -103,6 +105,7 @@ class RestHost(httpx.MockTransport):
         changes: list[dict] | None = None,
         branch_policies: list[dict] | None = None,
         policy_page: int = 1000,
+        ref_status: str = "",
         change_page: int = 1000,
         delay: float = 0.0,
         refuse: dict[tuple[str, str], httpx.Response] | None = None,
@@ -119,6 +122,8 @@ class RestHost(httpx.MockTransport):
         self.changes = changes if changes is not None else azure_answers.CHANGES["changeEntries"]
         self.branch_policies = branch_policies or []
         self.policy_page = policy_page
+        self.ref_status = ref_status
+        self.rejected_tokens: set[str] = set()
         self.change_page = change_page
         self.delay = delay
         self.refuse = refuse or {}
@@ -168,6 +173,8 @@ class RestHost(httpx.MockTransport):
         body = json.loads(request.content) if request.content else None
         with self._lock:
             self.seen.append(Seen(request, route, body))
+        if request.headers.get("authorization", "").removeprefix("Bearer ") in self.rejected_tokens:
+            return refusal(401, "TF400813: The user is not authorized to access this resource.")
         refused = self.refuse.get((request.method, route))
         if refused is not None:
             return refused
@@ -200,7 +207,10 @@ class RestHost(httpx.MockTransport):
             if method == "GET":
                 return self._refs(params)
             if method == "POST":
-                return answer({"value": [{"success": True, "name": body[0]["name"]}], "count": 1})
+                update = {"success": not self.ref_status, "name": body[0]["name"]}
+                if self.ref_status:
+                    update["updateStatus"] = self.ref_status
+                return answer({"value": [update], "count": 1})
         return None
 
     def _outside_repo(
@@ -301,11 +311,10 @@ class RestHost(httpx.MockTransport):
         if not match:
             raise AssertionError(f"not the artifact id of a pull request here: {artifact!r}")
         items = self.policies.get(int(match[1]), [])
-        start = int(params.get("continuationToken", 0))
-        page = items[start : start + self.policy_page]
-        more = start + self.policy_page < len(items)
-        headers = {"x-ms-continuationtoken": str(start + self.policy_page)} if more else {}
-        return answer({"value": page, "count": len(page)}, headers=headers)
+        top = min(int(params.get("$top", self.policy_page)), self.policy_page)
+        skip = int(params.get("$skip", 0))
+        page = items[skip : skip + top]
+        return answer({"value": page, "count": len(page)})
 
     def _changes(self, params: httpx.QueryParams) -> httpx.Response:
         top = min(int(params.get("$top", self.change_page)), self.change_page)

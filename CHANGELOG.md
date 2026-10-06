@@ -6,9 +6,9 @@
   subprocesses. A listing starts no process, reads every page (pull requests, policy
   evaluations, an iteration's changes), and keeps its reads of open pull requests within a
   bounded pool; results are unchanged. A PAT is sent as a Basic credential and, without one,
-  the `az` sign-in session's token as a Bearer, read once per organisation, so `az` is now
-  only a credential source. A response that is not the document expected raises an error
-  naming the endpoint. `pipeline/az.py` and the `permitted_commands` carve-out for
+  the `az` sign-in session's token as a Bearer, read again once the host rejects it (it expires), so
+  `az` is now only a credential source. A response that is not the document expected raises an
+  error naming the endpoint. `pipeline/az.py` and the `permitted_commands` carve-out for
   `az repos pr update` are removed: nothing the pipeline does needs a command exception.
 
 - The build, rework and restack resolver prompts carry the `## Changelog` section of the built

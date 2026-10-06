@@ -466,6 +466,13 @@ def test_deleting_a_branch_names_the_commit_it_points_at() -> None:
     ]
 
 
+def test_a_refused_ref_delete_raises_with_the_reason() -> None:
+    host = RestHost(refs={f"heads/{HEAD}": "a" * 40}, ref_status="staleOldObjectId")
+
+    with pytest.raises(TransportError, match=f"{HEAD}.*staleOldObjectId"):
+        forge(host).delete_remote_branch(REPO, HEAD)
+
+
 def test_a_branch_already_gone_is_not_an_error() -> None:
     host = RestHost(refs={f"heads/{HEAD}-other": "f" * 40})
 

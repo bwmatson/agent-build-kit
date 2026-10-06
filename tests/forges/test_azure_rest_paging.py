@@ -62,7 +62,7 @@ def test_a_listing_of_exactly_a_page_is_read_to_the_end() -> None:
     assert len(AzureDevOpsForge(http=host).list_prs(REPO)) == 100
 
 
-def test_evaluations_paged_by_continuation_token_are_all_read() -> None:
+def test_evaluations_paged_by_top_and_skip_are_all_read() -> None:
     """The failing ones are on the last pages: a reader that stops at the first
     page reports a green pull request."""
     evaluations = [azure_answers.evaluation("approved", f"check {n}") for n in range(25)]
@@ -74,8 +74,8 @@ def test_evaluations_paged_by_continuation_token_are_all_read() -> None:
     [pull] = AzureDevOpsForge(http=host).list_prs(REPO)
 
     assert pull.failing_checks == ("check 22", "check 24")
-    tokens = [c.params.get("continuationToken") for c in host.calls("GET", "policy/evaluations")]
-    assert tokens == [None, "10", "20"], "each token the host sent, sent back"
+    skips = [int(c.params["$skip"]) for c in host.calls("GET", "policy/evaluations")]
+    assert skips == [0, 10, 20, 25], "the skip is what has been read so far"
 
 
 def test_changes_paged_by_skip_are_all_read() -> None:

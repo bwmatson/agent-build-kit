@@ -133,3 +133,11 @@ class ChangesDoc(_Doc):
 class RefDoc(_Doc):
     name: str
     object_id: str | None = None
+
+
+class RefUpdateDoc(_Doc):
+    """One ref's outcome in the answer to an update: refused ones are a 200 too."""
+
+    name: str = ""
+    success: bool = False
+    update_status: str | None = None

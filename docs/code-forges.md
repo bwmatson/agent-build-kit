@@ -261,7 +261,7 @@ variable, so a machine already set up for `az repos` needs nothing new — then
 
 Both resolve through `transport.credential_for("azure_devops", org)`: a PAT is sent
 as a Basic credential with an empty user, and without one the token of
-`az account get-access-token` (read once per organisation) is sent as a Bearer. Either
+`az account get-access-token` (read again, once, when the host rejects it as expired) is sent as a Bearer. Either
 travels in a header, never in an argument list or a URL, so `ps` cannot show it for the
 hours a build runs. `az` is therefore needed only as a credential source.
 
@@ -275,8 +275,8 @@ unknown field ignored, snake_case attributes aliased to the host's camelCase. A 
 that does not parse raises a `TransportError` naming the endpoint and quoting the start
 of what came back.
 
-Lists are read to the end: pull requests by `$top`/`$skip`, policy evaluations by the
-`x-ms-continuationtoken` header sent back as `continuationToken`, an iteration's changes
+Lists are read to the end: pull requests by `$top`/`$skip`, policy evaluations by
+`$top`/`$skip` (read until an empty page), an iteration's changes
 by `nextSkip`/`nextTop`. A poll reads a pull request's threads, statuses and evaluations
 only while it is open, on a pool of `READ_POOL` threads, so the requests in flight stay
 bounded; a build is read only behind a failing evaluation. A refused call raises what the

@@ -117,9 +117,17 @@ def clear_credentials() -> None:
     forget_tokens()
 
 
+def forget_credential(forge: str, owner: str) -> None:
+    """Forget one owner's cached credential, so the next call reads it again
+    (an `az` access token expires partway through a long tick)."""
+    with _cache_lock:
+        _cache.pop((forge, owner), None)
+
+
 # Azure DevOps' own application id, the resource its `az` access token is for.
 AZURE_DEVOPS_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
 AZURE_PAT_SOURCE = "AZURE_DEVOPS_EXT_PAT"
+AZURE_CLI_SOURCE = "az account get-access-token"
 
 
 def _resolve_azure(owner: str, run: Run | None) -> Credentials:
@@ -140,9 +148,7 @@ def _resolve_azure(owner: str, run: Run | None) -> Credentials:
             f"no credential for {owner}: tried {AZURE_PAT_SOURCE} (unset) and "
             f"`az account get-access-token` (no token); set {AZURE_PAT_SOURCE} or run `az login`"
         )
-    return Credentials(
-        scheme="Bearer", token=token, source="az account get-access-token", owner=owner
-    )
+    return Credentials(scheme="Bearer", token=token, source=AZURE_CLI_SOURCE, owner=owner)
 
 
 def _resolve(forge: str, owner: str, run: Run | None) -> Credentials:

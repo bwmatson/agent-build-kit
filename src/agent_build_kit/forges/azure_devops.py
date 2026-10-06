@@ -3,9 +3,9 @@
 Three things about this host shape everything below:
 
 **Three segments, decoded.** A repo is organisation / project / repo, and the
-remote percent-encodes any of them containing a space. `%20` handed to
-`az repos --project` names a project that does not exist, so the identity is
-decoded once, here, and every caller gets the readable form.
+remote percent-encodes any of them containing a space. The identity is decoded
+once, here, and quoted into each REST path, so a `%20` is never quoted a second
+time into a project that does not exist.
 
 **A merge is only a merge when `status` says so.** An open pull request
 carries `mergeStatus: succeeded` and a populated `lastMergeCommit` exactly as a
@@ -41,6 +41,7 @@ from agent_build_kit.forges.azure_models import (
     LabelDoc,
     PullRequestDoc,
     RefDoc,
+    RefUpdateDoc,
     ReviewerDoc,
     StatusDoc,
     ThreadDoc,
@@ -56,12 +57,15 @@ from agent_build_kit.forges.base import (
     StackRefused,
 )
 from agent_build_kit.forges.transport import (
+    AZURE_CLI_SOURCE,
     PAGE_EXCERPT,
+    AuthError,
     NotFound,
     Response,
     Transport,
     TransportError,
     credential_for,
+    forget_credential,
 )
 from agent_build_kit.pipeline import units
 
@@ -222,7 +226,8 @@ class AzureDevOpsForge:
 
     def _transport(self, account: str, run: Run | None) -> Transport:
         """The connection for one organisation, rebuilt when its credential is
-        read again (an `az` token expires)."""
+        read again: `_call` drops an `az` token the host rejected, since it
+        expires, so the next read runs `az` for a fresh one."""
         credentials = credential_for(self.name, account, run=run)
         with self._lock:
             held = self._transports.get(account)
@@ -242,13 +247,22 @@ class AzureDevOpsForge:
         json: Any = None,
         run: Run | None = None,
     ) -> Response:
-        """One REST call, `path` being under the project's `_apis/`."""
-        return self._transport(repo.account, run).request(
-            method,
-            f"/{quote(repo.account)}/{quote(repo.project)}/_apis/{path}",
-            json=json,
-            params={"api-version": version, **(params or {})},
-        )
+        """One REST call, `path` being under the project's `_apis/`.
+
+        A token from the `az` session that the host rejects has most likely
+        expired, so it is dropped and the call made once more with a fresh one.
+        A PAT stays cached: a rejected PAT is rejected again.
+        """
+        url = f"/{quote(repo.account)}/{quote(repo.project)}/_apis/{path}"
+        query = {"api-version": version, **(params or {})}
+        transport = self._transport(repo.account, run)
+        try:
+            return transport.request(method, url, json=json, params=query)
+        except AuthError:
+            if transport.credentials.source != AZURE_CLI_SOURCE:
+                raise
+        forget_credential(self.name, repo.account)
+        return self._transport(repo.account, run).request(method, url, json=json, params=query)
 
     def _git(self, repo: RepoId, method: str, tail: str = "", **kwargs: Any) -> Response:
         """One REST call on the repository itself."""
@@ -401,20 +415,25 @@ class AzureDevOpsForge:
         """The build policy evaluations this pull request is failing.
 
         A policy evaluation is a different resource from a status: a branch
-        policy's build reports here and never as a status. They come a page at
-        a time by continuation token, and a failing one may be on the last.
+        policy's build reports here and never as a status. The list is paged by
+        `$top`/`$skip` (Policy Evaluations - List, 7.1-preview.1, documents no
+        continuation token), and a failing one may be on the last page.
         """
         artifact = f"vstfs:///CodeReview/CodeReviewId/{project}/{pr}"
         found: list[EvaluationDoc] = []
-        token = ""
         while True:
-            params = {"artifactId": artifact, **({"continuationToken": token} if token else {})}
             answer = self._call(
-                repo, "GET", "policy/evaluations", version=_API_EVALUATIONS, params=params, run=run
+                repo,
+                "GET",
+                "policy/evaluations",
+                version=_API_EVALUATIONS,
+                params={"artifactId": artifact, "$top": str(_PAGE), "$skip": str(len(found))},
+                run=run,
             )
-            found += _items(answer, EvaluationDoc, "GET policy/evaluations")
-            token = answer.headers.get("x-ms-continuationtoken", "")
-            if not token:
+            page = _items(answer, EvaluationDoc, "GET policy/evaluations")
+            found += page
+            # An empty page, not a short one: the host may cap a page below `$top`.
+            if not page:
                 break
         return [
             item
@@ -766,13 +785,20 @@ class AzureDevOpsForge:
         )
         if not at:
             return
-        self._git(
+        answer = self._git(
             repo,
             "POST",
             "refs",
             json=[{"name": f"refs/heads/{branch}", "oldObjectId": at, "newObjectId": _NO_OBJECT}],
             run=run,
         )
+        # A refused delete is a 200 that says so per ref.
+        for update in _items(answer, RefUpdateDoc, "POST refs"):
+            if not update.success:
+                raise TransportError(
+                    f"POST refs: {update.name or branch} was not deleted: "
+                    f"{update.update_status or 'no reason given'}"
+                )
 
 
 FORGE = AzureDevOpsForge()

@@ -89,7 +89,7 @@ def test_without_a_pat_the_cli_session_is_the_source_of_a_bearer_token(
     assert all("tok-az" not in arg for arg in command)
 
 
-def test_the_cli_is_read_once_for_the_organisation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_cli_is_read_once_while_its_token_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "ado_pat", "")
     az = Az()
     forge = AzureDevOpsForge(http=RestHost(azure_answers.OPEN))
@@ -162,3 +162,46 @@ def test_a_sign_in_page_on_a_write_is_an_authentication_error() -> None:
 
     with pytest.raises(AuthError):
         AzureDevOpsForge(http=host).close_pr(REPO, 162)
+
+
+def test_a_rejected_cli_token_is_read_again_and_the_call_made_once_more(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ado_pat", "")
+    az = Az("tok-old")
+    host = RestHost(azure_answers.OPEN)
+    forge = AzureDevOpsForge(http=host)
+    forge.list_prs(REPO, run=az)
+
+    host.rejected_tokens.add("tok-old")  # it expired
+    az.token = "tok-new"
+    forge.post_comment(REPO, 162, body="hello", run=az)
+
+    assert len(az.commands) == 2
+    assert host.seen[-1].authorization == "Bearer tok-new"
+    assert host.writes()[-1].body is not None
+
+
+def test_a_cli_token_rejected_again_after_the_fresh_read_is_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ado_pat", "")
+    az = Az("tok-bad")
+    host = RestHost(azure_answers.OPEN)
+    host.rejected_tokens.add("tok-bad")
+
+    with pytest.raises(AuthError):
+        AzureDevOpsForge(http=host).list_prs(REPO, run=az)
+
+    assert len(az.commands) == 2, "one fresh read, not a loop"
+
+
+def test_a_rejected_pat_is_not_retried() -> None:
+    az = Az()
+    host = RestHost(azure_answers.OPEN, refuse={("GET", "pullrequests"): refusal(401, "no")})
+
+    with pytest.raises(AuthError):
+        AzureDevOpsForge(http=host).list_prs(REPO, run=az)
+
+    assert len(host.calls("GET", "pullrequests")) == 1
+    assert az.commands == []
