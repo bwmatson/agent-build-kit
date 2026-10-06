@@ -65,6 +65,10 @@ class Installation:
         return self._under_root(self.config.planning.graph_page)
 
     @property
+    def usage_page(self) -> Path:
+        return self._under_root(self.config.planning.usage_page)
+
+    @property
     def env_file(self) -> Path:
         return self.root / ".env"
 

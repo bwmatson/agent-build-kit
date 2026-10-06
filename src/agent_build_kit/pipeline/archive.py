@@ -88,6 +88,7 @@ def archive_ready_changes(
     may_archive: Callable[[str], bool] = lambda change: True,
     specs_dir: str = "openspec",
     run_logs: Path | None = None,
+    usage_ledger: Path | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change
