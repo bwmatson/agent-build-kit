@@ -149,18 +149,20 @@ flowchart TD
     rework --> checks
     tier1 -->|passed, no commits of its own| satisfied
     tier1 -->|passed, after a clean move, tier 2 unit| tier2
-    tier1 -->|passed, after a clean move| push
+    tier1 -->|passed, after a clean move| new_comments
     tier1 -->|passed, on its base| verify_base
     tier1 -->|failed| failed
     tier1 -->|failed or changed approval after a move| prepare
     prepare -->|approved tip, tier 2 unit| tier2
     tier2 -->|passed| verify_base
-    tier2 -->|passed, after a clean move| push
+    tier2 -->|passed, after a clean move| new_comments
     tier2 -->|failed| failed
     tier2 -->|failed after a move| prepare
     verify_base -->|base moved, clean| tier1
     verify_base -->|base moved, conflicts| prepare
-    verify_base -->|on its base| push
+    verify_base -->|on its base| new_comments
+    new_comments -->|new comments| rework
+    new_comments -->|nothing new, or no pull request| push
     push -->|host moved the branch| held
     push --> open_pr
     open_pr -->|base gone| prepare
@@ -203,6 +205,7 @@ are the reference for each condition. The nodes:
 | `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
 | `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
+| `new_comments` | Before the push, for a rework of a unit with a pull request, reads the notes and conversation again; those not in `seen_comments` and not the pipeline's own go back to `rework` as feedback, restarting the round counters; `open_pr` records the ids given to the agent so the poller ignores them | `fetch_comments` |
 | `push` | Pushes only the approved commit | the push gate, `push` |
 | `open_pr` | Opens or updates the pull request, posts replies and the PR body | `open_pr`, replies, labels |
 | `await_review` | **Interrupt.** Waits for the forge: rework, a merge, a close, a hold, a moved base | — |

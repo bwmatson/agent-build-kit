@@ -46,7 +46,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
-from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies
+from agent_build_kit.pipeline.pr_replies import MARKER, build_post_replies, own_posts, record_posts
 from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
@@ -1745,6 +1745,9 @@ def build_runner(
     Per unit rather than once: the commit trailer, the tier 2 session and the
     status all belong to this unit and nothing else.
     """
+    # Here and not at the top: `events` imports this module.
+    from agent_build_kit.pipeline.events import build_fetch_comments  # noqa: PLC0415
+
     repo: RepoConfig = installation.repo(unit.repo)
     profile = profiles.get(repo.profile)
     root = installation.state_dir
@@ -1829,6 +1832,12 @@ def build_runner(
         release_dependents=build_release_dependents(store, installation, log=log),
         remove_satisfied=build_remove_satisfied(store, installation, log=log),
         reply=build_post_replies(root=root, log=log),
+        fetch_comments=build_fetch_comments(
+            own=lambda repo, pr: own_posts(root, forges.key(forges.for_repo(repo)[1]), pr)
+        ),
+        record_given=lambda repo, pr, ids: record_posts(
+            root, forges.key(forges.for_repo(repo)[1]), pr, ids
+        ),
         head=_head_sha,
         fetch=build_fetch(installation.checkouts, turn=lambda repo: repo_turn_of(repo)),
         fresh_base=build_fresh_base(store, record_merge=record_merge),

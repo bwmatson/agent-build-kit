@@ -21,6 +21,7 @@ class Node(StrEnum):
     TIER1 = "tier1"
     TIER2 = "tier2"
     VERIFY_BASE = "verify_base"
+    NEW_COMMENTS = "new_comments"
     PUSH = "push"
     OPEN_PR = "open_pr"
     AWAIT_REVIEW = "await_review"
@@ -65,6 +66,13 @@ class UnitRun(Frozen):
     # push that makes them true.
     pending_replies: tuple[str, ...] = ()
     person_comments: str = ""
+    # Ids of every comment a rework covers: those on the pull request when it was
+    # delivered, and those it has taken in since.
+    seen_comments: tuple[str, ...] = ()
+    # The ids of those the agent was actually given, which the poller must not report
+    # again once the push is made: the delivered ones, and the words each pass took in.
+    given_comments: tuple[str, ...] = ()
+    comments_pending: bool = False  # `new_comments` found words for the rework to address
     commits: tuple[str, ...] = ()
     verdict: Verdict | None = None
     stopped: str = ""

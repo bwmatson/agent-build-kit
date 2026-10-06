@@ -55,7 +55,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE
+from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
 from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -720,12 +720,20 @@ def review_lines(notes: list[ReviewNote]) -> list[str]:
         body = note.body.strip()
         if not body or MARKER in body:
             continue
-        if note.line is None and not note.path:
-            out.append(body)
-        elif note.live:
-            tag = f"[comment {note.id}] " if note.id else ""
-            out.append(f"{tag}{note.path or '?'}:{note.line} — {body}")
+        if (note.line is None and not note.path) or note.live:
+            out.append(note_words(note))
     return out
+
+
+def note_words(note: ReviewNote) -> str:
+    """One note as the rework reads it: the tagged `path:line — body` line, or the bare body
+    for a note anchored nowhere. The tag is how a reply finds its thread, so every
+    place that hands a note to the agent writes it here."""
+    body = note.body.strip()
+    if note.line is None and not note.path:
+        return body
+    tag = f"[comment {note.id}] " if note.id else ""
+    return f"{tag}{note.path or '?'}:{note.line} — {body}"
 
 
 def build_fetch_review(
@@ -741,6 +749,46 @@ def build_fetch_review(
     def fetch(repo: str, pr: int) -> list[str]:
         forge, repo_id = for_repo(repo)
         return review_lines(forge.review_notes(repo_id, pr))
+
+    return fetch
+
+
+def build_fetch_comments(
+    *,
+    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
+    own: Callable[[str, int], set[str]] = lambda repo, pr: set(),
+) -> Callable[[str, int, str], tuple[Comment, ...]]:
+    """Every comment on a PR now, by id, for a rework to tell what is new.
+
+    Liveness is not consulted: an outdated note is still the person's. `own` names
+    the ids the pipeline posted (`pr_replies.own_posts`); a body carrying
+    `pr_replies.MARKER` is the pipeline's too. The PR is looked up by its branch: a host
+    may do work for every PR a listing returns."""
+    for_repo = for_repo or forges.for_repo
+
+    def fetch(repo: str, pr: int, branch: str) -> tuple[Comment, ...]:
+        forge, repo_id = for_repo(repo)
+        mine = own(repo, pr)
+        found: dict[str, Comment] = {}
+        for note in forge.review_notes(repo_id, pr):
+            found[note.id] = Comment(
+                id=note.id,
+                words=note_words(note) if note.body.strip() else "",
+                own=note.id in mine or MARKER in note.body,
+            )
+        pull = next(
+            (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
+        )
+        if pull is not None:
+            # The host lists comments before reviews, so the bodies line up with the first ids.
+            bodies = dict(zip(pull.conversation, pull.comment_bodies, strict=False))
+            for comment_id in pull.conversation:
+                if comment_id not in found:
+                    body = bodies.get(comment_id, "")
+                    found[comment_id] = Comment(
+                        id=comment_id, words=body, own=comment_id in mine or MARKER in body
+                    )
+        return tuple(found.values())
 
     return fetch
 

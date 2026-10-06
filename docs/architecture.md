@@ -318,7 +318,7 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    start is logged and records nothing.
    A run that starts with commits on its branch fetches its repo first (a
    failed fetch is logged, not fatal), then restacks.
-8. **Check the base, then push.** Just before the push the repo is fetched
+8. **Check the base, address new comments, then push.** Just before the push the repo is fetched
    again and the base is worked out afresh: a parent whose pull request the
    forge reports merged, which the store has not heard of, is recorded through
    the merge handler and the unit takes its new base (a forge that cannot be
@@ -334,6 +334,11 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    on a later tick, so a base that keeps moving cannot loop. A pull request
    refused because its base is gone asks the forge for the base again (a parent
    merged meanwhile gives its merged-to branch) and resumes the same way.
+   A rework of a unit with a pull request then reads the pull request's notes and
+   conversation again (`new_comments`): any the rework was not given, other than the
+   pipeline's own, go back to `rework` as feedback and are reviewed before the
+   push, and the poller is told not to report them again; a failed read is logged and the
+   work pushes.
 9. **Push, with a lease.** The head must be the exact commit review
    approved, or the push is refused. The push carries
    `--force-with-lease=<branch>:<sha last pushed>` (the store remembers the

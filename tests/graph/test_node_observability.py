@@ -25,6 +25,7 @@ BUILD_PATH = (
     "checks",
     "review",
     "verify_base",
+    "new_comments",
     "push",
     "open_pr",
     "await_review",
