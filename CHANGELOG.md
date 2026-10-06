@@ -23,6 +23,15 @@
   (`uv run --directory <member> ... pytest -m <marker> -v`), so the member's own `testpaths`
   decides what is collected.
 
+- A usage ledger: each agent call of a unit's graph appends a line to
+  `<state_dir>/usage-ledger.jsonl` (gitignored by the template) with where it was made, the
+  runtime, model, session and the figures it reported, each marked by `usage_source`. Claude
+  Code's result event and an `acp` agent's response usage and `usage_update` cost are read; a call
+  ended by a usage limit is recorded too. A write that fails never affects a run and is reported
+  once. `AgentRequest` gains `on_result`; `AgentResult` gains `usage`, `cost_usd`, `duration_ms`,
+  `session_id` and `usage_source`, and its `tokens` is now derived from `usage`, so the `acp`
+  runtime reports tokens too. See docs/architecture.md.
+
 - A task group can say `Independent: <reason>` to be built without waiting for the groups before
   it. Its unit has no dependency, the chain closes around it, it is never joined into a
   neighbouring unit, and `[acceptance]`/`[narrow]` units depend on every earlier unit. `abk tags`

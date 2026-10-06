@@ -21,7 +21,7 @@ from langgraph.graph import END
 from langgraph.types import interrupt
 
 from agent_build_kit import telemetry
-from agent_build_kit.config import active, active_root, models
+from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.pipeline.check_failures import failed_check
@@ -65,7 +65,7 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     local_ref,
 )
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, append_record
+from agent_build_kit.pipeline.usage_ledger import UsageRecord, record_call
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
@@ -129,7 +129,6 @@ class BuildPath:
         self.on_session: Callable[[str], None] | None = None
         self._tree: Path | None = None
         self._node = ""
-        self._ledger_told = False
 
     def work(self) -> dict[Node, Callable[[UnitRun], Any]]:
         """Each node's body, wrapped in its span and run off the event loop."""
@@ -345,15 +344,7 @@ class BuildPath:
                 usage_source=result.usage_source,
                 outcome="ok" if result.ok else "failed",
             )
-            try:
-                root = active_root()
-                if root is None:
-                    return
-                append_record(root / active().planning.state_dir / LEDGER_NAME, line)
-            except Exception as error:  # noqa: BLE001 — a ledger is never a run's to lose
-                if not self._ledger_told:
-                    self._ledger_told = True
-                    self.say(f"the usage ledger could not be written ({error}); not recording")
+            record_call(line, self.say)
 
         return record
 

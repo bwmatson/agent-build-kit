@@ -105,14 +105,26 @@ class AgentResult(Frozen):
     error: str = ""  # set when ok is False
     stop_reason: str = ""  # the runtime's own word for why the turn ended, for diagnostics
     turns: int | None = None  # how many turns the run took, when the runtime counts them
-    # Tokens spent by kind (`input`, `output`, `cache`); empty when the runtime's
-    # output carries no counts.
-    tokens: dict[str, int] = {}
     usage: Usage | None = None
     cost_usd: float | None = None
     duration_ms: int | None = None
     session_id: str | None = None
     usage_source: UsageSource = "none"
+
+    @property
+    def tokens(self) -> dict[str, int]:
+        """Tokens spent by kind (`input`, `output`, `cache`), from `usage`;
+        empty when the runtime reported no counts, and no kind it omits."""
+        if self.usage is None:
+            return {}
+        counts: dict[str, int | None] = {
+            "input": self.usage.input_tokens,
+            "output": self.usage.output_tokens,
+        }
+        cached = [self.usage.cache_creation_input_tokens, self.usage.cache_read_input_tokens]
+        if any(isinstance(n, int) for n in cached):
+            counts["cache"] = sum(n for n in cached if isinstance(n, int))
+        return {kind: n for kind, n in counts.items() if isinstance(n, int)}
 
 
 class PolicyReport(Frozen):

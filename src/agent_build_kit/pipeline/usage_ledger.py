@@ -8,13 +8,22 @@ session, so a re-run or a resumed session counts once.
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from agent_build_kit import config
+from agent_build_kit.installation import Installation
 from agent_build_kit.usage import UsageSource
 
 LEDGER_NAME = "usage-ledger.jsonl"
+
+# What has been reported this process, so that many units failing the same way
+# say it once; guarded because units run on threads.
+_told: set[str] = set()
+_told_lock = threading.Lock()
 
 
 class UsageRecord(BaseModel):
@@ -51,6 +60,36 @@ def append_record(path: Path, record: UsageRecord) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as ledger:
         ledger.write(record.model_dump_json() + "\n")
+
+
+def forget_told() -> None:
+    """Let a failure already reported be reported again (a new process, a test)."""
+    with _told_lock:
+        _told.clear()
+
+
+def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
+    """Add `record` to the active installation's ledger, never raising.
+
+    A record that cannot be kept — no workspace is loaded, or the write
+    fails — is dropped, and `say` is told once per process for each distinct
+    reason.
+    """
+    root = config.active_root()
+    if root is None:
+        problem = "no workspace is loaded"
+    else:
+        path = Installation(config.active(), root).state_dir / LEDGER_NAME
+        try:
+            append_record(path, record)
+            return
+        except Exception as error:  # noqa: BLE001 — a ledger is never a run's to lose
+            problem = f"{path} could not be written: {error}"
+    with _told_lock:
+        if problem in _told:
+            return
+        _told.add(problem)
+    say(f"the usage ledger is not recording ({problem})")
 
 
 def read_ledger(path: Path) -> list[UsageRecord]:

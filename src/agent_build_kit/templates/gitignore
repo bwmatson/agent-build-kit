@@ -13,6 +13,9 @@ runs/unit-logs/
 # The runtime's last policy check, reused by `abk doctor` and `abk init`
 # (in the state directory; move this line if planning.state_dir is changed).
 runs/policy-check.json
+# One line per agent call: the usage ledger (same note: move this line if
+# planning.state_dir is changed).
+runs/usage-ledger.jsonl
 
 # Local tooling.
 __pycache__/

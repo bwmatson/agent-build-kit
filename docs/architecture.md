@@ -678,8 +678,8 @@ outcome and, for a failed check, its kind.
 | `abk.units` | gauge | state |
 
 Unit ids and change names are on spans only, never on a metric. Tokens are recorded where the
-runtime's output carries them (Claude Code's result event); the `acp` runtime reports its one turn
-and no tokens.
+runtime's output carries them: Claude Code's result event, and the `usage` of an `acp` agent's
+prompt response when it sends one.
 
 ## State on disk
 
@@ -694,14 +694,15 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `own-posts.json` | ids of the pipeline's own PR comments and reviews. | a unit reworked over its own reply. |
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
+| `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below). Gitignored. | the spend history, not the work. |
 | `usage-cache.json` | the live usage reading, three-minute TTL. | one endpoint call. |
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; archiving a change removes its files. The file name and `started:` are UTC; each line carries the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
 | `<run id>-<repo>-<track>.md`, `tracked-issues.md` | the tracks' run logs and issue tracker. | history the tracks read. |
 
 The tick commits nothing. The template `.gitignore` excludes only the locks,
-`.env`, `.last-runs/` (the tracks' raw output) and `unit-logs/` (the unit run
-logs); `units.json`, the tracks' run logs
+`.env`, `.last-runs/` (the tracks' raw output), `unit-logs/` (the unit run
+logs) and the usage ledger; `units.json`, the tracks' run logs
 and the graph page (`planning.graph_page`, rewritten on every store write) are
 meant to be committed by the operator, and the pipeline commits the tracks' run
 logs and `tracked-issues.md` by path after each phase, and keeps the planning repo on its
@@ -709,6 +710,27 @@ default branch (a stray branch is kept and reported; a rewritten default branch 
 a tick checks the default branch out before reading state). Unit worktrees live under the worktree
 root — `~/.local/share/<planning dir>/worktrees` unless configured — and the
 planning repo's `.env` holds machine-local settings.
+
+### The usage ledger
+
+`<state_dir>/usage-ledger.jsonl` gets one line for each agent call a unit's graph makes, when the
+call ends, ok or failed (a Claude Code call cut off by a usage limit included). A line names
+where the call was made (`unit`, `node`, `round`, `change`, `repo`, `tier`), what ran (`role`,
+`model`, `runtime`), the `session_id` and whether the call `resumed` one, the figures
+(`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`,
+`cost_usd`, `turns`, `duration_ms`) and the `outcome`. A figure the runtime did not report is
+absent, never zero, and `usage_source` says where the figures came from: `reported` (the
+runtime's own: a Claude Code result event; an `acp` prompt response's `usage` and the cost of its
+last `usage_update`, in USD only), `estimated` (declared; nothing produces it yet) or `none`.
+The `acp` protocol advertises no usage capability at initialize, so an agent that never reports
+usage and one whose payload was unreadable both read `none` (the latter is also said once in the
+run's log).
+
+Writes are best-effort: a record that cannot be kept (no workspace loaded, the state directory
+unwritable) is dropped, never fails a run, and is reported once per process for each reason. The
+reader (`usage_ledger.read_ledger`) keeps the last line for each unit, node, round and session,
+so a node run again with the same session counts once while two calls in different sessions both
+count. Move the ignore line if `planning.state_dir` is changed.
 
 ## Why it is shaped this way
 

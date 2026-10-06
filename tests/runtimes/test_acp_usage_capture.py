@@ -20,7 +20,7 @@ import pytest
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.usage import Usage
-from tests.runtimes.acp_agent import ANSWER, use_agent
+from tests.runtimes.acp_agent import ANSWER, COST_AMOUNT, SESSION, use_agent
 
 REPORTED = Usage(
     input_tokens=7000,
@@ -39,9 +39,9 @@ def worktree(tmp_path: Path) -> Path:
 
 
 def call(
-    worktree: Path, usage: str | None, tmp_path: Path
+    worktree: Path, usage: str | None, tmp_path: Path, cost: str | None = None
 ) -> tuple[AgentResult, list[AgentResult], list[str]]:
-    use_agent(tmp_path / "record.jsonl", usage=usage)
+    use_agent(tmp_path / "record.jsonl", usage=usage, cost=cost)
     results: list[AgentResult] = []
     lines: list[str] = []
     result = AcpRuntime().run(
@@ -67,7 +67,7 @@ def test_a_response_carrying_usage_is_recorded_as_reported(tmp_path: Path, workt
     assert result.ok
     assert result.usage == REPORTED
     assert result.usage_source == "reported"
-    assert result.cost_usd is None, "the protocol reports tokens, not money"
+    assert result.cost_usd is None, "no usage_update came, so no cost was reported"
     assert told_about_usage(lines) == []
 
 
@@ -113,3 +113,39 @@ def test_a_malformed_payload_degrades_to_none_and_says_so_once(
     assert result.usage is None
     assert result.usage_source == "none"
     assert len(told_about_usage(lines)) == 1
+
+
+def test_a_usage_update_with_a_cost_in_dollars_is_recorded_as_the_cost(
+    tmp_path: Path, worktree: Path
+) -> None:
+    result, seen, _ = call(worktree, None, tmp_path, cost="USD")
+
+    assert seen == [result]
+    assert result.cost_usd == COST_AMOUNT
+    assert result.usage_source == "reported"
+
+
+def test_a_cost_in_another_currency_is_left_absent(tmp_path: Path, worktree: Path) -> None:
+    result, _, _ = call(worktree, "reported", tmp_path, cost="EUR")
+
+    assert result.cost_usd is None
+    assert result.usage == REPORTED
+    assert result.usage_source == "reported"
+
+
+def test_every_result_carries_the_session_the_agent_issued(tmp_path: Path, worktree: Path) -> None:
+    result, seen, _ = call(worktree, None, tmp_path)
+
+    assert result.session_id == SESSION
+    assert seen[0].session_id == SESSION
+
+
+def test_a_failed_turn_carries_its_session_too(tmp_path: Path, worktree: Path) -> None:
+    use_agent(tmp_path / "record.jsonl", stop="max_tokens")
+
+    result = AcpRuntime().run(
+        AgentRequest(prompt="Implement group 1.", role="implement", cwd=worktree)
+    )
+
+    assert not result.ok
+    assert result.session_id == SESSION

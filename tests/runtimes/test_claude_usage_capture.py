@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_build_kit.runtimes import AgentRequest, AgentResult
+import pytest
+
+from agent_build_kit.runtimes import AgentRateLimited, AgentRequest, AgentResult
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.usage import Usage
 from tests.runtimes.claude_cli import MODEL, SESSION, FakeClaude, finished_build
@@ -84,3 +86,39 @@ def test_a_run_whose_output_carries_no_result_event_reports_nothing_rather_than_
     assert result.cost_usd is None
     assert result.duration_ms is None
     assert result.usage_source == "none"
+
+
+def test_an_event_carrying_only_a_session_id_is_recorded_as_none(tmp_path: Path) -> None:
+    *events, closing = finished_build(tmp_path, "done").splitlines()
+    bare = json.loads(closing)
+    for figure in ("usage", "total_cost_usd", "duration_ms", "duration_api_ms", "num_turns"):
+        del bare[figure]
+    seen: list[AgentResult] = []
+    fake = FakeClaude(stdout="\n".join([*events, json.dumps(bare)]) + "\n")
+
+    result = ClaudeCodeRuntime(execute=fake).run(asking(tmp_path, seen))
+
+    assert seen == [result]
+    assert result.session_id == SESSION
+    assert result.usage is None
+    assert result.cost_usd is None
+    assert result.usage_source == "none"
+
+
+def test_a_call_ended_by_the_usage_limit_still_reports_what_it_spent(tmp_path: Path) -> None:
+    seen: list[AgentResult] = []
+    fake = FakeClaude(
+        stdout=finished_build(tmp_path, "done"),
+        returncode=1,
+        stderr="Claude AI usage limit reached|1900000000",
+    )
+
+    with pytest.raises(AgentRateLimited):
+        ClaudeCodeRuntime(execute=fake).run(asking(tmp_path, seen))
+
+    assert len(seen) == 1
+    assert not seen[0].ok
+    assert "usage limit reached" in seen[0].error
+    assert seen[0].cost_usd == 0.4127
+    assert seen[0].usage == SPENT
+    assert seen[0].usage_source == "reported"

@@ -8,7 +8,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_build_kit.pipeline.usage_ledger import read_ledger
+import pytest
+
+from agent_build_kit import config
+from agent_build_kit.config import WorkspaceConfig
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.usage_ledger import (
+    UsageRecord,
+    forget_told,
+    read_ledger,
+    record_call,
+)
 
 
 def line(**fields) -> dict:
@@ -119,3 +129,58 @@ def test_a_half_written_line_costs_only_itself(tmp_path: Path) -> None:
     )
 
     assert [r.node for r in read_ledger(ledger)] == ["implement", "review"]
+
+
+def test_two_calls_of_one_node_and_round_in_distinct_sessions_both_count(tmp_path: Path) -> None:
+    ledger = write(
+        tmp_path / "usage-ledger.jsonl",
+        line(runtime="acp", session_id="sess-a", cost_usd=0.2),
+        line(runtime="acp", session_id="sess-b", cost_usd=0.3),
+    )
+
+    records = read_ledger(ledger)
+
+    assert sorted(r.session_id or "" for r in records) == ["sess-a", "sess-b"]
+
+
+@pytest.fixture(autouse=True)
+def _fresh_notices() -> None:
+    forget_told()
+
+
+def a_record() -> UsageRecord:
+    return UsageRecord.model_validate(line())
+
+
+def test_a_record_lands_in_the_installation_s_state_dir(workspace: Installation) -> None:
+    told: list[str] = []
+
+    record_call(a_record(), told.append)
+
+    assert [r.unit for r in read_ledger(workspace.state_dir / "usage-ledger.jsonl")] == [
+        "add-marker/1"
+    ]
+    assert told == []
+
+
+def test_a_failed_write_is_reported_once_however_many_calls_fail(
+    workspace: Installation,
+) -> None:
+    workspace.state_dir.write_text("not a directory")
+    told: list[str] = []
+
+    for _ in range(3):
+        record_call(a_record(), told.append)
+
+    assert len(told) == 1
+
+
+def test_a_record_made_with_no_workspace_loaded_is_dropped_and_reported_once() -> None:
+    config.activate(WorkspaceConfig(), None)
+    told: list[str] = []
+
+    record_call(a_record(), told.append)
+    record_call(a_record(), told.append)
+
+    assert len(told) == 1
+    assert "no workspace" in told[0]

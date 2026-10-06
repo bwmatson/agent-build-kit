@@ -46,6 +46,9 @@ reports. What it did, and what the client answered, is appended to RECORD as
 `--usage reported|extra|malformed` has the prompt's response carry a `usage`
 payload: the protocol's own counts, the same with fields no client knows, or
 counts that are not numbers. Without it the response carries none.
+`--cost USD|EUR` has the agent send a `usage_update` before the answer, with
+the session's cumulative cost in that currency, as the protocol's own update
+carries it.
 
 `--act` names a JSON file holding a list of actions, taken in order:
 
@@ -126,6 +129,7 @@ from acp.interfaces import Agent, Client
 from acp.schema import (
     AgentCapabilities,
     AvailableCommand,
+    Cost,
     Implementation,
     PermissionOption,
     PromptCapabilities,
@@ -138,6 +142,7 @@ from acp.schema import (
     StopReason,
     ToolCallLocation,
     ToolCallUpdate,
+    UsageUpdate,
 )
 from pydantic import ValidationError
 
@@ -182,6 +187,9 @@ USAGE_PAYLOADS: dict[str, dict[str, Any]] = {
     "extra": {**REPORTED_USAGE, "serviceTier": "priority", "_meta": {"billing": {"plan": "x"}}},
     "malformed": {"totalTokens": "lots", "inputTokens": None, "outputTokens": [1]},
 }
+
+# What `--cost` reports: the session's cumulative spend so far.
+COST_AMOUNT = 0.31
 
 # The permission options it offers, as a real agent words them: the ids are
 # its own, so only the kinds say which option refuses.
@@ -228,8 +236,10 @@ class FakeAgent:
         split: bool = False,
         offer: list[str] | None = None,
         usage: str | None = None,
+        cost: str | None = None,
     ) -> None:
         self._usage = usage
+        self._cost = cost
         self._record = record
         self._stop = stop
         self._additional_dirs = additional_dirs
@@ -332,6 +342,15 @@ class FakeAgent:
             )
         )
         await send(update_agent_thought_text(THOUGHT))
+        if self._cost is not None:
+            await send(
+                UsageUpdate(
+                    session_update="usage_update",
+                    used=9200,
+                    size=200000,
+                    cost=Cost(amount=COST_AMOUNT, currency=self._cost),
+                )
+            )
         for chunk in PREAMBLE_CHUNKS:
             await send(update_agent_message_text(chunk))
         if self._fail == "exit":
@@ -741,6 +760,7 @@ def command(
     split: bool = False,
     offer: list[str] | None = None,
     usage: str | None = None,
+    cost: str | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -767,6 +787,8 @@ def command(
         argv += ["--offer", ",".join(offer)]
     if usage:
         argv += ["--usage", usage]
+    if cost:
+        argv += ["--cost", cost]
     return argv
 
 
@@ -784,6 +806,7 @@ def use_agent(
     split: bool = False,
     offer: list[str] | None = None,
     usage: str | None = None,
+    cost: str | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -801,6 +824,7 @@ def use_agent(
             split=split,
             offer=offer,
             usage=usage,
+            cost=cost,
         )
     )
 
@@ -839,6 +863,7 @@ def main() -> None:
     parser.add_argument("--split", action="store_true")
     parser.add_argument("--offer")
     parser.add_argument("--usage", choices=sorted(USAGE_PAYLOADS))
+    parser.add_argument("--cost", choices=["USD", "EUR"])
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -853,6 +878,7 @@ def main() -> None:
         split=args.split,
         offer=args.offer.split(",") if args.offer else None,
         usage=args.usage,
+        cost=args.cost,
     )
     # Only the methods these tests drive: the rest answer "method not found".
     asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))

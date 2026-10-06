@@ -78,6 +78,7 @@ from acp.schema import (
     ToolCallProgress,
     ToolCallStart,
     ToolCallUpdate,
+    UsageUpdate,
     WaitForTerminalExitResponse,
     WriteTextFileResponse,
 )
@@ -578,6 +579,11 @@ class _Session:
         # on a retry, so it is a failed result saying why, not an
         # interruption to reclaim.
         self.refused_cancel: str | None = None
+        # The agent's session, once `_turn` has opened it, and the cost its
+        # last `usage_update` put on the session so far (cumulative, in USD;
+        # None when it reported none or in another currency).
+        self.session_id: str | None = None
+        self.cost_usd: float | None = None
         # Set once the connection exists (`on_connect`), so `request_permission`
         # can itself send `session/cancel` when it cancels a turn: denying
         # the one call is not enough to stop the agent's turn, and the
@@ -646,7 +652,10 @@ class _Session:
         return merged
 
     async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
-        if isinstance(update, AgentMessageChunk):
+        if isinstance(update, UsageUpdate):
+            if update.cost is not None:
+                self.cost_usd = update.cost.amount if update.cost.currency == "USD" else None
+        elif isinstance(update, AgentMessageChunk):
             if isinstance(update.content, TextContentBlock):
                 self._message.append(update.content.text)
                 self._unsaid.append(update.content.text)
@@ -1049,13 +1058,18 @@ def _wire_usage(raw_lines: list[str]) -> Any:
 
 
 def _spent(raw: Any, session: _Session) -> dict:
-    """What a prompt response says the turn spent, as `AgentResult`'s fields.
+    """What a call says it spent, as `AgentResult`'s fields, and the session
+    it ran in.
 
-    The protocol reports tokens and no cost. A response without usage is
-    `none`; one whose counts are not numbers is too, and is said once.
+    The prompt response reports tokens; the cost is the last `usage_update`'s,
+    when the agent sent one in USD. A call with neither is `none`; a response
+    whose counts are not numbers is too, and is said once.
     """
+    spent: dict = {"session_id": session.session_id}
+    if session.cost_usd is not None:
+        spent |= {"cost_usd": session.cost_usd, "usage_source": "reported"}
     if raw is None:
-        return {}
+        return spent
     counts = (
         {name: raw.get(key) for name, key in USAGE_KEYS.items()} if isinstance(raw, dict) else {}
     )
@@ -1063,8 +1077,8 @@ def _spent(raw: Any, session: _Session) -> dict:
         n is not None and (isinstance(n, bool) or not isinstance(n, int)) for n in counts.values()
     ):
         session.notice("the agent's usage was not in a shape abk reads; recording none")
-        return {}
-    return {"usage": Usage(**counts), "usage_source": "reported"}
+        return spent
+    return spent | {"usage": Usage(**counts), "usage_source": "reported"}
 
 
 def _offered(option: SessionConfigOptionSelect) -> list[str]:
@@ -1211,6 +1225,7 @@ class AcpRuntime:
                 text="",
                 error=f"the agent answered an error: {exc}",
                 raw="\n".join(raw_lines),
+                **_spent(None, session),
             )
         except (ConnectionError, EOFError) as exc:
             said, killed = await _ended(process, stderr)
@@ -1224,6 +1239,7 @@ class AcpRuntime:
                     error=f"the agent went away: {exc}; it did not exit and was killed. "
                     f"{said}".strip(),
                     raw="\n".join(raw_lines),
+                    **_spent(None, session),
                 )
             if process.returncode is not None and process.returncode < 0:
                 raise AgentInterrupted(
@@ -1234,6 +1250,7 @@ class AcpRuntime:
                 text="",
                 error=f"the agent went away: {exc} {said}".strip(),
                 raw="\n".join(raw_lines),
+                **_spent(None, session),
             )
         finally:
             session.said()
@@ -1257,6 +1274,7 @@ class AcpRuntime:
                     f"was cancelled rather than permitted: {session.refused_cancel}",
                     stop_reason=stop_reason,
                     raw="\n".join(raw_lines),
+                    **_spent(None, session),
                 )
             raise AgentInterrupted("the agent's turn was cancelled")
         if stop_reason != "end_turn":
@@ -1289,6 +1307,7 @@ class AcpRuntime:
             additional_directories=self._roots(initialized, session, request),
             mcp_servers=[],
         )
+        session.session_id = opened.session_id
         if request.model:
             await self._select_model(
                 conn, session, opened.session_id, opened.config_options, request.model

@@ -46,7 +46,6 @@ from agent_build_kit.runtimes.base import (
     UsageStatus,
 )
 from agent_build_kit.runtimes.traced import traced
-from agent_build_kit.usage import Usage
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
 # shape. `on_event` is called with each JSON event as it is printed, and is
@@ -245,10 +244,7 @@ class ClaudeCodeRuntime:
             said = f"{own_words(result.stdout)}\n{result.stderr}".strip()
             if request.resume_session and "no conversation found" in said.lower():
                 raise SessionUnavailable(said)
-            reset = rate_limit_reset(said)
-            if reset is not False:
-                raise AgentRateLimited(said or "claude reported a usage limit", resets_at=reset)
-            return AgentResult(
+            failed = AgentResult(
                 ok=False,
                 text=text,
                 raw=result.stdout,
@@ -257,13 +253,20 @@ class ClaudeCodeRuntime:
                 turns=ended.num_turns if ended is not None else None,
                 **_spent(ended),
             )
+            reset = rate_limit_reset(said)
+            if reset is not False:
+                # Raised, so `_run` never sees it: the spend of a call cut off
+                # by the limit is told here.
+                if request.on_result is not None:
+                    request.on_result(failed.model_copy(update={"error": said}))
+                raise AgentRateLimited(said or "claude reported a usage limit", resets_at=reset)
+            return failed
         return AgentResult(
             ok=True,
             text=text,
             raw=result.stdout,
             stop_reason=stop_reason,
             turns=ended.num_turns if ended is not None else None,
-            tokens=_tokens(ended.usage) if ended is not None and ended.usage else {},
             **_spent(ended),
         )
 
@@ -292,7 +295,7 @@ def _spent(ended: ResultEvent | None) -> dict:
         return {}
     reported = any(
         figure is not None
-        for figure in (ended.usage, ended.total_cost_usd, ended.duration_ms, ended.session_id)
+        for figure in (ended.usage, ended.total_cost_usd, ended.duration_ms, ended.num_turns)
     )
     return {
         "usage": ended.usage,
@@ -301,18 +304,6 @@ def _spent(ended: ResultEvent | None) -> dict:
         "session_id": ended.session_id,
         "usage_source": "reported" if reported else "none",
     }
-
-
-def _tokens(usage: Usage) -> dict[str, int]:
-    """The tokens a result event's usage reports, by kind; nothing it omits."""
-    counts: dict[str, int | None] = {
-        "input": usage.input_tokens,
-        "output": usage.output_tokens,
-    }
-    cached = [usage.cache_creation_input_tokens, usage.cache_read_input_tokens]
-    if any(isinstance(n, int) for n in cached):
-        counts["cache"] = sum(n for n in cached if isinstance(n, int))
-    return {kind: n for kind, n in counts.items() if isinstance(n, int)}
 
 
 def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
