@@ -23,8 +23,10 @@ defeat the point.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Literal
+from xml.etree import ElementTree
 
 from agent_build_kit.model import Frozen
 
@@ -108,12 +110,86 @@ class RedResult(Frozen):
     problems: tuple[str, ...] = ()
 
 
+REPORT_MARK = "--- abk junit report ---"
+
+LOG = logging.getLogger(__name__)
+
+
+def split_report(output: str) -> tuple[str | None, str]:
+    """The JUnit report a red command printed after `REPORT_MARK`, or None when
+    it printed none, and the console output before it."""
+    console, found, report = output.partition(REPORT_MARK)
+    return (report.strip() or None, console) if found else (None, output)
+
+
 def red_check(report: str) -> RedResult:
-    """Judge a run from pytest's JUnit report, by each failing test's exception."""
-    raise NotImplementedError
+    """Judge a run from pytest's JUnit report, by each failing test's exception.
+
+    Raises `ValueError` when `report` is not a JUnit report.
+    """
+    body = report.strip()
+    if body.startswith("<!--"):
+        body = body.partition("-->")[2].strip()
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError as error:
+        raise ValueError(f"not a JUnit report: {error}") from error
+
+    failing: list[str] = []
+    problems: list[str] = []
+    passed = 0
+    for case in root.iter("testcase"):
+        name = "::".join(part for part in (case.get("classname"), case.get("name")) if part)
+        bad = [*case.findall("failure"), *case.findall("error")]
+        if not bad:
+            passed += case.find("skipped") is None
+            continue
+        failing.append(name)
+        for element in bad:
+            said = f"{element.get('message') or ''}\n{element.text or ''}"
+            if element.tag == "error":
+                problems.append(f"{name}: {_error_reason(element, said)}")
+            elif reasons := [why for marker, why in REJECTED.items() if marker in said]:
+                problems.extend(f"{name}: {why}" for why in reasons)
+            elif not any(marker in said for marker in ACCEPTED):
+                problems.append(
+                    f"{name}: the failure is not one we recognise as "
+                    "'the behaviour isn't there yet'"
+                )
+
+    if passed:
+        problems.append(
+            f"{passed} test(s) passed at the tests commit — a test that passes "
+            "before its implementation exists is not testing that implementation"
+        )
+    if not failing:
+        problems.append("nothing failed at the tests commit")
+    return RedResult(
+        verdict="rejected" if problems else "accepted",
+        tests=tuple(failing),
+        problems=tuple(problems),
+    )
+
+
+def _error_reason(element: ElementTree.Element, said: str) -> str:
+    if element.get("message") == "collection failure":
+        return "the test module could not be collected, so no test failed for the missing behaviour"
+    for marker, why in REJECTED.items():
+        if marker in said:
+            return why
+    return "an error outside the test body is not a missing implementation"
 
 
 def judge_red(report: str | None, output: str, exit_code: int) -> RedResult:
     """Judge a run from its `report`, or from the console `output` (logging
     that it did) when the report could not be written."""
-    raise NotImplementedError
+    if report:
+        try:
+            return red_check(report)
+        except ValueError as error:
+            reason = str(error)
+    else:
+        reason = "no report was written"
+    LOG.warning("red check: %s; using the console fallback", reason)
+    ok, problems = interpret_pytest(output, exit_code=exit_code)
+    return RedResult(verdict="accepted" if ok else "rejected", problems=tuple(problems))

@@ -83,10 +83,16 @@ And what it knows:
 - `stub_violations`: Python files are parsed with `ast`; every function body
   must be only `pass`, `raise NotImplementedError`, or a constant (after a
   docstring). Unparseable is a violation. Other languages get no opinion.
-- `interpret_red` reads pytest's summary: passing tests, nothing collected,
-  `SyntaxError`/`IndentationError`, a missing fixture or a broken conftest
-  disqualify the run; an assertion, `NotImplementedError`, `ModuleNotFoundError`,
-  `ImportError` or `AttributeError` is red for the right reason.
+- `interpret_red` reads pytest's JUnit report (`red_command` writes it with
+  `--junitxml` and prints it after the console output), judging each failing
+  test by its exception: a collection error, a missing fixture, a broken
+  conftest, `SyntaxError`/`IndentationError` or a passing test disqualify the
+  run; an assertion, `NotImplementedError`, `ModuleNotFoundError`,
+  `ImportError` or `AttributeError` in a test body is red for the right reason.
+  When no report can be read, the console summary is matched instead and a
+  warning says the fallback ran. Recorded reports live under
+  `tests/fixtures/external/pytest/`; re-record them with
+  `uv run python tests/fixtures/external/record_pytest.py`.
 - `parse_test_summary` counts `N passed/failed/skipped/error` and `in Ns`.
 - `members` reads `[tool.uv.workspace].members` from the root `pyproject.toml`;
   `dependents` reads each other member's `[project].dependencies` and

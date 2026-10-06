@@ -10,6 +10,12 @@ from typing import Literal
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.claude_stream import ResultEvent
+from agent_build_kit.pipeline.usage_guard import rate_limit_reset
+
+# The closing event's subtypes that say the run succeeded; any other is not one.
+SUCCESS_SUBTYPES = frozenset({"success"})
+
+RATE_LIMITED_STATUS = 429
 
 FailureKind = Literal["none", "rate_limited", "session_unavailable", "other"]
 
@@ -23,4 +29,14 @@ class AgentFailure(Frozen):
 
 def agent_failure(event: ResultEvent | None, text: str) -> AgentFailure:
     """Classify a run from its closing `event` and `text`, the CLI's own words."""
-    raise NotImplementedError
+    if event is not None:
+        if event.api_error_status == RATE_LIMITED_STATUS:
+            return AgentFailure(kind="rate_limited", resets_at=rate_limit_reset(text) or None)
+        if event.subtype in SUCCESS_SUBTYPES and not event.is_error:
+            return AgentFailure(kind="none")
+    reset = rate_limit_reset(text)
+    if reset is not False:
+        return AgentFailure(kind="rate_limited", resets_at=reset)
+    if "no conversation found" in text.lower():
+        return AgentFailure(kind="session_unavailable")
+    return AgentFailure(kind="other")

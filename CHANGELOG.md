@@ -37,6 +37,13 @@
   message, where it used to be reported as a stale lease. The rerere replay notice is read there
   too, and recorded git output under `tests/fixtures/external/git/` pins both.
 
+- Agent failures and the red check read structured fields before any phrase. A rate limit, a lost
+  session and a failed run come from the `claude` closing event's status, `is_error` and subtype
+  (only an explicit success subtype is a success), and a denied ACP tool call from its status and
+  error code, with the phrase lists as the fallback. The red check judges each failing test's
+  exception from pytest's JUnit report and says in the log when it falls back to the console.
+  Recorded events, updates and reports under `tests/fixtures/external/` pin each.
+
 - `CHANGELOG.md` merges with git's union driver (`.gitattributes`), so two units that each add an
   entry under Unreleased no longer conflict on it, and the restack that used to resolve it by hand
   keeps both. Existing entries were also consolidated: bullets that described one change in

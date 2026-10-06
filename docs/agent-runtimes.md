@@ -19,7 +19,16 @@ line, ``refused `<command>` by abk's command rules: <reason>``; a forbidden
 command whose call fails without abk having run or answered it reads "by the
 agent's own policy" when the call's output says it was blocked or denied, and
 otherwise "by the agent's own configuration", a best-effort attribution, since
-the protocol does not say why a call failed.
+the protocol does not say why a call failed. That reading is `runtimes/acp_output.py`'s
+`denied_call`: a failed update is a denial by the `error.code` in its raw output when it
+carries one, and by the phrase list only when it does not. The stop-reason strings are the
+SDK's `StopReason` type.
+
+The `claude` CLI's closing event is read the same way in `runtimes/claude_output.py`'s
+`agent_failure`: an HTTP 429 in `api_error_status` is a rate limit, only an explicit set of
+subtypes (`success`) without `is_error` is a success, and the event's own words decide a
+rate limit, a lost session or a plain failure only after that. Recorded events and updates
+live under `tests/fixtures/external/claude/` and `.../acp/`.
 This document specifies the whole shape, so that adding a second runtime is
 writing an adapter against a fixed Protocol, not another round of the same
 subprocess plumbing.

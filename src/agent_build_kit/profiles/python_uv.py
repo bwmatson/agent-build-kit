@@ -16,7 +16,7 @@ import tomllib
 from pathlib import Path
 
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
-from agent_build_kit.pipeline.red_check import interpret_pytest
+from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import parse_pytest_summary
 from agent_build_kit.profiles.base import PromptWords
 
@@ -27,6 +27,8 @@ NO_TESTS_COLLECTED = 5
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 XDIST = "pytest-xdist"
+# Where the red run's JUnit report is written inside its worktree.
+REPORT_FILE = ".abk-red-report.xml"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
 
 
@@ -176,10 +178,18 @@ class PythonUvProfile:
         return "SKIP=pyrefly-check uv run pre-commit run --all-files"
 
     def red_command(self, files: list[str]) -> str:
-        return f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
+        # The report is printed after the console so it outlives the worktree
+        # the command runs in; the exit status is pytest's own.
+        pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
+        return (
+            f"{pytest} --junitxml={REPORT_FILE}; status=$?; "
+            f"echo '{REPORT_MARK}'; cat {REPORT_FILE} 2>/dev/null; exit $status"
+        )
 
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
-        return interpret_pytest(output, exit_code=exit_code)
+        report, console = split_report(output)
+        result = judge_red(report, console, exit_code)
+        return result.verdict == "accepted", list(result.problems)
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         return parse_pytest_summary(output)
