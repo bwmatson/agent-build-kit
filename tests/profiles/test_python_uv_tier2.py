@@ -55,9 +55,9 @@ def test_a_members_testpaths_keep_a_decoy_outside_them_uncollected(tmp_path: Pat
 
 
 def test_a_member_without_testpaths_collects_from_its_own_directory(tmp_path: Path) -> None:
-    _member(tmp_path, testpaths=False, decoy="tests/test_smoke.py")
+    _member(tmp_path, testpaths=False, decoy="smoke_test.py")
 
     result = _run_tier_two(tmp_path)
 
     assert result.returncode != 0
-    assert "test_smoke" in result.stdout
+    assert "smoke_test" in result.stdout
