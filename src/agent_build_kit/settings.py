@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # sign-in session, which is the other supported way to be authenticated.
     ado_pat: str = Field("", validation_alias=AliasChoices("AZURE_DEVOPS_EXT_PAT", "ABK_ADO_PAT"))
 
+    # Every call to a code host (forges/transport.py): the timeout in seconds,
+    # and how many times a failed call is retried after the first attempt.
+    forge_timeout_seconds: float = 30.0
+    forge_retries: int = 3
+
     # Overrides abk.yaml's `planning.worktree_root` on this machine.
     worktree_root: Path | None = None
 

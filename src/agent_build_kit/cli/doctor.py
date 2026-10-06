@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
+import httpx
 import yaml
 
 from agent_build_kit import (
@@ -749,6 +750,7 @@ def run_doctor(
     run: Run | None = None,
     which: Which | None = None,
     units: Path | None = None,
+    transport: httpx.BaseTransport | None = None,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which

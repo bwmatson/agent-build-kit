@@ -8,15 +8,17 @@ import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 
 from agent_build_kit import __version__, skills
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
+from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
-from agent_build_kit.settings import reload
+from agent_build_kit.settings import reload, settings
 from tests.factories import git, init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
 
@@ -866,3 +868,51 @@ def test_a_per_signal_endpoint_overrides_the_shared_one(
 
     assert checks["telemetry traces"].status == "ok"
     assert checks["telemetry metrics"].status == "warn"
+
+
+def _github_account(login: str) -> httpx.MockTransport:
+    def answer(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"].endswith("tok")
+        return httpx.Response(200, json=dict(login=login, id=7, type="User"))
+
+    return httpx.MockTransport(answer)
+
+
+@pytest.fixture
+def logged_out_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_credentials()
+    monkeypatch.setattr(settings, "gh_token", "")
+
+
+def test_doctor_reports_the_account_each_repo_credential_acts_as(
+    workspace: Path, logged_out_settings: None
+) -> None:
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(),
+            which=which_all,
+            transport=_github_account("example-bot"),
+        )
+    )
+
+    assert checks["forge app"].status == "ok"
+    assert "example-bot" in checks["forge app"].detail
+    assert "example-bot" in checks["forge platform"].detail
+
+
+def test_doctor_on_a_logged_out_machine_names_the_sources_tried(
+    workspace: Path, logged_out_settings: None
+) -> None:
+    checks = by_name(
+        run_doctor(
+            workspace / "abk.yaml",
+            run=Answers(owners=set()),
+            which=which_all,
+            transport=_github_account("example-bot"),
+        )
+    )
+
+    assert checks["forge app"].status == "FAIL"
+    text = f"{checks['forge app'].detail} {checks['forge app'].fix}"
+    assert "gh auth token" in text and "example" in text
