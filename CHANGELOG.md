@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Azure DevOps is reached over typed REST through the shared transport instead of `az`
+  subprocesses. A listing starts no process, reads every page (pull requests, policy
+  evaluations, an iteration's changes), and keeps its reads of open pull requests within a
+  bounded pool; results are unchanged. A PAT is sent as a Basic credential and, without one,
+  the `az` sign-in session's token as a Bearer, read once per organisation, so `az` is now
+  only a credential source. A response that is not the document expected raises an error
+  naming the endpoint. `pipeline/az.py` and the `permitted_commands` carve-out for
+  `az repos pr update` are removed: nothing the pipeline does needs a command exception.
+
 - The build, rework and restack resolver prompts carry the `## Changelog` section of the built
   repo's own AGENTS.md; a repo without one is told nothing about the changelog. The resolver
   keeps both sides' bullets and folds two that describe one change when CHANGELOG.md conflicts

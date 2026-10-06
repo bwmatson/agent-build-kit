@@ -380,7 +380,10 @@ Which host answers is a forge's business (see
 [code-forges.md](code-forges.md)); everything below is written in the typed
 values a forge returns, not in any host's JSON. A forge opens a pull request,
 posts a status and answers a review comment; it also closes one — the one
-call the satisfied outcome above needs, and nothing else does.
+call the satisfied outcome above needs, and nothing else does. Azure DevOps is
+reached over typed REST through the same HTTP transport as GitHub's API
+(`forges/transport.py`, `forges/azure_models.py`), so a poll starts no `az`
+process and its reads are bounded by a request pool rather than a process count.
 
 Nothing here is reachable from the internet, so `gh_poller.py` polls
 one listing per repo instead of taking webhooks, and only for branches with

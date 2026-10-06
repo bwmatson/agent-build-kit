@@ -10,10 +10,13 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 
 
 class _Doc(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(
+        frozen=True, extra="ignore", alias_generator=to_camel, populate_by_name=True
+    )
 
 
 class ProjectDoc(_Doc):
@@ -106,3 +109,27 @@ class BuildDoc(_Doc):
     id: int
     build_number: str | None = None
     result: str | None = None
+
+
+class IterationDoc(_Doc):
+    id: int
+
+
+class ChangeItemDoc(_Doc):
+    path: str | None = None
+    is_folder: bool | None = None
+
+
+class ChangeDoc(_Doc):
+    item: ChangeItemDoc | None = None
+
+
+class ChangesDoc(_Doc):
+    change_entries: list[ChangeDoc] | None = None
+    next_skip: int = 0
+    next_top: int = 0
+
+
+class RefDoc(_Doc):
+    name: str
+    object_id: str | None = None

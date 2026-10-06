@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # The personal access token Azure DevOps calls are made with. The
     # extension's own variable comes first, so a machine already set up for
-    # `az repos` needs nothing new here; unset, calls fall back to the `az`
+    # `az repos` needs nothing new here; unset, calls use the token of the `az`
     # sign-in session, which is the other supported way to be authenticated.
     ado_pat: str = Field("", validation_alias=AliasChoices("AZURE_DEVOPS_EXT_PAT", "ABK_ADO_PAT"))
 

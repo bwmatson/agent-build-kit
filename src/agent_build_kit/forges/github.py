@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING
 from agent_build_kit.forges.base import (
     BaseMissing,
     Label,
-    PermittedCommand,
     PullRequest,
     RepoId,
     ReviewNote,
@@ -76,8 +75,6 @@ class GitHubForge:
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
     read_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "view"), ("gh", "pr", "diff"))
-    # `gh pr close` and `gh pr ready` are not denied, so nothing needs an exception.
-    permitted_commands: tuple[PermittedCommand, ...] = ()
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
 
