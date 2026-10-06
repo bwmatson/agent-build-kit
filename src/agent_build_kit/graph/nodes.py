@@ -161,7 +161,7 @@ class BuildPath:
     def _wrapped(self, node: Node, body: Callable[[UnitRun], Update]):
         async def run(state: UnitRun) -> Update:
             if node in AGENT_NODES:
-                await self.gate(node)
+                await self.gate(node, state)
             attributes: dict[str, str | int] = {
                 "unit": self.unit.id,
                 "change": self.unit.change,
@@ -226,7 +226,7 @@ class BuildPath:
 
         return run
 
-    async def gate(self, node: Node) -> None:
+    async def gate(self, node: Node, state: UnitRun) -> None:
         """Interrupt before an agent step the usage guard refuses.
 
         At the node's boundary and never inside it: a step that is running is
@@ -243,6 +243,7 @@ class BuildPath:
                     unit=self.unit.id,
                     change=self.unit.change,
                     node=node.value,
+                    round_number=_round(node, state),
                     waited=spans.USAGE_PAUSE,
                 )
                 self.paused_since = None

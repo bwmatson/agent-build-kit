@@ -629,30 +629,37 @@ def build_tier1(
                 test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
 
             for command in [lint_command, *test_commands]:
-                result = ran(command, where)
+                result = ran(command, where, toolchain)
                 if not toolchain.tolerates_exit(command, result.returncode):
                     return False, _failure(command, result)
         return True, ""
 
-    def ran(command: list[str], where: Path) -> subprocess.CompletedProcess:
+    def ran(
+        command: list[str], where: Path, toolchain: ToolchainProfile
+    ) -> subprocess.CompletedProcess:
         started = time.monotonic()
         mark = spans.Mark()
-        result = run(command, cwd=where)
-        unit, change, node, round_number = spans.current_unit.get()
-        spans.record_span(
-            mark,
-            log or (lambda message: None),
-            unit=unit,
-            change=change,
-            node=node,
-            round_number=round_number,
-            outcome="ok" if result.returncode == 0 else f"exit {result.returncode}",
-            command=" ".join(command),
-        )
+        outcome = "error"
+        try:
+            result = run(command, cwd=where)
+            ok = toolchain.tolerates_exit(command, result.returncode)
+            outcome = "ok" if ok else f"exit {result.returncode}"
+        finally:
+            unit, change, node, round_number = spans.current_unit.get()
+            spans.record_span(
+                mark,
+                log or (lambda message: None),
+                unit=unit,
+                change=change,
+                node=node,
+                round_number=round_number,
+                outcome=outcome,
+                command=" ".join(command),
+            )
         if log is not None:
-            outcome = "passed" if result.returncode == 0 else f"exit {result.returncode}"
+            passed = "passed" if ok else f"exit {result.returncode}"
             seconds = time.monotonic() - started
-            log(f"  tier 1: {' '.join(command)} (in {where}) {outcome}, {seconds:.0f}s")
+            log(f"  tier 1: {' '.join(command)} (in {where}) {passed}, {seconds:.0f}s")
         return result
 
     return tier1

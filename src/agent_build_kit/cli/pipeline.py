@@ -693,14 +693,18 @@ def _schedule(
             the ones the readiness rules return with the concurrency cap lifted
             and that are neither in `ready` nor building."""
             taken = in_flight | {unit.id for unit in ready}
-            for unit in _evaluate(
+            evaluated = _evaluate(
                 inst,
                 units,
                 started=set(started),
                 building=in_flight,
                 only=only,
                 max_concurrent=len(units) + 1,
-            ):
+            )
+            # A unit that stopped being ready restarts its clock when it is again.
+            for unit_id in set(queued) - {unit.id for unit in evaluated}:
+                del queued[unit_id]
+            for unit in evaluated:
                 if unit.id not in taken:
                     queued.setdefault(unit.id, spans.Mark())
 
@@ -1311,8 +1315,9 @@ def build_unit(
 ) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
 
-    `queued` is when the tick submitted the unit: the time to its branch lock
-    is recorded as its wait for a slot.
+    `queued` is when the tick first saw the unit ready but for a free slot (see
+    `note_queued`): the time from then to its branch lock is recorded as its
+    slot wait.
 
     A unit that has run before links to where that was, so its life across ticks
     can be followed: each run is its own trace, as a pause or a review wait can

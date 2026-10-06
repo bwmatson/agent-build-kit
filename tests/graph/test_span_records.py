@@ -5,6 +5,7 @@ Time is a fake clock the agent callables advance; the thread is the real one."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -93,12 +94,36 @@ def test_a_gate_interrupt_then_resume_records_the_pause_as_usage_pause(
     outcome = tick(tmp_path, recorder, may_start=lambda: (True, "usage fine"))
 
     assert outcome.status == RunStatus.OPEN
-    paused = [s for s in span_lines(workspace) if s.get("waited") == "usage_pause"]
-    assert paused, "the pause left a record"
-    assert {s["unit"] for s in paused} == {"add-marker/1"}
-    assert {s["node"] for s in paused} == {"tests"}, "where the thread was waiting"
-    assert max(s["duration_ms"] for s in paused) == 3_600_000
-    assert max(at(s["ended"]) for s in paused) == START + timedelta(hours=1)
+    (paused,) = [s for s in span_lines(workspace) if s.get("waited") == "usage_pause"]
+    assert paused["unit"] == "add-marker/1"
+    assert paused["node"] == "tests", "where the thread was waiting"
+    assert paused["duration_ms"] == 3_600_000
+    assert at(paused["started"]) == START
+    assert at(paused["ended"]) == START + timedelta(hours=1)
+
+
+def test_a_usage_pause_before_a_later_round_node_carries_that_round(
+    tmp_path: Path, workspace: Installation, clock: FakeClock
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [json.dumps({"approved": False, "feedback": "rename the lock"})]
+    refusing = [True]
+
+    def may_start() -> tuple[bool, str]:
+        if refusing[0] and recorder.events and recorder.events[-1] == "review":
+            return False, WINDOW
+        return True, "usage fine"
+
+    tick(tmp_path, recorder, may_start=may_start, resume_at=lambda: START)
+    refusing[0] = False
+    clock.advance(600)
+    tick(tmp_path, recorder, may_start=may_start)
+
+    (paused,) = [s for s in span_lines(workspace) if s.get("waited") == "usage_pause"]
+    (rework,) = [s for s in span_lines(workspace) if s["node"] == "rework" and not s.get("waited")]
+    assert paused["node"] == "rework"
+    assert rework["round"] != 0
+    assert paused["round"] == rework["round"]
 
 
 def test_a_ledger_that_cannot_be_written_changes_nothing_about_the_run(
@@ -167,3 +192,24 @@ def test_a_tier_one_command_run_by_the_tier_one_node_carries_that_node(
     assert {(s["unit"], s["change"], s["node"], s["round"]) for s in commands} == {
         ("add-marker/1", unit().change, "tier1", 0)
     }
+
+
+def test_a_tier_one_command_that_raises_still_leaves_an_error_span(
+    tmp_path: Path, workspace: Installation, clock: FakeClock
+) -> None:
+    tree = tmp_path / "tree"
+    (tree / "tests").mkdir(parents=True)
+    (tree / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+
+    def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+        clock.advance(4)
+        raise TimeoutError("hung")
+
+    recorder = fresh(tmp_path)
+    tier1 = build_tier1(run=run, changed=lambda *a: ["tests/test_x.py"])
+    with pytest.raises(TimeoutError):
+        tick(tmp_path, recorder, run_tier1=tier1)
+
+    (span,) = [s for s in span_lines(workspace) if s.get("command")]
+    assert span["outcome"] == "error"
+    assert span["duration_ms"] == 4000

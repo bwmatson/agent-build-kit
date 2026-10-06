@@ -1,6 +1,7 @@
 """A ready unit that waits for a build slot leaves a `span` line in the usage
-ledger, from the tick's submit to the worker taking the unit's branch lock
-(spec: unit-time-accounting). Time is a fake clock the builds advance."""
+ledger, from the tick first seeing it ready but for a free slot to the worker
+taking the unit's branch lock (spec: unit-time-accounting). Time is a fake clock
+the builds advance."""
 
 from __future__ import annotations
 
