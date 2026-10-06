@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- The build, rework and restack resolver prompts carry the `## Changelog` section of the built
+  repo's own AGENTS.md; a repo without one is told nothing about the changelog. The resolver
+  keeps both sides' bullets and folds two that describe one change when CHANGELOG.md conflicts
+  or the repo has the section. The reviewer leaves the changelog's form and wording to the
+  repo's own checks only where the repo states a convention. `tests/test_changelog.py` fails
+  tier 1 in this repo on a conflict marker, bullets run together or repeated, a bullet outside a
+  section or headings out of order.
+
+- A push is read in one place, `pipeline/git_output.py`: it runs with `--porcelain` and a fixed
+  locale, and only a stale lease is reported as someone else's push. A remote's refusal (a hook,
+  branch protection) or a non-fast-forward is now an ordinary push failure carrying the remote's
+  message, where it used to be reported as a stale lease. The rerere replay notice is read there
+  too, and recorded git output under `tests/fixtures/external/git/` pins both.
+
 - `CHANGELOG.md` merges with git's union driver (`.gitattributes`), so two units that each add an
   entry under Unreleased no longer conflict on it, and the restack that used to resolve it by hand
   keeps both. Existing entries were also consolidated: bullets that described one change in
@@ -75,23 +89,11 @@
   posted since goes back to the agent. This costs one read before each push attempt, being the pull
   request's review notes and its conversation; a failed read is logged and the work pushes.
 
-- A tier-2 acceptance run for telemetry: `tests/integration/test_telemetry_stack.py` ticks a fixture
-  unit with telemetry on and finds its trace by unit id and its `abk.unit.duration` and
-  `abk.step.duration` series, without a unit id, in the shared stack's stores; with the endpoint
-  pointing at nothing the tick still finishes and writes nothing. It needs the stack's dev
-  instance up and the four `ABK_ACCEPTANCE_*` endpoint variables set (docs/agent-runtimes.md).
-
 - Time accounting: the usage ledger also takes `kind: span` lines with UTC `started`/`ended` and
   `duration_ms` for each node of a unit's graph (with the failure outcome when it raises), the
   wait for a build slot (`waited: slot`), a usage pause (`waited: usage_pause`, measured from the
   interrupt across processes) and each tier 1 command. Recording never affects a run. The usage
   reader ignores these lines.
-
-- `abk telemetry push-dashboard` pushes the framework's Grafana dashboard (shipped as package
-  data, querying only metrics the telemetry module emits) to the Grafana named by
-  `ABK_GRAFANA_URL` and `ABK_GRAFANA_TOKEN`, into the folder `ABK_GRAFANA_FOLDER` (default
-  `agent-build-kit`). It is idempotent: the folder is created if missing and the dashboard is
-  overwritten.
 
 - Infrastructure profiles (`infra/`), a second profile kind beside the toolchain profiles: a repo
   names one with `infra:` (`docker` or `none`, default `none`; an unknown name fails when
@@ -350,14 +352,20 @@ First release.
 - `abk` CLI: `tick`, `status`, `graph`, `verify`, `tags`, `check`, `archive`,
   `openspec`, `gate`, `init`, `install-skills`, `doctor`, `config`,
   `scrub-check`, `track`.
+
 - Every installation fact — repos, owners, deploy rules, relationships,
   limits, models — comes from the planning repo's `abk.yaml`; nothing is
   derived from where the framework's source sits.
+
 - Toolchain profiles: `python-uv` implemented; `node-npm` declared.
+
 - Deploy conventions: test and documentation paths deploy nothing; a change
   in a workspace library redeploys the members that declare it as a
   dependency.
+
 - The OpenSpec CLI runs through `npx`, pinned by `settings.openspec_version`.
+
 - The policy hook is registered as `<interpreter> -m agent_build_kit.hooks.policy --specs <dir>`.
+
 - One tier-2 lock, in the state directory, shared by tier 2 and the
   post-merge verify (they used to lock different files).

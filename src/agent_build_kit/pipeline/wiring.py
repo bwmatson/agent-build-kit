@@ -44,6 +44,7 @@ from agent_build_kit.config import (
 from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.pr_replies import (
@@ -455,8 +456,9 @@ def build_run_review(
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
+        prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd)
         return inner(
-            f"{context}\n\n{REVIEW_PROMPT}" if context else REVIEW_PROMPT,
+            f"{context}\n\n{prompt}" if context else prompt,
             cwd=cwd,
             resume_session=resume_session,
             on_session=on_session,

@@ -245,6 +245,8 @@ def test_a_first_time_conflict_has_markers_and_no_replayed_note(tmp_path: Path) 
         files="- conflicted.py",
         replayed="",
         diff=seen["diff"],
+        changelog_rule="",
+        changelog="",
     )
 
 

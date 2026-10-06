@@ -145,6 +145,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + NO_REWRITE_NOTE
 )
@@ -437,6 +438,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + NO_REWRITE_NOTE
 )
@@ -453,6 +455,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + "{changelog}"
     + PIPELINE_PUSHES_NOTE
 )
 

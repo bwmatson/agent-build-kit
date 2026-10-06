@@ -1,0 +1,11 @@
+# tool: git version 2.34.1
+# command: git push --porcelain --force origin b, remote hook that refuses it like branch protection (LC_ALL=C)
+# returncode: 1
+--- stdout
+To /srv/git/protected.git
+!	refs/heads/b:refs/heads/b	[remote rejected] (pre-receive hook declined)
+Done
+--- stderr
+remote: error: GH006: Protected branch update failed for refs/heads/b.
+remote: error: Cannot force-push to this branch
+error: failed to push some refs to '/srv/git/protected.git'

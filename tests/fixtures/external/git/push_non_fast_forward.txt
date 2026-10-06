@@ -1,0 +1,14 @@
+# tool: git version 2.34.1
+# command: git push --porcelain origin b, remote branch has a commit the local one lacks (LC_ALL=C)
+# returncode: 1
+--- stdout
+To /srv/git/nff.git
+!	refs/heads/b:refs/heads/b	[rejected] (fetch first)
+Done
+--- stderr
+error: failed to push some refs to '/srv/git/nff.git'
+hint: Updates were rejected because the remote contains work that you do
+hint: not have locally. This is usually caused by another repository pushing
+hint: to the same ref. You may want to first integrate the remote changes
+hint: (e.g., 'git pull ...') before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.

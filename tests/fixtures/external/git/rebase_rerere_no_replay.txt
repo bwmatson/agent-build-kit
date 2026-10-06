@@ -1,0 +1,15 @@
+# tool: git version 2.34.1
+# command: git -c rerere.enabled=true -c rerere.autoUpdate=false rebase --onto main <old> spec/c/2 (LC_ALL=C)
+# returncode: 1
+--- stdout
+Auto-merging conflicted.py
+CONFLICT (content): Merge conflict in conflicted.py
+--- stderr
+Rebasing (1/1)
+error: could not apply <sha>... add feature
+hint: Resolve all conflicts manually, mark them as resolved with
+hint: "git add/rm <conflicted_files>", then run "git rebase --continue".
+hint: You can instead skip this commit: run "git rebase --skip".
+hint: To abort and get back to the state before "git rebase", run "git rebase --abort".
+Recorded preimage for 'conflicted.py'
+Could not apply <sha>... add feature

@@ -1,0 +1,9 @@
+# tool: git version 2.34.1
+# command: git push --porcelain --force-with-lease=b:<sha> origin b (LC_ALL=C)
+# returncode: 1
+--- stdout
+To /srv/git/stale.git
+!	refs/heads/b:refs/heads/b	[rejected] (stale info)
+Done
+--- stderr
+error: failed to push some refs to '/srv/git/stale.git'

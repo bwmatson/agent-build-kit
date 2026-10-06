@@ -276,6 +276,13 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    is kept as feedback, so the retry is one scoped rework rather than a
    rebuild (`abk requeue --rework`; a plain requeue resumes at this check and
    meets the same failure). It runs before review (step 5) and not after it.
+   It includes `tests/test_changelog.py`, which fails a `CHANGELOG.md` with a
+   conflict marker, bullets run together or repeated, a bullet outside a
+   section or headings out of order; the convention it checks is the
+   `## Changelog` section of the built repository's own AGENTS.md, which the
+   build, rework and restack resolver prompts carry when the section exists
+   (a repository without one is told nothing), and the reviewer is then told
+   not to raise the changelog's form or wording.
    It runs only where the branch is judged on it alone or has changed since:
    for a unit that produced nothing, and on a branch moved cleanly onto a new
    base, before the push. A move with conflicts goes through the adapt step,
@@ -444,6 +451,27 @@ not send a unit back for answering itself, and a rework is never handed its
 own summary as review. The ids of a person's comments a rework was given and
 addressed before its push are kept apart, in `runs/given-comments.json`: the
 poller skips them too, but they are never read back as the pipeline's own.
+
+**Git's own words** are read in one place, `pipeline/git_output.py`: a failed
+push and rerere's replay notice are decisions only git's text can give, and
+callers take its typed result. `push_with_lease` runs `git push --porcelain`
+with `LC_ALL=C` and `LANGUAGE=C` (a translated git would break every match),
+and `git_push_outcome` reads the refused-ref line on stdout into one of three
+kinds: `stale_lease` (`[rejected] (stale info)`, the only one that raises
+`StaleRemote`, meaning someone else pushed the branch), `rejected_by_remote`
+(a hook, branch protection or a non-fast-forward: the remote's answer, raised
+as a plain `RuntimeError` carrying what the remote said) and `other` (anything
+else, such as an unreachable remote). `replayed_files` reads the
+`Resolved '<path>' using previous resolution.` notice from a rebase's stdout and
+stderr together, since git writes it to stderr. The contract tests
+(`tests/pipeline/test_git_output.py`) run against output recorded from real git
+in `tests/fixtures/external/git/*.txt`, each headed by `# tool: <git version>`,
+`# command: ...` and `# returncode: N`, then the `--- stdout` and `--- stderr`
+sections. When a git upgrade changes its wording and one fails, regenerate them
+with `uv run python tests/fixtures/external/record_git.py`: it builds temporary
+bare remotes (a pre-receive hook, a branch that moved under a lease, a missing
+remote) and a rerere replay, runs real git, redacts only paths and commit ids,
+and rewrites the files. Review the diff, then adjust the adapter.
 
 **Restack** (`restack.py`) moves a child branch with
 `git rebase --onto <new base> <old base>`. Its git invocations carry

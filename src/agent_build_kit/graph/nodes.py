@@ -25,6 +25,7 @@ from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.events import (
     held_cause,
@@ -627,7 +628,10 @@ class BuildPath:
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"implement ({models().implement})")
             prompt = IMPLEMENTATION_PROMPT.format(
-                groups=groups, change_dir=change_dir, boundary=build_boundary
+                groups=groups,
+                change_dir=change_dir,
+                boundary=build_boundary,
+                changelog=changelog_note(tree),
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
@@ -798,7 +802,11 @@ class BuildPath:
             response = self.agent(
                 r.run_rework,
                 REVIEW_FEEDBACK_PROMPT.format(
-                    change_dir=change_dir, groups=groups, feedback=feedback, boundary=build_boundary
+                    change_dir=change_dir,
+                    groups=groups,
+                    feedback=feedback,
+                    boundary=build_boundary,
+                    changelog=changelog_note(tree),
                 ),
                 cwd=tree,
                 state=state,
@@ -829,6 +837,7 @@ class BuildPath:
                     feedback=feedback,
                     pr=stored.pr or "(not yet opened)",
                     boundary=build_boundary,
+                    changelog=changelog_note(tree),
                 ),
                 cwd=tree,
                 state=state,
