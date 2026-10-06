@@ -16,7 +16,7 @@ import pytest
 from agent_build_kit.forges.base import PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
 from tests.forges import github_answers as gh
-from tests.forges.github_host import GitHubHost, answer, refusal
+from tests.forges.github_host import STORAGE, GitHubHost, answer, refusal
 
 pytestmark = pytest.mark.usefixtures("github_env")
 
@@ -189,7 +189,7 @@ def test_a_job_log_loses_its_timestamps_and_byte_order_mark() -> None:
     text = report(logs_host())
 
     assert "2026-10-01T" not in text, "timestamps are noise to the reader"
-    assert "﻿" not in text
+    assert "\N{BYTE ORDER MARK}" not in text
 
 
 def test_escape_sequences_in_the_log_are_kept() -> None:
@@ -223,3 +223,16 @@ def test_a_failure_with_no_log_at_all_says_so() -> None:
 
     assert "could not be fetched" in text
     assert "```" not in text, "an empty block reads as an empty log"
+
+
+def test_the_signed_storage_link_is_fetched_without_the_credential() -> None:
+    host = logs_host()
+
+    report(host)
+
+    [stored] = [call for call in host.seen if call.host == httpx.URL(STORAGE).host]
+    assert "authorization" not in stored.headers, "the token belongs to GitHub, not to its storage"
+    assert "sig=abc" in str(stored.request.url), "the signed link is fetched whole"
+    for call in host.seen:
+        if call is not stored:
+            assert "authorization" in call.headers

@@ -287,11 +287,24 @@ and `create_pr` turns the two refusals that mean the base branch is gone into
 
 ## GitHub over REST and GraphQL
 
-`forges/github.py` talks to `https://api.github.com` through the transport and starts no
-process. A forge holds one client per repo owner, built with that owner's credential, so
-units for two owners run side by side; caching is off and every call has the transport's
-timeout. The documents it reads are the models in `forges/github_models.py`: only the
-fields the pipeline reads, an unknown field ignored.
+`forges/github.py` talks to `https://api.github.com` through
+`githubkit` and starts no process. A forge holds
+one `githubkit.GitHub` client per repo owner, built with that owner's credential
+(`TokenAuthStrategy`), so units for two owners run side by side and a client is never
+shared across owners. HTTP caching is off, every call has `forge_timeout_seconds`, a
+redirect is not followed (a job log's signed link is fetched by the forge, without the
+credential), and githubkit's `auto_retry` is a bounded policy: a rate limit is repeated,
+a 5xx or a failed connection only for a call that is safe to repeat (never a create-style
+POST), at most `forge_retries` times and never after a wait longer than the transport's
+ceiling. A test passes its `httpx.MockTransport` as `transport=`. The documents it reads
+are the models in `forges/github_models.py`: only the fields the pipeline reads, an
+unknown field ignored.
+
+The dependency is pinned to one minor version (`githubkit>=0.16.1,<0.17`): it has one
+maintainer, and everything it is used for sits behind this module, so a replacement
+touches this file only. githubkit depends on `httpx`, which is why the framework's
+transport still uses `httpx`; moving to its successor waits for a githubkit release that
+supports it.
 
 Listing is one GraphQL query per page of a hundred pull requests, read by cursor to the
 end, carrying the labels, issue comments, submitted reviews (a pending one is left out),
@@ -304,8 +317,8 @@ after reading the pull request's state. The failed-job log is the run's jobs and
 failed job's log, which the host answers with a redirect to storage that is fetched
 without the credential.
 
-A refusal raises a `TransportError` (a `RuntimeError`) that carries the host's `status`
-and whole `body`; `create_pr` reads the body to tell a missing base branch
+A refusal (githubkit's `RequestFailed`) raises a `TransportError` (a `RuntimeError`) that
+carries the host's `status` and whole `body`; `create_pr` reads the body to tell a missing base branch
 (`BaseMissing`) from any other 422. `update_pr`, `delete_remote_branch`, `post_comment`,
 `post_reply` and `post_status` keep their best-effort behaviour: a failure is logged, not
 raised. `Forge.client` is optional: a forge reached over HTTP alone names no command.

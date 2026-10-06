@@ -1,23 +1,36 @@
 """GitHub, over its REST and GraphQL APIs.
 
-One client per repo owner, built with that owner's credential
+One `githubkit` client per repo owner, built with that owner's credential
 (`transport.credential_for`), so units for different owners run side by side
-and no account is ever switched. Nothing here starts a process: the host's
-answers are parsed into the typed documents of `github_models`, and a refusal
-is a `TransportError` carrying what the host said.
+and no account is ever switched. Nothing here starts a process: calls go
+through githubkit's typed REST methods and its GraphQL call, the host's
+answers are parsed into the documents of `github_models`, and a refusal is a
+`TransportError` carrying what the host said.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 import threading
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
+from contextlib import contextmanager
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
 
 import httpx
+from githubkit import GitHub, TokenAuthStrategy
+from githubkit.exception import (
+    GitHubException,
+    GraphQLFailed,
+    RateLimitExceeded,
+    RequestError,
+    RequestFailed,
+)
+from githubkit.response import Response
+from githubkit.typing import RetryOption
 from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.base import (
@@ -47,11 +60,13 @@ from agent_build_kit.forges.github_models import (
     StackDoc,
 )
 from agent_build_kit.forges.transport import (
+    MAX_DELAY,
     PAGE_EXCERPT,
     AuthError,
+    Credentials,
+    HostError,
     NotFound,
-    Response,
-    Transport,
+    RateLimited,
     TransportError,
     credential_for,
 )
@@ -63,12 +78,15 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_HOST = "https://api.github.com"
 # The most the list endpoints give a page of.
 _PAGE = 100
 # What creating a pull request says, in the older wording, when the base branch
 # is not on the host. The current one is an error on the `base` field.
 _BASE_MISSING = ("Base ref must be a branch", "Base sha can't be blank")
+# What removing a label that is not on the pull request says.
+_NO_SUCH_LABEL = "Label does not exist"
+# Calls that are safe to make again after a failed attempt.
+_REPEATABLE = ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
 
 # The checks of one pull request's newest commit. A commit status comes through
 # the same rollup as a check run, and is told apart by what it lacks.
@@ -125,7 +143,7 @@ _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
 _LOG_CHARS = 6000
 # A job log's lines: a byte order mark, a timestamp and nothing else.
-_JOB_LINE = re.compile(r"^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+_JOB_LINE = re.compile(r"^\N{BYTE ORDER MARK}?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 _ERROR_LINE = "##[error]"
 _FAILED_JOB = ("failure", "timed_out")
 
@@ -136,6 +154,36 @@ _FAILED_JOB = ("failure", "timed_out")
 _ORIGIN = re.compile(
     r"^(?:[\w.@-]+:(?!//)|[a-z+]+://[^/]+/)(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?$"
 )
+
+
+class _Retry:
+    """When githubkit repeats a call: a rate limit (a refused call did nothing,
+    so any method), and a 5xx or a failed connection for a call that is safe to
+    make again - a create-style POST is not, because a timeout may have created
+    it. At most `retries` repeats, and never a wait longer than `MAX_DELAY`: a
+    host that asks for longer fails the call at once with the hint."""
+
+    def __init__(self, retries: int) -> None:
+        self.retries = retries
+
+    def __call__(self, error: GitHubException, attempt: int) -> RetryOption:
+        if attempt >= self.retries:
+            return RetryOption(False)
+        if isinstance(error, RateLimitExceeded):
+            return RetryOption(error.retry_after.total_seconds() <= MAX_DELAY, error.retry_after)
+        if not isinstance(error, RequestError) or not _repeatable(error):
+            return RetryOption(False)
+        hint = 0.0
+        if isinstance(error, RequestFailed):
+            if error.response.status_code < 500:
+                return RetryOption(False)
+            hint = _seconds(error.response.headers.get("retry-after")) or 0.0
+        elif not isinstance(error.exc, httpx.TransportError):
+            return RetryOption(False)
+        if hint > MAX_DELAY:
+            return RetryOption(False)
+        backoff = min(0.5 * 2**attempt * random.uniform(0.5, 1.5), MAX_DELAY)
+        return RetryOption(True, timedelta(seconds=max(backoff, hint)))
 
 
 class GitHubForge:
@@ -157,7 +205,7 @@ class GitHubForge:
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every API call goes through; None is the network.
         self.http = http
-        self._transports: dict[str, Transport] = {}
+        self._clients: dict[str, tuple[Credentials, GitHub[Any]]] = {}
         self._lock = threading.Lock()
 
     def parse_remote(self, url: str) -> RepoId | None:
@@ -180,45 +228,56 @@ class GitHubForge:
 
     # --- the wire -------------------------------------------------------------------
 
-    def _transport(self, account: str, run: Run | None = None) -> Transport:
-        """The connection for one owner, rebuilt when its credential is read again."""
-        credentials = credential_for(self.name, account, run=run)
-        with self._lock:
-            held = self._transports.get(account)
-            if held is None or held.credentials is not credentials:
-                held = Transport(_HOST, credentials, transport=self.http)
-                self._transports[account] = held
-            return held
+    def _client(self, account: str, credentials: Credentials) -> GitHub[Any]:
+        """The client for one owner, rebuilt when its credential is read again.
 
-    def _call(
-        self,
-        repo: RepoId,
-        method: str,
-        path: str = "",
-        *,
-        params: dict[str, str] | None = None,
-        json: Any = None,
-        run: Run | None = None,
-    ) -> Response:
-        """One REST call, `path` being under the repository's own resource."""
-        return self._transport(repo.account, run).request(
-            method, f"/repos/{key(repo)}{path}", json=json, params=params
-        )
+        Caching is off, so a read is never answered from an earlier one; a
+        redirect is not followed, so a job log's signed link is read by us and
+        fetched without the credential."""
+        with self._lock:
+            held = self._clients.get(account)
+            if held is None or held[0] is not credentials:
+                client = GitHub(
+                    TokenAuthStrategy(credentials.token),
+                    timeout=settings.forge_timeout_seconds,
+                    transport=self.http,
+                    auto_retry=_Retry(settings.forge_retries),
+                    http_cache=False,
+                    follow_redirects=False,
+                )
+                held = (credentials, client)
+                self._clients[account] = held
+            return held[1]
+
+    @contextmanager
+    def _on(self, repo: RepoId, run: Run | None = None) -> Iterator[GitHub[Any]]:
+        """The repo owner's client, for calls whose failures leave as the
+        transport's errors."""
+        credentials = credential_for(self.name, repo.account, run=run)
+        try:
+            yield self._client(repo.account, credentials)
+        except GitHubException as error:
+            raise _refusal(error, credentials) from error
+        except ValidationError as error:
+            raise TransportError(
+                f"not the document expected: {str(error)[:PAGE_EXCERPT]}"
+            ) from error
 
     def _pages[Doc: BaseModel](
-        self, repo: RepoId, path: str, model: type[Doc], params: dict[str, str] | None = None
+        self,
+        repo: RepoId,
+        select: Callable[[GitHub[Any]], Callable[..., Response[Any, Any]]],
+        model: type[Doc],
+        **params: Any,
     ) -> list[Doc]:
         """Every page of a list, following the host's `next` link."""
         found: list[Doc] = []
         page = 1
         while True:
-            reply = self._call(
-                repo,
-                "GET",
-                path,
-                params={**(params or {}), "per_page": str(_PAGE), "page": str(page)},
-            )
-            found += _items(reply, model, f"GET {path}")
+            with self._on(repo) as gh:
+                endpoint = select(gh)
+                reply = endpoint(repo.account, repo.name, **params, per_page=_PAGE, page=page)
+            found += _items(reply, model, endpoint.__name__)
             if 'rel="next"' not in reply.headers.get("link", ""):
                 return found
             page += 1
@@ -228,16 +287,8 @@ class GitHubForge:
 
         A query and the draft mutations are both safe to repeat, so a failed
         attempt is retried like a read."""
-        reply = self._transport(repo.account).request(
-            "POST", "/graphql", json={"query": query, "variables": variables}, idempotent=True
-        )
-        data = reply.data if isinstance(reply.data, dict) else {}
-        found = data.get("data")
-        errors = data.get("errors")
-        if errors or not isinstance(found, dict):
-            said = "; ".join(str(e.get("message", "")) for e in errors or [] if isinstance(e, dict))
-            raise TransportError(f"POST graphql: {said or _unexpected('graphql', reply)}")
-        return found
+        with self._on(repo) as gh:
+            return gh.graphql(query, variables)
 
     # --- access ---------------------------------------------------------------------
 
@@ -265,15 +316,14 @@ class GitHubForge:
         policy hook is then the only thing between an agent and its own merge.
         """
         try:
-            found = self._call(
-                repo, "GET", f"/branches/{quote(branch, safe='/')}/protection", run=run
-            )
+            with self._on(repo, run) as gh:
+                found = gh.rest.repos.get_branch_protection(repo.account, repo.name, branch)
         except (NotFound, AuthError):
             # 404 where there is none, 403 where the plan has no such thing.
             return f"no branch protection on {branch}"
         except TransportError as error:
             return f"cannot tell what guards {branch}: {error}"
-        return "" if found.data else f"no branch protection on {branch}"
+        return "" if _body(found) else f"no branch protection on {branch}"
 
     # --- pull requests --------------------------------------------------------------
 
@@ -281,12 +331,10 @@ class GitHubForge:
         # The owner qualifies the branch, as the API asks: a bare name matches
         # nothing on a fork's or another owner's.
         try:
-            found = self._call(
-                repo,
-                "GET",
-                "/pulls",
-                params={"head": f"{repo.account}:{head}", "state": "all", "per_page": "1"},
-            )
+            with self._on(repo) as gh:
+                found = gh.rest.pulls.list(
+                    repo.account, repo.name, head=f"{repo.account}:{head}", state="all", per_page=1
+                )
             return _items(found, NumberDoc, "GET pulls")[0].number
         except (TransportError, IndexError):
             # Could not tell reads as no pull request yet.
@@ -294,12 +342,12 @@ class GitHubForge:
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         try:
-            made = self._call(
-                repo,
-                "POST",
-                "/pulls",
-                json={"head": head, "base": base, "title": title, "body": body},
-            )
+            with self._on(repo) as gh:
+                made = gh.rest.pulls.create(
+                    repo.account,
+                    repo.name,
+                    data={"head": head, "base": base, "title": title, "body": body},
+                )
         except TransportError as error:
             # The host's words only: the request holds the title and body.
             if error.status == 422 and _base_missing(error):
@@ -318,18 +366,22 @@ class GitHubForge:
         when GitHub already has - and not worth failing a restack over when it
         does not work.
         """
-        changes = {**({"base": base} if base else {}), **({"body": body} if body else {})}
+        changes: dict[str, Any] = {
+            **({"base": base} if base else {}),
+            **({"body": body} if body else {}),
+        }
         if not changes:
             return
         try:
-            self._call(repo, "PATCH", f"/pulls/{pr}", json=changes)
+            with self._on(repo) as gh:
+                gh.rest.pulls.update(repo.account, repo.name, pr, **changes)
         except TransportError as error:
             log.warning("could not update pull request %s of %s: %s", pr, key(repo), error)
 
     # --- stacks ---------------------------------------------------------------------
 
     def stack_of(self, repo: RepoId, pr: int) -> Stack | None:
-        found = self._stacks(repo, "GET", params={"pull_request": str(pr)})
+        found = self._stacks(repo, "GET", params={"pull_request": pr})
         stacks = [_stack(item) for item in found] if isinstance(found, list) else []
         return next((stack for stack in stacks if pr in stack.pulls), None)
 
@@ -343,9 +395,11 @@ class GitHubForge:
         return _stack(found)
 
     def _stacks(self, repo: RepoId, method: str, path: str = "", **kwargs: Any) -> object:
-        """One call to the pull request stacks API, or StackRefused saying why not."""
+        """One call to the pull request stacks API, which githubkit has no typed
+        method for, or StackRefused saying why not."""
         try:
-            return self._call(repo, method, f"/stacks{path}", **kwargs).data
+            with self._on(repo) as gh:
+                return _body(gh.request(method, f"/repos/{key(repo)}/stacks{path}", **kwargs))
         except TransportError as error:
             # 409: another request is changing the same stack right now.
             raise StackRefused(_reason(error), concurrent=error.status == 409) from error
@@ -358,13 +412,16 @@ class GitHubForge:
         Called after the push: GitHub rejects a status for a commit it has not
         seen. 139 characters is GitHub's own limit for the description.
         """
-        payload = {
-            "state": "success" if ok else "failure",
-            "context": context,
-            "description": description[:139],
-        }
         try:
-            self._call(repo, "POST", f"/statuses/{quote(sha)}", json=payload)
+            with self._on(repo) as gh:
+                gh.rest.repos.create_commit_status(
+                    repo.account,
+                    repo.name,
+                    sha,
+                    state="success" if ok else "failure",
+                    context=context,
+                    description=description[:139],
+                )
         except TransportError as error:
             log.warning("could not post %s on %s of %s: %s", context, sha, key(repo), error)
 
@@ -388,7 +445,8 @@ class GitHubForge:
         return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
-        return [item.filename for item in self._pages(repo, f"/pulls/{pr}/files", FileDoc)]
+        files = self._pages(repo, lambda gh: gh.rest.pulls.list_files, FileDoc, pull_number=pr)
+        return [item.filename for item in files]
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         """The reviewer's words: review bodies, then inline comments.
@@ -401,7 +459,9 @@ class GitHubForge:
         """
         notes = [
             ReviewNote(id=str(review.id), body=review.body or "", live=False)
-            for review in self._pages(repo, f"/pulls/{pr}/reviews", ReviewDoc)
+            for review in self._pages(
+                repo, lambda gh: gh.rest.pulls.list_reviews, ReviewDoc, pull_number=pr
+            )
         ]
         notes += [
             ReviewNote(
@@ -411,7 +471,12 @@ class GitHubForge:
                 line=comment.line,
                 live=comment.line is not None,
             )
-            for comment in self._pages(repo, f"/pulls/{pr}/comments", InlineCommentDoc)
+            for comment in self._pages(
+                repo,
+                lambda gh: gh.rest.pulls.list_review_comments,
+                InlineCommentDoc,
+                pull_number=pr,
+            )
         ]
         return notes
 
@@ -422,32 +487,34 @@ class GitHubForge:
         poller would otherwise read as new feedback - so both ids come back to
         be recorded as the pipeline's own.
         """
-        route = f"/pulls/{pr}/comments/{note_id}/replies"
         try:
-            made = _parse(
-                self._call(repo, "POST", route, json={"body": body}), InlineCommentDoc, "POST reply"
-            )
-        except TransportError as error:
+            with self._on(repo) as gh:
+                reply = gh.rest.pulls.create_reply_for_review_comment(
+                    repo.account, repo.name, pr, int(note_id), data={"body": body}
+                )
+            made = _parse(reply, InlineCommentDoc, "POST reply")
+        except (TransportError, ValueError) as error:
             log.warning("could not reply to %s on %s of %s: %s", note_id, pr, key(repo), error)
             return []
         ids = [made.node_id]
         if made.pull_request_review_id is not None:
-            route = f"/pulls/{pr}/reviews/{made.pull_request_review_id}"
             try:
-                ids.append(
-                    _parse(self._call(repo, "GET", route), NodeIdDoc, f"GET {route}").node_id
-                )
+                with self._on(repo) as gh:
+                    review = gh.rest.pulls.get_review(
+                        repo.account, repo.name, pr, made.pull_request_review_id
+                    )
+                ids.append(_parse(review, NodeIdDoc, "GET review").node_id)
             except TransportError as error:
                 log.warning("could not read the review a reply to %s made: %s", note_id, error)
         return [i for i in ids if i]
 
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
         try:
-            made = _parse(
-                self._call(repo, "POST", f"/issues/{pr}/comments", json={"body": body}),
-                NodeIdDoc,
-                "POST comment",
-            )
+            with self._on(repo) as gh:
+                reply = gh.rest.issues.create_comment(
+                    repo.account, repo.name, pr, data={"body": body}
+                )
+            made = _parse(reply, NodeIdDoc, "POST comment")
         except TransportError as error:
             log.warning("could not comment on %s of %s: %s", pr, key(repo), error)
             return []
@@ -477,7 +544,8 @@ class GitHubForge:
         _, runs = self._runs_with(repo, pull.number, _CANCELLED)
         for run in runs:
             try:
-                self._call(repo, "POST", f"/actions/runs/{run}/rerun-failed-jobs")
+                with self._on(repo) as gh:
+                    gh.rest.actions.re_run_workflow_failed_jobs(repo.account, repo.name, int(run))
             except TransportError as error:
                 raise TransportError(
                     f"rerun of run {run} ({key(repo)}): {_reason(error)}"
@@ -514,13 +582,12 @@ class GitHubForge:
         A job's whole log ends in the runner's clean-up, so the tail of it says
         nothing; the failure is in the lines before the last `##[error]`.
         """
-        route = f"/actions/runs/{run}/jobs"
         try:
-            jobs = _parse(
-                self._call(repo, "GET", route, params={"per_page": str(_PAGE)}),
-                JobsDoc,
-                f"GET {route}",
-            ).jobs
+            with self._on(repo) as gh:
+                listed = gh.rest.actions.list_jobs_for_workflow_run(
+                    repo.account, repo.name, int(run), per_page=_PAGE
+                )
+            jobs = _parse(listed, JobsDoc, "GET jobs").jobs
         except TransportError:
             return ""
         out = []
@@ -544,7 +611,10 @@ class GitHubForge:
         is signed.
         """
         try:
-            reply = self._call(repo, "GET", f"/actions/jobs/{job}/logs")
+            with self._on(repo) as gh:
+                reply = gh.rest.actions.download_job_logs_for_workflow_run(
+                    repo.account, repo.name, job
+                )
             location = reply.headers.get("location")
             if not location:
                 return reply.text
@@ -565,45 +635,60 @@ class GitHubForge:
         # The host matches names without regard to case, so `Running` already
         # there means creating `running` would fail every time.
         wanted = label.name.casefold()
-        for item in self._pages(repo, "/labels", LabelDoc):
+        for item in self._pages(repo, lambda gh: gh.rest.issues.list_labels_for_repo, LabelDoc):
             if item.name.casefold() != wanted:
                 continue
             same_colour = item.color.casefold() == label.color.casefold()
             if not same_colour or (item.description or "") != label.description:
-                self._call(
-                    repo,
-                    "PATCH",
-                    f"/labels/{quote(item.name, safe='')}",
-                    json={"color": label.color, "description": label.description},
-                )
+                with self._on(repo) as gh:
+                    gh.rest.issues.update_label(
+                        repo.account,
+                        repo.name,
+                        item.name,
+                        data={"color": label.color, "description": label.description},
+                    )
             return
-        self._call(
-            repo,
-            "POST",
-            "/labels",
-            json={"name": label.name, "color": label.color, "description": label.description},
-        )
+        with self._on(repo) as gh:
+            gh.rest.issues.create_label(
+                repo.account,
+                repo.name,
+                data={
+                    "name": label.name,
+                    "color": label.color,
+                    "description": label.description,
+                },
+            )
+
+    def _attach(self, repo: RepoId, pr: int, name: str) -> None:
+        with self._on(repo) as gh:
+            gh.rest.issues.add_labels(repo.account, repo.name, pr, data={"labels": [name]})
 
     def add_label(self, repo: RepoId, pr: int, label: Label) -> None:
         self._ensure_label(repo, label)
-        self._call(repo, "POST", f"/issues/{pr}/labels", json={"labels": [label.name]})
+        self._attach(repo, pr, label.name)
 
     def set_exclusive_label(
         self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
     ) -> None:
         self._ensure_label(repo, label)
-        present = {item.name for item in self._pages(repo, f"/issues/{pr}/labels", LabelDoc)}
-        self._call(repo, "POST", f"/issues/{pr}/labels", json={"labels": [label.name]})
+        on_pr = self._pages(
+            repo, lambda gh: gh.rest.issues.list_labels_on_issue, LabelDoc, issue_number=pr
+        )
+        present = {item.name for item in on_pr}
+        self._attach(repo, pr, label.name)
         for name in sorted((present & set(family)) - {label.name}):
             self.remove_label(repo, pr, name)
 
     def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
         """Take a label off by name. One that is not on the pull request returns
-        normally; any other refusal raises."""
+        normally; any other refusal raises, a 404 that says something else
+        (a credential that cannot see the repository) included."""
         try:
-            self._call(repo, "DELETE", f"/issues/{pr}/labels/{quote(name, safe='')}")
-        except NotFound:
-            pass
+            with self._on(repo) as gh:
+                gh.rest.issues.remove_label(repo.account, repo.name, pr, name)
+        except NotFound as error:
+            if _NO_SUCH_LABEL not in _reason(error):
+                raise
 
     # --- state ----------------------------------------------------------------------
 
@@ -612,8 +697,9 @@ class GitHubForge:
 
         A refusal raises with the host's message.
         """
-        route = f"/pulls/{pr}"
-        current = _parse(self._call(repo, "GET", route), PullDoc, f"GET {route}")
+        with self._on(repo) as gh:
+            reply = gh.rest.pulls.get(repo.account, repo.name, pr)
+        current = _parse(reply, PullDoc, f"GET pulls/{pr}")
         if current.draft == draft:
             return
         mutation = _DRAFT[draft]
@@ -630,13 +716,15 @@ class GitHubForge:
         A refusal raises, unlike `update_pr`: a close that did not happen must
         not read as one that did.
         """
-        self._call(repo, "PATCH", f"/pulls/{pr}", json={"state": "closed"})
+        with self._on(repo) as gh:
+            gh.rest.pulls.update(repo.account, repo.name, pr, data={"state": "closed"})
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         """Not reached in practice: GitHub deletes the head branch on merge,
         so `deletes_head_branch_on_merge` keeps callers away from this."""
         try:
-            self._call(repo, "DELETE", f"/git/refs/heads/{quote(branch, safe='/')}")
+            with self._on(repo) as gh:
+                gh.rest.git.delete_ref(repo.account, repo.name, f"heads/{branch}")
         except TransportError as error:
             log.warning("could not delete %s of %s: %s", branch, key(repo), error)
 
@@ -644,7 +732,77 @@ class GitHubForge:
 FORGE = GitHubForge()
 
 
-def _unexpected(endpoint: str, response: Response) -> str:
+def _seconds(value: str | None) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def _repeatable(error: RequestError[Any]) -> bool:
+    """Whether the call that failed may be made again: a read, an idempotent
+    write, or a GraphQL query (a POST that changes nothing, and the draft
+    mutations, which set a state)."""
+    try:
+        request = error.exc.request
+    except RuntimeError:
+        return False
+    return request.method in _REPEATABLE or request.url.path.endswith("/graphql")
+
+
+def _refusal(error: GitHubException, credentials: Credentials) -> TransportError:
+    """What the host's refusal is, as the transport's errors: authentication, not
+    found (naming whose credential was used), a rate limit, a host failure."""
+    if isinstance(error, GraphQLFailed):
+        said = "; ".join(e.message for e in error.response.errors or [])
+        return TransportError(f"POST graphql: {said or 'no answer'}")
+    if not isinstance(error, RequestError):
+        return TransportError(f"{type(error).__name__}: {error!r}")
+    if not isinstance(error, RequestFailed):
+        return HostError(f"{error!r}")
+    reply = error.response
+    where = f"{error.request.method} {error.request.url.path}"
+    who = f"with the credential for {credentials.owner} from {credentials.source}"
+    status = reply.status_code
+    refused: TransportError
+    if isinstance(error, RateLimitExceeded):
+        wait = error.retry_after.total_seconds()
+        refused = RateLimited(f"{where}: rate limited", retry_after=wait)
+    elif status in (401, 403):
+        refused = AuthError(f"{where}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+    elif status == 404:
+        refused = NotFound(
+            f"{where}: not found {who}", account=credentials.owner, source=credentials.source
+        )
+    elif status >= 500:
+        refused = HostError(
+            f"{where}: host answered {status}",
+            retry_after=_seconds(reply.headers.get("retry-after")),
+        )
+    else:
+        refused = TransportError(f"{where}: {status} {who}: {reply.text[:PAGE_EXCERPT]}")
+    refused.status = status
+    refused.body = reply.text
+    return refused
+
+
+def _body(response: Response[Any, Any]) -> Any:
+    """The JSON a call answered with, None for no content."""
+    if not response.content:
+        return None
+    where = f"{response.raw_request.method} {response.raw_request.url.path}"
+    kind = response.headers.get("content-type", "no content type")
+    if "json" not in kind:
+        # A sign-in page with a 200 is an authentication failure that looks
+        # like success; it must not come back as an empty result.
+        raise AuthError(f"{where}: expected JSON, got {kind}: {response.text[:PAGE_EXCERPT]}")
+    try:
+        return response.json()
+    except ValueError as error:
+        raise HostError(f"{where}: unreadable JSON: {response.text[:PAGE_EXCERPT]}") from error
+
+
+def _unexpected(endpoint: str, response: Response[Any, Any]) -> str:
     return f"{endpoint}: not the document expected: {response.text[:PAGE_EXCERPT]}"
 
 
@@ -656,18 +814,21 @@ def _model[Doc: BaseModel](model: type[Doc], found: object, what: str) -> Doc:
         raise TransportError(f"{what}: not the document expected: {excerpt}") from error
 
 
-def _parse[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> Doc:
+def _parse[Doc: BaseModel](response: Response[Any, Any], model: type[Doc], endpoint: str) -> Doc:
     try:
-        return model.model_validate(response.data)
+        return model.model_validate(_body(response))
     except ValidationError as error:
         raise TransportError(_unexpected(endpoint, response)) from error
 
 
-def _items[Doc: BaseModel](response: Response, model: type[Doc], endpoint: str) -> list[Doc]:
-    if not isinstance(response.data, list):
+def _items[Doc: BaseModel](
+    response: Response[Any, Any], model: type[Doc], endpoint: str
+) -> list[Doc]:
+    data = _body(response)
+    if not isinstance(data, list):
         raise TransportError(_unexpected(endpoint, response))
     try:
-        return [model.model_validate(item) for item in response.data]
+        return [model.model_validate(item) for item in data]
     except ValidationError as error:
         raise TransportError(_unexpected(endpoint, response)) from error
 

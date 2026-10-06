@@ -149,7 +149,7 @@ def job(job_id: int, name: str, conclusion: str | None, run: int = 1) -> dict[st
     }
 
 
-BOM = "﻿"
+BOM = "\N{BYTE ORDER MARK}"
 
 # A job's whole log: the first line carries a byte order mark, the error is
 # followed by the runner's clean-up, and one line holds colour escapes.

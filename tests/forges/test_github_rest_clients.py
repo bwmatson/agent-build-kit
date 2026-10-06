@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
+from githubkit import GitHub
 
 from agent_build_kit.forges.base import Label, PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
@@ -234,6 +235,29 @@ def test_http_caching_is_off() -> None:
     for call in host.seen:
         assert "if-none-match" not in call.headers
         assert "if-modified-since" not in call.headers
+
+
+@pytest.mark.usefixtures("github_env")
+def test_the_client_is_built_with_caching_off_and_the_configured_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    built: list[dict] = []
+
+    def spy(*args, **kwargs):
+        built.append(kwargs)
+        return GitHub(*args, **kwargs)
+
+    monkeypatch.setattr("agent_build_kit.forges.github.GitHub", spy)
+    monkeypatch.setattr(settings, "forge_timeout_seconds", 7.0)
+    forge = GitHubForge(http=two_owners())
+
+    forge.find_pr(REPO, head="spec/x/1")
+    forge.find_pr(REPO, head="spec/x/2")
+
+    assert len(built) == 1, "one client for the owner, however many calls"
+    [kwargs] = built
+    assert kwargs["http_cache"] is False
+    assert kwargs["timeout"] == 7.0
 
 
 @pytest.mark.usefixtures("github_env")

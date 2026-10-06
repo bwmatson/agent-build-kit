@@ -12,7 +12,8 @@ import pytest
 
 from agent_build_kit.forges.base import Label, RepoId
 from agent_build_kit.forges.github import GitHubForge
-from tests.forges.github_host import DEFAULT_COLOUR, GitHubHost
+from agent_build_kit.forges.transport import NotFound
+from tests.forges.github_host import DEFAULT_COLOUR, GitHubHost, refusal
 
 pytestmark = pytest.mark.usefixtures("github_env")
 
@@ -155,3 +156,23 @@ def test_removing_a_label_takes_it_off_the_pull_request() -> None:
 
     assert on_pull(h) == set()
     assert h.calls("DELETE", f"{BASE}/issues/7/labels/agent-rework")
+
+
+def test_removing_a_label_that_is_not_on_the_pull_request_returns_normally() -> None:
+    h = GitHubHost(repo_labels=[("agent-rework", "b60205", "Rework")], pr_labels={7: []})
+
+    forge(h).remove_label(REPO, 7, "agent-rework")
+
+    assert h.calls("DELETE", f"{BASE}/issues/7/labels/agent-rework")
+
+
+def test_a_not_found_that_is_not_about_the_label_is_raised() -> None:
+    """A credential that cannot see the repository or the pull request is
+    refused with a 404 too; reading it as 'label already off' would hide it."""
+    h = GitHubHost(
+        pr_labels={7: []},
+        routes={("DELETE", f"{BASE}/issues/7/labels/agent-rework"): refusal(404, "Not Found")},
+    )
+
+    with pytest.raises(NotFound):
+        forge(h).remove_label(REPO, 7, "agent-rework")

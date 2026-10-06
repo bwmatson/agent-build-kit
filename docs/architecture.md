@@ -382,7 +382,7 @@ values a forge returns, not in any host's JSON. A forge opens a pull request,
 posts a status and answers a review comment; it also closes one — the one
 call the satisfied outcome above needs, and nothing else does. Azure DevOps is
 reached over typed REST through the same HTTP transport as GitHub, which is
-reached over its REST and GraphQL APIs (`forges/transport.py`,
+reached over its REST and GraphQL APIs through `githubkit` (`forges/transport.py`,
 `forges/azure_models.py`, `forges/github_models.py`). A poll starts no `az` or
 `gh` process: GitHub's listing is one GraphQL query per page, and Azure's reads
 are bounded by a request pool rather than a process count.
