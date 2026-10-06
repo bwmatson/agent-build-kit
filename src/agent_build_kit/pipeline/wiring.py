@@ -1134,8 +1134,10 @@ class Tier2Session:
         dev_stack: str | None = "scripts/dev-stack.sh",
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
+        projects: list[ProjectConfig] | None = None,
     ) -> None:
         self.unit = unit
+        self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
         # a merge. Without it a unit's tier 2 ran them with none of it, and a
         # test needing it failed at setup however the unit was built.
