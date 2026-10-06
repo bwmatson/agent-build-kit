@@ -13,6 +13,7 @@ import json
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -184,6 +185,24 @@ def test_a_push_over_a_hand_edited_dashboard_overwrites_it(
     assert main(["telemetry", "push-dashboard"]) == 0
 
     assert grafana.dashboards[uid] == pushed
+
+
+def test_the_planning_repos_env_file_supplies_the_grafana_settings(
+    grafana: FakeGrafana, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    planning = tmp_path / "planning"
+    planning.mkdir()
+    (planning / "abk.yaml").write_text("version: 1\nrepos: {}\n")
+    (planning / ".env").write_text(f"ABK_GRAFANA_URL={grafana.url}\nABK_GRAFANA_TOKEN={TOKEN}\n")
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    reload(None)
+
+    code = main(["--config", str(planning / "abk.yaml"), "telemetry", "push-dashboard"])
+
+    assert code == 0
+    assert len(grafana.dashboards) == 1
 
 
 def test_without_a_url_it_names_the_setting_and_fails(

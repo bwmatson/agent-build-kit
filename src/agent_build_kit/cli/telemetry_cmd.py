@@ -78,4 +78,4 @@ def register(sub: argparse._SubParsersAction) -> None:
         "push-dashboard",
         help="push the pipeline's Grafana dashboard (ABK_GRAFANA_URL, _TOKEN, _FOLDER)",
     )
-    push.set_defaults(func=cmd_push_dashboard, needs_installation=False)
+    push.set_defaults(func=cmd_push_dashboard, needs_installation="optional")
