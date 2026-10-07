@@ -534,7 +534,8 @@ class AzureDevOpsForge:
         return _items(self._git(repo, "GET", route, run=run), ThreadDoc, f"GET {route}")
 
     def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
-        raise NotImplementedError
+        """Azure DevOps reports no per-file line counts, so no size is known."""
+        return []
 
     def pr_files(self, repo: RepoId, pr: int, run: Run | None = None) -> list[str]:
         """The paths this pull request touches.

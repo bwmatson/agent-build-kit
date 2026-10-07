@@ -78,6 +78,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
 )
 from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.unit_size import over_ceiling
 from agent_build_kit.pipeline.unit_store import (
     UNPLANNED,
     Cause,
@@ -254,6 +255,13 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     ]
     if uncaused:
         log(f"no recorded cause: {', '.join(uncaused)}")
+
+    for unit in units:
+        if over_ceiling(unit.actual_lines):
+            log(
+                f"  over the ceiling: {unit.id} ({unit.repo}) estimated "
+                f"{unit.estimated_lines}, landed {unit.actual_lines}"
+            )
 
     for unit in units:
         if unit.state == IN_REVIEW:

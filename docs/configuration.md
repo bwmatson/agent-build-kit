@@ -132,11 +132,17 @@ limits:
                                 # repos, at least 1; at it no unit that has
                                 # never started does, while reworks, resumes
                                 # and finishing reviewed work still run
-  min_unit_lines: 500           # estimated changed lines before the planner
+  min_unit_lines: 400           # estimated changed lines before the planner
                                 # stops absorbing the next task group
-  max_unit_lines: 1000          # estimated changed lines one unit may carry;
-                                # must exceed min_unit_lines. Shapes plans
-                                # only — a branch is not measured against it
+  max_unit_lines: 750           # estimated changed lines one unit may carry;
+                                # must exceed min_unit_lines. Shapes plans;
+                                # a unit that lands over it is logged, marked
+                                # on the graph page and listed by `abk status`,
+                                # never blocked
+  generated_files: [uv.lock, package-lock.json, ...]
+                                # path patterns (whole path or file name) left
+                                # out of a unit's actual size; defaults to the
+                                # common lockfiles
   max_review_rounds: 3          # review rounds before a unit fails
   max_check_rounds: 3           # times a branch failing its checks (lint, types,
                                 # tests) goes back to the builder before a

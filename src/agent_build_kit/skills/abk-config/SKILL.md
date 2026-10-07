@@ -92,9 +92,11 @@ limits:
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_concurrent_stacks: 4    # units implemented at once, across repos
   max_units_in_progress: 5    # started, unfinished units (>= 1); at it no never-started unit starts
-  min_unit_lines: 500         # estimated lines before a unit stops growing
-  max_unit_lines: 1000        # estimated lines one unit may carry; above
-                              # min_unit_lines. Plans only, not branches
+  min_unit_lines: 400         # estimated lines before a unit stops growing
+  max_unit_lines: 750         # estimated lines one unit may carry; above
+                              # min_unit_lines. Shapes plans; a unit landing
+                              # over it is reported, never blocked
+  generated_files: [uv.lock, ...]  # patterns left out of a unit's actual size
   max_review_rounds: 3        # review rounds before a unit fails
   max_check_rounds: 3         # fix rounds for failing checks, per review round; null = no limit; 0 = none (still checked)
   max_adapt_rounds: 2         # adapt-step accounting asks, first included,

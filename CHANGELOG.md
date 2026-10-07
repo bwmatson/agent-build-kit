@@ -27,6 +27,12 @@
   editing. With a token nothing changes. When an anonymous push is refused (401 or 403) the
   message names `ABK_GRAFANA_TOKEN`, and `abk doctor` reports whether a configured Grafana is
   used with a token or anonymously.
+- Units are planned smaller by default: a floor of 400 and a ceiling of 750 estimated
+  lines. The planner is told what an estimate counts (every file, deletions for code a
+  group removes, no generated files, high when unsure). Each unit's actual changed lines
+  are recorded from the host when its pull request is opened and after each push, less the
+  new `limits.generated_files` patterns (lockfiles by default). A unit over the ceiling is
+  logged, marked on the graph page and listed by `abk status`, and is not blocked.
 
 - Each agent run has its own ignored scratch folder, `.abk/out/<run>/` in the worktree, and
   is told where it is in `ABK_OUT`. The build, rework and resolver prompts tell the agent

@@ -457,7 +457,11 @@ class GitHubForge:
         return [item.filename for item in files]
 
     def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
-        raise NotImplementedError
+        files = self._pages(repo, lambda gh: gh.rest.pulls.list_files, FileDoc, pull_number=pr)
+        return [
+            FileChange(path=item.filename, additions=item.additions, deletions=item.deletions)
+            for item in files
+        ]
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         """The reviewer's words: review bodies, then inline comments.

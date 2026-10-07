@@ -56,6 +56,8 @@ class LabelDoc(_Rest):
 
 class FileDoc(_Rest):
     filename: str
+    additions: int = 0
+    deletions: int = 0
 
 
 class JobDoc(_Rest):

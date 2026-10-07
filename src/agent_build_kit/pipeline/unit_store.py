@@ -345,6 +345,7 @@ class UnitStore:
                 branch=existing.branch if existing else "",
                 pr=existing.pr if existing else None,
                 pushed=existing.pushed if existing else None,
+                actual_lines=existing.actual_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,
                 # Work in progress, not shape: a re-plan must not drop what
@@ -522,6 +523,14 @@ class UnitStore:
         stored = self._read()
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
+
+    def set_actual_lines(self, unit_id: str, lines: int) -> None:
+        """The changed lines of the unit's pull request as the host counts them;
+        overwritten at each push. A unit the store does not hold is ignored."""
+        try:
+            self._update(unit_id, actual_lines=lines)
+        except KeyError:
+            pass
 
     def set_feedback(
         self,
