@@ -20,6 +20,8 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -1370,13 +1372,38 @@ def test_a_held_unit_is_not_let_back_in_whatever_its_note_says(
     "note",
     [MOVED_NOTE, "rework requested: merge conflict with its base", "held before review: x"],
 )
-def test_a_unit_whose_entry_has_no_cause_is_not_let_back_in_by_its_note(
-    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, note: str
+def test_a_unit_whose_entry_has_no_cause_is_not_let_back_in_by_its_note_and_nothing_is_logged(
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    note: str,
 ) -> None:
-    """A store from before causes: the next pass takes it, as it always did."""
+    """The next pass takes it; the pass says nothing special about it."""
     _ends_and_waits(builder, tmp_path, monkeypatch, (PLANNED, None, note), readmitted=False)
 
     assert builder.started.count("sent/1") == 1
+    out = capsys.readouterr()
+    assert "sent/1: not started again" not in out.out + out.err
+    assert "no recorded cause" not in out.out + out.err
+
+
+def test_a_unit_stopped_for_a_cause_this_release_does_not_know_reads_as_no_cause(
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Written by a newer release: not readmitted, and not logged as anything special."""
+    newer: Any = SimpleNamespace(value="from-a-newer-release")
+
+    _ends_and_waits(builder, tmp_path, monkeypatch, (PLANNED, newer, "x"), readmitted=False)
+
+    assert builder.store.get("sent/1").cause is None
+    assert builder.started.count("sent/1") == 1
+    out = capsys.readouterr()
+    assert "sent/1: not started again" not in out.out + out.err
+    assert "no recorded cause" not in out.out + out.err
 
 
 # --- the build's own checks name the cause they found ----------------------------------
