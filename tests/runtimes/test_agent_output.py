@@ -14,7 +14,7 @@ from acp.schema import ToolCallProgress
 
 from agent_build_kit.pipeline.claude_stream import ResultEvent, own_words, result_event
 from agent_build_kit.pipeline.usage_guard import rate_limit_reset
-from agent_build_kit.runtimes.acp_output import denied_call
+from agent_build_kit.runtimes.acp_output import denied_call, output_of
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "external"
@@ -120,7 +120,7 @@ def test_the_phrases_decide_only_when_the_structured_fields_are_absent() -> None
 def test_a_denial_phrase_in_a_successful_call_s_output_is_not_a_denial() -> None:
     update = recorded_update("update_allowed")
 
-    assert "denied" in json.dumps(update.raw_output)
+    assert "denied" in output_of(update)
     assert denied_call(update) is False
 
 
