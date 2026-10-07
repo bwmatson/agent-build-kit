@@ -284,7 +284,9 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    CLAUDE.md, else the framework's packaged text; the build, rework, test-writing
    and restack resolver prompts carry it, and the reviewer is told not to raise
    the changelog's form or wording. A repo with `changelog: null` gets neither
-   the convention nor the check.
+   the convention nor the check. `abk init` writes the convention block, the
+   changelog file and the `merge=union` rule into each such repo (see
+   [init.md](init.md)), and `abk doctor` warns where the rule is missing.
    It runs only where the branch is judged on it alone or has changed since:
    for a unit that produced nothing, and on a branch moved cleanly onto a new
    base, before the push. A move with conflicts goes through the adapt step,
