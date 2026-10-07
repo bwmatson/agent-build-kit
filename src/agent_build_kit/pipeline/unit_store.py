@@ -74,6 +74,39 @@ class Cause(StrEnum):
     FAILED = "failed"
 
 
+class RequeueReason(StrEnum):
+    """Why a unit was requeued: what the requeue handling depends on, whatever
+    the display text says."""
+
+    RESTART = "restart"
+    RELEASED = "released"
+    RESUME = "resume"
+    FROM_FAILURE = "from_failure"
+    PARENT_MERGED = "parent_merged"
+
+
+class ReworkKind(StrEnum):
+    """What sent a unit back for rework, which picks the feedback it is given."""
+
+    FAILING_CHECKS = "failing_checks"
+    CONFLICT = "conflict"
+    LABEL = "label"
+    CHANGES_REQUESTED = "changes_requested"
+    COMMENT = "comment"
+
+
+class FeedbackSource(StrEnum):
+    """Where a unit's saved feedback came from, which picks the prompt it is
+    given; `NONE` when there is none."""
+
+    NONE = ""
+    REVIEW = "review"
+    CI = "ci"
+    CONFLICT = "conflict"
+    TIER1 = "tier1"
+    TIER2 = "tier2"
+
+
 def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
@@ -110,6 +143,8 @@ class StoredUnit(Unit):
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
     feedback_from_person: bool = False
+    # Where `feedback` came from (see `FeedbackSource`).
+    feedback_source: FeedbackSource = FeedbackSource.NONE
     # Set when the unit was moved onto a predecessor that changed under it,
     # for the reviewer: which files needed resolving, or how its tests were
     # carried over. Cleared once the unit is back in review. Here, not in the
@@ -471,7 +506,14 @@ class UnitStore:
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
 
-    def set_feedback(self, unit_id: str, feedback: str, *, from_person: bool = False) -> None:
+    def set_feedback(
+        self,
+        unit_id: str,
+        feedback: str,
+        *,
+        from_person: bool = False,
+        source: FeedbackSource = FeedbackSource.NONE,
+    ) -> None:
         """What review asked for, or `""` once a run has acted on it.
 
         `from_person` is True only for words a person left on the pull request;

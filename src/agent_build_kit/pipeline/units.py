@@ -17,6 +17,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Self
 
 from agent_build_kit.config import active
@@ -58,6 +59,17 @@ IN_FLIGHT = (RUNNING, IN_REVIEW)
 # unit back three times, makes that window much wider. A satisfied unit belongs
 # here too: it has nothing left to do and nothing that will change under it.
 REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
+
+
+class UnitState(StrEnum):
+    PLANNED = "planned"
+    RUNNING = "running"
+    IN_REVIEW = "in_review"
+    MERGED = "merged"
+    CLOSED = "closed"
+    FAILED = "failed"
+    HELD = "held"
+    SATISFIED = "satisfied"
 
 
 class Member(Frozen):

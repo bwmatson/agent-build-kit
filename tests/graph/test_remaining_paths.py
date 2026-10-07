@@ -967,7 +967,7 @@ def test_a_base_that_keeps_needing_resolution_is_resumed_once_then_left_planned(
     assert outcome.status == "held"
     assert "push" not in recorder.events and "pr" not in recorder.events
     assert stored.state == PLANNED
-    assert "base moved before its push" in stored.note
+    assert stored.cause == Cause.BASE_CHANGED
     assert moves.resolving.count(False) == 2, "one resume, not a loop"
 
 

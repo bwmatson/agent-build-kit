@@ -26,11 +26,12 @@ from agent_build_kit.pipeline.archive import archive_ready_changes as real_archi
 from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
-from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
+from agent_build_kit.profiles.base import ProfileUnsupported
 from tests.conftest import make_installation
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -399,7 +400,26 @@ class Exploding:
 
 class Unimplemented:
     def run(self, unit, *, base, graph):
-        raise NotImplementedError("the node-npm profile has no test runner yet")
+        raise ProfileUnsupported("the node-npm profile has no test runner yet")
+
+
+class Abstract:
+    def run(self, unit, *, base, graph):
+        raise NotImplementedError("an abstract method somewhere in the run")
+
+
+def test_an_unrelated_not_implemented_error_fails_the_unit_and_is_not_held_as_toolchain(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Abstract())
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    failed = store.get("add-marker/1")
+    assert failed.state == "failed"
+    assert failed.held_by != "toolchain"
 
 
 def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
@@ -418,6 +438,30 @@ def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
 class Pausing:
     def run(self, unit, *, base, graph):
         return RunOutcome(status="paused", detail="session usage at 71%")
+
+
+def test_a_usage_pause_takes_its_reason_and_time_from_its_fields(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The outcome's detail is for people; the pause carries what the marker records."""
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    resumes = datetime.now(UTC) + timedelta(hours=5)
+
+    class PausingWithFields:
+        def run(self, unit, *, base, graph):
+            return RunOutcome(
+                status="paused",
+                detail="waiting, as the log has it",
+                pause=PauseInfo(reason="weekly window at 92%", until=resumes),
+            )
+
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: PausingWithFields())
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    paused = json.loads((tmp_path / "paused.json").read_text())
+    assert paused["reason"] == "weekly window at 92%"
+    assert datetime.fromisoformat(paused["until"]) == resumes + RESUME_GRACE
 
 
 def test_the_tick_polls_before_it_plans(

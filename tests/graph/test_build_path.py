@@ -18,7 +18,7 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import Restacked, RunOutcome
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import FeedbackSource, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from tests.factories import stored_unit, unit
@@ -531,7 +531,7 @@ def test_a_unit_with_nothing_anywhere_still_fails(tmp_path: Path) -> None:
     outcome = build(tmp_path, recorder, branch_commits=lambda cwd, base: 0)
 
     assert outcome.status == "failed"
-    assert "tier 1 failed" in outcome.detail
+    assert recorder.store.get(unit().id).feedback_source == FeedbackSource.TIER1
     assert "tier1:whole_repo" in recorder.events, (
         "judged on the whole-repo checks, not skipped because nothing landed"
     )
@@ -541,7 +541,11 @@ def test_a_unit_retried_after_tier_one_takes_the_rework_path(tmp_path: Path) -> 
     """One scoped run against the recorded failure, not the tests-then-
     implementation pair against a branch that already has both."""
     recorder = fresh(tmp_path)
-    recorder.store.set_feedback(unit().id, "tier 1 failed:\nE   ImportError: no module named x")
+    recorder.store.set_feedback(
+        unit().id,
+        "the checks failed:\nE   ImportError: no module named x",
+        source=FeedbackSource.TIER1,
+    )
 
     build(tmp_path, recorder)
 

@@ -12,6 +12,7 @@ from typing import Any
 
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.stack_runner import RunStatus
+from agent_build_kit.pipeline.unit_store import FeedbackSource
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from tests.factories import unit
 from tests.graph.test_build_path import build, limited
@@ -230,7 +231,7 @@ def test_a_pause_while_fixing_keeps_the_failure_for_the_resume(tmp_path: Path) -
 
     assert outcome.status == RunStatus.PAUSED
     assert position(tmp_path).next == (Node.FIX_CHECKS,)
-    assert recorder.store.get(unit().id).feedback.startswith("tier 1 failed:")
+    assert recorder.store.get(unit().id).feedback_source == FeedbackSource.TIER1
     assert "claude:fix_checks" not in recorder.events
 
     recorder.tier1_results = [(True, "")]

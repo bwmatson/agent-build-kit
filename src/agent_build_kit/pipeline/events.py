@@ -56,7 +56,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
-from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, ReworkKind, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -1075,6 +1075,7 @@ def on_rework(
     claim: Claim = _unclaimed,
     waiting: set[tuple[str, str]] | None = None,
     resume: Resume = _no_thread,
+    rework: ReworkKind | None = None,
     log: Log = print,
 ) -> bool:
     """Put a unit back in the queue with what review asked for.

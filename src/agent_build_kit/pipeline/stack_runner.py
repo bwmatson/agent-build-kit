@@ -905,10 +905,37 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class UnitOutcome(StrEnum):
+    """How a unit's run ended: the graph, the CLI and telemetry all record one of these."""
+
+    OPEN = "open"
+    PAUSED = "paused"
+    HELD = "held"
+    SATISFIED = "satisfied"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+    RATE_LIMITED = "rate_limited"
+    SKIPPED = "skipped"
+    ERROR = "error"
+
+
+class Escalation(StrEnum):
+    CLASS = "class"
+    DISAGREEMENT = "disagreement"
+
+
+class PauseInfo(Frozen):
+    """Why a run paused for usage and when it may resume."""
+
+    reason: str
+    until: datetime | None = None
+
+
 class RunOutcome(Frozen):
     status: RunStatus
     detail: str
     pr: int | None = None
+    pause: PauseInfo | None = None
 
 
 class Weighed(Frozen):

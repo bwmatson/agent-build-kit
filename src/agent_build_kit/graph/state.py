@@ -7,6 +7,7 @@ from typing import Any
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.stack_runner import Restacked, RunStatus
+from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason, ReworkKind
 
 
 class Node(StrEnum):
@@ -51,6 +52,9 @@ class ResumeEvent(Frozen):
     reason: str = ""
     feedback: str = ""
     from_person: bool = False  # the feedback is words a person left on the pull request
+    feedback_source: FeedbackSource = FeedbackSource.NONE
+    requeue: RequeueReason | None = None
+    rework: ReworkKind | None = None
     # The ids of every comment the dispatch built that feedback from (the poller's listing and
     # the notes it read), which is all the agent is given. None when the dispatch named none.
     comment_ids: tuple[str, ...] | None = None
