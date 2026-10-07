@@ -26,7 +26,7 @@ what the pipeline is doing, watch the pass, not a single unit.
 | `abk graph` | Regenerate the unit graph page (`docs/unit_graph.md`) from `runs/units.json`. |
 | `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything. |
 | `abk tick` | A real pass, the same one the timer runs. Safe at any time. `--only <unit>` builds just that unit if it is ready. |
-| `abk verify <change>` | Deploy a fully merged change and run its live (tier 2) tests, then archive it. The tick does this on its own once every unit of a change has merged. |
+| `abk verify <change>` | Deploy a fully merged change and run its live (tier 2) tests, then archive it; exits 1 if it fails or passes without the change being archived. The tick does this on its own once every unit of a change has merged. |
 | `abk check` | `openspec validate --all --strict --json` on the planning repo. |
 | `abk tags <change>` / `abk tags --all` | Validate a change's task-group tags (see abk-authoring). |
 | `abk archive <change>` | `openspec archive <change> --yes`. |

@@ -377,7 +377,13 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
     )
     for change in archived:
         print(f"archived {change}")
-    return 0 if args.change in archived else 1
+    if args.change not in archived:
+        print(
+            f"{args.change}: verified but not archived "
+            "(already archived, not fully merged, withdrawn, or the archive failed; see the log)"
+        )
+        return 1
+    return 0
 
 
 # --- the tick ---------------------------------------------------------------------------

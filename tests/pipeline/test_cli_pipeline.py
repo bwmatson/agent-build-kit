@@ -1319,7 +1319,9 @@ def test_verify_fails_when_the_archive_after_a_pass_does_not_happen(
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
 
     assert cli.cmd_verify(argv_namespace(change="c"), inst) == 1
-    assert "archived" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "c: verified but not archived" in out
+    assert "archived c" not in out
 
 
 def test_tags_over_an_empty_store_says_so_rather_than_printing_nothing(
