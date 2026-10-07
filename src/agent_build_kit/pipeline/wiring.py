@@ -75,9 +75,8 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
-    BASE_CHANGED,
     IN_REVIEW,
     MERGED,
     REVIEWED,
@@ -1662,7 +1661,7 @@ def _is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
     return not git(tree, "merge-base", "--is-ancestor", base, of, check=False).returncode
 
 
-def build_upstream_incomplete(store: UnitStore) -> Callable[..., str]:
+def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, str] | None]:
     """Why a unit should stop, if something it is built on went back.
 
     Read from the store each time rather than captured once: the poller that
@@ -1674,14 +1673,17 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., str]:
     cannot move underneath it.
     """
 
-    def upstream_incomplete(unit: Unit) -> str:
+    def upstream_incomplete(unit: Unit) -> tuple[Cause, str] | None:
         known = list(store.all())
         index = {u.id: u for u in known}
         for dep in through_satisfied(unit, known):
             parent = index.get(dep)
             if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
-                return f"{dep} is {parent.state} — it went back after this unit started"
-        return ""
+                return (
+                    Cause.UPSTREAM_WENT_BACK,
+                    f"{dep} is {parent.state} — it went back after this unit started",
+                )
+        return None
 
     return upstream_incomplete
 
@@ -1691,7 +1693,7 @@ def tip(tree: Path, ref: str) -> str:
     return git(tree, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False).stdout.strip()
 
 
-def build_base_moved(store: UnitStore) -> Callable[..., str]:
+def build_base_moved(store: UnitStore) -> Callable[..., tuple[Cause, str] | None]:
     """Why a unit's base is no longer the one its run started on, if it isn't.
 
     Two ways. A parent merging while its child builds: `events.on_merged` does
@@ -1703,15 +1705,15 @@ def build_base_moved(store: UnitStore) -> Callable[..., str]:
     its PR carrying the parent's old commits.
     """
 
-    def base_moved(unit: Unit, base: str, *, tree: Path, start: str) -> str:
+    def base_moved(unit: Unit, base: str, *, tree: Path, start: str) -> tuple[Cause, str] | None:
         now = base_of(unit, store.all())
         if now != base:
-            return f"{BASE_CHANGED}moved from {base} to {now} while it built"
+            return Cause.BASE_CHANGED, f"its base moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or
         # the resume's restack takes it in. Rewritten is not.
         if start and not _is_ancestor(tree, start, local_ref(base)):
-            return f"{BASE_CHANGED}{base} was rewritten while it built"
-        return ""
+            return Cause.BASE_CHANGED, f"its base {base} was rewritten while it built"
+        return None
 
     return base_moved
 

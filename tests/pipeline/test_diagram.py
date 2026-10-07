@@ -163,7 +163,14 @@ def test_a_unit_stopped_mid_loop_is_paused_not_merely_blocked() -> None:
     paused = unit(
         "c/2",
         depends_on=("c/1",),
-        history=({"state": "planned", "at": "t", "note": "held after the build: c/1 is running"},),
+        history=(
+            {
+                "state": "planned",
+                "at": "t",
+                "note": "held after the build: c/1 is running",
+                "cause": "upstream_went_back",
+            },
+        ),
     )
 
     diagram = render_mermaid([unit("c/1", state="running"), paused])

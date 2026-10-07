@@ -11,7 +11,7 @@ from collections.abc import Mapping
 
 from agent_build_kit.forges import Label
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import UNPLANNED, StoredUnit
+from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, StoredUnit
 from agent_build_kit.pipeline.units import (
     CLOSED,
     FAILED,
@@ -123,8 +123,7 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
     # Stopped part-way through its loop, rather than never started: a run that
     # held at a boundary records a return to planned with a note saying why. A
     # usage pause is not one: the unit stays `running`, interrupted, in its thread.
-    last = unit.history[-1] if unit.history else {}
-    note = str(last.get("note", ""))
     if waiting_on(unit, units):
-        return "paused_rework" if note.startswith(("held before", "held after")) else "blocked"
+        paused = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
+        return "paused_rework" if paused else "blocked"
     return PLANNED

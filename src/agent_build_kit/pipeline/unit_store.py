@@ -73,10 +73,6 @@ class Cause(StrEnum):
     FAILED = "failed"
 
 
-# What the label handler wrote as a hold's note before the cause was kept.
-HELD_BY_A_REVIEWER = "held by a reviewer"
-
-
 def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
@@ -154,13 +150,17 @@ class StoredUnit(Unit):
 
     @property
     def held_by_the_label(self) -> bool:
-        """Held, and by a reviewer's hold label; a record from before the cause was
-        kept is read by the note the label handler wrote."""
-        if self.state != HELD:
-            return False
-        if self.held_by:
-            return self.held_by == HeldBy.REVIEWER
-        return self.note == HELD_BY_A_REVIEWER
+        """Held, and by a reviewer's hold label. A record from before the holder was
+        kept has none, and is not read to say so from its note."""
+        return self.state == HELD and self.held_by == HeldBy.REVIEWER
+
+    @property
+    def cause(self) -> Cause | None:
+        """Why the unit's state last changed, or `None` for a record from before
+        causes were kept."""
+        if not self.history or not self.history[-1].get("cause"):
+            return None
+        return Cause(self.history[-1]["cause"])
 
 
 # The in-run fields a unit used to carry here, which now live in its thread.
@@ -302,6 +302,7 @@ class UnitStore:
                 trace=existing.trace if existing else "",
                 stack_refusal=existing.stack_refusal if existing else "",
                 held_by=existing.held_by if existing else HeldBy.NONE,
+                held_base=existing.held_base if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and existing.joined and not fresh.joined:
@@ -404,10 +405,20 @@ class UnitStore:
         rework leaves a unit open — because without it the entry says only
         that something happened.
 
-        `held_by` is why a unit is held; any other state forgets it.
+        `cause` is why the state changed, kept as a defined value for what
+        decides from it; the note is prose for people and nothing reads it.
+        `held_by` is who owns a hold and `held_base` the branch a depth hold is
+        still on; any other state forgets both.
         """
         unit, everything, opened = self._record_state(
-            unit_id, state, pr=pr, branch=branch, note=note, held_by=held_by
+            unit_id,
+            state,
+            pr=pr,
+            branch=branch,
+            note=note,
+            held_by=held_by,
+            cause=cause,
+            held_base=held_base,
         )
         if self.on_state:
             self.on_state(unit, everything, opened)
@@ -422,6 +433,8 @@ class UnitStore:
         branch: str | None,
         note: str,
         held_by: HeldBy,
+        cause: Cause | None,
+        held_base: str,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         stored = self._read()
         unit = stored[unit_id]
@@ -432,9 +445,15 @@ class UnitStore:
                 "pr": pr if pr is not None else unit.pr,
                 "branch": branch if branch is not None else unit.branch,
                 "held_by": held_by if state == HELD else HeldBy.NONE,
+                "held_base": held_base if state == HELD else "",
                 "history": (
                     *unit.history,
-                    {"state": state, "at": _now(), **({"note": note} if note else {})},
+                    {
+                        "state": state,
+                        "at": _now(),
+                        **({"note": note} if note else {}),
+                        **({"cause": cause.value} if cause else {}),
+                    },
                 ),
             }
         )

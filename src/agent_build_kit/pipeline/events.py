@@ -33,7 +33,6 @@ overwritten by the state the build records when it ends.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
@@ -57,7 +56,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
-from agent_build_kit.pipeline.unit_store import HELD_BY_A_REVIEWER, HeldBy, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -109,33 +108,15 @@ def _no_thread(
 # branch it still sits on.
 DEPTH_HOLD = "restack onto {new_base} skipped: depth {depth} is beyond the rebase cap {cap}"
 DEPTH_HOLD_BASE = " (still on {old_base})"
-# Derived from the two templates above, so editing either cannot silently stop
-# a later merge from finding what an earlier one held.
-_DEPTH_HOLD = re.compile(
-    re.escape(DEPTH_HOLD + DEPTH_HOLD_BASE)
-    .replace(r"\{new_base\}", r".+?")
-    .replace(r"\{depth\}", r"\d+")
-    .replace(r"\{cap\}", r"\d+")
-    .replace(r"\{old_base\}", r"(?P<base>.+)")
-)
-
-
-def _depth_hold_base(unit: StoredUnit) -> str | None:
-    """The branch a unit held for depth is still on, or None if it was held
-    for another reason (a reviewer, the toolchain) or has been held since."""
-    note = unit.history[-1].get("note", "") if unit.history else ""
-    found = _DEPTH_HOLD.fullmatch(note)
-    return found["base"] if found else None
+# What the label handler writes as a hold's note when the reviewer's hold has
+# no reason of its own. Prose for people: nothing reads it.
+HELD_BY_A_REVIEWER = "held by a reviewer"
 
 
 def held_for_depth(unit: StoredUnit) -> bool:
-    """Held for the stack depth cap, which a later merge may free: by the cause the
-    record keeps, or for one from before that, by the note the restack wrote."""
-    if unit.state != HELD:
-        return False
-    if unit.held_by:
-        return unit.held_by == HeldBy.DEPTH
-    return _depth_hold_base(unit) is not None
+    """Held for the stack depth cap, which a later merge may free: by the holder
+    the record keeps. A record from before it was kept is not read from its note."""
+    return unit.state == HELD and unit.held_by == HeldBy.DEPTH
 
 
 def held_for_its_own_reason(unit: StoredUnit) -> bool:
@@ -152,19 +133,25 @@ def held_cause(unit: StoredUnit) -> str:
 
 def takeover_note(unit: StoredUnit, reason: str = "") -> str:
     """The note the label's hold on `unit` is recorded with. A depth hold keeps its
-    own, which says which branch the unit is still on, so the hold can be found
-    again when the label comes off or a merge frees it."""
-    if _depth_hold_base(unit) is not None:
+    own, for a person reading it; the branch it is still on is the `held_base` field."""
+    if held_for_depth(unit):
         return unit.note
     return reason or HELD_BY_A_REVIEWER
 
 
 def restore_depth_hold(store: UnitStore, unit: StoredUnit) -> bool:
-    """Give a unit the label took a depth hold from back to that hold, as its note
-    kept it. False when the label's hold was not over a depth hold."""
-    if _depth_hold_base(unit) is None:
+    """Give a unit the label took a depth hold from back to that hold, as the
+    `held_base` it kept says. False when the label's hold was not over one."""
+    if not unit.held_base:
         return False
-    store.set_state(unit.id, HELD, note=unit.note, held_by=HeldBy.DEPTH)
+    store.set_state(
+        unit.id,
+        HELD,
+        note=unit.note,
+        held_by=HeldBy.DEPTH,
+        cause=Cause.DEPTH,
+        held_base=unit.held_base,
+    )
     return True
 
 
@@ -408,7 +395,7 @@ def remove_satisfied(
     held_for_depth: list[str] = []
     not_moved: list[str] = []
     for dependent in _dependents_of(leaving, graph):
-        if dependent.state == HELD and _depth_hold_base(dependent) == old_base:
+        if dependent.state == HELD and dependent.held_base == old_base:
             held_for_depth.append(dependent.id)
         elif dependent.id in children and not on_new_base(dependent):
             not_moved.append(dependent.id)
@@ -512,7 +499,7 @@ def _record_merge(
     resume: Resume,
     log: Log,
 ) -> None:
-    store.set_state(merged.id, MERGED)
+    store.set_state(merged.id, MERGED, cause=Cause.MERGED)
     log(f"merged #{merged.pr}: {merged.id}")
 
     release_children(
@@ -541,7 +528,12 @@ def _hold_for_depth(
 ) -> None:
     note = DEPTH_HOLD.format(new_base=new_base, depth=depth, cap=cap)
     store.set_state(
-        child.id, HELD, note=note + DEPTH_HOLD_BASE.format(old_base=old_base), held_by=HeldBy.DEPTH
+        child.id,
+        HELD,
+        note=note + DEPTH_HOLD_BASE.format(old_base=old_base),
+        held_by=HeldBy.DEPTH,
+        cause=Cause.DEPTH,
+        held_base=old_base,
     )
     log(f"{child.id}: held — {note}")
     # Only the PR moves, as for a child being built: it touches no tree, and
@@ -571,8 +563,8 @@ def _reconsider_held(
     for unit in graph:
         if unit.repo != merged.repo or unit.state != HELD or not unit.branch:
             continue
-        old_base = _depth_hold_base(unit)
-        if old_base is None:
+        old_base = unit.held_base
+        if not old_base:
             continue  # Held by a person or the toolchain, not for depth.
         if unit.held_by_the_label:
             # A reviewer has it, over a depth hold: not restacked while the label
@@ -614,7 +606,9 @@ def reconsider_depth_hold(
         return True
     try:
         with claim(unit):
-            store.set_state(unit.id, IN_REVIEW, note=f"depth {depth} is within the cap")
+            store.set_state(
+                unit.id, IN_REVIEW, note=f"depth {depth} is within the cap", cause=Cause.RELEASED
+            )
             restack(
                 branch=branch_name(unit),
                 old_base=old_base,
@@ -914,7 +908,7 @@ def on_closed(
             if store.get(unit.id).state == SATISFIED:
                 log(f"closed #{pr}: {unit.id} is satisfied — its own close, leaving it as it is")
                 return True
-            store.set_state(unit.id, CLOSED)
+            store.set_state(unit.id, CLOSED, cause=Cause.CLOSED)
     except BranchBusy as error:
         return _deferred(f"closed #{pr}", unit, error, log)
     log(f"closed #{pr}: {unit.id} — anything stacked on it is left as it stands")
@@ -971,7 +965,13 @@ def on_hold(
                 )
                 return True
             if not current.held_by_the_label:
-                store.set_state(unit.id, HELD, note=takeover_note(current), held_by=HeldBy.REVIEWER)
+                store.set_state(
+                    unit.id,
+                    HELD,
+                    note=takeover_note(current),
+                    held_by=HeldBy.REVIEWER,
+                    held_base=current.held_base,
+                )
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)
     log(f"hold #{pr}: {unit.id} is held, the pipeline will not touch it")
@@ -1019,10 +1019,9 @@ def on_release(
             if restore_depth_hold(store, current):
                 restored = current
             else:
-                store.set_state(unit.id, IN_REVIEW, note="hold label removed")
+                store.set_state(unit.id, IN_REVIEW, note="hold label removed", cause=Cause.RELEASED)
         if restored is not None:
-            old_base = _depth_hold_base(restored)
-            assert old_base is not None
+            old_base = restored.held_base
             if (
                 rebase_cap is None
                 or restack is None
@@ -1264,7 +1263,7 @@ def _requeue(
 ) -> bool:
     """Requeue `unit`, which has taken the rework for `reason`."""
     store.set_feedback(unit.id, feedback, from_person=from_person)
-    store.set_state(unit.id, PLANNED, note=f"rework requested: {reason}")
+    store.set_state(unit.id, PLANNED, note=f"rework requested: {reason}", cause=Cause.REWORK)
     log(f"rework #{pr}: {unit.id} requeued — {reason}")
     return True
 
@@ -1424,6 +1423,7 @@ def build_restack(
                     PLANNED,
                     note=f"not restacked onto {new_base}: "
                     "the host moved its branch off the approved commit",
+                    cause=Cause.RESTACK_DEFERRED,
                 )
                 return
 
@@ -1453,6 +1453,7 @@ def build_restack(
                 PLANNED,
                 note=f"restack onto {new_base} could not be merged; the adapt step ports it: "
                 f"{str(error)[:300]}",
+                cause=Cause.RESTACK_CONFLICT,
             )
             return
         except (AgentRateLimited, AgentInterrupted) as error:
@@ -1466,6 +1467,7 @@ def build_restack(
                 PLANNED,
                 note=f"restack onto {new_base} deferred for {why}; the runner retries it: "
                 f"{str(error)[:300]}",
+                cause=Cause.RESTACK_DEFERRED,
             )
             return
 
@@ -1495,6 +1497,7 @@ def build_restack(
                 child.id,
                 PLANNED,
                 note=f"restacked onto {new_base}, not pushed: {why}",
+                cause=Cause.RESTACK_DEFERRED,
             )
             return
 

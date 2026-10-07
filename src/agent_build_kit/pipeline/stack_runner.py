@@ -38,7 +38,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.task_progress import mark_groups
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     Unit,
     later_groups_by_change,
@@ -956,12 +956,14 @@ class UnitRunner(BaseModel):
     run_rework_review: Callable[..., str]
     commit: Callable[..., int]
     branch_commits: Callable[..., int]
-    upstream_incomplete: Callable[..., str]
+    # The cause and words for stopping because something the unit is built on
+    # went back, or None. See `wiring.build_upstream_incomplete`.
+    upstream_incomplete: Callable[..., tuple[Cause, str] | None]
     # Why the base this run started on is no longer the unit's base — a
-    # parent merged, or was restacked, while it built — or "". Given the
-    # worktree and the base's tip when the run set it up (`base_tip`). See
-    # `wiring.build_base_moved`.
-    base_moved: Callable[..., str] = lambda unit, base, **kwargs: ""
+    # parent merged, or was restacked, while it built — as a cause and words,
+    # or None. Given the worktree and the base's tip when the run set it up
+    # (`base_tip`). See `wiring.build_base_moved`.
+    base_moved: Callable[..., tuple[Cause, str] | None] = lambda unit, base, **kwargs: None
     base_tip: Callable[[Path, str], str] = lambda tree, ref: ""
     # Called with `resolve=False` before a push: then a conflict is reported as
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
@@ -1239,6 +1241,6 @@ class UnitRunner(BaseModel):
         # Recorded rather than left at "planned": the next round would
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
-        self.store.set_state(unit.id, "failed")
+        self.store.set_state(unit.id, "failed", cause=Cause.FAILED)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)

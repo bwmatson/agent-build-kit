@@ -56,7 +56,7 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -268,15 +268,19 @@ class BuildPath:
             or (node is Node.PUSH and state.spent)
             or (node is Node.TIER2 and not state.moved)
         )
-        if gated and (why := self.upstream_changed(state)):
+        if gated and (found := self.upstream_changed(state)):
+            cause, why = found
             return self.hold(
-                PLANNED, f"held before {node.value}: {why}", f"held before {node.value} — {why}"
+                PLANNED,
+                f"held before {node.value}: {why}",
+                f"held before {node.value} — {why}",
+                cause=cause,
             )
         return body(state)
 
-    def upstream_changed(self, state: UnitRun) -> str:
-        """Why the unit should not go on yet: something upstream went back for
-        rework, or the base it was built on moved or was rewritten."""
+    def upstream_changed(self, state: UnitRun) -> tuple[Cause, str] | None:
+        """Why the unit should not go on yet, with the cause: something upstream
+        went back for rework, or the base it was built on moved or was rewritten."""
         unit, r = self.unit, self.runner
         base = state.base or self.base
         return r.upstream_incomplete(unit) or r.base_moved(
@@ -289,6 +293,7 @@ class BuildPath:
         note: str,
         detail: str,
         *,
+        cause: Cause,
         pr: int | None = None,
         held_by: HeldBy = HeldBy.NONE,
     ) -> Update:
@@ -300,7 +305,9 @@ class BuildPath:
         """
         self.say(f"held: {note}")
         opened: dict[str, Any] = {"pr": pr} if pr else {}
-        self.runner.store.set_state(self.unit.id, state, note=note, held_by=held_by, **opened)
+        self.runner.store.set_state(
+            self.unit.id, state, note=note, held_by=held_by, cause=cause, **opened
+        )
         update: Update = {
             "held": detail,
             "hold_state": state,
@@ -317,7 +324,7 @@ class BuildPath:
         so a base that keeps moving cannot loop."""
         note = f"{lead}: {why}"
         if state.rebased:
-            return self.hold(PLANNED, note, note)
+            return self.hold(PLANNED, note, note, cause=Cause.BASE_CHANGED)
         self.say(f"held: {note}; resuming at its restack on {base}")
         return {"restack": True, "rebased": True, "base": base}
 
@@ -749,6 +756,7 @@ class BuildPath:
                     HELD,
                     f"needs a human: {why[:300]}",
                     f"needs a human: {why[:200]}",
+                    cause=Cause.NEEDS_HUMAN,
                     held_by=HeldBy.REVIEW,
                 ),
             }
@@ -763,6 +771,11 @@ class BuildPath:
             label = (
                 "an open-ended class" if verdict.escalate == "class" else "a repeated disagreement"
             )
+            escalated = (
+                Cause.REVIEW_ESCALATED_CLASS
+                if verdict.escalate == "class"
+                else Cause.REVIEW_ESCALATED_DISAGREEMENT
+            )
             reasoning = " ".join(verdict.reasoning.split())[:280]
             return {
                 **update,
@@ -770,6 +783,7 @@ class BuildPath:
                     HELD,
                     f"escalated — {label} ({verdict.escalate}): {reasoning}",
                     f"escalated ({verdict.escalate}): {reasoning[:200]}",
+                    cause=escalated,
                     held_by=HeldBy.REVIEW,
                 ),
             }
@@ -1049,7 +1063,12 @@ class BuildPath:
             if not state.spent:
                 # Not pushed: the tree holds the host's head, and review has to pass it first.
                 self.say(f"not pushed: {error}")
-                return self.hold(PLANNED, f"not pushed: {error}", f"re-reviewing: {error}")
+                return self.hold(
+                    PLANNED,
+                    f"not pushed: {error}",
+                    f"re-reviewing: {error}",
+                    cause=Cause.RESTACK_DEFERRED,
+                )
             # The adoption is recorded, so a second push holds the lease: this
             # path pushes unapproved work for a person by design.
             self.say(f"{error} — pushing again")
@@ -1100,7 +1119,12 @@ class BuildPath:
         if state.spent:
             note = f"rounds spent with work outstanding: {' '.join(stored.feedback.split())[:300]}"
             return self.hold(
-                HELD, note, f"rounds spent, held as #{pr}", pr=pr, held_by=HeldBy.REVIEW
+                HELD,
+                note,
+                f"rounds spent, held as #{pr}",
+                cause=Cause.NEEDS_HUMAN,
+                pr=pr,
+                held_by=HeldBy.REVIEW,
             )
         # Cleared only now, after the work is pushed and the pull request
         # updated: left in place, the next tick would rework the unit again for
@@ -1163,7 +1187,9 @@ class BuildPath:
             r.store.set_feedback(
                 unit.id, event.feedback or event.reason, from_person=event.from_person
             )
-            r.store.set_state(unit.id, RUNNING, note=f"rework requested: {event.reason}")
+            r.store.set_state(
+                unit.id, RUNNING, note=f"rework requested: {event.reason}", cause=Cause.REWORK
+            )
             update.update(self.fresh_run(had_feedback=True))
             if pr := r.store.get(unit.id).pr:
                 # Recorded here, not when the node runs: a comment posted while the thread
@@ -1191,6 +1217,7 @@ class BuildPath:
                     HELD,
                     note=takeover_note(current, event.reason),
                     held_by=HeldBy.REVIEWER,
+                    held_base=current.held_base,
                 )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
         elif event.kind is EventKind.RELEASE:
@@ -1208,12 +1235,17 @@ class BuildPath:
                     return {"event": None}
                 # A merge during the label brought it within the cap: the run
                 # takes up at `prepare`, which moves it onto its base.
-                r.store.set_state(unit.id, RUNNING, note=f"depth {depth} is within the cap")
+                r.store.set_state(
+                    unit.id,
+                    RUNNING,
+                    note=f"depth {depth} is within the cap",
+                    cause=Cause.RELEASED,
+                )
                 update.update(self.fresh_run())
                 update.update({"event": ResumeEvent(kind=EventKind.REQUEUE, reason="released")})
                 update["base"] = ""
                 return update
-            r.store.set_state(unit.id, IN_REVIEW, note="hold label removed")
+            r.store.set_state(unit.id, IN_REVIEW, note="hold label removed", cause=Cause.RELEASED)
             update.update({"status": RunStatus.OPEN, "detail": "released"})
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
             if event.kind is EventKind.REQUEUE and event.reason == "restart":
@@ -1221,7 +1253,10 @@ class BuildPath:
                 update["review_rounds"] = ()
             # Running, so the tick resumes the thread at `prepare` in a slot.
             r.store.set_state(
-                unit.id, RUNNING, note=f"{event.kind.value}: {event.reason or 'no reason given'}"
+                unit.id,
+                RUNNING,
+                note=f"{event.kind.value}: {event.reason or 'no reason given'}",
+                cause=Cause.BASE_CHANGED if event.kind is EventKind.BASE_MOVED else Cause.REQUEUED,
             )
             update.update(self.fresh_run())
             if event.kind is EventKind.BASE_MOVED:

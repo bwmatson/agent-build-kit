@@ -178,7 +178,7 @@ def make_runner(
         commit=recorder.commit,
         branch_commits=recorder.branch_commits,
         head=recorder.head,
-        upstream_incomplete=lambda u: "",
+        upstream_incomplete=lambda u: None,
         restack_onto=lambda **kw: None,
         run_tier1=recorder.tier1,
         run_tier2=recorder.tier2,

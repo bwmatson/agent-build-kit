@@ -1241,7 +1241,15 @@ def _ends_and_waits(
     inst = workspace(tmp_path, max_concurrent=2)
     builder.store.upsert([stored("sent/1"), stored("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    builder.scripts["sent/1"] = lambda: "held"
+    runs: list[int] = []
+
+    def ends_once() -> str | None:
+        # Held the first time only, so a readmitted unit goes on to review and
+        # the count of starts is exact rather than the pass's rebuild limit.
+        runs.append(1)
+        return "held" if len(runs) == 1 else None
+
+    builder.scripts["sent/1"] = ends_once
     builder.ends["sent/1"] = end
 
     def slow() -> str | None:
@@ -1364,6 +1372,7 @@ def test_a_parent_that_went_back_is_reported_with_the_upstream_cause(tmp_path: P
 
     found = build_upstream_incomplete(store)(store.get("a/2"))
 
+    assert found is not None
     assert found[0] == Cause.UPSTREAM_WENT_BACK
     assert "a/1" in found[1]
 
@@ -1375,5 +1384,6 @@ def test_a_base_that_moved_is_reported_with_the_base_changed_cause(tmp_path: Pat
 
     found = build_base_moved(store)(store.get("a/2"), "spec/a/1", tree=tmp_path, start="")
 
+    assert found is not None
     assert found[0] == Cause.BASE_CHANGED
     assert "spec/a/1" in found[1]

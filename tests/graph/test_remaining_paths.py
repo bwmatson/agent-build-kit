@@ -23,7 +23,7 @@ from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import Restacked
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -105,7 +105,11 @@ def test_a_tier_two_unit_is_held_at_the_boundary_before_tier_two(tmp_path: Path)
     outcome = build(
         tmp_path,
         recorder,
-        upstream_incomplete=lambda u: "upstream reworking" if "review" in recorder.events else "",
+        upstream_incomplete=lambda u: (
+            (Cause.UPSTREAM_WENT_BACK, "upstream reworking")
+            if "review" in recorder.events
+            else None
+        ),
     )
 
     assert outcome.status == "held"
@@ -483,7 +487,10 @@ def test_a_unit_stops_when_its_upstream_goes_back_for_rework(tmp_path: Path) -> 
         tmp_path,
         recorder,
         base="spec/add-marker/0",
-        upstream_incomplete=lambda u: "add-marker/0 went back for rework",
+        upstream_incomplete=lambda u: (
+            Cause.UPSTREAM_WENT_BACK,
+            "add-marker/0 went back for rework",
+        ),
     )
 
     assert outcome.status == "held"
@@ -498,7 +505,11 @@ def test_a_held_unit_finishes_the_step_it_was_in(tmp_path: Path) -> None:
     """The build runs and commits; the hold happens at the boundary."""
     recorder = fresh(tmp_path)
 
-    build(tmp_path, recorder, upstream_incomplete=lambda u: "upstream reworking")
+    build(
+        tmp_path,
+        recorder,
+        upstream_incomplete=lambda u: (Cause.UPSTREAM_WENT_BACK, "upstream reworking"),
+    )
 
     assert "commit:test" in recorder.events, "the tests step's work is committed, not discarded"
     assert "claude:impl" not in recorder.events, "and the next step does not start"
@@ -513,7 +524,10 @@ def test_a_unit_whose_parent_merged_while_it_built_stops_before_pushing(tmp_path
         tmp_path,
         recorder,
         base="spec/add-marker/0",
-        base_moved=lambda u, base, **kw: f"its base moved from {base} to main while it built",
+        base_moved=lambda u, base, **kw: (
+            Cause.BASE_CHANGED,
+            f"its base moved from {base} to main while it built",
+        ),
     )
 
     assert outcome.status == "held"
@@ -531,10 +545,12 @@ def test_a_unit_whose_base_was_rewritten_while_it_built_stops_before_pushing(
     recorder = fresh(tmp_path)
     seen: list[tuple[Path, str]] = []
 
-    def base_moved(u: Any, base: str, *, tree: Path, start: str) -> str:
+    def base_moved(u: Any, base: str, *, tree: Path, start: str) -> tuple[Cause, str] | None:
         seen.append((tree, start))
         # The restack lands while the review runs, after implement.
-        return "its base spec/add-marker/0 was rewritten" if "review" in recorder.events else ""
+        if "review" in recorder.events:
+            return Cause.BASE_CHANGED, "its base spec/add-marker/0 was rewritten"
+        return None
 
     outcome = build(
         tmp_path,
@@ -865,7 +881,7 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
         **wired,
         base_tip=lambda tree, ref: tip[0],
         base_moved=lambda u, base, *, tree, start: (
-            f"its base {base} was rewritten" if start != tip[0] else ""
+            (Cause.BASE_CHANGED, f"its base {base} was rewritten") if start != tip[0] else None
         ),
     )
 
@@ -1063,7 +1079,9 @@ def test_a_unit_moved_cleanly_onto_the_base_the_forge_named_is_pushed_not_held(
         recorder,
         base="spec/add-marker/0",
         fresh_base=lambda u, base: "main",
-        base_moved=lambda u, base, **kw: "" if base == "spec/add-marker/0" else f"moved to {base}",
+        base_moved=lambda u, base, **kw: (
+            None if base == "spec/add-marker/0" else (Cause.BASE_CHANGED, f"moved to {base}")
+        ),
         open_pr=open_pr,
         **moves.overrides(),
     )

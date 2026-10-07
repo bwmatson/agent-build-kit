@@ -74,7 +74,10 @@ is recorded `failed`, not an exit status.
 
 Prints whether the pipeline is paused (until when, why), the usage reading
 (session %, weekly %, source), the count of units by state, and each
-`in_review` unit with its PR. Changes nothing. Exit 0.
+`in_review` unit with its PR. A `no recorded cause:` line lists the units that are `held`
+or `planned` with work on them and no cause on their last history entry (a store from
+before causes were kept); requeue each with `abk requeue`, or for a reviewer's hold hold
+it again from the pull request. Changes nothing. Exit 0.
 
 ### `abk graph`
 
