@@ -10,6 +10,12 @@
   which reports a conflict marker, bullets run together or repeated, a bullet outside a
   section and headings out of order with the file and line. A repo with no changelog
   file yet passes the check with a note, and `abk doctor` warns about it.
+  `abk init` also writes the convention into each such repo: a marked block in its
+  `AGENTS.md` (else `CLAUDE.md`, else a new `AGENTS.md`), a changelog where it has
+  none and a `merge=union` rule in `.gitattributes`, so concurrent entries merge
+  without a conflict. A second run changes nothing, `--dry-run` lists each action,
+  nothing is committed in the repos, and `abk doctor` warns about a changelog with
+  no union rule.
 
 - Why a unit stopped is a recorded cause (rework, base changed, upstream went back, usage,
   depth, toolchain, review escalation, a reviewer's hold, requeued, and the like) kept on each

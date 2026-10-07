@@ -16,11 +16,13 @@ the schema name, so replacing it loses nothing.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import textwrap
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
@@ -38,6 +40,8 @@ from agent_build_kit.config import (
     dump,
 )
 from agent_build_kit.init.detect import RepoDetection
+from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.changelog_convention import packaged_convention
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 
@@ -394,3 +398,161 @@ def write_planning_repo(
     installed, _refused = skills.install(planning / ".claude" / "skills")
     written.extend(installed)
     return written
+
+
+# --- code repos -----------------------------------------------------------------
+
+
+Outcome = Literal["created", "updated", "unchanged", "skipped"]
+_BLOCK_OPEN = "<!-- abk:changelog v%s -->"
+_BLOCK_CLOSE = "<!-- /abk:changelog -->"
+_BLOCK_START = re.compile(r"<!-- abk:changelog v\w+ -->")
+_BLOCK_END = re.compile(re.escape(_BLOCK_CLOSE))
+
+
+class ConventionResult(Frozen):
+    """What one action did, or with `dry_run` would do, in one code repo.
+
+    `result` is `created`, `updated`, `unchanged` or `skipped`; a skip that is
+    a finding to report (mismatched markers, a conflicting merge rule, a repo's
+    own changelog section) carries it in `note`."""
+
+    repo: str
+    action: Literal["block", "changelog", "gitattributes"]
+    path: Path
+    result: Outcome
+    note: str = ""
+
+
+def merge_attribute(attributes: str, path: str) -> str | None:
+    """What a `.gitattributes` text says of `path`'s merge driver: the driver's name
+    (`union`), the token itself for any other form (`-merge`), or None for no word."""
+    found = None
+    for line in attributes.splitlines():
+        pattern, *tokens = line.split() or [""]
+        if pattern not in (path, f"/{path}"):
+            continue
+        for token in tokens:
+            if token.startswith("merge="):
+                found = token.removeprefix("merge=")
+            elif token in ("merge", "-merge", "!merge"):
+                found = token
+    return found
+
+
+def _eol(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def _block_text(changelog: str, eol: str) -> str:
+    body = packaged_convention(changelog)
+    inner = f"## Changelog\n\n{body}\n"
+    stamp = hashlib.sha256(inner.encode()).hexdigest()[:8]
+    block = f"{_BLOCK_OPEN % stamp}\n{inner}{_BLOCK_CLOSE}\n"
+    return block.replace("\n", eol)
+
+
+def _put(path: Path, text: str, dry_run: bool) -> None:
+    if not dry_run:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode())
+
+
+def _block_action(root: Path, repo: str, changelog: str, dry_run: bool) -> ConventionResult:
+    path = next(
+        (root / n for n in ("AGENTS.md", "CLAUDE.md") if (root / n).is_file()), root / "AGENTS.md"
+    )
+
+    def result(kind: Outcome, note: str = "") -> ConventionResult:
+        return ConventionResult(repo=repo, action="block", path=path, result=kind, note=note)
+
+    if not path.is_file():
+        _put(path, _block_text(changelog, "\n"), dry_run)
+        return result("created")
+    text = path.read_bytes().decode(errors="replace")
+    eol = _eol(text)
+    opens = list(_BLOCK_START.finditer(text))
+    closes = list(_BLOCK_END.finditer(text))
+    if len(opens) != len(closes) or (opens and opens[0].start() > closes[0].start()):
+        return result("skipped", "mismatched abk:changelog markers; fix them by hand")
+    block = _block_text(changelog, eol)
+    if opens:
+        start, end = opens[0].start(), closes[0].end()
+        if text[end : end + len(eol)] == eol:
+            end += len(eol)
+        if text[start:end] == block:
+            return result("unchanged")
+        _put(path, text[:start] + block + text[end:], dry_run)
+        return result("updated")
+    if re.search(r"^## changelog", text, re.IGNORECASE | re.MULTILINE):
+        return result("skipped", f"{path.name} has its own Changelog section")
+    if not text:
+        separator = ""
+    else:
+        separator = eol if text.endswith("\n") else eol * 2
+    _put(path, f"{text}{separator}{block}", dry_run)
+    return result("updated")
+
+
+def _changelog_action(root: Path, repo: str, changelog: str, dry_run: bool) -> ConventionResult:
+    path = root / changelog
+    if path.exists():
+        kind: Outcome = "unchanged"
+    else:
+        _put(path, "# Changelog\n\n## Unreleased\n", dry_run)
+        kind = "created"
+    return ConventionResult(repo=repo, action="changelog", path=path, result=kind)
+
+
+def _gitattributes_action(root: Path, repo: str, changelog: str, dry_run: bool) -> ConventionResult:
+    path = root / ".gitattributes"
+
+    def result(kind: Outcome, note: str = "") -> ConventionResult:
+        return ConventionResult(
+            repo=repo, action="gitattributes", path=path, result=kind, note=note
+        )
+
+    rule = f"{changelog} merge=union"
+    if not path.is_file():
+        _put(path, f"{rule}\n", dry_run)
+        return result("created")
+    text = path.read_bytes().decode(errors="replace")
+    merge = merge_attribute(text, changelog)
+    if merge == "union":
+        return result("unchanged")
+    if merge is not None:
+        return result("skipped", f"{changelog} already has a merge setting ({merge}); left as is")
+    eol = _eol(text)
+    lead = "" if not text or text.endswith("\n") else eol
+    _put(path, f"{text}{lead}{rule}{eol}", dry_run)
+    return result("updated")
+
+
+def write_code_repo_conventions(
+    workspace: WorkspaceConfig, *, dry_run: bool = False
+) -> list[ConventionResult]:
+    """Put the changelog convention block, the changelog file and the union-merge
+    rule into every listed repo whose checkout exists and whose `changelog` is
+    set; one result per repo and action. With `dry_run` nothing is written."""
+    results: list[ConventionResult] = []
+    for name, repo in workspace.repos.items():
+        root = repo.path.expanduser()
+        if repo.changelog is None or not root.is_dir():
+            note = "changelog convention is off" if repo.changelog is None else "no checkout"
+            results += [
+                ConventionResult(
+                    repo=name, action=action, path=root / file, result="skipped", note=note
+                )
+                for action, file in (
+                    ("block", "AGENTS.md"),
+                    ("changelog", repo.changelog or "CHANGELOG.md"),
+                    ("gitattributes", ".gitattributes"),
+                )
+            ]
+            continue
+        results += [
+            _block_action(root, name, repo.changelog, dry_run),
+            _changelog_action(root, name, repo.changelog, dry_run),
+            _gitattributes_action(root, name, repo.changelog, dry_run),
+        ]
+    return results

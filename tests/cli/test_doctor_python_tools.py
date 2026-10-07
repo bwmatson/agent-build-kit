@@ -75,6 +75,7 @@ def planning(tmp_path: Path) -> Path:
     root = init_repo(tmp_path / "planning")
     app = init_repo(tmp_path / "app")
     (app / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n")
+    (app / ".gitattributes").write_text("CHANGELOG.md merge=union\n")
     config = WorkspaceConfig(repos={"app": RepoConfig(path=app, slug="example/app")})
     (root / "abk.yaml").write_text(dump(config))
     (root / "openspec").mkdir()

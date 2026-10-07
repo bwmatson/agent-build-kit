@@ -44,7 +44,12 @@ from agent_build_kit.forges.transport import (
     credential_for,
 )
 from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
-from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
+from agent_build_kit.init.scaffold import (
+    RULES_CHANGES,
+    RULES_VERSION,
+    merge_attribute,
+    rules_version,
+)
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
 from agent_build_kit.profiles.base import ProfileUnsupported
@@ -131,6 +136,27 @@ def _changelogs(inst: Installation) -> list[Check]:
             continue
         if (path / repo.changelog).is_file():
             checks.append(_ok(f"changelog {name}", repo.changelog))
+            attributes = path / ".gitattributes"
+            text = attributes.read_text(errors="replace") if attributes.is_file() else ""
+            merge = merge_attribute(text, repo.changelog)
+            if merge is None:
+                checks.append(
+                    _warn(
+                        f"changelog union merge {name}",
+                        f"{repo.changelog} has no `merge=union` rule in {attributes}, so "
+                        "concurrent entries conflict",
+                        f"run `abk init` to add it to {name}",
+                    )
+                )
+            elif merge != "union":
+                checks.append(
+                    _warn(
+                        f"changelog union merge {name}",
+                        f"{repo.changelog}'s merge setting in {attributes} is `{merge}`, "
+                        "not `merge=union`, so concurrent entries conflict",
+                        f"change it to `merge=union` in {attributes} by hand",
+                    )
+                )
         else:
             checks.append(
                 _warn(

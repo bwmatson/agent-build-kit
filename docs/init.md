@@ -71,6 +71,29 @@ changes nothing else:
 Whether or not `abk.yaml` was written is printed (`kept abk.yaml (use
 --force to overwrite)`).
 
+#### The code repos' changelog conventions
+
+`write_code_repo_conventions` then does three things in each listed repo whose
+checkout exists and whose `changelog` setting is on (read from the `abk.yaml`
+that stands, so a kept file that sets `changelog: null` for a repo is
+respected). Nothing is committed in the code repos; the change is left in the
+working tree for the person to review.
+
+| Action | What it does |
+|---|---|
+| block | appends the changelog convention to `AGENTS.md`, else `CLAUDE.md`, else a new `AGENTS.md`, between `<!-- abk:changelog vSTAMP -->` and `<!-- /abk:changelog -->` markers, keeping the file's line endings |
+| changelog | creates the configured changelog (`# Changelog`, `## Unreleased`) when absent; an existing one is never edited |
+| gitattributes | adds `<changelog> merge=union` to `.gitattributes`, creating the file or adding a final newline as needed |
+
+A second run changes nothing. A block whose stamp or body differs from the
+packaged text has only the text between its markers replaced. A repo with its
+own `## Changelog` section outside the markers gets no block, mismatched
+markers are reported and left alone, and a `.gitattributes` that already sets
+another `merge=` driver for the changelog is reported and left. To opt a repo
+out, set `changelog: null`; all three actions are skipped. `abk doctor` warns
+about a repo with a changelog and no union rule. `--dry-run` prints one line per
+repo and action.
+
 ### 4. Research
 
 For each language detected across the workspace (`typescript` folds into

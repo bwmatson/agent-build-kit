@@ -15,6 +15,7 @@ from pathlib import Path
 from agent_build_kit.config import RepoConfig
 
 _DEFAULT_FILE = "CHANGELOG.md"
+_BLOCK_CLOSE = "<!-- /abk:changelog -->"
 _INTRO = "\nThe changelog convention:\n\n"
 
 
@@ -26,13 +27,24 @@ def _section(path: Path) -> str:
     for section in re.split(r"^## ", text, flags=re.MULTILINE)[1:]:
         heading, _, body = section.partition("\n")
         if heading.strip().lower().startswith("changelog"):
-            return body.strip()
+            return body.split(_BLOCK_CLOSE, 1)[0].strip()
     return ""
 
 
 def _enabled(repo: RepoConfig | None) -> bool:
     """Whether the repo's setting is on; a caller with no repo config says nothing of it."""
     return repo is None or repo.changelog is not None
+
+
+def packaged_convention(changelog: str = _DEFAULT_FILE) -> str:
+    """The framework's own convention text, for a repo keeping its changelog at `changelog`."""
+    packaged = (
+        resources.files("agent_build_kit")
+        .joinpath("templates", "changelog-convention.md")
+        .read_text()
+        .strip()
+    )
+    return packaged.replace(f"`{_DEFAULT_FILE}`", f"`{changelog}`")
 
 
 def changelog_convention(worktree: Path, repo: RepoConfig | None = None) -> str:
@@ -46,13 +58,7 @@ def changelog_convention(worktree: Path, repo: RepoConfig | None = None) -> str:
             return section
     if repo is None:
         return ""
-    packaged = (
-        resources.files("agent_build_kit")
-        .joinpath("templates", "changelog-convention.md")
-        .read_text()
-        .strip()
-    )
-    return packaged.replace(f"`{_DEFAULT_FILE}`", f"`{repo.changelog or _DEFAULT_FILE}`")
+    return packaged_convention(repo.changelog or _DEFAULT_FILE)
 
 
 def changelog_note(worktree: Path, repo: RepoConfig | None = None) -> str:

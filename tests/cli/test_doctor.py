@@ -84,6 +84,7 @@ def workspace(tmp_path: Path) -> Path:
     platform = checkout(tmp_path / "platform")
     for repo in (app, platform):
         (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n")
+        (repo / ".gitattributes").write_text("CHANGELOG.md merge=union\n")
     config = WorkspaceConfig(
         repos={
             "platform": RepoConfig(path=platform, slug="example/platform"),

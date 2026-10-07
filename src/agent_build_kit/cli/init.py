@@ -23,7 +23,7 @@ from pathlib import Path
 
 from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
-from agent_build_kit.config import CONFIG_FILENAME, ConfigError, dump
+from agent_build_kit.config import CONFIG_FILENAME, ConfigError, WorkspaceConfig, dump
 from agent_build_kit.init.claude_call import RunClaude
 from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
@@ -31,9 +31,11 @@ from agent_build_kit.init.research import research
 from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
     RULES_VERSION,
+    ConventionResult,
     ScaffoldError,
     draft_config,
     update_rules,
+    write_code_repo_conventions,
     write_planning_repo,
 )
 from agent_build_kit.installation import Installation, load_config
@@ -173,6 +175,48 @@ def _planned_work(
     return lines
 
 
+_PLANNED = {
+    "block": "write convention block",
+    "changelog": "create changelog",
+    "gitattributes": "add union merge rule",
+}
+
+
+def _convention_lines(
+    workspace: WorkspaceConfig, results: list[ConventionResult], *, planned: bool
+) -> list[str]:
+    """One line per repo and action: what a dry run would do, or what a run did."""
+    lines = []
+    for r in results:
+        root = workspace.repos[r.repo].path.expanduser()
+        name = f"{r.repo}/{r.path.relative_to(root).as_posix()}"
+        if r.result == "unchanged":
+            what = "already current"
+        elif r.result == "skipped":
+            what = f"skipped: {r.note}"
+        elif planned:
+            what = _PLANNED[r.action]
+        else:
+            what = r.result
+        lines.append(f"  {name}: {what}")
+    return lines
+
+
+def _conventions_config(
+    planning: Path, drafted: WorkspaceConfig, args: argparse.Namespace
+) -> WorkspaceConfig:
+    """The config the code repos are written by: the planning repo's abk.yaml where
+    it stands (a kept file may turn a repo's changelog off), else the drafted one."""
+    path = planning / CONFIG_FILENAME
+    if not path.is_file() or (args.dry_run and args.force):
+        return drafted
+    try:
+        return load_config(path)
+    except ConfigError as error:
+        print(f"abk init: {error}; using the drafted config for the code repos", file=sys.stderr)
+        return drafted
+
+
 def _policy(
     runtime: AgentRuntime, planning: Path, *, cache: Path, fresh: bool = False
 ) -> PolicyReport | None:
@@ -285,6 +329,10 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print(dump(config))
         print("# what would be generated:")
         print("\n".join(_planned_work(planning, detections, args)))
+        workspace = _conventions_config(planning, config, args)
+        planned = write_code_repo_conventions(workspace, dry_run=True)
+        print("code repos:")
+        print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
 
     clean_before = _tree_clean(planning)
@@ -297,6 +345,10 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print(f"wrote {path.relative_to(planning)}")
     if (planning / "abk.yaml") not in written:
         print("kept abk.yaml (use --force to overwrite)")
+
+    workspace = _conventions_config(planning, config, args)
+    done = write_code_repo_conventions(workspace)
+    print("\n".join(_convention_lines(workspace, done, planned=False)))
 
     if not args.skip_research:
         for language in research_languages(detections):
