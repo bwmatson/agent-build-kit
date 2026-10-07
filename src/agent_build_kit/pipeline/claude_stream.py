@@ -43,10 +43,14 @@ class ResultEvent(BaseModel):
     type: Literal["result"]
     # `success`, or an error subtype: `error_during_execution`, `error_max_turns`.
     subtype: str = ""
+    # The run ended in an error, whatever the subtype says.
+    is_error: bool = False
     # A `success` result's answer; an error subtype has none.
     result: str | None = None
     # What went wrong, on an error subtype.
     errors: list[str] = []
+    # The HTTP status of the API error that ended the run: `null` on a clean one.
+    api_error_status: Annotated[int | None, Salvaged] = None
     # How many turns the run took, and the tokens it spent, when it says.
     num_turns: int | None = None
     # Absent when the event carries none: a count it omits is None, never zero.

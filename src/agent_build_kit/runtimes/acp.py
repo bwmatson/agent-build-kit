@@ -71,6 +71,7 @@ from acp.schema import (
     RequestPermissionResponse,
     SessionConfigOptionSelect,
     SessionConfigSelectGroup,
+    StopReason,
     TerminalExitStatus,
     TerminalOutputResponse,
     TextContentBlock,
@@ -88,6 +89,7 @@ from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRequest,
@@ -118,7 +120,7 @@ EXIT_POLL = 0.05
 
 # How long a turn that did not end normally reads in the unit's log: each
 # calls for something different of whoever reads it.
-STOPPED: dict[str, str] = {
+STOPPED: dict[StopReason, str] = {
     "max_tokens": "the agent reached its token ceiling before finishing the turn",
     "max_turn_requests": "the agent reached its ceiling on model requests in one turn",
     "refusal": "the agent refused to carry on with the prompt",
@@ -171,16 +173,6 @@ TITLE_BATCH = re.compile(r"\s+\+\s*\d+\s+commands?\s*$", re.IGNORECASE)
 TITLE_PREFIX = re.compile(r"^terminal:\s+", re.IGNORECASE)
 
 
-def _text_of(content: Any) -> str:
-    """The text blocks of a tool call's content, joined."""
-    parts: list[str] = []
-    for item in content or []:
-        block = getattr(item, "content", None)
-        if isinstance(block, TextContentBlock):
-            parts.append(block.text)
-    return "\n".join(parts)
-
-
 def _commands_of(raw_input: Any, content: Any, title: str | None) -> tuple[str, ...]:
     """Every command a tool call names, from the best place that names any:
     its raw input, else the `$ <command>` lines of its content, else its
@@ -188,7 +180,7 @@ def _commands_of(raw_input: Any, content: Any, title: str | None) -> tuple[str, 
     named = _command_of(raw_input)
     if named:
         return (named,)
-    shown = tuple(match["command"] for match in SHELL_LINE.finditer(_text_of(content)))
+    shown = tuple(match["command"] for match in SHELL_LINE.finditer(text_of(content)))
     if shown:
         return shown
     if title:
@@ -232,33 +224,6 @@ class _ToolCall(Frozen):
 # has been observed sending this title shape; it is a defensive reading for
 # an agent that omits `kind`, and only the test agent sends it.
 EDIT_TITLE = re.compile(r"^\s*approve edit:\s*(?P<path>\S.*?)\s*$", re.IGNORECASE)
-
-# How an agent's own refusal of a command words it, anchored to where a line
-# opens: a rule's verdict (`Blocked by the user-defined deny rule ...`,
-# `BLOCKED: this command matches the user-defined deny rule ...`) or a
-# permission verdict (`Permission to use Bash with command ... has been
-# denied`), after at most a short wrapper of the agent's own (`terminal
-# failed: `). Never a bare word and never mid-line, so a command that ran and
-# failed for its own reasons — the shell's `ls: cannot open directory '/root':
-# Permission denied`, a test named for "forbidden", a test's own `E
-# AssertionError: Permission for guest was denied`, an HTTP 403 — is not taken
-# for a refusal. These are the shapes this was written from; another agent's
-# wording is not covered.
-BLOCKED_OUTPUT = re.compile(
-    r"^\s*(?:[A-Za-z ]{1,30} failed:\s*)?"
-    r"(?:blocked(?: by\b|:)[^\n]*?\bdeny rule|permission (?:to|for)\b[^\n]*\bdenied\b)",
-    re.IGNORECASE | re.MULTILINE,
-)
-
-
-def _output_of(update: ToolCallProgress) -> str:
-    """What a tool call update says its command produced: its content's text,
-    or failing that its raw output, whichever shape the agent sends."""
-    text = _text_of(update.content)
-    raw = update.raw_output
-    if not text and raw is not None:
-        return raw if isinstance(raw, str) else json.dumps(raw, default=str)
-    return text
 
 
 def _capabilities(policy: ToolPolicy | None) -> ClientCapabilities:
@@ -687,7 +652,7 @@ class _Session:
             if update.status:
                 self._tell(f"{title}: {update.status}")
             if update.status == "failed":
-                self._attribute_own_refusal(update.tool_call_id, _output_of(update))
+                self._attribute_own_refusal(update.tool_call_id, update)
             if update.status in ("completed", "failed"):
                 self._ended.add(update.tool_call_id)
 
@@ -696,7 +661,7 @@ class _Session:
         command, and so which rules to tighten."""
         self._tell(f"refused `{line}` by {layer}: {reason}")
 
-    def _attribute_own_refusal(self, call_id: str, output: str) -> None:
+    def _attribute_own_refusal(self, call_id: str, update: ToolCallProgress) -> None:
         """A failed call abk never ran or answered. When its output says the
         command was blocked or denied, the agent's own policy refused it —
         whatever abk's rules think of the command; failing that, a command the
@@ -715,11 +680,10 @@ class _Session:
         command = forbidden or commands[0]
         batched = known.batched or len(commands) > 1
         subject = f"{command} (part of a batch)" if batched and not forbidden else command
-        match = BLOCKED_OUTPUT.search(output)
-        if match:
+        output = output_of(update)
+        if denied_call(update):
             self._answered.add(call_id)
-            # From the start of the line the denial sits in.
-            said = output[output.rfind("\n", 0, match.start()) + 1 :]
+            said = refusal_line(output) or output
             self._refused(subject, " ".join(said.split())[:200], "the agent's own policy")
             return
         if forbidden:
@@ -1220,7 +1184,7 @@ class AcpRuntime:
         ended_already = False
         try:
             response = await self._turn(conn, session, request)
-            stop_reason = str(response.stop_reason)
+            stop_reason: StopReason = response.stop_reason
         except RequestError as exc:
             return AgentResult(
                 ok=False,

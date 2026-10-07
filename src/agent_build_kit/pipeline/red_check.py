@@ -14,8 +14,15 @@ whether it was honestly red (docs/architecture.md).
 - **A syntax error or a missing fixture is not red.** They fail for reasons
   unrelated to the missing behaviour, and would keep failing afterwards.
 - **An assertion failure, `NotImplementedError`, or a missing module or
-  attribute *is* red.** Those are what a real test looks like before its
-  implementation lands — with or without stubs in the commit.
+  attribute *is* red** when it is raised inside a test body, or by a fixture
+  at setup. Those are what a real test looks like before its implementation
+  lands. A test module that fails to import at collection is not red, even
+  for a missing module: the tests commit has to add stubs for what its tests
+  import.
+
+The JUnit report is the primary reading: each failing test's exception type
+decides. The console matching in `interpret_pytest` is the fallback, used and
+logged only when no report could be read.
 
 Anything unrecognised is not red either. Certifying a run we can't read would
 defeat the point.
@@ -23,7 +30,12 @@ defeat the point.
 
 from __future__ import annotations
 
+import logging
 import re
+from typing import Literal
+from xml.etree import ElementTree
+
+from agent_build_kit.model import Frozen
 
 # "1 failed, 2 passed in 0.06s" / "3 passed in 0.10s"
 COUNT = re.compile(r"(\d+) (passed|failed|error|errors|skipped)")
@@ -47,6 +59,32 @@ REJECTED = {
     "fixture": "a missing or broken fixture fails for its own reasons",
     "ConftestImportFailure": "a broken conftest fails for its own reasons",
 }
+
+
+# The exception types a `<failure>` may carry for the report path to call it red.
+ACCEPTED_TYPES = frozenset(
+    {
+        "AssertionError",
+        "NotImplementedError",
+        "ModuleNotFoundError",
+        "ImportError",
+        "AttributeError",
+    }
+)
+
+
+def exception_type(message: str) -> str:
+    """The exception type a `<failure>`'s `message` names: its leading dotted
+    identifier (before ':' or the end of the line), last part kept. A message
+    starting with `assert ` is pytest's rewritten assertion, an `AssertionError`.
+    Empty when the message does not start with an exception type."""
+    text = message.strip()
+    if text == "assert" or text.startswith("assert "):
+        return "AssertionError"
+    head = re.match(r"[A-Za-z_][\w.]*", text)
+    if not head or text[head.end() :].lstrip(" \t")[:1] not in ("", ":"):
+        return ""
+    return head.group(0).rpartition(".")[2]
 
 
 def _counts(output: str) -> dict[str, int]:
@@ -95,3 +133,112 @@ def interpret_pytest(output: str, *, exit_code: int) -> tuple[bool, list[str]]:
         )
 
     return not problems, problems
+
+
+class RedResult(Frozen):
+    """The verdict on a tests commit's run, and the failing tests it names."""
+
+    verdict: Literal["accepted", "rejected"]
+    tests: tuple[str, ...] = ()
+    problems: tuple[str, ...] = ()
+
+
+REPORT_MARK = "--- abk junit report ---"
+
+LOG = logging.getLogger(__name__)
+
+_REPORT_SPAN = re.compile(r"<testsuites\b.*?</testsuites>", re.DOTALL)
+
+
+def split_report(output: str) -> tuple[str | None, str]:
+    """The JUnit report a red command printed after `REPORT_MARK`, or None when
+    it printed none, and the console output before it."""
+    console, found, after = output.partition(REPORT_MARK)
+    if not found:
+        return None, output
+    # Whatever the shell printed to stderr after the report is not part of it.
+    span = _REPORT_SPAN.search(after)
+    report = span.group(0) if span else after.strip()
+    return report or None, console
+
+
+def red_check(report: str) -> RedResult:
+    """Judge a run from pytest's JUnit report, by each failing test's exception.
+
+    Raises `ValueError` when `report` is not a JUnit report.
+    """
+    body = report.strip()
+    if body.startswith("<!--"):
+        body = body.partition("-->")[2].strip()
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError as error:
+        raise ValueError(f"not a JUnit report: {error}") from error
+
+    failing: list[str] = []
+    problems: list[str] = []
+    passed = 0
+    for case in root.iter("testcase"):
+        name = "::".join(part for part in (case.get("classname"), case.get("name")) if part)
+        bad = [*case.findall("failure"), *case.findall("error")]
+        if not bad:
+            passed += case.find("skipped") is None
+            continue
+        failing.append(name)
+        for element in bad:
+            message = element.get("message") or ""
+            if element.tag == "error":
+                said = f"{message}\n{element.text or ''}"
+                if reason := _error_reason(element, said):
+                    problems.append(f"{name}: {reason}")
+                continue
+            kind = exception_type(message)
+            if kind in ("SyntaxError", "IndentationError"):
+                problems.append(f"{name}: {REJECTED[kind]}")
+            elif kind not in ACCEPTED_TYPES:
+                problems.append(
+                    f"{name}: the failure is not one we recognise as "
+                    "'the behaviour isn't there yet'"
+                )
+
+    if passed:
+        problems.append(
+            f"{passed} test(s) passed at the tests commit — a test that passes "
+            "before its implementation exists is not testing that implementation"
+        )
+    if not failing:
+        problems.append("nothing failed at the tests commit")
+    return RedResult(
+        verdict="rejected" if problems else "accepted",
+        tests=tuple(failing),
+        problems=tuple(problems),
+    )
+
+
+def _error_reason(element: ElementTree.Element, said: str) -> str | None:
+    """Why an `<error>` disqualifies the run, or None when it is red: a fixture
+    that calls a stub and raises `NotImplementedError` at setup is the missing
+    implementation, not a broken fixture."""
+    if element.get("message") == "collection failure":
+        return "the test module could not be collected, so no test failed for the missing behaviour"
+    for marker, why in REJECTED.items():
+        if marker in said:
+            return why
+    if "NotImplementedError" in said:
+        return None
+    return "an error outside the test body is not a missing implementation"
+
+
+def judge_red(report: str | None, output: str, exit_code: int) -> RedResult:
+    """Judge a run from its `report`, or from the console `output` (logging
+    that it did) when the report could not be written."""
+    if report:
+        try:
+            return red_check(report)
+        except ValueError as error:
+            reason = str(error)
+    else:
+        reason = "no report was written"
+    LOG.warning("red check: %s; using the console fallback", reason)
+    ok, problems = interpret_pytest(output, exit_code=exit_code)
+    return RedResult(verdict="accepted" if ok else "rejected", problems=tuple(problems))

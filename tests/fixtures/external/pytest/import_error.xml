@@ -1,0 +1,11 @@
+<!-- tool: pytest 9.1.1
+     command: pytest test_case.py -p no:cacheprovider --tb=line -q --junitxml=<path> -->
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1"><testcase classname="" name="test_case"><error message="collection failure">ImportError while importing test module '/tmp/case/test_case.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/python/lib/python3.14/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+test_case.py:1: in &lt;module&gt;
+    from nothing_here import thing
+E   ModuleNotFoundError: No module named 'nothing_here'</error></testcase></testsuite></testsuites>

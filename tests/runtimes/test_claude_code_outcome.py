@@ -113,6 +113,26 @@ def test_a_refusal_that_does_not_say_when_it_lifts_still_raises(tmp_path: Path) 
     assert caught.value.resets_at is None
 
 
+def test_a_clean_exit_with_a_rate_limited_closing_event_still_raises(tmp_path: Path) -> None:
+    fake = FakeClaude(
+        stdout=refused(tmp_path, "Claude AI usage limit reached|1919763200"), returncode=0
+    )
+
+    with pytest.raises(AgentRateLimited) as caught:
+        ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert caught.value.resets_at == datetime.fromtimestamp(1919763200, UTC)
+
+
+def test_a_clean_exit_with_an_error_closing_event_is_a_failed_result(tmp_path: Path) -> None:
+    fake = FakeClaude(stdout=failed_build(tmp_path, "Reached maximum turns"), returncode=0)
+
+    outcome = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert not outcome.ok
+    assert outcome.stop_reason.startswith("error")
+
+
 def test_a_process_killed_by_a_signal_is_an_interruption(tmp_path: Path) -> None:
     """A run killed seconds in says nothing about the work; failing the unit
     would untick its tasks for no reason."""

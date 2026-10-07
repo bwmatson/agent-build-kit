@@ -1,0 +1,15 @@
+{
+  "toolCallId": "tc-7d345b9b692e",
+  "kind": "execute",
+  "status": "failed",
+  "content": [
+    {
+      "content": {
+        "text": "terminal result\n- **output:** ls: cannot access '/does-not-exist-abk': No such file or directory\n- **exit_code:** 2",
+        "type": "text"
+      },
+      "type": "content"
+    }
+  ],
+  "sessionUpdate": "tool_call_update"
+}

@@ -1,0 +1,20 @@
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx",
+  "status": "failed",
+  "rawOutput": {
+    "error": {
+      "code": "permission_denied",
+      "message": "Permission to use Bash with command git reset --hard HEAD has been denied."
+    }
+  },
+  "content": [
+    {
+      "type": "content",
+      "content": {
+        "type": "text",
+        "text": "Permission to use Bash with command git reset --hard HEAD has been denied."
+      }
+    }
+  ]
+}

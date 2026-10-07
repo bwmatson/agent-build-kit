@@ -1,0 +1,15 @@
+{
+  "toolCallId": "tc-d5d741287e74",
+  "kind": "execute",
+  "status": "completed",
+  "content": [
+    {
+      "content": {
+        "text": "terminal result\n- **output:** permission to run that was denied\n- **exit_code:** 0",
+        "type": "text"
+      },
+      "type": "content"
+    }
+  ],
+  "sessionUpdate": "tool_call_update"
+}

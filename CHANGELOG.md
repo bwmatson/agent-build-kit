@@ -35,7 +35,13 @@
   locale, and only a stale lease is reported as someone else's push. A remote's refusal (a hook,
   branch protection) or a non-fast-forward is now an ordinary push failure carrying the remote's
   message, where it used to be reported as a stale lease. The rerere replay notice is read there
-  too, and recorded git output under `tests/fixtures/external/git/` pins both.
+  too. A failed `claude` run comes from the closing event's `is_error` and subtype, whatever
+  the exit status (only an explicit success subtype is a success), a closing event with an
+  `api_error_status` of 429 is a rate limit without reading its words, and a denied ACP tool call
+  from its status and a known denial code, with the phrase lists as the fallback. The red check
+  judges each failing test's exception type from pytest's JUnit report (words inside an
+  assertion's own message no longer decide), ignoring stderr around it, and says in the log when it falls back to the console. Recorded output under
+  `tests/fixtures/external/` pins git, the agent tools and pytest.
 
 - `CHANGELOG.md` merges with git's union driver (`.gitattributes`), so two units that each add an
   entry under Unreleased no longer conflict on it, and the restack that used to resolve it by hand

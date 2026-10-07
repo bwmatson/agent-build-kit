@@ -1,0 +1,15 @@
+{
+  "toolCallId": "tc-76858d6f45b6",
+  "kind": "execute",
+  "status": "failed",
+  "content": [
+    {
+      "content": {
+        "text": "terminal failed: BLOCKED: this command matches the user-defined deny rule 'gh pr merge *' (approvals.deny in config.yaml). It cannot be executed via the agent — not even with --yolo, /yolo, or approvals.mode=off. Do NOT retry or rephrase this command; the user has explicitly forbidden it.",
+        "type": "text"
+      },
+      "type": "content"
+    }
+  ],
+  "sessionUpdate": "tool_call_update"
+}

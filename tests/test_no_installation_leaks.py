@@ -19,7 +19,19 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCANNED = ("src", "tests", "docs")
-TEXT = {".py", ".md", ".yaml", ".yml", ".toml", ".service", ".timer", ".tmpl", ".txt", ".json"}
+TEXT = {
+    ".py",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".service",
+    ".timer",
+    ".tmpl",
+    ".txt",
+    ".json",
+    ".xml",
+}
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
 # Upstream projects the framework builds on and credits; not installations.
