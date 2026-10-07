@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 
 
@@ -53,6 +54,10 @@ class ToolchainProfile(Protocol):
     def failure_kind(self, output: str) -> str:
         """`lint`, `types` or `test`: which check a failed tier 1 command was,
         from the `$ command (exit N)` header and output the pipeline keeps."""
+        ...
+
+    def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
+        """Further tier 1 commands for this repo beyond lint and tests."""
         ...
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]: ...

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Each repo has a `changelog` setting in `abk.yaml`: the path of its changelog (default
+  `CHANGELOG.md`), or `null` to turn the changelog convention off. For a repo with it on,
+  the build, rework, test-writing, resolver and review prompts carry the convention, from
+  the repo's own `## Changelog` section in `AGENTS.md` or else `CLAUDE.md`, or from a
+  packaged text where it has none, and tier 1 runs the new `abk changelog check [PATH]`,
+  which reports a conflict marker, bullets run together or repeated, a bullet outside a
+  section and headings out of order with the file and line. A repo with no changelog
+  file yet passes the check with a note, and `abk doctor` warns about it.
+
 - Why a unit stopped is a recorded cause (rework, base changed, upstream went back, usage,
   depth, toolchain, review escalation, a reviewer's hold, requeued, and the like) kept on each
   change that stops, holds or sends back a unit, and the

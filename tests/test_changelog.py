@@ -1,10 +1,12 @@
 """The changelog keeps its form, so a unit's entry is checked before any review."""
 
+import re
+from importlib import resources
 from pathlib import Path
 
 import pytest
 
-from tests.changelog_form import changelog_problems
+from agent_build_kit.changelog_form import changelog_problems
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,6 +32,20 @@ WELL_FORMED = """\
 
 def test_a_well_formed_changelog_passes() -> None:
     assert changelog_problems(WELL_FORMED) == []
+
+
+def test_this_repositorys_section_is_the_packaged_text_or_marked_as_an_override() -> None:
+    packaged = (
+        resources.files("agent_build_kit")
+        .joinpath("templates", "changelog-convention.md")
+        .read_text()
+    )
+    conventions = (ROOT / "AGENTS.md").read_text()
+    heading, _, body = re.split(r"^## (?=Changelog)", conventions, flags=re.MULTILINE)[1].partition(
+        "\n"
+    )
+
+    assert body.split("\n## ")[0].strip() == packaged.strip() or "override" in heading.lower()
 
 
 def test_the_changelog_in_this_repository_passes() -> None:

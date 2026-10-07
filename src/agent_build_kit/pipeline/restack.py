@@ -30,7 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import runtimes
-from agent_build_kit.config import active
+from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.changelog_convention import changelog_note, resolver_changelog_rule
@@ -98,6 +98,8 @@ class ConflictContext(Frozen):
     moving_intent: str
     onto_unit: str
     onto_intent: str
+    # The repo being moved, for its changelog setting; None reads as the defaults.
+    repo: RepoConfig | None = None
 
 
 RESOLVE_PROMPT = """\
@@ -297,8 +299,8 @@ def move_branch_onto(
         if replayed
         else "",
         diff=git(repo, "diff", check=False).stdout[:8000],
-        changelog_rule=resolver_changelog_rule(repo, files),
-        changelog=changelog_note(repo),
+        changelog_rule=resolver_changelog_rule(repo, files, context.repo),
+        changelog=changelog_note(repo, context.repo),
     )
 
     try:
@@ -520,6 +522,7 @@ def resolved_move(
     onto_intent: str,
     move: Callable[..., Moved] | None = None,
     resolve: Resolver | None = None,
+    repo_config: RepoConfig | None = None,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 
@@ -547,6 +550,7 @@ def resolved_move(
             moving_intent=moving_intent,
             onto_unit=onto_unit,
             onto_intent=onto_intent,
+            repo=repo_config,
         ),
     )
 

@@ -122,6 +122,27 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
+def _changelogs(inst: Installation) -> list[Check]:
+    """A repo that names a changelog its checkout does not have is warned about."""
+    checks = []
+    for name, repo in inst.repos.items():
+        path = repo.path.expanduser()
+        if repo.changelog is None or not path.is_dir():
+            continue
+        if (path / repo.changelog).is_file():
+            checks.append(_ok(f"changelog {name}", repo.changelog))
+        else:
+            checks.append(
+                _warn(
+                    f"changelog {name}",
+                    f"{repo.changelog} is not in {path}",
+                    f"add the file, set `changelog:` to where {name} keeps it, "
+                    "or `changelog: null` to turn the convention off",
+                )
+            )
+    return checks
+
+
 def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTransport | None) -> str:
     """The account this repo's credential acts as, from the cheapest
     authenticated endpoint. Raises `TransportError` naming what failed."""
@@ -814,6 +835,7 @@ def run_doctor(
     inst.activate()
 
     checks += _repos(inst, run)
+    checks += _changelogs(inst)
     checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
     checks += _timers(inst, run, units, which)

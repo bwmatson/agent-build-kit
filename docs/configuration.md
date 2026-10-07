@@ -237,6 +237,14 @@ repos:                          # ordered: deploy order is derived from
                                 # `up`, `test` and `down`. Tier 2 runs the
                                 # unit's branch on it instead of the live
                                 # stack. null = no dev stack.
+    changelog: CHANGELOG.md     # where the repo keeps its changelog. Set, the
+                                # build, rework, resolver and review prompts
+                                # carry its convention and tier 1 runs
+                                # `abk changelog check`; null = off. The
+                                # convention is the `## Changelog` section of
+                                # the repo's AGENTS.md, else its CLAUDE.md,
+                                # else the framework's packaged text.
+                                # `abk doctor` warns when the file is absent.
     deploy:
       needs_ssh_agent: false    # image builds that fetch a dependency over
                                 # SSH need an agent holding the key
