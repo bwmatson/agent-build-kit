@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Breaking: a `units.json` that still holds `review_rounds`, `deferred`, `pending_replies`,
+  `person_comments` or `resume_from` on a unit (written by the previous engine) no longer
+  loads; the error names the unit and the field. Finish or requeue that work with the
+  release that wrote it first. The tick no longer moves such units onto threads.
+
 - Each repo has a `changelog` setting in `abk.yaml`: the path of its changelog (default
   `CHANGELOG.md`), or `null` to turn the changelog convention off. For a repo with it on,
   the build, rework, test-writing, resolver and review prompts carry the convention, from
@@ -22,9 +27,8 @@
   change that stops, holds or sends back a unit, and the
   pass lets a unit it already built back in by that cause alone: only rework and a changed
   base. Rewording a note changes no decision, and the depth hold keeps the branch it is still
-  on as a field. A store written before causes were kept loads with none, its units are not
-  readmitted mid-pass, and `abk status` lists them under `no recorded cause` so each can be
-  requeued or held again once by hand. In the same way a requeue carries a reason, a rework
+  on as a field. A record with no cause is not readmitted mid-pass, and `abk status` lists it under
+  `no recorded cause`. In the same way a requeue carries a reason, a rework
   the kind that sent the unit back, and saved feedback its source, as fields: the words of a
   person that begin like a check failure are still review feedback, and a run ends in one
   `UnitOutcome`, and a unit's state is a `UnitState`. Feedback saved before the upgrade

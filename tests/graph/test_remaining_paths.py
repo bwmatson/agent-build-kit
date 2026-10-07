@@ -19,7 +19,6 @@ import pytest
 
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import Restacked
@@ -32,7 +31,6 @@ from agent_build_kit.pipeline.units import (
     branch_name,
     waiting_on,
 )
-from tests.classic_store import leave_in_flight
 from tests.factories import unit
 from tests.graph.test_build_path import build, limited, once, restacked
 from tests.graph_driver import position
@@ -210,20 +208,6 @@ def test_a_satisfied_unit_posts_the_reason_before_closing_its_open_pull_request(
     store = recorder.store
     store.set_state(unit().id, PLANNED, pr=4, branch=branch_name(unit()))
     store.set_feedback(unit().id, "please double-check the edge case")
-    # An older version left replies and the comments they answer; they move onto the thread.
-    leave_in_flight(
-        store, unit().id, pending_replies=["done"], person_comments="[comment 1] rename"
-    )
-
-    async def convert() -> None:
-        async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
-            await convert_units_in_flight(saver, store)
-
-    asyncio.run(convert())
-    seeded = position(tmp_path).state
-    assert seeded is not None
-    assert seeded.pending_replies == ("done",)
-
     outcome = build(tmp_path, recorder, graph=[store.get(unit().id)], **empty_branch())
 
     assert outcome.status == "satisfied"

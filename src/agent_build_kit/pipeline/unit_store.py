@@ -136,15 +136,6 @@ class StoredUnit(Unit):
     # What review asked for, waiting to be addressed. Cleared once a run has
     # acted on it, so a unit is never reworked twice for the same comment.
     feedback: str = ""
-    # The step the previous engine stopped a unit before; empty otherwise. Read
-    # only by `graph.convert`, which seeds the unit's thread from it and clears
-    # it; nothing writes it. A store written before the switch may still carry it.
-    resume_from: str = ""
-    # In-run progress a store written before the switch holds (`BEFORE_THE_SWITCH`:
-    # review rounds, deferred follow-ups, pending replies, the comments they
-    # answer). Collected on read so such a file still loads; `graph.convert`
-    # moves it into the unit's thread and clears it. Nothing writes it.
-    classic_run: dict[str, Any] = {}
     # The commit the review loop last approved. Nothing else may be pushed:
     # see the gate before the `push` node. Here, not in the run, because the
     # push gate and `build_restack` read and write it with no run in progress.
@@ -181,12 +172,7 @@ class StoredUnit(Unit):
         """Planned, with no branch, commit or pull request:
         nothing exists that removing or extending this unit could disturb."""
         return self.state == PLANNED and not (
-            self.branch
-            or self.pr is not None
-            or self.pushed
-            or self.approved
-            or self.resume_from
-            or self.classic_run
+            self.branch or self.pr is not None or self.pushed or self.approved
         )
 
     @property
@@ -213,18 +199,27 @@ class StoredUnit(Unit):
             return None
 
 
-# The in-run fields a unit used to carry here, which now live in its thread.
-BEFORE_THE_SWITCH = ("review_rounds", "deferred", "pending_replies", "person_comments")
+# The in-run fields a unit carried before its progress moved into its thread. A store
+# that still holds one is refused: that work must be finished or requeued first.
+OLD_ENGINE_FIELDS = (
+    "review_rounds",
+    "deferred",
+    "pending_replies",
+    "person_comments",
+    "resume_from",
+)
 
 
-def _collect_classic_run(item: Any) -> Any:
-    """`item` with any in-run field of a store written before the switch gathered
-    into `classic_run`, where they are for `graph.convert` and no longer a field."""
-    if not isinstance(item, dict) or not any(key in item for key in BEFORE_THE_SWITCH):
-        return item
-    moved = {key: item[key] for key in BEFORE_THE_SWITCH if item.get(key)}
-    kept = {key: value for key, value in item.items() if key not in BEFORE_THE_SWITCH}
-    return {**kept, "classic_run": {**kept.get("classic_run", {}), **moved}}
+def _refuse_old_engine_fields(item: Any) -> None:
+    if not isinstance(item, dict):
+        return
+    for field in OLD_ENGINE_FIELDS:
+        if field in item:
+            raise ValueError(
+                f"{item.get('id', '?')}: the units store holds `{field}`, a field of the "
+                "previous engine; finish or requeue that unit's work with the release that "
+                "wrote it, then remove the field"
+            )
 
 
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
@@ -286,8 +281,9 @@ class UnitStore:
             # predate a change to StoredUnit, so a missing or unknown key
             # should fail here — naming the field — rather than construct
             # something odd that breaks three steps later.
+            _refuse_old_engine_fields(item)
             try:
-                unit = StoredUnit.model_validate(_collect_classic_run(item))
+                unit = StoredUnit.model_validate(item)
             except ValidationError as error:
                 raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
             stored[unit.id] = unit
@@ -343,8 +339,6 @@ class UnitStore:
                 # Work in progress, not shape: a re-plan must not drop what
                 # review asked for, or where a paused unit should pick up.
                 feedback=existing.feedback if existing else "",
-                resume_from=existing.resume_from if existing else "",
-                classic_run=existing.classic_run if existing else {},
                 approved=existing.approved if existing else "",
                 feedback_from_person=existing.feedback_from_person if existing else False,
                 feedback_source=existing.feedback_source if existing else FeedbackSource.NONE,
@@ -546,11 +540,6 @@ class UnitStore:
     def set_trace(self, unit_id: str, trace: str) -> None:
         """Name where the unit's most recent run is in the traces. Not a state change."""
         self._update(unit_id, trace=trace)
-
-    def clear_converted(self, unit_id: str) -> None:
-        """Forget the step and the in-run progress a store written before the
-        switch holds, once the unit's thread has them."""
-        self._update(unit_id, resume_from="", classic_run={})
 
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
         self._update(unit_id, depends_on=tuple(depends_on))

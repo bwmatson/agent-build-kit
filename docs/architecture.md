@@ -380,10 +380,8 @@ reaching review and being satisfied carry none. A pass lets a unit it already
 built back in only when its last cause is `rework` or `base_changed` (resuming restacks
 it, so what held it is gone); a unit put back for any other cause waits for the next
 pass, and the tick log says which cause. A unit held for depth keeps the branch it is
-still on as `held_base`, and who holds it as `held_by`. A record written before causes
-were kept has none: the pass does not readmit it, the diagram shows it by its state, and
-`abk status` lists it (`no recorded cause`) so each can be requeued, or held again from
-its pull request, once by hand.
+still on as `held_base`, and who holds it as `held_by`. A record with no cause, or one
+this release does not know, is never readmitted by the pass; `abk status` lists it.
 A usage pause leaves the unit `running`, with its thread interrupted before
 the agent node; the first tick the usage guard allows resumes it from there.
 A run that is killed is resumed the same way, at the node it was in: nothing
@@ -755,7 +753,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 
 | File | What | Loss means |
 |---|---|---|
-| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, history. In-run progress (review rounds, deferred follow-ups, pending replies) is in the unit's thread, not here; only `approved` and `predecessor_note` stay, because the push gate and the restack write them with no run in progress. A store the previous engine left may still carry `resume_from` and the in-run keys, which load and are moved onto the thread by the first tick. The truth; the graph page is a view of it. | rebuilt work. Commit it. |
+| `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, history. In-run progress (review rounds, deferred follow-ups, pending replies) is in the unit's thread, not here; only `approved` and `predecessor_note` stay, because the push gate and the restack write them with no run in progress. A store that still carries `resume_from` or the in-run keys is refused when read, naming the unit and the field. The truth; the graph page is a view of it. | rebuilt work. Commit it. |
 | `verified.json` | the last verification of each change and the units it covered. | a change verified again. |
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |

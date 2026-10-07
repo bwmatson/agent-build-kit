@@ -511,7 +511,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     # straight away, and they must land on the trunk as it now is.
     _refresh(inst, store=store)
 
-    convert_in_flight(inst, store=store)
+    _create_thread_store(inst)
     plan_all(inst, store=store)
     link_needs(inst, store=store)
     units = store.all()
@@ -723,12 +723,13 @@ def _sent_back(
             continue
         if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
-        elif skipped is not None and (unit.id, str(last.get("at"))) not in skipped:
+        elif (
+            skipped is not None
+            and unit.cause is not None
+            and (unit.id, str(last.get("at"))) not in skipped
+        ):
             skipped.add((unit.id, str(last.get("at"))))
-            log(
-                f"{unit.id}: not started again in this pass, "
-                f"stopped for {unit.cause.value if unit.cause else 'no recorded cause'}"
-            )
+            log(f"{unit.id}: not started again in this pass, stopped for {unit.cause.value}")
     return out
 
 
@@ -912,19 +913,17 @@ def has_thread(inst: Installation, unit_id: str) -> bool:
     return thread_of(inst, unit_id).state is not None
 
 
-def convert_in_flight(inst: Installation, *, store: UnitStore) -> None:
-    """Seed a thread for each unit the engine before the switch left in flight, at the
-    start of a tick: units that already have one are left where they are."""
+def _create_thread_store(inst: Installation) -> None:
+    """Create the thread database before units start in parallel: its first open
+    switches it to WAL, which two connections racing to do fail on with a lock."""
     # Late: the graph package imports the pipeline.
     from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-    from agent_build_kit.graph.convert import convert_units_in_flight
 
-    async def convert() -> tuple[str, ...]:
-        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
-            return await convert_units_in_flight(saver, store)
+    async def create() -> None:
+        async with open_checkpointer(unit_graphs_path(inst.state_dir)):
+            pass
 
-    for unit_id in asyncio.run(convert()):
-        log(f"{unit_id}: moved onto a thread")
+    asyncio.run(create())
 
 
 def link_needs(inst: Installation, *, store: UnitStore) -> None:
