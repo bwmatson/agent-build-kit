@@ -27,8 +27,9 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
+    HELD,
     IN_REVIEW,
     MERGED,
     PLANNED,
@@ -125,6 +126,9 @@ class Builder:
         # Run before the build marks its unit `running`, as the real one's
         # lock, store read and usage check are.
         self.before_running: dict[str, Callable[[], object]] = {}
+        # How a unit's build ends when it is not in review: the state, cause and
+        # note it leaves. A unit not named here is left `planned` with its status as note.
+        self.ends: dict[str, tuple[str, Cause | None, str]] = {}
         self.started: list[str] = []
         self.finished: list[str] = []
         self._lock = threading.Lock()
@@ -154,6 +158,10 @@ class Builder:
 
         if status == "open":
             self.store.set_state(unit.id, IN_REVIEW, pr=pr)
+        elif unit.id in self.ends:
+            state, cause, note = self.ends[unit.id]
+            held_by = HeldBy.TOOLCHAIN if state == HELD else HeldBy.NONE
+            self.store.set_state(unit.id, state, note=note, cause=cause, held_by=held_by)
         else:
             note = status if ":" in status else f"{status} before implement"
             self.store.set_state(unit.id, PLANNED, note=note)
@@ -226,6 +234,9 @@ def test_a_pass_with_one_long_build_still_refreshes_and_fills_free_slots(
     assert builder.store.get("slow/1").state == IN_REVIEW
 
 
+MOVED_NOTE = "held before implement: its base moved from spec/a/1 to main while it built"
+
+
 def _sends_back(builder: Builder, unit_id: str, *, times: int):
     """A poll that, after each time `unit_id` reaches review, sends it back for
     rework — as a conflict or a failing check does — up to `times` times."""
@@ -235,7 +246,10 @@ def _sends_back(builder: Builder, unit_id: str, *, times: int):
         if builder.store.get(unit_id).state == IN_REVIEW and len(sent) < times:
             sent.append(1)
             builder.store.set_state(
-                unit_id, PLANNED, note="rework requested: merge conflict with its base"
+                unit_id,
+                PLANNED,
+                note="rework requested: merge conflict with its base",
+                cause=Cause.REWORK,
             )
 
     return poll
@@ -274,13 +288,10 @@ def test_a_unit_that_held_itself_during_the_pass_is_started_again_in_it(
 
     def holds_once() -> str | None:
         runs.append(1)
-        return (
-            "held before implement: its base moved from spec/a/1 to main while it built"
-            if len(runs) == 1
-            else None
-        )
+        return "held" if len(runs) == 1 else None
 
     builder.scripts["moved/1"] = holds_once
+    builder.ends["moved/1"] = (PLANNED, Cause.BASE_CHANGED, MOVED_NOTE)
     builder.scripts["slow/1"] = lambda: (
         None if eventually(lambda: builder.finished.count("moved/1") == 2) else "failed"
     )
@@ -298,9 +309,8 @@ def test_a_unit_that_keeps_holding_itself_is_started_a_bounded_number_of_times(
     inst = workspace(tmp_path, max_concurrent=2)
     builder.store.upsert([stored("moved/1"), stored("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    builder.scripts["moved/1"] = lambda: (
-        "held before implement: its base moved from spec/a/1 to main while it built"
-    )
+    builder.scripts["moved/1"] = lambda: "held"
+    builder.ends["moved/1"] = (PLANNED, Cause.BASE_CHANGED, MOVED_NOTE)
     builder.scripts["slow/1"] = lambda: (
         None
         if eventually(lambda: builder.started.count("moved/1") > cli.REBUILDS_PER_PASS)
@@ -1217,3 +1227,153 @@ def test_a_pause_with_nothing_stranded_leaves_the_store_as_it_was(
 
     assert builder.store.all() == before
     assert "session at 88%" in capsys.readouterr().out
+
+
+# --- a unit is let back in by its cause, never by the wording of its note --------------
+
+
+def _ends_and_waits(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end, *, readmitted: bool
+) -> None:
+    """Build `sent/1`, which ends as `end` says, beside a slow unit that keeps the
+    pass going for several refreshes — or, when `readmitted`, until `sent/1` has
+    been started a second time."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("sent/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    builder.scripts["sent/1"] = lambda: "held"
+    builder.ends["sent/1"] = end
+
+    def slow() -> str | None:
+        if not readmitted:
+            time.sleep(0.4)  # several refreshes, in which a readmission would show
+            return None
+        return None if eventually(lambda: builder.started.count("sent/1") == 2) else "failed"
+
+    builder.scripts["slow/1"] = slow
+
+    assert tick(inst) == 0
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        MOVED_NOTE,
+        "base moved before its push: tier 1 failed on main",
+        "base gone before its pull request: base branch spec/a/1 does not exist",
+        "moving onto main needed resolution",
+        "quite different words",
+    ],
+)
+def test_a_unit_held_for_a_moved_base_is_let_back_in_whatever_its_note_says(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, note: str
+) -> None:
+    _ends_and_waits(
+        builder, tmp_path, monkeypatch, (PLANNED, Cause.BASE_CHANGED, note), readmitted=True
+    )
+
+    assert builder.started.count("sent/1") == 2
+
+
+def test_a_unit_sent_back_for_rework_is_let_back_in_whatever_its_note_says(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ends_and_waits(
+        builder, tmp_path, monkeypatch, (PLANNED, Cause.REWORK, "reworking"), readmitted=True
+    )
+
+    assert builder.started.count("sent/1") == 2
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        Cause.UPSTREAM_WENT_BACK,
+        Cause.USAGE,
+        Cause.REQUEUED,
+        Cause.RESTACK_CONFLICT,
+        Cause.RESTACK_DEFERRED,
+    ],
+)
+def test_a_planned_unit_stopped_for_any_other_cause_waits_for_the_next_pass_and_the_log_says_why(
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    cause: Cause,
+) -> None:
+    """Even with the wording that used to readmit: a rerun would meet the same cause."""
+    _ends_and_waits(
+        builder,
+        tmp_path,
+        monkeypatch,
+        (PLANNED, cause, "rework requested: " + MOVED_NOTE),
+        readmitted=False,
+    )
+
+    assert builder.started.count("sent/1") == 1
+    out = capsys.readouterr()
+    assert cause.value in out.out + out.err, "the skip is logged with its cause"
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        Cause.TOOLCHAIN,
+        Cause.DEPTH,
+        Cause.REVIEW_ESCALATED_CLASS,
+        Cause.REVIEW_ESCALATED_DISAGREEMENT,
+        Cause.NEEDS_HUMAN,
+    ],
+)
+def test_a_held_unit_is_not_let_back_in_whatever_its_note_says(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cause: Cause
+) -> None:
+    _ends_and_waits(
+        builder,
+        tmp_path,
+        monkeypatch,
+        (HELD, cause, "rework requested: " + MOVED_NOTE),
+        readmitted=False,
+    )
+
+    assert builder.started.count("sent/1") == 1
+    assert builder.store.get("sent/1").state == HELD
+
+
+@pytest.mark.parametrize(
+    "note",
+    [MOVED_NOTE, "rework requested: merge conflict with its base", "held before review: x"],
+)
+def test_a_unit_whose_entry_has_no_cause_is_not_let_back_in_by_its_note(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, note: str
+) -> None:
+    """A store from before causes: the next pass takes it, as it always did."""
+    _ends_and_waits(builder, tmp_path, monkeypatch, (PLANNED, None, note), readmitted=False)
+
+    assert builder.started.count("sent/1") == 1
+
+
+# --- the build's own checks name the cause they found ----------------------------------
+
+
+def test_a_parent_that_went_back_is_reported_with_the_upstream_cause(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("a/1"), stored("a/2", depends_on=("a/1",))])
+    store.set_state("a/1", PLANNED)
+
+    found = build_upstream_incomplete(store)(store.get("a/2"))
+
+    assert found[0] == Cause.UPSTREAM_WENT_BACK
+    assert "a/1" in found[1]
+
+
+def test_a_base_that_moved_is_reported_with_the_base_changed_cause(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("a/1"), stored("a/2", depends_on=("a/1",))])
+    store.set_state("a/1", MERGED)
+
+    found = build_base_moved(store)(store.get("a/2"), "spec/a/1", tree=tmp_path, start="")
+
+    assert found[0] == Cause.BASE_CHANGED
+    assert "spec/a/1" in found[1]

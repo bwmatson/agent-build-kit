@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SATISFIED
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from tests.factories import stored_unit as unit
@@ -92,10 +92,18 @@ def test_the_hold_names_the_depth_and_the_cap(tmp_path: Path) -> None:
     assert last["state"] == HELD
     assert store.get("c/4").held_by == "depth"
     assert "depth 3" in last["note"] and "cap 2" in last["note"]
-    assert last["note"] == (
-        events.DEPTH_HOLD.format(new_base="spec/c/3", depth=3, cap=2)
-        + events.DEPTH_HOLD_BASE.format(old_base="spec/c/1")
-    )
+
+
+def test_the_hold_records_its_cause_and_the_base_it_is_still_on_as_fields(
+    tmp_path: Path,
+) -> None:
+    store = deep_store(tmp_path)
+
+    merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
+
+    held = store.get("c/4")
+    assert held.history[-1].get("cause") == Cause.DEPTH
+    assert held.held_base == "spec/c/1"
 
 
 def test_the_branch_of_a_dependent_held_for_depth_is_not_deleted(tmp_path: Path) -> None:

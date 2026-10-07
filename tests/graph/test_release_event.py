@@ -100,7 +100,9 @@ def depth_held(tmp_path: Path) -> Recorder:
     """Held for depth while the thread still waits for review, then taken over by the label."""
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder)
-    recorder.store.set_state(unit().id, HELD, note=DEPTH_NOTE, held_by=HeldBy.DEPTH)
+    recorder.store.set_state(
+        unit().id, HELD, note=DEPTH_NOTE, held_by=HeldBy.DEPTH, held_base="spec/c/1"
+    )
     tick(tmp_path, recorder, event=HOLD)
     stored = recorder.store.get(unit().id)
     assert (stored.state, stored.held_by) == (HELD, "reviewer")
@@ -121,7 +123,7 @@ def test_a_depth_hold_the_label_took_over_is_held_for_depth_again_while_beyond_t
     assert position(tmp_path).next == (Node.HELD,)
     stored = recorder.store.get(unit().id)
     assert (stored.state, stored.held_by) == (HELD, "depth")
-    assert stored.note == DEPTH_NOTE
+    assert stored.held_base == "spec/c/1"
     assert events.held_for_depth(stored)
 
 

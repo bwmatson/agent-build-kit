@@ -50,6 +50,29 @@ class HeldBy(StrEnum):
     TOOLCHAIN = "toolchain"
 
 
+class Cause(StrEnum):
+    """Why a unit's state last changed out of running; what the pass, the
+    readmission rule and the diagram decide from. A record written before
+    causes were kept has none."""
+
+    REWORK = "rework"
+    BASE_CHANGED = "base_changed"
+    UPSTREAM_WENT_BACK = "upstream_went_back"
+    USAGE = "usage"
+    DEPTH = "depth"
+    TOOLCHAIN = "toolchain"
+    REVIEW_ESCALATED_CLASS = "review_escalated_class"
+    REVIEW_ESCALATED_DISAGREEMENT = "review_escalated_disagreement"
+    NEEDS_HUMAN = "needs_human"
+    REQUEUED = "requeued"
+    RELEASED = "released"
+    RESTACK_CONFLICT = "restack_conflict"
+    RESTACK_DEFERRED = "restack_deferred"
+    MERGED = "merged"
+    CLOSED = "closed"
+    FAILED = "failed"
+
+
 # What the label handler wrote as a hold's note before the cause was kept.
 HELD_BY_A_REVIEWER = "held by a reviewer"
 
@@ -107,6 +130,8 @@ class StoredUnit(Unit):
     stack_refusal: str = ""
     # Why the unit is held (see `HeldBy`).
     held_by: HeldBy = HeldBy.NONE
+    # The branch a unit held for depth is still on.
+    held_base: str = ""
     history: tuple[dict, ...] = ()
 
     @property
@@ -370,6 +395,8 @@ class UnitStore:
         branch: str | None = None,
         note: str = "",
         held_by: HeldBy = HeldBy.NONE,
+        cause: Cause | None = None,
+        held_base: str = "",
     ) -> None:
         """Record a state, optionally with why.
 

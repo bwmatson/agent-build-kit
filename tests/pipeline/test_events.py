@@ -19,7 +19,7 @@ from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict, StaleRemote
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -171,6 +171,13 @@ def test_rework_is_recorded_against_the_unit(store: UnitStore) -> None:
     events.on_rework(1, repo="app", reason="new comment", store=store)
 
     assert "new comment" in str(store.get("add-marker/1").history[-1])
+
+
+def test_rework_records_its_cause_whatever_the_reason_says(store: UnitStore) -> None:
+    """What the running pass reads to let the unit back in, instead of the note."""
+    events.on_rework(1, repo="app", reason="failing checks: tier1", store=store)
+
+    assert store.get("add-marker/1").history[-1].get("cause") == Cause.REWORK
 
 
 def test_a_held_unit_is_recorded_so_nothing_reworks_it(store: UnitStore) -> None:
