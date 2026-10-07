@@ -19,7 +19,7 @@ than a pipeline paper over — but archiving is housekeeping, so it must not end
 the tick before the other changes are archived or anything is built. The
 failure is logged, recorded with a fingerprint of what the archive depended on
 (`failed_archives`, shown by `abk status`), and not retried until the change's
-tasks or one of its units' states change.
+files or one of its units' states change.
 """
 
 from __future__ import annotations
@@ -93,31 +93,35 @@ def _already_archived(change: str, planning_repo: Path, specs_dir: str = "opensp
 
 
 def _fingerprint(change: str, units: list[StoredUnit], directory: Path) -> str:
-    """What a failed archive depended on: the change's tasks and its units' states."""
-    try:
-        tasks = (directory / "tasks.md").read_bytes()
-    except OSError:
-        tasks = b""
+    """What a failed archive depended on: every file of the change (a conflict is
+    fixed by editing its delta specs as much as its tasks) and its units' states."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+        try:
+            content = path.read_bytes()
+        except OSError:
+            content = b""
+        digest.update(path.relative_to(directory).as_posix().encode() + b"\0" + content + b"\0")
     states = sorted(f"{unit.id}={unit.state}" for unit in units if unit.carries(change))
-    return hashlib.sha256(tasks + "\n".join(states).encode()).hexdigest()
-
-
-def failed_archives(state_dir: Path) -> dict[str, str]:
-    """The changes whose archive failed and has not been retried, with why."""
-    try:
-        recorded = json.loads((state_dir / FAILED_FILE).read_text())
-    except (OSError, ValueError):
-        return {}
-    return {change: entry["reason"] for change, entry in recorded.items()}
+    digest.update("\n".join(states).encode())
+    return digest.hexdigest()
 
 
 def _load_failed(state_dir: Path | None) -> dict[str, dict[str, str]]:
     if state_dir is None:
         return {}
     try:
-        return json.loads((state_dir / FAILED_FILE).read_text())
+        recorded = json.loads((state_dir / FAILED_FILE).read_text())
     except (OSError, ValueError):
         return {}
+    if not isinstance(recorded, dict) or not all(isinstance(e, dict) for e in recorded.values()):
+        return {}
+    return recorded
+
+
+def failed_archives(state_dir: Path) -> dict[str, str]:
+    """The changes whose archive failed and has not been retried, with why."""
+    return {change: str(e.get("reason", "")) for change, e in _load_failed(state_dir).items()}
 
 
 def archive_ready_changes(
@@ -151,13 +155,23 @@ def archive_ready_changes(
         and may_archive(change)
     }
 
-    failed = _load_failed(state_dir)
-    before = dict(failed)
+    before = _load_failed(state_dir)
+    # A record outlives only a change still waiting to archive: one archived by
+    # hand, or no longer finished, would otherwise show as failed forever.
+    failed = {
+        change: entry
+        for change, entry in before.items()
+        if is_ready_to_archive(change, units)
+        and not _already_archived(change, planning_repo, specs_dir)
+    }
     archived: list[str] = []
     for change in sorted(ready, key=lambda name: _merged_at(name, units)):
         directory = planning_repo / specs_dir / "changes" / change
         if not directory.is_dir():
-            logger.info("not archiving %s: withdrawn, it has no directory", change)
+            reason = "withdrawn: no change directory"
+            if failed.get(change, {}).get("reason") != reason:
+                logger.info("not archiving %s: %s", change, reason)
+                failed[change] = {"fingerprint": "withdrawn", "reason": reason}
             continue
         fingerprint = _fingerprint(change, units, directory)
         if failed.get(change, {}).get("fingerprint") == fingerprint:

@@ -173,8 +173,8 @@ holds the failure; `abk verify <change>` reruns it once the cause is fixed.
 
 If an archive fails (a conflict between changes), the tick logs it and carries on;
 `abk status` shows `archive failed: <change> — <reason>`. It is not retried until the
-change's `tasks.md` or one of its units' states changes, so fix the conflict by editing
-the change. A finished change whose directory is gone is logged as withdrawn and skipped.
+change's files or one of its units' states change, so fix the conflict by editing
+the change. A finished change whose directory is gone is listed as withdrawn and skipped.
 
 ## When the pipeline is paused
 

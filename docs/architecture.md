@@ -580,9 +580,9 @@ intentions. It runs only when every unit carrying a group of the change merged
 in merge order (two changes touching one requirement conflict when the second
 archives), and never twice. A conflict is not auto-resolved, and it does not end the
 tick either: the failure is logged with its reason, recorded in `archive-failed.json`
-with a fingerprint of the change's `tasks.md` and its units' states, and the change is
-skipped until that fingerprint changes. A finished change with no directory is logged as
-withdrawn and not attempted. `abk status` lists each failed archive with its reason.
+with a fingerprint of the change's files and its units' states, and the change is
+skipped until that fingerprint changes. A finished change with no directory is recorded as
+`withdrawn: no change directory` and not attempted. `abk status` lists each failed archive with its reason.
 
 ## The guards
 

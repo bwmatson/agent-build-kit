@@ -38,6 +38,19 @@ def test_status_lists_a_failed_archive_with_its_reason(
 
     output = capsys.readouterr()
     text = output.out + output.err
-    assert "add-marker" in text
-    assert "archive conflicted" in text
-    assert "archive" in text.lower().replace("archive conflicted", "")
+    assert "archive failed: add-marker — archive conflicted" in text
+
+
+def test_status_lists_a_withdrawn_change(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = make_installation(tmp_path)
+    store = UnitStore(inst.state_dir / "units.json")
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", "merged")
+
+    archive_ready_changes(store.all(), planning_repo=inst.root, state_dir=inst.state_dir)
+
+    assert cli.cmd_status(argparse.Namespace(), inst) == 0
+    output = capsys.readouterr()
+    assert "archive failed: add-marker — withdrawn" in output.out + output.err

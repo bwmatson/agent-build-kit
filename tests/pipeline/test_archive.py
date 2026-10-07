@@ -19,7 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.archive import archive_ready_changes, is_ready_to_archive
+from agent_build_kit.pipeline.archive import (
+    archive_ready_changes,
+    failed_archives,
+    is_ready_to_archive,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from tests.factories import stored_unit
 
@@ -218,6 +222,60 @@ def test_a_change_with_no_directory_is_logged_as_withdrawn_and_not_attempted(
     assert runner.calls == []
     assert "add-marker" in caplog.text
     assert "withdrawn" in caplog.text
+    assert "withdrawn" in failed_archives(tmp_path / "state")["add-marker"]
+
+
+def test_a_withdrawn_change_is_logged_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    state = tmp_path / "state"
+    units = [unit("add-marker/1")]
+    archive_ready_changes(units, planning_repo=tmp_path, run=FakeRunner(), state_dir=state)
+
+    with caplog.at_level(logging.INFO):
+        archive_ready_changes(units, planning_repo=tmp_path, run=FakeRunner(), state_dir=state)
+
+    assert "withdrawn" not in caplog.text
+
+
+def test_a_failure_record_is_dropped_once_the_change_is_archived(tmp_path: Path) -> None:
+    make_change(tmp_path, "add-marker")
+    units = [unit("add-marker/1")]
+    state = tmp_path / "state"
+    archive_ready_changes(
+        units, planning_repo=tmp_path, run=FakeRunner(fails=True), state_dir=state
+    )
+    assert "add-marker" in failed_archives(state)
+    archive = tmp_path / "openspec" / "changes" / "archive" / "2026-09-23-add-marker"
+    archive.mkdir(parents=True)
+
+    archive_ready_changes(units, planning_repo=tmp_path, run=FakeRunner(), state_dir=state)
+
+    assert "add-marker" not in failed_archives(state)
+
+
+def test_a_failed_archive_is_tried_again_when_its_delta_specs_change(tmp_path: Path) -> None:
+    make_change(tmp_path, "add-marker")
+    units = [unit("add-marker/1")]
+    state = tmp_path / "state"
+    archive_ready_changes(
+        units, planning_repo=tmp_path, run=FakeRunner(fails=True), state_dir=state
+    )
+    spec = tmp_path / "openspec" / "changes" / "add-marker" / "specs" / "x" / "spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("## ADDED Requirements\n")
+
+    archived = archive_ready_changes(
+        units, planning_repo=tmp_path, run=FakeRunner(), state_dir=state
+    )
+
+    assert archived == ["add-marker"]
+
+
+def test_a_malformed_failure_record_reads_as_none(tmp_path: Path) -> None:
+    (tmp_path / "archive-failed.json").write_text("[]")
+
+    assert failed_archives(tmp_path) == {}
 
 
 def test_a_failed_archive_is_not_retried_while_nothing_changed(tmp_path: Path) -> None:

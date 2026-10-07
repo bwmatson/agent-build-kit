@@ -28,7 +28,7 @@
   `NotImplementedError` fails the unit.
 - An archive that fails, or a finished change whose directory is gone (withdrawn), no longer
   ends the tick before the other changes are archived or anything is built. The failure is
-  logged with its reason, the change is skipped until its tasks or one of its units' states
+  logged with its reason, the change is skipped until its files or one of its units' states
   change, and `abk status` lists it as `archive failed`.
 
 - GitHub is reached over its REST and GraphQL APIs through `githubkit` (a new dependency,
