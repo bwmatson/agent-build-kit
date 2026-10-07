@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, red_check
+from agent_build_kit.pipeline.red_check import (
+    REPORT_MARK,
+    exception_type,
+    judge_red,
+    red_check,
+)
 from agent_build_kit.profiles.python_uv import PROFILE
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
@@ -117,6 +122,46 @@ def test_stderr_after_the_report_does_not_hide_it(caplog: pytest.LogCaptureFixtu
     assert not ok
     assert any("test_new" in problem for problem in problems)
     assert "fallback" not in caplog.text.lower()
+
+
+def test_an_assertion_that_mentions_a_fixture_is_red() -> None:
+    """Words in the assertion's own explanation do not decide; the exception type does."""
+    result = red_check(recorded("assertion_mentions_fixture"))
+
+    assert result.verdict == "accepted"
+    assert result.problems == ()
+
+
+@pytest.mark.parametrize(
+    ("message", "kind"),
+    [
+        ("assert None == 1\n +  where None = load_fixture('a')", "AssertionError"),
+        ("AssertionError: assert 1 == 2", "AssertionError"),
+        ("NotImplementedError", "NotImplementedError"),
+        ("builtins.ModuleNotFoundError: No module named 'x'", "ModuleNotFoundError"),
+        ("SyntaxError: invalid syntax", "SyntaxError"),
+        ("something went wrong with an assert here", ""),
+    ],
+)
+def test_the_exception_type_is_read_from_the_failure_message(message: str, kind: str) -> None:
+    assert exception_type(message) == kind
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "SyntaxError: assert ",
+        "IndentationError: unexpected indent",
+        "RuntimeError: ImportError assert ",
+    ],
+)
+def test_a_failure_is_judged_by_its_type_not_by_words_in_its_message(message: str) -> None:
+    report = (
+        '<testsuites><testsuite><testcase classname="t" name="test_new">'
+        f'<failure message="{message}">x</failure></testcase></testsuite></testsuites>'
+    )
+
+    assert red_check(report).verdict == "rejected"
 
 
 def test_a_fixture_that_raises_not_implemented_at_setup_is_red() -> None:

@@ -3,6 +3,12 @@
 The fixtures under `tests/fixtures/external/claude/` and `.../acp/` hold the
 closing events and tool call updates with the tool version noted; a change in
 either tool's shape or wording fails here.
+
+Not every fixture is a recording: `update_denied.json` and `update_errored.json`,
+the only ones carrying `rawOutput.error.code` (what `DENIAL_CODES` reads), were
+written to the protocol's schema, because no agent has been seen to send that
+field. The structured denial path is pinned against the schema only. Replace
+them with recordings once an agent sends it (see the acp README).
 """
 
 import json

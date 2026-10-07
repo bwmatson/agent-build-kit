@@ -14,8 +14,15 @@ whether it was honestly red (docs/architecture.md).
 - **A syntax error or a missing fixture is not red.** They fail for reasons
   unrelated to the missing behaviour, and would keep failing afterwards.
 - **An assertion failure, `NotImplementedError`, or a missing module or
-  attribute *is* red.** Those are what a real test looks like before its
-  implementation lands — with or without stubs in the commit.
+  attribute *is* red** when it is raised inside a test body, or by a fixture
+  at setup. Those are what a real test looks like before its implementation
+  lands. A test module that fails to import at collection is not red, even
+  for a missing module: the tests commit has to add stubs for what its tests
+  import.
+
+The JUnit report is the primary reading: each failing test's exception type
+decides. The console matching in `interpret_pytest` is the fallback, used and
+logged only when no report could be read.
 
 Anything unrecognised is not red either. Certifying a run we can't read would
 defeat the point.
@@ -52,6 +59,32 @@ REJECTED = {
     "fixture": "a missing or broken fixture fails for its own reasons",
     "ConftestImportFailure": "a broken conftest fails for its own reasons",
 }
+
+
+# The exception types a `<failure>` may carry for the report path to call it red.
+ACCEPTED_TYPES = frozenset(
+    {
+        "AssertionError",
+        "NotImplementedError",
+        "ModuleNotFoundError",
+        "ImportError",
+        "AttributeError",
+    }
+)
+
+
+def exception_type(message: str) -> str:
+    """The exception type a `<failure>`'s `message` names: its leading dotted
+    identifier (before ':' or the end of the line), last part kept. A message
+    starting with `assert ` is pytest's rewritten assertion, an `AssertionError`.
+    Empty when the message does not start with an exception type."""
+    text = message.strip()
+    if text == "assert" or text.startswith("assert "):
+        return "AssertionError"
+    head = re.match(r"[A-Za-z_][\w.]*", text)
+    if not head or text[head.end() :].lstrip(" \t")[:1] not in ("", ":"):
+        return ""
+    return head.group(0).rpartition(".")[2]
 
 
 def _counts(output: str) -> dict[str, int]:
@@ -153,13 +186,16 @@ def red_check(report: str) -> RedResult:
             continue
         failing.append(name)
         for element in bad:
-            said = f"{element.get('message') or ''}\n{element.text or ''}"
+            message = element.get("message") or ""
             if element.tag == "error":
+                said = f"{message}\n{element.text or ''}"
                 if reason := _error_reason(element, said):
                     problems.append(f"{name}: {reason}")
-            elif reasons := [why for marker, why in REJECTED.items() if marker in said]:
-                problems.extend(f"{name}: {why}" for why in reasons)
-            elif not any(marker in said for marker in ACCEPTED):
+                continue
+            kind = exception_type(message)
+            if kind in ("SyntaxError", "IndentationError"):
+                problems.append(f"{name}: {REJECTED[kind]}")
+            elif kind not in ACCEPTED_TYPES:
                 problems.append(
                     f"{name}: the failure is not one we recognise as "
                     "'the behaviour isn't there yet'"

@@ -648,8 +648,12 @@ pairs: the first substantive commit is tests (plus stubs with no logic —
 checked with `ast` for Python), no two tests commits in a row, at least one
 implementation commit. At each tests commit, in a throwaway worktree, lint
 and format pass with type checking skipped, and the new test files run
-**red for an accepted reason** — an assertion, `NotImplementedError`, a
-missing module or attribute; not a syntax error, a missing fixture or an
+**red for an accepted reason**, read from pytest's JUnit report (the console
+is a logged fallback when no report could be read): an assertion or
+`NotImplementedError`, or a missing module or attribute raised inside a test
+body, or a fixture raising `NotImplementedError` at setup. A test module that
+fails to import at collection is rejected, so the tests commit adds stubs for
+what its tests import; so are a syntax error, a missing fixture and an
 empty run. Results are cached by patch-id so a restack does not re-run them.
 This is the command form of the rule, for a person or a hook; the runner's own
 push condition is the approved-SHA check above.

@@ -23,6 +23,10 @@ CASES = {
     "import_error": "from nothing_here import thing\n\n\ndef test_new():\n    assert thing\n",
     "fixture_error": "def test_new(db):\n    assert db\n",
     "assertion": "def test_new():\n    assert 1 == 2\n",
+    "assertion_mentions_fixture": (
+        "def load_fixture(name):\n    return None\n\n\n"
+        'def test_new():\n    assert load_fixture("a") == 1\n'
+    ),
     "fixture_not_implemented": (
         "import pytest\n\n\n@pytest.fixture\ndef thing():\n    raise NotImplementedError\n\n\n"
         "def test_new(thing):\n    assert thing\n"
