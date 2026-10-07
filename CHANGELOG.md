@@ -68,6 +68,12 @@
   tier 1 failure sends its output under the review prompt; `--restart` avoids this. A toolchain profile the framework does not implement raises
   `ProfileUnsupported`, and only that holds a unit as toolchain; any other
   `NotImplementedError` fails the unit.
+- A running pass now does everything a tick does before building, at each refresh as well
+  as at the start. A change added or edited while builds run is planned, a change whose
+  units have all merged is verified live and archived, a killed run is reclaimed, and the
+  usage guard is asked again, instead of all of it waiting for the next tick. Live
+  verification takes the live-stack lock without waiting and is skipped for that round
+  while a tier 2 run holds it. A step that fails is logged and the rest still run.
 
 - An archive that fails, or a finished change whose directory is gone (withdrawn), no longer
   ends the tick before the other changes are archived or anything is built. The failure is

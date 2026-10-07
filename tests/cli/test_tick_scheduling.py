@@ -721,11 +721,11 @@ def test_a_repo_refused_mid_pass_is_not_built_and_the_pass_fails(
     assert builder.store.get("slow/1").state == IN_REVIEW
 
 
-def test_planning_happens_once_per_pass(
+def test_planning_happens_in_every_round_of_the_pass(
     builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Planning is an agent call, and nothing in a pass creates a unit for it
-    to find."""
+    """A change written during a pass is planned by its next refresh; a change
+    already planned costs no model call (see `test_round`)."""
     inst = workspace(tmp_path, max_concurrent=1)
     builder.store.upsert([stored("feature/1"), stored("feature/2"), stored("feature/3")])
     plans: list[int] = []
@@ -734,7 +734,7 @@ def test_planning_happens_once_per_pass(
     assert tick(inst) == 0
 
     assert builder.started == ["feature/1", "feature/2", "feature/3"]
-    assert plans == [1]
+    assert len(plans) == 4, "the tick's round, then one after each of three completions"
 
 
 # --- a refresh mid-pass leaves the builds in flight alone --------------------------

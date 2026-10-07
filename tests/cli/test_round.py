@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.pause import is_paused
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.tier2 import stack_lock
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.verify import Verification
@@ -77,7 +77,6 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr(cli, "convert_in_flight", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
@@ -212,7 +211,7 @@ def test_a_planner_that_raises_is_logged_and_the_change_is_tried_at_the_next_rou
 @pytest.mark.parametrize(
     "step",
     [
-        "convert_in_flight",
+        "_create_thread_store",
         "plan_all",
         "link_needs",
         "verify_ready",
@@ -631,7 +630,10 @@ def test_a_unit_a_poll_sends_back_is_readmitted_by_the_round_and_rebuilt(
         if builder.store.get("conflicted/1").state == IN_REVIEW and not sent:
             sent.append(1)
             builder.store.set_state(
-                "conflicted/1", PLANNED, note="rework requested: merge conflict with its base"
+                "conflicted/1",
+                PLANNED,
+                note="rework requested: merge conflict with its base",
+                cause=Cause.REWORK,
             )
 
     monkeypatch.setattr(cli, "poll_all", poll)

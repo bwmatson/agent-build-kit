@@ -287,10 +287,22 @@ def _run_for_verify(command, *, cwd, env=None):
     )
 
 
-def verify_one(inst: Installation, change: str, units: list) -> Verification:
+class StackBusy(Exception):
+    """The live stack is in use and the caller would not wait for it."""
+
+
+def verify_one(
+    inst: Installation, change: str, units: list, *, wait: float | None = None
+) -> Verification:
     """Deploy one merged change and run its live tests — under the stack
-    lock, since both touch the one live stack tier 2 also uses."""
-    with stack_lock(inst.state_dir / "tier2.lock"):
+    lock, since both touch the one live stack tier 2 also uses. Waits for the
+    lock, or `wait` seconds when given, then raises `StackBusy`."""
+    options = {} if wait is None else {"timeout": wait}
+    with ExitStack() as held:
+        try:
+            held.enter_context(stack_lock(inst.state_dir / "tier2.lock", **options))
+        except TimeoutError as error:
+            raise StackBusy(str(error)) from error
         return verify_change(
             change,
             units,
@@ -340,6 +352,9 @@ def verify_ready(
         log(f"verifying {change} live: deploy, then its live-stack tests")
         try:
             outcome = verify(change, units)
+        except StackBusy:
+            log(f"verifying {change} skipped — the live stack is in use; tried again next round")
+            continue
         except Exception as error:  # noqa: BLE001 — recorded, never silently skipped
             outcome = Verification(
                 change=change, passed=False, detail=f"{type(error).__name__}: {error}", units=merged
@@ -472,90 +487,22 @@ def _record_unit_states(inst: Installation) -> None:
 
 
 def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
-    """What a tick does once there is work: the pause checks, the refresh and
-    planning, then the builds."""
-    # A pause is not a lock: the guard is asked again on every tick, so a
-    # threshold raised by hand, or the ramp offering room before the reset,
-    # ends it at the next tick. Only the model's own refusal is kept to its
-    # deadline. See `pause`.
-    paused = is_paused(_paused_marker(inst))
-    if paused and paused.kind == "rate_limit":
-        log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
-        # A pause builds nothing, so a unit no run holds should read `planned`
-        # for as long as it lasts. Not otherwise: a tick that goes on resumes it.
-        reclaim_stranded(inst, store_for(inst))
-        tick.outcome = "paused"
-        return 0
-
-    # The usage window is Claude Code's. A runtime without one is not held by it:
-    # the account's window says nothing about an on-demand agent. Its own
-    # rate-limit refusal still pauses, above and in `_run_unit`.
-    runtime = runtimes.active()
-    if runtime.supports_usage_tracking:
-        reading = current_usage()
-        decision = may_start_unit(reading)
-        if not decision.may_start:
-            state = pause_until(
-                decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
-            )
-            log(
-                f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
-                f" — {decision.reason}"
-            )
-            if not paused:
-                # A new pause; the ticks that find it still in force are not more of them.
-                telemetry.count("abk.usage.pauses", kind="usage")
-            reclaim_stranded(inst, store_for(inst))
-            tick.outcome = "paused"
-            return 0
-        reason = decision.reason
-    else:
-        reason = f"runtime {runtime.name} has no usage window; not checking one"
-
-    if paused:
-        log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
-    clear_pause(_paused_marker(inst))
-    log(reason)
-
+    """What a tick does once there is work: a round, then the builds."""
     store = store_for(inst)
 
-    # Before anything is scheduled: a PR that merged since the last tick frees
-    # a depth slot and changes what the branches above it should sit on, so
-    # planning against the pre-poll graph builds against a stale picture.
-    # Before polling: a merge the poll finds restacks the units above it
-    # straight away, and they must land on the trunk as it now is.
-    _refresh(inst, store=store)
-
-    _create_thread_store(inst)
-    plan_all(inst, store=store)
-    link_needs(inst, store=store)
-    units = store.all()
-
-    may_archive = verify_ready(inst, units)
-    archived = archive_ready_changes(
-        units,
-        planning_repo=inst.root,
-        may_archive=may_archive,
-        specs_dir=inst.config.planning.specs_dir,
-        run_logs=run_log_dir(inst.state_dir),
-        usage_ledger=inst.state_dir / LEDGER_NAME,
-        worktrees=_worktrees_of(inst, units),
-    )
-    for change in archived:
-        log(f"archived {change}")
-
-    # Everything else still happens — polling, planning, archiving — so the
-    # store stays current; only building is narrowed. For pushing one unit
-    # through when usage is tight, without a second competing for it.
+    # Everything else still happens in the round — polling, planning, archiving
+    # — so the store stays current; only building is narrowed by `--only`. For
+    # pushing one unit through when usage is tight, without a second competing
+    # for it.
     only = frozenset(getattr(args, "only", None) or ())
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
-    ready = [
-        *resumable_units(inst, units, only=only),
-        *_evaluate(inst, units, started=set(), building=set(), only=only),
-    ]
+    ready = run_round(inst, store, building=(), started=(), only=only, submit=True)
     if not ready:
-        log(_nothing_started_reason(inst, units, only=only))
+        if is_paused(_paused_marker(inst)):
+            tick.outcome = "paused"
+            return 0
+        log(_nothing_started_reason(inst, store.all(), only=only))
         tick.outcome = "idle"
         return 0
 
@@ -575,6 +522,92 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     return _schedule(inst, ready, store=store, only=only)
 
 
+def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
+    """Run one step of a round. One that raises is logged and the round goes on:
+    the steps are independent, and each is tried again at the next round."""
+    try:
+        step(*args, **kwargs)
+    except Exception as error:  # noqa: BLE001
+        log(f"{name} failed — {type(error).__name__}: {error}")
+
+
+def _may_build(inst: Installation, store: UnitStore, *, spared: Collection[str]) -> bool:
+    """The pause checks: whether this round may start builds.
+
+    A pause is not a lock: the guard is asked again on every round, so a
+    threshold raised by hand, or the ramp offering room before the reset,
+    ends it at the next one. Only the model's own refusal is kept to its
+    deadline. See `pause`. Builds in flight are never touched by it.
+    """
+    paused = is_paused(_paused_marker(inst))
+    if paused and paused.kind == "rate_limit":
+        log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
+        # A pause builds nothing, so a unit no run holds should read `planned`
+        # for as long as it lasts. Not otherwise: a round that goes on resumes it.
+        _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+        return False
+
+    # The usage window is Claude Code's. A runtime without one is not held by it:
+    # the account's window says nothing about an on-demand agent. Its own
+    # rate-limit refusal still pauses, above and in `_run_unit`.
+    runtime = runtimes.active()
+    if runtime.supports_usage_tracking:
+        decision = may_start_unit(current_usage())
+        if not decision.may_start:
+            state = pause_until(
+                decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
+            )
+            log(
+                f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
+                f" — {decision.reason}"
+            )
+            if not paused:
+                # A new pause; the rounds that find it still in force are not more of them.
+                telemetry.count("abk.usage.pauses", kind="usage")
+            _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+            return False
+        reason = decision.reason
+    else:
+        reason = f"runtime {runtime.name} has no usage window; not checking one"
+
+    if paused:
+        log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
+    clear_pause(_paused_marker(inst))
+    if not spared:
+        # The tick's own round says so; the refreshes of a pass would repeat it.
+        log(reason)
+    return True
+
+
+class _Readmission:
+    """What a pass has started, and how often it let a unit back in."""
+
+    def __init__(self) -> None:
+        self.started: dict[str, datetime] = {}
+        self.rebuilt: dict[str, int] = {}
+        self.readmitted: set[str] = set()
+        self.skipped: set[tuple[str, str]] = set()
+
+    def admit(self, units: list[StoredUnit], in_flight: set[str]) -> None:
+        """A unit this pass built and that has since been put back — sent
+        back by a poll, or held by its own build because its base moved — is
+        due again now, not in the next pass, which cannot start until this one
+        ends."""
+        for unit_id in _sent_back(units, self.started, in_flight, self.skipped):
+            if self.rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
+                self.started.pop(unit_id)
+                self.readmitted.add(unit_id)
+
+    def charge(self, ready: list[Unit]) -> None:
+        """The budget is spent when a unit is started again, not when it is
+        let back in: a held unit may wait several rounds on what it was held
+        for, and must not run out before it can run."""
+        for unit in ready:
+            if unit.id in self.readmitted:
+                self.readmitted.discard(unit.id)
+                self.rebuilt[unit.id] = self.rebuilt.get(unit.id, 0) + 1
+
+
 def run_round(
     inst: Installation,
     store: UnitStore,
@@ -583,19 +616,85 @@ def run_round(
     started: Collection[str],
     only: frozenset[str],
     submit: bool,
+    readmit: _Readmission | None = None,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
-    beside builds in flight. Returns the units to start when `submit`."""
-    raise NotImplementedError
+    beside builds in flight. Returns the units to start when `submit`.
+
+    The usage check comes first, so a low window stops the round before it
+    spends anything on planning. Each later step that raises is logged and the
+    rest still run. `building` and `started` name the units this pass holds, so
+    the reclaim and the readiness rules leave them alone; a `readmit` lets a
+    sent-back unit out of `started`.
+    """
+    spared = {*building, *started}
+    if not _may_build(inst, store, spared=spared):
+        return []
+
+    # Before anything is scheduled: a PR that merged since the last round frees
+    # a depth slot and changes what the branches above it should sit on, so
+    # planning against the pre-poll graph builds against a stale picture.
+    # Before polling: a merge the poll finds restacks the units above it
+    # straight away, and they must land on the trunk as it now is.
+    _refresh(inst, store=store)
+    _step("creating the thread store", _create_thread_store, inst)
+    _step("planning", plan_all, inst, store=store)
+    _step("linking needs", link_needs, inst, store=store)
+    _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+    units = store.all()
+
+    def never(change: str) -> bool:
+        return False
+
+    may_archive: Callable[[str], bool] = never
+    try:
+        may_archive = verify_ready(
+            inst, units, verify=lambda change, units: verify_one(inst, change, units, wait=0)
+        )
+    except Exception as error:  # noqa: BLE001
+        log(f"verifying failed — {type(error).__name__}: {error}")
+
+    def archive() -> None:
+        for change in archive_ready_changes(
+            units,
+            planning_repo=inst.root,
+            may_archive=may_archive,
+            specs_dir=inst.config.planning.specs_dir,
+            run_logs=run_log_dir(inst.state_dir),
+            usage_ledger=inst.state_dir / LEDGER_NAME,
+            worktrees=_worktrees_of(inst, units),
+        ):
+            log(f"archived {change}")
+
+    _step("archiving", archive)
+    if not submit:
+        return []
+
+    units = store.all()
+    in_flight = set(building)
+    if readmit:
+        readmit.admit(units, in_flight)
+    ready = [
+        *resumable_units(inst, units, only=only, spared=spared),
+        *_evaluate(inst, units, started=set(started), building=in_flight, only=only),
+    ]
+    if readmit:
+        readmit.charge(ready)
+    return ready
 
 
-def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
+def reclaim_stranded(
+    inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
+) -> None:
     """Return to `planned` each unit marked `running` that no process holds
     and no thread can resume: its run was killed before it reached a point to
-    resume from. One a live process holds, or with a thread, is left."""
+    resume from. One a live process holds, or with a thread, is left, and so is
+    one in `in_flight`: a unit the pass has just handed to a worker, which has
+    not yet taken the branch's lock."""
     for unit in store.all():
         if (
             unit.state == RUNNING
+            and unit.id not in in_flight
             and not branch_is_held(inst, unit.branch or branch_name(unit))
             and not has_thread(inst, unit.id)
         ):
@@ -610,7 +709,11 @@ def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
 
 
 def resumable_units(
-    inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
+    inst: Installation,
+    units: list[StoredUnit],
+    *,
+    only: frozenset[str],
+    spared: Collection[str] = (),
 ) -> list[Unit]:
     """The units whose thread a run left partway: killed in a node, or
     interrupted for the usage window, which the guard let this tick through.
@@ -621,6 +724,7 @@ def resumable_units(
         for unit in units
         if unit.state == RUNNING
         and (not only or unit.id in only)
+        and unit.id not in spared
         and not branch_is_held(inst, unit.branch or branch_name(unit))
         and has_thread(inst, unit.id)
     ]
@@ -792,10 +896,8 @@ def _schedule(
     are still awaited and the pass exits 1, as it does when the check fails
     at the start.
     """
-    started: dict[str, datetime] = {}
-    rebuilt: dict[str, int] = {}
-    readmitted: set[str] = set()
-    skipped: set[tuple[str, str]] = set()
+    readmission = _Readmission()
+    started = readmission.started
     building: dict[Future[bool], Unit] = {}
     # Units that could build but for the slots, from when they were first seen so.
     queued: dict[str, spans.Mark] = {}
@@ -857,31 +959,17 @@ def _schedule(
             if stopping or refused:
                 continue
 
-            _refresh(inst, store=store)
-            units = store.all()
             in_flight = {unit.id for unit in building.values()}
-            # A unit this pass built and that has since been put back — sent
-            # back by a poll, or held by its own build because its base moved
-            # — is due again now, not in the next pass, which cannot start
-            # until this one ends.
-            for unit_id in _sent_back(units, started, in_flight, skipped):
-                if rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
-                    started.pop(unit_id)
-                    readmitted.add(unit_id)
-            ready = _evaluate(
+            ready = run_round(
                 inst,
-                units,
-                started=set(started),
+                store,
                 building=in_flight,
+                started=started,
                 only=only,
+                submit=True,
+                readmit=readmission,
             )
-            # The budget is spent when a unit is started again, not when it is
-            # let back in: a held unit may wait several rounds on what it was
-            # held for, and must not run out before it can run.
-            for unit in ready:
-                if unit.id in readmitted:
-                    readmitted.discard(unit.id)
-                    rebuilt[unit.id] = rebuilt.get(unit.id, 0) + 1
+            units = store.all()
             note_queued(units, ready, in_flight)
             if ready:
                 log(f"ready: {', '.join(unit.id for unit in ready)}")
