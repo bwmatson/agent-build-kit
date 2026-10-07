@@ -16,6 +16,7 @@ def doctor(tmp_path: Path, *, changelog: str | None, file: str | None) -> list[C
     if file is not None:
         (app / file).parent.mkdir(parents=True, exist_ok=True)
         (app / file).write_text("# Changelog\n\n## Unreleased\n")
+        (app / ".gitattributes").write_text(f"{file} merge=union\n")
     config = WorkspaceConfig(
         repos={"app": RepoConfig(path=app, slug="example/app", changelog=changelog)}
     )

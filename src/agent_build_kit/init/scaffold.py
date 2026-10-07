@@ -21,6 +21,7 @@ import subprocess
 import textwrap
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
@@ -38,6 +39,7 @@ from agent_build_kit.config import (
     dump,
 )
 from agent_build_kit.init.detect import RepoDetection
+from agent_build_kit.model import Frozen
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 
@@ -394,3 +396,29 @@ def write_planning_repo(
     installed, _refused = skills.install(planning / ".claude" / "skills")
     written.extend(installed)
     return written
+
+
+# --- code repos -----------------------------------------------------------------
+
+
+class ConventionResult(Frozen):
+    """What one action did, or with `dry_run` would do, in one code repo.
+
+    `result` is `created`, `updated`, `unchanged` or `skipped`; a skip that is
+    a finding to report (mismatched markers, a conflicting merge rule, a repo's
+    own changelog section) carries it in `note`."""
+
+    repo: str
+    action: Literal["block", "changelog", "gitattributes"]
+    path: Path
+    result: Literal["created", "updated", "unchanged", "skipped"]
+    note: str = ""
+
+
+def write_code_repo_conventions(
+    workspace: WorkspaceConfig, *, dry_run: bool = False
+) -> list[ConventionResult]:
+    """Put the changelog convention block, the changelog file and the union-merge
+    rule into every listed repo whose checkout exists and whose `changelog` is
+    set; one result per repo and action. With `dry_run` nothing is written."""
+    raise NotImplementedError
