@@ -41,7 +41,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.changelog_convention import changelog_convention
+from agent_build_kit.pipeline.changelog_convention import packaged_convention
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 
@@ -430,7 +430,7 @@ def merge_attribute(attributes: str, path: str) -> str | None:
     found = None
     for line in attributes.splitlines():
         pattern, *tokens = line.split() or [""]
-        if pattern != path:
+        if pattern not in (path, f"/{path}"):
             continue
         for token in tokens:
             if token.startswith("merge="):
@@ -445,9 +445,7 @@ def _eol(text: str) -> str:
 
 
 def _block_text(changelog: str, eol: str) -> str:
-    body = changelog_convention(
-        Path("/nonexistent"), RepoConfig(path=Path("/x"), slug="example/x", changelog=changelog)
-    )
+    body = packaged_convention(changelog)
     inner = f"## Changelog\n\n{body}\n"
     stamp = hashlib.sha256(inner.encode()).hexdigest()[:8]
     block = f"{_BLOCK_OPEN % stamp}\n{inner}{_BLOCK_CLOSE}\n"
@@ -492,7 +490,6 @@ def _block_action(root: Path, repo: str, changelog: str, dry_run: bool) -> Conve
         separator = ""
     else:
         separator = eol if text.endswith("\n") else eol * 2
-        separator += eol
     _put(path, f"{text}{separator}{block}", dry_run)
     return result("updated")
 

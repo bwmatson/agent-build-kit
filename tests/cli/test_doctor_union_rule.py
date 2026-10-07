@@ -54,5 +54,20 @@ def test_a_repo_with_the_rule_is_not_warned_about(tmp_path: Path) -> None:
     assert union_warnings(doctor(tmp_path, changelog="CHANGELOG.md", attributes=attributes)) == []
 
 
+def test_another_merge_setting_is_named_and_not_fixed_by_init(tmp_path: Path) -> None:
+    checks = doctor(tmp_path, changelog="CHANGELOG.md", attributes="CHANGELOG.md merge=ours\n")
+
+    found = [c for c in checks if c.status == "warn" and "union merge" in c.name]
+    assert len(found) == 1
+    assert "ours" in found[0].detail
+    assert "abk init" not in found[0].fix
+
+
+def test_an_anchored_rule_is_not_warned_about(tmp_path: Path) -> None:
+    attributes = "/CHANGELOG.md merge=union\n"
+
+    assert union_warnings(doctor(tmp_path, changelog="CHANGELOG.md", attributes=attributes)) == []
+
+
 def test_a_repo_with_the_changelog_off_is_not_warned_about(tmp_path: Path) -> None:
     assert union_warnings(doctor(tmp_path, changelog=None, attributes=None)) == []

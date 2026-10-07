@@ -138,13 +138,23 @@ def _changelogs(inst: Installation) -> list[Check]:
             checks.append(_ok(f"changelog {name}", repo.changelog))
             attributes = path / ".gitattributes"
             text = attributes.read_text(errors="replace") if attributes.is_file() else ""
-            if merge_attribute(text, repo.changelog) != "union":
+            merge = merge_attribute(text, repo.changelog)
+            if merge is None:
                 checks.append(
                     _warn(
                         f"changelog union merge {name}",
                         f"{repo.changelog} has no `merge=union` rule in {attributes}, so "
                         "concurrent entries conflict",
                         f"run `abk init` to add it to {name}",
+                    )
+                )
+            elif merge != "union":
+                checks.append(
+                    _warn(
+                        f"changelog union merge {name}",
+                        f"{repo.changelog}'s merge setting in {attributes} is `{merge}`, "
+                        "not `merge=union`, so concurrent entries conflict",
+                        f"change it to `merge=union` in {attributes} by hand",
                     )
                 )
         else:

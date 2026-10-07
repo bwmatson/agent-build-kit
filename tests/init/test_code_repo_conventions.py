@@ -10,7 +10,10 @@ import pytest
 
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
 from agent_build_kit.init.scaffold import ConventionResult, write_code_repo_conventions
-from agent_build_kit.pipeline.changelog_convention import changelog_convention
+from agent_build_kit.pipeline.changelog_convention import (
+    changelog_convention,
+    packaged_convention,
+)
 from tests.factories import git, init_repo
 
 BLOCK = re.compile(r"<!-- abk:changelog v(?P<stamp>\w+) -->\n.*?<!-- /abk:changelog -->\n?", re.S)
@@ -55,9 +58,7 @@ def snapshot(root: Path) -> dict[str, bytes]:
 
 def packaged(path: str = "CHANGELOG.md") -> str:
     """The packaged convention text for a repo keeping its changelog at `path`."""
-    return changelog_convention(
-        Path("/nonexistent"), RepoConfig(path=Path("/x"), slug="example/x", changelog=path)
-    )
+    return packaged_convention(path)
 
 
 # --- 1.1 where the block goes ---------------------------------------------------
@@ -74,11 +75,33 @@ def test_the_block_is_appended_to_an_existing_agents_md_and_the_rest_is_untouche
     after = (root / "AGENTS.md").read_text()
     assert after.startswith(original)
     tail = after[len(original) :]
+    assert tail.startswith("\n<!-- abk:changelog")
+    assert not tail.startswith("\n\n")
     assert BLOCK.fullmatch(tail.lstrip("\n"))
     assert "## Changelog" in tail
     assert packaged() in tail
     assert outcome(results, "block").result == "updated"
     assert not (root / "CLAUDE.md").exists()
+
+
+def test_a_file_with_no_final_newline_gets_one_blank_line_before_the_block(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path, **{"AGENTS.md": "# App"})
+
+    run(tmp_path)
+
+    after = (root / "AGENTS.md").read_text()
+    assert after.startswith("# App\n\n<!-- abk:changelog")
+
+
+def test_the_block_reads_back_as_exactly_the_packaged_text(tmp_path: Path) -> None:
+    root = repo(tmp_path, **{"AGENTS.md": "# App\n"})
+
+    run(tmp_path)
+
+    app = RepoConfig(path=root, slug="example/app")
+    assert changelog_convention(root, app) == packaged()
 
 
 def test_the_block_goes_into_claude_md_when_only_it_exists(tmp_path: Path) -> None:
@@ -122,8 +145,7 @@ def test_crlf_endings_are_kept(tmp_path: Path) -> None:
     run(tmp_path)
 
     after = (root / "AGENTS.md").read_bytes()
-    assert after.startswith(original)
-    assert len(after) > len(original)
+    assert after.startswith(original + b"\r\n<!-- abk:changelog")
     assert b"\n" not in after.replace(b"\r\n", b"")
 
 
@@ -277,6 +299,16 @@ def test_a_rule_for_another_path_is_not_a_conflict(tmp_path: Path) -> None:
 
 def test_a_present_rule_is_left_and_never_duplicated(tmp_path: Path) -> None:
     original = f"*.png binary\n{RULE}\n"
+    root = repo(tmp_path, **{".gitattributes": original})
+
+    results = run(tmp_path)
+
+    assert (root / ".gitattributes").read_text() == original
+    assert outcome(results, "gitattributes").result == "unchanged"
+
+
+def test_an_anchored_rule_counts_as_the_rule_and_is_not_duplicated(tmp_path: Path) -> None:
+    original = "/CHANGELOG.md merge=union\n"
     root = repo(tmp_path, **{".gitattributes": original})
 
     results = run(tmp_path)
