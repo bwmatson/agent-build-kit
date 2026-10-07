@@ -202,6 +202,31 @@ def test_a_failed_archive_does_not_stop_the_others(
     assert "archive conflicted" in caplog.text
 
 
+def test_a_failed_archive_is_retried_and_logged_again_on_the_next_call(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Nothing remembers a failure: each tick tries again and says so again."""
+    runner = FailingFor("first")
+    units = [
+        unit("first/1", change="first", history=({"state": "merged", "at": "2026-09-23T09:00"},)),
+        unit("second/1", change="second", history=({"state": "merged", "at": "2026-09-23T12:00"},)),
+    ]
+    make_change(tmp_path, "first")
+    make_change(tmp_path, "second")
+
+    with caplog.at_level(logging.WARNING):
+        archive_ready_changes(units, planning_repo=tmp_path, run=runner)
+        archive_ready_changes(units, planning_repo=tmp_path, run=runner)
+
+    assert sum("first" in call and "archive" in call for call in runner.calls) == 2
+    failures = [
+        r
+        for r in caplog.records
+        if "first" in r.getMessage() and "archive conflicted" in r.getMessage()
+    ]
+    assert len(failures) == 2
+
+
 def test_a_change_with_no_directory_is_logged_as_withdrawn_and_not_attempted(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

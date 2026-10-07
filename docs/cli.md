@@ -109,8 +109,8 @@ merged PRs touched (`deploy.rules`), runs the live tests they added, records
 the outcome in `runs/verified.json`. Exit 0 when the change verified and was
 archived (printing what was deployed and what was archived); exit 1 with the
 detail when verification fails, and exit 1 with a "verified but not archived"
-line when it passed but the change was not archived (already archived, not
-fully merged, withdrawn, or the archive failed — the log says which).
+line, naming the reason (already archived, not fully merged, withdrawn, or the
+archive failed), when it passed but the change was not archived.
 
 ### `abk tags [CHANGE] [--all]`
 

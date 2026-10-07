@@ -30,7 +30,7 @@
 - An archive that fails, or a finished change whose directory is gone (withdrawn), no longer
   ends the tick before the other changes are archived or anything is built. The failure is
   logged with its reason and the change is skipped; the next tick tries it again. `abk verify`
-  exits 1 when the change it verified was not archived.
+  exits 1 when the change it verified was not archived, and says why.
 
 - GitHub is reached over its REST and GraphQL APIs through `githubkit` (a new dependency,
   pinned to one minor version; it brings `httpx`, which the transport already used) instead

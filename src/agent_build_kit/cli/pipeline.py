@@ -378,12 +378,21 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
     for change in archived:
         print(f"archived {change}")
     if args.change not in archived:
-        print(
-            f"{args.change}: verified but not archived "
-            "(already archived, not fully merged, withdrawn, or the archive failed; see the log)"
-        )
+        reason = _not_archived_reason(args.change, units, inst)
+        print(f"{args.change}: verified but not archived ({reason}; see the log)")
         return 1
     return 0
+
+
+def _not_archived_reason(change: str, units: list, inst: Installation) -> str:
+    """Why a verified change was not archived, from the same checks the archive makes."""
+    if _already_archived(change, inst.root, inst.config.planning.specs_dir):
+        return "already archived"
+    if not is_ready_to_archive(change, units):
+        return "not fully merged"
+    if not (inst.changes_dir / change).is_dir():
+        return "withdrawn: no change directory"
+    return "the archive failed"
 
 
 # --- the tick ---------------------------------------------------------------------------
