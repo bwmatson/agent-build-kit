@@ -438,7 +438,27 @@ def test_a_resumed_unit_is_started_first_and_takes_the_one_slot(
     assert run(inst, store) == ["resumed/1"]
 
 
-def test_a_resumed_unit_waiting_for_a_worker_does_not_hold_a_slot_against_a_planned_one(
+def test_a_resumed_unit_the_round_does_not_start_holds_no_slot_against_a_planned_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = capped(tmp_path, 2)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit_of("slow/1", repo="platform"), unit_of("ready/1")])
+    store.set_state("slow/1", RUNNING, branch="spec/slow/1")
+    resumed(monkeypatch, store, "resumed/1")
+
+    ready = run(
+        inst,
+        store,
+        building={"slow/1"},
+        started={"slow/1"},
+        only=frozenset({"slow/1", "ready/1"}),
+    )
+
+    assert ready == ["ready/1"], "the resumed unit waits, and took the slot it has no run on"
+
+
+def test_a_resumed_unit_takes_the_free_slot_before_a_planned_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inst = capped(tmp_path, 2)
@@ -483,7 +503,15 @@ def test_a_unit_the_pass_built_and_a_comment_resumed_is_started_again_in_the_pas
     )
 
     def slow() -> str | None:
-        if not eventually(lambda: "x/1" in builder.finished):
+        # Only once x's worker has returned and let go of x's branch lock.
+        returned = eventually(
+            lambda: (
+                builder.store.get("x/1").state == IN_REVIEW
+                and "x/1" in builder.finished
+                and not cli.branch_is_held(inst, "spec/x/1")
+            )
+        )
+        if not returned:
             return "failed"
         # A reviewer comments: the event resumes x's thread.
         commented.append(1)
