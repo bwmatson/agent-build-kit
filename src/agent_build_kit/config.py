@@ -177,6 +177,8 @@ class LimitsConfig(Frozen):
     # Estimated changed lines one unit may carry. It shapes plans only: a
     # branch is not measured against it, so a unit can still land larger.
     max_unit_lines: int = 1000
+    # Path patterns of generated files, left out of a unit's actual size.
+    generated_files: tuple[str, ...] = ()
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
     # How many times a branch that fails its checks (lint, types, tests) is sent

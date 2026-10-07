@@ -25,7 +25,7 @@ from agent_build_kit.forges import (
     Stack,
     StackRefused,
 )
-from agent_build_kit.forges.base import Run
+from agent_build_kit.forges.base import FileChange, Run
 
 
 class StandInForge:
@@ -161,6 +161,9 @@ class StandInForge:
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
         return list(self.files)
+
+    def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
+        return []
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         return self.notes

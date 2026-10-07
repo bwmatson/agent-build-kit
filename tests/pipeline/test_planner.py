@@ -537,6 +537,39 @@ def test_the_prompt_tells_the_planner_the_ceiling() -> None:
     assert "1234" in captured["prompt"]
 
 
+def prompt_for_defaults() -> str:
+    captured: dict = {}
+    plan_round(
+        changes={"add-marker": "## 1. [app] [tier1] x\n"},
+        in_flight=[],
+        run_claude=lambda prompt: captured.setdefault("prompt", prompt) and json.dumps(GOOD),
+    )
+    return " ".join(captured["prompt"].split())
+
+
+def test_the_prompt_carries_the_default_floor_and_ceiling() -> None:
+    prompt = prompt_for_defaults()
+
+    assert "about 400 changed lines" in prompt
+    assert "over 750 changed lines" in prompt
+
+
+def test_the_prompt_defines_what_an_estimate_counts() -> None:
+    """The estimate is the only measure a plan has, so the planner is told what
+    it counts: every file, deletions for code a group removes, no generated
+    files, and high when unsure."""
+    prompt = prompt_for_defaults()
+
+    assert "additions plus deletions" in prompt
+    assert "every file" in prompt
+    for counted in ("tests", "docs", "fixtures", "changelog"):
+        assert counted in prompt
+    assert "excluding generated files" in prompt
+    assert "removes or rewrites" in prompt
+    assert "removed lines" in prompt
+    assert "estimate high" in prompt
+
+
 def test_a_unit_combining_groups_past_the_ceiling_is_rejected() -> None:
     """Groups 2 and 3 could have been two units; putting them in one past the
     ceiling is a planning mistake, rejected with that reason so it is re-asked."""
