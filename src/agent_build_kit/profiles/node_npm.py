@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.profiles.base import PromptWords
+from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
 
 
 class NodeNpmProfile:
@@ -28,7 +28,7 @@ class NodeNpmProfile:
     no_tests_collected_exit: int = 0
 
     def _todo(self, what: str):
-        raise NotImplementedError(
+        raise ProfileUnsupported(
             f"the {self.name} toolchain profile is not implemented in this release ({what})"
         )
 

@@ -31,11 +31,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit
+from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit, UnitState
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
-UNPLANNED = "unplanned"
+UNPLANNED = UnitState.UNPLANNED
 
 
 class HeldBy(StrEnum):
@@ -74,6 +74,49 @@ class Cause(StrEnum):
     FAILED = "failed"
 
 
+class RequeueReason(StrEnum):
+    """Why a unit was requeued: what the requeue handling depends on, whatever
+    the display text says."""
+
+    RESTART = "restart"
+    RELEASED = "released"
+    RESUME = "resume"
+    FROM_FAILURE = "from_failure"
+
+
+class ReworkKind(StrEnum):
+    """What sent a unit back for rework, which picks the feedback it is given."""
+
+    FAILING_CHECKS = "failing_checks"
+    CONFLICT = "conflict"
+    LABEL = "label"
+    CHANGES_REQUESTED = "changes_requested"
+    COMMENT = "comment"
+
+
+class FeedbackSource(StrEnum):
+    """Where a unit's saved feedback came from, which picks the prompt it is
+    given; `NONE` when there is none."""
+
+    NONE = ""
+    REVIEW = "review"
+    CI = "ci"
+    CONFLICT = "conflict"
+    TIER1 = "tier1"
+    TIER2 = "tier2"
+
+
+def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
+    """Where a rework's feedback comes from, by the kind that sent the unit back."""
+    if rework is ReworkKind.FAILING_CHECKS:
+        return FeedbackSource.CI
+    if rework is ReworkKind.CONFLICT:
+        return FeedbackSource.CONFLICT
+    if rework is None:
+        return FeedbackSource.NONE
+    return FeedbackSource.REVIEW
+
+
 def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
@@ -110,6 +153,8 @@ class StoredUnit(Unit):
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
     feedback_from_person: bool = False
+    # Where `feedback` came from (see `FeedbackSource`).
+    feedback_source: FeedbackSource = FeedbackSource.NONE
     # Set when the unit was moved onto a predecessor that changed under it,
     # for the reviewer: which files needed resolving, or how its tests were
     # carried over. Cleared once the unit is back in review. Here, not in the
@@ -302,6 +347,7 @@ class UnitStore:
                 classic_run=existing.classic_run if existing else {},
                 approved=existing.approved if existing else "",
                 feedback_from_person=existing.feedback_from_person if existing else False,
+                feedback_source=existing.feedback_source if existing else FeedbackSource.NONE,
                 predecessor_note=existing.predecessor_note if existing else "",
                 run_log=existing.run_log if existing else "",
                 trace=existing.trace if existing else "",
@@ -395,7 +441,7 @@ class UnitStore:
     def set_state(
         self,
         unit_id: str,
-        state: str,
+        state: UnitState,
         *,
         pr: int | None = None,
         branch: str | None = None,
@@ -432,7 +478,7 @@ class UnitStore:
     def _record_state(
         self,
         unit_id: str,
-        state: str,
+        state: UnitState,
         *,
         pr: int | None,
         branch: str | None,
@@ -441,6 +487,7 @@ class UnitStore:
         cause: Cause | None,
         held_base: str,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
+        state = UnitState(state)
         stored = self._read()
         unit = stored[unit_id]
         opened = pr is not None and pr != unit.pr
@@ -471,7 +518,14 @@ class UnitStore:
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
 
-    def set_feedback(self, unit_id: str, feedback: str, *, from_person: bool = False) -> None:
+    def set_feedback(
+        self,
+        unit_id: str,
+        feedback: str,
+        *,
+        from_person: bool = False,
+        source: FeedbackSource = FeedbackSource.NONE,
+    ) -> None:
         """What review asked for, or `""` once a run has acted on it.
 
         `from_person` is True only for words a person left on the pull request;
@@ -479,7 +533,10 @@ class UnitStore:
         clearing it.
         """
         self._update(
-            unit_id, feedback=feedback, feedback_from_person=from_person and bool(feedback)
+            unit_id,
+            feedback=feedback,
+            feedback_from_person=from_person and bool(feedback),
+            feedback_source=source if feedback else FeedbackSource.NONE,
         )
 
     def set_run_log(self, unit_id: str, name: str) -> None:
@@ -526,13 +583,14 @@ class UnitStore:
         self._update(unit_id, pushed=sha)
 
 
-def _with_state(unit: StoredUnit, state: str) -> StoredUnit:
+def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:
     """Change a unit's state and record that it happened.
 
     `upsert` used to write `unplanned` straight onto the model, so the one
     transition that stops a unit building was the one transition that left no
     trace — every other goes through `set_state`, which records it.
     """
+    state = UnitState(state)
     return unit.model_copy(
         update={"state": state, "history": (*unit.history, {"state": state, "at": _now()})}
     )

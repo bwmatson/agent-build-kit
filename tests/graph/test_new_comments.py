@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.pr_replies import (
     record_given_comments,
 )
 from agent_build_kit.pipeline.stack_runner import Restacked
-from agent_build_kit.pipeline.units import branch_name
+from agent_build_kit.pipeline.units import UnitState, branch_name
 from tests.factories import unit
 from tests.forges.stand_in import StandInForge, lookup
 from tests.graph_driver import fresh, tick
@@ -524,7 +524,7 @@ def test_a_requeued_rework_does_not_hide_a_comment_it_was_never_given_from_the_p
     # A requeue with no thread: the feedback was fixed when it was requeued.
     tick(tmp_path, scene.recorder, event=ResumeEvent(kind=EventKind.CLOSED), **scene.overrides)
     scene.recorder.store.set_feedback(unit().id, said(*scene.delivered), from_person=True)
-    scene.recorder.store.set_state(unit().id, "planned", note="rework requested: comment")
+    scene.recorder.store.set_state(unit().id, UnitState.PLANNED, note="rework requested: comment")
     # Posted after the requeue, before the node runs.
     comment_arrives(scene, "c5", "please also add a docstring")
 

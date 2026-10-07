@@ -9,6 +9,7 @@ import pytest
 
 from agent_build_kit.cli.pipeline import store_for
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
 from tests.factories import unit
 from tests.ledger_lines import agent_line, fixture_ledger, write_ledger
@@ -52,7 +53,7 @@ def test_the_page_follows_the_ledger_on_the_next_write(installation: Installatio
     store.upsert([unit("add-marker/1")])
     write_ledger(installation.state_dir / "usage-ledger.jsonl", agent_line(cost_usd=4.25))
 
-    store.set_state("add-marker/1", "running")
+    store.set_state("add-marker/1", UnitState.RUNNING)
 
     assert "4.25" in installation.usage_page.read_text()
 

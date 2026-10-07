@@ -9,7 +9,14 @@
   base. Rewording a note changes no decision, and the depth hold keeps the branch it is still
   on as a field. A store written before causes were kept loads with none, its units are not
   readmitted mid-pass, and `abk status` lists them under `no recorded cause` so each can be
-  requeued or held again once by hand.
+  requeued or held again once by hand. In the same way a requeue carries a reason, a rework
+  the kind that sent the unit back, and saved feedback its source, as fields: the words of a
+  person that begin like a check failure are still review feedback, and a run ends in one
+  `UnitOutcome`, and a unit's state is a `UnitState`. Feedback saved before the upgrade
+  has no source and is treated as review feedback, so `abk requeue --rework` on an older
+  tier 1 failure sends its output under the review prompt; `--restart` avoids this. A toolchain profile the framework does not implement raises
+  `ProfileUnsupported`, and only that holds a unit as toolchain; any other
+  `NotImplementedError` fails the unit.
 
 - GitHub is reached over its REST and GraphQL APIs through `githubkit` (a new dependency,
   pinned to one minor version; it brings `httpx`, which the transport already used) instead

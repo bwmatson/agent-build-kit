@@ -26,11 +26,12 @@ from agent_build_kit.pipeline.archive import archive_ready_changes as real_archi
 from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
-from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, UnitState
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
+from agent_build_kit.profiles.base import ProfileUnsupported
 from tests.conftest import make_installation
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -399,7 +400,26 @@ class Exploding:
 
 class Unimplemented:
     def run(self, unit, *, base, graph):
-        raise NotImplementedError("the node-npm profile has no test runner yet")
+        raise ProfileUnsupported("the node-npm profile has no test runner yet")
+
+
+class Abstract:
+    def run(self, unit, *, base, graph):
+        raise NotImplementedError("an abstract method somewhere in the run")
+
+
+def test_an_unrelated_not_implemented_error_fails_the_unit_and_is_not_held_as_toolchain(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored()])
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Abstract())
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    failed = store.get("add-marker/1")
+    assert failed.state == "failed"
+    assert failed.held_by != "toolchain"
 
 
 def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
@@ -418,6 +438,30 @@ def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
 class Pausing:
     def run(self, unit, *, base, graph):
         return RunOutcome(status="paused", detail="session usage at 71%")
+
+
+def test_a_usage_pause_takes_its_reason_and_time_from_its_fields(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The outcome's detail is for people; the pause carries what the marker records."""
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    resumes = datetime.now(UTC) + timedelta(hours=5)
+
+    class PausingWithFields:
+        def run(self, unit, *, base, graph):
+            return RunOutcome(
+                status="paused",
+                detail="waiting, as the log has it",
+                pause=PauseInfo(reason="weekly window at 92%", until=resumes),
+            )
+
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: PausingWithFields())
+
+    cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+    paused = json.loads((tmp_path / "paused.json").read_text())
+    assert paused["reason"] == "weekly window at 92%"
+    assert datetime.fromisoformat(paused["until"]) == resumes + RESUME_GRACE
 
 
 def test_the_tick_polls_before_it_plans(
@@ -868,7 +912,7 @@ def test_the_planner_is_told_about_merged_units(tmp_path: Path, monkeypatch) -> 
     write_change(tmp_path, "add-marker", TASKS)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("add-marker/1")])
-    store.set_state("add-marker/1", "merged", pr=1, branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.MERGED, pr=1, branch="spec/add-marker/1")
     seen: list[dict] = []
     monkeypatch.setattr(
         cli, "plan_round", lambda **k: seen.append(k) or Plan(units=(stored("add-marker/1"),))
@@ -906,7 +950,7 @@ def test_a_unit_a_live_process_holds_is_left_alone(
     the same unit to a second runner."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     monkeypatch.setattr(cli, "branch_is_held", lambda inst, branch: True)
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
@@ -983,7 +1027,7 @@ def test_a_killed_claude_run_is_an_interruption_not_a_failure(
 
     class Killed:
         def run(self, unit, *, base, graph):
-            store.set_state(unit.id, "running")
+            store.set_state(unit.id, UnitState.RUNNING)
             raise Interrupted("claude was killed by signal 9")
 
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Killed())
@@ -1108,7 +1152,7 @@ def test_a_tick_with_nothing_in_progress_does_nothing_at_all(
     usage or call GitHub."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
-    store.set_state("add-marker/1", "merged")
+    store.set_state("add-marker/1", UnitState.MERGED)
     calls: list[str] = []
     monkeypatch.setattr(cli, "current_usage", lambda: calls.append("usage"))
 
@@ -1120,7 +1164,7 @@ def test_a_unit_in_review_keeps_the_ticks_coming(tmp_path: Path) -> None:
     """Its CI, comments and merge are only noticed by a poll."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
-    store.set_state("add-marker/1", "in_review", pr=4)
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=4)
 
     assert cli.has_work(inst, store)
 
@@ -1140,8 +1184,8 @@ def test_a_change_ended_satisfied_is_work_until_verified_and_archived(tmp_path: 
     store.upsert(
         [stored("c/1", change="c"), stored("c/2", change="c", depends_on=("c/1",))], change="c"
     )
-    store.set_state("c/1", "merged", pr=1)
-    store.set_state("c/2", "satisfied")
+    store.set_state("c/1", UnitState.MERGED, pr=1)
+    store.set_state("c/2", UnitState.SATISFIED)
     calls: list[str] = []
 
     assert cli.has_work(inst, store)
@@ -1156,7 +1200,7 @@ def test_a_failed_verification_of_a_satisfied_change_does_not_keep_ticks_busy(
 ) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("c/1", change="c")], change="c")
-    store.set_state("c/1", "satisfied")
+    store.set_state("c/1", UnitState.SATISFIED)
 
     real_verify_ready(inst, store.all(), verify=_verifier([False], []))
 
@@ -1167,7 +1211,7 @@ def test_an_archived_satisfied_change_has_no_work(tmp_path: Path) -> None:
     (tmp_path / "openspec" / "changes" / "archive" / "2026-09-01-c").mkdir(parents=True)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("c/1", change="c")], change="c")
-    store.set_state("c/1", "satisfied")
+    store.set_state("c/1", UnitState.SATISFIED)
 
     assert not cli.has_work(inst, store)
 
@@ -1725,7 +1769,7 @@ def test_status_names_a_failed_unit_holding_a_place(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
     store.set_state("one/1", IN_REVIEW, pr=11)
-    store.set_state("two/1", "failed")
+    store.set_state("two/1", UnitState.FAILED)
     monkeypatch.setattr(cli, "current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0

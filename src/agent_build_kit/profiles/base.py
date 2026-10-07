@@ -14,6 +14,10 @@ from typing import Protocol
 from agent_build_kit.model import Frozen
 
 
+class ProfileUnsupported(NotImplementedError):
+    """The toolchain profile does not implement what a run needs; held for a person."""
+
+
 class PromptWords(Frozen):
     """The toolchain-specific phrases the build prompts use."""
 

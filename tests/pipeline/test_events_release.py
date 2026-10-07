@@ -17,7 +17,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SATISFIED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SATISFIED, UnitState
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -246,7 +246,7 @@ def test_a_release_for_a_unit_in_another_repo_is_ignored(
 
 @pytest.mark.parametrize("state", [IN_REVIEW, SATISFIED])
 def test_a_release_for_a_unit_that_is_not_held_changes_nothing(
-    store: UnitStore, logged: list[str], state: str
+    store: UnitStore, logged: list[str], state: UnitState
 ) -> None:
     store.set_state(UNIT, state)
     before = store.history(UNIT)
@@ -263,7 +263,7 @@ def test_a_release_for_a_unit_that_is_not_held_changes_nothing(
 
 @pytest.mark.parametrize("state", [HELD, RUNNING])
 def test_a_release_for_a_unit_being_built_is_deferred(
-    store: UnitStore, locks: Path, logged: list[str], state: str
+    store: UnitStore, locks: Path, logged: list[str], state: UnitState
 ) -> None:
     held_as(store, "reviewer")
     if state != HELD:

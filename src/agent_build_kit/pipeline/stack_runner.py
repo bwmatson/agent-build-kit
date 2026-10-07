@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     Unit,
+    UnitState,
     later_groups_by_change,
 )
 
@@ -150,8 +151,8 @@ the unit has passed review, tier 1 and been pushed.
     + NO_REWRITE_NOTE
 )
 
-# What tier 1's output is saved under, whichever step it stopped: it is how
-# every later step tells a failed check from a reviewer's comment.
+# What tier 1's output is saved under, for people reading it: which step it came
+# from is the feedback's source, never this text.
 TIER1_FAILED = "tier 1 failed:"
 
 
@@ -185,10 +186,41 @@ the unit has passed review, tier 1 and been pushed.
 # not deferrable, and comes back to the builder whatever `approved` says.
 DEFERRABLE_KIND = "optional"
 
-# The two things a round can escalate instead of spending another one on:
-# a class of problem no list can finish, or a disagreement already raised
-# once. See design.md.
-ESCALATIONS = ("class", "disagreement")
+
+class UnitOutcome(StrEnum):
+    """How a unit's run ended: the graph, the CLI and telemetry all record one of these."""
+
+    OPEN = "open"
+    PAUSED = "paused"
+    HELD = "held"
+    SATISFIED = "satisfied"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+    RATE_LIMITED = "rate_limited"
+    SKIPPED = "skipped"
+    ERROR = "error"
+    # A graph node that finished with nothing to report, and one that stopped to wait.
+    OK = "ok"
+    WAITING = "waiting"
+
+
+# What a run's status is: the outcome it ended in.
+RunStatus = UnitOutcome
+
+
+class Escalation(StrEnum):
+    """What a review round can escalate instead of spending another one on: a class of
+    problem no list can finish, or a disagreement already raised once. See design.md."""
+
+    CLASS = "class"
+    DISAGREEMENT = "disagreement"
+
+
+class PauseInfo(Frozen):
+    """Why a run paused for usage and when it may resume."""
+
+    reason: str
+    until: datetime | None = None
 
 
 class FollowUp(Frozen):
@@ -272,7 +304,7 @@ class Verdict(Frozen):
     feedback: str = ""
     needs_human: bool = False
     follow_ups: tuple[FollowUp, ...] = ()
-    escalate: str = ""  # "" | "class" | "disagreement"
+    escalate: Escalation | None = None
     reasoning: str = ""
     findings: tuple[Finding, ...] = ()
     # None when the reply has no `earlier` key. That answers nothing by id, so
@@ -346,7 +378,9 @@ def escalates(verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
     if not earlier_rounds:
         return False
     declined = str(earlier_rounds[-1].get("response", "")).strip()
-    return verdict.escalate == "class" or (verdict.escalate == "disagreement" and bool(declined))
+    return verdict.escalate is Escalation.CLASS or (
+        verdict.escalate is Escalation.DISAGREEMENT and bool(declined)
+    )
 
 
 def parse_verdict(output: str) -> Verdict:
@@ -386,7 +420,7 @@ def parse_verdict(output: str) -> Verdict:
         feedback=str(payload.get("feedback") or "").strip(),
         needs_human=bool(payload.get("needs_human")),
         follow_ups=tuple(follow_ups),
-        escalate=escalate if escalate in ESCALATIONS else "",
+        escalate=Escalation(escalate) if escalate in set(Escalation) else None,
         reasoning=str(payload.get("reasoning") or "").strip(),
     )
 
@@ -897,18 +931,11 @@ def check_test_decisions(
     return problems
 
 
-class RunStatus(StrEnum):
-    OPEN = "open"
-    PAUSED = "paused"
-    HELD = "held"
-    SATISFIED = "satisfied"
-    FAILED = "failed"
-
-
 class RunOutcome(Frozen):
     status: RunStatus
     detail: str
     pr: int | None = None
+    pause: PauseInfo | None = None
 
 
 class Weighed(Frozen):
@@ -1241,6 +1268,6 @@ class UnitRunner(BaseModel):
         # Recorded rather than left at "planned": the next round would
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
-        self.store.set_state(unit.id, "failed", cause=Cause.FAILED)
+        self.store.set_state(unit.id, UnitState.FAILED, cause=Cause.FAILED)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)

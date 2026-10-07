@@ -17,36 +17,51 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Self
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+
+
+class UnitState(StrEnum):
+    PLANNED = "planned"
+    RUNNING = "running"
+    IN_REVIEW = "in_review"
+    MERGED = "merged"
+    CLOSED = "closed"
+    FAILED = "failed"
+    HELD = "held"
+    SATISFIED = "satisfied"
+    # Work the plan dropped; it may already have an open PR, so it is kept.
+    UNPLANNED = "unplanned"
+
 
 # States a unit moves through. "running" means it is in the build/review loop:
 # a worktree is open and an agent is working. "in_review" means the loop has
 # passed and its PR is waiting for a human. It was called "open", after the
 # PR's GitHub state, which read as unfinished for a unit that was done with
 # everything the pipeline does to it (see unit_store).
-PLANNED = "planned"
-RUNNING = "running"
-IN_REVIEW = "in_review"
-MERGED = "merged"
-CLOSED = "closed"
+PLANNED = UnitState.PLANNED
+RUNNING = UnitState.RUNNING
+IN_REVIEW = UnitState.IN_REVIEW
+MERGED = UnitState.MERGED
+CLOSED = UnitState.CLOSED
 
 # Stopped on something it could not get past; its feedback says what. Nothing
 # retries it until someone requeues it (`abk requeue`).
-FAILED = "failed"
+FAILED = UnitState.FAILED
 
 # The pipeline is keeping its hands off this unit: a reviewer asked it to, the
 # toolchain cannot build it, or a merge left it beyond the rebase cap (which a
 # later merge releases). Not a lifecycle state like the ones above: those
 # describe how far a unit has got, and this describes who is driving it.
-HELD = "held"
+HELD = UnitState.HELD
 
 # A unit whose groups needed nothing: it added no commits of its own, and what
 # was already at the tip passed tier 1. There is no diff, so no PR and nothing
 # to review — the work arrived by another unit building ahead of its plan.
-SATISFIED = "satisfied"
+SATISFIED = UnitState.SATISFIED
 
 IN_FLIGHT = (RUNNING, IN_REVIEW)
 
@@ -89,7 +104,7 @@ class Unit(Frozen):
     # The subset of `depends_on` that must merge before this unit starts.
     merge_before: tuple[str, ...] = ()
     estimated_lines: int = 0
-    state: str = PLANNED
+    state: UnitState = PLANNED
     issue: int | None = None
     groups: tuple[int, ...] = ()
     joined: tuple[Member, ...] = ()
@@ -447,7 +462,7 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
         others = {
             group
             for other in graph
-            if other.id != unit.id and other.state != "unplanned"
+            if other.id != unit.id and other.state != UnitState.UNPLANNED
             for carried in other.members()
             if carried.change == change
             for group in carried.groups
@@ -498,7 +513,7 @@ def in_progress_label(unit: Unit) -> str:
     already done to it, so it is named for that, not `planned`: "reworking"
     with a pull request, "paused" with only a branch of work.
     """
-    if unit.state in (PLANNED, "unplanned"):
+    if unit.state in (PLANNED, UnitState.UNPLANNED):
         return "reworking" if getattr(unit, "pr", None) is not None else "paused"
     return unit.state.replace("_", " ")
 

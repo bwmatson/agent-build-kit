@@ -24,7 +24,7 @@ from agent_build_kit.config import ProjectConfig, models
 from agent_build_kit.pipeline.pr_replies import MARKER
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED, UnitState
 from agent_build_kit.pipeline.wiring import (
     Tier2Session,
     branch_commits,
@@ -159,7 +159,7 @@ def test_the_push_uses_the_sha_we_last_recorded(tmp_path: Path) -> None:
     """A bare lease would compare against a ref a fetch may have just moved."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     pushed: list[tuple] = []
 
     build_push(
@@ -176,7 +176,7 @@ def test_a_branch_the_host_moved_is_adopted_not_pushed(tmp_path: Path) -> None:
     host's head is taken instead, and review sees it before anything is sent."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.record_push("add-marker/1", "before-the-merge")
     store.record_approval("add-marker/1", "before-the-merge")
     pushed: list[str] = []
@@ -241,7 +241,7 @@ def test_a_branch_the_host_rewrote_without_changing_the_work_is_pushed_over_its_
     host_head = git(host, "rev-parse", "HEAD").strip()
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.record_push("add-marker/1", pushed_head)
     store.record_approval("add-marker/1", pushed_head)
     leased: list[str | None] = []
@@ -272,7 +272,7 @@ def test_a_restacked_branch_over_the_hosts_older_form_is_pushed_over_its_head(
     restacked = git(repo, "rev-parse", "HEAD").strip()
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.record_push("add-marker/1", pushed_head)
     store.record_approval("add-marker/1", restacked)
     leased: list[str | None] = []
@@ -298,7 +298,7 @@ def test_a_push_whose_recording_was_lost_is_not_taken_for_a_host_move(tmp_path: 
     head = git(repo, "rev-parse", "HEAD").strip()
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.record_push("add-marker/1", "before")
     store.record_approval("add-marker/1", head)
     pushed: list[tuple] = []
@@ -348,7 +348,7 @@ def test_is_linear_follows_whether_the_base_tip_is_in_the_branch(tmp_path: Path)
 def test_a_branch_the_host_still_has_as_pushed_is_pushed(tmp_path: Path) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.record_push("add-marker/1", "sha0")
     pushed: list[tuple] = []
 
@@ -785,7 +785,7 @@ def test_after_a_squash_merge_only_the_unit_s_own_commits_are_replayed(tmp_path:
 
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit("c/2", branch="spec/c/2"), stored_unit("c/3", depends_on=("c/2",))])
-    store.set_state("c/2", "merged", branch="spec/c/2")
+    store.set_state("c/2", UnitState.MERGED, branch="spec/c/2")
 
     start = own_work_starts_after(repo, "main", store.get("c/3"), store)
 

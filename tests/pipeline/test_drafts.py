@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    UnitState,
 )
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -116,7 +117,9 @@ def test_a_unit_with_no_pull_request_makes_no_call(store: UnitStore, forge: Stan
 
 
 @pytest.mark.parametrize("state", [PLANNED, HELD, FAILED, MERGED, CLOSED, SATISFIED])
-def test_the_other_states_make_no_call(state: str, store: UnitStore, forge: StandInForge) -> None:
+def test_the_other_states_make_no_call(
+    state: UnitState, store: UnitStore, forge: StandInForge
+) -> None:
     in_review(store)
 
     store.set_state(UID, state)

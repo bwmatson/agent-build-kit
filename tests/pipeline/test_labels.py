@@ -16,6 +16,7 @@ from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.vocabulary import change_label
 from agent_build_kit.settings import settings
 from tests.factories import stored_unit as unit
@@ -51,9 +52,9 @@ def test_the_state_follows_the_unit_on_azure(tmp_path: Path) -> None:
     store = azure_store(tmp_path, host, logged)
     store.upsert([unit("add-marker/1")])
 
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
-    store.set_state("add-marker/1", "in_review", pr=PR)
-    store.set_state("add-marker/1", "held")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=PR)
+    store.set_state("add-marker/1", UnitState.HELD)
 
     assert sorted(host.label_names(PR)) == sorted(["held", change_label("add-marker").name])
     assert not any("no labels" in line for line in logged), logged
@@ -67,8 +68,8 @@ def test_a_refused_label_write_is_logged_and_the_unit_goes_on(tmp_path: Path) ->
     store = azure_store(tmp_path, host, logged)
     store.upsert([unit("add-marker/1")])
 
-    store.set_state("add-marker/1", "in_review", pr=PR, branch="spec/add-marker/1")
-    store.set_state("add-marker/1", "held")
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=PR, branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.HELD)
 
     assert store.get("add-marker/1").state == "held"
     assert any("failed" in line and "you need permission" in line for line in logged), logged
@@ -91,7 +92,7 @@ def test_a_host_without_labels_still_says_so_once(tmp_path: Path) -> None:
     store = store_over(StateLabels(lookup(NoLabelsForge()), log=logged.append), tmp_path)
     store.upsert([unit("add-marker/1")])
 
-    store.set_state("add-marker/1", "in_review", pr=PR, branch="spec/add-marker/1")
-    store.set_state("add-marker/1", "held")
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=PR, branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.HELD)
 
     assert len([line for line in logged if "keeps no labels" in line]) == 1

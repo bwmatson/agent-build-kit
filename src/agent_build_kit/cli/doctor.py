@@ -47,6 +47,7 @@ from agent_build_kit.init.detect import DEV_STACK_SCRIPT, detect_repo
 from agent_build_kit.init.scaffold import RULES_CHANGES, RULES_VERSION, rules_version
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
+from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.runtimes import policy_check
 from agent_build_kit.settings import settings
 
@@ -437,7 +438,7 @@ def _gaps(inst: Installation, run: Run) -> list[Check]:
             try:
                 if profile.dependents(path, service):
                     continue
-            except NotImplementedError:
+            except ProfileUnsupported:
                 pass
             gaps.append(f"service dir {service}/ has no deploy rule")
         for prefix in prefixes:

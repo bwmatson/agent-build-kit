@@ -13,8 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.graph.state import Node
-from agent_build_kit.graph.unit import Pause
-from agent_build_kit.pipeline.stack_runner import Restacked, RunStatus
+from agent_build_kit.pipeline.stack_runner import PauseInfo, Restacked, RunStatus
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.wiring import Tier2Session
 from tests.factories import unit
@@ -171,7 +170,7 @@ def test_tier_one_failing_after_a_clean_move_waits_for_the_usage_window_before_i
     assert outcome.status == RunStatus.PAUSED, "the resumed run is gated on usage like any other"
     assert "push" not in recorder.events and "pr" not in recorder.events
     paused = position(tmp_path)
-    assert paused.pause == Pause(reason="session at 88%")
+    assert paused.pause == PauseInfo(reason="session at 88%")
     assert paused.next == (Node.REWORK,)
     assert "trunk renamed the helper" in recorder.store.get("add-marker/1").feedback
 

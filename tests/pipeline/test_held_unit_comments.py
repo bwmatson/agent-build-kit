@@ -13,7 +13,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import Poller, PrState
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, SATISFIED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, SATISFIED, UnitState
 from tests.factories import stored_unit as unit
 
 PR = 4
@@ -132,7 +132,7 @@ def test_a_comment_arriving_with_the_hold_is_delivered_on_release(
 
 @pytest.mark.parametrize("state", [SATISFIED, None])
 def test_a_comment_no_unit_can_work_on_is_consumed(
-    tmp_path: Path, store: UnitStore, state: str | None
+    tmp_path: Path, store: UnitStore, state: UnitState | None
 ) -> None:
     """A satisfied unit's pull request is closing, and one with no unit has
     nothing to rework: neither will ever take the comment."""

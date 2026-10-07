@@ -15,7 +15,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, SATISFIED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, SATISFIED, UnitState
 from tests.factories import stored_unit as unit
 
 
@@ -216,7 +216,7 @@ def test_a_unit_stored_before_the_count_existed_loads_and_is_rerun(tmp_path: Pat
 
 
 @pytest.mark.parametrize("state", [HELD, SATISFIED])
-def test_a_held_or_satisfied_unit_keeps_its_checks(store: UnitStore, state: str) -> None:
+def test_a_held_or_satisfied_unit_keeps_its_checks(store: UnitStore, state: UnitState) -> None:
     store.set_state("add-marker/1", state)
     reruns: Reruns = Reruns()
     log: list[str] = []

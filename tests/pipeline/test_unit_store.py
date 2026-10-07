@@ -15,7 +15,7 @@ import json
 import pytest
 
 from agent_build_kit.pipeline.unit_store import UNPLANNED, UnitStore, corrupt_store_message
-from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, Unit
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, Unit, UnitState
 from tests.factories import unit as app_unit
 
 
@@ -259,7 +259,7 @@ def test_a_unit_in_flight_is_not_unplanned_by_a_replan(tmp_path) -> None:
     mechanism was ever for."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit("c/1", change="c"), unit("c/2", change="c")], change="c")
-    store.set_state("c/1", "running")
+    store.set_state("c/1", UnitState.RUNNING)
     store.set_state("c/2", IN_REVIEW, pr=4)
 
     store.upsert([], change="c")
@@ -276,7 +276,7 @@ def test_every_write_is_seen_by_the_listener(tmp_path) -> None:
         tmp_path / "units.json", on_write=lambda units: seen.append([u.state for u in units])
     )
     store.upsert([unit()])
-    store.set_state("add-marker/1", "running")
+    store.set_state("add-marker/1", UnitState.RUNNING)
 
     assert seen == [["planned"], ["running"]]
 

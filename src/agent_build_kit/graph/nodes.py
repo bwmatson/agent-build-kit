@@ -47,8 +47,10 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     TESTS_PROMPT,
     TIER1_FAILED,
+    Escalation,
     Restacked,
     RunStatus,
+    UnitOutcome,
     UnitRunner,
     check_test_decisions,
     escalates,
@@ -56,7 +58,13 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    FeedbackSource,
+    HeldBy,
+    RequeueReason,
+    StoredUnit,
+)
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -64,6 +72,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
     Unit,
+    UnitState,
     branch_name,
     depth_of,
     local_ref,
@@ -180,7 +189,7 @@ class BuildPath:
             )
             started = time.monotonic()
             mark = spans.Mark()
-            outcome = "error"
+            outcome = UnitOutcome.ERROR
             with span as current:
                 self._node = node.value
                 context = spans.current_unit.set(
@@ -190,17 +199,19 @@ class BuildPath:
                 try:
                     # Off the loop: the callables block on agents and git.
                     update = await asyncio.to_thread(self._step, node, body, state)
-                    outcome = str(update.get("status") or "ok")
+                    outcome = (
+                        UnitOutcome(update["status"]) if update.get("status") else UnitOutcome.OK
+                    )
                     # The node is done, and with it the session it was in.
                     return {**update, "session_id": ""}
                 except GraphInterrupt:
-                    outcome = "waiting"
+                    outcome = UnitOutcome.WAITING
                     raise
                 except AgentRateLimited:
-                    outcome = "rate_limited"
+                    outcome = UnitOutcome.RATE_LIMITED
                     raise
                 except AgentInterrupted:
-                    outcome = "interrupted"
+                    outcome = UnitOutcome.INTERRUPTED
                     raise
                 except BaseException:
                     if current is not None:
@@ -289,7 +300,7 @@ class BuildPath:
 
     def hold(
         self,
-        state: str,
+        state: UnitState,
         note: str,
         detail: str,
         *,
@@ -447,7 +458,7 @@ class BuildPath:
         branch = branch_name(unit)
         base = state.base or self.base
         feedback = r.store.get(unit.id).feedback
-        r.store.set_state(unit.id, "running", branch=branch)
+        r.store.set_state(unit.id, UnitState.RUNNING, branch=branch)
         # Made again: a trip back here may be onto a different base.
         self._tree = None
         tree, ref = self.tree(), self.ref(state)
@@ -469,8 +480,13 @@ class BuildPath:
                 raise
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
-                waiting = r.store.get(unit.id).feedback
-                r.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
+                stored = r.store.get(unit.id)
+                r.store.set_feedback(
+                    unit.id,
+                    f"{stored.feedback}\n\n{why}".strip(),
+                    from_person=stored.feedback_from_person,
+                    source=stored.feedback_source,
+                )
                 return {**FRESH, **self.stop(why)}
             if restacked is not None:
                 if restacked.conflict:
@@ -571,8 +587,13 @@ class BuildPath:
             outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
             if outstanding:
                 why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
-            waiting = r.store.get(unit.id).feedback
-            r.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
+            stored = r.store.get(unit.id)
+            r.store.set_feedback(
+                unit.id,
+                f"{stored.feedback}\n\n{why}".strip(),
+                from_person=stored.feedback_from_person,
+                source=stored.feedback_source,
+            )
             return self.stop(why)
         r.store.set_predecessor_note(unit.id, self.port_note(restacked, required, decisions))
         counts = {k: sum(d.decision == k for d in decisions) for k in ("keep", "adapt", "retire")}
@@ -657,7 +678,7 @@ class BuildPath:
         self.say(f"checks {'passed' if ok else 'failed'}")
         head = r.head(tree)
         if ok:
-            if r.store.get(unit.id).feedback.startswith(TIER1_FAILED):
+            if r.store.get(unit.id).feedback_source is FeedbackSource.TIER1:
                 # Fixed: left saved, a resume would redo a fix already on the branch.
                 r.store.set_feedback(unit.id, "")
             return {"checks_ok": True, "head": head}
@@ -668,7 +689,9 @@ class BuildPath:
             round=state.fix_rounds + 1,
         )
         # Kept before anything can stop the run, so a retry addresses this output.
-        r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
+        r.store.set_feedback(
+            unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
+        )
         budget = active().limits.max_check_rounds
         if budget is not None and state.fix_rounds >= budget:
             return {
@@ -764,16 +787,18 @@ class BuildPath:
             # Another instance of a kind that cannot be enumerated, or a point
             # raised again after the builder declined it: a person's call.
             parts = [weighed.why]
-            if verdict.escalate == "disagreement":
+            if verdict.escalate is Escalation.DISAGREEMENT:
                 parts.append(str(weighed.earlier_rounds[-1].get("response", "")).strip())
             parts.append(verdict.reasoning)
             r.store.set_feedback(unit.id, "\n\n".join(p for p in parts if p).strip())
             label = (
-                "an open-ended class" if verdict.escalate == "class" else "a repeated disagreement"
+                "an open-ended class"
+                if verdict.escalate is Escalation.CLASS
+                else "a repeated disagreement"
             )
             escalated = (
                 Cause.REVIEW_ESCALATED_CLASS
-                if verdict.escalate == "class"
+                if verdict.escalate is Escalation.CLASS
                 else Cause.REVIEW_ESCALATED_DISAGREEMENT
             )
             reasoning = " ".join(verdict.reasoning.split())[:280]
@@ -802,7 +827,7 @@ class BuildPath:
         build_boundary, _ = r.boundary_notes(unit, self.graph)
         stored = r.store.get(unit.id)
         feedback = stored.feedback
-        failed_check = feedback.startswith(TIER1_FAILED)
+        failed_check = stored.feedback_source in (FeedbackSource.TIER1, FeedbackSource.TIER2)
         in_loop = state.verdict is Verdict.CHANGES
         kept: Update = {}
         # An empty head is a thread converted from the engine before the switch, or a rework
@@ -906,7 +931,7 @@ class BuildPath:
         # to the poller.
         given = (*state.given_comments, *(c.id for c in new))
         self.say(f"{len(new)} new comment(s) on #{pr}: back to rework")
-        r.store.set_feedback(unit.id, words, from_person=True)
+        r.store.set_feedback(unit.id, words, from_person=True, source=FeedbackSource.REVIEW)
         return {
             "seen_comments": seen,
             "given_comments": given,
@@ -931,7 +956,9 @@ class BuildPath:
             telemetry.count(
                 "abk.checks.failures", check=lambda: failed_check(output, unit.repo), round=0
             )
-            r.store.set_feedback(unit.id, f"{TIER1_FAILED}\n{output}".strip())
+            r.store.set_feedback(
+                unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
+            )
             if state.moved:
                 return self.rebase(state, f"tier 1 failed on {base}", base=base)
             return self.stop("tier 1 failed")
@@ -961,10 +988,20 @@ class BuildPath:
             self.say(line)
         # Kept, as tier 1's is: a failure that leaves no trace has to be reproduced by hand.
         if state.moved:
-            r.store.set_feedback(unit.id, f"tier 2 failed:\n{snapshot}".strip())
+            r.store.set_feedback(
+                unit.id, f"tier 2 failed:\n{snapshot}".strip(), source=FeedbackSource.TIER2
+            )
             return self.rebase(state, f"tier 2 failed on {base}", base=base)
-        waiting = r.store.get(unit.id).feedback
-        r.store.set_feedback(unit.id, f"{waiting}\n\ntier 2 failed:\n{snapshot}".strip())
+        stored = r.store.get(unit.id)
+        # Words a person left stay theirs: tier 2's output is added to them, not
+        # the other way round.
+        review = stored.feedback_source is FeedbackSource.REVIEW
+        r.store.set_feedback(
+            unit.id,
+            f"{stored.feedback}\n\ntier 2 failed:\n{snapshot}".strip(),
+            from_person=stored.feedback_from_person,
+            source=FeedbackSource.REVIEW if review else FeedbackSource.TIER2,
+        )
         return self.stop("tier 2 failed")
 
     def satisfied(self, state: UnitRun) -> Update:
@@ -1185,7 +1222,10 @@ class BuildPath:
         update: Update = {"event": event}
         if event.kind is EventKind.REWORK:
             r.store.set_feedback(
-                unit.id, event.feedback or event.reason, from_person=event.from_person
+                unit.id,
+                event.feedback or event.reason,
+                from_person=event.from_person,
+                source=event.feedback_source,
             )
             r.store.set_state(
                 unit.id, RUNNING, note=f"rework requested: {event.reason}", cause=Cause.REWORK
@@ -1243,13 +1283,21 @@ class BuildPath:
                     cause=Cause.RELEASED,
                 )
                 update.update(self.fresh_run())
-                update.update({"event": ResumeEvent(kind=EventKind.REQUEUE, reason="released")})
+                update.update(
+                    {
+                        "event": ResumeEvent(
+                            kind=EventKind.REQUEUE,
+                            requeue=RequeueReason.RELEASED,
+                            reason="released",
+                        )
+                    }
+                )
                 update["base"] = ""
                 return update
             r.store.set_state(unit.id, IN_REVIEW, note="hold label removed", cause=Cause.RELEASED)
             update.update({"status": RunStatus.OPEN, "detail": "released"})
         elif event.kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
-            if event.kind is EventKind.REQUEUE and event.reason == "restart":
+            if event.requeue is RequeueReason.RESTART:
                 r.store.set_feedback(unit.id, "")
                 update["review_rounds"] = ()
             # Running, so the tick resumes the thread at `prepare` in a slot.

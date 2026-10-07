@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active
 from agent_build_kit.forges import PullRequest
+from agent_build_kit.pipeline.unit_store import ReworkKind
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 
 # Raises on failure, which is what drives the backoff below.
@@ -39,8 +40,7 @@ BACKOFF = timedelta(minutes=30)
 
 HOLD_LABEL = "agent-hold"
 REWORK_LABEL = "agent-rework"
-# The `rework` reason for a branch that does not merge into its base.
-# `events.on_rework` recognises it by this value.
+# The `rework` reason for a branch that does not merge into its base: words for people.
 CONFLICT_REASON = "merge conflict with its base"
 FAILING_CHECKS_REASON = "failing checks"
 
@@ -252,9 +252,12 @@ class Poller(BaseModel):
                 number,
                 pull=pull,
                 reason=f"{FAILING_CHECKS_REASON}: {', '.join(current['failing_checks'])}",
+                rework=ReworkKind.FAILING_CHECKS,
             )
         if current["mergeable"] is False:
-            return self.dispatch("rework", number, pull=pull, reason=CONFLICT_REASON)
+            return self.dispatch(
+                "rework", number, pull=pull, reason=CONFLICT_REASON, rework=ReworkKind.CONFLICT
+            )
         return None
 
     def _dispatch_changes(
@@ -304,7 +307,13 @@ class Poller(BaseModel):
             return self.dispatch("release", number, pull=pull)
 
         if REWORK_LABEL in labels_added:
-            handled = self.dispatch("rework", number, pull=pull, reason="agent-rework label")
+            handled = self.dispatch(
+                "rework",
+                number,
+                pull=pull,
+                reason="agent-rework label",
+                rework=ReworkKind.LABEL,
+            )
             if handled is not False and self.consume(number, REWORK_LABEL):
                 # Acted on, so the label comes off - and the snapshot is what
                 # was listed before that. Recorded as seen, a person adding it
@@ -322,14 +331,22 @@ class Poller(BaseModel):
             # Only on the transition. The decision stays as it is until a later
             # review supersedes it, so reporting it every poll would rework the
             # unit every five minutes all night.
-            return self.dispatch("rework", number, pull=pull, reason="review: changes requested")
+            return self.dispatch(
+                "rework",
+                number,
+                pull=pull,
+                reason="review: changes requested",
+                rework=ReworkKind.CHANGES_REQUESTED,
+            )
 
         if "comment_ids" in before:
             new_comment = bool(set(after["comment_ids"]) - set(before["comment_ids"]))
         else:
             new_comment = after["last_comment"] != before.get("last_comment")
         if new_comment:
-            return self.dispatch("rework", number, pull=pull, reason="new comment")
+            return self.dispatch(
+                "rework", number, pull=pull, reason="new comment", rework=ReworkKind.COMMENT
+            )
 
         newly_failing = set(after["failing_checks"]) - set(before.get("failing_checks") or [])
         if newly_failing:
@@ -340,6 +357,7 @@ class Poller(BaseModel):
                 number,
                 pull=pull,
                 reason=f"{FAILING_CHECKS_REASON}: {', '.join(newly_failing)}",
+                rework=ReworkKind.FAILING_CHECKS,
             )
 
         if after["mergeable"] is False and before.get("mergeable") is not False:
@@ -348,5 +366,7 @@ class Poller(BaseModel):
             # the pipeline's own included, and the next poll asks again.
             # `before` holds the last definite answer, so an undetermined one
             # between two conflicting answers is not a transition (see `poll`).
-            return self.dispatch("rework", number, pull=pull, reason=CONFLICT_REASON)
+            return self.dispatch(
+                "rework", number, pull=pull, reason=CONFLICT_REASON, rework=ReworkKind.CONFLICT
+            )
         return None

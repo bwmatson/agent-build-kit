@@ -16,6 +16,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
 from tests.factories import unit
 
@@ -31,7 +32,7 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> UnitStore:
 def failed_at_verify(store: UnitStore, uid: str = "add-marker/1") -> None:
     """A unit that built, then failed its tier 1 check: the case that resumes."""
     store.upsert([unit(uid)])
-    store.set_state(uid, "failed", branch=f"spec/{uid}")
+    store.set_state(uid, UnitState.FAILED, branch=f"spec/{uid}")
     store.set_feedback(uid, "tier 1 failed: pre-commit was not found")
 
 
@@ -70,7 +71,7 @@ def test_the_reason_is_recorded_in_the_unit_s_history(store: UnitStore) -> None:
 
 def test_a_held_unit_can_be_requeued_too(store: UnitStore) -> None:
     store.upsert([unit("add-marker/1")])
-    store.set_state("add-marker/1", "held")
+    store.set_state("add-marker/1", UnitState.HELD)
 
     assert main(["requeue", "add-marker/1"]) == 0
 
@@ -78,7 +79,7 @@ def test_a_held_unit_can_be_requeued_too(store: UnitStore) -> None:
 
 
 @pytest.mark.parametrize("state", ["planned", "running", "in_review", "merged", "closed"])
-def test_a_unit_that_is_not_stuck_is_left_alone(store: UnitStore, state: str, capsys) -> None:
+def test_a_unit_that_is_not_stuck_is_left_alone(store: UnitStore, state: UnitState, capsys) -> None:
     """Requeueing a running unit double-builds it; an in-review one has a PR
     that would be orphaned; a merged one is done."""
     store.upsert([unit("add-marker/1")])
@@ -125,7 +126,7 @@ def test_rework_hands_the_agent_the_saved_failure(store: UnitStore, capsys) -> N
 def test_rework_with_nothing_saved_changes_nothing(store: UnitStore, capsys) -> None:
     """There is nothing to hand the agent, and guessing would redo the build."""
     store.upsert([unit("add-marker/1")])
-    store.set_state("add-marker/1", "failed")
+    store.set_state("add-marker/1", UnitState.FAILED)
 
     assert main(["requeue", "add-marker/1", "--rework"]) == 1
 
@@ -154,7 +155,7 @@ def test_rework_is_recorded_in_the_unit_s_history(store: UnitStore) -> None:
 
 def test_rework_still_refuses_a_unit_that_is_not_failed_or_held(store: UnitStore) -> None:
     store.upsert([unit("add-marker/1")])
-    store.set_state("add-marker/1", "in_review", pr=4)
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=4)
 
     assert main(["requeue", "add-marker/1", "--rework"]) == 1
     assert store.get("add-marker/1").state == "in_review"
