@@ -1218,6 +1218,7 @@ class BuildPath:
                     note=takeover_note(current, event.reason),
                     held_by=HeldBy.REVIEWER,
                     held_base=current.held_base,
+                    cause=Cause.REVIEWER_HOLD,
                 )
             update.update({"status": RunStatus.HELD, "detail": event.reason or "held"})
         elif event.kind is EventKind.RELEASE:

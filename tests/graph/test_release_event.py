@@ -10,7 +10,7 @@ from agent_build_kit import config as config_module
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.unit_store import HeldBy
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, RUNNING
 from tests.factories import unit
 from tests.graph_driver import FakeTracer, fresh, position, tick
@@ -39,6 +39,7 @@ def test_a_hold_event_records_that_a_reviewer_held_the_unit(tmp_path: Path) -> N
     stored = recorder.store.get(unit().id)
     assert stored.state == HELD
     assert stored.held_by == "reviewer"
+    assert stored.cause == Cause.REVIEWER_HOLD
 
 
 def test_a_release_event_returns_the_thread_to_waiting_for_review(tmp_path: Path) -> None:

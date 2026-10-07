@@ -43,6 +43,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "review_escalated_class",
         "review_escalated_disagreement",
         "needs_human",
+        "reviewer_hold",
         "requeued",
         "released",
         "restack_conflict",
@@ -69,6 +70,13 @@ def test_the_cause_survives_a_reload_as_an_enum_value(store: UnitStore) -> None:
     raw = json.loads(store.path.read_text())
 
     assert raw["units"][0]["history"][-1]["cause"] == "base_changed"
+
+
+def test_a_cause_this_release_does_not_know_reads_as_none(store: UnitStore) -> None:
+    store.set_state(UNIT, PLANNED, cause=Cause.BASE_CHANGED)
+    store.path.write_text(store.path.read_text().replace("base_changed", "from_a_later_release"))
+
+    assert UnitStore(store.path).get(UNIT).cause is None
 
 
 def test_a_state_change_without_a_cause_records_none_even_after_one_with(

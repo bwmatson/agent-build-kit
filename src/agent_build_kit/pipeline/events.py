@@ -971,6 +971,7 @@ def on_hold(
                     note=takeover_note(current),
                     held_by=HeldBy.REVIEWER,
                     held_base=current.held_base,
+                    cause=Cause.REVIEWER_HOLD,
                 )
     except BranchBusy as error:
         return _deferred(f"hold #{pr}", unit, error, log)

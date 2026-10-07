@@ -667,12 +667,18 @@ def _sent_back(
 ) -> set[str]:
     """Units this pass already built that have since been put back to planned for
     a cause in `READMITTED_CAUSES`. A unit put back for any other cause, or for none
-    (a record from before causes were kept), waits for the next pass; each such
-    skip is logged once, with its cause, in `skipped`."""
+    (a record from before causes were kept), waits for the next pass, and a unit that
+    ended held is never let back in; each such skip is logged once, with its cause,
+    in `skipped`."""
     out: set[str] = set()
     for unit in units:
         at = started.get(unit.id)
-        if at is None or unit.id in building or unit.state != PLANNED or not unit.history:
+        if (
+            at is None
+            or unit.id in building
+            or unit.state not in (PLANNED, HELD)
+            or not unit.history
+        ):
             continue
         last = unit.history[-1]
         try:
@@ -681,7 +687,7 @@ def _sent_back(
             continue
         if when <= at:
             continue
-        if unit.cause in READMITTED_CAUSES:
+        if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
         elif skipped is not None and (unit.id, str(last.get("at"))) not in skipped:
             skipped.add((unit.id, str(last.get("at"))))

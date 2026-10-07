@@ -10,8 +10,9 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import HELD, PLANNED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from agent_build_kit.settings import reload
 from tests.conftest import make_installation
 from tests.factories import unit
@@ -54,3 +55,19 @@ def test_status_lists_the_units_in_flight_that_carry_no_cause(
     text = output.out + output.err
     assert "no recorded cause: a/1, a/2" in text
     assert "a/3" not in text.split("no recorded cause")[1]
+
+
+def test_status_does_not_list_a_unit_held_by_the_label_as_lacking_a_cause(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], machine_runtime: None
+) -> None:
+    store = cli.store_for(make_installation(tmp_path))
+    store.upsert([unit("a/1")])
+    store.set_state("a/1", IN_REVIEW, pr=1, branch="spec/a/1")
+    events.on_hold(1, repo="app", store=store, log=lambda m: None)
+    assert store.get("a/1").state == HELD
+    capsys.readouterr()
+
+    cli.cmd_status(argparse.Namespace(), make_installation(tmp_path))
+
+    output = capsys.readouterr()
+    assert "no recorded cause" not in output.out + output.err

@@ -160,7 +160,7 @@ class Builder:
             self.store.set_state(unit.id, IN_REVIEW, pr=pr)
         elif unit.id in self.ends:
             state, cause, note = self.ends[unit.id]
-            held_by = HeldBy.TOOLCHAIN if state == HELD else HeldBy.NONE
+            held_by = HOLDERS.get(cause, HeldBy.NONE) if state == HELD and cause else HeldBy.NONE
             self.store.set_state(unit.id, state, note=note, cause=cause, held_by=held_by)
         else:
             note = status if ":" in status else f"{status} before implement"
@@ -170,6 +170,16 @@ class Builder:
         return RunOutcome(
             status=RunStatus(status.split()[0].rstrip(":")), detail=f"{status} {unit.id}", pr=pr
         )
+
+
+# Who really holds a unit for each cause that ends a run `held`.
+HOLDERS = {
+    Cause.TOOLCHAIN: HeldBy.TOOLCHAIN,
+    Cause.DEPTH: HeldBy.DEPTH,
+    Cause.REVIEW_ESCALATED_CLASS: HeldBy.REVIEW,
+    Cause.REVIEW_ESCALATED_DISAGREEMENT: HeldBy.REVIEW,
+    Cause.NEEDS_HUMAN: HeldBy.REVIEW,
+}
 
 
 @pytest.fixture
@@ -1335,7 +1345,11 @@ def test_a_planned_unit_stopped_for_any_other_cause_waits_for_the_next_pass_and_
     ],
 )
 def test_a_held_unit_is_not_let_back_in_whatever_its_note_says(
-    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cause: Cause
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    cause: Cause,
 ) -> None:
     _ends_and_waits(
         builder,
@@ -1347,6 +1361,8 @@ def test_a_held_unit_is_not_let_back_in_whatever_its_note_says(
 
     assert builder.started.count("sent/1") == 1
     assert builder.store.get("sent/1").state == HELD
+    out = capsys.readouterr()
+    assert cause.value in out.out + out.err, "the skip is logged with its cause"
 
 
 @pytest.mark.parametrize(

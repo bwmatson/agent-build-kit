@@ -64,6 +64,7 @@ class Cause(StrEnum):
     REVIEW_ESCALATED_CLASS = "review_escalated_class"
     REVIEW_ESCALATED_DISAGREEMENT = "review_escalated_disagreement"
     NEEDS_HUMAN = "needs_human"
+    REVIEWER_HOLD = "reviewer_hold"
     REQUEUED = "requeued"
     RELEASED = "released"
     RESTACK_CONFLICT = "restack_conflict"
@@ -160,7 +161,11 @@ class StoredUnit(Unit):
         causes were kept."""
         if not self.history or not self.history[-1].get("cause"):
             return None
-        return Cause(self.history[-1]["cause"])
+        try:
+            return Cause(self.history[-1]["cause"])
+        except ValueError:
+            # Written by a newer release; read as a record from before causes were kept.
+            return None
 
 
 # The in-run fields a unit used to carry here, which now live in its thread.

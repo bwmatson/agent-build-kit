@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.forges.base import BaseMissing
+from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
@@ -72,6 +73,11 @@ def base_gone_that_the_forge_still_names(tmp_path: Path, recorder: Recorder) -> 
     )
 
 
+def push_the_host_moved(tmp_path: Path, recorder: Recorder) -> RunOutcome:
+    recorder.push_raises = HostMoved("the host moved it")
+    return build(tmp_path, recorder)
+
+
 # Each path and the cause it must record; every one leaves the unit `planned`.
 HOLD_PATHS: list[tuple[Held, Cause]] = [
     (upstream_went_back, Cause.UPSTREAM_WENT_BACK),
@@ -79,6 +85,7 @@ HOLD_PATHS: list[tuple[Held, Cause]] = [
     (base_needing_resolution_twice, Cause.BASE_CHANGED),
     (base_conflicting_twice, Cause.BASE_CHANGED),
     (base_gone_that_the_forge_still_names, Cause.BASE_CHANGED),
+    (push_the_host_moved, Cause.RESTACK_DEFERRED),
 ]
 
 

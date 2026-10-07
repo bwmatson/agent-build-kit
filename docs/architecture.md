@@ -369,8 +369,10 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
 
 Between steps the unit can be stopped: a same-repo parent went back for
 rework (the unit `planned`, with cause `upstream_went_back`), or the usage window filled.
-Every state change records a `cause`, a fixed set of values, on its history entry; the
-note beside it is prose for people and no code reads it. A pass lets a unit it already
+Every change that stops a unit, holds it or sends it back (and a merge, a close, a
+release, a failure) records a `cause`, a fixed set of values, on its history entry; the
+note beside it is prose for people and no code reads it. The entries for starting a run,
+reaching review and being satisfied carry none. A pass lets a unit it already
 built back in only when its last cause is `rework` or `base_changed` (resuming restacks
 it, so what held it is gone); a unit put back for any other cause waits for the next
 pass, and the tick log says which cause. A unit held for depth keeps the branch it is

@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Why a unit stopped is a recorded cause (rework, base changed, upstream went back, usage,
-  depth, toolchain, review escalation, requeued, and the like) on each state change, and the
+  depth, toolchain, review escalation, a reviewer's hold, requeued, and the like) kept on each
+  change that stops, holds or sends back a unit, and the
   pass lets a unit it already built back in by that cause alone: only rework and a changed
   base. Rewording a note changes no decision, and the depth hold keeps the branch it is still
   on as a field. A store written before causes were kept loads with none, its units are not

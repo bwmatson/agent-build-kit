@@ -16,7 +16,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.pr_poller import Poller
-from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
@@ -75,6 +75,12 @@ def test_the_hold_label_records_that_a_reviewer_held_the_unit(store: UnitStore) 
     stored = store.get(UNIT)
     assert stored.state == HELD
     assert stored.held_by == "reviewer"
+
+
+def test_the_hold_label_records_the_reviewer_hold_cause(store: UnitStore) -> None:
+    events.on_hold(1, repo="app", store=store, log=lambda m: None)
+
+    assert store.get(UNIT).cause == Cause.REVIEWER_HOLD
 
 
 def test_a_unit_leaving_held_forgets_why_it_was_held(store: UnitStore) -> None:
