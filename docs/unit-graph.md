@@ -107,8 +107,11 @@ line falls where a unit ends:
   the thread's state. Two in-run fields stay, because something writes them
   with no run in progress: `approved` (the push gate and `build_restack` read
   and write it) and `predecessor_note` (`build_restack` writes it). A store that
-  still holds `resume_from` or an in-run key on a unit does not load: the error names
-  the unit and the field, and that work must be finished or requeued first.
+  still carries a value in `review_rounds`, `deferred`, `pending_replies`,
+  `person_comments`, `resume_from` or `classic_run` on a unit does not load: the error
+  names the unit and the field, and that work must be finished or requeued first. The
+  empty `resume_from` and `classic_run` the last release wrote on every unit are dropped
+  on read.
 - **The checkpoint** holds a run's progress. There is one LangGraph thread per
   unit, with `thread_id` equal to the unit id.
 - **git** holds the work: every step that produces anything ends in a commit,

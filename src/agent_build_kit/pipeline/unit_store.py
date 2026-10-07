@@ -207,12 +207,20 @@ OLD_ENGINE_FIELDS = (
     "pending_replies",
     "person_comments",
     "resume_from",
+    "classic_run",
 )
+
+# The previous release wrote these on every unit, empty when no run was in progress.
+# An empty one is dropped on read; only a value in it is old work.
+_WRITTEN_EMPTY = {"resume_from": "", "classic_run": {}}
 
 
 def _refuse_old_engine_fields(item: Any) -> None:
     if not isinstance(item, dict):
         return
+    for field in OLD_ENGINE_FIELDS:
+        if field in item and item[field] == _WRITTEN_EMPTY.get(field):
+            del item[field]
     for field in OLD_ENGINE_FIELDS:
         if field in item:
             raise ValueError(

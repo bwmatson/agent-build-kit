@@ -2,10 +2,13 @@
 
 ## Unreleased
 
-- Breaking: a `units.json` that still holds `review_rounds`, `deferred`, `pending_replies`,
-  `person_comments` or `resume_from` on a unit (written by the previous engine) no longer
-  loads; the error names the unit and the field. Finish or requeue that work with the
-  release that wrote it first. The tick no longer moves such units onto threads.
+- Breaking: a `units.json` with a unit that still carries a value in one of the previous
+  engine's fields (`review_rounds`, `deferred`, `pending_replies`, `person_comments`,
+  `resume_from` or `classic_run`) no longer loads; the error names the unit and the field.
+  Finish or requeue that work with the release that wrote it first. The empty
+  `resume_from` and `classic_run` the last release wrote on every unit are dropped on
+  read, so a store it wrote loads as it is. The tick no longer moves such units onto
+  threads.
 
 - Each repo has a `changelog` setting in `abk.yaml`: the path of its changelog (default
   `CHANGELOG.md`), or `null` to turn the changelog convention off. For a repo with it on,
