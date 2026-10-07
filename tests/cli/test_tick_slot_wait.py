@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.conftest import make_installation
 from tests.fake_clock import START, FakeClock, install, span_lines
 
@@ -87,7 +88,8 @@ def test_a_unit_submitted_while_every_slot_is_busy_records_the_wait_as_slot(
     build = Build(store, clock, seconds=30)
     monkeypatch.setattr(cli, "build_runner", build)
 
-    assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
+    with branch_lock("spec/other/1", root=inst.state_dir / "locks"):
+        assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
 
     first, second = build.started
     waits = [s for s in span_lines(inst) if s.get("waited") == "slot"]
@@ -112,13 +114,14 @@ def test_a_unit_queued_behind_another_ticks_running_build_records_the_slot_wait(
     store.upsert(
         [stored("other/1", "app"), stored("first/1", "app"), stored("second/1", "platform")]
     )
-    # Another tick's build: running in the store, not built by this pass.
+    # Another tick's build: running in the store, its branch lock held (below).
     store.set_state("other/1", RUNNING, branch="spec/other/1")
     build = Build(store, clock, seconds=30)
     monkeypatch.setattr(cli, "build_runner", build)
     monkeypatch.setattr(cli, "resumable_units", lambda *a, **k: [])
 
-    assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
+    with branch_lock("spec/other/1", root=inst.state_dir / "locks"):
+        assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
 
     first, second = build.started
     waits = [s for s in span_lines(inst) if s.get("waited") == "slot"]

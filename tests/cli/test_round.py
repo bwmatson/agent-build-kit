@@ -406,6 +406,97 @@ def test_a_unit_just_submitted_whose_worker_has_not_taken_its_lock_is_not_reclai
     assert store.get("handed/1").state == RUNNING
 
 
+# --- 1.8 a unit an event resumed, and the cap ---------------------------------------------
+
+
+def resumed(monkeypatch: pytest.MonkeyPatch, store: UnitStore, *ids: str) -> None:
+    """Units an event put back to running with their thread, and no run on them."""
+    running(store, *ids)
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: unit_id in ids)
+
+
+def capped(tmp_path: Path, slots: int) -> Installation:
+    return make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits={
+            "max_concurrent_stacks": slots,
+            "stack_depth_build_cap": 3,
+            "max_units_in_progress": 50,
+        },
+    )
+
+
+def test_a_resumed_unit_is_started_first_and_takes_the_one_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = capped(tmp_path, 1)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit_of("ready/1")])
+    resumed(monkeypatch, store, "resumed/1")
+
+    assert run(inst, store) == ["resumed/1"]
+
+
+def test_a_resumed_unit_waiting_for_a_worker_does_not_hold_a_slot_against_a_planned_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = capped(tmp_path, 2)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit_of("slow/1", repo="platform"), unit_of("ready/1")])
+    store.set_state("slow/1", RUNNING, branch="spec/slow/1")
+    resumed(monkeypatch, store, "resumed/1")
+
+    ready = run(inst, store, building={"slow/1"}, started={"slow/1"})
+
+    assert ready == ["resumed/1"], "the one free slot goes to the resumed unit, first"
+
+    roomy = capped(tmp_path, 3)
+    assert sorted(run(roomy, store, building={"slow/1"}, started={"slow/1"})) == [
+        "ready/1",
+        "resumed/1",
+    ], "the waiting unit took a slot it has no run on"
+
+
+def test_the_cap_reached_by_runs_in_flight_starts_neither_a_planned_nor_a_resumed_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = capped(tmp_path, 1)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit_of("slow/1", repo="platform"), unit_of("ready/1")])
+    store.set_state("slow/1", RUNNING, branch="spec/slow/1")
+    resumed(monkeypatch, store, "resumed/1")
+
+    assert run(inst, store, building={"slow/1"}, started={"slow/1"}) == []
+
+
+def test_a_unit_the_pass_built_and_a_comment_resumed_is_started_again_in_the_pass(
+    inst: Installation, builder: Builder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builder.store.upsert([unit_of("x/1"), unit_of("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    commented: list[int] = []
+    monkeypatch.setattr(
+        cli,
+        "has_thread",
+        lambda inst, unit_id: unit_id == "x/1" and builder.store.get("x/1").state == RUNNING,
+    )
+
+    def slow() -> str | None:
+        if not eventually(lambda: "x/1" in builder.finished):
+            return "failed"
+        # A reviewer comments: the event resumes x's thread.
+        commented.append(1)
+        builder.store.set_state("x/1", RUNNING, branch="spec/x/1")
+        return None if eventually(lambda: builder.started.count("x/1") == 2) else "failed"
+
+    builder.scripts["slow/1"] = slow
+
+    assert tick(inst) == 0
+
+    assert builder.started.count("x/1") == 2
+
+
 # --- 1.5 the guard ------------------------------------------------------------------------
 
 
