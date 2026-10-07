@@ -16,7 +16,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.pr_poller import Poller
-from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
@@ -43,10 +43,10 @@ def logged() -> list[str]:
     return []
 
 
-def held_as(store: UnitStore, held_by: str | None, *, note: str = "") -> None:
+def held_as(store: UnitStore, held_by: str | None, *, note: str = "", held_base: str = "") -> None:
     """The unit held for `held_by`, written as the record on disk would be: with
     `None`, as one stored before the cause was kept, which has no such key."""
-    store.set_state(UNIT, HELD, note=note)
+    store.set_state(UNIT, HELD, note=note, held_base=held_base)
     raw = json.loads(store.path.read_text())
     for item in raw["units"]:
         if item["id"] == UNIT:
@@ -75,6 +75,12 @@ def test_the_hold_label_records_that_a_reviewer_held_the_unit(store: UnitStore) 
     stored = store.get(UNIT)
     assert stored.state == HELD
     assert stored.held_by == "reviewer"
+
+
+def test_the_hold_label_records_the_reviewer_hold_cause(store: UnitStore) -> None:
+    events.on_hold(1, repo="app", store=store, log=lambda m: None)
+
+    assert store.get(UNIT).cause == Cause.REVIEWER_HOLD
 
 
 def test_a_unit_leaving_held_forgets_why_it_was_held(store: UnitStore) -> None:
@@ -175,15 +181,15 @@ def test_a_release_resumes_the_units_thread_with_a_release_event(
     assert any("#1" in line and "release" in line.lower() for line in logged)
 
 
-def test_a_stored_unit_whose_last_note_says_a_reviewer_held_it_is_released(
+def test_a_stored_unit_whose_last_note_says_a_reviewer_held_it_is_not_released_by_the_note(
     store: UnitStore, logged: list[str]
 ) -> None:
-    """What the label handler wrote before the cause was kept."""
+    """What the label handler wrote before the cause was kept: no code reads it now."""
     held_as(store, None, note="held by a reviewer")
 
     release(store, logged)
 
-    assert store.get(UNIT).state == IN_REVIEW
+    assert store.get(UNIT).state == HELD
 
 
 def test_a_stored_unit_with_no_cause_and_no_such_note_stays_held(
@@ -479,28 +485,35 @@ def test_the_label_added_and_removed_leaves_another_cause_of_the_hold_alone(
     assert any("already held by" in line for line in logged)
 
 
-@pytest.mark.parametrize(
-    ("cause", "note"),
-    [(HeldBy.DEPTH, DEPTH_NOTE), (None, DEPTH_NOTE)],
-    ids=["recorded", "unrecorded"],
-)
 def test_the_label_takes_over_a_depth_hold_and_its_removal_gives_it_back(
-    store: UnitStore, logged: list[str], cause: HeldBy | None, note: str
+    store: UnitStore, logged: list[str]
 ) -> None:
-    held_as(store, cause, note=note)
+    held_as(store, HeldBy.DEPTH, note=DEPTH_NOTE, held_base="spec/c/1")
 
     events.on_hold(1, repo="app", store=store, log=logged.append)
 
     stored = store.get(UNIT)
     assert (stored.state, stored.held_by) == (HELD, "reviewer")
-    assert stored.note == note, "what the depth hold needs is kept"
+    assert stored.held_base == "spec/c/1", "what the depth hold needs is kept"
 
     release(store, logged)
 
     stored = store.get(UNIT)
     assert (stored.state, stored.held_by) == (HELD, "depth")
-    assert stored.note == DEPTH_NOTE
+    assert stored.held_base == "spec/c/1"
     assert events.held_for_depth(stored)
+
+
+def test_a_depth_hold_with_no_recorded_base_is_not_given_back_from_its_note(
+    store: UnitStore, logged: list[str]
+) -> None:
+    """A hold from before the base was a field: the note carries it, and is not read."""
+    held_as(store, HeldBy.DEPTH, note=DEPTH_NOTE)
+    events.on_hold(1, repo="app", store=store, log=logged.append)
+
+    release(store, logged)
+
+    assert store.get(UNIT).held_by != "depth"
 
 
 def test_a_unit_stored_running_with_nothing_building_it_is_not_released(

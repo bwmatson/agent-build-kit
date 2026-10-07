@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.config import active
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh
@@ -277,11 +278,11 @@ def test_a_unit_that_stops_between_approval_and_push_keeps_its_follow_ups(
     recorder.verdicts = [approval_with(optional(LOCK))]
     dying = {"armed": True}
 
-    def stops_once_reviewed(u: Any) -> str:
+    def stops_once_reviewed(u: Any) -> tuple[Cause, str] | None:
         if dying["armed"] and recorder.events.count("review"):
             dying["armed"] = False
             raise Killed("power loss between approval and push")
-        return ""
+        return None
 
     with pytest.raises(Killed):
         build(tmp_path, recorder, upstream_incomplete=stops_once_reviewed)
@@ -349,9 +350,9 @@ def test_spending_the_rounds_still_checks_the_last_gate_before_a_push(tmp_path: 
         tmp_path,
         recorder,
         upstream_incomplete=lambda u: (
-            "its base moved while the rounds ran"
+            (Cause.BASE_CHANGED, "its base moved while the rounds ran")
             if recorder.events.count("review") >= total
-            else ""
+            else None
         ),
     )
 

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Why a unit stopped is a recorded cause (rework, base changed, upstream went back, usage,
+  depth, toolchain, review escalation, a reviewer's hold, requeued, and the like) kept on each
+  change that stops, holds or sends back a unit, and the
+  pass lets a unit it already built back in by that cause alone: only rework and a changed
+  base. Rewording a note changes no decision, and the depth hold keeps the branch it is still
+  on as a field. A store written before causes were kept loads with none, its units are not
+  readmitted mid-pass, and `abk status` lists them under `no recorded cause` so each can be
+  requeued or held again once by hand.
+
 - GitHub is reached over its REST and GraphQL APIs through `githubkit` (a new dependency,
   pinned to one minor version; it brings `httpx`, which the transport already used) instead
   of `gh` subprocesses, with one client per repo owner built from that owner's credential,

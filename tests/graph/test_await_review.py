@@ -15,6 +15,7 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.graph.unit import resume_unit
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import RUNNING, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 from tests.factories import unit
@@ -283,7 +284,11 @@ def test_a_build_held_before_a_step_waits_in_held_and_a_requeue_runs_it_again(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
-    held = tick(tmp_path, recorder, upstream_incomplete=lambda u: "upstream reworking")
+    held = tick(
+        tmp_path,
+        recorder,
+        upstream_incomplete=lambda u: (Cause.UPSTREAM_WENT_BACK, "upstream reworking"),
+    )
 
     assert held.status == RunStatus.HELD
     assert position(tmp_path).next == (Node.HELD,)

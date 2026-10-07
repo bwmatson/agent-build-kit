@@ -18,7 +18,6 @@ from agent_build_kit.pipeline.units import (
     base_of,
     branch_name,
     depth_of,
-    held_for_base,
     later_groups,
     plan_units,
     ready_units,
@@ -566,31 +565,6 @@ def test_the_trunk_is_built_on_from_the_remote_and_unit_branches_locally() -> No
 
     assert local_ref("main") == "origin/main"
     assert local_ref("spec/add-marker/1") == "spec/add-marker/1"
-
-
-def test_a_hold_for_a_changed_base_is_told_apart_from_other_holds() -> None:
-    """The scheduler starts a held unit again in the same pass only when what
-    held it is gone: a changed base is, because resuming restacks first."""
-    assert held_for_base(
-        "held before rework_review: its base moved from spec/a/1 to dev while it built"
-    )
-    assert held_for_base("held after implement: its base spec/a/1 was rewritten while it built")
-    assert not held_for_base("held before implement: upstream a/1 is not in review yet")
-    assert not held_for_base("held before implement: the usage window filled")
-    assert not held_for_base("rework requested: merge conflict with its base")
-    assert not held_for_base("paused before implement: usage")
-
-
-def test_the_reasons_a_build_gives_for_a_changed_base_come_from_the_shared_prefix() -> None:
-    """Reword either reason in `wiring` without the constant and re-admission
-    quietly stops matching it; this is what would notice."""
-    import inspect
-
-    from agent_build_kit.pipeline import wiring
-
-    source = inspect.getsource(wiring.build_base_moved)
-
-    assert source.count("{BASE_CHANGED}") == 2
 
 
 # --- groups declared independent ---------------------------------------------

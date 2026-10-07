@@ -72,7 +72,7 @@ from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.tier2 import stack_lock
-from agent_build_kit.pipeline.unit_store import UNPLANNED, HeldBy, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     FAILED,
     HELD,
@@ -86,7 +86,6 @@ from agent_build_kit.pipeline.units import (
     Unit,
     base_of,
     branch_name,
-    held_for_base,
     in_progress,
     in_progress_label,
     local_ref,
@@ -225,6 +224,18 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
+
+    # Units in flight from before causes were kept: nothing reads their notes, so
+    # each is requeued (`abk requeue`) or, for a reviewer's hold, held again from
+    # the pull request, and the entry that follows carries a cause.
+    uncaused = [
+        unit.id
+        for unit in units
+        if unit.cause is None
+        and (unit.state == HELD or (unit.state == PLANNED and not unit.unstarted))
+    ]
+    if uncaused:
+        log(f"no recorded cause: {', '.join(uncaused)}")
 
     for unit in units:
         if unit.state == IN_REVIEW:
@@ -524,7 +535,12 @@ def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
             and not branch_is_held(inst, unit.branch or branch_name(unit))
             and not has_thread(inst, unit.id)
         ):
-            store.set_state(unit.id, PLANNED, note="requeued: its run ended without a thread")
+            store.set_state(
+                unit.id,
+                PLANNED,
+                note="requeued: its run ended without a thread",
+                cause=Cause.REQUEUED,
+            )
             telemetry.count("abk.units.reclaimed")
             log(f"{unit.id}: no run holds it — planned again")
 
@@ -635,28 +651,50 @@ REFRESH_SECONDS = 300.0
 REBUILDS_PER_PASS = 2
 
 
+# The causes a unit put back to planned is let back into the running pass for: sent
+# back for rework by a poll, or held by its own build because the branch it builds
+# on changed. Resuming restacks the unit onto its new base before anything else, so
+# that cause is gone by the time it runs again — unlike an unfinished upstream or a
+# full usage window, which a rerun would only meet again.
+READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED})
+
+
 def _sent_back(
-    units: list[StoredUnit], started: dict[str, datetime], building: set[str]
+    units: list[StoredUnit],
+    started: dict[str, datetime],
+    building: set[str],
+    skipped: set[tuple[str, str]] | None = None,
 ) -> set[str]:
-    """Units this pass already built that have since been put back to planned:
-    sent back for rework by a poll, or held by their own build because the
-    branch it builds on changed (see `held_for_base`). A unit held for any other
-    reason waits for the next pass: a rerun would meet the same cause."""
+    """Units this pass already built that have since been put back to planned for
+    a cause in `READMITTED_CAUSES`. A unit put back for any other cause, or for none
+    (a record from before causes were kept), waits for the next pass, and a unit that
+    ended held is never let back in; each such skip is logged once, with its cause,
+    in `skipped`."""
     out: set[str] = set()
     for unit in units:
         at = started.get(unit.id)
-        if at is None or unit.id in building or unit.state != PLANNED or not unit.history:
+        if (
+            at is None
+            or unit.id in building
+            or unit.state not in (PLANNED, HELD)
+            or not unit.history
+        ):
             continue
         last = unit.history[-1]
-        note = str(last.get("note", ""))
-        if not (note.startswith("rework requested") or held_for_base(note)):
-            continue
         try:
             when = datetime.fromisoformat(str(last.get("at", "")))
         except ValueError:
             continue
-        if when > at:
+        if when <= at:
+            continue
+        if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
+        elif skipped is not None and (unit.id, str(last.get("at"))) not in skipped:
+            skipped.add((unit.id, str(last.get("at"))))
+            log(
+                f"{unit.id}: not started again in this pass, "
+                f"stopped for {unit.cause.value if unit.cause else 'no recorded cause'}"
+            )
     return out
 
 
@@ -692,6 +730,7 @@ def _schedule(
     started: dict[str, datetime] = {}
     rebuilt: dict[str, int] = {}
     readmitted: set[str] = set()
+    skipped: set[tuple[str, str]] = set()
     building: dict[Future[bool], Unit] = {}
     # Units that could build but for the slots, from when they were first seen so.
     queued: dict[str, spans.Mark] = {}
@@ -760,7 +799,7 @@ def _schedule(
             # back by a poll, or held by its own build because its base moved
             # — is due again now, not in the next pass, which cannot start
             # until this one ends.
-            for unit_id in _sent_back(units, started, in_flight):
+            for unit_id in _sent_back(units, started, in_flight, skipped):
                 if rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
                     started.pop(unit_id)
                     readmitted.add(unit_id)
@@ -1464,7 +1503,9 @@ def _build_unit(
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
             end(f"held — {error}", "held")
-            store.set_state(unit.id, HELD, note=str(error), held_by=HeldBy.TOOLCHAIN)
+            store.set_state(
+                unit.id, HELD, note=str(error), held_by=HeldBy.TOOLCHAIN, cause=Cause.TOOLCHAIN
+            )
             return True
         except Interrupted as error:
             # Left `running`, with the lock released as the `with` exits: the next
@@ -1501,7 +1542,7 @@ def _build_unit(
             # record, not only in a tick log someone would have to find.
             note = str(error) if isinstance(error, CommitRejected) else ""
             try:
-                store.set_state(unit.id, "failed", note=note)
+                store.set_state(unit.id, "failed", note=note, cause=Cause.FAILED)
             except Exception as second:  # noqa: BLE001
                 say(f"could not be recorded as failed — {second}")
             return True
@@ -1686,7 +1727,7 @@ def resume_thread(
     except Exception as error:  # noqa: BLE001 — an event handler must not end the poll.
         detail = f"failed, {type(error).__name__}: {error}"
         try:
-            store.set_state(unit.id, "failed")
+            store.set_state(unit.id, "failed", cause=Cause.FAILED)
         except Exception as second:  # noqa: BLE001
             say(f"could not be recorded as failed — {second}")
         say(detail)
@@ -1808,14 +1849,24 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
         )
         return 1 if delivered.raised else 0
     if args.rework:
-        store.set_state(args.unit, PLANNED, note="requeued: reworking from the saved failure")
+        store.set_state(
+            args.unit,
+            PLANNED,
+            note="requeued: reworking from the saved failure",
+            cause=Cause.REQUEUED,
+        )
         print(f"{args.unit} requeued, the agent will rework it from the failure it saved")
     elif args.restart:
         store.set_feedback(args.unit, "")
-        store.set_state(args.unit, PLANNED, note="requeued: starting over")
+        store.set_state(args.unit, PLANNED, note="requeued: starting over", cause=Cause.REQUEUED)
         print(f"{args.unit} requeued, starting over from the agent's step")
     else:
-        store.set_state(args.unit, PLANNED, note="requeued: resuming where it stopped")
+        store.set_state(
+            args.unit,
+            PLANNED,
+            note="requeued: resuming where it stopped",
+            cause=Cause.REQUEUED,
+        )
         print(f"{args.unit} requeued, resuming where it stopped")
     return 0
 

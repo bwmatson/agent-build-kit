@@ -10,7 +10,7 @@ from agent_build_kit import config as config_module
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.unit_store import HeldBy
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, RUNNING
 from tests.factories import unit
 from tests.graph_driver import FakeTracer, fresh, position, tick
@@ -39,6 +39,7 @@ def test_a_hold_event_records_that_a_reviewer_held_the_unit(tmp_path: Path) -> N
     stored = recorder.store.get(unit().id)
     assert stored.state == HELD
     assert stored.held_by == "reviewer"
+    assert stored.cause == Cause.REVIEWER_HOLD
 
 
 def test_a_release_event_returns_the_thread_to_waiting_for_review(tmp_path: Path) -> None:
@@ -100,7 +101,9 @@ def depth_held(tmp_path: Path) -> Recorder:
     """Held for depth while the thread still waits for review, then taken over by the label."""
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder)
-    recorder.store.set_state(unit().id, HELD, note=DEPTH_NOTE, held_by=HeldBy.DEPTH)
+    recorder.store.set_state(
+        unit().id, HELD, note=DEPTH_NOTE, held_by=HeldBy.DEPTH, held_base="spec/c/1"
+    )
     tick(tmp_path, recorder, event=HOLD)
     stored = recorder.store.get(unit().id)
     assert (stored.state, stored.held_by) == (HELD, "reviewer")
@@ -121,7 +124,7 @@ def test_a_depth_hold_the_label_took_over_is_held_for_depth_again_while_beyond_t
     assert position(tmp_path).next == (Node.HELD,)
     stored = recorder.store.get(unit().id)
     assert (stored.state, stored.held_by) == (HELD, "depth")
-    assert stored.note == DEPTH_NOTE
+    assert stored.held_base == "spec/c/1"
     assert events.held_for_depth(stored)
 
 

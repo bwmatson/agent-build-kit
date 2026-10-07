@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, in_progress, ready_units
 from tests.factories import stored_unit, unit
 from tests.graph_driver import fresh, tick
@@ -19,7 +20,14 @@ from tests.graph_driver import fresh, tick
 def held_before_a_step(tmp_path: Path):
     """A unit whose run stopped at a boundary because its upstream went back."""
     recorder = fresh(tmp_path)
-    tick(tmp_path, recorder, upstream_incomplete=lambda u: "add-marker/0 went back for rework")
+    tick(
+        tmp_path,
+        recorder,
+        upstream_incomplete=lambda u: (
+            Cause.UPSTREAM_WENT_BACK,
+            "add-marker/0 went back for rework",
+        ),
+    )
     return recorder.store.get(unit().id)
 
 

@@ -1419,13 +1419,13 @@ def test_a_base_that_moved_while_the_unit_built_is_reported(tmp_path: Path) -> N
     base_moved = build_base_moved(store)
     child = store.get("add-marker/2")
 
-    assert base_moved(child, "spec/add-marker/1", tree=tmp_path, start="") == ""
+    assert base_moved(child, "spec/add-marker/1", tree=tmp_path, start="") is None
 
     store.set_state("add-marker/1", MERGED)
 
-    assert "spec/add-marker/1 to main" in base_moved(
-        child, "spec/add-marker/1", tree=tmp_path, start=""
-    )
+    found = base_moved(child, "spec/add-marker/1", tree=tmp_path, start="")
+    assert found is not None
+    assert "spec/add-marker/1 to main" in found[1]
 
 
 def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(
@@ -1455,14 +1455,15 @@ def test_a_base_rewritten_under_the_same_name_while_the_unit_built_is_reported(
     # advanced: a parent's later round on top of what the child has
     git(repo, "checkout", "-q", "spec/add-marker/1")
     commit("parent-round-2.txt")
-    assert base_moved(child, "spec/add-marker/1", tree=repo, start=start) == ""
+    assert base_moved(child, "spec/add-marker/1", tree=repo, start=start) is None
 
     # rewritten: the restack force-moves it onto a main that has moved on
     git(repo, "checkout", "-q", "main")
     commit("merged-grandparent.txt")
     git(repo, "branch", "-f", "spec/add-marker/1", "main")
     reason = base_moved(child, "spec/add-marker/1", tree=repo, start=start)
-    assert "spec/add-marker/1 was rewritten" in reason
+    assert reason is not None
+    assert "spec/add-marker/1 was rewritten" in reason[1]
 
 
 def test_upstream_incomplete_looks_through_a_satisfied_unit(tmp_path: Path) -> None:
@@ -1482,7 +1483,8 @@ def test_upstream_incomplete_looks_through_a_satisfied_unit(tmp_path: Path) -> N
 
     reason = build_upstream_incomplete(store)(store.get("add-marker/3"))
 
-    assert "add-marker/1" in reason
+    assert reason is not None
+    assert "add-marker/1" in reason[1]
 
 
 def test_branch_commits_raises_on_an_unresolvable_base(tmp_path: Path) -> None:

@@ -103,7 +103,7 @@ def test_a_node_reads_as_its_state_is_named_in_the_vocabulary() -> None:
         "add-marker/2",
         depends_on=("add-marker/1",),
         state="planned",
-        history=({"state": "planned", "at": "t", "note": "held before review"},),
+        history=({"state": "planned", "at": "t", "note": "words", "cause": "upstream_went_back"},),
     )
     reviewing = stored_unit("add-marker/3", state="in_review", pr=3)
 
