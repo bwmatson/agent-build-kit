@@ -531,13 +531,17 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
-def _may_build(inst: Installation, store: UnitStore, *, spared: Collection[str]) -> bool:
+def _may_build(
+    inst: Installation, store: UnitStore, *, spared: Collection[str], quiet: bool
+) -> bool:
     """The pause checks: whether this round may start builds.
 
     A pause is not a lock: the guard is asked again on every round, so a
     threshold raised by hand, or the ramp offering room before the reset,
     ends it at the next one. Only the model's own refusal is kept to its
-    deadline. See `pause`. Builds in flight are never touched by it.
+    deadline. See `pause`. Builds in flight are never touched by it. `quiet`
+    leaves out the line saying why a build may start: the tick's own round
+    says it, the refreshes of a pass would repeat it.
     """
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
@@ -573,8 +577,7 @@ def _may_build(inst: Installation, store: UnitStore, *, spared: Collection[str])
     if paused:
         log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
     clear_pause(_paused_marker(inst))
-    if not spared:
-        # The tick's own round says so; the refreshes of a pass would repeat it.
+    if not quiet:
         log(reason)
     return True
 
@@ -597,6 +600,14 @@ class _Readmission:
             if self.rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
                 self.started.pop(unit_id)
                 self.readmitted.add(unit_id)
+
+    def may_resume(self, unit_id: str) -> bool:
+        """Whether a unit this pass built may be started again because an event
+        resumed its thread. Charged like a readmission, so a pass still ends."""
+        if self.rebuilt.get(unit_id, 0) >= REBUILDS_PER_PASS:
+            return False
+        self.readmitted.add(unit_id)
+        return True
 
     def charge(self, ready: list[Unit]) -> None:
         """The budget is spent when a unit is started again, not when it is
@@ -628,7 +639,7 @@ def run_round(
     sent-back unit out of `started`.
     """
     spared = {*building, *started}
-    if not _may_build(inst, store, spared=spared):
+    if not _may_build(inst, store, spared=spared, quiet=readmit is not None):
         return []
 
     # Before anything is scheduled: a PR that merged since the last round frees
@@ -674,9 +685,34 @@ def run_round(
     in_flight = set(building)
     if readmit:
         readmit.admit(units, in_flight)
+    idle = {
+        unit.id
+        for unit in units
+        if unit.state == RUNNING
+        and unit.id not in in_flight
+        and not branch_is_held(inst, unit.branch or branch_name(unit))
+    }
+    held = {unit.id for unit in units if unit.state == RUNNING} - idle
+    # A unit no run holds takes no slot while it waits; the runs in flight do.
+    # One this pass built that an event resumed is started again, within the
+    # same budget as a readmission.
+    free = max(0, inst.max_concurrent_stacks - len(in_flight | held))
+    resumable = [
+        unit
+        for unit in resumable_units(inst, units, only=only, spared=in_flight)
+        if readmit is None or unit.id not in started or readmit.may_resume(unit.id)
+    ][:free]
+    resumed = {unit.id for unit in resumable}
     ready = [
-        *resumable_units(inst, units, only=only, spared=spared),
-        *_evaluate(inst, units, started=set(started), building=in_flight, only=only),
+        *resumable,
+        *_evaluate(
+            inst,
+            units,
+            started=set(started),
+            building=in_flight | resumed,
+            only=only,
+            idle=idle - resumed,
+        ),
     ]
     if readmit:
         readmit.charge(ready)
@@ -717,8 +753,9 @@ def resumable_units(
 ) -> list[Unit]:
     """The units whose thread a run left partway: killed in a node, or
     interrupted for the usage window, which the guard let this tick through.
-    They are `running`, so they hold the slots `_evaluate` counts; a thread
-    waiting for review or a person is not here, and holds none."""
+    They are `running`, but hold no slot until the round starts them; a thread
+    waiting for review or a person is not here, and holds none. `spared` names
+    the units a run is in flight on."""
     return [
         unit
         for unit in units
@@ -739,6 +776,7 @@ def _evaluate(
     only: frozenset[str],
     enforce_limit: bool = True,
     max_concurrent: int | None = None,
+    idle: Collection[str] = (),
 ) -> list[Unit]:
     """What this pass may start now.
 
@@ -749,12 +787,15 @@ def _evaluate(
     concurrency cap and blocking its dependents until it finishes — and shows
     what this pass has already started, or `--only` excludes, as held. The
     answer is filtered again too: never handing a unit out twice is what
-    guarantees the pass ends.
+    guarantees the pass ends. `idle` names running units no run holds, which
+    take no slot: they show as held, still blocking their dependents.
     """
     view: list[Unit] = []
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
+        elif unit.id in idle:
+            unit = unit.model_copy(update={"state": HELD})
         elif unit.state == PLANNED and (unit.id in started or (only and unit.id not in only)):
             unit = unit.model_copy(update={"state": HELD})
         view.append(unit)
