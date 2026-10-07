@@ -26,6 +26,7 @@
   tier 1 failure sends its output under the review prompt; `--restart` avoids this. A toolchain profile the framework does not implement raises
   `ProfileUnsupported`, and only that holds a unit as toolchain; any other
   `NotImplementedError` fails the unit.
+
 - An archive that fails, or a finished change whose directory is gone (withdrawn), no longer
   ends the tick before the other changes are archived or anything is built. The failure is
   logged with its reason and the change is skipped; the next tick tries it again. `abk verify`
