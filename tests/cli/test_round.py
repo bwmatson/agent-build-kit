@@ -505,16 +505,15 @@ def test_a_guard_that_refuses_mid_pass_starts_nothing_and_lets_the_builds_in_fli
             return Decision(may_start=True, reason="plenty")
         return Decision(may_start=False, reason="session at 88%")
 
-    def poll(inst, **kwargs) -> None:
-        # Something new turns up while slow/1 builds.
-        if "late/1" not in {u.id for u in builder.store.all()}:
-            builder.store.upsert([unit_of("late/1")])
-
     monkeypatch.setattr(cli, "may_start_unit", guard)
-    monkeypatch.setattr(cli, "poll_all", poll)
-    builder.scripts["slow/1"] = lambda: (
-        None if eventually(lambda: is_paused(tmp_path / "paused.json") is not None) else "failed"
-    )
+
+    def slow() -> str | None:
+        # Something new turns up while slow/1 builds.
+        builder.store.upsert([unit_of("late/1")])
+        paused = eventually(lambda: is_paused(tmp_path / "paused.json") is not None)
+        return None if paused else "failed"
+
+    builder.scripts["slow/1"] = slow
 
     assert tick(inst) == 0
 
