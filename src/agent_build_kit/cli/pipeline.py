@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -573,6 +573,20 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         return 1
 
     return _schedule(inst, ready, store=store, only=only)
+
+
+def run_round(
+    inst: Installation,
+    store: UnitStore,
+    *,
+    building: Collection[str],
+    started: Collection[str],
+    only: frozenset[str],
+    submit: bool,
+) -> list[Unit]:
+    """One round: everything a tick does before it starts builds, safe to repeat
+    beside builds in flight. Returns the units to start when `submit`."""
+    raise NotImplementedError
 
 
 def reclaim_stranded(inst: Installation, store: UnitStore) -> None:
