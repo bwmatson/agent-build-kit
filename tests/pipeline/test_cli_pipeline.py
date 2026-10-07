@@ -1545,6 +1545,8 @@ def _archiving(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _two_changes_logged(tmp_path: Path) -> tuple[Path, Path]:
+    for name in ("c", "other"):
+        (inst.changes_dir / name).mkdir(parents=True, exist_ok=True)
     UnitStore(tmp_path / "units.json").upsert(
         [*_merged("c/1"), *_merged("other/1", change="other")]
     )

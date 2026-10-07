@@ -13,6 +13,7 @@ planning repo's own history, so it has to be careful:
   true forever after.
 """
 
+import logging
 import subprocess
 from pathlib import Path
 
@@ -108,7 +109,28 @@ class FakeRunner:
         return subprocess.CompletedProcess(args, 0, "archived\n", "")
 
 
+class FailingFor(FakeRunner):
+    """Fails the archive of one named change, as the CLI does on a conflict."""
+
+    def __init__(self, change: str) -> None:
+        super().__init__()
+        self.change = change
+
+    def __call__(self, args: list[str], *, cwd: Path, **kwargs) -> subprocess.CompletedProcess:
+        result = super().__call__(args, cwd=cwd, **kwargs)
+        if self.change in args:
+            return subprocess.CompletedProcess(args, 1, "", "archive conflicted\nmore detail")
+        return result
+
+
+def make_change(planning_repo: Path, change: str) -> None:
+    directory = planning_repo / "openspec" / "changes" / change
+    directory.mkdir(parents=True)
+    (directory / "tasks.md").write_text("# Tasks\n")
+
+
 def test_a_ready_change_is_archived(tmp_path: Path) -> None:
+    make_change(tmp_path, "add-marker")
     runner = FakeRunner()
 
     archived = archive_ready_changes([unit("add-marker/1")], planning_repo=tmp_path, run=runner)
@@ -119,6 +141,7 @@ def test_a_ready_change_is_archived(tmp_path: Path) -> None:
 
 def test_archiving_is_not_interactive(tmp_path: Path) -> None:
     """There is nobody to answer a prompt in an unattended run."""
+    make_change(tmp_path, "add-marker")
     runner = FakeRunner()
 
     archive_ready_changes([unit("add-marker/1")], planning_repo=tmp_path, run=runner)
@@ -129,6 +152,8 @@ def test_archiving_is_not_interactive(tmp_path: Path) -> None:
 def test_changes_are_archived_in_merge_order(tmp_path: Path) -> None:
     """Two changes touching the same requirement conflict at archive time, and
     the later one has to apply on top of the earlier."""
+    make_change(tmp_path, "first")
+    make_change(tmp_path, "second")
     runner = FakeRunner()
     units = [
         unit("second/1", change="second", history=({"state": "merged", "at": "2026-09-23T12:00"},)),
@@ -152,13 +177,99 @@ def test_an_already_archived_change_is_not_archived_again(tmp_path: Path) -> Non
     assert runner.calls == []
 
 
-def test_a_failed_archive_is_reported_not_swallowed(tmp_path: Path) -> None:
-    """An archive conflict needs a human; silently skipping it would leave the
-    specs quietly out of date."""
-    runner = FakeRunner(fails=True)
+def test_a_failed_archive_does_not_stop_the_others(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Archiving is housekeeping: one change's conflict must not end the tick
+    before the others are archived or anything is built."""
+    runner = FailingFor("first")
+    units = [
+        unit("first/1", change="first", history=({"state": "merged", "at": "2026-09-23T09:00"},)),
+        unit("second/1", change="second", history=({"state": "merged", "at": "2026-09-23T12:00"},)),
+    ]
+    make_change(tmp_path, "first")
+    make_change(tmp_path, "second")
 
-    with pytest.raises(RuntimeError, match="conflicted"):
-        archive_ready_changes([unit("add-marker/1")], planning_repo=tmp_path, run=runner)
+    with caplog.at_level(logging.INFO):
+        archived = archive_ready_changes(
+            units, planning_repo=tmp_path, run=runner, state_dir=tmp_path / "state"
+        )
+
+    assert archived == ["second"]
+    assert len(runner.calls) == 2
+    assert "first" in caplog.text
+    assert "archive conflicted" in caplog.text
+
+
+def test_a_change_with_no_directory_is_logged_as_withdrawn_and_not_attempted(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner = FakeRunner()
+
+    with caplog.at_level(logging.INFO):
+        archived = archive_ready_changes(
+            [unit("add-marker/1")],
+            planning_repo=tmp_path,
+            run=runner,
+            state_dir=tmp_path / "state",
+        )
+
+    assert archived == []
+    assert runner.calls == []
+    assert "add-marker" in caplog.text
+    assert "withdrawn" in caplog.text
+
+
+def test_a_failed_archive_is_not_retried_while_nothing_changed(tmp_path: Path) -> None:
+    make_change(tmp_path, "add-marker")
+    units = [unit("add-marker/1")]
+    state = tmp_path / "state"
+    archive_ready_changes(
+        units, planning_repo=tmp_path, run=FakeRunner(fails=True), state_dir=state
+    )
+    runner = FakeRunner()
+
+    archived = archive_ready_changes(units, planning_repo=tmp_path, run=runner, state_dir=state)
+
+    assert archived == []
+    assert runner.calls == []
+
+
+def test_a_failed_archive_is_tried_again_when_its_tasks_change(tmp_path: Path) -> None:
+    make_change(tmp_path, "add-marker")
+    units = [unit("add-marker/1")]
+    state = tmp_path / "state"
+    archive_ready_changes(
+        units, planning_repo=tmp_path, run=FakeRunner(fails=True), state_dir=state
+    )
+    tasks = tmp_path / "openspec" / "changes" / "add-marker" / "tasks.md"
+    tasks.write_text("# Tasks\n\nedited\n")
+    runner = FakeRunner()
+
+    archived = archive_ready_changes(units, planning_repo=tmp_path, run=runner, state_dir=state)
+
+    assert archived == ["add-marker"]
+
+
+def test_a_failed_archive_is_tried_again_when_a_unit_state_changes(tmp_path: Path) -> None:
+    make_change(tmp_path, "add-marker")
+    state = tmp_path / "state"
+    archive_ready_changes(
+        [unit("add-marker/1"), unit("add-marker/2", state="unplanned")],
+        planning_repo=tmp_path,
+        run=FakeRunner(fails=True),
+        state_dir=state,
+    )
+    runner = FakeRunner()
+
+    archived = archive_ready_changes(
+        [unit("add-marker/1"), unit("add-marker/2", state="merged")],
+        planning_repo=tmp_path,
+        run=runner,
+        state_dir=state,
+    )
+
+    assert archived == ["add-marker"]
 
 
 def test_a_change_not_yet_verified_live_is_held_back(tmp_path: Path) -> None:
