@@ -13,13 +13,20 @@ planning repo's own record, so three rules apply:
 - **Never twice.** "All merged" stays true forever, so without a check every
   round would try again and fail noisily.
 
-A failure here is not swallowed. An archive conflict means two changes
-disagree about a requirement, which is exactly the kind of thing a person
-should look at rather than a pipeline paper over.
+A failure here is contained, not swallowed. An archive conflict means two
+changes disagree about a requirement, which a person should look at rather
+than a pipeline paper over — but archiving is housekeeping, so it must not end
+the tick before the other changes are archived or anything is built. The
+failure is logged, recorded with a fingerprint of what the archive depended on
+(`failed_archives`, shown by `abk status`), and not retried until the change's
+tasks or one of its units' states change.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -29,6 +36,10 @@ from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
 from agent_build_kit.pipeline.usage_report import roll_up_change
+
+logger = logging.getLogger(__name__)
+
+FAILED_FILE = "archive-failed.json"
 
 # A subprocess.run-like callable, for tests to record the OpenSpec CLI call
 # instead of making it.
@@ -81,6 +92,34 @@ def _already_archived(change: str, planning_repo: Path, specs_dir: str = "opensp
     return any(entry.name.endswith(f"-{change}") for entry in archive.iterdir())
 
 
+def _fingerprint(change: str, units: list[StoredUnit], directory: Path) -> str:
+    """What a failed archive depended on: the change's tasks and its units' states."""
+    try:
+        tasks = (directory / "tasks.md").read_bytes()
+    except OSError:
+        tasks = b""
+    states = sorted(f"{unit.id}={unit.state}" for unit in units if unit.carries(change))
+    return hashlib.sha256(tasks + "\n".join(states).encode()).hexdigest()
+
+
+def failed_archives(state_dir: Path) -> dict[str, str]:
+    """The changes whose archive failed and has not been retried, with why."""
+    try:
+        recorded = json.loads((state_dir / FAILED_FILE).read_text())
+    except (OSError, ValueError):
+        return {}
+    return {change: entry["reason"] for change, entry in recorded.items()}
+
+
+def _load_failed(state_dir: Path | None) -> dict[str, dict[str, str]]:
+    if state_dir is None:
+        return {}
+    try:
+        return json.loads((state_dir / FAILED_FILE).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def archive_ready_changes(
     units: list[StoredUnit],
     *,
@@ -96,6 +135,10 @@ def archive_ready_changes(
     and that `may_archive` lets through: the tick passes whether the change
     has been deployed and passed its live tests (verify.py).
 
+    A change that fails to archive, or has no directory (withdrawn), is logged
+    and skipped; `state_dir` records the failure so it is not retried until its
+    fingerprint changes.
+
     Returns the changes archived, so the caller can commit them and say so in
     the run log.
     """
@@ -108,10 +151,27 @@ def archive_ready_changes(
         and may_archive(change)
     }
 
+    failed = _load_failed(state_dir)
+    before = dict(failed)
     archived: list[str] = []
     for change in sorted(ready, key=lambda name: _merged_at(name, units)):
-        # A conflict raises rather than being auto-resolved.
-        openspec.archive(change, cwd=planning_repo, run=run)
+        directory = planning_repo / specs_dir / "changes" / change
+        if not directory.is_dir():
+            logger.info("not archiving %s: withdrawn, it has no directory", change)
+            continue
+        fingerprint = _fingerprint(change, units, directory)
+        if failed.get(change, {}).get("fingerprint") == fingerprint:
+            continue
+        try:
+            # A conflict is not auto-resolved: it is recorded for a person.
+            openspec.archive(change, cwd=planning_repo, run=run)
+        except RuntimeError as exc:
+            detail = [line for line in str(exc).splitlines()[1:] if line.strip()]
+            reason = detail[0] if detail else str(exc)
+            logger.warning("archiving %s failed, skipping it: %s", change, str(exc))
+            failed[change] = {"fingerprint": fingerprint, "reason": reason}
+            continue
+        failed.pop(change, None)
         archived.append(change)
         if usage_ledger is not None:
             try:
@@ -123,4 +183,7 @@ def archive_ready_changes(
         if run_logs is not None:
             remove_change_logs(run_logs, change)
 
+    if state_dir is not None and failed != before:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / FAILED_FILE).write_text(json.dumps(failed, indent=2, sort_keys=True))
     return archived

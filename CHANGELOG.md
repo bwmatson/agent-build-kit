@@ -26,6 +26,10 @@
   tier 1 failure sends its output under the review prompt; `--restart` avoids this. A toolchain profile the framework does not implement raises
   `ProfileUnsupported`, and only that holds a unit as toolchain; any other
   `NotImplementedError` fails the unit.
+- An archive that fails, or a finished change whose directory is gone (withdrawn), no longer
+  ends the tick before the other changes are archived or anything is built. The failure is
+  logged with its reason, the change is skipped until its tasks or one of its units' states
+  change, and `abk status` lists it as `archive failed`.
 
 - GitHub is reached over its REST and GraphQL APIs through `githubkit` (a new dependency,
   pinned to one minor version; it brings `httpx`, which the transport already used) instead

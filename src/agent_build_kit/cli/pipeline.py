@@ -41,6 +41,7 @@ from agent_build_kit.pipeline import diagram, spans, usage_report
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
+    failed_archives,
     is_ready_to_archive,
 )
 from agent_build_kit.pipeline.drafts import StateDrafts
@@ -224,6 +225,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"usage: {_usage_line(reading)} ({reading.source})")
         else:
             log("usage: unknown")
+
+    for change, reason in sorted(failed_archives(inst.state_dir).items()):
+        log(f"archive failed: {change} — {reason}")
 
     units = store_for(inst).all()
     if not units:
@@ -508,6 +512,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
+        state_dir=inst.state_dir,
     )
     for change in archived:
         log(f"archived {change}")
