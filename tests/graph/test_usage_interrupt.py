@@ -8,8 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.graph.state import Node
-from agent_build_kit.graph.unit import Pause
-from agent_build_kit.pipeline.stack_runner import RunStatus
+from agent_build_kit.pipeline.stack_runner import PauseInfo, RunStatus
 from tests.graph_driver import fresh, position, tick
 
 UNTIL = datetime(2030, 1, 1, 9, 30, tzinfo=UTC)
@@ -27,7 +26,7 @@ def test_a_refusal_before_an_agent_step_interrupts_with_the_reason_and_resume_ti
     assert WINDOW in outcome.detail
     paused = position(tmp_path)
     assert paused.next == (Node.TESTS,), "before the first agent step, not after it"
-    assert paused.pause == Pause(reason=WINDOW, until=UNTIL)
+    assert paused.pause == PauseInfo(reason=WINDOW, until=UNTIL)
     assert not [e for e in recorder.events if e.startswith("claude")], "no agent ran"
     stored = recorder.store.get("add-marker/1")
     assert stored.state == "running", "interrupted, not put back to planned"
@@ -61,7 +60,7 @@ def test_a_tick_on_which_the_guard_still_refuses_leaves_the_thread_interrupted(
     assert outcome.status == RunStatus.PAUSED
     paused = position(tmp_path)
     assert paused.next == (Node.TESTS,)
-    assert paused.pause == Pause(reason="weekly at 92%", until=later)
+    assert paused.pause == PauseInfo(reason="weekly at 92%", until=later)
     assert not [e for e in recorder.events if e.startswith("claude")]
 
 

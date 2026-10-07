@@ -36,7 +36,6 @@ def test_the_requeue_reasons_are_the_fixed_set() -> None:
         "released",
         "resume",
         "from_failure",
-        "parent_merged",
     }
 
 
@@ -71,7 +70,6 @@ def test_a_restart_throws_away_the_saved_failure_whatever_its_text_says(tmp_path
         RequeueReason.RELEASED,
         RequeueReason.RESUME,
         RequeueReason.FROM_FAILURE,
-        RequeueReason.PARENT_MERGED,
     ],
 )
 def test_every_other_requeue_keeps_the_saved_failure_even_when_its_text_says_restart(

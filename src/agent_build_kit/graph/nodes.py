@@ -72,6 +72,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
     Unit,
+    UnitState,
     branch_name,
     depth_of,
     local_ref,
@@ -198,11 +199,13 @@ class BuildPath:
                 try:
                     # Off the loop: the callables block on agents and git.
                     update = await asyncio.to_thread(self._step, node, body, state)
-                    outcome = str(update.get("status") or "ok")
+                    outcome = (
+                        UnitOutcome(update["status"]) if update.get("status") else UnitOutcome.OK
+                    )
                     # The node is done, and with it the session it was in.
                     return {**update, "session_id": ""}
                 except GraphInterrupt:
-                    outcome = "waiting"
+                    outcome = UnitOutcome.WAITING
                     raise
                 except AgentRateLimited:
                     outcome = UnitOutcome.RATE_LIMITED
@@ -297,7 +300,7 @@ class BuildPath:
 
     def hold(
         self,
-        state: str,
+        state: UnitState,
         note: str,
         detail: str,
         *,
@@ -455,7 +458,7 @@ class BuildPath:
         branch = branch_name(unit)
         base = state.base or self.base
         feedback = r.store.get(unit.id).feedback
-        r.store.set_state(unit.id, "running", branch=branch)
+        r.store.set_state(unit.id, UnitState.RUNNING, branch=branch)
         # Made again: a trip back here may be onto a different base.
         self._tree = None
         tree, ref = self.tree(), self.ref(state)
@@ -477,8 +480,13 @@ class BuildPath:
                 raise
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
-                waiting = r.store.get(unit.id).feedback
-                r.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
+                stored = r.store.get(unit.id)
+                r.store.set_feedback(
+                    unit.id,
+                    f"{stored.feedback}\n\n{why}".strip(),
+                    from_person=stored.feedback_from_person,
+                    source=stored.feedback_source,
+                )
                 return {**FRESH, **self.stop(why)}
             if restacked is not None:
                 if restacked.conflict:
@@ -579,8 +587,13 @@ class BuildPath:
             outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
             if outstanding:
                 why += "\n\noutstanding: " + ", ".join(f"`{n}`" for n in outstanding)
-            waiting = r.store.get(unit.id).feedback
-            r.store.set_feedback(unit.id, f"{waiting}\n\n{why}".strip())
+            stored = r.store.get(unit.id)
+            r.store.set_feedback(
+                unit.id,
+                f"{stored.feedback}\n\n{why}".strip(),
+                from_person=stored.feedback_from_person,
+                source=stored.feedback_source,
+            )
             return self.stop(why)
         r.store.set_predecessor_note(unit.id, self.port_note(restacked, required, decisions))
         counts = {k: sum(d.decision == k for d in decisions) for k in ("keep", "adapt", "retire")}
@@ -979,11 +992,15 @@ class BuildPath:
                 unit.id, f"tier 2 failed:\n{snapshot}".strip(), source=FeedbackSource.TIER2
             )
             return self.rebase(state, f"tier 2 failed on {base}", base=base)
-        waiting = r.store.get(unit.id).feedback
+        stored = r.store.get(unit.id)
+        # Words a person left stay theirs: tier 2's output is added to them, not
+        # the other way round.
+        review = stored.feedback_source is FeedbackSource.REVIEW
         r.store.set_feedback(
             unit.id,
-            f"{waiting}\n\ntier 2 failed:\n{snapshot}".strip(),
-            source=FeedbackSource.TIER2,
+            f"{stored.feedback}\n\ntier 2 failed:\n{snapshot}".strip(),
+            from_person=stored.feedback_from_person,
+            source=FeedbackSource.REVIEW if review else FeedbackSource.TIER2,
         )
         return self.stop("tier 2 failed")
 

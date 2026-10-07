@@ -31,11 +31,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit
+from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit, UnitState
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
-UNPLANNED = "unplanned"
+UNPLANNED = UnitState.UNPLANNED
 
 
 class HeldBy(StrEnum):
@@ -82,7 +82,6 @@ class RequeueReason(StrEnum):
     RELEASED = "released"
     RESUME = "resume"
     FROM_FAILURE = "from_failure"
-    PARENT_MERGED = "parent_merged"
 
 
 class ReworkKind(StrEnum):
@@ -113,6 +112,8 @@ def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
         return FeedbackSource.CI
     if rework is ReworkKind.CONFLICT:
         return FeedbackSource.CONFLICT
+    if rework is None:
+        return FeedbackSource.NONE
     return FeedbackSource.REVIEW
 
 
@@ -440,7 +441,7 @@ class UnitStore:
     def set_state(
         self,
         unit_id: str,
-        state: str,
+        state: UnitState,
         *,
         pr: int | None = None,
         branch: str | None = None,
@@ -477,7 +478,7 @@ class UnitStore:
     def _record_state(
         self,
         unit_id: str,
-        state: str,
+        state: UnitState,
         *,
         pr: int | None,
         branch: str | None,
@@ -486,6 +487,7 @@ class UnitStore:
         cause: Cause | None,
         held_base: str,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
+        state = UnitState(state)
         stored = self._read()
         unit = stored[unit_id]
         opened = pr is not None and pr != unit.pr
@@ -581,13 +583,14 @@ class UnitStore:
         self._update(unit_id, pushed=sha)
 
 
-def _with_state(unit: StoredUnit, state: str) -> StoredUnit:
+def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:
     """Change a unit's state and record that it happened.
 
     `upsert` used to write `unplanned` straight onto the model, so the one
     transition that stops a unit building was the one transition that left no
     trace — every other goes through `set_state`, which records it.
     """
+    state = UnitState(state)
     return unit.model_copy(
         update={"state": state, "history": (*unit.history, {"state": state, "at": _now()})}
     )

@@ -15,7 +15,7 @@ from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, UnitState, branch_name
 from tests.classic_store import leave_in_flight
 from tests.factories import unit
 from tests.graph_driver import position, run_on_graph, tick
@@ -28,7 +28,7 @@ WAITING = "rename the marker"
 def stored(
     tmp_path: Path,
     *,
-    state: str = PLANNED,
+    state: UnitState = PLANNED,
     resume_from: str = "",
     feedback: str = "",
     pr: int | None = None,

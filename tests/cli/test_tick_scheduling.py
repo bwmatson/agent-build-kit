@@ -34,6 +34,7 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     PLANNED,
     RUNNING,
+    UnitState,
     local_ref,
     ready_units,
 )
@@ -128,7 +129,7 @@ class Builder:
         self.before_running: dict[str, Callable[[], object]] = {}
         # How a unit's build ends when it is not in review: the state, cause and
         # note it leaves. A unit not named here is left `planned` with its status as note.
-        self.ends: dict[str, tuple[str, Cause | None, str]] = {}
+        self.ends: dict[str, tuple[UnitState, Cause | None, str]] = {}
         self.started: list[str] = []
         self.finished: list[str] = []
         self._lock = threading.Lock()
@@ -359,7 +360,7 @@ def test_a_unit_set_back_to_planned_during_the_pass_is_started_by_it(
     it up rather than leaving it for the next one."""
     inst = workspace(tmp_path)
     builder.store.upsert([stored("feature/1"), stored("feature/2")])
-    builder.store.set_state("feature/2", "failed")
+    builder.store.set_state("feature/2", UnitState.FAILED)
 
     def requeue() -> None:
         builder.store.set_state("feature/2", PLANNED, note="requeued by hand")
@@ -997,7 +998,7 @@ def test_a_failed_unit_is_named_among_those_holding_the_places(
     inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
     builder.store.upsert([stored("broke/1")])
-    builder.store.set_state("broke/1", "failed")
+    builder.store.set_state("broke/1", UnitState.FAILED)
     builder.store.upsert([stored("new/1")])
 
     assert tick(inst) == 0

@@ -389,6 +389,28 @@ def test_a_failed_restack_keeps_the_review_feedback_already_waiting(tmp_path: Pa
     assert "dropped a test" in feedback
 
 
+def test_a_failed_restack_keeps_where_the_waiting_feedback_came_from(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    recorder.made = 2
+    recorder.store.set_feedback(
+        unit().id, "tier 1 failed:\nE assert 1 == 2", source=FeedbackSource.TIER1
+    )
+
+    def conflicted(**kw: Any) -> None:
+        raise RuntimeError("both sides changed sessions.py")
+
+    build(tmp_path, recorder, base="spec/add-marker/0", restack_onto=conflicted)
+
+    stored = recorder.store.get(unit().id)
+    assert "sessions.py" in stored.feedback
+    assert stored.feedback_source is FeedbackSource.TIER1
+
+    recorder.tier1_results = [(True, "")]
+    build(tmp_path, recorder, base="spec/add-marker/0")
+
+    assert "claude:fix_checks" in recorder.events, "the output still goes out as a check failure"
+
+
 @pytest.mark.parametrize(
     "refusal",
     [

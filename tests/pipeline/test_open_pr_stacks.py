@@ -15,7 +15,7 @@ import pytest
 
 from agent_build_kit.forges import RepoId, Stack, StackRefused
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.units import IN_REVIEW, UnitState
 from agent_build_kit.pipeline.wiring import build_open_pr
 from tests.factories import stored_unit
 from tests.factories import unit as plan_unit
@@ -97,7 +97,7 @@ def store(tmp_path: Path) -> UnitStore:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit("feature/1"), stored_unit("feature/2", depends_on=("feature/1",))])
     store.set_state("feature/1", IN_REVIEW, pr=11, branch="spec/feature/1")
-    store.set_state("feature/2", "running", branch="spec/feature/2")
+    store.set_state("feature/2", UnitState.RUNNING, branch="spec/feature/2")
     return store
 
 
@@ -313,7 +313,7 @@ def test_a_base_reached_through_a_satisfied_dependency_is_still_registered(
 ) -> None:
     """feature/2 landed without a PR of its own to stack on; feature/3 depends on
     it only, but its PR targets feature/1's branch, so that is the one beneath."""
-    store.set_state("feature/2", "satisfied")
+    store.set_state("feature/2", UnitState.SATISFIED)
     store.upsert([stored_unit("feature/3", depends_on=("feature/2",))])
     forge = BodyRecordingForge()
 

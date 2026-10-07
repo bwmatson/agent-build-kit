@@ -14,7 +14,7 @@ from agent_build_kit.pipeline.archive import archive_ready_changes, is_ready_to_
 from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import Member, branch_name
+from agent_build_kit.pipeline.units import Member, UnitState, branch_name
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from tests.conftest import make_installation
 from tests.factories import stored_unit, unit
@@ -209,8 +209,8 @@ def test_a_satisfied_carrier_keeps_ticks_busy_for_a_carried_change_waiting(
     )
 
     # `upsert` keeps no PR; a merged unit carries one once it has been merged.
-    store.set_state("add-marker/1", "merged", pr=1)
-    store.set_state("sample-change/1", "merged", pr=2)
+    store.set_state("add-marker/1", UnitState.MERGED, pr=1)
+    store.set_state("sample-change/1", UnitState.MERGED, pr=2)
     # The carrier's own change is already verified, so only the carried one waits.
     VerifyRecord(inst.state_dir / "verified.json").put(
         Verification(change="add-marker", passed=True, units=["add-marker/1"])

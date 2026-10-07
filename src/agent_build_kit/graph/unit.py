@@ -46,20 +46,13 @@ class NotWaiting(RuntimeError):
     """An event for a unit whose thread is not in a wait, and cannot be put in one."""
 
 
-class Pause(Frozen):
-    """Why a thread is interrupted for the usage window, and when to ask again."""
-
-    reason: str
-    until: datetime | None = None
-
-
 class Position(Frozen):
     """Where a unit's thread stands: the nodes still to run (empty when it has
     ended or does not exist), its state, and the usage pause it waits in."""
 
     next: tuple[Node, ...] = ()
     state: UnitRun | None = None
-    pause: Pause | None = None
+    pause: PauseInfo | None = None
     paused_since: datetime | None = None
 
 
@@ -75,7 +68,7 @@ def _position(snapshot: StateSnapshot) -> Position:
             value = waiting.value
             if isinstance(value, dict) and "reason" in value:
                 until, began = value.get("until"), value.get("at")
-                pause = Pause(
+                pause = PauseInfo(
                     reason=value["reason"], until=datetime.fromisoformat(until) if until else None
                 )
                 since = datetime.fromisoformat(began) if began else None
@@ -137,7 +130,7 @@ async def _outcome(compiled: CompiledStateGraph, unit_id: str) -> RunOutcome:
             status=RunStatus.PAUSED,
             detail=where.pause.reason,
             pr=state.pr if state else None,
-            pause=PauseInfo(reason=where.pause.reason, until=where.pause.until),
+            pause=where.pause,
         )
     if state is None or state.status is None:
         raise RuntimeError(f"the thread for {unit_id} ended without a status")

@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     Unit,
+    UnitState,
     later_groups_by_change,
 )
 
@@ -198,6 +199,9 @@ class UnitOutcome(StrEnum):
     RATE_LIMITED = "rate_limited"
     SKIPPED = "skipped"
     ERROR = "error"
+    # A graph node that finished with nothing to report, and one that stopped to wait.
+    OK = "ok"
+    WAITING = "waiting"
 
 
 # What a run's status is: the outcome it ended in.
@@ -1264,6 +1268,6 @@ class UnitRunner(BaseModel):
         # Recorded rather than left at "planned": the next round would
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
-        self.store.set_state(unit.id, "failed", cause=Cause.FAILED)
+        self.store.set_state(unit.id, UnitState.FAILED, cause=Cause.FAILED)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)

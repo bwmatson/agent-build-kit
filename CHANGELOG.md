@@ -12,7 +12,9 @@
   requeued or held again once by hand. In the same way a requeue carries a reason, a rework
   the kind that sent the unit back, and saved feedback its source, as fields: the words of a
   person that begin like a check failure are still review feedback, and a run ends in one
-  `UnitOutcome`. A toolchain profile the framework does not implement raises
+  `UnitOutcome`, and a unit's state is a `UnitState`. Feedback saved before the upgrade
+  has no source and is treated as review feedback, so `abk requeue --rework` on an older
+  tier 1 failure sends its output under the review prompt; `--restart` avoids this. A toolchain profile the framework does not implement raises
   `ProfileUnsupported`, and only that holds a unit as toolchain; any other
   `NotImplementedError` fails the unit.
 

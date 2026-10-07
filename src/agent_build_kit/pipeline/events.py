@@ -1124,8 +1124,7 @@ def on_rework(
                 fetch_checks=fetch_checks,
             )
 
-        # The kind only when there is one, so a delivery that predates kinds is called as before.
-        if resume(unit, "rework", reason, feedback, **({"rework": rework} if rework else {})):
+        if resume(unit, "rework", reason, feedback, rework=rework):
             log(f"rework #{pr}: {unit.id} resumed — {reason}")
             return True
         with claim(unit):

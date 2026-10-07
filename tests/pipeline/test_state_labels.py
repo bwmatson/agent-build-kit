@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member, UnitState
 from agent_build_kit.pipeline.vocabulary import STATES, change_label, state_label_names
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -152,10 +152,10 @@ def test_a_host_that_keeps_no_labels_is_said_once_and_changes_nothing(tmp_path: 
     store = wired(tmp_path, NoLabelsForge(), logged)
     store.upsert([unit("add-marker/1")])
 
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.set_state("add-marker/1", IN_REVIEW, pr=PR)
-    store.set_state("add-marker/1", "running")
-    store.set_state("add-marker/1", "held")
+    store.set_state("add-marker/1", UnitState.RUNNING)
+    store.set_state("add-marker/1", UnitState.HELD)
 
     assert store.get("add-marker/1").state == "held"
     assert len(logged) == 1, logged
@@ -195,7 +195,7 @@ def test_the_label_follows_a_unit_through_the_changes_the_pipeline_makes(tmp_pat
     uid = "add-marker/1"
     dispatch = events.build_dispatch(store, restack=lambda **_: None, log=lambda m: None)
 
-    store.set_state(uid, "running", branch="spec/add-marker/1")
+    store.set_state(uid, UnitState.RUNNING, branch="spec/add-marker/1")
     assert state_labels_on(forge) == set(), "no pull request yet, nothing to label"
 
     store.set_state(uid, IN_REVIEW, pr=PR)
@@ -204,16 +204,16 @@ def test_the_label_follows_a_unit_through_the_changes_the_pipeline_makes(tmp_pat
     dispatch("rework", PR, repo="app", reason="review: changes requested")
     assert state_labels_on(forge) == {"planned"}
 
-    store.set_state(uid, "running", branch="spec/add-marker/1")
+    store.set_state(uid, UnitState.RUNNING, branch="spec/add-marker/1")
     assert state_labels_on(forge) == {"running"}
 
-    store.set_state(uid, "held", note="needs a human: stuck")
+    store.set_state(uid, UnitState.HELD, note="needs a human: stuck")
     assert state_labels_on(forge) == {"held"}
 
-    store.set_state(uid, "failed")
+    store.set_state(uid, UnitState.FAILED)
     assert state_labels_on(forge) == {"failed"}
 
-    store.set_state(uid, "merged")
+    store.set_state(uid, UnitState.MERGED)
     assert state_labels_on(forge) == {"failed"}, "merged adds none, and the host shows it"
 
 
@@ -223,9 +223,9 @@ def test_the_change_label_goes_on_when_the_pull_request_opens_and_stays(tmp_path
     store = wired(tmp_path, forge, [])
     store.upsert([unit("add-marker/1")])
 
-    store.set_state("add-marker/1", "running", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
     store.set_state("add-marker/1", IN_REVIEW, pr=PR)
-    store.set_state("add-marker/1", "running")
+    store.set_state("add-marker/1", UnitState.RUNNING)
     store.set_state("add-marker/1", IN_REVIEW)
 
     assert {"bug", change_label("add-marker").name, "in-review"} == on_pr(forge)
@@ -241,7 +241,7 @@ def test_a_unit_that_joined_another_changes_groups_carries_a_label_for_each(
     store.upsert([unit("add-marker/1", joined=(Member(change="feature", groups=(1,)),))])
 
     store.set_state("add-marker/1", IN_REVIEW, pr=PR, branch="spec/add-marker/1")
-    store.set_state("add-marker/1", "running")
+    store.set_state("add-marker/1", UnitState.RUNNING)
 
     own, other = change_label("add-marker"), change_label("feature")
     assert {own.name, other.name} <= on_pr(forge)

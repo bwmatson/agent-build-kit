@@ -81,7 +81,6 @@ from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import (
     UNPLANNED,
     Cause,
-    FeedbackSource,
     HeldBy,
     RequeueReason,
     ReworkKind,
@@ -100,6 +99,7 @@ from agent_build_kit.pipeline.units import (
     SATISFIED,
     Join,
     Unit,
+    UnitState,
     base_of,
     branch_name,
     in_progress,
@@ -1560,7 +1560,7 @@ def _build_unit(
             # record, not only in a tick log someone would have to find.
             note = str(error) if isinstance(error, CommitRejected) else ""
             try:
-                store.set_state(unit.id, "failed", note=note, cause=Cause.FAILED)
+                store.set_state(unit.id, UnitState.FAILED, note=note, cause=Cause.FAILED)
             except Exception as second:  # noqa: BLE001
                 say(f"could not be recorded as failed — {second}")
             return True
@@ -1717,7 +1717,7 @@ def resume_thread(
         reason=reason,
         feedback=words,
         from_person=from_person,
-        feedback_source=feedback_source_of(rework) if rework else FeedbackSource.NONE,
+        feedback_source=feedback_source_of(rework),
         requeue=requeue,
         rework=rework,
     )
@@ -1750,7 +1750,7 @@ def resume_thread(
     except Exception as error:  # noqa: BLE001 — an event handler must not end the poll.
         detail = f"failed, {type(error).__name__}: {error}"
         try:
-            store.set_state(unit.id, "failed", cause=Cause.FAILED)
+            store.set_state(unit.id, UnitState.FAILED, cause=Cause.FAILED)
         except Exception as second:  # noqa: BLE001
             say(f"could not be recorded as failed — {second}")
         say(detail)

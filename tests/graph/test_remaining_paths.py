@@ -23,7 +23,7 @@ from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import Restacked
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, UnitStore
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -764,6 +764,26 @@ def test_a_changed_test_still_requires_a_decision_and_is_read_after_the_port(
     assert outcome.status == "failed"
     assert "no decision for `test_click`" in recorder.store.get(unit().id).feedback
     assert "test_click" in adapting.prompts[1], "the follow-up names it"
+
+
+def test_an_unaccounted_test_keeps_where_the_waiting_feedback_came_from(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    recorder.store.set_feedback(
+        unit().id, "tier 1 failed:\nE assert 1 == 2", source=FeedbackSource.TIER1
+    )
+    adapting = Adapting(
+        recorder,
+        [json.dumps({"tests": []})],
+        old_tests=("test_click",),
+        present={"test_click"},
+        changed={"test_click"},
+    )
+
+    build(tmp_path, recorder, base="spec/c/2", **adapting.overrides())
+
+    stored = recorder.store.get(unit().id)
+    assert "no decision for `test_click`" in stored.feedback
+    assert stored.feedback_source is FeedbackSource.TIER1
 
 
 def test_an_incomplete_accounting_is_asked_again_before_the_unit_fails(tmp_path: Path) -> None:

@@ -18,7 +18,7 @@ from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.restack import move_branch_onto
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED, base_of
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED, UnitState, base_of
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import git, init_repo
 from tests.factories import stored_unit as unit
@@ -94,7 +94,9 @@ class World:
     def own_commits(self, branch: str, base: str) -> list[str]:
         return git(self.repo, "log", "--format=%s", f"{base}..{branch}").splitlines()
 
-    def add(self, uid: str, state: str, *depends_on: str, pr: int | None = None, **extra) -> None:
+    def add(
+        self, uid: str, state: UnitState, *depends_on: str, pr: int | None = None, **extra
+    ) -> None:
         self.store.upsert([unit(uid, depends_on=depends_on, **extra)])
         branch = f"spec/{uid}"
         self.store.set_state(uid, state, pr=pr, branch=branch if state != SATISFIED else None)

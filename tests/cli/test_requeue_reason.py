@@ -11,6 +11,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
 from agent_build_kit.pipeline.unit_store import RequeueReason, UnitStore
+from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
 from tests.factories import unit
 
@@ -22,7 +23,7 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> UnitStore:
     monkeypatch.chdir(inst.root)
     store = UnitStore(inst.state_dir / "units.json")
     store.upsert([unit("add-marker/1")])
-    store.set_state("add-marker/1", "failed", branch="spec/add-marker/1")
+    store.set_state("add-marker/1", UnitState.FAILED, branch="spec/add-marker/1")
     store.set_feedback("add-marker/1", "a saved failure")
     return store
 

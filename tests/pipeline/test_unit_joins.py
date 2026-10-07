@@ -36,6 +36,7 @@ from agent_build_kit.pipeline.units import (
     Join,
     Member,
     Unit,
+    UnitState,
 )
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -95,9 +96,9 @@ def start(store: UnitStore, uid: str, kind: str) -> None:
     elif kind == "planned":
         pass  # unfinished but unstarted: the unit is left as it was planned
     elif kind == "branch":
-        store.set_state(uid, "planned", branch=branch)
+        store.set_state(uid, UnitState.PLANNED, branch=branch)
     elif kind == "pull-request":
-        store.set_state(uid, "planned", pr=4)
+        store.set_state(uid, UnitState.PLANNED, pr=4)
     elif kind == "pushed-commit":
         store.record_push(uid, "abc1234")
     elif kind == "approved-commit":
