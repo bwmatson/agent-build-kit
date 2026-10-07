@@ -243,3 +243,34 @@ def test_the_review_prompt_still_raises_a_changelog_claim_the_code_does_not_supp
 
 def test_the_standing_review_prompt_says_nothing_of_the_changelog() -> None:
     assert "changelog" not in REVIEW_PROMPT.lower()
+
+
+def history(path: Path) -> RepoConfig:
+    return RepoConfig(path=path, slug="example/app", changelog="docs/HISTORY.md")
+
+
+def test_the_resolver_rule_names_the_file_the_setting_names(tmp_path: Path) -> None:
+    bare = repo_with(tmp_path, None)
+
+    rule = resolver_changelog_rule(bare, ["docs/HISTORY.md"], history(bare))
+
+    assert "`docs/HISTORY.md`" in rule
+    assert "CHANGELOG.md" not in rule
+
+
+def test_the_packaged_text_names_the_file_the_setting_names(tmp_path: Path) -> None:
+    bare = repo_with(tmp_path, None)
+
+    text = changelog_convention(bare, history(bare))
+
+    assert text.startswith("`docs/HISTORY.md` opens with")
+    assert "CHANGELOG.md" not in text
+
+
+def test_the_review_paragraph_carries_the_convention_it_points_at(tmp_path: Path) -> None:
+    for section in (None, FIXTURE_CONVENTION):
+        worktree = repo_with(tmp_path, section)
+        paragraph = review_changelog_paragraph(worktree, on(worktree))
+
+        assert squeezed(changelog_convention(worktree, on(worktree))) in squeezed(paragraph)
+        assert "AGENTS.md" not in paragraph

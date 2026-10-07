@@ -86,3 +86,32 @@ def test_tier_one_fails_the_checks_round_on_a_changelog_problem(tmp_path: Path) 
 
     assert not passed
     assert problem in output
+
+
+def run_emitted_check(app: Path) -> subprocess.CompletedProcess:
+    """The command the profile emits for the repo, run as tier 1 runs it: in the checkout."""
+    command = profiles.get("python-uv").extra_checks(repo_config(app))[0]
+    return subprocess.run(command, cwd=app, capture_output=True, text=True, check=False)
+
+
+def test_the_emitted_check_fails_a_changelog_with_bullets_run_together(tmp_path: Path) -> None:
+    app = checkout(tmp_path)
+    (app / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## Unreleased\n\n- First change.\n- Second change.\n"
+    )
+
+    result = run_emitted_check(app)
+
+    assert result.returncode == 1
+    assert "CHANGELOG.md line 6" in result.stdout
+
+
+def test_the_emitted_check_passes_a_well_formed_changelog(tmp_path: Path) -> None:
+    app = checkout(tmp_path)
+    (app / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## Unreleased\n\n- First change.\n\n- Second change.\n"
+    )
+
+    result = run_emitted_check(app)
+
+    assert result.returncode == 0, result.stdout + result.stderr

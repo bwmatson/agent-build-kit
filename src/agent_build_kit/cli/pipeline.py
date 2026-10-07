@@ -33,7 +33,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from agent_build_kit import config, forges, runtimes, telemetry
+from agent_build_kit import config, forges, profiles, runtimes, telemetry
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -124,6 +124,7 @@ from agent_build_kit.pipeline.wiring import (
     CommitRejected,
     build_resume_at,
     build_runner,
+    build_tier1,
 )
 from agent_build_kit.pipeline.work_graph import (
     NEEDS_LINE,
@@ -1290,6 +1291,19 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
 
         return with_config
 
+    def tier1_of(*, cwd: Path, base: str) -> tuple[bool, str]:
+        """Tier 1 as the repo whose checkout, or worktree of it, `cwd` is builds it."""
+        for name, path in checkouts.items():
+            if cwd == path or cwd.parent == installation.worktree_root / path.name:
+                repo = installation.repo(name)
+                return build_tier1(
+                    profile=profiles.get(repo.profile),
+                    root_extras=repo.tests.root_extras,
+                    projects=repo.projects,
+                    repo=repo,
+                )(cwd=cwd, base=base)
+        raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
+
     return {
         "restack": build_restack(
             repos=checkouts,
@@ -1297,6 +1311,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
             root=installation.worktree_root,
             posts_root=installation.state_dir,
             move=at_path(in_repo(resolved_move)),
+            tier1=tier1_of,
             push=at_path(push_with_lease),
         ),
         "remove_worktree": named(build_remove_worktree(checkouts, root=installation.worktree_root)),
