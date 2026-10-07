@@ -1310,6 +1310,38 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
     assert "archived c" in out
 
 
+def test_verify_fails_when_the_archive_after_a_pass_does_not_happen(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert(_merged("c/1"))
+    fake = _verifier([True], [])
+    monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
+    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
+
+    assert cli.cmd_verify(argv_namespace(change="c"), inst) == 1
+    out = capsys.readouterr().out
+    assert "c: verified but not archived" in out
+    assert "archived c" not in out
+
+
+@pytest.mark.parametrize(
+    ("has_directory", "reason"),
+    [(False, "withdrawn: no change directory"), (True, "the archive failed")],
+)
+def test_verify_says_why_a_verified_change_was_not_archived(
+    tmp_path: Path, monkeypatch, capsys, has_directory: bool, reason: str
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert(_merged("c/1"))
+    fake = _verifier([True], [])
+    monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
+    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
+    if has_directory:
+        (inst.changes_dir / "c").mkdir(parents=True)
+
+    assert cli.cmd_verify(argv_namespace(change="c"), inst) == 1
+    assert f"c: verified but not archived ({reason}; see the log)" in capsys.readouterr().out
+
+
 def test_tags_over_an_empty_store_says_so_rather_than_printing_nothing(
     tmp_path: Path, capsys
 ) -> None:
@@ -1545,6 +1577,8 @@ def _archiving(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _two_changes_logged(tmp_path: Path) -> tuple[Path, Path]:
+    for name in ("c", "other"):
+        (inst.changes_dir / name).mkdir(parents=True, exist_ok=True)
     UnitStore(tmp_path / "units.json").upsert(
         [*_merged("c/1"), *_merged("other/1", change="other")]
     )

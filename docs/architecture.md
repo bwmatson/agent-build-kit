@@ -578,7 +578,9 @@ intentions. It runs only when every unit carrying a group of the change merged
 (a change whose groups another change's unit carries waits for that unit too)
 **and** verification passed,
 in merge order (two changes touching one requirement conflict when the second
-archives), and never twice. A conflict raises rather than being auto-resolved.
+archives), and never twice. A conflict is not auto-resolved, and it does not end the
+tick either: the failure is logged with its reason, the change is skipped, and the next
+tick tries it again. A finished change with no directory is logged as withdrawn and not attempted.
 
 ## The guards
 

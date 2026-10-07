@@ -106,8 +106,11 @@ The same figures are written to `planning.usage_page` on every store write.
 Verifies one change by hand — after fixing what made the automatic
 verification fail — and archives it if it passes. Deploys what the change's
 merged PRs touched (`deploy.rules`), runs the live tests they added, records
-the outcome in `runs/verified.json`. Exit 1 with the detail when it fails, 0
-when it passes (printing what was deployed and what was archived).
+the outcome in `runs/verified.json`. Exit 0 when the change verified and was
+archived (printing what was deployed and what was archived); exit 1 with the
+detail when verification fails, and exit 1 with a "verified but not archived"
+line, naming the reason (already archived, not fully merged, withdrawn, or the
+archive failed), when it passed but the change was not archived.
 
 ### `abk tags [CHANGE] [--all]`
 

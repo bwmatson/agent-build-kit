@@ -151,6 +151,9 @@ def test_a_change_wholly_carried_elsewhere_is_archived_by_the_tick(tmp_path: Pat
         calls.append(list(args))
         return subprocess.CompletedProcess(args, 0, "", "")
 
+    for name in ("add-marker", "sample-change"):
+        (tmp_path / "openspec" / "changes" / name).mkdir(parents=True)
+
     archived = archive_ready_changes([_merged_carrier()], planning_repo=tmp_path, run=run)
 
     assert sorted(archived) == ["add-marker", "sample-change"]

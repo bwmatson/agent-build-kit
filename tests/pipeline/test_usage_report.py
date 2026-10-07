@@ -465,6 +465,7 @@ def merged(uid: str, **overrides):
 
 
 def archive_ledger(tmp_path: Path) -> Path:
+    (tmp_path / "openspec" / "changes" / "add-marker").mkdir(parents=True, exist_ok=True)
     return write_ledger(
         tmp_path / "state" / "usage-ledger.jsonl",
         agent_line(),

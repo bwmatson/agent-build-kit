@@ -193,6 +193,7 @@ def test_a_change_whose_name_begins_with_another_keeps_its_logs(tmp_path: Path) 
 
 
 def test_archiving_a_change_removes_its_units_logs(tmp_path: Path) -> None:
+    (tmp_path / "openspec" / "changes" / "add-marker").mkdir(parents=True)
     directory = run_log_dir(tmp_path)
     start_run(directory, "add-marker/1").close("open")
     start_run(directory, "add-marker/2").close("open")

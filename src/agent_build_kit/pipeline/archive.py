@@ -13,13 +13,16 @@ planning repo's own record, so three rules apply:
 - **Never twice.** "All merged" stays true forever, so without a check every
   round would try again and fail noisily.
 
-A failure here is not swallowed. An archive conflict means two changes
-disagree about a requirement, which is exactly the kind of thing a person
-should look at rather than a pipeline paper over.
+A failure here is contained, not swallowed. An archive conflict means two
+changes disagree about a requirement, which a person should look at rather
+than a pipeline paper over — but archiving is housekeeping, so it must not end
+the tick before the other changes are archived or anything is built. The
+failure is logged and the change skipped; the next tick tries it again.
 """
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -29,6 +32,8 @@ from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
 from agent_build_kit.pipeline.usage_report import roll_up_change
+
+logger = logging.getLogger(__name__)
 
 # A subprocess.run-like callable, for tests to record the OpenSpec CLI call
 # instead of making it.
@@ -95,6 +100,9 @@ def archive_ready_changes(
     and that `may_archive` lets through: the tick passes whether the change
     has been deployed and passed its live tests (verify.py).
 
+    A change that fails to archive, or has no directory (withdrawn), is logged
+    and skipped.
+
     Returns the changes archived, so the caller can commit them and say so in
     the run log.
     """
@@ -109,8 +117,17 @@ def archive_ready_changes(
 
     archived: list[str] = []
     for change in sorted(ready, key=lambda name: _merged_at(name, units)):
-        # A conflict raises rather than being auto-resolved.
-        openspec.archive(change, cwd=planning_repo, run=run)
+        directory = planning_repo / specs_dir / "changes" / change
+        if not directory.is_dir():
+            logger.warning("not archiving %s: withdrawn, no change directory", change)
+            continue
+        try:
+            # A conflict is not auto-resolved: it is logged and the
+            # change retried next tick.
+            openspec.archive(change, cwd=planning_repo, run=run)
+        except RuntimeError as exc:
+            logger.warning("archiving %s failed, skipping it: %s", change, str(exc))
+            continue
         archived.append(change)
         if usage_ledger is not None:
             try:

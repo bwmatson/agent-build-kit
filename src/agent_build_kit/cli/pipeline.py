@@ -367,16 +367,32 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         print(f"{args.change}: verification failed\n{outcome.detail}")
         return 1
     print(f"{args.change}: verified — {', '.join(outcome.deployed) or 'nothing to deploy'}")
-    for change in archive_ready_changes(
+    archived = archive_ready_changes(
         units,
         planning_repo=inst.root,
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
-    ):
+    )
+    for change in archived:
         print(f"archived {change}")
+    if args.change not in archived:
+        reason = _not_archived_reason(args.change, units, inst)
+        print(f"{args.change}: verified but not archived ({reason}; see the log)")
+        return 1
     return 0
+
+
+def _not_archived_reason(change: str, units: list, inst: Installation) -> str:
+    """Why a verified change was not archived, from the same checks the archive makes."""
+    if _already_archived(change, inst.root, inst.config.planning.specs_dir):
+        return "already archived"
+    if not is_ready_to_archive(change, units):
+        return "not fully merged"
+    if not (inst.changes_dir / change).is_dir():
+        return "withdrawn: no change directory"
+    return "the archive failed"
 
 
 # --- the tick ---------------------------------------------------------------------------
