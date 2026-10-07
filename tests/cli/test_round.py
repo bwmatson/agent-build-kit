@@ -10,14 +10,17 @@ completions each test controls, as `test_tick_scheduling` does.
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import is_ready_to_archive
 from agent_build_kit.pipeline.pause import is_paused
@@ -34,7 +37,8 @@ from tests.factories import stored_unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
-WAIT = 5
+# Generous: a passing wait costs nothing, and a loaded parallel run stretches the others.
+WAIT = 30
 
 TASKS = """# Tasks
 
@@ -67,6 +71,14 @@ def inst(tmp_path: Path) -> Installation:
             "max_units_in_progress": 50,
         },
     )
+
+
+@pytest.fixture(autouse=True)
+def warm_unit_graphs(tmp_path: Path) -> None:
+    """The unit-graph database already in WAL, so builds opening it together do
+    not race to switch the journal mode (`database is locked`)."""
+    with closing(sqlite3.connect(unit_graphs_path(tmp_path))) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
 
 
 @pytest.fixture(autouse=True)
@@ -509,14 +521,15 @@ def test_a_unit_the_pass_built_and_a_comment_resumed_is_started_again_in_the_pas
                 builder.store.get("x/1").state == IN_REVIEW
                 and "x/1" in builder.finished
                 and not cli.branch_is_held(inst, "spec/x/1")
-            )
+            ),
         )
         if not returned:
             return "failed"
         # A reviewer comments: the event resumes x's thread.
         commented.append(1)
         builder.store.set_state("x/1", RUNNING, branch="spec/x/1")
-        return None if eventually(lambda: builder.started.count("x/1") == 2) else "failed"
+        again = eventually(lambda: builder.started.count("x/1") == 2)
+        return None if again else "failed"
 
     builder.scripts["slow/1"] = slow
 

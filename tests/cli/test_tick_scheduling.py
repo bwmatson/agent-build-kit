@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +28,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
@@ -54,7 +57,7 @@ from tests.runtimes.selectable import SelectableRuntime, select
 # How long a build waits for something the pass should make happen meanwhile.
 # Long enough never to trip when the pass does it; against a pass that fixes
 # its batch at the start, it is what the slow unit waits before giving up.
-WAIT = 5
+WAIT = 30
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -68,6 +71,14 @@ def eventually(condition: Callable[[], bool]) -> bool:
             return False
         time.sleep(0.01)
     return True
+
+
+@pytest.fixture(autouse=True)
+def warm_unit_graphs(tmp_path: Path) -> None:
+    """The unit-graph database already in WAL, so builds opening it together do
+    not race to switch the journal mode (`database is locked`)."""
+    with closing(sqlite3.connect(unit_graphs_path(tmp_path))) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
 
 
 @pytest.fixture(autouse=True)
