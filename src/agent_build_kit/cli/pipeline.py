@@ -367,16 +367,17 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         print(f"{args.change}: verification failed\n{outcome.detail}")
         return 1
     print(f"{args.change}: verified — {', '.join(outcome.deployed) or 'nothing to deploy'}")
-    for change in archive_ready_changes(
+    archived = archive_ready_changes(
         units,
         planning_repo=inst.root,
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
-    ):
+    )
+    for change in archived:
         print(f"archived {change}")
-    return 0
+    return 0 if args.change in archived else 1
 
 
 # --- the tick ---------------------------------------------------------------------------

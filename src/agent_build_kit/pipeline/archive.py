@@ -119,10 +119,11 @@ def archive_ready_changes(
     for change in sorted(ready, key=lambda name: _merged_at(name, units)):
         directory = planning_repo / specs_dir / "changes" / change
         if not directory.is_dir():
-            logger.info("not archiving %s: withdrawn, no change directory", change)
+            logger.warning("not archiving %s: withdrawn, no change directory", change)
             continue
         try:
-            # A conflict is not auto-resolved: it is recorded for a person.
+            # A conflict is not auto-resolved: it is logged and the
+            # change retried next tick.
             openspec.archive(change, cwd=planning_repo, run=run)
         except RuntimeError as exc:
             logger.warning("archiving %s failed, skipping it: %s", change, str(exc))

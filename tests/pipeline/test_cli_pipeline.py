@@ -1310,6 +1310,18 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
     assert "archived c" in out
 
 
+def test_verify_fails_when_the_archive_after_a_pass_does_not_happen(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert(_merged("c/1"))
+    fake = _verifier([True], [])
+    monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
+    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
+
+    assert cli.cmd_verify(argv_namespace(change="c"), inst) == 1
+    assert "archived" not in capsys.readouterr().out
+
+
 def test_tags_over_an_empty_store_says_so_rather_than_printing_nothing(
     tmp_path: Path, capsys
 ) -> None:

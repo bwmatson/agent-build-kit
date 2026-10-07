@@ -193,7 +193,7 @@ def test_a_failed_archive_does_not_stop_the_others(
     make_change(tmp_path, "first")
     make_change(tmp_path, "second")
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.WARNING):
         archived = archive_ready_changes(units, planning_repo=tmp_path, run=runner)
 
     assert archived == ["second"]
@@ -207,7 +207,7 @@ def test_a_change_with_no_directory_is_logged_as_withdrawn_and_not_attempted(
 ) -> None:
     runner = FakeRunner()
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.WARNING):
         archived = archive_ready_changes(
             [unit("add-marker/1")],
             planning_repo=tmp_path,
