@@ -136,7 +136,7 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   code that sends them; long playbooks (tracks, recommendations, skills,
   templates) are package data.
 
-## Changelog
+## Changelog (overrides the packaged text)
 
 `CHANGELOG.md` opens with a `## Unreleased` section, and released versions follow it,
 newest first. A pull request that changes what someone using the tool sees adds one

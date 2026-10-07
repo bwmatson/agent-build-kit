@@ -137,6 +137,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       dev_stack_marker: dev_stack
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; tier 2 runs on it, not live
+    changelog: CHANGELOG.md   # the repo's changelog; null = no convention, no check.
+                              # Convention: AGENTS.md `## Changelog`, else CLAUDE.md,
+                              # else the packaged text. Doctor warns if the file is absent
     deploy:
       needs_ssh_agent: false  # image builds that fetch a dependency over ssh
       ssh_key: null
@@ -187,6 +190,7 @@ is 1 when anything failed.
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. `abk init --update-rules` adds what they added to the end of the `context:` and restamps the file, changing nothing else. |
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
+| changelog (warn) | A repo's `changelog` path names a file its checkout does not have. Not checked when `changelog: null`. |
 | skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
 
 ## Changing the config

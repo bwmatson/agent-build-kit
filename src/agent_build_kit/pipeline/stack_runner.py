@@ -34,6 +34,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
@@ -115,6 +116,7 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + "{changelog}"
     + PIPELINE_PUSHES_NOTE
 )
 
@@ -972,6 +974,8 @@ class UnitRunner(BaseModel):
 
     store: UnitStore
     planning_repo: Path
+    # The repo being built, for what its settings decide: None reads as the defaults.
+    repo_config: RepoConfig | None = None
     worktree: Callable[[Unit, str], Path]
     may_start: Callable[[], tuple[bool, str]]
     # When the usage guard expects to allow a start again, for the interrupt a

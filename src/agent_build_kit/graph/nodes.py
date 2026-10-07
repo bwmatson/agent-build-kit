@@ -638,7 +638,10 @@ class BuildPath:
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"write the tests ({models().implement})")
             prompt = TESTS_PROMPT.format(
-                groups=groups, change_dir=change_dir, boundary=build_boundary
+                groups=groups,
+                change_dir=change_dir,
+                boundary=build_boundary,
+                changelog=changelog_note(tree, r.repo_config),
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
@@ -659,7 +662,7 @@ class BuildPath:
                 groups=groups,
                 change_dir=change_dir,
                 boundary=build_boundary,
-                changelog=changelog_note(tree),
+                changelog=changelog_note(tree, r.repo_config),
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
@@ -845,7 +848,7 @@ class BuildPath:
                     groups=groups,
                     feedback=feedback,
                     boundary=build_boundary,
-                    changelog=changelog_note(tree),
+                    changelog=changelog_note(tree, r.repo_config),
                 ),
                 cwd=tree,
                 state=state,
@@ -876,7 +879,7 @@ class BuildPath:
                     feedback=feedback,
                     pr=stored.pr or "(not yet opened)",
                     boundary=build_boundary,
-                    changelog=changelog_note(tree),
+                    changelog=changelog_note(tree, r.repo_config),
                 ),
                 cwd=tree,
                 state=state,

@@ -301,6 +301,15 @@ Is this installation in a state the pipeline can run in? Each check prints
 `--show` (the default) prints the effective configuration as YAML with every
 default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 
+### `abk changelog check [PATH]`
+
+Checks a changelog's form: no conflict marker, a blank line between bullets, no bullet
+repeated, every bullet under a `##` section, headings in order. Each problem prints as
+`path line N: message`, and the exit is 1 when there are any. With no `PATH` it reads the
+file named by the `changelog` setting of the repo the current directory belongs to (a
+worktree included). A missing file passes with a note; so does a repo with the setting
+`null`. Tier 1 runs it for every repo with the setting on.
+
 ### `abk scrub-check --target DIR [--show-terms]`
 
 Run *from an installation*, greps `DIR` (a framework checkout) for anything

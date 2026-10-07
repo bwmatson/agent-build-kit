@@ -428,6 +428,7 @@ def build_run_review(
     runtime: AgentRuntime | None = None,
     role: Role = "review",
     forge: Forge | None = None,
+    repo: RepoConfig | None = None,
 ) -> Callable[..., str]:
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
@@ -455,7 +456,7 @@ def build_run_review(
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
-        prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd)
+        prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
         return inner(
             f"{context}\n\n{prompt}" if context else prompt,
             cwd=cwd,
@@ -627,6 +628,7 @@ def build_tier1(
 
     def tier1(*, cwd: Path, base: str, whole_repo: bool = False) -> tuple[bool, str]:
         """(passed, what failed) — the output is what makes a retry useful."""
+        extra = profile.extra_checks(repo) if repo is not None else []
         for where, toolchain, files in _work(cwd, base, whole_repo, projects, profile, changed):
             if whole_repo:
                 lint_command = toolchain.lint_command_all_files()
@@ -639,6 +641,11 @@ def build_tier1(
                 result = ran(command, where, toolchain)
                 if not toolchain.tolerates_exit(command, result.returncode):
                     return False, _failure(command, result)
+        # Once per checkout, in its root: these look at the repo, not at a project.
+        for command in extra:
+            result = ran(command, cwd, profile)
+            if not profile.tolerates_exit(command, result.returncode):
+                return False, _failure(command, result)
         return True, ""
 
     def ran(
@@ -1422,7 +1429,9 @@ def _move_without_resolver(
     return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base)
 
 
-def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = None):
+def build_restack_onto(
+    store: UnitStore, *, move: Callable[..., Moved] | None = None, repo: RepoConfig | None = None
+):
     """Move a resuming unit's branch onto its base, if the base has moved.
 
     Reuses `move_branch_onto` — the primitive, with its LLM conflict resolution
@@ -1440,7 +1449,7 @@ def build_restack_onto(store: UnitStore, *, move: Callable[..., Moved] | None = 
     `Restacked.conflict`, so the unit is held and the resolution happens at the
     start of its next run, under the usage gate and with review told of it.
     """
-    resolving = move or resolved_move
+    resolving = move or partial(resolved_move, repo_config=repo)
 
     def restack_onto(
         *, tree: Path, branch: str, base: str, unit: Unit, resolve: bool = True
@@ -1801,6 +1810,7 @@ def build_runner(
     return UnitRunner(
         store=store,
         planning_repo=planning_repo,
+        repo_config=repo,
         worktree=worktree_in_turn,
         reset_to=reset_to,
         tests_in=tests_in,
@@ -1815,13 +1825,14 @@ def build_runner(
             log=log,
             role="rework",
         ),
-        run_review=build_run_review(planning_repo=planning_repo, log=log, forge=forge),
+        run_review=build_run_review(planning_repo=planning_repo, log=log, forge=forge, repo=repo),
         run_rework_review=build_run_review(
             planning_repo=planning_repo,
             forge=forge,
             model=models().rework_review,
             log=log,
             role="rework_review",
+            repo=repo,
         ),
         # A rejected commit goes back to the build run's agent, same policy.
         commit=build_commit(unit_id=unit.id, fix=run_claude),
@@ -1829,9 +1840,13 @@ def build_runner(
         upstream_incomplete=build_upstream_incomplete(store),
         base_moved=build_base_moved(store),
         base_tip=tip,
-        restack_onto=build_restack_onto(store),
+        restack_onto=build_restack_onto(store, repo=repo),
         run_tier1=build_tier1(
-            profile=profile, root_extras=repo.tests.root_extras, projects=repo.projects, log=log
+            profile=profile,
+            root_extras=repo.tests.root_extras,
+            projects=repo.projects,
+            log=log,
+            repo=repo,
         ),
         run_tier2=tier2.run,
         push=push_in_turn,

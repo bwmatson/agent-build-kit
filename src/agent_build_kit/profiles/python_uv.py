@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import sys
 import tomllib
 from pathlib import Path
 
@@ -309,7 +310,11 @@ class PythonUvProfile:
         return self._member_commands(repo, testable) + root
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
-        return []
+        """The changelog's form, for a repo that keeps one. Run by the interpreter
+        running the pipeline: the built repo need not have the framework installed."""
+        if not repo.changelog:
+            return []
+        return [[sys.executable, "-m", "agent_build_kit", "changelog", "check", repo.changelog]]
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The live-stack tests, every member with tests, one at a time: a

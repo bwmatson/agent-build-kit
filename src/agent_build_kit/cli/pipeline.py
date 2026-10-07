@@ -1282,13 +1282,21 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
 
         return in_turn
 
+    def in_repo[T](step: Callable[..., T]) -> Callable[..., T]:
+        """The step told which repo's settings apply, from the checkout it runs in."""
+
+        def with_config(path: Path, *args, **kwargs) -> T:
+            return step(path, *args, repo_config=installation.repo(names[path]), **kwargs)
+
+        return with_config
+
     return {
         "restack": build_restack(
             repos=checkouts,
             store=store,
             root=installation.worktree_root,
             posts_root=installation.state_dir,
-            move=at_path(resolved_move),
+            move=at_path(in_repo(resolved_move)),
             push=at_path(push_with_lease),
         ),
         "remove_worktree": named(build_remove_worktree(checkouts, root=installation.worktree_root)),
