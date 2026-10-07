@@ -171,10 +171,9 @@ reads a draft as "not yet" and a ready pull request as theirs to review.
 If a verification fails, the change stays unarchived and `runs/verified.json`
 holds the failure; `abk verify <change>` reruns it once the cause is fixed.
 
-If an archive fails (a conflict between changes), the tick logs it and carries on;
-`abk status` shows `archive failed: <change> — <reason>`. It is not retried until the
-change's files or one of its units' states change, so fix the conflict by editing
-the change. A finished change whose directory is gone is listed as withdrawn and skipped.
+If an archive fails (a conflict between changes), the tick logs it and carries on, and
+tries it again next tick; fix the conflict by editing the change. A finished change whose
+directory is gone is logged as withdrawn and skipped.
 
 ## When the pipeline is paused
 
