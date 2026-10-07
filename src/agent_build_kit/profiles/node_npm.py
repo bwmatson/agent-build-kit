@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
 
 
@@ -51,6 +52,9 @@ class NodeNpmProfile:
 
     def failure_kind(self, output: str) -> str:
         return self._todo("failure_kind")
+
+    def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
+        return []
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         return self._todo("tier2_commands")

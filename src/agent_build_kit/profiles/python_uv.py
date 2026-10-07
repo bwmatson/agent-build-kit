@@ -15,6 +15,7 @@ import shlex
 import tomllib
 from pathlib import Path
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import parse_pytest_summary
@@ -306,6 +307,9 @@ class PythonUvProfile:
         testable = [member for member in members if (repo / member / "tests").is_dir()]
         root = self._root_tests(repo, root_extras) if (repo / "tests").is_dir() else []
         return self._member_commands(repo, testable) + root
+
+    def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
+        return []
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The live-stack tests, every member with tests, one at a time: a

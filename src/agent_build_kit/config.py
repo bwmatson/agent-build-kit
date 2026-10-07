@@ -340,6 +340,9 @@ class RepoConfig(Frozen):
     tests: TestsConfig = TestsConfig()
     dev_stack: DevStackConfig | None = None
     deploy: DeployConfig = DeployConfig()
+    # Where the repo keeps its changelog; None switches the changelog convention
+    # and check off for this repo.
+    changelog: str | None = "CHANGELOG.md"
 
 
 # --- verify env providers -----------------------------------------------------

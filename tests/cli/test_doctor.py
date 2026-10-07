@@ -82,6 +82,8 @@ def workspace(tmp_path: Path) -> Path:
     (app / "api").mkdir()
     (app / "api" / "Dockerfile").write_text("FROM scratch\n")
     platform = checkout(tmp_path / "platform")
+    for repo in (app, platform):
+        (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n")
     config = WorkspaceConfig(
         repos={
             "platform": RepoConfig(path=platform, slug="example/platform"),

@@ -9,10 +9,12 @@ section is told nothing. The text is a value inserted into a prompt with
 import re
 from pathlib import Path
 
+from agent_build_kit.config import RepoConfig
+
 _INTRO = "\nThe changelog convention:\n\n"
 
 
-def changelog_convention(worktree: Path) -> str:
+def changelog_convention(worktree: Path, repo: RepoConfig | None = None) -> str:
     """The body of the worktree's AGENTS.md `## Changelog` section, or `""`."""
     try:
         text = (worktree / "AGENTS.md").read_text(errors="replace")
@@ -25,13 +27,15 @@ def changelog_convention(worktree: Path) -> str:
     return ""
 
 
-def changelog_note(worktree: Path) -> str:
+def changelog_note(worktree: Path, repo: RepoConfig | None = None) -> str:
     """The prompt's changelog paragraph for this worktree, or `""` when it has no convention."""
     convention = changelog_convention(worktree)
     return f"{_INTRO}{convention}\n" if convention else ""
 
 
-def resolver_changelog_rule(worktree: Path, files: list[str]) -> str:
+def resolver_changelog_rule(
+    worktree: Path, files: list[str], repo: RepoConfig | None = None
+) -> str:
     """The resolver's keep-both-and-fold rule: only where a changelog is in play."""
     if "CHANGELOG.md" not in files and not changelog_convention(worktree):
         return ""
@@ -44,7 +48,7 @@ def resolver_changelog_rule(worktree: Path, files: list[str]) -> str:
     )
 
 
-def review_changelog_paragraph(worktree: Path) -> str:
+def review_changelog_paragraph(worktree: Path, repo: RepoConfig | None = None) -> str:
     """What the reviewer is told of the changelog, only where the repo states a convention."""
     if not changelog_convention(worktree):
         return ""

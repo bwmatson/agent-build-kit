@@ -586,6 +586,7 @@ def build_tier1(
     root_extras: list[str] | None = None,
     projects: list[ProjectConfig] | None = None,
     log: Callable[[str], None] | None = None,
+    repo: RepoConfig | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
