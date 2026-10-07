@@ -19,7 +19,7 @@ from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, Poller
 from agent_build_kit.pipeline.restack import Moved, RestackConflict, StaleRemote
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, ReworkKind, UnitStore
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, RUNNING, SATISFIED
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -1115,6 +1115,7 @@ def test_a_ci_failure_is_reworked_from_its_log_not_the_old_review(tmp_path: Path
         20,
         repo="app",
         reason="failing checks: config-check",
+        rework=ReworkKind.FAILING_CHECKS,
         pull=rework_pull("an old, answered review comment"),
         store=store,
         fetch_review=lambda pr: events.Review(lines=["an old review"]),
@@ -1140,6 +1141,7 @@ def test_a_conflict_is_reworked_as_a_conflict_not_the_old_review(tmp_path: Path)
         20,
         repo="app",
         reason=CONFLICT_REASON,
+        rework=ReworkKind.CONFLICT,
         pull=rework_pull("an old, answered comment"),
         store=store,
         fetch_review=lambda pr: asked.append(pr) or events.Review(lines=["an old review body"]),

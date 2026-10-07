@@ -107,6 +107,15 @@ class FeedbackSource(StrEnum):
     TIER2 = "tier2"
 
 
+def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
+    """Where a rework's feedback comes from, by the kind that sent the unit back."""
+    if rework is ReworkKind.FAILING_CHECKS:
+        return FeedbackSource.CI
+    if rework is ReworkKind.CONFLICT:
+        return FeedbackSource.CONFLICT
+    return FeedbackSource.REVIEW
+
+
 def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
@@ -337,6 +346,7 @@ class UnitStore:
                 classic_run=existing.classic_run if existing else {},
                 approved=existing.approved if existing else "",
                 feedback_from_person=existing.feedback_from_person if existing else False,
+                feedback_source=existing.feedback_source if existing else FeedbackSource.NONE,
                 predecessor_note=existing.predecessor_note if existing else "",
                 run_log=existing.run_log if existing else "",
                 trace=existing.trace if existing else "",
@@ -521,7 +531,10 @@ class UnitStore:
         clearing it.
         """
         self._update(
-            unit_id, feedback=feedback, feedback_from_person=from_person and bool(feedback)
+            unit_id,
+            feedback=feedback,
+            feedback_from_person=from_person and bool(feedback),
+            feedback_source=source if feedback else FeedbackSource.NONE,
         )
 
     def set_run_log(self, unit_id: str, name: str) -> None:

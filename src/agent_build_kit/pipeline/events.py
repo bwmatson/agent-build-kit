@@ -42,7 +42,7 @@ from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, FAILING_CHECKS_REASON
+from agent_build_kit.pipeline.pr_poller import FAILING_CHECKS_REASON  # noqa: F401 — re-exported
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
     Moved,
@@ -56,7 +56,14 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
-from agent_build_kit.pipeline.unit_store import Cause, HeldBy, ReworkKind, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    HeldBy,
+    ReworkKind,
+    StoredUnit,
+    UnitStore,
+    feedback_source_of,
+)
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -99,7 +106,13 @@ Feedback = Callable[[], tuple[str, bool, tuple[str, ...]]]
 
 
 def _no_thread(
-    unit: StoredUnit, kind: str, reason: str, feedback: str | Feedback, *, from_person: bool = False
+    unit: StoredUnit,
+    kind: str,
+    reason: str,
+    feedback: str | Feedback,
+    *,
+    from_person: bool = False,
+    rework: ReworkKind | None = None,
 ) -> bool:
     return False
 
@@ -1105,12 +1118,14 @@ def on_rework(
             return _feedback(
                 pr=pr,
                 reason=reason,
+                rework=rework,
                 pull=pull,
                 fetch_review=fetch_review,
                 fetch_checks=fetch_checks,
             )
 
-        if resume(unit, "rework", reason, feedback):
+        # The kind only when there is one, so a delivery that predates kinds is called as before.
+        if resume(unit, "rework", reason, feedback, **({"rework": rework} if rework else {})):
             log(f"rework #{pr}: {unit.id} resumed — {reason}")
             return True
         with claim(unit):
@@ -1126,6 +1141,7 @@ def on_rework(
                 current,
                 pr=pr,
                 reason=reason,
+                rework=rework,
                 store=store,
                 feedback=words,
                 from_person=from_person,
@@ -1214,6 +1230,7 @@ def _feedback(
     *,
     pr: int,
     reason: str,
+    rework: ReworkKind | None,
     pull: PullRequest | None,
     fetch_review: Callable[[int], Review] | None,
     fetch_checks: Callable[[PullRequest | None], str] | None,
@@ -1225,13 +1242,13 @@ def _feedback(
     # often the only content there is: a review's bodies can both be empty,
     # with the whole review one inline comment on a line, which `gh pr list`
     # does not return at all.
-    if reason.startswith(FAILING_CHECKS_REASON):
+    if rework is ReworkKind.FAILING_CHECKS:
         # CI, not a reviewer: what failed and its log, and nothing else. The
         # review comments on the PR were answered already, and replaying them
         # would have the rework redo old work instead of fixing the build.
         logs = fetch_checks(pull) if fetch_checks else ""
         return f"{reason}\n\n{logs}".strip(), False, ()
-    if reason == CONFLICT_REASON:
+    if rework is ReworkKind.CONFLICT:
         # Nor a reviewer: the branch no longer merges into its base, and the
         # restack at the start of the run does the rebase. Replaying the
         # PR's answered review would bury that under old work.
@@ -1258,13 +1275,16 @@ def _requeue(
     *,
     pr: int,
     reason: str,
+    rework: ReworkKind | None,
     store: UnitStore,
     feedback: str,
     from_person: bool,
     log: Log,
 ) -> bool:
     """Requeue `unit`, which has taken the rework for `reason`."""
-    store.set_feedback(unit.id, feedback, from_person=from_person)
+    store.set_feedback(
+        unit.id, feedback, from_person=from_person, source=feedback_source_of(rework)
+    )
     store.set_state(unit.id, PLANNED, note=f"rework requested: {reason}", cause=Cause.REWORK)
     log(f"rework #{pr}: {unit.id} requeued — {reason}")
     return True
@@ -1699,6 +1719,7 @@ def build_dispatch(
                 claim=claim,
                 waiting=known,
                 resume=resume,
+                rework=kwargs.get("rework"),
                 log=log,
             )
             if waiting_path:

@@ -70,9 +70,25 @@ from agent_build_kit.pipeline.pr_replies import ignored
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
+from agent_build_kit.pipeline.stack_runner import (
+    PauseInfo,
+    RunOutcome,
+    RunStatus,
+    UnitOutcome,
+    UnitRunner,
+)
 from agent_build_kit.pipeline.tier2 import stack_lock
-from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, HeldBy, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    UNPLANNED,
+    Cause,
+    FeedbackSource,
+    HeldBy,
+    RequeueReason,
+    ReworkKind,
+    StoredUnit,
+    UnitStore,
+    feedback_source_of,
+)
 from agent_build_kit.pipeline.units import (
     FAILED,
     HELD,
@@ -115,6 +131,7 @@ from agent_build_kit.pipeline.work_graph import (
     validate_tasks,
 )
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
+from agent_build_kit.profiles.base import ProfileUnsupported
 
 if TYPE_CHECKING:
     from agent_build_kit.graph.unit import Position
@@ -1279,7 +1296,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
         "claim": build_claim(installation.state_dir / "locks"),
         "retarget": build_retarget(),
         "rebase_cap": installation.stack_depth_rebase_cap,
-        "resume": lambda unit, kind, reason, feedback, from_person=False: (
+        "resume": lambda unit, kind, reason, feedback, from_person=False, rework=None: (
             resume_thread(
                 installation,
                 unit,
@@ -1288,6 +1305,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
                 reason=reason,
                 feedback=feedback,
                 from_person=from_person,
+                rework=rework,
             )
             is not None
         ),
@@ -1359,7 +1377,7 @@ class _Run:
     """How a unit's run ended, for its span and its duration: the run's status,
     or why it did not get as far as one."""
 
-    outcome = "interrupted"
+    outcome = UnitOutcome.INTERRUPTED
 
 
 def build_unit(
@@ -1397,7 +1415,7 @@ def build_unit(
             telemetry.failed(span)
             raise
         finally:
-            if run.outcome == "failed":
+            if run.outcome is UnitOutcome.FAILED:
                 telemetry.failed(span)
             span.set_attribute("outcome", run.outcome)
             telemetry.duration(
@@ -1444,7 +1462,7 @@ def _build_unit(
         if run_log is not None:
             run_log.emit(f"[{at}] {message}")
 
-    def end(message: str, outcome: str) -> None:
+    def end(message: str, outcome: UnitOutcome) -> None:
         nonlocal ended
         ended = message
         run.outcome = outcome
@@ -1465,12 +1483,12 @@ def _build_unit(
                 try:
                     unit = store.get(unit.id)
                 except KeyError:
-                    end("skipped, it was joined into another unit", "skipped")
+                    end("skipped, it was joined into another unit", UnitOutcome.SKIPPED)
                     return True
                 # A unit may also be `running`: killed or paused in a node,
                 # which is how its thread resumes it.
                 if unit.state not in (PLANNED, RUNNING):
-                    end(f"skipped, it is now {unit.state}", "skipped")
+                    end(f"skipped, it is now {unit.state}", UnitOutcome.SKIPPED)
                     return True
                 if queued is not None:
                     spans.record_span(
@@ -1499,10 +1517,10 @@ def _build_unit(
                 outcome = run_unit_thread(
                     inst, runner, unit, base=base, graph=graph, run_log=run_log
                 )
-        except NotImplementedError as error:
+        except ProfileUnsupported as error:
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
-            end(f"held — {error}", "held")
+            end(f"held — {error}", UnitOutcome.HELD)
             store.set_state(
                 unit.id, HELD, note=str(error), held_by=HeldBy.TOOLCHAIN, cause=Cause.TOOLCHAIN
             )
@@ -1511,7 +1529,7 @@ def _build_unit(
             # Left `running`, with the lock released as the `with` exits: the next
             # tick resumes its thread at the node it was in. Not failed — nothing
             # is known to be wrong.
-            end(f"interrupted ({error}); the next tick resumes it", "interrupted")
+            end(f"interrupted ({error}); the next tick resumes it", UnitOutcome.INTERRUPTED)
             return True
         except RateLimited as error:
             # Not the unit's fault and not retried: the account is out of room, so
@@ -1529,15 +1547,15 @@ def _build_unit(
                 kind="rate_limit",
             )
             telemetry.count("abk.usage.pauses", kind="rate_limit")
-            end(f"rate limited — pausing until {state.until:%H:%M UTC}", "rate_limited")
+            end(f"rate limited — pausing until {state.until:%H:%M UTC}", UnitOutcome.RATE_LIMITED)
             return False
         except BranchBusy as error:
             # Another tick is already on it. Not a failure — marking it one would
             # drop a unit that is going fine out of the plan.
-            end(f"skipped, {error}", "skipped")
+            end(f"skipped, {error}", UnitOutcome.SKIPPED)
             return True
         except Exception as error:  # noqa: BLE001 — see the docstring.
-            end(f"failed, {type(error).__name__}: {error}", "failed")
+            end(f"failed, {type(error).__name__}: {error}", UnitOutcome.FAILED)
             # A rejected commit's reason is the gate's own output: on the unit's
             # record, not only in a tick log someone would have to find.
             note = str(error) if isinstance(error, CommitRejected) else ""
@@ -1547,10 +1565,10 @@ def _build_unit(
                 say(f"could not be recorded as failed — {second}")
             return True
 
-        end(f"{outcome.status} — {outcome.detail}", str(outcome.status))
-        if outcome.status == "paused":
+        end(f"{outcome.status} — {outcome.detail}", outcome.status)
+        if outcome.status is UnitOutcome.PAUSED:
             telemetry.count("abk.usage.pauses", kind="usage")
-            _pause_for_usage(inst, outcome.detail)
+            _pause_for_usage(inst, outcome.pause or PauseInfo(reason=outcome.detail))
             return False
         return True
     finally:
@@ -1558,17 +1576,17 @@ def _build_unit(
             run_log.close(ended)
 
 
-def _pause_for_usage(inst: Installation, reason: str) -> None:
+def _pause_for_usage(inst: Installation, pause: PauseInfo) -> None:
     """Pause the pipeline for a run the usage guard stopped.
 
     Re-read rather than reuse the tick's reading: the guard said no after the
     units before this one ran, so the window has moved, and a resume scheduled
     from the stale figure wakes up into a full window. The guard's own answer
     to when, which counts the ramp towards the reset — not the reset itself,
-    which it can be well before.
+    which it can be well before. A pause that names its own time keeps it.
     """
-    until = build_resume_at(usage=current_usage, decide=may_start_unit)()
-    state = pause_until(until, reason=reason, marker=_paused_marker(inst))
+    until = pause.until or build_resume_at(usage=current_usage, decide=may_start_unit)()
+    state = pause_until(until, reason=pause.reason, marker=_paused_marker(inst))
     log(f"pausing until {state.until:%H:%M UTC}")
 
 
@@ -1670,6 +1688,8 @@ def resume_thread(
     reason: str = "",
     feedback: str | Callable[[], tuple[str, bool, tuple[str, ...]]] = "",
     from_person: bool = False,
+    requeue: RequeueReason | None = None,
+    rework: ReworkKind | None = None,
 ) -> Resumed | None:
     """Deliver an event to the unit's thread, which then waits for the tick.
 
@@ -1697,6 +1717,9 @@ def resume_thread(
         reason=reason,
         feedback=words,
         from_person=from_person,
+        feedback_source=feedback_source_of(rework) if rework else FeedbackSource.NONE,
+        requeue=requeue,
+        rework=rework,
     )
     graph = store.all()
     base = base_of(unit, graph)
@@ -1829,7 +1852,13 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
             "(a running one would be built twice, an in-review one has a PR to orphan)"
         )
         return 1
-    mode = "rework" if args.rework else "restart" if args.restart else "resume"
+    mode, why = (
+        ("rework", RequeueReason.FROM_FAILURE)
+        if args.rework
+        else ("restart", RequeueReason.RESTART)
+        if args.restart
+        else ("resume", RequeueReason.RESUME)
+    )
     if args.rework and not known[args.unit].feedback:
         print(
             f"{args.unit} has no saved failure to rework from; "
@@ -1837,7 +1866,9 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
         )
         return 1
     try:
-        delivered = resume_thread(inst, known[args.unit], "requeue", store=store, reason=mode)
+        delivered = resume_thread(
+            inst, known[args.unit], "requeue", store=store, reason=mode, requeue=why
+        )
     except BranchBusy as error:
         print(f"{args.unit} is being built ({error}); requeue it again once it has stopped")
         return 1

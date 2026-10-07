@@ -335,7 +335,7 @@ unit's thread with a command:
 
 | Event | Command | Routed by |
 |---|---|---|
-| A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict | `rework{reason, feedback}` | `await_review` → `rework` |
+| A review asking for changes, a new comment, `agent-rework`, newly failing checks, a merge conflict | `rework{reason, kind, feedback, source}` | `await_review` → `rework` |
 | The parent merged, or the base was rewritten | `base_moved{new_base}` | `await_review` → `prepare` (a running unit sees it at its next node) |
 | `agent-hold` | `hold` | → `held` |
 | `agent-hold` removed | `release` | `held` → `await_review`, for a hold the label made |

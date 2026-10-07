@@ -19,6 +19,10 @@ ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
     ("agent_build_kit.graph.state", "Verdict"),
     ("agent_build_kit.pipeline.stack_runner", "Restacked"),
     ("agent_build_kit.pipeline.stack_runner", "RunStatus"),
+    ("agent_build_kit.pipeline.stack_runner", "UnitOutcome"),
+    ("agent_build_kit.pipeline.unit_store", "FeedbackSource"),
+    ("agent_build_kit.pipeline.unit_store", "RequeueReason"),
+    ("agent_build_kit.pipeline.unit_store", "ReworkKind"),
 )
 
 
