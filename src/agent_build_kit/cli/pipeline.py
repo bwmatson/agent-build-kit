@@ -785,6 +785,11 @@ def reclaim_stranded(
             log(f"{unit.id}: no run holds it — planned again")
 
 
+def reconcile_running(inst: Installation, store: UnitStore) -> None:
+    """Fail each `running` unit whose branch lock names a process that is gone."""
+    raise NotImplementedError
+
+
 def gate_sent_back(store: UnitStore) -> None:
     """Park a unit a poll sent back for rework while a dependency it must wait
     for has not merged: it is `gated`, so the readmission rule leaves it for the
