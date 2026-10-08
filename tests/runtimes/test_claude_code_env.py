@@ -15,7 +15,7 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 
-ARGV = ["sh", "-c", 'printf %s "$ABK_OUT:$PATH"']
+ARGV = ["sh", "-c", 'printf %s "$ABK_OUT:$ABK_SPAWN_PROBE"']
 
 
 def test_the_request_environment_reaches_the_claude_process(tmp_path: Path) -> None:
@@ -30,10 +30,12 @@ def test_the_request_environment_reaches_the_claude_process(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("streamed", [False, True], ids=["captured", "streamed"])
-def test_spawn_adds_the_environment_to_its_own(streamed: bool) -> None:
+def test_spawn_adds_the_environment_to_its_own(
+    streamed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ABK_SPAWN_PROBE", "kept")
     events: list[dict] = []
 
     result = spawn(ARGV, env={"ABK_OUT": "/x"}, on_event=events.append if streamed else None)
 
-    assert result.stdout.startswith("/x:")
-    assert result.stdout.removeprefix("/x:") != ""
+    assert result.stdout == "/x:kept"
