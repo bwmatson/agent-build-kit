@@ -347,6 +347,7 @@ def verify_ready(
     """
     verify = verify or (lambda change, units: verify_one(inst, change, units))
     record = VerifyRecord(inst.state_dir / "verified.json")
+    skipped: set[str] = set()
     for change in _unverified(inst, units, record):
         merged = _merged_ids(change, units)
         log(f"verifying {change} live: deploy, then its live-stack tests")
@@ -354,6 +355,7 @@ def verify_ready(
             outcome = verify(change, units)
         except StackBusy:
             log(f"verifying {change} skipped — the live stack is in use; tried again next round")
+            skipped.add(change)
             continue
         except Exception as error:  # noqa: BLE001 — recorded, never silently skipped
             outcome = Verification(
@@ -366,8 +368,10 @@ def verify_ready(
             log(f"NOT archiving {change} — verification failed:\n{outcome.detail}")
 
     def may_archive(change: str) -> bool:
+        # A skipped change has no verification over its current units, whatever
+        # an earlier record over fewer of them says.
         last = record.get(change)
-        return last is not None and last.passed
+        return change not in skipped and last is not None and last.passed
 
     return may_archive
 
@@ -628,6 +632,7 @@ def run_round(
     only: frozenset[str],
     submit: bool,
     readmit: _Readmission | None = None,
+    quiet: bool = False,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
     beside builds in flight. Returns the units to start when `submit`.
@@ -636,10 +641,13 @@ def run_round(
     spends anything on planning. Each later step that raises is logged and the
     rest still run. `building` and `started` name the units this pass holds, so
     the reclaim and the readiness rules leave them alone; a `readmit` lets a
-    sent-back unit out of `started`.
+    sent-back unit out of `started`, and is then where `started` is read from.
+    `quiet` leaves out the guard's line saying why a build may start.
     """
+    if readmit is not None:
+        started = readmit.started
     spared = {*building, *started}
-    if not _may_build(inst, store, spared=spared, quiet=readmit is not None):
+    if not _may_build(inst, store, spared=spared, quiet=quiet):
         return []
 
     # Before anything is scheduled: a PR that merged since the last round frees
@@ -685,13 +693,7 @@ def run_round(
     in_flight = set(building)
     if readmit:
         readmit.admit(units, in_flight)
-    idle = {
-        unit.id
-        for unit in units
-        if unit.state == RUNNING
-        and unit.id not in in_flight
-        and not branch_is_held(inst, unit.branch or branch_name(unit))
-    }
+    idle = _idle_units(inst, units, in_flight)
     held = {unit.id for unit in units if unit.state == RUNNING} - idle
     # A unit no run holds takes no slot while it waits; the runs in flight do.
     # One this pass built that an event resumed is started again, within the
@@ -717,6 +719,19 @@ def run_round(
     if readmit:
         readmit.charge(ready)
     return ready
+
+
+def _idle_units(
+    inst: Installation, units: list[StoredUnit], in_flight: Collection[str]
+) -> set[str]:
+    """Running units no run holds: not in flight, and their branch's lock free."""
+    return {
+        unit.id
+        for unit in units
+        if unit.state == RUNNING
+        and unit.id not in in_flight
+        and not branch_is_held(inst, unit.branch or branch_name(unit))
+    }
 
 
 def reclaim_stranded(
@@ -830,7 +845,13 @@ def _nothing_started_reason(
     unit, and otherwise that nothing is ready."""
     full = _queue_full_line(inst, units)
     if full and _evaluate(
-        inst, units, started=set(), building=set(), only=only, enforce_limit=False
+        inst,
+        units,
+        started=set(),
+        building=set(),
+        only=only,
+        enforce_limit=False,
+        idle=_idle_units(inst, units, ()),
     ):
         return f"{full}; no new unit starts until one finishes or is closed"
     return "nothing ready to build"
@@ -1009,6 +1030,7 @@ def _schedule(
                 only=only,
                 submit=True,
                 readmit=readmission,
+                quiet=True,
             )
             units = store.all()
             note_queued(units, ready, in_flight)

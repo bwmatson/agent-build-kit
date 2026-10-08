@@ -30,7 +30,7 @@ from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
-from agent_build_kit.pipeline.verify import Verification
+from agent_build_kit.pipeline.verify import Verification, VerifyRecord
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -342,6 +342,34 @@ def test_verification_is_skipped_and_logged_while_the_live_stack_is_in_use_then_
         assert "skipped" in out
 
     run(inst, store, building={"slow/1"}, started={"slow/1"})
+
+    assert verified == ["done"]
+    assert archived == ["done"]
+
+
+def test_a_change_skipped_for_the_live_stack_does_not_archive_on_an_earlier_pass(
+    inst: Installation,
+    tmp_path: Path,
+    verified: list[str],
+    archived: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit_of("done/1"), unit_of("done/2")])
+    store.set_state("done/1", MERGED, pr=3, branch="spec/done/1")
+    store.set_state("done/2", MERGED, pr=4, branch="spec/done/2")
+    VerifyRecord(tmp_path / "verified.json").put(
+        Verification(change="done", passed=True, units=["done/1"])
+    )
+
+    with stack_lock(inst.state_dir / "tier2.lock"):
+        in_a_thread(lambda: run(inst, store))
+
+        assert verified == []
+        assert archived == []
+        assert "skipped" in capsys.readouterr().out
+
+    run(inst, store)
 
     assert verified == ["done"]
     assert archived == ["done"]
