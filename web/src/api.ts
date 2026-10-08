@@ -60,6 +60,24 @@ export interface RunChunk {
   missing: boolean;
 }
 
+export interface MetricSeries {
+  labels: Record<string, string>;
+  points: [number, number][];
+}
+
+export interface Metric {
+  name: string;
+  type: string;
+  attributes: string[];
+  series: MetricSeries[];
+}
+
+export interface MetricsAnswer {
+  source: "prometheus" | "local";
+  dashboard: string | null;
+  metrics: Metric[];
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path);
   if (!response.ok) {

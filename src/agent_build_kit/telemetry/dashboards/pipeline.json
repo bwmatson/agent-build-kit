@@ -20,81 +20,81 @@
       "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(abk_tick_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95"}]
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (sum_over_time(abk_tick_duration_seconds_bucket[$__interval])))", "legendFormat": "p95"}]
     },
     {
       "id": 3, "title": "Unit duration p95", "type": "timeseries",
       "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(abk_unit_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95"}]
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (sum_over_time(abk_unit_duration_seconds_bucket[$__interval])))", "legendFormat": "p95"}]
     },
     {
       "id": 4, "title": "Step duration p95 by step", "type": "timeseries",
       "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, step) (rate(abk_step_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{step}}"}]
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, step) (sum_over_time(abk_step_duration_seconds_bucket[$__interval])))", "legendFormat": "{{step}}"}]
     },
     {
       "id": 5, "title": "Review rounds (mean)", "type": "timeseries",
       "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum(rate(abk_review_rounds_sum[$__rate_interval])) / sum(rate(abk_review_rounds_count[$__rate_interval]))", "legendFormat": "rounds"}]
+      "targets": [{"refId": "A", "expr": "sum(sum_over_time(abk_review_rounds_sum[$__interval])) / sum(sum_over_time(abk_review_rounds_count[$__interval]))", "legendFormat": "rounds"}]
     },
     {
       "id": 6, "title": "Check failures by check", "type": "timeseries",
       "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (check) (increase(abk_checks_failures_total[$__rate_interval]))", "legendFormat": "{{check}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (check) (sum_over_time(abk_checks_failures_total[$__interval]))", "legendFormat": "{{check}}"}]
     },
     {
       "id": 7, "title": "Agent turns (mean) by role", "type": "timeseries",
       "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (role) (rate(abk_agent_turns_sum[$__rate_interval])) / sum by (role) (rate(abk_agent_turns_count[$__rate_interval]))", "legendFormat": "{{role}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (role) (sum_over_time(abk_agent_turns_sum[$__interval])) / sum by (role) (sum_over_time(abk_agent_turns_count[$__interval]))", "legendFormat": "{{role}}"}]
     },
     {
       "id": 8, "title": "Agent tokens by kind", "type": "timeseries",
       "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_agent_tokens_total{source=\"\"}[$__rate_interval]))", "legendFormat": "{{kind}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (kind) (sum_over_time(abk_agent_tokens_total{source=\"\"}[$__interval]))", "legendFormat": "{{kind}}"}]
     },
     {
       "id": 9, "title": "Usage pauses", "type": "timeseries",
       "gridPos": {"x": 0, "y": 32, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (kind) (increase(abk_usage_pauses_total[$__rate_interval]))", "legendFormat": "{{kind}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (kind) (sum_over_time(abk_usage_pauses_total[$__interval]))", "legendFormat": "{{kind}}"}]
     },
     {
       "id": 10, "title": "Reclaimed units", "type": "timeseries",
       "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum(increase(abk_units_reclaimed_total[$__rate_interval]))", "legendFormat": "reclaimed"}]
+      "targets": [{"refId": "A", "expr": "sum(sum_over_time(abk_units_reclaimed_total[$__interval]))", "legendFormat": "reclaimed"}]
     },
     {
       "id": 11, "title": "Agent cost by role and source", "type": "timeseries",
       "gridPos": {"x": 0, "y": 40, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (role, source) (increase(abk_agent_cost_total[$__rate_interval]))", "legendFormat": "{{role}} {{source}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (role, source) (sum_over_time(abk_agent_cost_total[$__interval]))", "legendFormat": "{{role}} {{source}}"}]
     },
     {
       "id": 12, "title": "Ledger tokens by kind and source", "type": "timeseries",
       "gridPos": {"x": 12, "y": 40, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "sum by (kind, source) (increase(abk_agent_tokens_total{source!=\"\"}[$__rate_interval]))", "legendFormat": "{{kind}} {{source}}"}]
+      "targets": [{"refId": "A", "expr": "sum by (kind, source) (sum_over_time(abk_agent_tokens_total{source!=\"\"}[$__interval]))", "legendFormat": "{{kind}} {{source}}"}]
     },
     {
       "id": 13, "title": "Node duration p95", "type": "timeseries",
       "gridPos": {"x": 0, "y": 48, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, node) (rate(abk_node_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{node}}"}]
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, node) (sum_over_time(abk_node_duration_seconds_bucket[$__interval])))", "legendFormat": "{{node}}"}]
     },
     {
       "id": 14, "title": "Wait duration p95 by bucket", "type": "timeseries",
       "gridPos": {"x": 12, "y": 48, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, bucket) (rate(abk_wait_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{bucket}}"}]
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, bucket) (sum_over_time(abk_wait_duration_seconds_bucket[$__interval])))", "legendFormat": "{{bucket}}"}]
     }
   ]
 }

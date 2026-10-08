@@ -117,6 +117,7 @@ none of them. A unit is addressed as `change/N`.
 | `/api/units/<change>/<n>/logs` | the unit's runs: name, step, start (UTC) and whether each is live |
 | `/api/units/<change>/<n>/logs/<name>?offset=<bytes>` | the run's lines after the offset with their clock in UTC, the offset to ask from next, `live`, and the `outcome` once it has ended; a run removed meanwhile answers empty with `missing` |
 | `/api/usage?by=&since=&change=&unit=&include_estimates=` | the JSON `abk report --by <grouping> --json` prints |
+| `/api/metrics` | every metric the code emits (name, type, attributes) with a chart's series, `source` (`prometheus` or `local`) and the Grafana URL when set |
 
 Any other path answers the built web UI, so `/units/<change>/<n>` loads on a direct visit;
 an unknown `/api/...` path stays a JSON 404. The UI is built from `web/` (see below) and
@@ -135,6 +136,12 @@ The pages:
   filtered to the unit, by node.
 - **Usage** (`/usage`): the report for a chosen grouping. In the unit grouping a key that is
   a unit's name links to the unit; placeholder keys such as `(none)` are plain text.
+- **Metrics** (`/metrics`): every metric in a catalogue read from the code's telemetry
+  calls, so a new one appears without an edit, each with its type, attributes and a chart.
+  A line says whether Prometheus (`ABK_PROMETHEUS_URL`, summing samples over each window) or
+  local files drew the charts; with no URL, or Prometheus not answering, the local usage
+  ledger gives cost, tokens and turns and the other charts are empty. `ABK_TEMPO_URL` is
+  read but not yet queried.
 
 The front end lives in `web/` and is checked with `npm run --prefix web check` (prettier,
 eslint with typescript-eslint and the react-hooks rules, `tsc`, vitest); `poe format` runs
