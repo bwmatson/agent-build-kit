@@ -1008,7 +1008,7 @@ class _Session:
         text = "".join(self._unsaid)
         self._unsaid = []
         if text.strip():
-            self._tell(f"says: {text}", whole=f"says: {text}")
+            self._tell(f"says: {text}", whole=f"says: {text.strip()}")
 
     def notice(self, line: str) -> None:
         """Something the operator should know about the run, not a step of it:

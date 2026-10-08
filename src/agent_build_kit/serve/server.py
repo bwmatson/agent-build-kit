@@ -228,9 +228,20 @@ def create_app(installation: Installation) -> FastAPI:
         clock = started
         lines: list[dict[str, Any]] = []
         for raw in data.decode(errors="replace").split("\n")[:-1]:
-            if raw.startswith(CONTINUATION) and lines:
-                # A further line of the entry before it, its indent taken off.
-                lines[-1]["text"] += "\n" + raw[len(CONTINUATION) :]
+            if raw.startswith(CONTINUATION):
+                if lines:
+                    # A further line of the entry before it, its indent taken off.
+                    lines[-1]["text"] += "\n" + raw[len(CONTINUATION) :]
+                else:
+                    # The entry began before this poll's offset: the client
+                    # joins this to the last entry it holds.
+                    lines.append(
+                        {
+                            "at": clock.isoformat() if clock else None,
+                            "text": raw[len(CONTINUATION) :],
+                            "continues": True,
+                        }
+                    )
                 continue
             if not raw.strip() or raw.startswith(_OUTCOME):
                 continue

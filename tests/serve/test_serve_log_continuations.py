@@ -90,3 +90,23 @@ def test_an_older_log_with_clipped_replies_reads_as_written(
         "  says: and a newer\nwhole reply",
     ]
     assert body["outcome"] == "done"
+
+
+def test_a_poll_that_starts_inside_a_reply_marks_the_lines_that_continue_it(
+    inst: Installation, api: httpx.Client
+) -> None:
+    run = start_run(inst)
+    run.emit("[18:44:10] says: first")
+    first_poll = read(api, run)
+    # The reply's further lines arrive after the poll that held its first.
+    with (run_log_dir(inst.state_dir) / run.name).open("a") as file:
+        file.write("    second\n    third\n")
+    run.emit("[18:44:12] next")
+
+    second_poll = read(api, run, offset=first_poll["offset"])
+
+    assert texts(first_poll) == ["says: first"]
+    assert [(line["text"], line.get("continues", False)) for line in second_poll["lines"]] == [
+        ("second\nthird", True),
+        ("next", False),
+    ]

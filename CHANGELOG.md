@@ -8,6 +8,13 @@
   prints it. Units are addressed as `change/N`. Nothing it reads is changed. A port already in use is reported by
   name with a non-zero exit.
 
+- A unit's run log now keeps the agent's replies and commands in full instead of clipped
+  to a line. Line breaks are written as continuation lines indented by four spaces, so a
+  line at the margin is always a new entry. The journal is unchanged: one clipped line
+  per step. The `abk serve` log endpoint returns each reply as one entry, and a poll that
+  begins inside a reply marks its further lines `continues`. Older logs still read as
+  written.
+
 - A step killed while its agent was editing now resumes over the files the agent left
   instead of failing on a dirty worktree. A recorded session is continued as before; a
   new session is told which paths are uncommitted work from an interrupted run, and the

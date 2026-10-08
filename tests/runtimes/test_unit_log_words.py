@@ -124,3 +124,15 @@ def test_an_acp_reply_is_whole_in_the_unit_log_and_one_clipped_line_in_the_journ
 
     assert result.ok is True
     assert_reply_whole_in_unit_log_clipped_in_journal(heard)
+
+
+def test_an_acp_reply_is_stripped_in_the_unit_log_as_a_claude_reply_is(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    (worktree / "src").mkdir(parents=True)
+    use_agent(tmp_path / "agent.jsonl", reply=f"\n\n{REPLY}\n")
+    heard = Heard()
+
+    AcpRuntime().run(heard.request(worktree))
+
+    (whole,) = [line for line in starting(heard.unit_log, "says:") if "First I will" in line]
+    assert whole == f"  says: {REPLY}"
