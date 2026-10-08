@@ -7,3 +7,6 @@ dist/
 
 # Installed copies of this framework's own skills; the source is src/agent_build_kit/skills/.
 .claude/
+
+# The built web UI (npm run build in web/).
+src/agent_build_kit/serve/static/

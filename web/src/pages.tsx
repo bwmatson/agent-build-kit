@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import type { Related, UnitDetail, UnitSummary } from "./api";
@@ -8,11 +9,21 @@ import { UsageTab, UsageTable } from "./usage";
 import { useApi } from "./useApi";
 
 /** The state, then the cause and who holds the unit, each from the record. */
-function stateLine(unit: UnitSummary): string {
+function stateLine(unit: UnitSummary): ReactElement {
   const parts = [unit.state];
   if (unit.cause) parts.push(unit.cause.replaceAll("_", " "));
-  if (unit.held_by) parts.push(`held by: ${unit.held_by}`);
-  return parts.join(" — ");
+  const text = parts.join(" — ");
+  return (
+    <span data-state-line>
+      {text}
+      {unit.held_by && (
+        <>
+          {" — "}
+          <span data-held-by={unit.held_by}>held by: {unit.held_by}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 export function Overview() {
@@ -25,7 +36,7 @@ export function Overview() {
         <ul>
           {pipeline.data.units.map((unit) => (
             <li key={unit.id} data-unit={unit.id} title={unit.title}>
-              <Link to={unitPath(unit.id)}>{unit.id}</Link> <span>{stateLine(unit)}</span>
+              <Link to={unitPath(unit.id)}>{unit.id}</Link> {stateLine(unit)}
             </li>
           ))}
         </ul>
@@ -50,7 +61,10 @@ function Status({ unit }: { unit: UnitDetail }) {
   return (
     <>
       <p>{stateLine(unit)}</p>
+      {unit.note && <p data-note>{unit.note}</p>}
       <dl>
+        <dt>Review round</dt>
+        <dd>{unit.review_round === null ? "—" : `Review round ${unit.review_round}`}</dd>
         <dt>Base</dt>
         <dd>{unit.base}</dd>
         <dt>Branch</dt>
@@ -77,7 +91,9 @@ function History({ unit }: { unit: UnitDetail }) {
         {unit.history.map((entry, index) => (
           <li key={index}>
             <time dateTime={entry.at}>{entry.at.slice(0, 19).replace("T", " ")}</time>{" "}
-            {[entry.state, entry.cause?.replaceAll("_", " "), entry.note].filter(Boolean).join(" — ")}
+            {[entry.state, entry.cause?.replaceAll("_", " "), entry.note]
+              .filter(Boolean)
+              .join(" — ")}
           </li>
         ))}
       </ol>

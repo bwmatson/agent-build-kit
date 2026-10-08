@@ -7,11 +7,15 @@ import { useApi } from "./useApi";
 
 const GROUPINGS = ["unit", "change", "node", "role", "model", "repo", "day"];
 
+const UNIT_KEY = /^[\w.-]+\/\d+$/;
+
 function Row({ row, linked }: { row: UsageRow; linked: boolean }) {
   const { calls, input_tokens, output_tokens, cost_usd } = row.measured;
   return (
     <tr>
-      <td>{linked ? <Link to={unitPath(row.key)}>{row.key}</Link> : row.key}</td>
+      <td>
+        {linked && UNIT_KEY.test(row.key) ? <Link to={unitPath(row.key)}>{row.key}</Link> : row.key}
+      </td>
       <td>{calls}</td>
       <td>{input_tokens ?? "—"}</td>
       <td>{output_tokens ?? "—"}</td>
@@ -47,7 +51,11 @@ function ReportTable({ report }: { report: UsageReport }) {
 function Report({ path }: { path: string }) {
   const report = useApi<UsageReport>(path);
   if (report === null) return null;
-  return "error" in report ? <p role="alert">{report.error}</p> : <ReportTable report={report.data} />;
+  return "error" in report ? (
+    <p role="alert">{report.error}</p>
+  ) : (
+    <ReportTable report={report.data} />
+  );
 }
 
 /** The usage report for a chosen grouping, as the CLI's report builder gives it. */

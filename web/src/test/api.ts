@@ -33,6 +33,7 @@ export const UNITS = {
 export const RUN_TESTS = runsFeature7.runs[0].name;
 export const RUN_IMPLEMENT = runsFeature7.runs[1].name;
 
+/** A body to send as JSON, or a whole `Response` (to answer an error). */
 type Answer = unknown | ((url: URL) => unknown);
 
 export interface Api {
@@ -49,10 +50,7 @@ export function recordedApi(): Api {
     ["/api/units/feature/7/logs", runsFeature7],
     [`/api/units/feature/7/logs/${RUN_TESTS}`, runTests],
     [`/api/units/feature/7/logs/${RUN_IMPLEMENT}`, runImplement],
-    [
-      "/api/usage",
-      (url: URL) => (url.searchParams.get("by") === "node" ? usageNode : usageUnit),
-    ],
+    ["/api/usage", (url: URL) => (url.searchParams.get("by") === "node" ? usageNode : usageUnit)],
   ]);
   for (const [id, body] of Object.entries(UNITS)) {
     answers.set(`/api/units/${id}`, body);
@@ -71,6 +69,7 @@ export function recordedApi(): Api {
         return new Response(JSON.stringify({ detail: "not found" }), { status: 404 });
       }
       const body = typeof answer === "function" ? answer(url) : answer;
+      if (body instanceof Response) return body;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "content-type": "application/json" },

@@ -80,6 +80,8 @@ src/agent_build_kit/
   recommendations/ built-in code-standard seeds per language
   templates/       what abk init writes into a planning repo
   skills/          the Claude Code skills abk installs into planning and code repos
+web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vite builds it into
+                   src/agent_build_kit/serve/static, which is git-ignored and ships in the wheel)
 tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
                    tests/integration/ holds what needs node or the network (marked `integration`)
 docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,
@@ -158,6 +160,9 @@ uv run poe test-integration  # needs node: runs the real OpenSpec CLI via npx
 uv run poe test-local-stack  # tier 2: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
 uv run poe format            # pre-commit: ruff, ruff-format, pyrefly (from the lock), yamllint
 uv run poe scrub             # the structural no-installation-leaks check
+npm install --prefix web     # once: the web UI's dependencies
+uv run poe web-check         # web/: prettier --check, eslint, tsc, vitest (`poe format` runs it too)
+uv run poe web-build         # builds the web UI into the package, where `abk serve` serves it
 ```
 
 ## Releasing

@@ -4,6 +4,7 @@ export interface UnitSummary {
   state: string;
   cause: string | null;
   held_by: string;
+  note: string;
   branch: string;
   pr: number | null;
 }
@@ -25,6 +26,7 @@ export interface UnitDetail extends UnitSummary {
   base: string;
   depends_on: Related[];
   merge_gates: Related[];
+  review_round: number | null;
 }
 
 export interface UsageRow {

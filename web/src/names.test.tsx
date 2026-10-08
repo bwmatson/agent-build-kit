@@ -1,5 +1,5 @@
 // A unit has one name, `change/N`, and every place it appears shows that name.
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { AppRoutes } from "./App";
@@ -49,9 +49,11 @@ describe("a unit's route", () => {
     open("/");
     await screen.findByRole("link", { name: /^feature\/1\b/ });
 
-    for (const link of within(screen.getByRole("navigation")).getAllByRole("link")) {
-      expect(link.getAttribute("href")).toMatch(/^\/(units\/[\w.-]+\/\d+|usage|)$/);
+    const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href") ?? "");
+    for (const href of hrefs) {
+      expect(href).toMatch(/^\/(units\/[\w.-]+\/\d+|usage)?$/);
     }
+    expect(hrefs.some((href) => href.startsWith("/units/"))).toBe(true);
   });
 });
 

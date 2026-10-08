@@ -51,7 +51,7 @@ describe("the overview", () => {
         "[data-unit]",
       ) as HTMLElement;
       expect(row).toHaveAttribute("data-unit", name);
-      expect(within(row).getByText(state, { exact: false })).toBeInTheDocument();
+      expect(row.querySelector("[data-state-line]")).toHaveTextContent(state);
     }
   });
 
@@ -62,9 +62,9 @@ describe("the overview", () => {
       "[data-unit]",
     ) as HTMLElement;
     expect(within(failed).getByText(/failed/)).toBeInTheDocument();
-    const held = screen.getByRole("link", { name: /^feature\/5\b/ }).closest(
-      "[data-unit]",
-    ) as HTMLElement;
+    const held = screen
+      .getByRole("link", { name: /^feature\/5\b/ })
+      .closest("[data-unit]") as HTMLElement;
     expect(within(held).getByText(/review_escalated_class|review escalated class/i)).toBeVisible();
   });
 });
@@ -76,27 +76,50 @@ describe.each(STATES)("the page of %s", (name, state, cause, heldBy) => {
     const header = await screen.findByRole("heading", { name });
     expect(header).toBeInTheDocument();
     const main = screen.getByRole("main");
-    expect(within(main).getByText(state, { exact: false })).toBeInTheDocument();
+    const line = main.querySelector("[data-state-line]");
+    expect(line).toHaveTextContent(state);
     if (cause) {
-      expect(within(main).getByText(cause.replaceAll("_", " "), { exact: false })).toBeVisible();
+      expect(line).toHaveTextContent(cause.replaceAll("_", " "));
     }
     if (heldBy) {
-      expect(within(main).getByText(new RegExp(`held by:?\\s*${heldBy}`, "i"))).toBeVisible();
+      expect(within(main).getByText(`held by: ${heldBy}`)).toHaveAttribute("data-held-by", heldBy);
     }
+  });
+
+  it("shows its note and its review round", async () => {
+    open(`/units/${name}`);
+
+    await screen.findByRole("heading", { name });
+    const unit = UNITS[name as keyof typeof UNITS];
+    const main = screen.getByRole("main");
+    if (unit.note) {
+      expect(main.querySelector("[data-note]")).toHaveTextContent(unit.note);
+    } else {
+      expect(main.querySelector("[data-note]")).toBeNull();
+    }
+    const round = unit.review_round;
+    expect(within(main).getByText("Review round").nextElementSibling).toHaveTextContent(
+      round === null ? "—" : `Review round ${round}`,
+    );
   });
 });
 
 describe("a unit's page", () => {
   it("shows who holds a held unit from the record, not from the note", async () => {
     // The note of a held unit may name anyone; the recorded holder is what is shown.
-    const held = { ...UNITS["feature/5"], note: "held by a person", held_by: "toolchain" };
+    const held = { ...UNITS["feature/5"], note: "held by: reviewer", held_by: "toolchain" };
     const api = recordedApi();
     api.answer("/api/units/feature/5", held);
 
     open("/units/feature/5");
 
-    expect(await screen.findByText(/held by:?\s*toolchain/i)).toBeVisible();
-    expect(screen.queryByText(/held by:?\s*person/i)).not.toBeInTheDocument();
+    const main = await screen.findByRole("main");
+    const holder = await within(main).findByText("held by: toolchain");
+    expect(holder).toHaveAttribute("data-held-by", "toolchain");
+    const holders = [...main.querySelectorAll("[data-held-by]")];
+    expect(holders.map((element) => element.textContent)).toEqual(["held by: toolchain"]);
+    // The note is shown as the note, and is not taken for the holder.
+    expect(main.querySelector("[data-note]")).toHaveTextContent("held by: reviewer");
   });
 
   it("draws the history as a timeline of state, cause and note", async () => {
@@ -139,6 +162,15 @@ describe("a unit's page", () => {
 });
 
 describe("the usage page", () => {
+  it("links a unit's key to its page but not a placeholder key", async () => {
+    open("/usage");
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByRole("link", { name: "add-marker/1" })).toBeVisible();
+    expect(within(table).getByText("(none)")).toBeVisible();
+    expect(within(table).queryByRole("link", { name: "(none)" })).not.toBeInTheDocument();
+  });
+
   it("shows the report's rows and total for the default grouping", async () => {
     open("/usage");
 

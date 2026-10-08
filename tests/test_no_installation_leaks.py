@@ -18,7 +18,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCANNED = ("src", "tests", "docs")
+SCANNED = ("src", "tests", "docs", "web")
+# Installed and built files are not this repo's own text.
+SKIPPED_PARTS = {".venv", "node_modules", "dist"}
+BUILT_UI = ROOT / "src" / "agent_build_kit" / "serve" / "static"
 TEXT = {
     ".py",
     ".md",
@@ -30,6 +33,9 @@ TEXT = {
     ".tmpl",
     ".txt",
     ".json",
+    ".ts",
+    ".tsx",
+    ".html",
     ".xml",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
@@ -60,7 +66,13 @@ def _files() -> list[Path]:
     found = []
     for top in SCANNED:
         for path in (ROOT / top).rglob("*"):
-            if path.is_file() and path.suffix in TEXT and ".venv" not in path.parts:
+            if (
+                path.is_file()
+                and path.suffix in TEXT
+                and not SKIPPED_PARTS.intersection(path.parts)
+                and path.name != "package-lock.json"
+                and BUILT_UI not in path.parents
+            ):
                 found.append(path)
     for name in ("README.md", "CLAUDE.md", "CHANGELOG.md"):
         if (ROOT / name).exists():

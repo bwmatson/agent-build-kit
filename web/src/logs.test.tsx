@@ -102,6 +102,40 @@ describe("the logs tab", () => {
     expect(after).toBe(before);
   });
 
+  it("keeps following a live run after one poll fails", async () => {
+    const api = recordedApi();
+    const path = `/api/units/feature/7/logs/${RUN_IMPLEMENT}`;
+    let polls = 0;
+    api.answer(path, () => {
+      polls += 1;
+      if (polls === 1) {
+        return {
+          lines: [{ at: "2026-09-24T05:50:01+00:00", text: "feature/7: implement: started" }],
+          offset: 316,
+          live: true,
+          outcome: null,
+          missing: false,
+        };
+      }
+      if (polls === 2) return new Response("failed", { status: 500 });
+      return {
+        lines: [{ at: "2026-09-24T05:50:20+00:00", text: "feature/7:   says: all green" }],
+        offset: 380,
+        live: false,
+        outcome: "ok",
+        missing: false,
+      };
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    await openLogs();
+    await screen.findByText(/started/);
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+
+    expect(await screen.findByText(/all green/)).toBeVisible();
+    expect(api.requests.filter((r) => r === `${path}?offset=316`)).toHaveLength(2);
+  });
+
   it("keeps what it showed when a run's file is removed between polls", async () => {
     const api = recordedApi();
     const path = `/api/units/feature/7/logs/${RUN_IMPLEMENT}`;
@@ -117,7 +151,13 @@ describe("the logs tab", () => {
           missing: false,
         };
       }
-      return { lines: [], offset: Number(url.searchParams.get("offset")), live: false, outcome: null, missing: true };
+      return {
+        lines: [],
+        offset: Number(url.searchParams.get("offset")),
+        live: false,
+        outcome: null,
+        missing: true,
+      };
     });
     vi.useFakeTimers({ shouldAdvanceTime: true });
 

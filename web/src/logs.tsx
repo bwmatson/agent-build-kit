@@ -46,12 +46,15 @@ function useRun(unit: string, run: RunInfo): Followed {
   useEffect(() => {
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const read = async (offset: number) => {
+    const read = async (offset: number, live: boolean) => {
       const query = offset ? `?offset=${offset}` : "";
       let chunk: RunChunk;
       try {
         chunk = await getJson<RunChunk>(`/api/units/${unit}/logs/${run.name}${query}`);
       } catch {
+        // A failed read (a restart, a file being rewritten) keeps what is shown and
+        // asks again from the same offset while the run was last known live.
+        if (current && live) timer = setTimeout(() => void read(offset, live), POLL_MS);
         return;
       }
       if (!current) return;
@@ -62,15 +65,15 @@ function useRun(unit: string, run: RunInfo): Followed {
         missing: chunk.missing,
       }));
       if (chunk.live && !chunk.missing && chunk.outcome === null) {
-        timer = setTimeout(() => void read(chunk.offset), POLL_MS);
+        timer = setTimeout(() => void read(chunk.offset, true), POLL_MS);
       }
     };
-    void read(0);
+    void read(0, run.live);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [unit, run.name]);
+  }, [unit, run.name, run.live]);
   return followed;
 }
 
