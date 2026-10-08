@@ -88,9 +88,9 @@
   loads with no sessions recorded. `abk.yaml` gains `session_reuse`, per agent role
   (`build` on, `review` off by default); a role it does not name is off, and `review: true`
   or an unknown role is refused. With `build` on, `implement`, `fix_checks`, an
-  `adapt` and a rework of a review round or of failing checks now continue the build
-  session with a prompt of only what is new, on the model it began on, instead of starting
-  over with the whole task; the first thing in it is the branch's old and new head when the
+  `adapt` and a rework (of a review round, failing checks or a pull-request comment) now
+  continue the build session with a prompt of only what is new, on the model it began on,
+  instead of starting over with the whole task; the first thing in it is the branch's old and new head when the
   branch moved. A session that cannot be continued (gone, over its context, a runtime that
   cannot resume, a head no longer in the worktree) gives a new session with the full prompt,
   and the run log says why. `review` never continues a session. `fix_checks` now runs on

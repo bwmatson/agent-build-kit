@@ -489,10 +489,11 @@ chooses between the three ways a node can speak:
    session with the full prompt on the node's model, and a line in the run log
    saying why.
 
-`tests` always starts the build session; `implement`, `fix_checks`, a rework of
-a review round or of failing checks, and `adapt` continue it. A rework that
-answers a comment on the pull request starts over, as does `review`, which
-never continues a session: its judgement does not share the author's context.
+`tests` always starts the build session; `implement`, `fix_checks`, `rework`
+(whether its feedback came from a review round, failing checks or a comment on
+the pull request) and `adapt` continue it, always on the model it recorded.
+Only `review` never continues a session: its judgement does not share the
+author's context.
 `fix_checks` runs on `build_model` (the configured implement model when none is
 recorded) whether or not it continues a session. A node that completes without
 its call reporting a session, after one was started and killed, drops the

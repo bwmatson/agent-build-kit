@@ -37,6 +37,7 @@ from agent_build_kit.pipeline.wiring import (
     build_run_review,
     build_tier1,
     build_upstream_incomplete,
+    head_reachable,
     is_linear,
     tip,
 )
@@ -1726,3 +1727,15 @@ def test_tier_one_logs_the_command_that_failed_and_stops_there(tmp_path: Path) -
 
     assert len(seen) == 1, "the first failure ends the run, so only it is logged"
     assert "pre-commit" in seen[0] and "exit 2" in seen[0]
+
+
+def test_head_reachable_reads_a_commit_the_repository_has_and_not_one_it_lacks(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path / "repo")
+    (repo / "x.txt").write_text("x")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "x")
+
+    assert head_reachable(repo, git(repo, "rev-parse", "HEAD").strip()) is True
+    assert head_reachable(repo, "0" * 40) is False

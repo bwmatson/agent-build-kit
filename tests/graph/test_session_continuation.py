@@ -228,6 +228,36 @@ def test_a_session_that_cannot_be_continued_gives_a_new_one_with_the_full_prompt
     assert why in says
 
 
+class Switching(Sessions):
+    """A runtime that is named `a` for the first two requests and `b` after."""
+
+    name = "a"
+
+    def run(self, request: AgentRequest) -> AgentResult:
+        result = super().run(request)
+        self.name = "a" if len(self.requests) < 2 else "b"
+        return result
+
+
+def test_a_session_another_runtime_recorded_is_not_continued_and_the_log_names_both(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    failing_checks(recorder)
+    runtime = Switching()
+
+    tick(tmp_path, recorder, run_log=run_log(tmp_path), **agents(runtime))
+
+    fix = fix_request(runtime)
+    assert fix.resume_session == ""
+    assert fix.model == MODELS.implement
+    assert CHANGE_PATH in fix.prompt and GROUPS in fix.prompt and FAILING in fix.prompt
+    says = logged(recorder)
+    assert "new session" in says
+    assert "belongs to a" in says and "runs on b" in says
+
+
 def test_a_node_killed_mid_run_resumes_its_own_session_with_the_interruption_prompt(
     tmp_path: Path,
 ) -> None:
@@ -261,6 +291,7 @@ def test_review_never_resumes_in_a_second_round_or_from_a_build_session(tmp_path
     assert [r.resume_session for r in runtime.judged] == ["", ""]
     *_, rework = runtime.built
     assert rework.resume_session == "sess-1", "the author fixes what the judge found"
+    assert rework.model == MODELS.implement, "a continuation runs on the model the session began on"
     assert REWORK_ASK in rework.prompt
     state = position(tmp_path).state
     assert state is not None

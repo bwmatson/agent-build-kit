@@ -54,7 +54,7 @@ def test_fix_checks_updates_the_build_session_and_leaves_the_review_one(tmp_path
     assert (judged.node, judged.session_id) == (Node.REVIEW, "rev-1")
 
 
-def test_build_model_is_the_first_build_nodes_and_a_later_node_leaves_it(tmp_path: Path) -> None:
+def test_build_model_is_the_first_build_nodes_and_a_continuation_keeps_it(tmp_path: Path) -> None:
     distinct_models()
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("rename it")]
@@ -63,7 +63,7 @@ def test_build_model_is_the_first_build_nodes_and_a_later_node_leaves_it(tmp_pat
     tick(tmp_path, recorder, run=runs)
 
     *_, rework = runs.calls
-    assert rework.model == MODELS.rework, "a later build node runs on another model"
+    assert rework.model == MODELS.implement, "a continuation runs on the model the build began on"
     state = position(tmp_path).state
     assert state is not None
     assert state.build_model == MODELS.implement

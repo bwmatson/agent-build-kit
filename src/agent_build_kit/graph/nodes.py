@@ -568,11 +568,10 @@ class BuildPath:
         if session.head and head != session.head:
             follow_up = f"{MOVED_NOTE.format(old=session.head, new=head)}\n\n{follow_up}"
         self.say(f"continuing the {SESSION_ROLES[Node(self._node)]} session {session.session_id}")
-        self._resuming_over_leftovers("resumed")
-        return run(
+        result = run(
             *args,
             cwd=cwd,
-            model=model,
+            **_model(session.model or model),
             resume_session=session.session_id,
             follow_up=follow_up,
             resume_runtime=session.runtime,
@@ -580,6 +579,10 @@ class BuildPath:
             on_result=self._recorder(state, resumed=True),
             **inputs,
         )
+        # Counted once the call has gone through, so a continuation that falls back to a new
+        # session is counted only as that.
+        self._resuming_over_leftovers("resumed")
+        return result
 
     def _resuming_over_leftovers(self, session: str) -> None:
         if not self._leftovers:
@@ -769,8 +772,6 @@ class BuildPath:
             r.reset_to(tree, ref, keep)
         # Otherwise a killed run already reset the branch: resetting again would
         # overwrite `keep` with the half-ported tree and lose the old work.
-        # The author of the work ports it: the build session's model, else the rework one.
-        model = state.build_model or models().rework
         answer = self.agent(
             r.run,
             ADAPT_PROMPT.format(
@@ -785,7 +786,7 @@ class BuildPath:
             ),
             cwd=tree,
             state=state,
-            model=model,
+            model=models().rework,
             follow_up=ADAPT_CONTINUATION.format(
                 onto_unit=restacked.onto_unit,
                 onto_intent=restacked.onto_intent,
