@@ -174,8 +174,9 @@ class LimitsConfig(Frozen):
     max_units_in_progress: Annotated[int, Field(ge=1)] = 5
     # Estimated changed lines before a unit stops absorbing the next task group.
     min_unit_lines: int = 400
-    # Estimated changed lines one unit may carry. It shapes plans only: a
-    # branch is not measured against it, so a unit can still land larger.
+    # Estimated changed lines one unit may carry. It shapes plans; a unit whose
+    # pull request lands over it is logged, marked on the graph page and listed
+    # by `abk status`, never blocked.
     max_unit_lines: int = 750
     # Path patterns (fnmatch, against the whole path or the file name) of
     # generated files, left out of a unit's actual size.

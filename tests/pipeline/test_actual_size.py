@@ -155,6 +155,24 @@ def test_a_unit_over_the_ceiling_says_so_and_is_not_blocked(
     assert unit.state == UnitState.RUNNING
 
 
+def test_a_failure_reading_the_size_does_not_stop_the_unit(
+    store: UnitStore, tmp_path: Path
+) -> None:
+    class Failing(SizedForge):
+        def pr_changes(self, repo, pr):
+            raise RuntimeError("rate limited")
+
+    logged: list[str] = []
+
+    number = open_for(Failing([]), store, tmp_path, logged)
+
+    assert number == 12
+    unit = store.get("feature/1")
+    assert unit.actual_lines is None
+    assert unit.state == UnitState.RUNNING
+    assert "feature/1: could not read the size of PR #12: rate limited" in "\n".join(logged)
+
+
 def test_a_unit_within_the_ceiling_logs_nothing_about_it(store: UnitStore, tmp_path: Path) -> None:
     logged: list[str] = []
 

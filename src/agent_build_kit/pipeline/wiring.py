@@ -909,29 +909,25 @@ def build_open_pr(
                 # A PR the host would not stack must still say what order it
                 # merges in, and one it did stack no longer should.
                 forge.update_pr(repo, number, base=base, body=stacked_body if stacked else body)
-        _record_size(unit, forge.pr_changes(repo, number))
+        try:
+            _record_size(unit, forge.pr_changes(repo, number))
+        except Exception as error:
+            log(f"{unit.id}: could not read the size of PR #{number}: {error}")
         return number
 
     def _record_size(unit: Unit, changes: list[FileChange]) -> None:
         """Record the size the reviewer sees now, and say so when it is over
-        the ceiling. Bookkeeping: it never stops the unit."""
+        the ceiling. Bookkeeping: the caller never lets it stop the unit."""
         if not changes:
             return
         lines = actual_lines(changes)
-        sized = store or _recorded_store()
-        if sized is not None:
-            sized.set_actual_lines(unit.id, lines)
+        if store is not None:
+            store.set_actual_lines(unit.id, lines)
         if over_ceiling(lines):
             log(
                 f"{unit.id}: estimated {unit.estimated_lines}, landed {lines}, "
                 f"over the ceiling of {active().limits.max_unit_lines}"
             )
-
-    def _recorded_store() -> UnitStore | None:
-        root = active_root()
-        if root is None:
-            return None
-        return UnitStore(Installation(active(), root).state_dir / "units.json")
 
     def _below(unit: Unit, base: str) -> int | None:
         """The PR the base branch belongs to: found by what the PR targets, not

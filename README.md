@@ -101,7 +101,7 @@ runtimes:
         usage_pause_pct: 70
 
 limits:
-  max_unit_lines: 1000          # the ceiling on what one unit may change
+  max_unit_lines: 750           # the ceiling on what one unit may change (the default)
 ```
 
 The decisions worth knowing you can make:

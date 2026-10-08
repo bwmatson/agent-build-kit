@@ -81,7 +81,9 @@ def test_status_lists_the_units_over_the_ceiling(
     store.upsert([unit(f"a/{n}", estimated_lines=600) for n in (1, 2, 3)])
     for n, lines in ((1, 1400), (2, 700)):
         store.set_state(f"a/{n}", IN_REVIEW, pr=n, branch=f"spec/a/{n}")
-        open_pr = build_open_pr(for_repo=lambda repo, lines=lines: (SizedForge(lines), REPO))
+        open_pr = build_open_pr(
+            for_repo=lambda repo, lines=lines: (SizedForge(lines), REPO), store=store
+        )
         open_pr(
             plan_unit(f"a/{n}", change="a", estimated_lines=600),
             body="b",
