@@ -95,6 +95,21 @@ def test_the_dashboard_shows_the_ledger_cost_tokens_node_and_wait_durations() ->
     } <= queried
 
 
+def test_delta_data_is_queried_with_windowed_sums_not_rates() -> None:
+    """The exporter sends delta temporality, so `rate` and `increase` over a
+    window of samples undercount; every query but the gauge sums over the window."""
+    delta = [
+        expression
+        for expression in _expressions(_dashboard())
+        if QUERIED.search(expression)
+        and not re.fullmatch(r"sum by \(\w+\) \(abk_units\)", expression)
+    ]
+
+    assert delta
+    assert not [e for e in delta if re.search(r"\b(rate|increase)\(", e)], delta
+    assert not [e for e in delta if "sum_over_time(" not in e], delta
+
+
 def test_no_dashboard_query_sums_both_series_of_the_token_counter() -> None:
     """The runtime and the ledger both write `abk_agent_tokens_total`, the ledger
     with a `source`; a query must pick one or it counts every call twice."""

@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     # to: its URL, an optional service-account token (empty: the push sends no
     # authorization header), and the folder it goes into.
     grafana_url: str = ""
+    # The stores `abk serve`'s metrics page queries; empty means local files.
+    prometheus_url: str = ""
+    tempo_url: str = ""
     grafana_token: str = ""
     grafana_folder: str = "agent-build-kit"
 
