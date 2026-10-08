@@ -24,6 +24,10 @@
   that used to log and carry on. Retries are logged and
   counted as `abk.forge.retries`, and a host that stays down raises `HostUnavailable`. New
   `ABK_FORGE_DEADLINE_SECONDS` (default 120) bounds the total time spent on one call.
+- A unit's agent runs now leave a transcript: one JSON line per event (text, reasoning, tool
+  calls and results, usage, stop) in the same shape for Claude Code and ACP, written as the
+  agent streams. Tool results are cut at `limits.transcript_result_chars`, a unit keeps its
+  last `limits.transcript_runs_kept` runs, and archiving a change removes its transcripts.
 
 - A `Needs: ... merged` line added to a unit that has already started now gates it. A failed or
   held unit requeued before the dependency merges waits as `planned` with the cause `gated`,

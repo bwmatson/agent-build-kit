@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.claude_stream import (
     describe,
     final_text,
     own_words,
+    records,
     result_event,
     stream_run,
 )
@@ -183,7 +184,13 @@ def build_argv(request: AgentRequest) -> list[str]:
         argv += ["--model", request.model]
     if request.resume_session:
         argv += ["--resume", request.resume_session]
-    if request.on_event or request.on_transcript or request.on_session or request.on_result:
+    if (
+        request.on_event
+        or request.on_transcript
+        or request.on_record
+        or request.on_session
+        or request.on_result
+    ):
         argv += STREAM_FLAGS
     elif request.keep_record:
         argv += ["--output-format", "json"]
@@ -330,8 +337,8 @@ def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
     """Each event worth reading, as a log line for the request's callback, and
     the session's id for its session callback the moment the init event gives it."""
     report, on_session = request.on_event, request.on_session
-    transcript = request.on_transcript
-    if report is None and on_session is None and transcript is None:
+    transcript, record = request.on_transcript, request.on_record
+    if report is None and on_session is None and transcript is None and record is None:
         return None
     prefix = f"{request.cwd}/" if request.cwd is not None else None
 
@@ -345,6 +352,9 @@ def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
             and event.get("session_id")
         ):
             on_session(str(event["session_id"]))
+        if record is not None:
+            for made in records(event):
+                record(made)
         for callback, whole in ((report, False), (transcript, True)):
             if callback is None:
                 continue

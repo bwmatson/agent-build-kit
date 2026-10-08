@@ -27,7 +27,7 @@ import subprocess
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Protocol
@@ -76,6 +76,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
+from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -177,6 +178,28 @@ INTERRUPTED_PROMPT = (
 )
 
 
+def _recorder(record_for: tuple[Unit, Path] | None, place: str, role: Role) -> Transcript | None:
+    """The file this call's events go to, named by the node and round that made it.
+
+    `place` is `<unit>:<node>:<round>` (gateway_usage.attribution); a call made
+    outside a node is recorded under its role, in round 0.
+    """
+    if record_for is None:
+        return None
+    unit, directory = record_for
+    _, _, rest = place.partition(":")
+    node, _, number = rest.rpartition(":")
+    return Transcript(
+        directory,
+        unit,
+        node=node or role,
+        round=int(number) if number.isdigit() else 0,
+        started=datetime.now(UTC),
+        result_limit=active().limits.transcript_result_chars,
+        runs_kept=active().limits.transcript_runs_kept,
+    )
+
+
 def build_run(
     *,
     run: Run | None = None,
@@ -185,6 +208,7 @@ def build_run(
     log: Callable[[str], None] | None = None,
     journal: Callable[[str], None] | None = None,
     transcript: Callable[[str], None] | None = None,
+    record_for: tuple[Unit, Path] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "implement",
 ) -> Callable[..., str]:
@@ -194,7 +218,9 @@ def build_run(
     Streamed where the runtime can: each message and tool call goes to `log`
     as it happens, so the tick log shows what a twenty-minute run is doing.
     With a `transcript`, the run's own steps go to `journal` (default `log`)
-    clipped to a line and to `transcript` whole.
+    clipped to a line and to `transcript` whole. With `record_for`, a unit and the
+    directory of its transcripts, every run is also recorded there as the agent
+    streams (pipeline/transcript.py), under the node and round that made the call.
     `run` is the older injection point — Claude Code, run through it rather
     than the real process.
 
@@ -246,6 +272,7 @@ def build_run(
             return spent[0] if spent else Spend()
 
         gateway = {"gateway": spend} if source is not None else {}
+        recorder = _recorder(record_for, place, role)
         request = AgentRequest(
             # A continued session holds the original prompt already.
             prompt=INTERRUPTED_PROMPT if resume_session else prompt,
@@ -274,6 +301,7 @@ def build_run(
             policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
             on_event=journal or log or print,
             on_transcript=transcript,
+            on_record=recorder.record if recorder else None,
         )
         try:
             # Its own folder for long command output, gone when the run ends:
@@ -443,6 +471,7 @@ def build_run_review(
     log: Callable[[str], None] | None = None,
     journal: Callable[[str], None] | None = None,
     transcript: Callable[[str], None] | None = None,
+    record_for: tuple[Unit, Path] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "review",
     forge: Forge | None = None,
@@ -459,6 +488,7 @@ def build_run_review(
         log=log,
         journal=journal,
         transcript=transcript,
+        record_for=record_for,
         runtime=runtime,
         role=role,
     )
@@ -1812,6 +1842,7 @@ def build_runner(
     repo: RepoConfig = installation.repo(unit.repo)
     profile = profiles.get(repo.profile)
     root = installation.state_dir
+    record_for = (unit, transcript_dir(root))
     tier2 = Tier2Session(
         unit,
         lock=root / "tier2.lock",
@@ -1854,6 +1885,7 @@ def build_runner(
         log=log,
         journal=journal,
         transcript=transcript,
+        record_for=record_for,
     )
     return UnitRunner(
         store=store,
@@ -1871,6 +1903,7 @@ def build_runner(
             log=log,
             journal=journal,
             transcript=transcript,
+            record_for=record_for,
             forge=forge,
             repo=repo,
         ),
@@ -1881,6 +1914,7 @@ def build_runner(
             log=log,
             journal=journal,
             transcript=transcript,
+            record_for=record_for,
             role="rework_review",
             repo=repo,
         ),

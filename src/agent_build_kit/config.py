@@ -211,6 +211,10 @@ class LimitsConfig(Frozen):
     # How many times a head commit's cancelled checks are re-run before the
     # host is taken to be cancelling them for good.
     max_check_reruns: Annotated[int, Field(ge=0)] = 2
+    # Longest tool result, in characters, that a unit's transcript keeps whole.
+    transcript_result_chars: Annotated[int, Field(ge=1)] = 20000
+    # How many runs of one unit keep their transcript.
+    transcript_runs_kept: Annotated[int, Field(ge=1)] = 3
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

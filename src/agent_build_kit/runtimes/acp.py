@@ -57,6 +57,7 @@ from acp.connection import StreamEvent
 from acp.interfaces import Agent, Client
 from acp.schema import (
     AgentMessageChunk,
+    AgentThoughtChunk,
     AllowedOutcome,
     ClientCapabilities,
     CreateTerminalResponse,
@@ -90,6 +91,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -500,6 +502,7 @@ class _Session:
         report: Callable[[str], None] | None,
         *,
         transcript: Callable[[str], None] | None = None,
+        record: Callable[[TranscriptEvent], None] | None = None,
         worktree: Path | None = None,
         policy: ToolPolicy | None = None,
         roots: tuple[Path, ...] = (),
@@ -509,6 +512,7 @@ class _Session:
     ) -> None:
         self._report = report
         self._transcript = transcript
+        self._record = record
         # A read-only run (`_is_read_only`): the command patterns it may run,
         # and no edit at all. None for any other run.
         self._read_only = read_only
@@ -629,11 +633,23 @@ class _Session:
         if isinstance(update, UsageUpdate):
             if update.cost is not None:
                 self.cost_usd = update.cost.amount if update.cost.currency == "USD" else None
+        elif isinstance(update, AgentThoughtChunk):
+            if isinstance(update.content, TextContentBlock):
+                self.record(TranscriptEvent(kind="reasoning", text=update.content.text))
         elif isinstance(update, AgentMessageChunk):
             if isinstance(update.content, TextContentBlock):
                 self._message.append(update.content.text)
                 self._unsaid.append(update.content.text)
+                self.record(TranscriptEvent(kind="text", text=update.content.text))
         elif isinstance(update, ToolCallStart):
+            self.record(
+                TranscriptEvent(
+                    kind="tool_call",
+                    tool=update.title,
+                    call=update.tool_call_id,
+                    input=update.raw_input if isinstance(update.raw_input, dict) else {},
+                )
+            )
             self.said()
             self._message = []
             self._titles[update.tool_call_id] = update.title
@@ -664,6 +680,11 @@ class _Session:
                 self._attribute_own_refusal(update.tool_call_id, update)
             if update.status in ("completed", "failed"):
                 self._ended.add(update.tool_call_id)
+                self.record(
+                    TranscriptEvent(
+                        kind="tool_result", call=update.tool_call_id, text=output_of(update)
+                    )
+                )
 
     def _refused(self, line: str, reason: str, layer: str) -> None:
         """The one progress line an operator reads to learn what refused a
@@ -1016,6 +1037,15 @@ class _Session:
         if text.strip():
             self._tell(f"says: {text}", whole=f"says: {text.strip()}")
 
+    def record(self, event: TranscriptEvent) -> None:
+        """`event` for the run's transcript, in this session."""
+        if self._record is None:
+            return
+        try:
+            self._record(event.model_copy(update={"session": self.session_id or ""}))
+        except Exception:  # noqa: BLE001 — a transcript is never the run's to lose
+            pass
+
     def notice(self, line: str) -> None:
         """Something the operator should know about the run, not a step of it:
         to stderr, and to the run's log when it has one."""
@@ -1167,6 +1197,7 @@ class AcpRuntime:
         session = _Session(
             request.on_event,
             transcript=request.on_transcript,
+            record=request.on_record,
             worktree=request.cwd,
             policy=request.policy,
             roots=request.add_dirs,
@@ -1264,6 +1295,14 @@ class AcpRuntime:
                 await _ended(process, stderr)
 
         spent = _spent(_wire_usage(raw_lines), session)
+        if (counted := spent.get("usage")) is not None:
+            session.record(
+                TranscriptEvent(
+                    kind="usage",
+                    usage={k: v for k, v in counted.model_dump().items() if v is not None},
+                )
+            )
+        session.record(TranscriptEvent(kind="stop", text=str(stop_reason)))
         if stop_reason == "cancelled":
             if session.refused_cancel is not None:
                 # abk's own doing, not something to reclaim: offered no
