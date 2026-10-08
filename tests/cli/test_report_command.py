@@ -83,7 +83,7 @@ def test_estimates_are_left_out_of_totals_unless_asked_for(
     write_ledger(
         inst.state_dir / "usage-ledger.jsonl",
         agent_line(),
-        agent_line(session_id="sess-2", input_tokens=1000, usage_source="estimated"),
+        agent_line(round=1, session_id="sess-2", input_tokens=1000, usage_source="estimated"),
     )
 
     plain = run_json(capsys)

@@ -129,7 +129,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
-| `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable`. The `acp` runtime supports it where the agent declares the `loadSession` capability; see ACP sessions below |
+| `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable`. The `acp` runtime supports it where the agent advertises both `session/resume` and `session/list`; see ACP sessions below |
 | `passes_env` | attr | whether the runtime may be minted a gateway key: its agent takes the key from `AgentRequest.env`. One that does not is never minted one (see Spend through a gateway). It may still add `request.env` to its agent's environment, as Claude Code does for `ABK_OUT` |
 | `requires` | attr | the `runtimes.<name>` keys it cannot run without; a selection missing one fails at load |
 | `agent_command` | attr | the argv that starts its agent when `runtimes.<name>.command` is unset; a set `command` replaces it in every run and in `abk doctor`'s PATH check alike |
@@ -694,15 +694,25 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
 ## ACP sessions: recorded and resumed
 
 An `acp` step tells `on_session` its session id as soon as the session is opened (`session/new`,
-or `session/load`), before the prompt is sent, so a step that is killed still leaves its id for the
-unit's record. On a resume, the runtime reads the agent's `loadSession` capability from its
-`initialize` answer. An agent that declares it is sent `session/load` with the recorded id and the
-step continues in that session; the history the agent replays while loading is not progress and
-not the step's answer, so it is dropped. An agent that does not declare it, or that refuses the
-load, raises `SessionUnavailable` (`session <id> not resumed: ...`) before any prompt is sent. The
-runtime never opens a session of its own then, because a resume's prompt assumes the old session
-holds the task; the node says the session cannot be continued and starts the step over in a new
-session with its full prompt.
+or `session/resume`), before the prompt is sent, so a step that is killed still leaves its id for the
+unit's record. On a resume, the runtime reads the agent's `sessionCapabilities` from its `initialize` answer and
+sets `supports_session_resume` from them: the agent must advertise both `resume` and `list`. It
+then lists the sessions of the working directory, following `next_cursor` until the id is found or
+the pages end, and calls `session/resume` only for a listed id; the step continues in that
+session. `session/load` is never used, since it replays the whole conversation to the client. An
+agent that does not advertise both, or does not list the id, raises `SessionUnavailable`
+(`session <id> not resumed: ...`) before any prompt is sent. The runtime never opens a session of
+its own then, because a resume's prompt assumes the old session holds the task; the node says the
+session cannot be continued and starts the step over in a new session with its full prompt.
+
+The listing is the guard because Hermes answers a `session/resume` of an unknown id by quietly
+creating a new session, with no id in the response, so a purged id would turn a resume into a cold
+start sent the short continuation prompt. Hermes lists only sessions that have messages, within
+its most recent thousand, and stores the cwd of each resume, so the unit's worktree path must stay
+stable across the build loop. A session purged between the listing and the resume still falls
+through to that silent new session; the continuation prompt tells the agent to re-run the checks
+and read the worktree. How long an agent keeps sessions, and whether ACP exposes cleanup, is still
+open: reuse makes sessions live longer, so it matters more.
 
 ## Spend through a gateway
 

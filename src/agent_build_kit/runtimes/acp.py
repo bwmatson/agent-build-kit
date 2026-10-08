@@ -562,9 +562,11 @@ class _Session:
         # None when it reported none or in another currency).
         self.session_id: str | None = None
         self.cost_usd: float | None = None
-        # True while `session/load` replays the earlier turns: history, not
-        # this step's progress or answer.
-        self.replaying = False
+        # A resumed session reports its running total, not this call's: the total
+        # when the prompt was sent, taken off the last one. `resumed` is set once
+        # the session is continued; `cost_baseline` is None until a cost was seen.
+        self.resumed = False
+        self.cost_baseline: float | None = None
         # Set once the connection exists (`on_connect`), so `request_permission`
         # can itself send `session/cancel` when it cancels a turn: denying
         # the one call is not enough to stop the agent's turn, and the
@@ -633,8 +635,6 @@ class _Session:
         return merged
 
     async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
-        if self.replaying:
-            return
         if not isinstance(update, UsageUpdate):
             streaming = (
                 "reasoning"
@@ -1138,8 +1138,14 @@ def _spent(raw: Any, session: _Session) -> dict:
     whose counts are not numbers is too, and is said once.
     """
     spent: dict = {"session_id": session.session_id}
-    if session.cost_usd is not None:
-        spent |= {"cost_usd": session.cost_usd, "usage_source": "reported"}
+    cost = session.cost_usd
+    if session.resumed:
+        # `usage_update.cost` is cumulative for the session, so a resumed call's own
+        # spend is the increase; without a baseline it cannot be told from the total.
+        baseline = session.cost_baseline
+        cost = None if cost is None or baseline is None else cost - baseline
+    if cost is not None:
+        spent |= {"cost_usd": cost, "usage_source": "reported"}
     if raw is None:
         return spent
     counts = (
@@ -1289,7 +1295,12 @@ class AcpRuntime:
         # run (`_capabilities`); an agent that calls one of them anyway on an
         # unpoliced run is answered "method not found" (`_Session`).
         conn = connect_to_agent(
-            cast(Client, session), process.stdin, process.stdout, observers=[_record]
+            cast(Client, session),
+            process.stdin,
+            process.stdout,
+            observers=[_record],
+            # `session/resume` is still unstable in the pinned library.
+            use_unstable_protocol=True,
         )
         ended_already = False
         try:
@@ -1391,6 +1402,9 @@ class AcpRuntime:
             conn, session, request, initialized, str(cwd), roots
         )
         session.session_id = session_id
+        if request.resume_session:
+            session.resumed = True
+            session.cost_baseline, session.cost_usd = session.cost_usd, None
         if request.on_session is not None:
             request.on_session(session_id)
         if request.model:
@@ -1412,20 +1426,29 @@ class AcpRuntime:
         cwd: str,
         roots: list[str] | None,
     ) -> tuple[str, list[Any] | None]:
-        """The session the step runs in: the recorded one loaded, where the agent
-        declares it can load sessions. Where it cannot, or refuses, the session
-        is unavailable: a resume's prompt assumes the old session holds the
-        task, so starting a new one with the full prompt is the caller's."""
+        """The session the step runs in: the recorded one resumed, where the agent
+        advertises `session/resume` and `session/list` and lists it. Otherwise the
+        session is unavailable: a resume's prompt assumes the old session holds the
+        task, and an agent may answer a resume of an id it lacks by quietly starting a
+        session, so a new one with the full prompt is the caller's to start."""
         if request.resume_session:
-            capabilities = initialized.agent_capabilities
-            if capabilities is None or not capabilities.load_session:
+            sessions = (
+                initialized.agent_capabilities.session_capabilities
+                if initialized.agent_capabilities
+                else None
+            )
+            self.supports_session_resume = bool(sessions and sessions.resume and sessions.list)
+            if not self.supports_session_resume:
                 raise SessionUnavailable(
                     f"session {request.resume_session} not resumed: the agent does not "
-                    "declare session loading"
+                    "advertise both session/resume and session/list"
                 )
-            session.replaying = True
+            if not await self._listed(conn, request.resume_session, cwd):
+                raise SessionUnavailable(
+                    f"session {request.resume_session} not resumed: the agent does not list it"
+                )
             try:
-                loaded = await conn.load_session(
+                resumed = await conn.resume_session(
                     cwd=cwd,
                     session_id=request.resume_session,
                     additional_directories=roots,
@@ -1435,11 +1458,24 @@ class AcpRuntime:
                 raise SessionUnavailable(
                     f"session {request.resume_session} not resumed ({exc})"
                 ) from exc
-            finally:
-                session.replaying = False
-            return request.resume_session, loaded.config_options
+            return request.resume_session, resumed.config_options
         opened = await conn.new_session(cwd=cwd, additional_directories=roots, mcp_servers=[])
         return opened.session_id, opened.config_options
+
+    async def _listed(self, conn: Any, session_id: str, cwd: str) -> bool:
+        """Whether the agent lists `session_id` among the sessions of `cwd`, following the
+        cursor until it is found or the pages end."""
+        cursor: str | None = None
+        while True:
+            try:
+                page = await conn.list_sessions(cwd=cwd, cursor=cursor)
+            except RequestError:
+                return False
+            if any(info.session_id == session_id for info in page.sessions):
+                return True
+            if not page.next_cursor:
+                return False
+            cursor = page.next_cursor
 
     def _roots(
         self, initialized: InitializeResponse, session: _Session, request: AgentRequest

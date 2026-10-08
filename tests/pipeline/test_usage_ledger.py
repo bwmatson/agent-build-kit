@@ -73,17 +73,74 @@ def test_a_round_of_the_same_node_is_its_own_record(tmp_path: Path) -> None:
     assert [r.round for r in read_ledger(ledger)] == [1, 2]
 
 
-def test_a_new_session_for_the_same_node_and_round_is_spend_of_its_own(tmp_path: Path) -> None:
+def test_a_node_re_run_in_a_new_session_is_counted_once_with_the_latest_figures(
+    tmp_path: Path,
+) -> None:
+    """The session id is an attribute of a record, not part of its key: a node and round that
+    ran again, in whichever session, is one call."""
     ledger = write(
         tmp_path / "usage-ledger.jsonl",
-        line(session_id="sess-1"),
-        line(session_id="sess-2"),
-        line(session_id="sess-2", cost_usd=0.7),
+        line(node="fix_checks", round=1, session_id="sess-1", cost_usd=0.5),
+        line(node="fix_checks", round=1, session_id="sess-2", cost_usd=0.7),
+    )
+
+    (record,) = read_ledger(ledger)
+
+    assert (record.session_id, record.cost_usd) == ("sess-2", 0.7)
+
+
+def test_a_fix_continuing_the_build_session_is_the_fixs_spend_and_not_the_builds(
+    tmp_path: Path,
+) -> None:
+    ledger = write(
+        tmp_path / "usage-ledger.jsonl",
+        line(node="implement", round=0, session_id="S", cost_usd=0.50),
+        line(node="fix_checks", round=1, session_id="S", resumed=True, cost_usd=0.08),
+        line(node="fix_checks", round=2, session_id="S", resumed=True, cost_usd=0.06),
     )
 
     records = read_ledger(ledger)
 
-    assert {r.session_id: r.cost_usd for r in records} == {"sess-1": 0.5, "sess-2": 0.7}
+    assert {(r.node, r.round): r.cost_usd for r in records} == {
+        ("implement", 0): 0.50,
+        ("fix_checks", 1): 0.08,
+        ("fix_checks", 2): 0.06,
+    }
+    assert {r.session_id for r in records} == {"S"}, "one session id under several nodes"
+
+
+def test_a_fix_that_ran_twice_after_the_build_in_one_session_is_counted_once(
+    tmp_path: Path,
+) -> None:
+    """A fix killed after its call was recorded and run again continues the build session
+    again; it is a re-run of its own call, and must not add to what `implement` spent."""
+    ledger = write(
+        tmp_path / "usage-ledger.jsonl",
+        line(node="implement", round=0, session_id="S", cost_usd=0.50),
+        line(node="fix_checks", round=1, session_id="S", resumed=True, cost_usd=0.08),
+        line(node="fix_checks", round=1, session_id="S", resumed=True, cost_usd=0.09),
+    )
+
+    records = read_ledger(ledger)
+
+    assert {r.node: r.cost_usd for r in records if r.node == "implement"} == {"implement": 0.50}
+    assert sum(r.cost_usd or 0 for r in records if r.node == "fix_checks") == pytest.approx(0.17)
+
+
+def test_a_crash_resume_of_the_same_node_still_adds_to_the_call_it_resumed(
+    tmp_path: Path,
+) -> None:
+    ledger = write(
+        tmp_path / "usage-ledger.jsonl",
+        line(node="fix_checks", round=1, session_id="S", resumed=False, cost_usd=0.08),
+        line(node="implement", round=0, session_id="S", resumed=True, cost_usd=0.50),
+        line(node="fix_checks", round=1, session_id="S", resumed=True, cost_usd=0.02),
+    )
+
+    by_node = {r.node: r.cost_usd for r in read_ledger(ledger)}
+
+    assert by_node["fix_checks"] == pytest.approx(0.10)
+    assert by_node["implement"] == 0.50, "another node's resumed call is not folded in"
 
 
 def test_a_resumed_call_adds_to_the_call_it_resumed_and_a_rerun_replaces_it(
@@ -185,18 +242,6 @@ def test_a_half_written_line_costs_only_itself(tmp_path: Path) -> None:
     )
 
     assert [r.node for r in read_ledger(ledger)] == ["implement", "review"]
-
-
-def test_two_calls_of_one_node_and_round_in_distinct_sessions_both_count(tmp_path: Path) -> None:
-    ledger = write(
-        tmp_path / "usage-ledger.jsonl",
-        line(runtime="acp", session_id="sess-a", cost_usd=0.2),
-        line(runtime="acp", session_id="sess-b", cost_usd=0.3),
-    )
-
-    records = read_ledger(ledger)
-
-    assert sorted(r.session_id or "" for r in records) == ["sess-a", "sess-b"]
 
 
 @pytest.fixture(autouse=True)

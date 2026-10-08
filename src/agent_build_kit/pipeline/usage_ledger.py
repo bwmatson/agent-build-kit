@@ -1,8 +1,8 @@
 """One record per agent call, appended to `<state_dir>/usage-ledger.jsonl`.
 
 Best-effort: a write that fails is dropped and reported once, and never
-affects a run. The reader keeps the last record per unit, node, round and
-session, adding a resumed call's figures to the call it resumed; a call with
+affects a run. The reader keeps the last record per unit, node and
+round, adding a resumed call's figures to the call it resumed; a call with
 no session id stays a record of its own.
 """
 
@@ -192,14 +192,17 @@ def read_ledger(path: Path) -> list[UsageRecord]:
 
 
 def records_in(lines: list[str]) -> list[UsageRecord]:
-    """The ledger's records, one per unit, node, round and session.
+    """The ledger's records, one per unit, node and round.
 
-    A resumed call keeps its session id and reports the figures of that call
-    alone, not a running total, so a record with `resumed` set adds to the
-    record of the call it resumed (a call cut off by a usage limit and resumed
-    reports both). A record that is not resumed is a re-run of the same call
-    and replaces what came before it. Calls with no session id cannot be told
-    apart from a re-run, so each stays a record of its own. A line that is not
+    The session id is an attribute of a record, not part of its key: a call
+    that continues a session another node started is its own node's spend, and
+    one session id may appear under several nodes. A resumed call reports the
+    figures of that call alone, not a running total, so a record with `resumed`
+    set adds to the record of the same node and round (a call cut off by a
+    usage limit and resumed reports both). A record that is not resumed is a
+    re-run of the same call and replaces what came before it. Calls with no
+    session id cannot be told apart from a re-run, so each stays a record of
+    its own. A line that is not
     a record (half written) is skipped."""
     calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
     for line in lines:
@@ -210,8 +213,8 @@ def records_in(lines: list[str]) -> list[UsageRecord]:
             record = UsageRecord.model_validate(raw)
         except (ValueError, AttributeError, ValidationError):
             continue
-        session = record.session_id or f"unnamed@{record.at}"
-        key = (record.unit, record.node, record.round, session)
+        unnamed = "" if record.session_id else record.at
+        key = (record.unit, record.node, record.round, unnamed)
         if record.resumed and key in calls:
             calls[key].append(record)
         else:
