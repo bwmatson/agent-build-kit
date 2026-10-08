@@ -122,6 +122,12 @@ models:                         # bare aliases, not pinned ids. These are the
   rework_review: fable          # every review of a rework: a different model
                                 # from the one that made the edit
 
+session_reuse:                  # per agent role, whether its nodes continue the
+  build: true                   # role's latest session. build: the tests,
+  review: false                 # implement, fix, rework and adapt steps share
+                                # one. review can only be false: a review always
+                                # starts fresh. A role left out is off.
+
 limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a
                                 # new unit may extend

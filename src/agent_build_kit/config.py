@@ -418,6 +418,9 @@ def stack_versions_for(verify: VerifyConfig, profile: infra.InfraProfile) -> lis
 CLAUDE_CODE = "claude_code"
 
 
+SESSION_REUSE_ROLES = ("build", "review")
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
     planning: PlanningConfig = PlanningConfig()
@@ -433,8 +436,25 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
-    # Per agent role, whether its nodes continue the role's latest session.
-    session_reuse: dict[str, bool] = {}
+    # Per agent role (`build`, `review`), whether its nodes continue the role's
+    # latest session. A role the mapping does not name is off.
+    session_reuse: dict[str, bool] = {"build": True, "review": False}
+
+    @model_validator(mode="after")
+    def _session_reuse_roles(self) -> WorkspaceConfig:
+        """Only the build role may continue a session: a review must judge the
+        branch fresh, not through the builder's or an earlier round's eyes."""
+        for role, reuse in self.session_reuse.items():
+            if role not in SESSION_REUSE_ROLES:
+                raise ValueError(
+                    f"session_reuse.{role}: unknown role; the roles are "
+                    f"{', '.join(SESSION_REUSE_ROLES)}"
+                )
+            if role == "review" and reuse:
+                raise ValueError(
+                    "session_reuse.review: a review never continues a session; leave it false"
+                )
+        return self
 
     @model_validator(mode="after")
     def _usage_limits_only_on_claude(self) -> WorkspaceConfig:

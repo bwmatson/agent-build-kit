@@ -84,7 +84,7 @@ def test_a_rate_limit_pause_appends_a_record_with_its_kind(ticks: Ticks) -> None
     def refused(*args: Any, **kwargs: Any) -> str:
         raise RateLimited("usage limit reached", resets_at=datetime.now(UTC) + timedelta(hours=2))
 
-    ticks.options["run_claude"] = refused
+    ticks.options["run"] = refused
 
     ticks.tick()
 
