@@ -57,6 +57,8 @@ from acp.connection import StreamEvent
 from acp.interfaces import Agent, Client
 from acp.schema import (
     AgentMessageChunk,
+    AgentPlanUpdate,
+    AgentThoughtChunk,
     AllowedOutcome,
     ClientCapabilities,
     CreateTerminalResponse,
@@ -90,6 +92,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -500,6 +503,7 @@ class _Session:
         report: Callable[[str], None] | None,
         *,
         transcript: Callable[[str], None] | None = None,
+        record: Callable[[TranscriptEvent], None] | None = None,
         worktree: Path | None = None,
         policy: ToolPolicy | None = None,
         roots: tuple[Path, ...] = (),
@@ -509,6 +513,7 @@ class _Session:
     ) -> None:
         self._report = report
         self._transcript = transcript
+        self._record = record
         # A read-only run (`_is_read_only`): the command patterns it may run,
         # and no edit at all. None for any other run.
         self._read_only = read_only
@@ -517,6 +522,10 @@ class _Session:
         # The message not yet reported: it streams in token-sized chunks, and
         # reads as one line once something else starts or the turn ends.
         self._unsaid: list[str] = []
+        # The same message, and the thought before it, gathered for the transcript,
+        # which holds each as one event: flushed when another kind of update
+        # arrives or the turn ends.
+        self._unrecorded: dict[str, list[str]] = {"text": [], "reasoning": []}
         self._titles: dict[str, str] = {}
         self._calls: dict[str, _ToolCall] = {}
         # Whether this run is policed: only then does the client do the agent's
@@ -626,14 +635,38 @@ class _Session:
     async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
         if self.replaying:
             return
+        if not isinstance(update, UsageUpdate):
+            streaming = (
+                "reasoning"
+                if isinstance(update, AgentThoughtChunk)
+                else "text"
+                if isinstance(update, AgentMessageChunk)
+                else None
+            )
+            self._flush_unrecorded(keep=streaming)
         if isinstance(update, UsageUpdate):
             if update.cost is not None:
                 self.cost_usd = update.cost.amount if update.cost.currency == "USD" else None
+        elif isinstance(update, AgentThoughtChunk):
+            if isinstance(update.content, TextContentBlock):
+                self._unrecorded["reasoning"].append(update.content.text)
         elif isinstance(update, AgentMessageChunk):
             if isinstance(update.content, TextContentBlock):
                 self._message.append(update.content.text)
                 self._unsaid.append(update.content.text)
+                self._unrecorded["text"].append(update.content.text)
+        elif isinstance(update, AgentPlanUpdate):
+            plan = "\n".join(f"[{entry.status}] {entry.content}" for entry in update.entries)
+            self.record(TranscriptEvent(kind="plan", text=plan))
         elif isinstance(update, ToolCallStart):
+            self.record(
+                TranscriptEvent(
+                    kind="tool_call",
+                    tool=update.title,
+                    call=update.tool_call_id,
+                    input=update.raw_input if isinstance(update.raw_input, dict) else {},
+                )
+            )
             self.said()
             self._message = []
             self._titles[update.tool_call_id] = update.title
@@ -664,6 +697,24 @@ class _Session:
                 self._attribute_own_refusal(update.tool_call_id, update)
             if update.status in ("completed", "failed"):
                 self._ended.add(update.tool_call_id)
+                self.record(
+                    TranscriptEvent(
+                        kind="tool_result", call=update.tool_call_id, text=output_of(update)
+                    )
+                )
+
+    def _flush_unrecorded(self, keep: str | None = None) -> None:
+        """Record the gathered message and thought as one event each; `keep` names
+        the kind still streaming, which stays open."""
+        for kind, chunks in self._unrecorded.items():
+            if kind == keep or not chunks:
+                continue
+            text = "".join(chunks)
+            chunks.clear()
+            if text.strip():
+                self.record(
+                    TranscriptEvent(kind="reasoning" if kind == "reasoning" else "text", text=text)
+                )
 
     def _refused(self, line: str, reason: str, layer: str) -> None:
         """The one progress line an operator reads to learn what refused a
@@ -740,6 +791,16 @@ class _Session:
             chosen = next((o for o in options if o.kind == "reject_once"), None) or next(
                 (o for o in options if o.kind == "reject_always"), None
             )
+        self._flush_unrecorded()
+        outcome = f"{chosen.kind}: {chosen.name}" if chosen is not None else "cancelled"
+        self.record(
+            TranscriptEvent(
+                kind="permission",
+                call=tool_call.tool_call_id,
+                tool=known.title or "",
+                text=outcome if verdict.allowed else f"{outcome} (refused: {verdict.reason})",
+            )
+        )
         if chosen is None:
             if not verdict.allowed:
                 self.refused_cancel = verdict.reason
@@ -1011,10 +1072,20 @@ class _Session:
 
     def said(self) -> None:
         """The message streamed since the last line, as one line."""
+        self._flush_unrecorded()
         text = "".join(self._unsaid)
         self._unsaid = []
         if text.strip():
             self._tell(f"says: {text}", whole=f"says: {text.strip()}")
+
+    def record(self, event: TranscriptEvent) -> None:
+        """`event` for the run's transcript, in this session."""
+        if self._record is None:
+            return
+        try:
+            self._record(event.model_copy(update={"session": self.session_id or ""}))
+        except Exception:  # noqa: BLE001 — a transcript is never the run's to lose
+            pass
 
     def notice(self, line: str) -> None:
         """Something the operator should know about the run, not a step of it:
@@ -1167,6 +1238,7 @@ class AcpRuntime:
         session = _Session(
             request.on_event,
             transcript=request.on_transcript,
+            record=request.on_record,
             worktree=request.cwd,
             policy=request.policy,
             roots=request.add_dirs,
@@ -1264,6 +1336,14 @@ class AcpRuntime:
                 await _ended(process, stderr)
 
         spent = _spent(_wire_usage(raw_lines), session)
+        if (counted := spent.get("usage")) is not None:
+            session.record(
+                TranscriptEvent(
+                    kind="usage",
+                    usage={k: v for k, v in counted.model_dump().items() if v is not None},
+                )
+            )
+        session.record(TranscriptEvent(kind="stop", text=str(stop_reason)))
         if stop_reason == "cancelled":
             if session.refused_cancel is not None:
                 # abk's own doing, not something to reclaim: offered no

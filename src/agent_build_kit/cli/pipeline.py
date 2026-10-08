@@ -79,6 +79,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
 )
 from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.unit_size import over_ceiling
 from agent_build_kit.pipeline.unit_store import (
     UNPLANNED,
@@ -429,6 +430,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
+        transcripts=transcript_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
     )
@@ -712,6 +714,7 @@ def run_round(
             may_archive=may_archive,
             specs_dir=inst.config.planning.specs_dir,
             run_logs=run_log_dir(inst.state_dir),
+            transcripts=transcript_dir(inst.state_dir),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
         ):
@@ -2159,6 +2162,7 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
 
     print(openspec.archive(args.change, cwd=inst.root), end="")
     remove_change_logs(run_log_dir(inst.state_dir), args.change)
+    remove_change_transcripts(transcript_dir(inst.state_dir), args.change)
     return 0
 
 

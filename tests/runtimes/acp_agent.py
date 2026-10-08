@@ -76,6 +76,7 @@ carries it.
 - `{"edit": PATH, "content": TEXT}` writes the file itself, on disk, without
   asking and without the client's file capability: an agent that edits with a
   tool of its own. `"output"` of the tool call is `done`.
+- `{"plan": [[CONTENT, STATUS], ...]}` sends a plan update with those entries.
 - `{"ask": KIND, "command": ..., "paths": [...], "options": [KIND, ...]}` runs a
   tool of the agent's own the way an agent that executes its own tools does:
   it asks permission, naming the command in its raw input and the paths as
@@ -124,12 +125,14 @@ from acp import (
     PromptResponse,
     RequestError,
     SetSessionConfigOptionResponse,
+    plan_entry,
     run_agent,
     start_tool_call,
     text_block,
     tool_content,
     update_agent_message_text,
     update_agent_thought_text,
+    update_plan,
     update_tool_call,
 )
 from acp.connection import StreamDirection, StreamEvent
@@ -491,6 +494,13 @@ class FakeAgent:
                 )
             elif "write" in act:
                 await self._write_file(session_id, act["write"], act.get("content", ""))
+            elif "plan" in act:
+                await self._send(
+                    session_id,
+                    update_plan(
+                        [plan_entry(content, status=status) for content, status in act["plan"]]
+                    ),
+                )
             elif "read" in act:
                 await self._read(session_id, act["read"], act.get("line"), act.get("limit"))
             elif "edit" in act:

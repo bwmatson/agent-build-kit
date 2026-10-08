@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.usage import Usage, UsageSource
 
 if TYPE_CHECKING:
@@ -71,6 +72,8 @@ class AgentRequest(Frozen):
     on_event: Callable[[str], None] | None = None  # one line per step of progress, if supported
     # The same steps with the agent's replies and commands whole, line breaks kept.
     on_transcript: Callable[[str], None] | None = None
+    # Told each event of the run in the shape every runtime shares, as it streams.
+    on_record: Callable[[TranscriptEvent], None] | None = None
     # A named checkout the runtime makes for this run itself, off cwd's repo —
     # a track phase's; Claude Code's --worktree. None: the run works in cwd.
     worktree: str | None = None

@@ -164,6 +164,9 @@ limits:
   max_plan_attempts: 3          # planner attempts per version of a tasks.md
   max_check_reruns: 2           # re-runs of a head commit's cancelled checks
                                 # before the host is left cancelling them
+  transcript_result_chars: 20000  # longest tool result a unit's transcript
+                                  # keeps whole; longer ones are cut
+  transcript_runs_kept: 3       # runs of one unit that keep their transcript
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under

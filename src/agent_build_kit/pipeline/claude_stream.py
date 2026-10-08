@@ -23,6 +23,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.usage import Salvaged, Usage
 
 STREAM_FLAGS = ["--output-format", "stream-json", "--verbose"]
@@ -148,6 +149,63 @@ def describe(event: dict, *, whole: bool = False) -> list[str]:
         outcome = "error" if event.get("is_error") else "done"
         return [f"claude {outcome} — {turns} turns, {seconds // 60}m{seconds % 60:02d}s"]
     return []
+
+
+def records(event: dict) -> list[TranscriptEvent]:
+    """The transcript events in one stream event, in the shape every runtime shares."""
+    kind = event.get("type")
+    session = str(event.get("session_id") or "")
+    found: list[TranscriptEvent] = []
+    if kind in ("assistant", "user"):
+        for block in _content(event):
+            # A `user` event is the harness speaking: a skill's expanded body or an
+            # interruption notice is text there that the agent did not write.
+            if kind == "user" and block.get("type") != "tool_result":
+                continue
+            if (made := _record_of(block)) is not None:
+                found.append(made.model_copy(update={"session": session}))
+    elif kind == "result":
+        counts = {
+            key: value
+            for key, value in (event.get("usage") or {}).items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+        if counts:
+            found.append(TranscriptEvent(kind="usage", session=session, usage=counts))
+        found.append(
+            TranscriptEvent(kind="stop", session=session, text=str(event.get("subtype") or ""))
+        )
+    return found
+
+
+def _record_of(block: dict) -> TranscriptEvent | None:
+    match block.get("type"):
+        case "text" if block.get("text", "").strip():
+            return TranscriptEvent(kind="text", text=block["text"])
+        case "thinking" if block.get("thinking", "").strip():
+            return TranscriptEvent(kind="reasoning", text=block["thinking"])
+        case "tool_use":
+            return TranscriptEvent(
+                kind="tool_call",
+                tool=str(block.get("name") or ""),
+                call=str(block.get("id") or ""),
+                input=block.get("input") or {},
+            )
+        case "tool_result":
+            return TranscriptEvent(
+                kind="tool_result",
+                call=str(block.get("tool_use_id") or ""),
+                text=_result_text(block.get("content")),
+            )
+    return None
+
+
+def _result_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+    return ""
 
 
 def _block(block: dict, whole: bool = False) -> str:

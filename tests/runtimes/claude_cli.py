@@ -29,7 +29,7 @@ from pathlib import Path
 SESSION = "3f1c2a9e-5b7d-4e2f-9a61-0c8d7e4b2a15"
 MODEL = "claude-opus-5-5"
 
-_USAGE = {
+USAGE = {
     "input_tokens": 4,
     "cache_creation_input_tokens": 1822,
     "cache_read_input_tokens": 14671,
@@ -70,7 +70,7 @@ def _assistant(content: list[dict]) -> dict:
             "content": content,
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": _USAGE,
+            "usage": USAGE,
             "context_management": None,
         },
         "parent_tool_use_id": None,
@@ -101,7 +101,7 @@ def _result(
         **said,
         "session_id": SESSION,
         "total_cost_usd": 0.0 if is_error else 0.4127,
-        "usage": _USAGE if not is_error else dict.fromkeys(_USAGE, 0) | {"service_tier": None},
+        "usage": USAGE if not is_error else dict.fromkeys(USAGE, 0) | {"service_tier": None},
         "modelUsage": {} if is_error else {MODEL: {"inputTokens": 4, "outputTokens": 212}},
         "permission_denials": [],
         "uuid": "9a4e2c71-8b3d-4f6a-a5e0-7c1b9d2f8e63",
