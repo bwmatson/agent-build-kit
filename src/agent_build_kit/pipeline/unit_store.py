@@ -66,6 +66,7 @@ class Cause(StrEnum):
     NEEDS_HUMAN = "needs_human"
     REVIEWER_HOLD = "reviewer_hold"
     REQUEUED = "requeued"
+    GATED = "gated"
     RELEASED = "released"
     RESTACK_CONFLICT = "restack_conflict"
     RESTACK_DEFERRED = "restack_deferred"
