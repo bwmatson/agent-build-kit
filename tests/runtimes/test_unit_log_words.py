@@ -23,7 +23,9 @@ REPLY = (
     "    def indented() -> None: ...\n"
     "Last, I will run the checks."
 )
-COMMAND = "uv run pytest tests/test_app.py \\\n  -k marker \\\n  -x --no-header " + "-q " * 80
+COMMAND = (
+    "uv run pytest tests/test_app.py \\\n  -k marker \\\n  -x --no-header " + "-q " * 79 + "-q"
+)
 
 
 class Heard:
