@@ -522,12 +522,16 @@ def write_page(units: list[StoredUnit], ledger: Path, out: Path) -> None:
 def _breakdown(group: list[_Entry]) -> list[dict]:
     """The group's contributions summed per node, role, model and usage source,
     ordered by that key. Waits and checks carry no role, model or source, so
-    they sit in an item of their own for the node, which takes the node's runtime."""
+    they sit in an item of their own for the node, which takes the node's runtime;
+    an item takes the least runtime among its entries, and a node's runtime is
+    the least among all its entries."""
     keyed: dict[tuple[str, str, str, str], list[_Entry]] = {}
+    runtimes: dict[str, str] = {}
     for entry in group:
         key = (entry.node, entry.role, entry.model, entry.usage_source)
         keyed.setdefault(key, []).append(entry)
-    runtimes = {e.node: e.runtime for e in sorted(group, key=lambda e: e.runtime) if e.runtime}
+        if entry.runtime:
+            runtimes[entry.node] = min(entry.runtime, runtimes.get(entry.node, entry.runtime))
     return [
         {
             "node": node,

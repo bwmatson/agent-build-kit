@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline import archive
 from agent_build_kit.pipeline.archive import (
     archive_ready_changes,
     is_ready_to_archive,
@@ -256,3 +257,40 @@ def test_a_change_not_yet_verified_live_is_held_back(tmp_path: Path) -> None:
 
     assert archived == []
     assert runner.calls == []
+
+
+def test_a_roll_up_that_raises_does_not_stop_archiving_or_log_removal(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ledger is a record: a breakdown that fails its check leaves the
+    detail in place and the rest of the tick runs."""
+
+    def refuse(ledger: Path, change: str) -> None:
+        raise ValueError(f"the breakdown of {change}/1 does not sum to its totals")
+
+    monkeypatch.setattr(archive, "roll_up_change", refuse)
+    units = [
+        unit("first/1", change="first", history=({"state": "merged", "at": "2026-09-23T09:00"},)),
+        unit("second/1", change="second", history=({"state": "merged", "at": "2026-09-23T12:00"},)),
+    ]
+    make_change(tmp_path, "first")
+    make_change(tmp_path, "second")
+    run_logs = tmp_path / "run-logs"
+    run_logs.mkdir()
+    logs = [run_logs / f"{c}-01-20260923-090000-implement.log" for c in ("first", "second")]
+    for log in logs:
+        log.write_text("log\n")
+
+    with caplog.at_level(logging.WARNING):
+        archived = archive_ready_changes(
+            units,
+            planning_repo=tmp_path,
+            run=FakeRunner(),
+            usage_ledger=tmp_path / "ledger.jsonl",
+            run_logs=run_logs,
+        )
+
+    assert archived == ["first", "second"]
+    assert not any(log.exists() for log in logs)
+    assert "first" in caplog.text
+    assert "does not sum" in caplog.text

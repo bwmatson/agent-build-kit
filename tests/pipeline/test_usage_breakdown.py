@@ -67,9 +67,8 @@ def total_of(items: list[dict], side: str, name: str) -> float | None:
 
 
 def rows(report: Report) -> dict[str, dict]:
-    """What a row says apart from the sources, which no grouping of archived
-    waits is asked to repeat."""
-    return {r.key: r.model_dump(exclude={"sources"}) for r in (*report.rows, report.total)}
+    """Everything a row says, sources and difference included."""
+    return {r.key: r.model_dump() for r in (*report.rows, report.total)}
 
 
 def row_of(report: Report, key: str) -> ReportRow:
@@ -140,6 +139,50 @@ def test_the_report_by_node_role_and_model_splits_archived_work_as_before(tmp_pa
     by_node = build_report(ledger, UNITS, group_by="node")
     assert row_of(by_node, "plan").slot_wait_ms == 4000
     assert row_of(by_node, "review").slot_wait_ms == 5000
+
+
+def test_fractional_costs_and_a_gateway_difference_survive_the_roll_up(tmp_path: Path) -> None:
+    costs = (0.123456789, 0.000001234, 0.3333333333, 0.1, 0.2, 0.000000071)
+    ledger = write_ledger(
+        tmp_path / "state" / "usage-ledger.jsonl",
+        *(
+            agent_line(
+                node=("implement", "review")[i % 2],
+                role=("implement", "review")[i % 2],
+                session_id=f"sess-{i}",
+                cost_usd=cost,
+            )
+            for i, cost in enumerate(costs)
+        ),
+        agent_line(
+            session_id="sess-g",
+            usage_source="gateway",
+            input_tokens=120,
+            output_tokens=60,
+            cost_usd=1.2345678901,
+            reported={
+                "input_tokens": 100,
+                "output_tokens": 55,
+                "cache_read_input_tokens": None,
+                "cache_creation_input_tokens": None,
+            },
+            reported_cost_usd=1.0000000001,
+        ),
+    )
+    before = {
+        by: build_report(ledger, UNITS, group_by=by, include_estimates=True) for by in GROUPINGS
+    }
+
+    roll_up_change(ledger, CHANGE)
+
+    line = summary_of(ledger, "add-marker/1")
+    items = line["breakdown"]
+    for name in ("input_tokens", "output_tokens", "cost_usd"):
+        parts = [i["difference"][name] for i in items if i["difference"]]
+        assert round(sum(parts), 10) == line["difference"][name], name
+    for by, report in before.items():
+        after = build_report(ledger, UNITS, group_by=by, include_estimates=True)
+        assert rows(after) == rows(report), by
 
 
 def test_rolling_a_change_up_twice_leaves_the_file_unchanged(tmp_path: Path) -> None:
