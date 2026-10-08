@@ -423,6 +423,31 @@ def test_adapt_continues_the_build_session_and_keeps_the_contract_of_its_answer(
     assert GROUPS not in adapt.prompt
 
 
+def test_with_reuse_off_adapt_starts_a_new_session_on_the_rework_model(tmp_path: Path) -> None:
+    distinct_models()
+    reuse(build=False)
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+    conflicts = iter([restacked(conflict="the conflict text", old_tests=())] * 2)
+
+    build(
+        tmp_path,
+        recorder,
+        base="spec/c/2",
+        branch_commits=lambda cwd, base: recorder.made,
+        restack_onto=lambda **kw: next(conflicts, None),
+        reset_to=lambda tree, onto, keep: None,
+        tests_in=lambda tree: set(),
+        tests_changed=lambda tree, ref: set(),
+        **agents(runtime),
+    )
+
+    adapt = fix_request(runtime)
+    assert adapt.resume_session == ""
+    assert adapt.model == MODELS.rework, "not the model the build session recorded"
+    assert CHANGE_PATH in adapt.prompt
+
+
 def test_a_unit_entering_at_adapt_starts_the_build_session_and_a_later_node_continues_it(
     tmp_path: Path,
 ) -> None:
