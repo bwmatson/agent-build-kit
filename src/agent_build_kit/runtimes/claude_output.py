@@ -2,7 +2,7 @@
 
 Whether a run succeeded is decided by the event's subtype and `is_error`; a
 rate limit by its `api_error_status` when it has one, else from its own words,
-and a session that is gone from its own words. Callers
+and a session that is gone or too long to continue from its own words. Callers
 use the typed result and never read the text again.
 """
 
@@ -43,6 +43,8 @@ def agent_failure(event: ResultEvent | None, text: str) -> AgentFailure:
     reset = rate_limit_reset(text)
     if reset is not False:
         return AgentFailure(kind="rate_limited", resets_at=reset)
-    if "no conversation found" in text.lower():
+    lowered = text.lower()
+    # A resumed conversation that no longer fits its context is as good as gone.
+    if "no conversation found" in lowered or "prompt is too long" in lowered:
         return AgentFailure(kind="session_unavailable")
     return AgentFailure(kind="other")

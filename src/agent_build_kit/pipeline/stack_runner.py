@@ -131,15 +131,7 @@ the unit has passed review, tier 1 and been pushed.
     + OUTPUT_NOTE
 )
 
-REVIEW_FEEDBACK_PROMPT = (
-    """\
-A review of this branch asked for changes, for change {change_dir}, task
-group(s) {groups}:
-
----
-{feedback}
----
-{boundary}
+_REVIEW_FEEDBACK_ASK = """\
 Address it. The reviewer reads the branch but does not edit it, so nothing here
 is fixed unless you fix it. Fix every instance it names, and look for others of
 the same kind — the same pattern in sibling tools, callers or code paths — so
@@ -155,6 +147,20 @@ Code protects, a permission you do not have — do not work around it. Mark that
 point `BLOCKED:` in your account, with the exact change a person should make.
 
 Run linting, formatting, types and the tests before you finish.
+"""
+
+REVIEW_FEEDBACK_PROMPT = (
+    """\
+A review of this branch asked for changes, for change {change_dir}, task
+group(s) {groups}:
+
+---
+{feedback}
+---
+{boundary}
+"""
+    + _REVIEW_FEEDBACK_ASK
+    + """\
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
@@ -439,15 +445,7 @@ def parse_verdict(output: str) -> Verdict:
     )
 
 
-REWORK_PROMPT = (
-    """\
-Review asked for a change to the work already on this branch, specified at
-{change_dir}, task group(s) {groups}. This is PR #{pr}.
-
----
-{feedback}
----
-{boundary}
+_REWORK_ASK = """\
 Address what was **meant**, not only what was written. Review comments are
 written quickly against a diff, and a reviewer can be wrong in a way the code
 cannot be: a suggestion may name the wrong mechanism, assume a default that
@@ -482,6 +480,20 @@ code and why, or answer the question. Leave out whether anything is committed
 or pushed — by the time they are read it is, and each reply is signed with the
 commit it describes — and leave out your own verification (lint, types, test
 counts); tier 1 runs before anything is pushed.
+"""
+
+REWORK_PROMPT = (
+    """\
+Review asked for a change to the work already on this branch, specified at
+{change_dir}, task group(s) {groups}. This is PR #{pr}.
+
+---
+{feedback}
+---
+{boundary}
+"""
+    + _REWORK_ASK
+    + """\
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
@@ -646,6 +658,127 @@ not only what was missing:
 {{"tests": [{{"name": "<test name>", "decision": "keep|adapt|retire",
              "reason": "..."}}]}}
 """
+
+# What a node says when it continues its role's session instead of starting one: only what
+# is new, since the session already holds the change, its task groups and the boundary notes.
+# The agent may have compacted what it remembers, so each points it back at the worktree.
+CONTINUATION_READONLY = """\
+The change's files stay read-only for you. The pipeline records a task as done once
+the unit has passed review, tier 1 and been pushed.
+"""
+
+IMPLEMENTATION_CONTINUATION = (
+    """\
+The tests are written and committed. Now implement: make them pass, keeping the
+change to what those tests require. Do not weaken or delete a test to make it
+pass. Run linting, formatting, types and the tests before you finish.
+"""
+    + CONTINUATION_READONLY
+    + "{changelog}"
+)
+
+CHECKS_CONTINUATION = (
+    """\
+The pipeline's checks (lint, formatting, types and the tests) failed on this
+branch. Nothing has been reviewed yet: a reviewer is only asked once these pass.
+
+---
+{feedback}
+---
+
+Run the checks yourself first: the output above may be cut short, and what you
+remember of the earlier work may not be exact. Fix every failure and look for
+others of the same kind. Fix the cause, not the report: do not suppress a rule,
+loosen a type to `Any`, or skip a test to make a check pass unless the rule
+itself is wrong for this code, and then say so.
+
+Run linting, formatting, types and the tests again, and finish only when all of
+them pass.
+"""
+    + CONTINUATION_READONLY
+)
+
+REVIEW_FEEDBACK_CONTINUATION = (
+    """\
+A review of this branch asked for changes:
+
+---
+{feedback}
+---
+
+"""
+    + _REVIEW_FEEDBACK_ASK
+    + CONTINUATION_READONLY
+    + "{changelog}"
+)
+
+REWORK_CONTINUATION = (
+    """\
+Review asked for a change to the work already on this branch. This is PR #{pr}.
+
+---
+{feedback}
+---
+
+"""
+    + _REWORK_ASK
+    + CONTINUATION_READONLY
+    + "{changelog}"
+)
+
+ADAPT_CONTINUATION = (
+    """\
+This unit was built on an earlier version of `{onto_unit}` ({onto_intent}). That
+predecessor has changed since, and replaying this unit's commits onto its new
+version conflicted beyond what could be merged mechanically:
+
+{conflict}
+
+So this branch has been reset to the new base, and your previous work kept at
+`{old_ref}`. Its own changes are `git diff {old_base} {old_ref}`.
+
+Port your work onto the new base. The predecessor as it is now is
+authoritative: adapt to its current shape rather than restoring what it
+replaced, and do not re-implement anything it already provides.
+
+These are the tests your previous work added or changed:
+
+{tests}
+
+Decide each one as you port it:
+
+- **keep** — still meaningful against the new base; carried over unchanged.
+- **adapt** — still meaningful, but changed to fit the predecessor's new shape.
+  Say what changed.
+- **retire** — no longer meaningful, because of a specific change in the
+  predecessor. Name the change. "It fails" or "it was hard to port" is not a
+  reason: a test that still describes behaviour this unit's tasks require is
+  kept or adapted, whatever it takes.
+
+Only a test you do not carry over unchanged needs an entry in the JSON below —
+one carried over unchanged is counted as kept automatically.
+
+Write any test the tasks require that the previous work did not have. Run
+linting, formatting, types and the tests before you finish.
+
+"""
+    + CONTINUATION_READONLY
+    + """
+Finish with JSON and nothing after it:
+
+{{"tests": [{{"name": "<test name>", "decision": "keep|adapt|retire",
+             "reason": "..."}}],
+ "summary": "what changed in porting, for the reviewer"}}
+"""
+)
+
+# Put first in a continuation when the branch is not where the session left it. Two
+# hashes and no log or diff: the agent reads what moved, so the prompt does not grow.
+MOVED_NOTE = (
+    "The branch moved since your last turn: `{old}` to `{new}`. Read what changed "
+    "(`git log {old}..{new}`, or `git range-diff` if the history was rewritten), "
+    "then continue."
+)
 
 # Given to a review that follows a rework in the same loop.
 EARLIER_ROUNDS_NOTE = """\
@@ -1052,6 +1185,10 @@ class UnitRunner(BaseModel):
     # The worktree's HEAD. Required, with no default: a stand-in that always
     # answered "" would match an unset approval and wave every push through.
     head: Callable[[Path], str]
+    # Whether the worktree can still read a commit it once had: false for one
+    # a rewrite left to be collected, which a session recorded at it cannot
+    # be told about.
+    head_reachable: Callable[[Path, str], bool] = lambda tree, head: True
     # For the adapt step: put the branch on a new base keeping the old work
     # under a ref, and list the tests the worktree has.
     reset_to: Callable[[Path, str, str], None] = lambda tree, onto, keep: _no_reset()

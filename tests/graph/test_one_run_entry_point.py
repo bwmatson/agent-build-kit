@@ -1,6 +1,6 @@
 """Every agent node reaches its agent through one `run`, which takes the model for the
-call (docs/agent-runtimes.md): the build nodes on the implement model, the ones that
-rework on the rework model."""
+call (docs/agent-runtimes.md): the build nodes and the fix of failing checks on the
+implement model, the ones that rework on the rework model."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def test_tests_and_implement_run_on_the_implement_model(tmp_path: Path) -> None:
     assert tests.cwd == implement.cwd == tmp_path / "tree"
 
 
-def test_fix_checks_runs_on_the_rework_model_with_the_failing_output(tmp_path: Path) -> None:
+def test_fix_checks_runs_on_the_implement_model_with_the_failing_output(tmp_path: Path) -> None:
     distinct_models()
     recorder = fresh(tmp_path)
     recorder.tier1_results = [(False, FAILING), (True, "")]
@@ -43,12 +43,12 @@ def test_fix_checks_runs_on_the_rework_model_with_the_failing_output(tmp_path: P
 
     *_, fix = runs.calls
     assert len(runs.calls) == 3, "the tests, the implementation, the fix"
-    assert fix.model == MODELS.rework
+    assert fix.model == MODELS.implement
     assert FAILING in fix.prompt
     assert fix.cwd == tmp_path / "tree"
 
 
-def test_rework_runs_on_the_rework_model_with_the_feedback(tmp_path: Path) -> None:
+def test_rework_continues_the_build_session_on_its_model_with_the_feedback(tmp_path: Path) -> None:
     distinct_models()
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder, run=Runs(recorder))
@@ -61,7 +61,7 @@ def test_rework_runs_on_the_rework_model_with_the_feedback(tmp_path: Path) -> No
     tick(tmp_path, recorder, run=runs)
 
     (rework,) = runs.calls
-    assert rework.model == MODELS.rework
+    assert rework.model == MODELS.implement, "the model the session began on"
     assert FEEDBACK in rework.prompt
     assert rework.cwd == tmp_path / "tree"
 
@@ -89,7 +89,7 @@ def test_adapt_runs_on_the_rework_model_with_the_predecessor_named(tmp_path: Pat
     assert adapt.cwd == tmp_path / "tree"
 
 
-def test_a_rework_after_a_rejecting_review_runs_on_the_rework_model_with_the_findings(
+def test_a_rework_after_a_rejecting_review_continues_on_the_sessions_model_with_the_findings(
     tmp_path: Path,
 ) -> None:
     distinct_models()
@@ -101,7 +101,7 @@ def test_a_rework_after_a_rejecting_review_runs_on_the_rework_model_with_the_fin
 
     *_, rework = runs.calls
     assert len(runs.calls) == 3, "the tests, the implementation, the rework"
-    assert rework.model == MODELS.rework
+    assert rework.model == MODELS.implement, "the model the session began on"
     assert "the session registry leaks" in rework.prompt
     assert rework.cwd == tmp_path / "tree"
 

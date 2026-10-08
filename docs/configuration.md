@@ -116,8 +116,10 @@ models:                         # bare aliases, not pinned ids. These are the
                                 # models block overrides them when present,
                                 # and a role left out of both takes the
                                 # runtime's own default (these, on claude_code).
-  implement: opus               # the tests and implementation runs
-  rework: opus                  # reworks, restack conflict resolution, adapt
+  implement: opus               # the tests, implementation and check-fix runs
+  rework: opus                  # reworks, restack conflict resolution, adapt, when they
+                                # start a new session; a continued build session
+                                # keeps its model
   review: opus                  # the first review of a fresh build
   rework_review: fable          # every review of a rework: a different model
                                 # from the one that made the edit

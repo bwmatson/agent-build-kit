@@ -85,11 +85,19 @@
 
 - Every agent node now reaches its agent through one `run`, which takes the model for
   the call, and each completed node leaves its role's session (`build` or `review`) and
-  the model the build began on in the unit's state. Nothing resumes a session yet and no
-  behaviour changes; a unit saved by an earlier release loads with no sessions recorded.
-  `abk.yaml` gains `session_reuse`, per agent role (`build` on, `review` off by default); a
-  role it does not name is off, and `review: true` or an unknown role is refused. Nothing
-  reads it yet.
+  the model the build began on in the unit's state; a unit saved by an earlier release
+  loads with no sessions recorded. `abk.yaml` gains `session_reuse`, per agent role
+  (`build` on, `review` off by default); a role it does not name is off, and `review: true`
+  or an unknown role is refused. With `build` on, `implement`, `fix_checks`, an
+  `adapt` and a rework (of a review round, failing checks or a pull-request comment) now
+  continue the build session with a prompt of only what is new, on the model it began on,
+  instead of starting over with the whole task; the first thing in it is the branch's old and new head when the
+  branch moved. A session that cannot be continued (gone, over its context, a runtime that
+  cannot resume, a head no longer in the worktree) gives a new session with the full prompt,
+  and the run log says why. `review` never continues a build session or an earlier review round's session.
+  `fix_checks` now starts a new session on the model the build began on, not the rework
+  model, and a continued session runs on the model it recorded. The accounting rounds of
+  `adapt` continue the session the port ran in, which stays the recorded build session.
   Agent calls that were labelled `rework` in usage records and in the `role` attribute of
   the `abk.agent.turns` and `abk.agent.tokens` metrics are now labelled `implement`, so a
   dashboard splitting by role loses its `rework` series; `abk report --by model` still

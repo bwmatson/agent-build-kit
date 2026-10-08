@@ -99,7 +99,7 @@ one unless a test injects another:
 
 | Site | Where its request is built |
 |---|---|
-| build, review, rework-review | `pipeline/wiring.py` `build_run` (`build_run_review` wraps it); `runtime=` injects. `build_run` takes the model per call, and the graph nodes pick it: the implement model for `tests` and `implement`, the rework model for `fix_checks`, `rework` and `adapt` |
+| build, review, rework-review | `pipeline/wiring.py` `build_run` (`build_run_review` wraps it); `runtime=` injects. `build_run` takes the model per call, and the graph nodes pick it: the implement model for `tests`, `implement` and `fix_checks` (the model the build session began on), the rework model for `rework` and `adapt`; a node that continues a session runs on the model that session recorded |
 | the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects |
 | conflict resolution | `pipeline/restack.py` `claude_resolver`; `runtime=` injects, and a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
 | the scheduled tracks | `tracks/runner.py` `phase_request`, run by `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |

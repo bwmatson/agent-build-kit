@@ -215,12 +215,18 @@ def build_run(
         cwd: Path,
         model: str,
         resume_session: str = "",
+        follow_up: str = "",
+        resume_runtime: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: AgentCallback | None = None,
     ) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
         if resume_session and not agent.supports_session_resume:
-            raise SessionUnavailable(f"{agent.name} cannot continue a session")
+            raise SessionUnavailable(f"{agent.name} cannot resume a session")
+        if resume_runtime and resume_runtime != agent.name:
+            raise SessionUnavailable(
+                f"the session belongs to {resume_runtime}, and this call runs on {agent.name}"
+            )
         branch = _unit_branch(cwd)
         before = remote_head(cwd, branch) if branch else None
         # A key of its own for this call, where a gateway is configured: its
@@ -247,8 +253,9 @@ def build_run(
 
         gateway = {"gateway": spend} if source is not None else {}
         request = AgentRequest(
-            # A continued session holds the original prompt already.
-            prompt=INTERRUPTED_PROMPT if resume_session else prompt,
+            # A continued session holds the original prompt already: it is told what is new,
+            # or, when it is the node's own interrupted run, that it was interrupted.
+            prompt=(follow_up or INTERRUPTED_PROMPT) if resume_session else prompt,
             resume_session=resume_session,
             on_session=on_session,
             on_result=(
@@ -1399,6 +1406,12 @@ class Tier2Session:
         self._status(self.unit.repo, self.result)
 
 
+def head_reachable(cwd: Path, head: str) -> bool:
+    """Whether the worktree can still read the commit `head`, which a rewrite may have left to
+    be collected."""
+    return not git(cwd, "cat-file", "-e", f"{head}^{{commit}}", check=False).returncode
+
+
 def _head_sha(cwd: Path) -> str:
     return git(cwd, "rev-parse", "HEAD", check=False).stdout.strip()
 
@@ -1861,6 +1874,7 @@ def build_runner(
         repo_config=repo,
         worktree=worktree_in_turn,
         reset_to=reset_to,
+        head_reachable=head_reachable,
         tests_in=tests_in,
         tests_changed=tests_changed,
         may_start=build_may_start(),
