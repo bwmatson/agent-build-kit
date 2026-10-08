@@ -24,6 +24,7 @@
   that used to log and carry on. Retries are logged and
   counted as `abk.forge.retries`, and a host that stays down raises `HostUnavailable`. New
   `ABK_FORGE_DEADLINE_SECONDS` (default 120) bounds the total time spent on one call.
+
 - A unit's agent runs now leave a transcript: one JSON line per event (text, reasoning, tool
   calls and results, usage, stop) in the same shape for Claude Code and ACP, written as the
   agent streams. A reply or thought is one event, plans and permission requests are recorded
