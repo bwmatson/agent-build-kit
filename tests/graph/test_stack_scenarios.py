@@ -108,7 +108,7 @@ def test_the_rework_prompt_allows_pushing_back_and_names_the_pull_request(tmp_pa
         prompts.append(prompt)
         return ""
 
-    build(tmp_path, recorder, run_rework=rework)
+    build(tmp_path, recorder, run=rework)
 
     assert "16" in prompts[0], "it needs the PR number to reply on"
     lowered = prompts[0].lower()
@@ -127,11 +127,15 @@ def test_a_later_review_sees_what_earlier_rounds_asked_and_what_was_done(
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("fill times out on long text"), approving()]
 
-    build(
-        tmp_path,
-        recorder,
-        run_rework=lambda prompt, **session: "Scaled the timeout with text length.",
-    )
+    def run(prompt: str, **session: Any) -> str:
+        answer = recorder.claude(prompt, **session)
+        return (
+            "Scaled the timeout with text length."
+            if recorder.events[-1] == "claude:rework"
+            else answer
+        )
+
+    build(tmp_path, recorder, run=run)
 
     assert "The builder's response" not in recorder.contexts[0], "the first review has no history"
     later = recorder.contexts[1]

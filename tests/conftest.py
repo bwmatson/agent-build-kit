@@ -203,13 +203,14 @@ def scripted_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     """Runs a unit by calling `.run(unit, base=, graph=)` on whatever
     `build_runner` returns when it has one, in place of the unit's thread, so a
     tick test can script what a build does and check what the tick makes of
-    it. A real `UnitRunner` has no such method and runs its thread."""
+    it. A real `UnitRunner` runs its thread."""
     from agent_build_kit.cli import pipeline as cli
+    from agent_build_kit.pipeline.stack_runner import UnitRunner
 
     on_thread = cli.run_unit_thread
 
     def run(inst, runner, unit, *, base, graph, run_log):
-        if hasattr(runner, "run"):
+        if not isinstance(runner, UnitRunner):
             return runner.run(unit, base=base, graph=graph)
         return on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log)
 

@@ -30,10 +30,10 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
 
 
 def timed(recorder: Recorder, clock: FakeClock, *, tests: float = 0, raises: bool = False) -> Any:
-    """A `run_claude` that takes `tests` seconds on the tests node, and fails
+    """A `run` that takes `tests` seconds on the tests node, and fails
     after them when asked."""
 
-    def run_claude(prompt: str, **kwargs: Any) -> str:
+    def run(prompt: str, **kwargs: Any) -> str:
         answer = recorder.claude(prompt, **kwargs)
         if "test tasks" in prompt:
             clock.advance(tests)
@@ -41,7 +41,7 @@ def timed(recorder: Recorder, clock: FakeClock, *, tests: float = 0, raises: boo
                 raise RuntimeError("boom")
         return answer
 
-    return run_claude
+    return run
 
 
 def at(stamp: str) -> datetime:
@@ -55,7 +55,7 @@ def test_a_node_that_runs_for_a_known_time_writes_one_span_naming_it(
 ) -> None:
     recorder = fresh(tmp_path)
 
-    outcome = tick(tmp_path, recorder, run_claude=timed(recorder, clock, tests=7))
+    outcome = tick(tmp_path, recorder, run=timed(recorder, clock, tests=7))
 
     assert outcome.status == RunStatus.OPEN
     (span,) = [s for s in span_lines(workspace) if s["node"] == "tests" and not s.get("waited")]
@@ -76,7 +76,7 @@ def test_a_node_that_raises_still_writes_its_span_with_the_failure_outcome(
     recorder = fresh(tmp_path)
 
     with pytest.raises(RuntimeError, match="boom"):
-        tick(tmp_path, recorder, run_claude=timed(recorder, clock, tests=2, raises=True))
+        tick(tmp_path, recorder, run=timed(recorder, clock, tests=2, raises=True))
 
     (span,) = [s for s in span_lines(workspace) if s["node"] == "tests"]
     assert span["outcome"] == "error"
@@ -135,7 +135,7 @@ def test_a_ledger_that_cannot_be_written_changes_nothing_about_the_run(
 
     paused = tick(tmp_path, recorder, may_start=lambda: (False, WINDOW), resume_at=lambda: START)
     clock.advance(60)
-    outcome = tick(tmp_path, recorder, run_claude=timed(recorder, clock, tests=5))
+    outcome = tick(tmp_path, recorder, run=timed(recorder, clock, tests=5))
 
     assert paused.status == RunStatus.PAUSED
     assert outcome.status == RunStatus.OPEN
@@ -152,7 +152,7 @@ def test_a_node_that_raises_raises_the_same_error_when_the_ledger_cannot_be_writ
     recorder = fresh(tmp_path)
 
     with pytest.raises(RuntimeError, match="boom"):
-        tick(tmp_path, recorder, run_claude=timed(recorder, clock, tests=2, raises=True))
+        tick(tmp_path, recorder, run=timed(recorder, clock, tests=2, raises=True))
 
     assert [line for line in recorder.logged if "ledger" in line.lower()], "and it said so"
 

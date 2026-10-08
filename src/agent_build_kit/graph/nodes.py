@@ -23,7 +23,15 @@ from langgraph.types import interrupt
 from agent_build_kit import forges, telemetry
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
-from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
+from agent_build_kit.graph.state import (
+    AgentSession,
+    EventKind,
+    Node,
+    ResumeEvent,
+    SessionRole,
+    UnitRun,
+    Verdict,
+)
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
@@ -124,6 +132,16 @@ EDITING_NODES = frozenset({Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.REW
 # The nodes a park records and a requeue goes back to, with their inputs as they stood:
 # `prepare` would route on the branch alone and lose what the node was to do.
 PARKABLE = EDITING_NODES | {Node.REVIEW}
+# The conversation each agent node speaks in. A node gets a role of its own only
+# when it must not share context with the others (a reviewer with the author).
+SESSION_ROLES: dict[Node, SessionRole] = {
+    Node.TESTS: SessionRole.BUILD,
+    Node.IMPLEMENT: SessionRole.BUILD,
+    Node.FIX_CHECKS: SessionRole.BUILD,
+    Node.REWORK: SessionRole.BUILD,
+    Node.ADAPT: SessionRole.BUILD,
+    Node.REVIEW: SessionRole.REVIEW,
+}
 # The nodes a thread waits in, for the forge or for a person.
 WAITS = frozenset({Node.AWAIT_REVIEW, Node.HELD})
 
@@ -160,6 +178,8 @@ class BuildPath:
         # Whether a dirty tree is the running node's own, killed mid-agent, and what it holds.
         self._own = False
         self._leftovers: tuple[str, ...] = ()
+        # The last session an agent call of the running node ended in: (id, runtime, model).
+        self._ended: tuple[str, str, str] | None = None
 
     def work(self) -> dict[Node, Callable[[UnitRun], Any]]:
         """Each node's body, wrapped in its span and run off the event loop."""
@@ -212,6 +232,7 @@ class BuildPath:
             outcome = UnitOutcome.ERROR
             with span as current:
                 self._node = node.value
+                self._ended = None
                 context = spans.current_unit.set(
                     (self.unit.id, self.unit.change, node.value, _round(node, state))
                 )
@@ -223,7 +244,12 @@ class BuildPath:
                         UnitOutcome(update["status"]) if update.get("status") else UnitOutcome.OK
                     )
                     # The node is done, and with it the session it was in.
-                    done: Update = {**update, "session_id": "", "running_node": ""}
+                    done: Update = {
+                        **update,
+                        **self._sessions_after(node, state, update),
+                        "session_id": "",
+                        "running_node": "",
+                    }
                     # The waiting node's own return must not clear what a requeue routes on.
                     return done if node is Node.HELD else {**done, "parked_node": ""}
                 except DirtyWorktree as error:
@@ -272,6 +298,25 @@ class BuildPath:
                     )
 
         return run
+
+    def _sessions_after(self, node: Node, state: UnitRun, update: Update) -> Update:
+        """The role's session as the node leaves it, and the model the build began on."""
+        if (role := SESSION_ROLES.get(node)) is None or self._ended is None:
+            return {}
+        session_id, runtime, model = self._ended
+        head = update["head"] if "head" in update else state.head
+        session = AgentSession(
+            session_id=session_id,
+            runtime=runtime,
+            model=model,
+            node=node,
+            round=_round(node, state),
+            head=head,
+        )
+        kept: Update = {"sessions": {**state.sessions, role: session}}
+        if role is SessionRole.BUILD and not state.build_model:
+            kept["build_model"] = model
+        return kept
 
     async def gate(self, node: Node, state: UnitRun) -> None:
         """Interrupt before an agent step the usage guard refuses.
@@ -461,6 +506,8 @@ class BuildPath:
         ) -> None:
             # What the gateway logged for the call's own key is exact; what the
             # agent said is kept beside it, for the report to compare.
+            if result.session_id:
+                self._ended = (result.session_id, runtime, model or "")
             spent = gateway() if gateway else Spend()
             exact = spent.usage is not None
             usage = (spent.usage if exact else result.usage) or Usage()
@@ -609,7 +656,7 @@ class BuildPath:
         # Otherwise a killed run already reset the branch: resetting again would
         # overwrite `keep` with the half-ported tree and lose the old work.
         answer = self.agent(
-            r.run_rework,
+            r.run,
             ADAPT_PROMPT.format(
                 change_dir=change_dir,
                 groups=groups,
@@ -622,6 +669,7 @@ class BuildPath:
             ),
             cwd=tree,
             state=state,
+            model=models().rework,
         )
         r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
         # Only now does the tree hold what the agent carried over.
@@ -635,10 +683,11 @@ class BuildPath:
             if not problems:
                 break
             answer = self.agent(
-                r.run_rework,
+                r.run,
                 ADAPT_FOLLOWUP_PROMPT.format(problems="\n".join(f"- {p}" for p in problems)),
                 cwd=tree,
                 state=state,
+                model=models().rework,
             )
             # Merged over the first answer's: an agent that answers only for the
             # tests just named must not lose the decisions it already gave.
@@ -709,7 +758,7 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            self.agent(r.run_claude, prompt, cwd=tree, state=state)
+            self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
             r.commit(f"test: {unit.title}", cwd=tree)
         return {"head": r.head(tree)}
 
@@ -730,7 +779,7 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            self.agent(r.run_claude, prompt, cwd=tree, state=state)
+            self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
             r.commit(f"feat: {unit.title}", cwd=tree)
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
@@ -777,7 +826,7 @@ class BuildPath:
         if r.head(tree) == state.head:
             self.say(f"fix the failing checks ({models().rework}), round {attempt}")
             self.agent(
-                r.run_rework,
+                r.run,
                 CHECKS_PROMPT.format(
                     change_dir=change_dir,
                     groups=groups,
@@ -786,6 +835,7 @@ class BuildPath:
                 ),
                 cwd=tree,
                 state=state,
+                model=models().rework,
             )
             r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
             if r.head(tree) == state.head:
@@ -906,7 +956,7 @@ class BuildPath:
         elif in_loop:
             self.say(f"address review round {state.review_round} ({models().rework})")
             response = self.agent(
-                r.run_rework,
+                r.run,
                 REVIEW_FEEDBACK_PROMPT.format(
                     change_dir=change_dir,
                     groups=groups,
@@ -916,6 +966,7 @@ class BuildPath:
                 ),
                 cwd=tree,
                 state=state,
+                model=models().rework,
             )
             kept["review_rounds"] = with_response(state.review_rounds, response)
             r.commit(f"fix: {unit.title} (review round {state.review_round})", cwd=tree)
@@ -929,7 +980,7 @@ class BuildPath:
                 # agent, and the poller reports again any it was not given.
                 kept["seen_comments"] = self.covered(stored.pr)
             answer = self.agent(
-                r.run_rework,
+                r.run,
                 CHECKS_PROMPT.format(
                     groups=groups,
                     change_dir=change_dir,
@@ -947,6 +998,7 @@ class BuildPath:
                 ),
                 cwd=tree,
                 state=state,
+                model=models().rework,
             )
             r.commit(f"fix: {unit.title}", cwd=tree)
             if answer and stored.pr and not failed_check:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import types
 import typing
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -53,6 +54,9 @@ def populated(annotation: Any) -> Any:
         )
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return next(iter(annotation))
+    if origin is Mapping:
+        key, value = args
+        return {populated(key): populated(value)}
     if annotation is dict or origin is dict:
         return {"asked": "x"}
     if annotation is bool:
@@ -94,6 +98,15 @@ def test_a_checkpoint_holding_every_state_type_loads_through_the_real_checkpoint
     snapshot = asyncio.run(read())
 
     assert UnitRun.model_validate(snapshot.values) == state
+
+
+def test_a_state_saved_before_sessions_were_recorded_loads_with_none() -> None:
+    older = populated(UnitRun).model_dump(exclude={"sessions", "build_model"})
+
+    loaded = UnitRun.model_validate(older)
+
+    assert loaded.sessions == {}
+    assert loaded.build_model == ""
 
 
 class Unlisted(BaseModel):

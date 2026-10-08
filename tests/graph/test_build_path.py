@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit import config as config_module
+from agent_build_kit.config import models
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.pipeline.restack import HostMoved
@@ -581,7 +582,7 @@ def test_rework_runs_on_the_review_model(tmp_path: Path) -> None:
     recorder.store.set_feedback(unit().id, "make it a StrEnum")
     used: list[str] = []
 
-    build(tmp_path, recorder, run_rework=lambda prompt, **k: used.append("rework-model") or "")
+    build(tmp_path, recorder, run=lambda prompt, *, model, **k: used.append(model) or "")
 
-    assert used == ["rework-model"], "rework goes through its own call, not run_claude"
+    assert used == [models().rework], "rework names its own model in the call"
     assert recorder.prompts == []

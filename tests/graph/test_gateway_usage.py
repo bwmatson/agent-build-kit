@@ -19,7 +19,7 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.gateway_usage import KEY_ENV
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.wiring import build_run_claude
+from agent_build_kit.pipeline.wiring import build_run
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.settings import settings
 from agent_build_kit.usage import Usage
@@ -93,7 +93,7 @@ def build(tmp_path: Path, runtime: Modelled, lines: list[str]) -> RunStatus:
     return tick(
         tmp_path,
         fresh(tmp_path),
-        run_claude=build_run_claude(runtime=runtime, model="m", log=lines.append),
+        run=build_run(runtime=runtime, log=lines.append),
     ).status
 
 

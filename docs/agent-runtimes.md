@@ -80,7 +80,7 @@ Before the seam, each of these built its own `claude` argv:
 
 | Site | What it ran | What was Claude-Code-specific about it |
 |---|---|---|
-| `pipeline/wiring.py` `build_run_claude`/`build_run_review` | build, rework, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
+| `pipeline/wiring.py` `build_run`/`build_run_review` | build, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
 | `pipeline/planner.py` | the planning graph call | plain `claude -p ... --output-format text`; no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
 | `pipeline/restack.py` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
 | `tracks/runner.py` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format json` |
@@ -99,7 +99,7 @@ one unless a test injects another:
 
 | Site | Where its request is built |
 |---|---|
-| build, rework, review, rework-review | `pipeline/wiring.py` `build_run_claude` (`build_run_review` wraps it); `runtime=` injects |
+| build, review, rework-review | `pipeline/wiring.py` `build_run` (`build_run_review` wraps it); `runtime=` injects. `build_run` takes the model per call, and the graph nodes pick it: the implement model for `tests` and `implement`, the rework model for `fix_checks`, `rework` and `adapt` |
 | the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects |
 | conflict resolution | `pipeline/restack.py` `claude_resolver`; `runtime=` injects, and a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
 | the scheduled tracks | `tracks/runner.py` `phase_request`, run by `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |
@@ -429,7 +429,7 @@ denial, not by a list, so there is no list here for this runtime to enforce.
 A policed run — a build, a rework, a review — never pushes: both runtimes
 refuse every `git push` before it runs (`command_policy.check_no_push`; the
 `acp` broker applies it itself, Claude Code's hook is registered with
-`--no-push`). As a backstop, `build_run_claude` reads the unit branch's head
+`--no-push`). As a backstop, `build_run` reads the unit branch's head
 on the remote before and after each agent step and raises `AgentPushed` only
 when both reads succeed, the head moved, and the new head is contained in the
 worktree's own branch (an ancestor of its HEAD). An unreadable remote, or a head pushed from elsewhere

@@ -22,7 +22,7 @@ from agent_build_kit.pipeline.scratch import cap_files, remove_leftovers, run_fo
 from agent_build_kit.pipeline.wiring import (
     REVIEW_PROMPT,
     build_commit,
-    build_run_claude,
+    build_run,
     build_run_review,
     build_tier1,
 )
@@ -30,6 +30,8 @@ from agent_build_kit.pipeline.workspaces import prepare_worktree
 from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
 from tests.factories import git, init_repo, stored_unit
 from tests.runtimes.stand_in import StandInRuntime
+
+MODEL = "m"
 
 BRANCH = "spec/change/1"
 
@@ -121,7 +123,7 @@ def test_a_run_gets_a_folder_of_its_own_in_the_scratch_folder_and_is_told_where(
     seen: list[tuple[Path, list[str]]] = []
     runtime = StandInRuntime(act=record_folders(seen))
 
-    build_run_claude(runtime=runtime)("Implement it.", cwd=tree)
+    build_run(runtime=runtime)("Implement it.", cwd=tree, model=MODEL)
 
     [(folder, found)] = seen
     assert folder.parent.resolve() == scratch(tree).resolve()
@@ -145,7 +147,7 @@ def test_a_run_s_folder_is_removed_when_it_ends_in_an_outcome_that_returns(
         (out_of(request) / "suite.log").write_text("1 passed\n")
 
     try:
-        build_run_claude(runtime=runtime_for(act))("Implement it.", cwd=tree)
+        build_run(runtime=runtime_for(act))("Implement it.", cwd=tree, model=MODEL)
     except RuntimeError:
         pass
 
@@ -166,7 +168,7 @@ def test_a_run_s_folder_is_removed_when_it_is_interrupted_or_rate_limited(
         raise raised("stopped")
 
     with pytest.raises(raised):
-        build_run_claude(runtime=StandInRuntime(act=act))("Implement it.", cwd=tree)
+        build_run(runtime=StandInRuntime(act=act))("Implement it.", cwd=tree, model=MODEL)
 
     [folder] = folders
     assert not folder.exists()
@@ -180,7 +182,9 @@ def test_a_folder_left_by_a_killed_run_is_removed_when_the_unit_next_starts_a_ru
     (killed / "suite.log").write_text("left behind\n")
     seen: list[tuple[Path, list[str]]] = []
 
-    build_run_claude(runtime=StandInRuntime(act=record_folders(seen)))("Implement it.", cwd=tree)
+    build_run(runtime=StandInRuntime(act=record_folders(seen)))(
+        "Implement it.", cwd=tree, model=MODEL
+    )
 
     assert not killed.exists()
     [(_, found)] = seen
@@ -294,7 +298,7 @@ def test_a_run_through_the_build_step_has_its_files_capped_while_it_goes(
         wait_until(lambda: big.stat().st_size <= 2500)
         sizes.append(big.stat().st_size)
 
-    build_run_claude(runtime=StandInRuntime(act=act))("Implement it.", cwd=tree)
+    build_run(runtime=StandInRuntime(act=act))("Implement it.", cwd=tree, model=MODEL)
 
     assert sizes and sizes[0] <= 2500
 
@@ -344,12 +348,12 @@ def test_a_build_a_rework_and_a_review_each_start_in_a_new_empty_folder(tree: Pa
 
         return act
 
-    build = build_run_claude(runtime=StandInRuntime(act=acting("build", True), answer=sentinel))
-    rework = build_run_claude(runtime=StandInRuntime(act=acting("rework", True)), role="rework")
+    build = build_run(runtime=StandInRuntime(act=acting("build", True), answer=sentinel))
+    rework = build_run(runtime=StandInRuntime(act=acting("rework", True)))
     review = build_run_review(runtime=StandInRuntime(act=acting("review", False)))
 
-    build("Implement it.", cwd=tree)
-    rework("Fix it.", cwd=tree)
+    build("Implement it.", cwd=tree, model=MODEL)
+    rework("Fix it.", cwd=tree, model=MODEL)
     review(cwd=tree)
 
     folders = {role: folder for role, (folder, _) in runs.items()}

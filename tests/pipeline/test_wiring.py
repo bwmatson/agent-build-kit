@@ -33,7 +33,7 @@ from agent_build_kit.pipeline.wiring import (
     build_commit,
     build_open_pr,
     build_push,
-    build_run_claude,
+    build_run,
     build_run_review,
     build_tier1,
     build_upstream_incomplete,
@@ -43,6 +43,8 @@ from agent_build_kit.pipeline.wiring import (
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.forges.stand_in import StandInForge, lookup
+
+MODEL = "m"
 
 
 class Recorder:
@@ -61,7 +63,7 @@ def test_a_claude_run_carries_the_policy_hook(tmp_path: Path) -> None:
     own PR or force-push over someone's commit."""
     recorder = Recorder()
 
-    build_run_claude(run=recorder)("do the thing", cwd=tmp_path)
+    build_run(run=recorder)("do the thing", cwd=tmp_path, model=MODEL)
 
     command = " ".join(recorder.commands[0])
     assert "--settings" in command
@@ -77,7 +79,7 @@ def test_a_claude_run_streams_and_answers_with_the_result_text(tmp_path: Path) -
         '"result": "{\\"approved\\": true}"}\n'
     )
 
-    answer = build_run_claude(run=recorder)("do the thing", cwd=tmp_path)
+    answer = build_run(run=recorder)("do the thing", cwd=tmp_path, model=MODEL)
 
     assert "stream-json" in recorder.commands[0]
     assert answer == '{"approved": true}'
@@ -91,7 +93,7 @@ def test_a_claude_run_carries_no_dollar_budget(tmp_path: Path) -> None:
     guessed too low."""
     recorder = Recorder()
 
-    build_run_claude(run=recorder)("do the thing", cwd=tmp_path)
+    build_run(run=recorder)("do the thing", cwd=tmp_path, model=MODEL)
 
     assert "--max-budget-usd" not in recorder.commands[0]
 
@@ -101,7 +103,7 @@ def test_a_claude_run_cannot_merge_even_if_the_hook_fails(tmp_path: Path) -> Non
     a broken hook isn't the only thing standing between the agent and a merge."""
     recorder = Recorder()
 
-    build_run_claude(run=recorder)("do the thing", cwd=tmp_path)
+    build_run(run=recorder)("do the thing", cwd=tmp_path, model=MODEL)
 
     command = " ".join(recorder.commands[0])
     assert "gh pr merge" in command
@@ -446,7 +448,7 @@ def test_a_claude_run_can_read_the_planning_repo(tmp_path: Path) -> None:
     the change at all — which is how the first pilot run produced nothing."""
     recorder = Recorder()
 
-    build_run_claude(run=recorder, planning_repo=tmp_path / "meta")("do it", cwd=tmp_path)
+    build_run(run=recorder, planning_repo=tmp_path / "meta")("do it", cwd=tmp_path, model=MODEL)
 
     command = recorder.commands[0]
     assert "--add-dir" in command
@@ -631,7 +633,7 @@ def test_a_claude_run_sees_the_specs_not_the_whole_planning_repo(tmp_path: Path)
     recorder = Recorder()
     planning = tmp_path / "meta"
 
-    build_run_claude(run=recorder, planning_repo=planning)("do it", cwd=tmp_path)
+    build_run(run=recorder, planning_repo=planning)("do it", cwd=tmp_path, model=MODEL)
 
     exposed = recorder.commands[0][recorder.commands[0].index("--add-dir") + 1]
     assert exposed == str(planning / "openspec")
@@ -721,7 +723,7 @@ def test_build_and_rework_run_on_the_same_model() -> None:
 def test_the_build_runs_on_opus(tmp_path: Path) -> None:
     recorder = Recorder()
 
-    build_run_claude(run=recorder)("do it", cwd=tmp_path)
+    build_run(run=recorder)("do it", cwd=tmp_path, model=models().implement)
 
     command = recorder.commands[0]
     assert command[command.index("--model") + 1] == "opus"
@@ -1386,7 +1388,7 @@ def test_a_rejected_commit_goes_back_to_the_build_run_s_own_agent(
         unit(repo="app"), store=UnitStore(tmp_path / "units.json"), installation=inst
     )
 
-    assert fixes == [runner.run_claude]
+    assert fixes == [runner.run]
 
 
 def test_the_runner_releases_and_removes_a_satisfied_unit_for_real(tmp_path: Path) -> None:

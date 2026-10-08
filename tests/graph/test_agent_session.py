@@ -3,7 +3,7 @@ node killed mid-agent resumes that session on the next tick, or falls back to a
 new one (docs/unit-graph.md, Session capture and resume).
 
 The agent is a runtime behind the `AgentRuntime` seam, reached through the real
-`build_run_claude`: what the nodes pass it and what it reports are what is
+`build_run`: what the nodes pass it and what it reports are what is
 tested, not a stand-in for either.
 """
 
@@ -17,7 +17,7 @@ import pytest
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.wiring import build_run_claude, build_run_review
+from agent_build_kit.pipeline.wiring import build_run, build_run_review
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import SessionUnavailable
 from tests.factories import unit
@@ -66,7 +66,7 @@ def logged(tmp_path: Path) -> str:
 def killed_in_the_tests_step(tmp_path: Path, runtime: Sessions):
     recorder = fresh(tmp_path)
     with pytest.raises(Killed):
-        tick(tmp_path, recorder, run_claude=build_run_claude(runtime=runtime))
+        tick(tmp_path, recorder, run=build_run(runtime=runtime))
     return recorder
 
 
@@ -89,7 +89,7 @@ def test_a_node_killed_mid_agent_resumes_its_session_with_the_interruption_note(
     runtime = Sessions()
     recorder = killed_in_the_tests_step(tmp_path, runtime)
 
-    outcome = tick(tmp_path, recorder, run_claude=build_run_claude(runtime=runtime))
+    outcome = tick(tmp_path, recorder, run=build_run(runtime=runtime))
 
     assert outcome.status == RunStatus.OPEN
     killed, resumed, implementation = runtime.requests
@@ -124,7 +124,7 @@ def test_a_session_id_is_cleared_when_its_node_completes(tmp_path: Path) -> None
     runtime = Sessions()
     recorder = killed_in_the_tests_step(tmp_path, runtime)
 
-    tick(tmp_path, recorder, run_claude=build_run_claude(runtime=runtime))
+    tick(tmp_path, recorder, run=build_run(runtime=runtime))
 
     finished = position(tmp_path)
     assert finished.state is not None
@@ -140,7 +140,7 @@ def test_a_runtime_without_session_resume_runs_the_node_from_its_start_and_says_
     tick(
         tmp_path,
         recorder,
-        run_claude=build_run_claude(runtime=runtime),
+        run=build_run(runtime=runtime),
         run_log=run_log(tmp_path),
     )
 
@@ -163,7 +163,7 @@ def test_a_session_the_runtime_cannot_resume_falls_back_to_a_new_one_and_says_so
     outcome = tick(
         tmp_path,
         recorder,
-        run_claude=build_run_claude(runtime=runtime),
+        run=build_run(runtime=runtime),
         run_log=run_log(tmp_path),
     )
 

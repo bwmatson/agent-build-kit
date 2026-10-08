@@ -13,8 +13,11 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 # The (module, name) of every type the state holds, the only ones a
 # checkpoint may deserialise.
 ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
+    ("agent_build_kit.graph.state", "AgentSession"),
     ("agent_build_kit.graph.state", "EventKind"),
+    ("agent_build_kit.graph.state", "Node"),
     ("agent_build_kit.graph.state", "ResumeEvent"),
+    ("agent_build_kit.graph.state", "SessionRole"),
     ("agent_build_kit.graph.state", "UnitRun"),
     ("agent_build_kit.graph.state", "Verdict"),
     ("agent_build_kit.pipeline.stack_runner", "Restacked"),

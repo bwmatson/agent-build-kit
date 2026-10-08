@@ -199,12 +199,12 @@ are the reference for each condition. The nodes:
 | Node | Does | Wraps (from `wiring.build_runner`) |
 |---|---|---|
 | `prepare` | Worktree, fetch, move the branch onto its base; picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
-| `tests` | The tests-first commit | `run_claude`, `commit` |
-| `implement` | The implementation commit; nothing new against an exhausted window is a pause, not a failure | `run_claude`, `commit`, `may_start` |
+| `tests` | The tests-first commit | `run`, `commit` |
+| `implement` | The implementation commit; nothing new against an exhausted window is a pause, not a failure | `run`, `commit`, `may_start` |
 | `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
-| `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run_rework`, `commit`, `may_start` |
+| `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
-| `rework` | Addresses review or forge feedback and records the builder's replies | `run_rework`, `commit` |
+| `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
 | `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
 | `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |

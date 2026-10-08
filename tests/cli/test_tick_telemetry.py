@@ -79,8 +79,7 @@ class Ticks:
 
         claude, review = self.recorder.claude, self.recorder.review
         self.options.update(
-            run_claude=through_adapter("implement", claude),
-            run_rework=through_adapter("rework", claude),
+            run=through_adapter("implement", claude),
             run_review=through_adapter("review", review),
             run_rework_review=through_adapter("rework_review", review),
         )
@@ -175,7 +174,7 @@ def test_a_unit_reviewed_twice_is_traced_from_the_tick_to_each_agent_call(
         assert [agent.name for agent in agents] == ["agent"]
         assert agents[0].attributes["role"] == "review"
     rework = next(span for span in in_run if span.attributes["step"] == "rework")
-    assert [agent.attributes["role"] for agent in below(spans, rework)] == ["rework"]
+    assert [agent.attributes["role"] for agent in below(spans, rework)] == ["implement"]
 
     agents = [span for span in spans if span.name == "agent"]
     assert agents, "no agent span"
@@ -194,7 +193,7 @@ def test_the_units_of_a_tick_built_in_parallel_threads_share_the_ticks_trace(
     ticks.agents()
     both = threading.Barrier(2, timeout=30)
     waited: set[str] = set()
-    implement = ticks.options["run_claude"]
+    implement = ticks.options["run"]
 
     def meet(*args: Any, **kwargs: Any) -> Any:
         # Each unit's first agent call waits for the other's: they run at once.
@@ -203,7 +202,7 @@ def test_the_units_of_a_tick_built_in_parallel_threads_share_the_ticks_trace(
             both.wait()
         return implement(*args, **kwargs)
 
-    ticks.options["run_claude"] = meet
+    ticks.options["run"] = meet
 
     assert ticks.tick() == 0
 
@@ -414,7 +413,7 @@ def test_a_unit_built_reviewed_twice_and_pushed_records_the_tables_instruments(
     turns = exported.metric("abk.agent.turns")
     assert turns and all(set(point.attributes) == {"role", "model"} for point in turns)
     assert {point.attributes["model"] for point in turns} == {MODEL}
-    assert {"implement", "review", "rework"} <= {point.attributes["role"] for point in turns}
+    assert {"implement", "review"} <= {point.attributes["role"] for point in turns}
 
     tokens = exported.metric("abk.agent.tokens")
     assert all(set(point.attributes) == {"role", "model", "kind"} for point in tokens)
@@ -450,7 +449,7 @@ def test_a_run_refused_by_the_agents_rate_limit_counts_a_rate_limit_pause(
     def refused(*args: Any, **kwargs: Any) -> str:
         raise RateLimited("usage limit reached", resets_at=datetime.now(UTC) + timedelta(hours=2))
 
-    ticks.options["run_claude"] = refused
+    ticks.options["run"] = refused
 
     ticks.tick()
 
@@ -470,7 +469,7 @@ def test_a_step_refused_by_the_agents_rate_limit_is_not_an_error(
             return claude(*args, **kwargs)
         raise RateLimited("usage limit reached", resets_at=datetime.now(UTC) + timedelta(hours=2))
 
-    ticks.options["run_claude"] = refused
+    ticks.options["run"] = refused
 
     ticks.tick()
 

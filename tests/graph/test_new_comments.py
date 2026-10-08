@@ -104,7 +104,7 @@ class Scene:
         )
         self.overrides: dict[str, Any] = dict(
             tier=tier,
-            run_rework=self.agent,
+            run=self.agent,
             fetch_comments=build_fetch_comments(
                 for_repo=lookup(self.host), own=lambda repo, pr: set(own)
             ),
@@ -137,7 +137,9 @@ class Scene:
 
     def agent(self, prompt: str, **kwargs: Any) -> str:
         """Answers each `[comment N]` it was given, then the host gets what arrives."""
-        self.recorder.claude(prompt, **kwargs)
+        answer = self.recorder.claude(prompt, **kwargs)
+        if self.recorder.events[-1] in ("claude:tests", "claude:impl"):
+            return answer  # the build, which this scene does not script
         if self.runs < len(self.arrives):
             self.host.notes = [*self.host.notes, *self.arrives[self.runs]]
             self.review_ids_of(self.arrives[self.runs])
@@ -287,7 +289,7 @@ def test_a_failing_second_read_is_logged_and_the_work_pushes(tmp_path: Path) -> 
         scene.host.failing = True
         return answer
 
-    scene.overrides["run_rework"] = failing_after_the_agent
+    scene.overrides["run"] = failing_after_the_agent
 
     scene.rework()
 
@@ -381,7 +383,7 @@ def test_a_rework_after_new_comments_cut_short_once_the_agent_committed_does_not
             scene.recorder.kill_after = "commit:fix"
         return answer
 
-    scene.overrides["run_rework"] = agent
+    scene.overrides["run"] = agent
     event = ResumeEvent(
         kind=EventKind.REWORK,
         reason="comment",

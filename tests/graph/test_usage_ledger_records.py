@@ -2,7 +2,7 @@
 `<state_dir>/usage-ledger.jsonl`, naming where it was made and what the runtime
 reported; and nothing the ledger does can fail a run (spec: agent-usage-capture).
 
-The agent is the real Claude Code runtime behind `build_run_claude` and
+The agent is the real Claude Code runtime behind `build_run` and
 `build_run_review`, with the `claude` process faked at its boundary.
 """
 
@@ -15,10 +15,11 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.config import models
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.usage_ledger import read_ledger
-from agent_build_kit.pipeline.wiring import build_run_claude, build_run_review
+from agent_build_kit.pipeline.wiring import build_run, build_run_review
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.factories import unit
@@ -27,7 +28,6 @@ from tests.runner_fakes import Killed, approving
 from tests.runtimes.claude_cli import SESSION, FakeClaude, finished_build
 from tests.runtimes.stand_in import StandInRuntime
 
-BUILD_MODEL = "build-model"
 REVIEW_MODEL = "review-model"
 
 
@@ -75,7 +75,7 @@ def agents(tmp_path: Path, *, build=None, review=None) -> dict:
     build = build or FakeClaude(stdout=finished_build(tmp_path, "done"))
     review = review or FakeClaude(stdout=finished_build(tmp_path, approving()))
     return dict(
-        run_claude=build_run_claude(runtime=ClaudeCodeRuntime(execute=build), model=BUILD_MODEL),
+        run=build_run(runtime=ClaudeCodeRuntime(execute=build)),
         run_review=build_run_review(runtime=ClaudeCodeRuntime(execute=review), model=REVIEW_MODEL),
     )
 
@@ -114,7 +114,7 @@ def test_each_agent_call_of_the_unit_leaves_one_record_naming_where_it_was_made(
     assert (implement["round"], implement["role"], implement["model"]) == (
         0,
         "implement",
-        BUILD_MODEL,
+        models().implement,
     )
 
 
@@ -178,9 +178,7 @@ def test_a_runtime_that_reports_nothing_leaves_a_record_of_none_with_the_figures
 ) -> None:
     runtime = Silent(answer="done")
 
-    outcome = tick(
-        tmp_path, fresh(tmp_path), run_claude=build_run_claude(runtime=runtime, model="m")
-    )
+    outcome = tick(tmp_path, fresh(tmp_path), run=build_run(runtime=runtime))
 
     assert outcome.status == RunStatus.OPEN
     records = [r for r in ledger_lines(workspace) if r["node"] in ("tests", "implement")]
@@ -220,12 +218,12 @@ def test_a_node_killed_and_resumed_leaves_one_record_marked_resumed(
 ) -> None:
     runtime = KilledInImplement()
     recorder = fresh(tmp_path)
-    run_claude = build_run_claude(runtime=runtime, model="m")
+    run_build = build_run(runtime=runtime)
     with pytest.raises(Killed):
-        tick(tmp_path, recorder, run_claude=run_claude)
+        tick(tmp_path, recorder, run=run_build)
     assert [r["node"] for r in ledger_lines(workspace)] == ["tests"], "a killed call writes none"
 
-    tick(tmp_path, recorder, run_claude=run_claude)
+    tick(tmp_path, recorder, run=run_build)
 
     records = ledger_lines(workspace)
     (tests,) = [r for r in records if r["node"] == "tests"]
