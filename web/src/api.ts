@@ -72,9 +72,17 @@ export interface Metric {
   series: MetricSeries[];
 }
 
+export interface Trace {
+  id: string;
+  name: string;
+  start: string;
+  duration_ms: number;
+}
+
 export interface MetricsAnswer {
   source: "prometheus" | "local";
   dashboard: string | null;
+  traces: { source: "tempo" | "local"; items: Trace[] };
   metrics: Metric[];
 }
 

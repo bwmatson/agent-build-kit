@@ -9,6 +9,7 @@ function metrics(source: string) {
   return {
     source,
     dashboard: null,
+    traces: { source: "local", items: [] },
     metrics: [
       {
         name: "abk.agent.cost",
@@ -64,5 +65,44 @@ describe("the metrics page", () => {
     open();
 
     expect(await screen.findByTestId("metric-source")).toHaveTextContent(/local files/i);
+  });
+
+  it("labels each series of a metric", async () => {
+    recordedApi().answer("/api/metrics", {
+      ...metrics("prometheus"),
+      metrics: [
+        {
+          name: "abk.agent.tokens",
+          type: "counter",
+          attributes: ["kind"],
+          series: [
+            { labels: { kind: "input" }, points: [[1767261600, 10]] },
+            { labels: { kind: "output" }, points: [[1767261600, 5]] },
+          ],
+        },
+      ],
+    });
+    open();
+
+    const found = await screen.findByText("abk.agent.tokens");
+    const entry = found.closest("[data-metric]") as HTMLElement;
+    expect(within(entry).getByText("kind=input")).toBeInTheDocument();
+    expect(within(entry).getByText("kind=output")).toBeInTheDocument();
+  });
+
+  it("lists the recent traces and says which store listed them", async () => {
+    recordedApi().answer("/api/metrics", {
+      ...metrics("prometheus"),
+      traces: {
+        source: "tempo",
+        items: [
+          { id: "abc", name: "abk.tick", start: "2026-01-01T10:00:00+00:00", duration_ms: 42 },
+        ],
+      },
+    });
+    open();
+
+    expect(await screen.findByTestId("trace-source")).toHaveTextContent(/tempo/i);
+    expect(screen.getByText("abk.tick")).toBeInTheDocument();
   });
 });

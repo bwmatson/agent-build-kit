@@ -14,8 +14,12 @@
   name with a non-zero exit. It also serves a web UI: the pipeline overview, a page for each unit (state, cause,
   holder, note, review round, history, logs that follow a live run, usage) and the usage report. Build it
   once with `npm install --prefix web && npm run --prefix web build`; until then the pages say so.
-  A metrics page lists every metric the code emits with its type, attributes and a chart,
-  and says whether Prometheus (`ABK_PROMETHEUS_URL`) or local files drew the charts. The
+  A metrics page lists every metric the code emits with its type, attributes and a chart
+  (labelled series, axes and values), and says whether Prometheus (`ABK_PROMETHEUS_URL`) or
+  local files drew the charts; without Prometheus, cost, tokens, turns, node and wait
+  durations and units by state are derived from the usage ledger and the unit store. It also
+  lists recent traces from Tempo (`ABK_TEMPO_URL`), or from the ledger's spans when Tempo
+  does not answer, and links to the pipeline dashboard in Grafana. The
   shipped dashboard now sums samples over each window instead of taking rates, which
   undercounted the exporter's delta data.
 

@@ -1,29 +1,53 @@
-import type { Metric, MetricSeries, MetricsAnswer } from "./api";
+import { Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+
+import type { Metric, MetricSeries, MetricsAnswer, Trace } from "./api";
 import { useApi } from "./useApi";
 
-const WIDTH = 160;
-const HEIGHT = 32;
+const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777"];
+const WIDTH = 480;
+const HEIGHT = 200;
+
+function label(series: MetricSeries): string {
+  const pairs = Object.entries(series.labels).map(([k, v]) => `${k}=${v}`);
+  return pairs.length === 0 ? "all" : pairs.join(", ");
+}
+
+function when(t: number): string {
+  return new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ");
+}
 
 function Chart({ series }: { series: MetricSeries[] }) {
-  const points = series.flatMap((s) => s.points);
-  if (points.length === 0) return <span>no data</span>;
-  const times = points.map(([t]) => t);
-  const values = points.map(([, v]) => v);
-  const [t0, t1] = [Math.min(...times), Math.max(...times)];
-  const top = Math.max(...values, 0);
-  const x = (t: number) => (t1 === t0 ? WIDTH / 2 : ((t - t0) / (t1 - t0)) * WIDTH);
-  const y = (v: number) => HEIGHT - (top === 0 ? 0 : (v / top) * HEIGHT);
+  if (series.every((s) => s.points.length === 0)) return <span>no data</span>;
+  const names = series.map(label);
+  const rows = new Map<number, Record<string, number>>();
+  series.forEach((s, i) => {
+    for (const [t, v] of s.points) rows.set(t, { ...rows.get(t), t, [names[i]]: v });
+  });
+  const data = [...rows.values()].sort((a, b) => a.t - b.t);
   return (
-    <svg width={WIDTH} height={HEIGHT} role="img" aria-label="chart">
-      {series.map((s) => (
-        <polyline
-          key={JSON.stringify(s.labels)}
-          fill="none"
-          stroke="currentColor"
-          points={s.points.map(([t, v]) => `${x(t)},${y(v)}`).join(" ")}
-        />
-      ))}
-    </svg>
+    <div>
+      <LineChart width={WIDTH} height={HEIGHT} data={data}>
+        <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} tickFormatter={when} />
+        <YAxis width={60} />
+        <Tooltip labelFormatter={(t) => when(Number(t))} />
+        {names.map((name, i) => (
+          <Line
+            key={name}
+            dataKey={name}
+            stroke={COLORS[i % COLORS.length]}
+            connectNulls
+            isAnimationActive={false}
+          />
+        ))}
+      </LineChart>
+      <ul aria-label="legend">
+        {names.map((name, i) => (
+          <li key={name}>
+            <span style={{ color: COLORS[i % COLORS.length] }}>■</span> {name}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -39,12 +63,31 @@ function Entry({ metric }: { metric: Metric }) {
   );
 }
 
+function Traces({ source, items }: { source: "tempo" | "local"; items: Trace[] }) {
+  return (
+    <section>
+      <p data-testid="trace-source">
+        {source === "tempo"
+          ? "Recent traces from Tempo."
+          : "Recent traces from local files (Tempo is unset or not answering)."}
+      </p>
+      <ul>
+        {items.map((trace, i) => (
+          <li key={`${trace.id}${trace.start}${i}`}>
+            <strong>{trace.name}</strong> <time>{trace.start}</time> {trace.duration_ms} ms
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Every catalogued metric with its chart, and which source drew the charts. */
 export function MetricsPage() {
   const answer = useApi<MetricsAnswer>("/api/metrics");
   if (answer === null) return null;
   if ("error" in answer) return <p role="alert">{answer.error}</p>;
-  const { source, dashboard, metrics } = answer.data;
+  const { source, dashboard, metrics, traces } = answer.data;
   return (
     <>
       <p data-testid="metric-source">
@@ -56,6 +99,7 @@ export function MetricsPage() {
           </>
         ) : null}
       </p>
+      <Traces source={traces.source} items={traces.items} />
       <ul>
         {metrics.map((metric) => (
           <Entry key={metric.name} metric={metric} />

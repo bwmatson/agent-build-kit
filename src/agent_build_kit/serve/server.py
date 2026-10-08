@@ -32,7 +32,7 @@ from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
-from agent_build_kit.serve.metrics import metrics_page
+from agent_build_kit.serve.metrics import dashboard_uid, metrics_page
 from agent_build_kit.settings import settings
 
 HOST = "127.0.0.1"
@@ -292,10 +292,14 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
 
     @app.get("/api/metrics")
     def metrics() -> dict[str, Any]:
+        grafana = settings.grafana_url.rstrip("/")
         return metrics_page(
             settings.prometheus_url,
+            settings.tempo_url,
             installation.state_dir / LEDGER_NAME,
-            settings.grafana_url or None,
+            _read_units(units_path),
+            f"{grafana}/d/{dashboard_uid()}" if grafana else None,
+            settings.otel_service_name,
         )
 
     @app.get("/{path:path}", include_in_schema=False)

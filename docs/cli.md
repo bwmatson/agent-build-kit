@@ -117,7 +117,7 @@ none of them. A unit is addressed as `change/N`.
 | `/api/units/<change>/<n>/logs` | the unit's runs: name, step, start (UTC) and whether each is live |
 | `/api/units/<change>/<n>/logs/<name>?offset=<bytes>` | the run's lines after the offset with their clock in UTC, the offset to ask from next, `live`, and the `outcome` once it has ended; a run removed meanwhile answers empty with `missing` |
 | `/api/usage?by=&since=&change=&unit=&include_estimates=` | the JSON `abk report --by <grouping> --json` prints |
-| `/api/metrics` | every metric the code emits (name, type, attributes) with a chart's series, `source` (`prometheus` or `local`) and the Grafana URL when set |
+| `/api/metrics` | every metric the code emits (name, type, attributes) with a chart's series, `source` (`prometheus` or `local`), the recent `traces` with their `source` (`tempo` or `local`), and `dashboard`, the pipeline dashboard's URL in Grafana (`<ABK_GRAFANA_URL>/d/abk-pipeline`) when set |
 
 Any other path answers the built web UI, so `/units/<change>/<n>` loads on a direct visit;
 an unknown `/api/...` path stays a JSON 404. The UI is built from `web/` (see below) and
@@ -139,9 +139,12 @@ The pages:
 - **Metrics** (`/metrics`): every metric in a catalogue read from the code's telemetry
   calls, so a new one appears without an edit, each with its type, attributes and a chart.
   A line says whether Prometheus (`ABK_PROMETHEUS_URL`, summing samples over each window) or
-  local files drew the charts; with no URL, or Prometheus not answering, the local usage
-  ledger gives cost, tokens and turns and the other charts are empty. `ABK_TEMPO_URL` is
-  read but not yet queried.
+  local files drew the charts; with no URL, or Prometheus not answering, they are derived
+  from the usage ledger (cost, tokens, turns, and node and wait durations from its span
+  lines) and the unit store (units by state). A second list shows the pipeline's recent
+  traces from Tempo's search (`ABK_TEMPO_URL`), or, with Tempo unset or not answering, from
+  the ledger's span lines, and says which. The `Dashboard` link opens the pipeline dashboard
+  in the Grafana at `ABK_GRAFANA_URL`.
 
 The front end lives in `web/` and is checked with `npm run --prefix web check` (prettier,
 eslint with typescript-eslint and the react-hooks rules, `tsc`, vitest); `poe format` runs
