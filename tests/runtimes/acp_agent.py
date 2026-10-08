@@ -247,7 +247,9 @@ class FakeAgent:
         offer: list[str] | None = None,
         usage: str | None = None,
         cost: str | None = None,
+        reply: str | None = None,
     ) -> None:
+        self._reply = reply
         self._usage = usage
         self._cost = cost
         self._record = record
@@ -361,7 +363,7 @@ class FakeAgent:
                     cost=Cost(amount=COST_AMOUNT, currency=self._cost),
                 )
             )
-        for chunk in PREAMBLE_CHUNKS:
+        for chunk in self._preamble():
             await send(update_agent_message_text(chunk))
         if self._fail == "exit":
             print(STDERR_LINE, file=sys.stderr, flush=True)
@@ -408,6 +410,12 @@ class FakeAgent:
         for chunk in ANSWER_CHUNKS:
             await send(update_agent_message_text(chunk))
         return self._response()
+
+    def _preamble(self) -> tuple[str, ...]:
+        """The words before the work: `reply`, a line to a chunk, when a test gave one."""
+        if self._reply is None:
+            return PREAMBLE_CHUNKS
+        return tuple(self._reply.splitlines(keepends=True))
 
     def _response(self, stop: StopReason | None = None) -> PromptResponse:
         """The prompt's answer, carrying the usage `--usage` asks for. Built
@@ -770,6 +778,7 @@ def command(
     offer: list[str] | None = None,
     usage: str | None = None,
     cost: str | None = None,
+    reply: str | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -798,6 +807,8 @@ def command(
         argv += ["--usage", usage]
     if cost:
         argv += ["--cost", cost]
+    if reply is not None:
+        argv += ["--reply", reply]
     return argv
 
 
@@ -816,6 +827,7 @@ def use_agent(
     offer: list[str] | None = None,
     usage: str | None = None,
     cost: str | None = None,
+    reply: str | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -834,6 +846,7 @@ def use_agent(
             offer=offer,
             usage=usage,
             cost=cost,
+            reply=reply,
         )
     )
 
@@ -873,6 +886,7 @@ def main() -> None:
     parser.add_argument("--offer")
     parser.add_argument("--usage", choices=sorted(USAGE_PAYLOADS))
     parser.add_argument("--cost", choices=["USD", "EUR"])
+    parser.add_argument("--reply")
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -888,6 +902,7 @@ def main() -> None:
         offer=args.offer.split(",") if args.offer else None,
         usage=args.usage,
         cost=args.cost,
+        reply=args.reply,
     )
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
     # Only the methods these tests drive: the rest answer "method not found".
