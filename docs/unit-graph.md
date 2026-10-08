@@ -407,8 +407,23 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   caught (pushing a commit the remote already has changes nothing), and
   `open_pr` runs again whole: the real call finds the branch's pull request and
   updates it instead of opening a second. A killed agent process leaves uncommitted work in the worktree; nothing
-  commits it as `wip:`, and the re-run carries on from the tree as it is (a node
-  that has a recorded session continues it, see Session capture and resume).
+  commits it as `wip:`. Each agent node records its name in the thread state
+  (`running_node`) before its agent starts and clears it when it completes, so a
+  kill leaves it behind even when the runtime named no session. A dirty tree at
+  the node named there, if it is one that edits (tests, implement, fix checks,
+  rework, adapt; never review), with no live process on the branch, is that node's own:
+  the re-run carries on over it. A recorded session is continued with the
+  interruption prompt and nothing more; a new session (none recorded, or the
+  runtime cannot continue it) is told in its prompt which paths are uncommitted
+  work from an interrupted run, to be reviewed and finished. The node's commit
+  includes them. Any other dirty tree (no record, another node's, a node that
+  runs no agent, a hand edit) holds the unit with the cause `dirty_worktree`,
+  the paths and a request to commit or remove them; nothing is cleaned, and
+  `abk requeue` after the tree is clean resumes a park at an agent step at that step
+  (`parked_node` in the thread state), with that node's inputs as they stood, a
+  rework's feedback included; a park anywhere else, and `abk requeue --restart`,
+  begin again at `prepare`. A requeue while the tree is still dirty leaves the unit
+  parked.
 - **A killed run is resumed, not requeued.** The thread's next node is the
   one that was running, and the next tick carries on from it with no new
   input. The unit stays `running`, and the tick resumes it unless a live

@@ -264,6 +264,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             )
 
     for unit in units:
+        if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
+            log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
         if unit.state == IN_REVIEW:
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))

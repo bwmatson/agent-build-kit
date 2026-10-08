@@ -1037,7 +1037,7 @@ def test_a_killed_claude_run_is_an_interruption_not_a_failure(
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Killed())
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
-    assert store.get("add-marker/1").state == "running", "left for reclaim_stale"
+    assert store.get("add-marker/1").state == "running", "left for the next tick to resume"
 
 
 def _needs_tasks(root: Path) -> None:

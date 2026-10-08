@@ -188,7 +188,7 @@ class Run:
         self.store.record_approval(unit().id, self.before)
         self.store.set_state(unit().id, PLANNED)
         runner = make_runner(self.store, self.recorder, tmp_path)
-        runner.worktree = lambda u, base: self.repos.tree
+        runner.worktree = lambda unit, base, allow_dirty=False: self.repos.tree
         runner.branch_commits = branch_commits
         runner.head = lambda tree: git(tree, "rev-parse", "HEAD")
         runner.restack_onto = mover(self.store, self.resolver)

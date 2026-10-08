@@ -66,7 +66,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.scratch import run_folder
 from agent_build_kit.pipeline.shell import git, git_out
-from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
+from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     Tier2Result,
@@ -1153,7 +1153,7 @@ def build_worktree(
     *,
     root: Path,
     prepare: Callable[..., Path] | None = None,
-) -> Callable[[Unit, str], Path]:
+) -> Worktree:
     """Give a unit its own checkout of the repo it lands in.
 
     Units run in parallel and land in different repos, so a shared checkout
@@ -1161,18 +1161,19 @@ def build_worktree(
     refused here rather than three steps later, with a worktree half built.
     """
     prepare = prepare or (
-        lambda repo, branch, base, tree_root: prepare_worktree(
-            repo, branch, base=base, root=tree_root
+        lambda repo, branch, base, tree_root, **options: prepare_worktree(
+            repo, branch, base=base, root=tree_root, **options
         )
     )
 
-    def worktree(unit: Unit, base: str) -> Path:
+    def worktree(unit: Unit, base: str, allow_dirty: bool = False) -> Path:
         if unit.repo not in repos:
             raise KeyError(
                 f"{unit.id} targets {unit.repo}, which has no checkout configured "
                 f"(known: {', '.join(sorted(repos)) or 'none'})"
             )
-        return prepare(repos[unit.repo], branch_name(unit), base, root)
+        options = {"allow_dirty": True} if allow_dirty else {}
+        return prepare(repos[unit.repo], branch_name(unit), base, root, **options)
 
     return worktree
 

@@ -31,6 +31,7 @@ from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -90,6 +91,12 @@ NO_REWRITE_NOTE = """\
 Do not rewrite history either: no amend, rebase, squash, reset or force. Your
 work is new commits on top of what is already here, and the commits that exist
 stay as they are.
+"""
+
+LEFTOVERS_NOTE = """\
+The worktree holds uncommitted work from an interrupted run of this same step:
+{paths}. Review it with `git status` and `git diff` first, keep what is right,
+and finish the task from there.
 """
 
 TESTS_PROMPT = (
@@ -971,6 +978,13 @@ class Comment(Frozen):
     own: bool = False  # the pipeline's own post, which is never feedback
 
 
+@runtime_checkable
+class Worktree(Protocol):
+    """Makes or reuses a unit's worktree; `allow_dirty` carries on over a killed run's edits."""
+
+    def __call__(self, unit: Unit, base: str, allow_dirty: bool = False) -> Path: ...
+
+
 class UnitRunner(BaseModel):
     """Runs one unit, given the ways to do each step.
 
@@ -984,7 +998,7 @@ class UnitRunner(BaseModel):
     planning_repo: Path
     # The repo being built, for what its settings decide: None reads as the defaults.
     repo_config: RepoConfig | None = None
-    worktree: Callable[[Unit, str], Path]
+    worktree: Worktree
     may_start: Callable[[], tuple[bool, str]]
     # When the usage guard expects to allow a start again, for the interrupt a
     # refusal makes; None when it cannot say.

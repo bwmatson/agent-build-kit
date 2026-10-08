@@ -86,6 +86,8 @@ class UnitRun(Frozen):
     stopped: str = ""
     event: ResumeEvent | None = None
     session_id: str = ""  # the agent session the running node reported, until the node completes
+    running_node: str = ""  # the agent node whose run started, until that node completes
+    parked_node: str = ""  # the node a dirty tree parked the unit at, which a requeue goes back to
     # What the build path routes on and what a re-run checks against git.
     base: str = ""  # the base the unit is on, once `verify_base` found it moved
     base_commits: int = 0  # commits on the branch when `prepare` finished

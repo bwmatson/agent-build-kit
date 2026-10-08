@@ -42,6 +42,7 @@ from agent_build_kit.pipeline.stack_runner import (
     ADAPT_PROMPT,
     CHECKS_PROMPT,
     IMPLEMENTATION_PROMPT,
+    LEFTOVERS_NOTE,
     PREDECESSOR_NOTE,
     REVIEW_FEEDBACK_PROMPT,
     REWORK_PROMPT,
@@ -78,6 +79,7 @@ from agent_build_kit.pipeline.units import (
     local_ref,
 )
 from agent_build_kit.pipeline.usage_ledger import UsageRecord, record_call
+from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
@@ -103,6 +105,9 @@ FRESH: Update = {
     "snapshot": "",
 }
 
+# Paths of uncommitted work named in a prompt or a hold; the rest are counted.
+LEFTOVER_PATHS_SHOWN = 40
+
 # Lines of a failing tier 2's report written to the run log.
 TIER2_LOG_TAIL = 40
 
@@ -113,6 +118,12 @@ GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, No
 AGENT_NODES = frozenset(
     {Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.ADAPT}
 )
+# The agent nodes that edit the tree: a dirty tree left by a killed run of one of
+# these is that node's own work to carry on from. Review writes nothing.
+EDITING_NODES = frozenset({Node.TESTS, Node.IMPLEMENT, Node.FIX_CHECKS, Node.REWORK, Node.ADAPT})
+# The nodes a park records and a requeue goes back to, with their inputs as they stood:
+# `prepare` would route on the branch alone and lose what the node was to do.
+PARKABLE = EDITING_NODES | {Node.REVIEW}
 # The nodes a thread waits in, for the forge or for a person.
 WAITS = frozenset({Node.AWAIT_REVIEW, Node.HELD})
 
@@ -139,11 +150,16 @@ class BuildPath:
         # Told each session id a running agent reports; set by whoever drives
         # the thread, as writing it into the thread's state is theirs to do.
         self.on_session: Callable[[str], None] | None = None
+        # Told the name of each agent node as it starts, likewise.
+        self.on_start: Callable[[str], None] | None = None
         # When the thread's usage pause began, set by whoever resumes a paused
         # thread; the gate records the pause once the guard lets the node start.
         self.paused_since: spans.Mark | None = None
         self._tree: Path | None = None
         self._node = ""
+        # Whether a dirty tree is the running node's own, killed mid-agent, and what it holds.
+        self._own = False
+        self._leftovers: tuple[str, ...] = ()
 
     def work(self) -> dict[Node, Callable[[UnitRun], Any]]:
         """Each node's body, wrapped in its span and run off the event loop."""
@@ -171,8 +187,12 @@ class BuildPath:
 
     def _wrapped(self, node: Node, body: Callable[[UnitRun], Update]):
         async def run(state: UnitRun) -> Update:
+            self._own = node in EDITING_NODES and state.running_node == node.value
+            self._leftovers = ()
             if node in AGENT_NODES:
                 await self.gate(node, state)
+                if self.on_start:
+                    await asyncio.to_thread(self.on_start, node.value)
             attributes: dict[str, str | int] = {
                 "unit": self.unit.id,
                 "change": self.unit.change,
@@ -203,7 +223,21 @@ class BuildPath:
                         UnitOutcome(update["status"]) if update.get("status") else UnitOutcome.OK
                     )
                     # The node is done, and with it the session it was in.
-                    return {**update, "session_id": ""}
+                    done: Update = {**update, "session_id": "", "running_node": ""}
+                    # The waiting node's own return must not clear what a requeue routes on.
+                    return done if node is Node.HELD else {**done, "parked_node": ""}
+                except DirtyWorktree as error:
+                    outcome = UnitOutcome.HELD
+                    # A node that follows a park by a fixed edge (tests to implement) parks
+                    # again on the same tree: the first one is where a requeue goes back to.
+                    again = bool(state.held and state.parked_node)
+                    return {
+                        **self.park(error),
+                        "running_node": "",
+                        "parked_node": state.parked_node
+                        if again
+                        else (node.value if node in PARKABLE else ""),
+                    }
                 except GraphInterrupt:
                     outcome = UnitOutcome.WAITING
                     raise
@@ -328,6 +362,14 @@ class BuildPath:
         }
         return {**update, "pr": pr} if pr else update
 
+    def park(self, error: DirtyWorktree) -> Update:
+        """Hold the unit for a tree that is not the running node's own, touching nothing in it."""
+        why = (
+            f"uncommitted changes in the worktree: {_listed(error.paths)} "
+            "— commit or remove them by hand"
+        )
+        return self.hold(HELD, why, why, cause=Cause.DIRTY_WORKTREE)
+
     def rebase(
         self, state: UnitRun, why: str, *, base: str, lead: str = "base moved before its push"
     ) -> Update:
@@ -367,6 +409,9 @@ class BuildPath:
     ) -> str:
         if state.session_id:
             self.say(f"continuing agent session {state.session_id}")
+            # Before the run, so a run killed again still leaves the trace; a session that
+            # cannot be continued is counted again as a new one below.
+            self._resuming_over_leftovers("resumed")
             try:
                 return run(
                     *args,
@@ -381,6 +426,10 @@ class BuildPath:
                     f"session {state.session_id} cannot be continued ({error}); "
                     "running the node from its start in a new session"
                 )
+        if self._leftovers:
+            self._resuming_over_leftovers("new")
+            note = LEFTOVERS_NOTE.format(paths=_listed(self._leftovers))
+            args = (f"{args[0]}\n\n{note}", *args[1:])
         return run(
             *args,
             cwd=cwd,
@@ -388,6 +437,14 @@ class BuildPath:
             on_result=self._recorder(state, resumed=False),
             **inputs,
         )
+
+    def _resuming_over_leftovers(self, session: str) -> None:
+        if not self._leftovers:
+            return
+        self.say(
+            f"resuming over uncommitted work in {len(self._leftovers)} file(s), session {session}"
+        )
+        telemetry.count("abk.leftovers.resumed", node=self._node, session=session)
 
     def _recorder(self, state: UnitRun, *, resumed: bool) -> Callable[..., None]:
         """What an agent call tells when it finishes: one line for the usage ledger."""
@@ -447,7 +504,14 @@ class BuildPath:
 
     def tree(self) -> Path:
         if self._tree is None:
-            self._tree = self.runner.worktree(self.unit, local_ref(self.base))
+            base = local_ref(self.base)
+            try:
+                self._tree = self.runner.worktree(self.unit, base)
+            except DirtyWorktree as dirty:
+                if not self._own:
+                    raise
+                self._tree = self.runner.worktree(self.unit, base, allow_dirty=True)
+                self._leftovers = dirty.paths
         return self._tree
 
     def ref(self, state: UnitRun) -> str:
@@ -1304,6 +1368,14 @@ class BuildPath:
             if event.requeue is RequeueReason.RESTART:
                 r.store.set_feedback(unit.id, "")
                 update["review_rounds"] = ()
+            head = ""
+            if resumes_parked(state, event):
+                # Read before the store moves: a tree still dirty keeps the unit held,
+                # waiting, with no event for the router to act on.
+                try:
+                    head = r.head(self.tree())
+                except DirtyWorktree as error:
+                    return {**self.park(error), "event": None}
             # Running, so the tick resumes the thread at `prepare` in a slot.
             r.store.set_state(
                 unit.id,
@@ -1311,7 +1383,24 @@ class BuildPath:
                 note=f"{event.kind.value}: {event.reason or 'no reason given'}",
                 cause=Cause.BASE_CHANGED if event.kind is EventKind.BASE_MOVED else Cause.REQUEUED,
             )
-            update.update(self.fresh_run())
+            if resumes_parked(state, event):
+                # Parked for its tree and cleaned: the node that parked goes next with its
+                # inputs as they stood (a rework's feedback, the commits already made).
+                # The head is the tip after the clean: a person who committed the stray
+                # edits moved it, and those commits are not the parked node's work.
+                update.update(
+                    {
+                        "head": head,
+                        "status": None,
+                        "detail": "",
+                        "held": "",
+                        "hold_state": "",
+                        "hold_note": "",
+                        "stopped": "",
+                    }
+                )
+            else:
+                update.update(self.fresh_run())
             if event.kind is EventKind.BASE_MOVED:
                 # The run takes the base the store names when the tick starts
                 # it: the one `verify_base` last recorded is the old one.
@@ -1347,6 +1436,13 @@ class BuildPath:
     def failed(self, state: UnitRun) -> Update:
         outcome = self.runner.fail(self.unit, state.stopped)
         return {"status": outcome.status, "detail": outcome.detail}
+
+
+def _listed(paths: tuple[str, ...]) -> str:
+    """Paths for a prompt or a hold, the first few and a count of the rest."""
+    shown = ", ".join(paths[:LEFTOVER_PATHS_SHOWN])
+    more = len(paths) - LEFTOVER_PATHS_SHOWN
+    return f"{shown} (and {more} more)" if more > 0 else shown
 
 
 def _round(node: Node, state: UnitRun) -> int:
@@ -1464,9 +1560,20 @@ def after_await_review(state: UnitRun) -> Node | str:
     return Node.AWAIT_REVIEW
 
 
+def resumes_parked(state: UnitRun, event: ResumeEvent) -> bool:
+    """A requeue of a unit parked at a node goes back to that node; a restart begins again."""
+    return (
+        event.kind is EventKind.REQUEUE
+        and event.requeue is not RequeueReason.RESTART
+        and bool(state.parked_node)
+    )
+
+
 def after_held(state: UnitRun) -> Node | str:
     kind = state.event.kind if state.event else None
     if kind is EventKind.REQUEUE:
+        if state.event and resumes_parked(state, state.event):
+            return Node(state.parked_node)
         return Node.PREPARE
     if kind is EventKind.RELEASE:
         return Node.AWAIT_REVIEW
@@ -1531,5 +1638,8 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_await_review,
         (Node.REWORK, Node.PREPARE, Node.HELD, Node.AWAIT_REVIEW, END),
     ),
-    Node.HELD: (after_held, (Node.PREPARE, Node.AWAIT_REVIEW, Node.HELD, END)),
+    Node.HELD: (
+        after_held,
+        (Node.PREPARE, Node.AWAIT_REVIEW, Node.HELD, END, *sorted(PARKABLE)),
+    ),
 }

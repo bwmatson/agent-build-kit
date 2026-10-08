@@ -118,7 +118,13 @@ def _record_sessions(path: BuildPath, compiled: CompiledStateGraph, unit_id: str
             compiled.aupdate_state(_config(unit_id), {"session_id": session}), loop
         ).result()
 
+    def start(node: str) -> None:
+        asyncio.run_coroutine_threadsafe(
+            compiled.aupdate_state(_config(unit_id), {"running_node": node}), loop
+        ).result()
+
     path.on_session = record
+    path.on_start = start
 
 
 async def _outcome(compiled: CompiledStateGraph, unit_id: str) -> RunOutcome:
