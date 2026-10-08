@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.git_output import (
     replayed_files,
     untranslated_env,
 )
+from agent_build_kit.pipeline.scratch import output_convention, run_folder
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
 
@@ -119,7 +120,8 @@ conflict marker. Change **only the conflict**: a rebase is not the place for
 improvements, and anything beyond the conflict is unreviewed work smuggled
 into someone else's diff. If the two intents truly contradict each other,
 leave the markers in place — stopping is better than guessing.
-{changelog_rule}{changelog}"""
+{changelog_rule}{changelog}
+""" + output_convention()
 
 REPLAYED_NOTE = """
 These paths arrived with a resolution replayed from an earlier run of this
@@ -633,14 +635,17 @@ def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = No
     The runner re-runs tier 1 and tier 2 afterwards, so this produces a
     candidate rather than a verdict.
     """
-    result = (runtime or runtimes.active()).run(
-        AgentRequest(
-            prompt=prompt,
-            cwd=cwd,
-            # It edits because its tool list says so, and is granted nothing more.
-            allowed_tools=RESOLVER_TOOLS,
-            permission_mode="allowed_tools_only",
-        )
+    request = AgentRequest(
+        prompt=prompt,
+        cwd=cwd,
+        # It edits because its tool list says so, and is granted nothing more.
+        allowed_tools=RESOLVER_TOOLS,
+        permission_mode="allowed_tools_only",
     )
+    # Its own folder for long command output, gone when the run ends.
+    with run_folder(cwd) as out:
+        if out is not None:
+            request = request.model_copy(update={"env": {**request.env, "ABK_OUT": str(out)}})
+        result = (runtime or runtimes.active()).run(request)
     if not result.ok:
         raise RuntimeError(result.error)

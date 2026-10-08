@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit.pipeline.scratch import ensure_scratch
 from agent_build_kit.pipeline.shell import git, git_out
 
 
@@ -106,10 +107,14 @@ def prepare_worktree(repo: Path, branch: str, *, base: str, root: Path) -> Path:
     its parent's work rather than from `main`. An existing worktree is reused
     as it stands, so a re-run continues where the last one stopped — unless it
     is dirty, in which case this raises rather than touching anything.
+
+    Either way it carries the ignored scratch folder agent runs put long
+    command output in (`pipeline/scratch.py`).
     """
     path = worktree_path(repo, branch, root)
 
     if path.exists():
+        ensure_scratch(path)
         status = git_out(path, "status", "--porcelain")
         if status:
             raise DirtyWorktree(
@@ -126,6 +131,7 @@ def prepare_worktree(repo: Path, branch: str, *, base: str, root: Path) -> Path:
     else:
         git_out(repo, "worktree", "add", "-q", "-b", branch, str(path), base)
 
+    ensure_scratch(path)
     return path
 
 

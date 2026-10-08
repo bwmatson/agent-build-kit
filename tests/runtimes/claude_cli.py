@@ -242,6 +242,7 @@ class FakeClaude:
         self.returncode = returncode
         self.stderr = stderr
         self.calls: list[tuple[list[str], Path | None]] = []
+        self.envs: list[dict[str, str] | None] = []
 
     def __call__(
         self,
@@ -249,8 +250,10 @@ class FakeClaude:
         *,
         cwd: Path | None = None,
         on_event: Callable[[dict], None] | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append((list(argv), cwd))
+        self.envs.append(env)
         if on_event is not None:
             for line in self.stdout.splitlines():
                 try:

@@ -190,8 +190,10 @@ class AgentRuntime(Protocol):
     # Whether `AgentRequest.resume_session` continues an earlier session; one
     # that does not is never sent it, and its node runs from its start instead.
     supports_session_resume: bool
-    # Whether `AgentRequest.env` reaches the agent it starts: one that cannot is
-    # never minted a gateway key, as nothing could carry it there.
+    # Whether this runtime may be minted a gateway key: its agent takes the key
+    # from `AgentRequest.env`. One that does not is never minted one. A runtime
+    # may still add `request.env` to its agent's environment without it, as
+    # Claude Code does for `ABK_OUT`.
     passes_env: bool
     # The facts this runtime cannot run without, by their key in its
     # `runtimes.<name>` entry in abk.yaml (`command`, ...): a selection that

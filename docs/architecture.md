@@ -391,6 +391,25 @@ the agent node; the first tick the usage guard allows resumes it from there.
 A run that is killed is resumed the same way, at the node it was in: nothing
 requeues it and nothing commits what it left.
 
+**Long command output goes to an ignored file.** Every worktree carries
+`.abk/out/`, named once in the repository's local `info/exclude` (never a tracked
+ignore file), so `git status`, `git add -A` and the leftover commit never see it.
+Each agent run gets its own empty folder in it, `.abk/out/<run>/`, and is told
+where in `ABK_OUT`. The build, rework and resolver prompts carry one packaged
+text (`scratch.output_convention`): redirect a long command and its exit status
+into `$ABK_OUT/`, read the file with `tail`, `grep` or `sed -n`, never run a command
+again to see more of it, run the suite once per round and only the failing tests
+after a fix. The command policy allows a redirect into a run's folder and refuses
+one onto a tracked file or anywhere else in the worktree. The folder is removed
+when the run ends, however it ends. While it goes, a file past a size cap is
+cut in place to its tail behind a marker every few seconds, so a runaway command
+cannot fill the disk; a writer holding the file open with a plain `>` leaves a
+sparse hole of NULs on its next write, which the next pass drops. One a killed run left is removed when its
+unit next starts a run or its change is archived. The folder is the agent's own:
+a reviewer starts with an empty one and is told to run its own commands, and
+tier 1 always runs the suite itself, so one agent's output never reaches another
+agent or stands in for tier 1's run.
+
 ### 4. Polling and events
 
 Which host answers is a forge's business (see

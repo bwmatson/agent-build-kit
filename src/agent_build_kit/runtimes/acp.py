@@ -88,6 +88,7 @@ from agent_build_kit import __version__, config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
+from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
@@ -676,7 +677,14 @@ class _Session:
         if not commands:
             return
         branch = self._current_branch(self._worktree)
-        forbidden = next((c for c in commands if not check_command(c, branch=branch).allowed), None)
+        forbidden = next(
+            (
+                c
+                for c in commands
+                if not check_command(c, branch=branch, worktree=self._policed_worktree()).allowed
+            ),
+            None,
+        )
         command = forbidden or commands[0]
         batched = known.batched or len(commands) > 1
         subject = f"{command} (part of a batch)" if batched and not forbidden else command
@@ -687,7 +695,7 @@ class _Session:
             self._refused(subject, " ".join(said.split())[:200], "the agent's own policy")
             return
         if forbidden:
-            verdict = check_command(forbidden, branch=branch)
+            verdict = check_command(forbidden, branch=branch, worktree=self._policed_worktree())
             self._answered.add(call_id)
             self._refused(forbidden, verdict.reason, "the agent's own configuration")
 
@@ -747,7 +755,11 @@ class _Session:
         if command:
             # Whatever the kind says: a request that names a command is
             # weighed on it.
-            verdict = check_command(command, branch=self._current_branch(self._worktree))
+            verdict = check_command(
+                command,
+                branch=self._current_branch(self._worktree),
+                worktree=self._policed_worktree(),
+            )
             if verdict.allowed:
                 verdict = check_no_push(command)
             if verdict.allowed:
@@ -813,6 +825,13 @@ class _Session:
         roots = (*([self._worktree] if self._worktree else []), *self._readable)
         return candidate if any(candidate.is_relative_to(root) for root in roots) else None
 
+    def _policed_worktree(self) -> Path | None:
+        """The worktree the redirect rule covers: only one that carries a scratch
+        folder, as under Claude Code's hook."""
+        if self._worktree is not None and carries_scratch(self._worktree):
+            return self._worktree
+        return None
+
     def _current_branch(self, cwd: Path | None) -> str:
         """The branch checked out in `cwd`, read per call: the command rules
         are branch-scoped (force-pushing is only ever allowed on a branch the
@@ -851,7 +870,10 @@ class _Session:
         line = " ".join([command, *(args or [])])
         where = cwd or (str(self._worktree) if self._worktree is not None else None)
         verdict = check_command(
-            line, branch=self._current_branch(Path(where) if where is not None else None)
+            line,
+            branch=self._current_branch(Path(where) if where is not None else None),
+            worktree=self._policed_worktree(),
+            cwd=Path(where).resolve() if where is not None else None,
         )
         if verdict.allowed:
             verdict = check_no_push(line)

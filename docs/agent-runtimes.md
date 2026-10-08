@@ -130,7 +130,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
 | `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable` |
-| `passes_env` | attr | whether `AgentRequest.env` reaches the agent the runtime starts. One that does not is never minted a gateway key (see Spend through a gateway) |
+| `passes_env` | attr | whether the runtime may be minted a gateway key: its agent takes the key from `AgentRequest.env`. One that does not is never minted one (see Spend through a gateway). It may still add `request.env` to its agent's environment, as Claude Code does for `ABK_OUT` |
 | `requires` | attr | the `runtimes.<name>` keys it cannot run without; a selection missing one fails at load |
 | `agent_command` | attr | the argv that starts its agent when `runtimes.<name>.command` is unset; a set `command` replaces it in every run and in `abk doctor`'s PATH check alike |
 | `default_models` | attr | its own model names for a role nothing in the file or the environment names |
@@ -436,6 +436,21 @@ worktree's own branch (an ancestor of its HEAD). An unreadable remote, or a head
 (a person, the host's update-branch button), is not the agent's and never
 fails the step.
 
+## Where a redirect may land
+
+A policed run is given `ABK_OUT`, the path of its own scratch folder
+(`<worktree>/.abk/out/<run>/`), in `AgentRequest.env`; the `acp`
+runtime hands it to its agent, and Claude Code adds it to `claude`'s
+environment. `command_policy.check_command` given the worktree allows a shell
+redirect (`>`, `>>`, `&>`) into a run's folder, or out of the worktree, and
+refuses any other target in it with a reason that names `$ABK_OUT`. Only
+unquoted operators are redirects, and a relative target is read from where
+the command's earlier `cd`s have moved the shell (one it cannot follow, to a
+variable or `-`, makes a relative target refused). The rule covers a checkout
+only when it carries a scratch folder (`scratch.carries_scratch`), so a track
+run's project checkout is not policed. Claude Code's hook and the `acp` broker
+both ask it, so they agree.
+
 ## Policy enforcement without a hook contract
 
 The enforcement *logic* (`pipeline/command_policy.check_command`) is already
@@ -682,8 +697,9 @@ A runtime that reaches its model through a gateway gives exact figures that do n
 what the agent reports. With `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, the agent step
 mints a key per call and passes it in `AgentRequest.env` (`ABK_GATEWAY_KEY`); the `acp` runtime
 starts its agent with that environment on top of its own, so an agent that reads its key from
-the environment at start spends through it. A runtime that cannot hand its agent an
-environment declares `passes_env = False` and is skipped with one log line per call: no key
+the environment at start spends through it. A runtime whose agent does not take its key from
+the environment declares `passes_env = False` (it may still add `request.env`, as Claude Code
+does for `ABK_OUT`) and is skipped with one log line per call: no key
 is minted and the figures stay the agent's own. The runtime itself does nothing more: the call's
 totals are read from the gateway when it ends (`pipeline/gateway_usage.py`) and recorded
 beside what the runtime reported. An agent that takes its key some other way gets one minted
