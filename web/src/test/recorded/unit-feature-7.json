@@ -1,0 +1,30 @@
+{
+  "id": "feature/7",
+  "title": "Running",
+  "change": "feature",
+  "repo": "app",
+  "state": "running",
+  "cause": null,
+  "held_by": "",
+  "note": "",
+  "branch": "spec/feature/7",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253867+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "running",
+      "at": "2026-10-08T14:51:07.256464+00:00",
+      "cause": null,
+      "note": ""
+    }
+  ],
+  "base": "main",
+  "depends_on": [],
+  "merge_gates": [],
+  "review_round": null
+}

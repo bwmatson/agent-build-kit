@@ -1,0 +1,36 @@
+{
+  "id": "feature/1",
+  "title": "Base",
+  "change": "feature",
+  "repo": "app",
+  "state": "merged",
+  "cause": "merged",
+  "held_by": "",
+  "note": "merged",
+  "branch": "spec/feature/1",
+  "pr": 11,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253762+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "merged",
+      "at": "2026-10-08T14:51:07.254284+00:00",
+      "cause": "merged",
+      "note": ""
+    },
+    {
+      "state": "merged",
+      "at": "2026-10-08T14:51:07.254704+00:00",
+      "cause": "merged",
+      "note": "merged"
+    }
+  ],
+  "base": "main",
+  "depends_on": [],
+  "merge_gates": [],
+  "review_round": null
+}

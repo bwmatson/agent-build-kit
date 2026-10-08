@@ -1,0 +1,112 @@
+{
+  "units": [
+    {
+      "id": "feature/1",
+      "title": "Base",
+      "change": "feature",
+      "repo": "app",
+      "state": "merged",
+      "cause": "merged",
+      "held_by": "",
+      "note": "merged",
+      "branch": "spec/feature/1",
+      "pr": 11
+    },
+    {
+      "id": "feature/2",
+      "title": "Middle",
+      "change": "feature",
+      "repo": "app",
+      "state": "in_review",
+      "cause": null,
+      "held_by": "",
+      "note": "",
+      "branch": "spec/feature/2",
+      "pr": 12
+    },
+    {
+      "id": "feature/3",
+      "title": "Gated",
+      "change": "feature",
+      "repo": "platform",
+      "state": "blocked",
+      "cause": null,
+      "held_by": "",
+      "note": "",
+      "branch": "",
+      "pr": null
+    },
+    {
+      "id": "feature/4",
+      "title": "Stacked",
+      "change": "feature",
+      "repo": "app",
+      "state": "planned",
+      "cause": null,
+      "held_by": "",
+      "note": "",
+      "branch": "",
+      "pr": null
+    },
+    {
+      "id": "feature/5",
+      "title": "Held",
+      "change": "feature",
+      "repo": "app",
+      "state": "held",
+      "cause": "review_escalated_class",
+      "held_by": "review",
+      "note": "escalated: a class of bug",
+      "branch": "",
+      "pr": null
+    },
+    {
+      "id": "feature/6",
+      "title": "Failed",
+      "change": "feature",
+      "repo": "app",
+      "state": "failed",
+      "cause": "failed",
+      "held_by": "",
+      "note": "tier 1 failed",
+      "branch": "",
+      "pr": null
+    },
+    {
+      "id": "feature/7",
+      "title": "Running",
+      "change": "feature",
+      "repo": "app",
+      "state": "running",
+      "cause": null,
+      "held_by": "",
+      "note": "",
+      "branch": "spec/feature/7",
+      "pr": null
+    },
+    {
+      "id": "feature/8",
+      "title": "Satisfied",
+      "change": "feature",
+      "repo": "app",
+      "state": "satisfied",
+      "cause": null,
+      "held_by": "",
+      "note": "",
+      "branch": "",
+      "pr": null
+    },
+    {
+      "id": "feature/9",
+      "title": "Closed",
+      "change": "feature",
+      "repo": "app",
+      "state": "closed",
+      "cause": "closed",
+      "held_by": "",
+      "note": "closed unmerged",
+      "branch": "",
+      "pr": null
+    }
+  ]
+}

@@ -48,6 +48,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_build_kit"]
+# The built web UI is git-ignored, so the wheel is told to carry it (see web/).
+artifacts = ["src/agent_build_kit/serve/static"]
 
 [tool.ruff]
 line-length = 100
@@ -84,7 +86,11 @@ markers = [
 addopts = "-m 'not integration and not local_stack'"
 
 [tool.poe.tasks]
-format = "pre-commit run --all-files"
+format = { sequence = [
+    { cmd = "pre-commit run --all-files" },
+    # web/: prettier --check, eslint, tsc and vitest (needs `npm install` in web/ once).
+    { ref = "web-check" },
+] }
 test = { sequence = [
     { cmd = "pytest -n auto --maxprocesses=8 -m 'not serial and not integration and not local_stack'" },
     # Exit 5 is "no tests collected": no test is serial yet, and that is not a failure.
@@ -93,6 +99,8 @@ test = { sequence = [
 test-integration = "pytest -m integration"
 test-local-stack = "pytest -m local_stack"
 scrub = "pytest tests/test_no_installation_leaks.py"
+web-check = "npm run --prefix web check"
+web-build = "npm run --prefix web build"
 
 [tool.uv.sources]
 agent-build-kit = { workspace = true }

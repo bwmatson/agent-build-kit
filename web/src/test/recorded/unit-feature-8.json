@@ -1,0 +1,30 @@
+{
+  "id": "feature/8",
+  "title": "Satisfied",
+  "change": "feature",
+  "repo": "app",
+  "state": "satisfied",
+  "cause": null,
+  "held_by": "",
+  "note": "",
+  "branch": "",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253876+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "satisfied",
+      "at": "2026-10-08T14:51:07.256750+00:00",
+      "cause": null,
+      "note": ""
+    }
+  ],
+  "base": "main",
+  "depends_on": [],
+  "merge_gates": [],
+  "review_round": null
+}

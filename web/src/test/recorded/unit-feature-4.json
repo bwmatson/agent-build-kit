@@ -1,0 +1,29 @@
+{
+  "id": "feature/4",
+  "title": "Stacked",
+  "change": "feature",
+  "repo": "app",
+  "state": "planned",
+  "cause": null,
+  "held_by": "",
+  "note": "",
+  "branch": "",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253844+00:00",
+      "cause": null,
+      "note": ""
+    }
+  ],
+  "base": "spec/feature/2",
+  "depends_on": [
+    {
+      "id": "feature/2",
+      "state": "in_review"
+    }
+  ],
+  "merge_gates": [],
+  "review_round": null
+}

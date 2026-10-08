@@ -11,7 +11,9 @@
   `--port`) over the pipeline's state: the units with their state, cause and history,
   each unit's run logs from a byte offset, and the usage report as `abk report --json`
   prints it. Units are addressed as `change/N`. Nothing it reads is changed. A port already in use is reported by
-  name with a non-zero exit.
+  name with a non-zero exit. It also serves a web UI: the pipeline overview, a page for each unit (state, cause,
+  holder, note, review round, history, logs that follow a live run, usage) and the usage report. Build it
+  once with `npm install --prefix web && npm run --prefix web build`; until then the pages say so.
 
 - A unit's run log now keeps the agent's replies and commands in full instead of clipped
   to a line. Line breaks are written as continuation lines indented by four spaces, so a

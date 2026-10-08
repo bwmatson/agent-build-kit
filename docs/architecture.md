@@ -920,6 +920,14 @@ read-only, never created. The log's host-local `[HH:MM:SS]` stamps are converted
 the header's start time. Usage is the report builder's output unchanged, so the server and
 `abk report` cannot disagree.
 
+The UI is a single-page app in `web/`, built by Vite (with Tailwind) into
+`serve/static/` inside the package; the wheel carries it through hatch's `artifacts`
+because the build output is git-ignored. `create_app` serves a file from there when the
+path names one and `index.html` for any other path outside `/api`, so client-side routes
+load on a direct visit; an unmatched `/api` path stays a JSON 404, and with no build a
+page answers 503 saying how to build. The pages are described under `abk serve` in
+[cli.md](cli.md).
+
 ## Why it is shaped this way
 
 - **Worktrees live outside the planning repo.** Agents reach the specs through

@@ -1,0 +1,30 @@
+{
+  "id": "feature/5",
+  "title": "Held",
+  "change": "feature",
+  "repo": "app",
+  "state": "held",
+  "cause": "review_escalated_class",
+  "held_by": "review",
+  "note": "escalated: a class of bug",
+  "branch": "",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253851+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "held",
+      "at": "2026-10-08T14:51:07.255963+00:00",
+      "cause": "review_escalated_class",
+      "note": "escalated: a class of bug"
+    }
+  ],
+  "base": "main",
+  "depends_on": [],
+  "merge_gates": [],
+  "review_round": null
+}

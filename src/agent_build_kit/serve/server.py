@@ -19,6 +19,7 @@ from typing import Any, Self
 import aiosqlite
 import uvicorn
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import FileResponse, PlainTextResponse
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -33,6 +34,8 @@ from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, rende
 from agent_build_kit.pipeline.vocabulary import effective_state
 
 HOST = "127.0.0.1"
+# Where `npm run build` in `web/` puts the UI; the wheel ships it from here.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _STAMPED = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\] ?(.*)$")
 _OUTCOME = "outcome: "
@@ -129,7 +132,7 @@ def _run_files(installation: Installation, change: str, number: str) -> list[Pat
     return sorted(p for p in directory.iterdir() if pattern.fullmatch(p.name))
 
 
-def create_app(installation: Installation) -> FastAPI:
+def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> FastAPI:
     app = FastAPI(title="abk serve", docs_url=None, redoc_url=None, openapi_url=None)
     units_path = installation.state_dir / "units.json"
 
@@ -284,6 +287,23 @@ def create_app(installation: Installation) -> FastAPI:
             include_estimates=include_estimates,
         )
         return Response(render_json(report), media_type="application/json")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def page(path: str) -> Response:
+        """The built UI: a file it holds, else its index for every route of the
+        single-page app. An address under `/api` that no endpoint took stays a JSON 404."""
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail=f"no endpoint /{path}")
+        index = static_dir / "index.html"
+        if not index.is_file():
+            return PlainTextResponse(
+                "The web UI is not built: run `npm install && npm run build` in web/.",
+                status_code=503,
+            )
+        asset = (static_dir / path).resolve()
+        if path and asset.is_file() and asset.is_relative_to(static_dir.resolve()):
+            return FileResponse(asset)
+        return FileResponse(index)
 
     return app
 

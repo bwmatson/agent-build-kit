@@ -1,0 +1,91 @@
+{
+  "group_by": "node",
+  "rows": [
+    {
+      "key": "implement",
+      "measured": {
+        "calls": 3,
+        "input_tokens": 137,
+        "output_tokens": 73,
+        "cache_read_input_tokens": 1370,
+        "cache_creation_input_tokens": 274,
+        "cost_usd": 1.625
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 120000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "gateway",
+        "reported"
+      ],
+      "difference": null
+    },
+    {
+      "key": "review",
+      "measured": {
+        "calls": 1,
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cache_read_input_tokens": 100,
+        "cache_creation_input_tokens": 20,
+        "cost_usd": 0.25
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 30000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "reported"
+      ],
+      "difference": null
+    }
+  ],
+  "total": {
+    "key": "total",
+    "measured": {
+      "calls": 4,
+      "input_tokens": 147,
+      "output_tokens": 78,
+      "cache_read_input_tokens": 1470,
+      "cache_creation_input_tokens": 294,
+      "cost_usd": 1.875
+    },
+    "estimated": {
+      "calls": 0,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cache_read_input_tokens": null,
+      "cache_creation_input_tokens": null,
+      "cost_usd": null
+    },
+    "agent_ms": 150000,
+    "checks_ms": null,
+    "slot_wait_ms": null,
+    "pause_wait_ms": null,
+    "review_wait_ms": null,
+    "sources": [
+      "gateway",
+      "reported"
+    ],
+    "difference": null
+  }
+}

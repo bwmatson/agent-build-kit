@@ -1,0 +1,117 @@
+{
+  "group_by": "unit",
+  "rows": [
+    {
+      "key": "(none)",
+      "measured": {
+        "calls": 1,
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_read_input_tokens": 1000,
+        "cache_creation_input_tokens": 200,
+        "cost_usd": 0.125
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 60000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "reported"
+      ],
+      "difference": null
+    },
+    {
+      "key": "add-marker/1",
+      "measured": {
+        "calls": 2,
+        "input_tokens": 200,
+        "output_tokens": 100,
+        "cache_read_input_tokens": 2000,
+        "cache_creation_input_tokens": 400,
+        "cost_usd": 1.25
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 120000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "reported"
+      ],
+      "difference": null
+    },
+    {
+      "key": "add-marker/2",
+      "measured": {
+        "calls": 1,
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_read_input_tokens": 1000,
+        "cache_creation_input_tokens": 200,
+        "cost_usd": 0.5
+      },
+      "estimated": {
+        "calls": 0,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "cost_usd": null
+      },
+      "agent_ms": 60000,
+      "checks_ms": null,
+      "slot_wait_ms": null,
+      "pause_wait_ms": null,
+      "review_wait_ms": null,
+      "sources": [
+        "reported"
+      ],
+      "difference": null
+    }
+  ],
+  "total": {
+    "key": "total",
+    "measured": {
+      "calls": 4,
+      "input_tokens": 400,
+      "output_tokens": 200,
+      "cache_read_input_tokens": 4000,
+      "cache_creation_input_tokens": 800,
+      "cost_usd": 1.875
+    },
+    "estimated": {
+      "calls": 0,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cache_read_input_tokens": null,
+      "cache_creation_input_tokens": null,
+      "cost_usd": null
+    },
+    "agent_ms": 240000,
+    "checks_ms": null,
+    "slot_wait_ms": null,
+    "pause_wait_ms": null,
+    "review_wait_ms": null,
+    "sources": [
+      "reported"
+    ],
+    "difference": null
+  }
+}

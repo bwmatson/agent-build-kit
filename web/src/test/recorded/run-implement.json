@@ -1,0 +1,32 @@
+{
+  "lines": [
+    {
+      "at": "2026-09-24T05:50:01+00:00",
+      "text": "feature/7: implement: started"
+    },
+    {
+      "at": "2026-09-24T05:50:04+00:00",
+      "text": "feature/7:   says: Plan:"
+    },
+    {
+      "at": "2026-09-24T05:50:04+00:00",
+      "text": "      1. add the marker module"
+    },
+    {
+      "at": "2026-09-24T05:50:04+00:00",
+      "text": "      2. wire it into the CLI"
+    },
+    {
+      "at": "2026-09-24T05:50:04+00:00",
+      "text": "      Then run the checks."
+    },
+    {
+      "at": "2026-09-24T05:50:09+00:00",
+      "text": "feature/7:   $ uv run pytest"
+    }
+  ],
+  "offset": 316,
+  "live": true,
+  "outcome": null,
+  "missing": false
+}

@@ -1,0 +1,30 @@
+{
+  "id": "feature/6",
+  "title": "Failed",
+  "change": "feature",
+  "repo": "app",
+  "state": "failed",
+  "cause": "failed",
+  "held_by": "",
+  "note": "tier 1 failed",
+  "branch": "",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253860+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "failed",
+      "at": "2026-10-08T14:51:07.256220+00:00",
+      "cause": "failed",
+      "note": "tier 1 failed"
+    }
+  ],
+  "base": "main",
+  "depends_on": [],
+  "merge_gates": [],
+  "review_round": null
+}

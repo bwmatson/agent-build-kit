@@ -118,6 +118,29 @@ none of them. A unit is addressed as `change/N`.
 | `/api/units/<change>/<n>/logs/<name>?offset=<bytes>` | the run's lines after the offset with their clock in UTC, the offset to ask from next, `live`, and the `outcome` once it has ended; a run removed meanwhile answers empty with `missing` |
 | `/api/usage?by=&since=&change=&unit=&include_estimates=` | the JSON `abk report --by <grouping> --json` prints |
 
+Any other path answers the built web UI, so `/units/<change>/<n>` loads on a direct visit;
+an unknown `/api/...` path stays a JSON 404. The UI is built from `web/` (see below) and
+is not in a checkout until `npm install --prefix web && npm run --prefix web build` (or
+`uv run poe web-build`) has run; until then a page answers 503 saying so.
+
+The pages:
+
+- **Pipeline** (`/`): every unit under its `change/N` name with its state, its cause and
+  who holds it (`held by: ...`, from the unit's record, never read out of the note).
+- **A unit** (`/units/<change>/<n>`): the title, the state line, the unit's note and review
+  round, its history as a timeline, and three tabs. *Status* lists the base, branch, pull
+  request, dependencies and merge gates (each gate links to its unit); *Logs* groups each
+  run's lines by the node that wrote them, shows a reply whole and follows a live run until
+  its outcome line appears, asking again after a failed read; *Usage* is the usage report
+  filtered to the unit, by node.
+- **Usage** (`/usage`): the report for a chosen grouping. In the unit grouping a key that is
+  a unit's name links to the unit; placeholder keys such as `(none)` are plain text.
+
+The front end lives in `web/` and is checked with `npm run --prefix web check` (prettier,
+eslint with typescript-eslint and the react-hooks rules, `tsc`, vitest); `poe format` runs
+it after pre-commit. Its tests render the pages against answers recorded from the real
+server (`web/src/test/recorded`).
+
 A field in `units.json` this release does not know is ignored on a read. Exit 0.
 
 ### `abk verify CHANGE`
