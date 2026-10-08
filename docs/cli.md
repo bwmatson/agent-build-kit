@@ -103,6 +103,23 @@ that day. Exit 0.
 
 The same figures are written to `planning.usage_page` on every store write.
 
+### `abk serve [--port PORT]`
+
+Serves the pipeline's state over HTTP on the loopback address only (`127.0.0.1`, port
+8765 unless `--port`), until interrupted. The API is read-only: it answers from the
+unit store, the usage ledger, the run logs and the checkpoint database, and changes
+none of them. A unit is addressed as `change/N`.
+
+| Path | Answers |
+|---|---|
+| `/api/pipeline` | every unit with its effective state, cause, holder and note |
+| `/api/units/<change>/<n>` | one unit: state, cause, note, history, base, branch, pull request, dependencies and merge gates with their states, and the review round from its thread |
+| `/api/units/<change>/<n>/logs` | the unit's runs: name, step, start (UTC) and whether each is live |
+| `/api/units/<change>/<n>/logs/<name>?offset=<bytes>` | the run's lines after the offset with their clock in UTC, the offset to ask from next, `live`, and the `outcome` once it has ended; a run removed meanwhile answers empty with `missing` |
+| `/api/usage?by=&since=&change=&unit=&include_estimates=` | the JSON `abk report --by <grouping> --json` prints |
+
+A field in `units.json` this release does not know is ignored on a read. Exit 0.
+
 ### `abk verify CHANGE`
 
 Verifies one change by hand — after fixing what made the automatic

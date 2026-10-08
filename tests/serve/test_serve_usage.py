@@ -13,9 +13,10 @@ from agent_build_kit.pipeline.usage_report import GROUPINGS
 from tests.ledger_lines import agent_line, fixture_ledger, write_ledger
 from tests.serving import seed_pipeline
 
+FLOOR = "2026-01-02"
 FILTERS = [
     ({}, []),
-    ({"since": "2026-01-02"}, ["--since", "2026-01-02"]),
+    ({"since": FLOOR}, ["--since", FLOOR]),
     ({"change": "feature"}, ["--change", "feature"]),
     ({"unit": "add-marker/2"}, ["--unit", "add-marker/2"]),
     ({"include_estimates": "true"}, ["--include-estimates"]),

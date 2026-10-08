@@ -30,6 +30,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.tracks",
     "agent_build_kit.cli.telemetry_cmd",
     "agent_build_kit.cli.report_cmd",
+    "agent_build_kit.cli.serve_cmd",
 )
 
 
