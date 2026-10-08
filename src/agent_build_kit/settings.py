@@ -46,10 +46,13 @@ class Settings(BaseSettings):
     # or a stand-in in a process test.
     github_api_url: str = "https://api.github.com"
 
-    # Every call to a code host (forges/transport.py): the timeout in seconds,
-    # and how many times a failed call is retried after the first attempt.
+    # Every call to a code host: the timeout in seconds (forges/transport.py),
+    # and, for the one layer that repeats calls (forges/resilient.py), how many
+    # times a failed call is retried after the first attempt and the seconds
+    # from the first call after which no further wait is made.
     forge_timeout_seconds: float = 30.0
     forge_retries: int = 3
+    forge_deadline_seconds: float = 120.0
 
     # Overrides abk.yaml's `planning.worktree_root` on this machine.
     worktree_root: Path | None = None

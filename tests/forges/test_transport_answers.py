@@ -24,8 +24,6 @@ def transport(host: MockHost) -> Transport:
         CREDENTIALS,
         transport=host,
         timeout=7.0,
-        retries=1,
-        sleep=lambda _: None,
     )
 
 
@@ -66,8 +64,6 @@ def env_transport(host: MockHost) -> Transport:
         "https://api.example.test",
         ENV_CREDENTIALS,
         transport=host,
-        retries=0,
-        sleep=lambda _: None,
     )
 
 

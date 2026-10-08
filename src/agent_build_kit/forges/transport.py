@@ -1,14 +1,13 @@
 """One HTTP transport for code hosts: credentials by owner, a timeout on every
-call, bounded retry, and the rules for answers that are not the expected one."""
+call, and the rules for answers that are not the expected one. It makes each call
+once and raises on the first failure; `resilient.py` decides what to repeat."""
 
 from __future__ import annotations
 
 import base64
-import random
 import subprocess
 import threading
 import time
-from collections.abc import Callable
 from typing import Any, Literal
 
 import httpx
@@ -221,12 +220,8 @@ class Transport:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float | None = None,
-        retries: int | None = None,
-        sleep: Callable[[float], None] = time.sleep,
     ):
         self.credentials = credentials
-        self.retries = settings.forge_retries if retries is None else retries
-        self._sleep = sleep
         self._client = httpx.Client(
             base_url=base_url,
             transport=transport,
@@ -253,40 +248,24 @@ class Transport:
         *,
         json: Any = None,
         params: dict[str, str] | None = None,
-        idempotent: bool | None = None,
         expect: Literal["json", "text"] = "json",
     ) -> Response:
-        """One call. `idempotent` defaults from the method: a create-style POST
-        is never repeated blindly, because a timeout may have created it."""
+        """One call, made once: a failure of any kind is raised as it happens."""
         method = method.upper()
-        if idempotent is None:
-            idempotent = method in ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
-        attempt = 0
-        while True:
-            hint: float | None = None
-            try:
-                reply = self._client.request(method, path, json=json, params=params)
-            except httpx.TransportError as error:
-                failure: TransportError = HostError(f"{method} {path}: {error!r}")
-            else:
-                if _is_rate_limit(reply):
-                    hint = _rate_limit_hint(reply.headers)
-                    failure = RateLimited(f"{method} {path}: rate limited", retry_after=hint)
-                elif reply.status_code >= 500:
-                    hint = _seconds(reply.headers.get("retry-after"))
-                    failure = HostError(
-                        f"{method} {path}: host answered {reply.status_code}", retry_after=hint
-                    )
-                else:
-                    return self._answer(method, path, reply, expect)
-            # A rate-limited call was refused before it did anything, so
-            # repeating it is safe.
-            safe = idempotent or isinstance(failure, RateLimited)
-            if not safe or attempt >= self.retries or (hint or 0.0) > MAX_DELAY:
-                raise failure
-            backoff = min(0.5 * 2**attempt * random.uniform(0.5, 1.5), MAX_DELAY)
-            self._sleep(max(backoff, hint or 0.0))
-            attempt += 1
+        try:
+            reply = self._client.request(method, path, json=json, params=params)
+        except httpx.TransportError as error:
+            raise HostError(f"{method} {path}: {error!r}") from error
+        if _is_rate_limit(reply):
+            raise RateLimited(
+                f"{method} {path}: rate limited", retry_after=_rate_limit_hint(reply.headers)
+            )
+        if reply.status_code >= 500:
+            raise HostError(
+                f"{method} {path}: host answered {reply.status_code}",
+                retry_after=_seconds(reply.headers.get("retry-after")),
+            )
+        return self._answer(method, path, reply, expect)
 
     def _identity(self) -> str:
         """Whose credential a call used: the owner it was resolved for and where

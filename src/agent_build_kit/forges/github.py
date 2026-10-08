@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import re
 import threading
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -30,7 +28,6 @@ from githubkit.exception import (
     RequestFailed,
 )
 from githubkit.response import Response
-from githubkit.typing import RetryOption
 from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.base import (
@@ -62,7 +59,6 @@ from agent_build_kit.forges.github_models import (
     StackDoc,
 )
 from agent_build_kit.forges.transport import (
-    MAX_DELAY,
     PAGE_EXCERPT,
     AuthError,
     Credentials,
@@ -88,7 +84,6 @@ _BASE_MISSING = ("Base ref must be a branch", "Base sha can't be blank")
 # What removing a label that is not on the pull request says.
 _NO_SUCH_LABEL = "Label does not exist"
 # Calls that are safe to make again after a failed attempt.
-_REPEATABLE = ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
 
 # The checks of one pull request's newest commit. A commit status comes through
 # the same rollup as a check run, and is told apart by what it lacks.
@@ -158,36 +153,6 @@ _ORIGIN = re.compile(
 )
 
 
-class _Retry:
-    """When githubkit repeats a call: a rate limit (a refused call did nothing,
-    so any method), and a 5xx or a failed connection for a call that is safe to
-    make again - a create-style POST is not, because a timeout may have created
-    it. At most `retries` repeats, and never a wait longer than `MAX_DELAY`: a
-    host that asks for longer fails the call at once with the hint."""
-
-    def __init__(self, retries: int) -> None:
-        self.retries = retries
-
-    def __call__(self, error: GitHubException, attempt: int) -> RetryOption:
-        if attempt >= self.retries:
-            return RetryOption(False)
-        if isinstance(error, RateLimitExceeded):
-            return RetryOption(error.retry_after.total_seconds() <= MAX_DELAY, error.retry_after)
-        if not isinstance(error, RequestError) or not _repeatable(error):
-            return RetryOption(False)
-        hint = 0.0
-        if isinstance(error, RequestFailed):
-            if error.response.status_code < 500:
-                return RetryOption(False)
-            hint = _seconds(error.response.headers.get("retry-after")) or 0.0
-        elif not isinstance(error.exc, httpx.TransportError):
-            return RetryOption(False)
-        if hint > MAX_DELAY:
-            return RetryOption(False)
-        backoff = min(0.5 * 2**attempt * random.uniform(0.5, 1.5), MAX_DELAY)
-        return RetryOption(True, timedelta(seconds=max(backoff, hint)))
-
-
 class GitHubForge:
     name: str = "github"
     implemented: bool = True
@@ -245,7 +210,7 @@ class GitHubForge:
                     base_url=settings.github_api_url.rstrip("/"),
                     timeout=settings.forge_timeout_seconds,
                     transport=self.http,
-                    auto_retry=_Retry(settings.forge_retries),
+                    auto_retry=False,
                     http_cache=False,
                     follow_redirects=False,
                 )
@@ -753,17 +718,6 @@ def _seconds(value: str | None) -> float | None:
         return float(value) if value is not None else None
     except ValueError:
         return None
-
-
-def _repeatable(error: RequestError[Any]) -> bool:
-    """Whether the call that failed may be made again: a read, an idempotent
-    write, or a GraphQL query (a POST that changes nothing, and the draft
-    mutations, which set a state)."""
-    try:
-        request = error.exc.request
-    except RuntimeError:
-        return False
-    return request.method in _REPEATABLE or request.url.path.endswith("/graphql")
 
 
 def _refusal(error: GitHubException, credentials: Credentials) -> TransportError:

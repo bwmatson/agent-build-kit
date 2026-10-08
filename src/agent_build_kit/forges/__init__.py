@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from typing import cast
+
 from agent_build_kit.forges.base import (
     FileChange,
     Forge,
@@ -19,7 +22,10 @@ _REGISTRY: dict[str, Forge] = {}
 
 
 def register(forge: Forge) -> None:
-    _REGISTRY[forge.name] = forge
+    """Make `forge` available by name, behind the one layer that repeats calls."""
+    from agent_build_kit.forges.resilient import ResilientForge
+
+    _REGISTRY[forge.name] = forge if isinstance(forge, ResilientForge) else _resilient(forge)
 
 
 def get(name: str) -> Forge:
@@ -119,6 +125,17 @@ def _load_builtin() -> None:
 
     register(azure_devops.FORGE)
     register(github.FORGE)
+
+
+def _resilient(forge: Forge) -> Forge:
+    """`forge` behind the one layer that repeats calls, as the settings say."""
+    from agent_build_kit.forges.resilient import ResilientForge, RetryPolicy
+    from agent_build_kit.settings import settings
+
+    policy = RetryPolicy(
+        attempts=settings.forge_retries + 1, deadline_seconds=settings.forge_deadline_seconds
+    )
+    return cast(Forge, ResilientForge(forge, policy, time, time.sleep))
 
 
 __all__ = [

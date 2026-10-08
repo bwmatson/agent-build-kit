@@ -428,7 +428,9 @@ agent or stands in for tier 1's run.
 ### 4. Polling and events
 
 Which host answers is a forge's business (see
-[code-forges.md](code-forges.md)); everything below is written in the typed
+[code-forges.md](code-forges.md)); every forge is reached through one retry layer that
+repeats a call by the kind its operation declares, and raises `HostUnavailable` when the
+host stays down; everything below is written in the typed
 values a forge returns, not in any host's JSON. A forge opens a pull request,
 posts a status and answers a review comment; it also closes one — the one
 call the satisfied outcome above needs, and nothing else does. Azure DevOps is
