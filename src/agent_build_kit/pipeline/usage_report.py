@@ -8,8 +8,12 @@ Estimated figures sit in their own column and are left out of totals unless
 asked for; a figure never recorded is `None`, not zero.
 
 A change's detail lines are rolled up into one `summary` line per unit when it
-is archived. A summary no longer knows its calls' nodes, roles or models, so
-grouped by those it reads as `(summary)`.
+is archived. The line keeps the unit's totals and a `breakdown`: one item per
+node, role, model and usage source, ordered by that key, whose items sum to the
+totals, so a report splits archived work as it splits live work. A waiting node
+that made no call has an item whose role and model are `(none)`. A summary
+written before breakdowns existed has none; it still totals, and reads as one
+row labelled `(archived, no breakdown)` in the node, role and model views.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from agent_build_kit.pipeline.usage_ledger import (
 GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "day")
 
 NONE = "(none)"
-SUMMARY = "(summary)"
+NO_BREAKDOWN = "(archived, no breakdown)"
 TOP_UNITS = 10
 # A gateway figure this far from what the agent reported is flagged in the table.
 LARGE_DIFFERENCE = 0.10
@@ -104,6 +108,8 @@ class _Entry(Frozen):
     node: str = NONE
     role: str = NONE
     model: str = NONE
+    runtime: str = ""
+    usage_source: str = ""
     at: datetime | None = None
     row: ReportRow
 
@@ -223,6 +229,31 @@ def _group_key(entry: _Entry, group_by: str) -> str:
     return getattr(entry, group_by) or NONE
 
 
+def _row_of(raw: dict) -> ReportRow:
+    fields = {k: raw[k] for k in ReportRow.model_fields if k in raw and k != "key"}
+    return ReportRow.model_validate({**fields, "key": ""})
+
+
+def _summary_parts(raw: dict) -> list[dict]:
+    """What a summary line contributes: one part per breakdown item, or, for a
+    line written before breakdowns, its totals under the no-breakdown label."""
+    items = raw.get("breakdown")
+    if not items:
+        label = NO_BREAKDOWN
+        return [{"node": label, "role": label, "model": label, "row": _row_of(raw)}]
+    return [
+        {
+            "node": item["node"],
+            "role": item["role"],
+            "model": item["model"],
+            "runtime": item.get("runtime", ""),
+            "usage_source": item.get("usage_source", ""),
+            "row": _row_of(item),
+        }
+        for item in items
+    ]
+
+
 def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
     """Every contribution the ledger's lines hold: calls (one per unit, node,
     round and session), spans that are a bucket of time, and summaries."""
@@ -241,6 +272,8 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
             node=r.node,
             role=r.role or NONE,
             model=r.model or NONE,
+            runtime=r.runtime,
+            usage_source=r.usage_source,
             at=_when(r.at),
             row=_call_row(r),
         )
@@ -254,25 +287,26 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
                 row = _span_row(raw)
                 if row is None:
                     continue
-                node, role, model = raw.get("node") or NONE, NONE, NONE
+                parts = [{"node": raw.get("node") or NONE, "row": row}]
             elif kind == "summary":
-                fields = {k: raw[k] for k in ReportRow.model_fields if k in raw and k != "key"}
-                row = ReportRow.model_validate({**fields, "key": ""})
-                node = role = model = SUMMARY
+                parts = _summary_parts(raw)
             else:
                 continue
-            entries.append(
-                _Entry(
-                    **meta(str(raw["unit"]), str(raw.get("change", "")), str(raw.get("repo", ""))),
-                    node=node,
-                    role=role,
-                    model=model,
-                    at=_when(raw.get("at")),
-                    row=row,
+            found = [
+                _Entry.model_validate(
+                    {
+                        **meta(
+                            str(raw["unit"]), str(raw.get("change", "")), str(raw.get("repo", ""))
+                        ),
+                        "at": _when(raw.get("at")),
+                        **part,
+                    }
                 )
-            )
+                for part in parts
+            ]
         except (ValueError, AttributeError, KeyError, TypeError, ValidationError):
             continue
+        entries.extend(found)
     return entries
 
 
@@ -485,6 +519,31 @@ def write_page(units: list[StoredUnit], ledger: Path, out: Path) -> None:
     out.write_text(page)
 
 
+def _breakdown(group: list[_Entry]) -> list[dict]:
+    """The group's contributions summed per node, role, model and usage source,
+    ordered by that key. Waits and checks carry no role, model or source, so
+    they sit in an item of their own for the node, which takes the node's runtime."""
+    keyed: dict[tuple[str, str, str, str], list[_Entry]] = {}
+    for entry in group:
+        key = (entry.node, entry.role, entry.model, entry.usage_source)
+        keyed.setdefault(key, []).append(entry)
+    runtimes = {e.node: e.runtime for e in sorted(group, key=lambda e: e.runtime) if e.runtime}
+    return [
+        {
+            "node": node,
+            "role": role,
+            "model": model,
+            "runtime": min(
+                (e.runtime for e in keyed[key] if e.runtime), default=runtimes.get(node, "")
+            ),
+            "usage_source": source,
+            **_combine("", (e.row for e in keyed[key])).model_dump(exclude={"key"}),
+        }
+        for key in sorted(keyed)
+        for node, role, model, source in [key]
+    ]
+
+
 def roll_up_change(ledger: Path, change: str) -> None:
     """Replace the change's detail lines with one `summary` line per unit.
 
@@ -501,6 +560,10 @@ def roll_up_change(ledger: Path, change: str) -> None:
         summaries = []
         for unit, group in sorted(by_unit.items()):
             stamps = [e.at for e in group if e.at is not None]
+            breakdown = _breakdown(group)
+            total = _combine(unit, (e.row for e in group))
+            if _combine(unit, (_row_of(i) for i in breakdown)) != total:
+                raise ValueError(f"the breakdown of {unit} does not sum to its totals")
             summaries.append(
                 {
                     "kind": "summary",
@@ -508,7 +571,8 @@ def roll_up_change(ledger: Path, change: str) -> None:
                     "unit": unit,
                     "change": change,
                     "repo": next((e.repo for e in group if e.repo), ""),
-                    **_combine(unit, (e.row for e in group)).model_dump(exclude={"key"}),
+                    **total.model_dump(exclude={"key"}),
+                    "breakdown": breakdown,
                 }
             )
 

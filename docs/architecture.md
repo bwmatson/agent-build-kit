@@ -827,6 +827,16 @@ figures. The gateway's `prompt_tokens` is recorded as
 `input_tokens` can exceed the agent's `reported.input_tokens` by the cache. Only calls with an
 attribution place and a result callback get a key. The seam is `pipeline/gateway_usage.SpendSource`.
 
+#### Archive roll-up
+
+When a change is archived its detail lines become one `kind: summary` line per unit: the unit's
+totals and a `breakdown`, one item per node, role, model and usage source, ordered by that key.
+Waits and checks have no role or model and sit in an item of their own for the node (role and
+model `(none)`). The roll-up checks that the items sum to the totals before writing, and rolling a
+change up again merges items by key and gives the same line. A summary without a breakdown, from
+an older ledger, still loads and totals and reads as one `(archived, no breakdown)` row in the
+node, role and model views; merged with new detail it becomes one item under that label.
+
 #### Spans
 
 The same file carries `kind: span` lines, stretches of a unit's time stamped in UTC with
