@@ -36,7 +36,6 @@ from agent_build_kit import (
     timers,
 )
 from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
-from agent_build_kit.forges.constants import GITHUB_API
 from agent_build_kit.forges.transport import (
     PAGE_EXCERPT,
     Transport,
@@ -174,7 +173,9 @@ def _github_account(repo: forges.RepoId, run: Run, transport: httpx.BaseTranspor
     authenticated endpoint. Raises `TransportError` naming what failed."""
     credentials = credential_for(repo.forge, repo.account, run=run)
     try:
-        with Transport(GITHUB_API, credentials, transport=transport) as host:
+        with Transport(
+            settings.github_api_url.rstrip("/"), credentials, transport=transport
+        ) as host:
             answer = host.request("GET", "/user")
     except TransportError as error:
         raise TransportError(f"{error} (credential from {credentials.source})") from error

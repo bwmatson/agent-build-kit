@@ -1,8 +1,9 @@
 """The address GitHub calls go to is `ABK_GITHUB_API_URL`: the forge's client and
 `abk doctor`'s credential check both use it, and a trailing slash changes nothing.
 
-Read off the requests that reach the stand-in host (their URLs), with the setting
-changed through the settings object the process reads it from.
+Read off the requests that reach the stand-in host (their URLs). The forge reads the
+setting from the settings object; the doctor loads the installation, which re-reads
+the settings from the environment, so its tests set the environment variable.
 """
 
 from __future__ import annotations
@@ -94,7 +95,7 @@ def test_with_the_setting_the_forge_calls_that_address_and_not_github(
 def test_with_the_setting_the_doctor_calls_that_address_and_not_github(
     monkeypatch: pytest.MonkeyPatch, workspace: Path
 ) -> None:
-    monkeypatch.setattr(settings, "github_api_url", OTHER)
+    monkeypatch.setenv("ABK_GITHUB_API_URL", OTHER)
 
     urls = doctor_urls(workspace)
 
@@ -118,7 +119,7 @@ def test_a_trailing_slash_gives_no_doubled_slash_in_the_forge_path(
 def test_a_trailing_slash_gives_no_doubled_slash_in_the_doctor_path(
     monkeypatch: pytest.MonkeyPatch, workspace: Path
 ) -> None:
-    monkeypatch.setattr(settings, "github_api_url", f"{OTHER}/")
+    monkeypatch.setenv("ABK_GITHUB_API_URL", f"{OTHER}/")
 
     urls = doctor_urls(workspace)
 

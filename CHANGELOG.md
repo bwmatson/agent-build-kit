@@ -8,6 +8,9 @@
   resumes it in the mode it was requeued with once the dependency has merged. A unit sent back
   for rework waits the same way, and a running one is told once and left alone. A merge gate is
   never the unit's base, and an edit that only adds a `Needs:` line no longer re-plans the change.
+- `ABK_GITHUB_API_URL` sets the address GitHub calls go to, for GitHub Enterprise or a
+  stand-in host in a test. The forge and `abk doctor`'s credential check both use it, and
+  a trailing slash is ignored. Unset, it is `https://api.github.com` as before.
 
 - An ACP step now records its session id as soon as the session opens, so an interrupted step can
   be continued. When the agent declares that it can load sessions, the next run loads the recorded
