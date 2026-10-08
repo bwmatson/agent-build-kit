@@ -273,7 +273,14 @@ def test_a_live_run_s_file_is_held_to_the_cap_even_while_its_writer_has_it_open(
             for batch in (lines[:1000], lines[1000:]):
                 writer.write(b"".join(batch))
                 writer.flush()
-                held = wait_until(lambda: big.stat().st_size <= cap + 500)
+
+                def settled(last: bytes = batch[-1]) -> bool:
+                    # The write can reach the file in pieces, with a pass between them:
+                    # wait for the whole batch to land and be cut, not just a small file.
+                    text = big.read_bytes()
+                    return len(text) <= cap + 500 and b"\0" not in text and last in text
+
+                held = wait_until(settled)
                 text = big.read_bytes()
                 seen.append((held, b"\0" not in text and batch[-1] in text, text))
 

@@ -217,7 +217,10 @@ def _forge_access(
             except TransportError as error:
                 checks.append(_fail(title, str(error), forge.access_fix(repo)))
             continue
-        problem = forge.check_access(repo, run=run)
+        try:
+            problem = forge.check_access(repo, run=run)
+        except TransportError as error:
+            problem = f"cannot reach {forges.key(repo)}: {error}"
         if problem:
             checks.append(_fail(title, problem, forge.access_fix(repo)))
         else:
@@ -239,7 +242,10 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     for name in sorted(inst.repos):
         forge, repo = inst.forge_of(name)
         branch = inst.repo(name).default_branch
-        unguarded = forge.merge_guard(repo, branch=branch, run=run)
+        try:
+            unguarded = forge.merge_guard(repo, branch=branch, run=run)
+        except TransportError as error:
+            unguarded = f"cannot tell what guards {branch}: {error}"
         title = f"merge guard {name}"
         if unguarded:
             checks.append(

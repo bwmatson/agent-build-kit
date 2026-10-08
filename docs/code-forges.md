@@ -239,17 +239,41 @@ the forge's `ci_name` ("GitHub Actions" on GitHub, "Azure Pipelines" here).
 owner)` resolves the credential - the repo's setting (`GH_TOKEN`), else the host CLI's
 logged-in token for that owner (`gh auth token --user <owner>`) - once per owner, cached
 for the process, and never in an argument list. A `Transport(base_url, credentials)`
-puts a timeout on every call and retries connection errors, timeouts, 429 and 5xx with
-backoff, honouring `Retry-After`, up to a bound. A write is repeated only when it is
-idempotent by nature (PUT, DELETE) or the caller passes `idempotent=True`; a create-style
-POST is never retried blindly.
+puts a timeout on every call and makes it once: a connection error, a timeout, a 429 or
+a 5xx is raised as it happens, and the retry layer below decides whether to repeat it.
 
 Answers that are not the expected one are errors: `AuthError` for 401/403, a missing
 credential, or an HTML page where JSON was expected (quoting its first characters);
 `NotFound` carrying the account the call was made as; `RateLimited` with the host's
-hint; `HostError` once the retry bound is spent. A test passes an `httpx.MockTransport`
+hint; `HostError` for a 5xx or a network failure. A test passes an `httpx.MockTransport`
 as `transport=` and never reaches a network. `abk doctor` resolves a credential for each
 GitHub repo, calls `GET /user` and reports the account, or the source that failed.
+
+## The retry layer
+
+`forges/resilient.py` is the one place a forge call is repeated, for every host; the
+registry returns each forge wrapped in a `ResilientForge`. `forges/operations.py`
+declares a kind for every protocol method, and a test fails when one has no entry:
+
+- `read` and `idempotent_write`: repeated on a transient failure (`HostError`,
+  `RateLimited`) up to `forge_retries` times, with exponential backoff and jitter. A rate
+  limit waits the larger of the backoff and the host's hint; a hint longer than the
+  transport's ceiling fails the call at once with the hint on the error.
+- `create`: repeated only after the read named in its `lands` shows it did not land
+  (`find_pr` for a pull request, `stack_of` for the stack calls). A hit returns that
+  result without a second create; a failing read counts as an attempt; a create with no
+  usable read is never repeated. A rate-limited create was refused before it did
+  anything, so it is repeated without asking.
+- `advisory`: retried like a write; if it still cannot complete it is logged, counted and
+  returns `None`.
+
+`forge_deadline_seconds` (`ABK_FORGE_DEADLINE_SECONDS`, default 120) bounds the time from
+the first call to the last wait. When every attempt fails, the call raises
+`HostUnavailable(operation, cause, attempts)`, a `TransportError`, so a caller can tell the
+host being down from a refused call. Authentication, not-found and other client errors are
+never retried. Each retry is logged (`forge <operation>: attempt n of m failed ...`) and
+counted in `abk.forge.retries` by `operation` and `outcome` (`retried`, `landed`,
+`exhausted`, `contained`).
 
 ## Authentication
 
@@ -301,10 +325,8 @@ one `githubkit.GitHub` client per repo owner, built with that owner's credential
 (`TokenAuthStrategy`), so units for two owners run side by side and a client is never
 shared across owners. HTTP caching is off, every call has `forge_timeout_seconds`, a
 redirect is not followed (a job log's signed link is fetched by the forge, without the
-credential), and githubkit's `auto_retry` is a bounded policy: a rate limit is repeated,
-a 5xx or a failed connection only for a call that is safe to repeat (never a create-style
-POST), at most `forge_retries` times and never after a wait longer than the transport's
-ceiling. A test passes its `httpx.MockTransport` as `transport=`. The documents it reads
+credential), and githubkit's `auto_retry` is off: the forge makes each call once. A test
+passes its `httpx.MockTransport` as `transport=`. The documents it reads
 are the models in `forges/github_models.py`: only the fields the pipeline reads, an
 unknown field ignored.
 

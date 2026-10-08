@@ -358,6 +358,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_GITHUB_API_URL` | the address GitHub calls go to, for GitHub Enterprise or a stand-in host. On an Enterprise host set `GH_TOKEN`: the `gh auth token` lookup asks github.com | `https://api.github.com` |
 | `ABK_FORGE_TIMEOUT_SECONDS` | the timeout on every call to a code host | `30` |
 | `ABK_FORGE_RETRIES` | how many times a failed code-host call is retried after the first attempt | `3` |
+| `ABK_FORGE_DEADLINE_SECONDS` | the most time, from a code-host call's first attempt, that retries and their waits may take | `120` |
 | `ABK_WORKTREE_ROOT` | overrides `planning.worktree_root` on this machine | unset |
 | `ABK_OPENSPEC_VERSION` | the `@fission-ai/openspec` version run through `npx`; a pin, so an upgrade is a deliberate change | `1.13.1` |
 | `ABK_RUNTIME` | overrides `runtime` on this machine, so a runtime can be tried on one invocation without moving every repo in the workspace | unset: the file's |

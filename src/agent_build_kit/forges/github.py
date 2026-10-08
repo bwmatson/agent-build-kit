@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import re
 import threading
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -30,7 +28,6 @@ from githubkit.exception import (
     RequestFailed,
 )
 from githubkit.response import Response
-from githubkit.typing import RetryOption
 from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.base import (
@@ -62,8 +59,8 @@ from agent_build_kit.forges.github_models import (
     StackDoc,
 )
 from agent_build_kit.forges.transport import (
-    MAX_DELAY,
     PAGE_EXCERPT,
+    TRANSIENT,
     AuthError,
     Credentials,
     HostError,
@@ -88,7 +85,6 @@ _BASE_MISSING = ("Base ref must be a branch", "Base sha can't be blank")
 # What removing a label that is not on the pull request says.
 _NO_SUCH_LABEL = "Label does not exist"
 # Calls that are safe to make again after a failed attempt.
-_REPEATABLE = ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
 
 # The checks of one pull request's newest commit. A commit status comes through
 # the same rollup as a check run, and is told apart by what it lacks.
@@ -158,36 +154,6 @@ _ORIGIN = re.compile(
 )
 
 
-class _Retry:
-    """When githubkit repeats a call: a rate limit (a refused call did nothing,
-    so any method), and a 5xx or a failed connection for a call that is safe to
-    make again - a create-style POST is not, because a timeout may have created
-    it. At most `retries` repeats, and never a wait longer than `MAX_DELAY`: a
-    host that asks for longer fails the call at once with the hint."""
-
-    def __init__(self, retries: int) -> None:
-        self.retries = retries
-
-    def __call__(self, error: GitHubException, attempt: int) -> RetryOption:
-        if attempt >= self.retries:
-            return RetryOption(False)
-        if isinstance(error, RateLimitExceeded):
-            return RetryOption(error.retry_after.total_seconds() <= MAX_DELAY, error.retry_after)
-        if not isinstance(error, RequestError) or not _repeatable(error):
-            return RetryOption(False)
-        hint = 0.0
-        if isinstance(error, RequestFailed):
-            if error.response.status_code < 500:
-                return RetryOption(False)
-            hint = _seconds(error.response.headers.get("retry-after")) or 0.0
-        elif not isinstance(error.exc, httpx.TransportError):
-            return RetryOption(False)
-        if hint > MAX_DELAY:
-            return RetryOption(False)
-        backoff = min(0.5 * 2**attempt * random.uniform(0.5, 1.5), MAX_DELAY)
-        return RetryOption(True, timedelta(seconds=max(backoff, hint)))
-
-
 class GitHubForge:
     name: str = "github"
     implemented: bool = True
@@ -245,7 +211,7 @@ class GitHubForge:
                     base_url=settings.github_api_url.rstrip("/"),
                     timeout=settings.forge_timeout_seconds,
                     transport=self.http,
-                    auto_retry=_Retry(settings.forge_retries),
+                    auto_retry=False,
                     http_cache=False,
                     follow_redirects=False,
                 )
@@ -325,6 +291,8 @@ class GitHubForge:
         except (NotFound, AuthError):
             # 404 where there is none, 403 where the plan has no such thing.
             return f"no branch protection on {branch}"
+        except TRANSIENT:
+            raise
         except TransportError as error:
             return f"cannot tell what guards {branch}: {error}"
         return "" if _body(found) else f"no branch protection on {branch}"
@@ -340,6 +308,8 @@ class GitHubForge:
                     repo.account, repo.name, head=f"{repo.account}:{head}", state="all", per_page=1
                 )
             return _items(found, NumberDoc, "GET pulls")[0].number
+        except TRANSIENT:
+            raise
         except (TransportError, IndexError):
             # Could not tell reads as no pull request yet.
             return None
@@ -384,6 +354,8 @@ class GitHubForge:
         try:
             with self._on(repo) as gh:
                 gh.rest.pulls.update(repo.account, repo.name, pr, **changes)
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not update pull request %s of %s: %s", pr, key(repo), error)
 
@@ -409,6 +381,8 @@ class GitHubForge:
         try:
             with self._on(repo) as gh:
                 return _body(gh.request(method, f"/repos/{key(repo)}/stacks{path}", **kwargs))
+        except TRANSIENT:
+            raise
         except TransportError as error:
             # 409: another request is changing the same stack right now.
             raise StackRefused(_reason(error), concurrent=error.status == 409) from error
@@ -431,6 +405,8 @@ class GitHubForge:
                     context=context,
                     description=description[:139],
                 )
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not post %s on %s of %s: %s", context, sha, key(repo), error)
 
@@ -509,6 +485,8 @@ class GitHubForge:
                     repo.account, repo.name, pr, int(note_id), data={"body": body}
                 )
             made = _parse(reply, InlineCommentDoc, "POST reply")
+        except TRANSIENT:
+            raise
         except (TransportError, ValueError) as error:
             log.warning("could not reply to %s on %s of %s: %s", note_id, pr, key(repo), error)
             return []
@@ -520,6 +498,8 @@ class GitHubForge:
                         repo.account, repo.name, pr, made.pull_request_review_id
                     )
                 ids.append(_parse(review, NodeIdDoc, "GET review").node_id)
+            except TRANSIENT:
+                raise
             except TransportError as error:
                 log.warning("could not read the review a reply to %s made: %s", note_id, error)
         return [i for i in ids if i]
@@ -531,6 +511,8 @@ class GitHubForge:
                     repo.account, repo.name, pr, data={"body": body}
                 )
             made = _parse(reply, NodeIdDoc, "POST comment")
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not comment on %s of %s: %s", pr, key(repo), error)
             return []
@@ -562,6 +544,8 @@ class GitHubForge:
             try:
                 with self._on(repo) as gh:
                     gh.rest.actions.re_run_workflow_failed_jobs(repo.account, repo.name, int(run))
+            except TRANSIENT:
+                raise
             except TransportError as error:
                 raise TransportError(
                     f"rerun of run {run} ({key(repo)}): {_reason(error)}"
@@ -604,6 +588,8 @@ class GitHubForge:
                     repo.account, repo.name, int(run), per_page=_PAGE
                 )
             jobs = _parse(listed, JobsDoc, "GET jobs").jobs
+        except TRANSIENT:
+            raise
         except TransportError:
             return ""
         out = []
@@ -634,11 +620,18 @@ class GitHubForge:
             location = reply.headers.get("location")
             if not location:
                 return reply.text
-            with httpx.Client(
-                transport=self.http, timeout=settings.forge_timeout_seconds
-            ) as storage:
-                stored = storage.get(location)
+            try:
+                with httpx.Client(
+                    transport=self.http, timeout=settings.forge_timeout_seconds
+                ) as storage:
+                    stored = storage.get(location)
+            except httpx.TransportError as error:
+                raise HostError(f"GET job log storage: {error!r}") from error
+            if stored.status_code >= 500:
+                raise HostError(f"GET job log storage: {stored.status_code}")
             return stored.text if stored.is_success else ""
+        except TRANSIENT:
+            raise
         except (TransportError, httpx.HTTPError):
             return ""
 
@@ -741,6 +734,8 @@ class GitHubForge:
         try:
             with self._on(repo) as gh:
                 gh.rest.git.delete_ref(repo.account, repo.name, f"heads/{branch}")
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not delete %s of %s: %s", branch, key(repo), error)
 
@@ -753,17 +748,6 @@ def _seconds(value: str | None) -> float | None:
         return float(value) if value is not None else None
     except ValueError:
         return None
-
-
-def _repeatable(error: RequestError[Any]) -> bool:
-    """Whether the call that failed may be made again: a read, an idempotent
-    write, or a GraphQL query (a POST that changes nothing, and the draft
-    mutations, which set a state)."""
-    try:
-        request = error.exc.request
-    except RuntimeError:
-        return False
-    return request.method in _REPEATABLE or request.url.path.endswith("/graphql")
 
 
 def _refusal(error: GitHubException, credentials: Credentials) -> TransportError:

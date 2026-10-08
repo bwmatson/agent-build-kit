@@ -61,6 +61,7 @@ from agent_build_kit.forges.base import (
 from agent_build_kit.forges.transport import (
     AZURE_CLI_SOURCE,
     PAGE_EXCERPT,
+    TRANSIENT,
     AuthError,
     NotFound,
     Response,
@@ -283,6 +284,8 @@ class AzureDevOpsForge:
         """
         try:
             self._git(repo, "GET", run=run)
+        except TRANSIENT:
+            raise
         except TransportError as error:
             return f"cannot read {repo.name} in {repo.project}: {error}"
         return ""
@@ -302,6 +305,8 @@ class AzureDevOpsForge:
         """
         try:
             found = self._call(repo, "GET", "policy/configurations", run=run)
+        except TRANSIENT:
+            raise
         except TransportError as error:
             return f"cannot tell what guards {branch}: {error}"
         values = found.data.get("value") if isinstance(found.data, dict) else None
@@ -672,6 +677,8 @@ class AzureDevOpsForge:
             return
         try:
             self._git(repo, "POST", f"pullrequests/{number}/statuses", json=payload, run=run)
+        except TRANSIENT:
+            raise
         except TransportError as error:
             context = payload["context"]
             log.warning(
