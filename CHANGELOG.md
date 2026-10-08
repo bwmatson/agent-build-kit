@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A reply to a reviewer that the host did not take now stays pending and is posted on a later
+  pass, once, instead of being lost; a reply the host already holds counts as posted. The close
+  of a satisfied unit's pull request is likewise repeated each pass until done, without posting
+  its reason twice. `abk status` lists units with unposted replies or a pending close.
+
 - An ACP agent's session is now continued with `session/resume`, and only when the agent
   advertises both resume and list and lists the session id for the worktree; otherwise the step
   starts a new session with its full prompt. `session/load` is no longer used. The usage ledger

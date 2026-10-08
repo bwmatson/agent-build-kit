@@ -67,7 +67,7 @@ from agent_build_kit.pipeline.planning_repo import (
     restore_default_branch,
 )
 from agent_build_kit.pipeline.pr_poller import Poller, state_path, unmergeable
-from agent_build_kit.pipeline.pr_replies import ignored
+from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
 from agent_build_kit.pipeline.shell import git
@@ -128,6 +128,7 @@ from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import (
     CommitRejected,
+    build_close_pr,
     build_resume_at,
     build_runner,
     build_tier1,
@@ -217,6 +218,85 @@ def _usage_line(reading: UsageReading) -> str:
     return ", ".join(parts)
 
 
+def retry_closes(store: UnitStore, *, close_pr: Callable[[Unit, int, str], None]) -> None:
+    """Close again each satisfied unit's pull request that is still open, removing the
+    record of those that closed."""
+    for unit in store.all():
+        pending = unit.close_pending
+        if pending is None:
+            continue
+        if unit.state != SATISFIED or unit.pr != pending.pr:
+            # The unit went on to something else (a requeue, say), and the pull request
+            # may be the one now under review: the record is stale, not an order.
+            store.set_close_pending(unit.id, None)
+            continue
+        try:
+            close_pr(unit, pending.pr, pending.reason)
+        except Exception as error:  # noqa: BLE001 - kept for the next pass
+            log(f"{unit.id}: pull request #{pending.pr} still not closed — {error}")
+            continue
+        store.set_close_pending(unit.id, None)
+        log(f"{unit.id}: pull request #{pending.pr} closed")
+
+
+def retry_replies(inst: Installation, store: UnitStore, *, reply: Callable[..., str]) -> None:
+    """Post again the replies a unit in review still owes its pull request, and keep in its
+    thread only those the host again did not take. A unit whose branch is being worked on is
+    left for the next pass."""
+    # Late: the graph package imports the pipeline.
+    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.unit import set_pending_replies
+
+    async def write(unit_id: str, replies: tuple[str, ...]) -> None:
+        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+            await set_pending_replies(saver, unit_id, replies)
+
+    for unit in store.all():
+        if unit.state != IN_REVIEW or unit.pr is None or not unit.branch:
+            continue
+        owed = thread_of(inst, unit.id).state
+        if owed is None or not owed.pending_replies:
+            continue
+        try:
+            with branch_lock(unit.branch, root=inst.state_dir / "locks"):
+                # Read again under the lock: a build may have posted them since.
+                owed = thread_of(inst, unit.id).state
+                if owed is None or not owed.pending_replies:
+                    continue
+                left = tuple(
+                    rest
+                    for answer in owed.pending_replies
+                    if (
+                        rest := reply(repo=unit.repo, pr=unit.pr, answer_text=answer, sha=owed.head)
+                    )
+                )
+                if left != owed.pending_replies:
+                    asyncio.run(write(unit.id, left))
+        except BranchBusy:
+            continue
+
+
+def _owed_count(answers: Collection[str]) -> int:
+    """The replies and summaries in the owed answers."""
+    parsed = [parse_answer(answer) for answer in answers]
+    return sum(len(a.replies) + bool(a.summary.strip()) for a in parsed if a)
+
+
+def _retry_pending_replies(inst: Installation, store: UnitStore) -> None:
+    retry_replies(
+        inst,
+        store,
+        reply=build_post_replies(root=inst.state_dir, for_repo=inst.forge_of, log=log),
+    )
+
+
+def _retry_pending_closes(inst: Installation, store: UnitStore) -> None:
+    def close_pr(unit: Unit, pr: int, reason: str) -> None:
+        build_close_pr(for_repo=inst.forge_of)(unit, pr, reason)
+
+    retry_closes(store, close_pr=close_pr)
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
@@ -280,7 +360,21 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             waits = unmet_gates(unit, units)
             if waits:
                 log(f"  {unit.id} ({unit.repo}) {merge_wait(waits)}")
+        if unit.close_pending:
+            log(
+                f"  close pending: {unit.id} ({unit.repo}) #{unit.close_pending.pr} is "
+                "satisfied but still open; closing is retried each pass"
+            )
         if unit.state == IN_REVIEW:
+            try:
+                owed = thread_of(inst, unit.id).state
+            except Exception:  # noqa: BLE001 - status reads, and must not fail on the thread store
+                owed = None
+            if owed and owed.pending_replies:
+                log(
+                    f"  unposted replies: {unit.id} ({unit.repo}) #{unit.pr or '?'} — "
+                    f"{_owed_count(owed.pending_replies)} waiting for the host to take them"
+                )
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
             mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
@@ -721,6 +815,8 @@ def run_round(
             log(f"archived {change}")
 
     _step("archiving", archive)
+    _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
+    _step("posting owed replies", _retry_pending_replies, inst, store)
     if not submit:
         return []
 
@@ -1483,7 +1579,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     ticks busy.
     """
     units = store.all()
-    if any(unit.state in NEEDS_TICKS for unit in units):
+    if any(unit.state in NEEDS_TICKS or unit.close_pending for unit in units):
         return True
     satisfied = [u for u in units if u.state == SATISFIED]
     if satisfied:

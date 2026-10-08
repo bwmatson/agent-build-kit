@@ -1186,7 +1186,11 @@ def build_close_pr(
 
     def close_pr(unit: Unit, pr: int, reason: str) -> None:
         forge, repo = for_repo(unit.repo)
-        posted = forge.post_comment(repo, pr, body=f"{reason}\n{MARKER}")
+        body = f"{reason}\n{MARKER}"
+        # A repeat of this pair finds the reason already there and does not post it again.
+        posted = forge.comment_exists(repo, pr, MARKER, body) or forge.post_comment(
+            repo, pr, body=body
+        )
         if not posted:
             raise RuntimeError(f"reason not posted on #{pr}; left open")
         forge.close_pr(repo, pr)

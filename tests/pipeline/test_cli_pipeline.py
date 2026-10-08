@@ -31,7 +31,7 @@ from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import ClosePending, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, UnitState
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
@@ -1169,6 +1169,20 @@ def test_a_unit_in_review_keeps_the_ticks_coming(tmp_path: Path) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=4)
+
+    assert cli.has_work(inst, store)
+
+
+def test_a_satisfied_unit_with_a_close_still_to_make_keeps_the_ticks_coming(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored("c/1", change="c")], change="c")
+    store.set_state("c/1", UnitState.SATISFIED, pr=4)
+    real_verify_ready(inst, store.all(), verify=_verifier([False], []))
+    assert not cli.has_work(inst, store), "a recorded failure alone keeps no tick busy"
+
+    store.set_close_pending("c/1", ClosePending(pr=4, reason="Elsewhere."))
 
     assert cli.has_work(inst, store)
 

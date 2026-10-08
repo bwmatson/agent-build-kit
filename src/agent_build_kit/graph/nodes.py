@@ -76,6 +76,7 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.unit_store import (
     Cause,
+    ClosePending,
     FeedbackSource,
     HeldBy,
     RequeueReason,
@@ -1343,9 +1344,12 @@ class BuildPath:
             r.store.set_state(unit.id, SATISFIED, note=note)
         if stored.pr:
             # Posting and closing are one call, so the reason is never missing before the close.
+            reason = satisfied_reason(stored, graph=self.graph or [stored])
             try:
-                r.close_pr(unit, stored.pr, satisfied_reason(stored, graph=self.graph or [stored]))
+                r.close_pr(unit, stored.pr, reason)
             except Exception as error:  # noqa: BLE001
+                # Kept, so a later pass repeats the pair until the pull request is closed.
+                r.store.set_close_pending(unit.id, ClosePending(pr=stored.pr, reason=reason))
                 # The unit stays satisfied, but the failure is recorded on the unit
                 # itself, or it looks like one whose close worked.
                 self.say(f"{unit.id}: pull request #{stored.pr} not closed — {error}")
@@ -1489,8 +1493,12 @@ class BuildPath:
         # seen is rejected.
         if unit.tier == "tier2":
             r.post_status(sha, True)
-        for answer in state.pending_replies:
-            r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha)
+        # What the host did not take stays owed, for the next pass to post.
+        unposted = tuple(
+            left
+            for answer in state.pending_replies
+            if (left := r.reply(repo=unit.repo, pr=pr, answer_text=answer, sha=sha))
+        )
         if state.given_comments:
             r.record_given(unit.repo, pr, list(state.given_comments))
         if state.had_feedback:
@@ -1505,8 +1513,8 @@ class BuildPath:
             "status": RunStatus.OPEN,
             "detail": f"opened #{pr}",
             "pr": pr,
-            # Said and no longer owed: the loop that asked for them is over.
-            "pending_replies": (),
+            # Said, except what the host did not take: the loop that asked is over.
+            "pending_replies": unposted,
             "person_comments": "",
             "seen_comments": None,
             "given_comments": (),

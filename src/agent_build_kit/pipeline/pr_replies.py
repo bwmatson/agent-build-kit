@@ -71,6 +71,9 @@ class Answer(BaseModel):
 
     replies: list[Reply] = []
     summary: str = ""
+    # The commit the replies were first signed with, kept on what is owed so a retry signs the
+    # same words and the host's existing post is recognised as it.
+    sha: str = ""
 
 
 def last_json(text: str, keys: set[str]) -> dict | None:
@@ -154,28 +157,45 @@ def build_post_replies(
     root: Path,
     for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
     log: Callable[[str], None] = print,
-) -> Callable[..., None]:
-    """Post a rework's answer to its PR, recording what was posted."""
+) -> Callable[..., str]:
+    """Post a rework's answer to its PR, recording what was posted, and return the answer
+    text of what is still owed ("" when nothing is)."""
     for_repo = for_repo or forges.for_repo
 
-    def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> None:
+    def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> str:
         answer = parse_answer(answer_text)
         if answer is None:
             log("no replies posted: the rework did not end with its answer as JSON")
-            return
+            return ""
 
         forge, repo_id = for_repo(repo)
         posted: list[str] = []
+        owed = Answer()
+        sha = answer.sha or sha
         try:
-            _post_all(forge, repo_id, answer, pr, sha, posted)
+            owed = _post_all(forge, repo_id, answer, pr, sha, posted)
         finally:
             # Whatever did go out is recorded even if a later post raised:
             # an unrecorded reply is one the poller would read as review.
             record_posts(root, forges.key(repo_id), pr, [p for p in posted if p])
+        done = len(answer.replies) - len(owed.replies)
         log(
-            f"posted {len(answer.replies)} repl(ies)"
-            + (" and a summary" if answer.summary.strip() else "")
+            f"posted {done} repl(ies)"
+            + (" and a summary" if answer.summary.strip() and not owed.summary else "")
         )
+        if not owed.replies and not owed.summary:
+            return ""
+        return owed.model_dump_json()
+
+    def _held(
+        forge: Forge, repo_id: RepoId, pr: int, body: str, reply_to: str | None = None
+    ) -> str | None:
+        """The id of this exact post if the host already holds it."""
+        try:
+            return forge.comment_exists(repo_id, pr, MARKER, body, reply_to=reply_to)
+        except Exception as error:  # noqa: BLE001 - an unreadable host is not a landed post
+            log(f"could not look for an existing post: {error}")
+            return None
 
     def _post_all(
         forge: Forge,
@@ -184,19 +204,41 @@ def build_post_replies(
         pr: int,
         sha: str,
         posted: list[str],
-    ) -> None:
+    ) -> Answer:
+        """Post each reply and the summary; return what is still owed."""
+        owed: list[Reply] = []
         for reply in answer.replies:
+            body = _signed(reply.body, sha)
+            found = _held(forge, repo_id, pr, body, reply.comment_id)
+            if found:
+                posted.append(found)
+                continue
             try:
-                posted += forge.post_reply(
-                    repo_id, pr, note_id=reply.comment_id, body=_signed(reply.body, sha)
-                )
+                ids = forge.post_reply(repo_id, pr, note_id=reply.comment_id, body=body)
             except Exception as error:  # noqa: BLE001 - one bad id must not cost the rest
                 log(f"reply to comment {reply.comment_id} not posted: {error}")
+                ids = []
+            if ids:
+                posted += ids
+            else:
+                owed.append(reply)
 
+        summary = ""
         if answer.summary.strip():
-            try:
-                posted += forge.post_comment(repo_id, pr, body=_signed(answer.summary, sha))
-            except Exception as error:  # noqa: BLE001
-                log(f"summary comment not posted: {error}")
+            body = _signed(answer.summary, sha)
+            found = _held(forge, repo_id, pr, body)
+            if found:
+                posted.append(found)
+            else:
+                try:
+                    ids = forge.post_comment(repo_id, pr, body=body)
+                except Exception as error:  # noqa: BLE001
+                    log(f"summary comment not posted: {error}")
+                    ids = []
+                if ids:
+                    posted += ids
+                else:
+                    summary = answer.summary
+        return Answer(replies=owed, summary=summary, sha=sha)
 
     return post_replies
