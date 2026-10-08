@@ -328,7 +328,15 @@ class RunningServer:
     def __init__(self, app: FastAPI, port: int) -> None:
         config = uvicorn.Config(app, host=HOST, port=port, log_level="warning")
         self._server = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._server.run, daemon=True)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        # uvicorn exits the process with a status when it cannot bind; in this thread
+        # that must end the thread quietly, `__enter__` reports the failed start.
+        try:
+            self._server.run()
+        except SystemExit:
+            pass
 
     @property
     def host(self) -> str:

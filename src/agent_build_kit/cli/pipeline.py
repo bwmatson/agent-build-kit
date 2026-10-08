@@ -136,7 +136,12 @@ from agent_build_kit.pipeline.work_graph import (
     group_needs,
     validate_tasks,
 )
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
+from agent_build_kit.pipeline.workspaces import (
+    BranchBusy,
+    branch_lock,
+    lock_holder_gone,
+    worktree_path,
+)
 from agent_build_kit.profiles.base import ProfileUnsupported
 
 if TYPE_CHECKING:
@@ -567,6 +572,7 @@ def _may_build(
     leaves out the line saying why a build may start: the tick's own round
     says it, the refreshes of a pass would repeat it.
     """
+    _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
         log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
@@ -783,6 +789,32 @@ def reclaim_stranded(
             )
             telemetry.count("abk.units.reclaimed")
             log(f"{unit.id}: no run holds it — planned again")
+
+
+def reconcile_running(
+    inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
+) -> None:
+    """Fail each `running` unit whose branch lock names a process that is gone.
+
+    Its run ended without recording an outcome, so `abk requeue` could not move
+    it while it read `running`. One with a live holder is left, and so is one
+    with no lock, which is reported: nothing says whether its run ever started.
+    A unit in `in_flight`, or with a thread, is left and not reported: its thread
+    resumes it, which is how a run killed in a node carries on."""
+    for unit in store.all():
+        if unit.state != RUNNING or unit.id in in_flight or has_thread(inst, unit.id):
+            continue
+        gone = lock_holder_gone(unit.branch or branch_name(unit), root=inst.state_dir / "locks")
+        if gone is None:
+            log(f"{unit.id}: running, but no lock names a run for it")
+        elif gone:
+            store.set_state(
+                unit.id,
+                FAILED,
+                note="the run ended without recording its outcome",
+                cause=Cause.FAILED,
+            )
+            log(f"{unit.id}: its run is gone — failed")
 
 
 def gate_sent_back(store: UnitStore) -> None:

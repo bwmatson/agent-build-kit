@@ -59,6 +59,23 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
+    """Whether the process named in this branch's lock is gone: `True` only when
+    a pid was read and that process is not alive, `False` for a live one, `None`
+    when there is no lock, or one that names no pid. A lock is created before
+    its pid is written, so an unreadable one may belong to a holder taking it.
+    Unlike `branch_lock`, it leaves the file where it is."""
+    path = _lock_path(branch, root)
+    try:
+        parsed = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    pid = parsed.get("pid") if isinstance(parsed, dict) else None
+    if not isinstance(pid, int):
+        return None
+    return not _process_alive(pid)
+
+
 @contextmanager
 def branch_lock(branch: str, *, root: Path):
     """Hold this branch exclusively, or raise `BranchBusy` immediately."""
