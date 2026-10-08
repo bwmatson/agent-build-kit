@@ -194,7 +194,7 @@ def test_with_telemetry_off_the_ledger_is_written_and_nothing_is_exported(
         # The same records with telemetry on are exported, so the silence above
         # is the switch and not an absent feature.
         assert telemetry.init() is True
-        record_agent(session_id="on-1")
+        record_agent(round=1, session_id="on-1")
         telemetry.shutdown()
         assert collector.metric("abk.agent.cost")
 

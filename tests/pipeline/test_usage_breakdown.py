@@ -42,7 +42,9 @@ def detail_ledger(tmp_path: Path) -> Path:
             cost_usd=0.25,
             duration_ms=30000,
         ),
-        agent_line(session_id="sess-3", usage_source="estimated", cost_usd=0.5, duration_ms=1000),
+        agent_line(
+            round=2, session_id="sess-3", usage_source="estimated", cost_usd=0.5, duration_ms=1000
+        ),
         span_line(node="review", waited="slot", duration_ms=5000),
         span_line(node="plan", waited="slot", duration_ms=4000),
         span_line(node="plan", waited="usage_pause", duration_ms=600),

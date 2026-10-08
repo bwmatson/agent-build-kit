@@ -1030,7 +1030,9 @@ def main() -> None:
     )
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
     # Only the methods these tests drive: the rest answer "method not found".
-    asyncio.run(run_agent(cast(Agent, agent), observers=[agent.observe]))
+    asyncio.run(
+        run_agent(cast(Agent, agent), observers=[agent.observe], use_unstable_protocol=True)
+    )
 
 
 if __name__ == "__main__":

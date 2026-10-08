@@ -842,12 +842,13 @@ run's log).
 
 Writes are best-effort: a record that cannot be kept (no workspace loaded, the state directory
 unwritable) is dropped, never fails a run, and is reported once per process for each reason. The
-reader (`usage_ledger.read_ledger`) keeps the last line for each unit, node, round and session,
-so a node run again with the same session counts once while two calls in different sessions both
-count; a call with no session id cannot be told apart from another and stays a record of its own.
-A resumed call keeps its session id and its result reports that call's figures, not a running
-total (checked live against Claude Code), so a `resumed` line adds to the call it resumed instead
-of replacing it.
+reader (`usage_ledger.read_ledger`) keeps the last line for each unit, node and round, the session id being an attribute of the
+line and not part of its key: a node run again counts once, and a call that continues a session
+another node started (`fix_checks` continuing the build session) is that node's own spend, so one
+session id can appear under several nodes. A call with no session id cannot be told apart from
+another and stays a record of its own. A resumed call keeps its session id and its result reports
+that call's figures, not a running total (checked live against Claude Code), so a `resumed` line
+adds to the call of the same node and round it resumed instead of replacing it.
 With `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, each agent call of the graph gets a
 gateway key of its own, aliased `abk:<unit>:<node>:<round>:<random>` and handed to the agent in
 `ABK_GATEWAY_KEY` (`AgentRequest.env`). When the call ends the figures the gateway logged for that

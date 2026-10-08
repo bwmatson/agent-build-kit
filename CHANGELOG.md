@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- An ACP agent's session is now continued with `session/resume`, and only when the agent
+  advertises both resume and list and lists the session id for the worktree; otherwise the step
+  starts a new session with its full prompt. `session/load` is no longer used. The usage ledger
+  now counts a call under the node that made it, so a fix that continues the build session is
+  the fix's spend, with the session id kept as an attribute of the record.
+
 - A unit no longer stays `running` after its run is gone. At the start of each pass, a running
   unit whose branch lock names a dead process is failed, so `abk requeue` can move it; one
   with a live holder, a thread to resume from, or no readable lock is left (the last is
