@@ -225,9 +225,7 @@ def test_a_build_gives_the_journal_to_events_and_the_transcript_to_the_whole_tex
 
     runtime = StandInRuntime()
 
-    build_run(runtime=runtime, journal=journal, transcript=_noop)(
-        "Go.", cwd=tmp_path, model=MODEL
-    )
+    build_run(runtime=runtime, journal=journal, transcript=_noop)("Go.", cwd=tmp_path, model=MODEL)
 
     assert runtime.request.on_event is journal
     assert runtime.request.on_transcript is _noop
