@@ -40,6 +40,10 @@ class BranchBusy(RuntimeError):
 class DirtyWorktree(RuntimeError):
     """The worktree has uncommitted changes, which are left for a human."""
 
+    def __init__(self, message: str, paths: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.paths = paths
+
 
 def _lock_path(branch: str, root: Path) -> Path:
     return root / f"{re.sub(r'[^A-Za-z0-9]', '_', branch)}.lock"
@@ -100,13 +104,31 @@ def worktree_path(repo: Path, branch: str, root: Path) -> Path:
     return root / repo.name / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
-def prepare_worktree(repo: Path, branch: str, *, base: str, root: Path) -> Path:
+def _porcelain(path: Path) -> list[tuple[str, str]]:
+    """The worktree's changes as (status code, exact path), every untracked file named."""
+    fields = git(path, "status", "--porcelain", "-z", "--untracked-files=all").stdout.split("\0")
+    entries: list[tuple[str, str]] = []
+    pending = iter(fields)
+    for field in pending:
+        if not field:
+            continue
+        code, name = field[:2], field[3:]
+        if "R" in code or "C" in code:
+            next(pending, None)  # the source of a rename or copy follows as its own field
+        entries.append((code, name))
+    return entries
+
+
+def prepare_worktree(
+    repo: Path, branch: str, *, base: str, root: Path, allow_dirty: bool = False
+) -> Path:
     """The worktree for this unit's branch, created or reused.
 
     A new branch is created on `base`, which is how a stacked unit starts from
     its parent's work rather than from `main`. An existing worktree is reused
     as it stands, so a re-run continues where the last one stopped — unless it
-    is dirty, in which case this raises rather than touching anything.
+    is dirty, in which case this raises rather than touching anything, unless
+    `allow_dirty` says the caller knows the changes are its own to carry on from.
 
     Either way it carries the ignored scratch folder agent runs put long
     command output in (`pipeline/scratch.py`).
@@ -115,11 +137,13 @@ def prepare_worktree(repo: Path, branch: str, *, base: str, root: Path) -> Path:
 
     if path.exists():
         ensure_scratch(path)
-        status = git_out(path, "status", "--porcelain")
-        if status:
+        entries = _porcelain(path)
+        if entries and not allow_dirty:
+            listing = "\n".join(f"{code} {name}" for code, name in entries)
             raise DirtyWorktree(
-                f"{path} has uncommitted changes:\n{status}\n"
-                "Left alone: commit or remove them by hand, since they may be the only copy."
+                f"{path} has uncommitted changes:\n{listing}\n"
+                "Left alone: commit or remove them by hand, since they may be the only copy.",
+                paths=tuple(name for _, name in entries),
             )
         return path
 

@@ -69,6 +69,7 @@ class Cause(StrEnum):
     RELEASED = "released"
     RESTACK_CONFLICT = "restack_conflict"
     RESTACK_DEFERRED = "restack_deferred"
+    DIRTY_WORKTREE = "dirty_worktree"
     MERGED = "merged"
     CLOSED = "closed"
     FAILED = "failed"

@@ -422,7 +422,7 @@ def test_a_failed_restack_keeps_where_the_waiting_feedback_came_from(tmp_path: P
 def test_a_restack_the_resolver_could_not_run_is_not_a_conflict(
     tmp_path: Path, refusal: Exception
 ) -> None:
-    """It reaches the tick, which pauses or reclaims, and the unit is not failed."""
+    """It reaches the tick, which pauses or resumes it, and the unit is not failed."""
     recorder = fresh(tmp_path)
     recorder.made = 2
 

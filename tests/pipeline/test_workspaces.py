@@ -83,6 +83,18 @@ def test_a_dirty_worktree_is_reported_not_cleaned(repo: Path, tmp_path: Path) ->
     assert (tree / "scratch.txt").exists(), "the file is still there to rescue"
 
 
+def test_a_dirty_worktrees_paths_are_exact(repo: Path, tmp_path: Path) -> None:
+    tree = prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+    (tree / "a b.txt").write_text("x\n")
+    (tree / "dir").mkdir()
+    (tree / "dir" / "é.txt").write_text("y\n")
+
+    with pytest.raises(DirtyWorktree) as dirty:
+        prepare_worktree(repo, "spec/change/1", base="main", root=tmp_path / "trees")
+
+    assert sorted(dirty.value.paths) == ["a b.txt", "dir/é.txt"]
+
+
 def test_two_runs_on_one_branch_fail_fast(tmp_path: Path) -> None:
     """Contention here is a scheduler bug: the same unit was handed out twice.
     Waiting would hide that; failing surfaces it."""

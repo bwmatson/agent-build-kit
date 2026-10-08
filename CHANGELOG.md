@@ -8,6 +8,16 @@
   prints it. Units are addressed as `change/N`. Nothing it reads is changed. A port already in use is reported by
   name with a non-zero exit.
 
+- A step killed while its agent was editing now resumes over the files the agent left
+  instead of failing on a dirty worktree. A recorded session is continued as before; a
+  new session is told which paths are uncommitted work from an interrupted run, and the
+  step's commit includes them. Uncommitted changes that are not a killed step's own, such
+  as a hand edit, hold the unit with the cause `dirty_worktree` and the paths rather than
+  failing it, and `abk status` lists it as parked until it is cleaned and requeued, which
+  resumes a park at an agent step at that step with its inputs intact (a park elsewhere
+  begins again at the start; a requeue before the tree is clean leaves it parked). A
+  review never counts as editing, so a dirty tree under a killed review parks the unit.
+
 - A pull request description is shrunk to what the host accepts instead of being refused:
   a long tier 2 output loses its start first, then follow-ups are cut to whole items, and
   the output is dropped last, keeping the pass or fail line. A forge cuts anything still

@@ -102,6 +102,16 @@ instance).
   the same repo restacks it once its depth is within the cap. To move it
   sooner, raise `limits.stack_depth_rebase_cap` or restack the branch by hand.
 
+### Parked for its worktree
+
+A `held` unit with the cause `dirty_worktree` found uncommitted changes in its
+worktree that its own killed agent did not leave: a hand edit, or an edit while
+the unit waited. `abk status` lists it as `parked` with the paths. Nothing is
+cleaned, since the changes may be the only copy. Commit or remove them, then
+`abk requeue <unit>` resumes a park at an agent step at that step, and begins a park anywhere
+else again at `prepare`. A requeue while the tree is still dirty leaves it parked. Changes an agent left when it was killed
+mid-run are not this: the node resumes over them and commits them.
+
 ### `failed`
 
 The run raised an exception, or its checks failed; its last log line in the
