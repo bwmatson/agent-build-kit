@@ -8,6 +8,7 @@ message chunks, tool calls started and updated, and a prompt answered with an
 end-of-turn reason.
 
     python acp_agent.py RECORD [--stop REASON] [--no-additional-dirs] [--linger] [--fail HOW]
+                        [--load-session]
 
 Every request and notification the client sends is appended to RECORD as one
 JSON line — `{"method": ..., "params": ...}`, exactly as it arrived on the
@@ -18,6 +19,9 @@ prompt time, which the wire's `session/prompt` carries no field for, is
 recorded separately as its own pseudo-method line (`MODEL_AT_PROMPT`).
 `--stop` is the end-of-turn reason
 the prompt is answered with (`end_turn` unless given).
+`--load-session` declares the `loadSession` capability and answers `session/load`,
+replaying the earlier turn's text as `session/update`s first, as the protocol has an
+agent do; without it the capability is `false` and a load is refused as unknown.
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
 unadvertised. `--linger` starts a child in the agent's own process group that
 inherits its stderr and sleeps for `HANG_SECONDS`, writing the child's pid to
@@ -113,6 +117,7 @@ from typing import Any, Literal, cast, get_args
 from acp import (
     PROTOCOL_VERSION,
     InitializeResponse,
+    LoadSessionResponse,
     NewSessionResponse,
     PromptResponse,
     RequestError,
@@ -165,6 +170,9 @@ MODEL_AT_PROMPT = "test/model_at_prompt"
 # pseudo-method line like the above, `{"ABK_GATEWAY_KEY": value-or-null}`.
 ENVIRONMENT = "test/environment"
 WATCHED_ENV = ("ABK_GATEWAY_KEY", "ABK_TEST_INHERITED")
+
+# What an agent that loads a session replays of the turn before.
+EARLIER_TURN = "Earlier I read the module and found nothing to change."
 
 # Messages arrive in pieces, as a model's output streams: the preamble a word
 # at a time, the final answer — which the review step parses as JSON — in two.
@@ -248,7 +256,9 @@ class FakeAgent:
         usage: str | None = None,
         cost: str | None = None,
         reply: str | None = None,
+        load_session: bool = False,
     ) -> None:
+        self._load_session = load_session
         self._reply = reply
         self._usage = usage
         self._cost = cost
@@ -293,7 +303,7 @@ class FakeAgent:
         return InitializeResponse(
             protocol_version=PROTOCOL_VERSION,
             agent_capabilities=AgentCapabilities(
-                load_session=False,
+                load_session=self._load_session,
                 prompt_capabilities=PromptCapabilities(image=False, audio=False),
                 session_capabilities=SessionCapabilities(
                     additional_directories=SessionAdditionalDirectoriesCapabilities()
@@ -323,6 +333,24 @@ class FakeAgent:
             ),
             config_options=[_model_option(self._model)],
         )
+
+    async def load_session(
+        self,
+        cwd: str,
+        session_id: str,
+        mcp_servers=None,
+        additional_directories=None,
+        **kwargs: Any,
+    ) -> LoadSessionResponse:
+        if not self._load_session:
+            raise RequestError.method_not_found("session/load")
+        self._cwd = cwd
+        client = self._client
+        assert client is not None
+        await client.session_update(
+            session_id=session_id, update=update_agent_message_text(EARLIER_TURN)
+        )
+        return LoadSessionResponse(config_options=[_model_option(self._model)])
 
     async def set_config_option(
         self, config_id: str, session_id: str, value: str | bool, **kwargs: Any
@@ -779,6 +807,7 @@ def command(
     usage: str | None = None,
     cost: str | None = None,
     reply: str | None = None,
+    load_session: bool = False,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -809,6 +838,8 @@ def command(
         argv += ["--cost", cost]
     if reply is not None:
         argv += ["--reply", reply]
+    if load_session:
+        argv.append("--load-session")
     return argv
 
 
@@ -828,6 +859,7 @@ def use_agent(
     usage: str | None = None,
     cost: str | None = None,
     reply: str | None = None,
+    load_session: bool = False,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -847,6 +879,7 @@ def use_agent(
             usage=usage,
             cost=cost,
             reply=reply,
+            load_session=load_session,
         )
     )
 
@@ -887,6 +920,7 @@ def main() -> None:
     parser.add_argument("--usage", choices=sorted(USAGE_PAYLOADS))
     parser.add_argument("--cost", choices=["USD", "EUR"])
     parser.add_argument("--reply")
+    parser.add_argument("--load-session", action="store_true")
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -903,6 +937,7 @@ def main() -> None:
         usage=args.usage,
         cost=args.cost,
         reply=args.reply,
+        load_session=args.load_session,
     )
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
     # Only the methods these tests drive: the rest answer "method not found".
