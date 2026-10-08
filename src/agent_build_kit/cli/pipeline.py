@@ -128,6 +128,7 @@ from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import (
     CommitRejected,
+    build_close_pr,
     build_resume_at,
     build_runner,
     build_tier1,
@@ -220,7 +221,24 @@ def _usage_line(reading: UsageReading) -> str:
 def retry_closes(store: UnitStore, *, close_pr: Callable[[Unit, int, str], None]) -> None:
     """Close again each satisfied unit's pull request that is still open, removing the
     record of those that closed."""
-    raise NotImplementedError
+    for unit in store.all():
+        pending = unit.close_pending
+        if pending is None:
+            continue
+        try:
+            close_pr(unit, pending.pr, pending.reason)
+        except Exception as error:  # noqa: BLE001 - kept for the next pass
+            log(f"{unit.id}: pull request #{pending.pr} still not closed — {error}")
+            continue
+        store.set_close_pending(unit.id, None)
+        log(f"{unit.id}: pull request #{pending.pr} closed")
+
+
+def _retry_pending_closes(inst: Installation, store: UnitStore) -> None:
+    def close_pr(unit: Unit, pr: int, reason: str) -> None:
+        build_close_pr(for_repo=inst.forge_of)(unit, pr, reason)
+
+    retry_closes(store, close_pr=close_pr)
 
 
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
@@ -286,7 +304,21 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             waits = unmet_gates(unit, units)
             if waits:
                 log(f"  {unit.id} ({unit.repo}) {merge_wait(waits)}")
+        if unit.close_pending:
+            log(
+                f"  close pending: {unit.id} ({unit.repo}) #{unit.close_pending.pr} is "
+                "satisfied but still open; closing is retried each pass"
+            )
         if unit.state == IN_REVIEW:
+            try:
+                owed = thread_of(inst, unit.id).state
+            except Exception:  # noqa: BLE001 - status reads, and must not fail on the thread store
+                owed = None
+            if owed and owed.pending_replies:
+                log(
+                    f"  unposted replies: {unit.id} ({unit.repo}) #{unit.pr or '?'} — "
+                    f"{len(owed.pending_replies)} waiting for the host to take them"
+                )
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
             mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
@@ -727,6 +759,7 @@ def run_round(
             log(f"archived {change}")
 
     _step("archiving", archive)
+    _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     if not submit:
         return []
 

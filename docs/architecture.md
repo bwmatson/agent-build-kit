@@ -386,7 +386,10 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    forge cuts whatever is still over. The `local/tier2` commit
    status is posted for the tested SHA (and, on a host that shows statuses on
    the pull request, on the open pull request for the branch too); the rework's replies to review threads
-   are posted in those threads, signed with the commit. The unit is
+   are posted in those threads, signed with the commit. A reply the host does not take stays in the
+   unit's pending replies and is posted on a later pass, once (a reply the host already holds counts as posted). A satisfied
+   unit's pull request that cannot be closed is recorded as `close_pending` and closed by each
+   round until done, its reason posted once; `abk status` lists both. The unit is
    `in_review`, and its groups are ticked in `tasks.md` — now, not when a
    build finished.
 

@@ -631,7 +631,8 @@ class UnitStore:
         self._update(unit_id, merge_before=tuple(merge_before))
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
-        raise NotImplementedError
+        """The close a satisfied unit still owes its pull request, or None once done."""
+        self._update(unit_id, close_pending=pending)
 
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
         self._update(unit_id, predecessor_note=note)
