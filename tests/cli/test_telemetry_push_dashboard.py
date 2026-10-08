@@ -299,5 +299,10 @@ def test_a_refusal_with_a_token_does_not_blame_the_missing_token(
     code = main(["telemetry", "push-dashboard"])
 
     captured = capsys.readouterr()
+    text = captured.out + captured.err
     assert code != 0
-    assert "anonymous" not in captured.out + captured.err
+    assert "anonymous" not in text
+    assert "set ABK_GRAFANA_TOKEN" not in text
+    assert grafana.url in text
+    assert str(status) in text
+    assert not grafana.dashboards

@@ -103,7 +103,8 @@ class Settings(BaseSettings):
     )
 
     # The Grafana `abk telemetry push-dashboard` pushes the pipeline's dashboard
-    # to: its URL, a service-account token, and the folder it goes into.
+    # to: its URL, an optional service-account token (empty: the push sends no
+    # authorization header), and the folder it goes into.
     grafana_url: str = ""
     grafana_token: str = ""
     grafana_folder: str = "agent-build-kit"

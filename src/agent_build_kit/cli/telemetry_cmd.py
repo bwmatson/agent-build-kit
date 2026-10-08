@@ -60,7 +60,8 @@ def cmd_push_dashboard(args: argparse.Namespace, inst: Installation | None) -> i
         if error.code in (401, 403) and not settings.grafana_token:
             print(
                 f"abk telemetry push-dashboard: {settings.grafana_url} refused the anonymous "
-                f"push (HTTP {error.code}); set ABK_GRAFANA_TOKEN to a service-account token"
+                f"push (HTTP {error.code}): that Grafana does not allow anonymous Editor "
+                "access; set ABK_GRAFANA_TOKEN to a service-account token"
             )
         else:
             print(f"abk telemetry push-dashboard: {settings.grafana_url}: {error}")
