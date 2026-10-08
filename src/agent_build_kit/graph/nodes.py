@@ -833,9 +833,9 @@ class BuildPath:
         failed_check = stored.feedback_source in (FeedbackSource.TIER1, FeedbackSource.TIER2)
         in_loop = state.verdict is Verdict.CHANGES
         kept: Update = {}
-        # An empty head is a thread converted from the engine before the switch, or a rework
-        # just delivered by an event: no node has recorded the branch's tip, so nothing is
-        # known to be done. `new_comments` records the tip, which is the worktree's HEAD,
+        # An empty head is a rework just delivered by an event: no node has recorded the
+        # branch's tip, so nothing is known to be done. `new_comments` records the tip,
+        # which is the worktree's HEAD,
         # so its rework runs and a resume after the agent's commit sees a different head.
         if state.head and r.head(tree) != state.head:
             self.say("the rework commit is already on the branch")

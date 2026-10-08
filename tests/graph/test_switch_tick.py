@@ -1,6 +1,4 @@
-"""The graph is the only engine: the first tick on the new version converts the
-units in flight, then runs every unit on its thread (docs/unit-graph.md,
-Moving the units in flight)."""
+"""The graph is the only engine: a tick runs every unit on its thread."""
 
 from __future__ import annotations
 
@@ -17,11 +15,9 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import Review
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, branch_name
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
-from tests.classic_store import leave_in_flight
 from tests.conftest import make_installation
-from tests.factories import unit
 from tests.graph_driver import fresh
 from tests.runner_fakes import Killed, Recorder, make_runner
 
@@ -94,47 +90,7 @@ def test_a_unit_killed_mid_node_is_resumed_there_(tick: Tick) -> None:
     assert states == [PLANNED, RUNNING, IN_REVIEW], "never put back to planned"
 
 
-def test_the_first_tick_converts_a_unit_in_flight_and_resumes_it_where_it_stopped(
-    tick: Tick,
-) -> None:
-    tick.store.set_state(UNIT, PLANNED, branch=branch_name(unit()))
-    leave_in_flight(tick.store, UNIT, resume_from="review")
-    tick.recorder.made = 2
-
-    assert tick.run() == 0
-
-    assert tick.recorder.events.count("review") == 1
-    assert "claude:impl" not in tick.recorder.events
-    assert "claude:tests" not in tick.recorder.events
-    assert tick.store.get(UNIT).state == IN_REVIEW
-    assert tick.next() == (Node.AWAIT_REVIEW,)
-
-
-def test_the_first_tick_converts_a_unit_in_review_without_building_it_again(tick: Tick) -> None:
-    tick.store.set_state(UNIT, IN_REVIEW, pr=7, branch=branch_name(unit()))
-
-    assert tick.run() == 0
-
-    assert tick.next() == (Node.AWAIT_REVIEW,)
-    assert tick.recorder.events == [], "nothing was run for a unit waiting in review"
-    assert tick.store.get(UNIT).state == IN_REVIEW
-
-
-def test_a_running_unit_with_no_step_and_no_feedback_is_resumed_by_the_next_tick(
-    tick: Tick,
-) -> None:
-    # A run killed before it recorded anything: the unit is `running` with a
-    # branch and no thread, and nothing else would ever move it.
-    tick.store.set_state(UNIT, RUNNING, branch=branch_name(unit()))
-    tick.recorder.made = 2
-
-    assert tick.run() == 0
-
-    assert tick.store.get(UNIT).state == IN_REVIEW
-    assert tick.next() == (Node.AWAIT_REVIEW,)
-
-
-def test_a_second_tick_does_not_convert_again(tick: Tick) -> None:
+def test_a_second_tick_does_not_build_again(tick: Tick) -> None:
     tick.run()
     built = list(tick.recorder.events)
 

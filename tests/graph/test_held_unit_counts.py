@@ -35,7 +35,6 @@ def test_a_unit_held_before_a_step_counts_as_in_progress(tmp_path: Path) -> None
     held = held_before_a_step(tmp_path)
 
     assert held.state == PLANNED and held.pr is None
-    assert held.resume_from == "", "no run writes a resume step"
     assert in_progress(held)
 
 

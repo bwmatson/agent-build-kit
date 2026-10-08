@@ -30,7 +30,7 @@ part stayed as it was, and how the two meet.
 
 A unit's lifecycle is a graph, and was written as hand-rolled control flow.
 `UnitRunner.run` (`pipeline/stack_runner.py`) branched on a recorded step
-(`resume_from`) and decided which steps to run next. `checkpoint()` and
+(`resume_from`, since removed) and decided which steps to run next. `checkpoint()` and
 `record_step` persisted where it got to. `reclaim_stale` put a unit back after
 its process was killed. And a dozen event handlers in `pipeline/events.py`
 reach into the unit store to send a unit back, hold it, or move it.
@@ -106,9 +106,12 @@ line falls where a unit ends:
   deferred follow-ups, pending replies and the comments they answer, which are
   the thread's state. Two in-run fields stay, because something writes them
   with no run in progress: `approved` (the push gate and `build_restack` read
-  and write it) and `predecessor_note` (`build_restack` writes it). `resume_from`
-  and `classic_run` stay as read-only legacy: an old store's step and in-run
-  keys, read only by `graph.convert`, which clears them once the thread holds them.
+  and write it) and `predecessor_note` (`build_restack` writes it). A store that
+  still carries a value in `review_rounds`, `deferred`, `pending_replies`,
+  `person_comments`, `resume_from` or `classic_run` on a unit does not load: the error
+  names the unit and the field, and that work must be finished or requeued first. The
+  empty `resume_from` and `classic_run` the last release wrote on every unit are dropped
+  on read.
 - **The checkpoint** holds a run's progress. There is one LangGraph thread per
   unit, with `thread_id` equal to the unit id.
 - **git** holds the work: every step that produces anything ends in a commit,
@@ -486,38 +489,13 @@ a new session and says so in the run log.
 - **LangSmith tracing** is supported by the framework, optional, and off by
   default. Nothing in the pipeline depends on it.
 
-## Moving the units in flight
-
-`convert_in_flight` runs on every tick, but it only seeds a thread for a stored
-unit that has none and has something in flight, so once the stores the previous
-engine left are converted it finds nothing to do. The first tick on this version:
-
-- seeds each such unit with a resume step or waiting feedback onto a thread
-  positioned at the node that step names (`resume_from`), carrying the in-run
-  progress the old store held (`classic_run`: review rounds, deferred follow-ups,
-  pending replies, the comments they answer), then clears both;
-- seeds `in_review` and `held` units a thread already waiting in `await_review`
-  or `held`;
-- gives a stored `running` unit with no thread a thread starting at `prepare`;
-- leaves a unit with nothing in flight without a thread until it starts.
-
-An old `units.json` still loads: the in-run keys it carries are gathered into
-`classic_run` on read, so the schema's refusal of unknown keys does not stop a
-tick.
-
 What stays in the store, and why: `approved`, because the push gate and
 `build_restack` read and write it with no run in progress; `predecessor_note`,
-because `build_restack` writes it the same way; and `resume_from` and
-`classic_run` as read-only legacy that only `graph.convert` reads. `build_restack`
+because `build_restack` writes it the same way. `build_restack`
 no longer writes a resume step: a restacked child goes `planned` with a note,
 and its run's `prepare` decides from the branch. `in_progress` and the start
 rank judge that a planned or unplanned unit has been started from what a run
 writes: a recorded `branch`, a `pushed` or `approved` commit or a `pr`.
-
-An accepted gap: conversion positions a unit after `prepare`, so its first run
-on a converted unit skips what `prepare` does: the fetch, the restack onto a
-moved base and recording the base's tip. A base that moved before the switch is
-caught later, at `verify_base`.
 
 `UnitRunner`'s control flow, `checkpoint()`, `record_step` and `reclaim_stale`
 are gone, and so is the `ABK_ENGINE` setting; it was never released, so it has

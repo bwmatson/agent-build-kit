@@ -28,8 +28,7 @@ order: exit silently if nothing needs a tick (no unit `planned`/`running`/
 read the usage windows and pause if either is past the threshold that applies
 to it now (`usage_pause_pct` in the `session` / `weekly` section of
 `runtimes.claude_code.limits`, rising towards its `usage_pause_ceiling_pct` as that
-window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; convert units in
-flight onto threads (only a unit with none); plan changes whose `tasks.md` changed; apply
+window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then resume the units a killed
 run or a usage pause left `running` from their threads and build the ready
 units, up to `limits.max_concurrent_stacks` at once. No unit that has never
@@ -44,7 +43,7 @@ The pass keeps building until nothing is in flight and nothing is ready. Every
 build that finishes is followed by another fetch, another poll and a fresh
 readiness check, so what it unblocked — a child whose parent is now in
 review, a dependent whose dependency merged — starts in the same pass. A pass
-can therefore run for hours. Planning, converting, verifying and archiving
+can therefore run for hours. Planning, verifying and archiving
 happen only at its start. A poll event for a unit whose build is still running
 is left for a later poll rather than acted on mid-build. A unit is started at
 most once per pass: one this pass already built that a review sends back
@@ -75,9 +74,7 @@ is recorded `failed`, not an exit status.
 Prints whether the pipeline is paused (until when, why), the usage reading
 (session %, weekly %, source), the count of units by state, and each
 `in_review` unit with its PR. A `no recorded cause:` line lists the units that are `held`
-or `planned` with work on them and no cause on their last history entry (a store from
-before causes were kept); requeue each with `abk requeue`, or for a reviewer's hold hold
-it again from the pull request. Changes nothing. Exit 0.
+or `planned` with work on them and no cause on their last history entry. Changes nothing. Exit 0.
 
 ### `abk graph`
 

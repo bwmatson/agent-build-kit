@@ -6,7 +6,6 @@ the builder's feedback, recorded on the round with ids and the commit judged,
 and every earlier required finding is answered by id in a later round.
 """
 
-import asyncio
 import json
 import re
 from pathlib import Path
@@ -14,8 +13,6 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-from agent_build_kit.graph.convert import convert_units_in_flight
 from agent_build_kit.pipeline import stack_runner
 from agent_build_kit.pipeline.stack_runner import (
     Finding,
@@ -25,7 +22,6 @@ from agent_build_kit.pipeline.stack_runner import (
     render_findings,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
-from tests.classic_store import leave_in_flight
 from tests.factories import unit
 from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
@@ -258,31 +254,6 @@ def test_a_round_keeps_its_findings_with_ids_and_the_commit_judged(tmp_path: Pat
     assert recorder.heads_at_review[0] in context, "the head the reviewer was given"
 
 
-def test_rounds_recorded_before_findings_still_load_and_render_as_prose(tmp_path: Path) -> None:
-    path = tmp_path / "units.json"
-    store = UnitStore(path)
-    store.upsert([unit()])
-    leave_in_flight(
-        store,
-        unit().id,
-        review_rounds=[
-            {"asked": "Use a Sequence, list is invariant", "response": "Done, switched."},
-            {
-                "asked": "rendered",
-                "response": "Fixed.",
-                "judged": "sha-9",
-                "findings": [{**_finding(), "id": "2.1"}],
-            },
-        ],
-    )
-
-    note = _earlier_rounds(UnitStore(path).get(unit().id).classic_run["review_rounds"])
-
-    assert "Use a Sequence, list is invariant" in note
-    assert "Done, switched." in note
-    assert "2.1" in note, "the later round is listed by id"
-
-
 # 1.7 — the next round's note
 
 
@@ -427,30 +398,6 @@ def _stored_round(**fields: object) -> dict:
     }
 
 
-def _store_with(tmp_path: Path, *rounds: dict) -> UnitStore:
-    """A store an older version left mid-loop, moved onto a thread as a tick does."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit()])
-    leave_in_flight(store, unit().id, review_rounds=list(rounds))
-
-    async def convert() -> None:
-        async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
-            await convert_units_in_flight(saver, store)
-
-    store.set_feedback(unit().id, "fix it")
-    asyncio.run(convert())
-    return store
-
-
-def _resumed_run(store: UnitStore, verdicts: list[str]) -> Watching:
-    recorder = Watching()
-    recorder.store = store
-    recorder.verdicts = list(verdicts)
-    store.set_feedback(unit().id, "fix it")
-    run_on_graph(make_runner(store, recorder, store.path.parent), unit())
-    return recorder
-
-
 def test_a_reply_without_an_earlier_key_does_not_approve_over_an_open_finding(
     tmp_path: Path,
 ) -> None:
@@ -472,14 +419,6 @@ def test_prose_only_earlier_rounds_and_a_prose_only_approval_still_approve(
 
     assert recorder.events.count("review") == 2
     assert "claude:rework" in recorder.events
-
-
-def test_a_rework_with_a_stored_round_numbers_its_findings_after_it(tmp_path: Path) -> None:
-    store = _store_with(tmp_path, _stored_round())
-    recorder = _resumed_run(store, [_reply(_finding(summary="new"), approved=False)] * 3)
-
-    context = recorder.contexts[1]
-    assert context.index("[1.1]") < context.index("[2.1]")
 
 
 def test_a_note_never_leaves_out_an_unresolved_finding() -> None:

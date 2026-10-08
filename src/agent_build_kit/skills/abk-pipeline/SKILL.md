@@ -22,7 +22,7 @@ what the pipeline is doing, watch the pass, not a single unit.
 
 | Command | What it does |
 |---|---|
-| `abk status` | Whether the pipeline is paused, the usage reading, units by state, which PRs are waiting for a human, and any `held` or in-flight `planned` unit with `no recorded cause` (kept from before causes were recorded: the pass never readmits it, so `abk requeue` it, or for a reviewer's hold hold it again from the PR). Never changes anything. |
+| `abk status` | Whether the pipeline is paused, the usage reading, units by state, which PRs are waiting for a human, and any `held` or in-flight `planned` unit with `no recorded cause`. Never changes anything. |
 | `abk graph` | Regenerate the unit graph page (`docs/unit_graph.md`) from `runs/units.json`. |
 | `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything. |
 | `abk tick` | A real pass, the same one the timer runs. Safe at any time. `--only <unit>` builds just that unit if it is ready. |

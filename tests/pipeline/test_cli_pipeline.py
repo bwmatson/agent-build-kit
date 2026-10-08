@@ -6,6 +6,7 @@ short timer. In particular it must not spend anything when the usage window is
 low, and must not build anything while paused.
 """
 
+import asyncio
 import json
 import re
 import subprocess
@@ -21,6 +22,9 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
 from agent_build_kit.forges import PullRequest
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.state import Node, UnitRun
+from agent_build_kit.graph.unit import seed_thread
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
 from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
@@ -1507,6 +1511,17 @@ def test_a_units_file_names_the_rework_of_waiting_feedback(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     store.set_feedback("add-marker/1", "rename the marker")
+    # A requeue for rework leaves the unit's thread waiting with the feedback in hand.
+    unit = store.get("add-marker/1")
+    seeded = UnitRun(
+        unit_id=unit.id, change=unit.change, groups=unit.groups, had_feedback=True, base_commits=1
+    )
+
+    async def seed() -> None:
+        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+            await seed_thread(saver, seeded, as_node=Node.PREPARE)
+
+    asyncio.run(seed())
     speaking(monkeypatch, {"add-marker/1": opened(1)})
 
     cli.cmd_tick(argv_namespace(dry_run=False), inst)
