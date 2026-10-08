@@ -221,7 +221,8 @@ def test_a_session_that_cannot_be_continued_gives_a_new_one_with_the_full_prompt
     assert last.resume_session == ""
     assert last.model == MODELS.implement
     assert CHANGE_PATH in last.prompt and GROUPS in last.prompt and FAILING in last.prompt
-    assert any(r.resume_session for r in runtime.requests) is tried
+    # the implement node continues the tests session; what is asked here is the fix node's attempt
+    assert any(r.resume_session for r in runtime.built[2:-1]) is tried
     says = logged(recorder)
     assert "new session" in says
     assert why in says
