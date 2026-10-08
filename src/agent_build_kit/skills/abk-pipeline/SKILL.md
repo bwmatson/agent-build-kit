@@ -128,6 +128,10 @@ output. `--restart` throws the attempt away. Never edit `runs/units.json` by
 hand: a failed unit remembers its step, and putting it back to `planned` alone
 sends the next run past the agent to a check on the same branch.
 
+A unit with a `Needs: … merged` line whose dependency has not merged waits instead:
+`abk requeue` leaves it `planned` with the cause `gated` (shown by `abk status` as
+waiting), and the tick resumes it in the requeued mode once the dependency merges.
+
 ### What an agent may run on the code host
 
 Only to read its own pull request, by the commands its repo's forge declares

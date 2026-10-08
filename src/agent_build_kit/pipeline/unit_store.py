@@ -170,6 +170,9 @@ class StoredUnit(Unit):
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
     held_base: str = ""
+    # How a requeue that found its merge gate unmet is delivered once the gate
+    # clears (see `Cause.GATED`); None when no requeue is waiting.
+    gated_requeue: RequeueReason | None = None
     history: tuple[dict, ...] = ()
 
     @property
@@ -565,6 +568,9 @@ class UnitStore:
 
     def set_dependencies(self, unit_id: str, depends_on: Sequence[str]) -> None:
         self._update(unit_id, depends_on=tuple(depends_on))
+
+    def set_gated_requeue(self, unit_id: str, requeue: RequeueReason | None) -> None:
+        self._update(unit_id, gated_requeue=requeue)
 
     def set_merge_before(self, unit_id: str, merge_before: Sequence[str]) -> None:
         self._update(unit_id, merge_before=tuple(merge_before))

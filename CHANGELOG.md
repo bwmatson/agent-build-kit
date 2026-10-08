@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A `Needs: ... merged` line added to a unit that has already started now gates it. A failed or
+  held unit requeued before the dependency merges waits as `planned` with the cause `gated`,
+  keeping its work, and `abk requeue` and `abk status` name the group it waits for; the tick
+  resumes it in the mode it was requeued with once the dependency has merged. A unit sent back
+  for rework waits the same way, and a running one is told once and left alone. A merge gate is
+  never the unit's base, and an edit that only adds a `Needs:` line no longer re-plans the change.
+
 - The pipeline now keeps a local record of each tick's duration, each pause for usage, each
   unit's review rounds, each failed check and each unit's outcome in the usage ledger, whether
   or not telemetry is on, with the unit and change they belong to. Archiving a change rolls up

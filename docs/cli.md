@@ -224,6 +224,12 @@ command says which:
   base branch, where resuming would judge work that was never valid. It clears
   the remembered step and the failure the unit was handed.
 
+A unit with a `Needs: … merged` line whose dependency has not merged is not
+resumed: it goes to `planned` with the cause `gated`, keeping its thread, branch
+and saved failure, and the command names the group it waits for. `abk status`
+lists it as waiting. Once the dependency has merged, the next tick delivers the
+requeue in the mode it was given (default, `--rework` or `--restart`).
+
 Any other state is refused: a running unit would be built twice, an in-review
 one has a pull request that would be orphaned, and a planned or merged one has
 nothing to retry. `--rework` and `--restart` cannot be combined. `--restart` does not touch the unit's branch or worktree; if

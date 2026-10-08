@@ -270,14 +270,20 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
         seen = seen | {dep_id}
         out: list[str] = []
         for other in parent.depends_on:
+            if other in parent.merge_before:
+                continue
             if other in index and index[other].repo == parent.repo:
                 out.extend(expand(other, seen))
             else:
                 out.append(other)
         return tuple(out)
 
+    # A merge gate orders a unit after its dependency without stacking it on
+    # that dependency's branch, so it is no part of what the unit is built on.
     out: list[str] = []
     for dep in unit.depends_on:
+        if dep in unit.merge_before:
+            continue
         parent = index.get(dep)
         if parent is not None and parent.repo == unit.repo:
             out.extend(expand(dep, frozenset()))
@@ -414,10 +420,7 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         parent = index.get(dep)
         if dep in unit.merge_before and parent is not None and not landed(parent):
             waiting.append(parent)
-    ungated = unit.model_copy(
-        update={"depends_on": tuple(d for d in unit.depends_on if d not in unit.merge_before)}
-    )
-    for dep in through_satisfied(ungated, graph):
+    for dep in through_satisfied(unit, graph):
         parent = index.get(dep)
         if parent is None:
             continue
@@ -427,6 +430,14 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         elif not landed(parent):
             waiting.append(parent)
     return waiting
+
+
+def group_names(units: Sequence[Unit]) -> str:
+    """The task groups of these units, as a person reads them in a `Needs:` line."""
+    return ", ".join(
+        f"{unit.change} group {', '.join(str(group) for group in unit.groups)}".rstrip()
+        for unit in units
+    )
 
 
 def later_groups(unit: Unit, graph: Sequence[Unit]) -> tuple[int, ...]:
