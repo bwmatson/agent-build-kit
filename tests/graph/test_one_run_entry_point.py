@@ -1,6 +1,6 @@
 """Every agent node reaches its agent through one `run`, which takes the model for the
-call (docs/agent-runtimes.md): the build nodes on the implement model, the ones that
-rework on the rework model."""
+call (docs/agent-runtimes.md): the build nodes and the fix of failing checks on the
+implement model, the ones that rework on the rework model."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def test_tests_and_implement_run_on_the_implement_model(tmp_path: Path) -> None:
     assert tests.cwd == implement.cwd == tmp_path / "tree"
 
 
-def test_fix_checks_runs_on_the_rework_model_with_the_failing_output(tmp_path: Path) -> None:
+def test_fix_checks_runs_on_the_implement_model_with_the_failing_output(tmp_path: Path) -> None:
     distinct_models()
     recorder = fresh(tmp_path)
     recorder.tier1_results = [(False, FAILING), (True, "")]
@@ -43,7 +43,7 @@ def test_fix_checks_runs_on_the_rework_model_with_the_failing_output(tmp_path: P
 
     *_, fix = runs.calls
     assert len(runs.calls) == 3, "the tests, the implementation, the fix"
-    assert fix.model == MODELS.rework
+    assert fix.model == MODELS.implement
     assert FAILING in fix.prompt
     assert fix.cwd == tmp_path / "tree"
 

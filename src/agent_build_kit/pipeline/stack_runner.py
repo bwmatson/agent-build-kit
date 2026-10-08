@@ -1052,6 +1052,10 @@ class UnitRunner(BaseModel):
     # The worktree's HEAD. Required, with no default: a stand-in that always
     # answered "" would match an unset approval and wave every push through.
     head: Callable[[Path], str]
+    # Whether the worktree can still read a commit it once had: false for one
+    # a rewrite left to be collected, which a session recorded at it cannot
+    # be told about.
+    head_reachable: Callable[[Path, str], bool] = lambda tree, head: True
     # For the adapt step: put the branch on a new base keeping the old work
     # under a ref, and list the tests the worktree has.
     reset_to: Callable[[Path, str, str], None] = lambda tree, onto, keep: _no_reset()
