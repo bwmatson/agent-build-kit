@@ -45,6 +45,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "needs_human",
         "reviewer_hold",
         "requeued",
+        "gated",
         "released",
         "restack_conflict",
         "restack_deferred",

@@ -107,9 +107,12 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     in_progress_label,
     local_ref,
+    merge_wait,
     ready_units,
     start_room,
     trunk_of,
+    unmet_gates,
+    waiting_on,
 )
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
@@ -267,6 +270,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for unit in units:
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
+        if unit.state == PLANNED and unit.cause is Cause.GATED:
+            waits = unmet_gates(unit, units)
+            if waits:
+                log(f"  {unit.id} ({unit.repo}) {merge_wait(waits)}")
         if unit.state == IN_REVIEW:
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
@@ -677,6 +684,8 @@ def run_round(
     _step("planning", plan_all, inst, store=store)
     _step("linking needs", link_needs, inst, store=store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+    _step("gating sent-back units", gate_sent_back, store)
+    _step("releasing gated units", release_gated, inst, store, in_flight=spared)
     units = store.all()
 
     def never(change: str) -> bool:
@@ -776,6 +785,51 @@ def reclaim_stranded(
             log(f"{unit.id}: no run holds it — planned again")
 
 
+def gate_sent_back(store: UnitStore) -> None:
+    """Park a unit a poll sent back for rework while a dependency it must wait
+    for has not merged: it is `gated`, so the readmission rule leaves it for the
+    pass that finds the gate clear, instead of starting it again."""
+    units = store.all()
+    for unit in units:
+        if unit.state != PLANNED or unit.cause not in READMITTED_CAUSES:
+            continue
+        waits = unmet_gates(unit, units)
+        if waits:
+            store.set_state(unit.id, PLANNED, note=merge_wait(waits), cause=Cause.GATED)
+            log(f"{unit.id}: {merge_wait(waits)}")
+
+
+def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()) -> None:
+    """Deliver the requeue a gated unit was waiting to receive, once nothing it
+    waits for is left, in the mode it was requeued with."""
+    units = store.all()
+    for unit in units:
+        if (
+            unit.state != PLANNED
+            or unit.cause is not Cause.GATED
+            or unit.gated_requeue is None
+            or unit.id in in_flight
+            or waiting_on(unit, units)
+        ):
+            continue
+        why = unit.gated_requeue
+        mode = {
+            RequeueReason.FROM_FAILURE: "rework",
+            RequeueReason.RESTART: "restart",
+        }.get(why, "resume")
+        try:
+            delivered = resume_thread(inst, unit, "requeue", store=store, reason=mode, requeue=why)
+        except BranchBusy:
+            continue
+        store.set_gated_requeue(unit.id, None)
+        if delivered is None:
+            if why is RequeueReason.RESTART:
+                store.set_feedback(unit.id, "")
+            store.set_state(
+                unit.id, PLANNED, note=f"requeued: gate cleared ({mode})", cause=Cause.REQUEUED
+            )
+
+
 def resumable_units(
     inst: Installation,
     units: list[StoredUnit],
@@ -828,7 +882,13 @@ def _evaluate(
             unit = unit.model_copy(update={"state": RUNNING})
         elif unit.id in idle:
             unit = unit.model_copy(update={"state": HELD})
-        elif unit.state == PLANNED and (unit.id in started or (only and unit.id not in only)):
+        elif unit.state == PLANNED and (
+            unit.id in started
+            or (only and unit.id not in only)
+            # A requeue is still to be delivered to its thread: starting the
+            # unit as a planned build would drop the mode it was requeued with.
+            or (unit.cause is Cause.GATED and unit.gated_requeue is not None)
+        ):
             unit = unit.model_copy(update={"state": HELD})
         view.append(unit)
     ready = ready_units(
@@ -1140,6 +1200,7 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
     }
     wanted: dict[str, list[str]] = {}
     gated: dict[str, list[str]] = {}
+    labels: dict[str, str] = {}
     for tasks in inst.tasks_files():
         change = tasks.parent.name
         for group, found in group_needs(tasks).items():
@@ -1159,6 +1220,7 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
                         wanted.setdefault(unit.id, []).append(target)
                         if need.merged:
                             gated.setdefault(unit.id, []).append(target)
+                            labels[target] = f"{need.change} group {need.group}"
     for unit in units:
         if unit.id not in wanted and not unit.merge_before:
             continue
@@ -1173,6 +1235,12 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
         held = tuple(dict.fromkeys(g for g in gated.get(unit.id, []) if g in linked))
         if held != unit.merge_before:
             store.set_merge_before(unit.id, held)
+            # A gate on a unit that has begun is not a no-op the way it is on one
+            # that has not: say so once, when it first applies.
+            if unit.state != UNPLANNED and not unit.unstarted:
+                for target in held:
+                    if target not in unit.merge_before:
+                        log(f"{unit.id}: now waits for {labels[target]} to merge")
 
 
 def plan_all(inst: Installation, *, store: UnitStore) -> None:
@@ -1355,9 +1423,12 @@ def specification(tasks: Path) -> str:
     """
     # `Needs:` lines too: they only add dependencies, which `link_needs`
     # applies on its own. Re-planning a change for one would be a model call
-    # that can reshuffle units already built.
+    # that can reshuffle units already built. Blank lines go with them: a
+    # `Needs:` line comes with the blank line that sets it off.
     text = CHECKBOX.sub(r"\1 \2", tasks.read_text())
-    return "\n".join(line for line in text.splitlines() if not NEEDS_LINE.match(line.strip()))
+    return "\n".join(
+        line for line in text.splitlines() if line.strip() and not NEEDS_LINE.match(line.strip())
+    )
 
 
 # Units that still need a tick: being built, waiting to be, or open for review
@@ -2114,6 +2185,19 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
+    waits = unmet_gates(known[args.unit], list(known.values()))
+    if waits and has_thread(inst, args.unit):
+        # The gate is unmet: the thread is left where it stopped, and the pass
+        # delivers the event in this mode once the dependency has merged.
+        store.set_state(
+            args.unit,
+            PLANNED,
+            note=f"requeued: {merge_wait(waits)}",
+            cause=Cause.GATED,
+        )
+        store.set_gated_requeue(args.unit, why)
+        print(f"{args.unit} requeued ({mode}), {merge_wait(waits)}")
+        return 0
     try:
         delivered = resume_thread(
             inst, known[args.unit], "requeue", store=store, reason=mode, requeue=why

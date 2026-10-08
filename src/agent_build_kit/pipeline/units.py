@@ -258,6 +258,10 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     alongside the same-repo ones they replace — every caller today filters
     the result by repo before using it, so this is harmless, but the result
     is not same-repo-only on its own.
+
+    A dependency in `merge_before` is left out, the unit's own and a satisfied
+    parent's: it is an ordering edge ("wait for the merge"), not a base, so no
+    caller that asks what the unit is built on may treat it as a candidate.
     """
     index = _by_id(graph)
 
@@ -270,14 +274,20 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
         seen = seen | {dep_id}
         out: list[str] = []
         for other in parent.depends_on:
+            if other in parent.merge_before:
+                continue
             if other in index and index[other].repo == parent.repo:
                 out.extend(expand(other, seen))
             else:
                 out.append(other)
         return tuple(out)
 
+    # A merge gate orders a unit after its dependency without stacking it on
+    # that dependency's branch, so it is no part of what the unit is built on.
     out: list[str] = []
     for dep in unit.depends_on:
+        if dep in unit.merge_before:
+            continue
         parent = index.get(dep)
         if parent is not None and parent.repo == unit.repo:
             out.extend(expand(dep, frozenset()))
@@ -317,7 +327,8 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
 
     A cross-repo dependency is never a base — stacks can't span repos, so that
     edge is an ordering constraint instead, and `ready_units` makes the
-    dependent wait for a merge.
+    dependent wait for a merge. A same-repo dependency in `merge_before` is the
+    same kind of edge and is left out too (`through_satisfied`).
     """
     index = _by_id(graph)
     candidates = [
@@ -414,10 +425,7 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         parent = index.get(dep)
         if dep in unit.merge_before and parent is not None and not landed(parent):
             waiting.append(parent)
-    ungated = unit.model_copy(
-        update={"depends_on": tuple(d for d in unit.depends_on if d not in unit.merge_before)}
-    )
-    for dep in through_satisfied(ungated, graph):
+    for dep in through_satisfied(unit, graph):
         parent = index.get(dep)
         if parent is None:
             continue
@@ -427,6 +435,26 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         elif not landed(parent):
             waiting.append(parent)
     return waiting
+
+
+def unmet_gates(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
+    """The dependencies `unit` must wait to see merged that have not: the
+    entries of `waiting_on` its `merge_before` names. A same-repo parent that
+    only has to be back in review is not one."""
+    return [parent for parent in waiting_on(unit, graph) if parent.id in unit.merge_before]
+
+
+def merge_wait(units: Sequence[Unit]) -> str:
+    """What a unit held by these merge gates is waiting for, in a person's words."""
+    return f"waiting for {group_names(units)} to merge"
+
+
+def group_names(units: Sequence[Unit]) -> str:
+    """The task groups of these units, as a person reads them in a `Needs:` line."""
+    return ", ".join(
+        f"{unit.change} group {', '.join(str(group) for group in unit.groups)}".rstrip()
+        for unit in units
+    )
 
 
 def later_groups(unit: Unit, graph: Sequence[Unit]) -> tuple[int, ...]:

@@ -25,7 +25,7 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
-from agent_build_kit.pipeline.unit_store import StoredUnit, feedback_source_of
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, feedback_source_of
 from agent_build_kit.pipeline.units import FAILED, HELD, Unit, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 
@@ -248,7 +248,11 @@ async def _stopped_by_error(path: BuildPath, unit: Unit) -> bool:
     left its thread at the node that did. The caller holds the branch lock, so
     no run of this unit is behind a pending node."""
     stored = await asyncio.to_thread(path.runner.store.get, unit.id)
-    return stored.state in (FAILED, HELD)
+    if stored.state in (FAILED, HELD):
+        return True
+    # Requeued while a merge gate was unmet: `planned`, its thread left where
+    # the error stopped it, the requeue waiting to be delivered.
+    return stored.cause is Cause.GATED and stored.gated_requeue is not None
 
 
 async def run_unit(

@@ -19,7 +19,16 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import Review
-from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
+from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
+from agent_build_kit.pipeline.units import (
+    FAILED,
+    HELD,
+    IN_REVIEW,
+    MERGED,
+    PLANNED,
+    RUNNING,
+    branch_name,
+)
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 from tests.conftest import make_installation
@@ -413,6 +422,97 @@ def test_a_unit_whose_node_raised_can_be_requeued_and_the_tick_runs_it_from_prep
 
     assert graph.store.get(UNIT).state == IN_REVIEW
     assert graph.next() == (Node.AWAIT_REVIEW,)
+
+
+def _gated_after_a_raise(graph: Setup, flags: dict[str, bool]) -> list[dict[str, Any]]:
+    """A unit whose node raised, a merge gate on a dependency still in review
+    written for it, then `abk requeue` in the mode `flags` name. Returns what
+    reaches `resume_thread` from here on, the real one doing the delivery."""
+    _raised_in_a_node(graph)
+    graph.store.upsert([stored_unit("dep/1", change="dep", repo="platform")])
+    graph.store.set_state("dep/1", IN_REVIEW, pr=3)
+    graph.store.set_dependencies(UNIT, ("dep/1",))
+    graph.store.set_merge_before(UNIT, ("dep/1",))
+    # Every tick recomputes the gate from tasks.md, so it has to be written there.
+    folder = graph.inst.root / "openspec" / "changes" / "add-marker"
+    folder.mkdir(parents=True)
+    (folder / "tasks.md").write_text(
+        "# Tasks\n\n## 1. [app] [tier1] The work\n\n"
+        "Needs: dep group 1 merged — it reshapes the runtime\n\n- [ ] 1.1 Test: it\n"
+    )
+    graph.store.set_feedback(UNIT, "the commit step blew up")
+    delivered: list[dict[str, Any]] = []
+    real = cli.resume_thread
+
+    def spy(inst: Any, subject: Any, kind: str, **kwargs: Any) -> Any:
+        delivered.append({"kind": kind, **kwargs})
+        return real(inst, subject, kind, **kwargs)
+
+    graph.patch.setattr(cli, "resume_thread", spy)
+    args = argparse.Namespace(unit=UNIT, **{"rework": False, "restart": False, **flags})
+    assert cli.cmd_requeue(args, graph.inst) == 0
+    return delivered
+
+
+@pytest.mark.parametrize(
+    ("flags", "reason"),
+    [
+        ({}, RequeueReason.RESUME),
+        ({"rework": True}, RequeueReason.FROM_FAILURE),
+        ({"restart": True}, RequeueReason.RESTART),
+    ],
+)
+def test_a_gated_requeue_of_a_unit_whose_node_raised_reaches_its_thread_when_the_gate_clears(
+    graph: Setup, flags: dict[str, bool], reason: RequeueReason
+) -> None:
+    delivered = _gated_after_a_raise(graph, flags)
+    stopped = graph.next()
+    ran = list(graph.recorder.events)
+
+    graph.tick()
+
+    assert delivered == [], "nothing is delivered while the gate is unmet"
+    assert graph.recorder.events == ran, "and the unit is not started as a plain planned build"
+    held = graph.store.get(UNIT)
+    assert (held.state, held.cause, held.gated_requeue) == (PLANNED, Cause.GATED, reason)
+    assert graph.next() == stopped
+
+    graph.store.set_state("dep/1", MERGED, pr=3)
+    cli.release_gated(graph.inst, graph.store)
+
+    (call,) = delivered
+    assert (call["kind"], call["requeue"]) == ("requeue", reason)
+    after = graph.store.get(UNIT)
+    assert (after.state, after.gated_requeue) == (RUNNING, None)
+    assert graph.next() == (Node.PREPARE,), "the raised node is not run again"
+    if reason is RequeueReason.RESTART:
+        assert after.feedback == ""
+    else:
+        assert after.feedback == "the commit step blew up"
+
+    graph.tick()
+
+    assert graph.store.get(UNIT).state == IN_REVIEW
+
+
+def test_a_gated_requeue_that_cannot_be_delivered_yet_is_kept_and_the_unit_not_started(
+    graph: Setup,
+) -> None:
+    _gated_after_a_raise(graph, {"rework": True})
+    graph.store.set_state("dep/1", MERGED, pr=3)
+
+    def busy(*args: Any, **kwargs: Any) -> Any:
+        raise BranchBusy("another run holds the branch")
+
+    graph.patch.setattr(cli, "resume_thread", busy)
+    ran = list(graph.recorder.events)
+
+    assert graph.tick() == 0
+
+    assert graph.recorder.events == ran, "not started as a fresh planned build"
+    kept = graph.store.get(UNIT)
+    assert (kept.state, kept.cause) == (PLANNED, Cause.GATED)
+    assert kept.gated_requeue is RequeueReason.FROM_FAILURE
 
 
 def test_a_rework_for_a_unit_whose_node_raised_is_handled_not_deferred(graph: Setup) -> None:
