@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The pipeline now keeps a local record of each tick's duration, each pause for usage, each
+  unit's review rounds, each failed check and each unit's outcome in the usage ledger, whether
+  or not telemetry is on, with the unit and change they belong to. Archiving a change rolls up
+  its usage lines and leaves these records.
+
 - `abk serve` starts a read-only web server on the loopback address (port 8765, or
   `--port`) over the pipeline's state: the units with their state, cause and history,
   each unit's run logs from a byte offset, and the usage report as `abk report --json`

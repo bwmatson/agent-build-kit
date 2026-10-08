@@ -34,6 +34,7 @@ from agent_build_kit.pipeline.events import (
     takeover_note,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution
+from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -490,6 +491,22 @@ class BuildPath:
 
         return record
 
+    def record_check_failure(self, output: str, round: int) -> None:
+        """Keep a failed tier 1 run of this unit as a local metric record."""
+        try:
+            check = failed_check(output, self.unit.repo)
+        except Exception:  # noqa: BLE001 — a record is never a run's to lose
+            check = "unknown"
+        record_metric(
+            "abk.checks.failures",
+            1,
+            self.runner.log,
+            unit=self.unit.id,
+            change=self.unit.change,
+            check=check,
+            round=round,
+        )
+
     def say(self, message: str) -> None:
         """A progress line, for the tick log and the unit's run log."""
         line = f"{self._node}: {message}"
@@ -755,6 +772,7 @@ class BuildPath:
             check=lambda: failed_check(output, unit.repo),
             round=state.fix_rounds + 1,
         )
+        self.record_check_failure(output, state.fix_rounds + 1)
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(
             unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
@@ -1023,6 +1041,7 @@ class BuildPath:
             telemetry.count(
                 "abk.checks.failures", check=lambda: failed_check(output, unit.repo), round=0
             )
+            self.record_check_failure(output, 0)
             r.store.set_feedback(
                 unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1
             )
