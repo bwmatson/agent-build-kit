@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agent_build_kit.config import ConfigError, LimitsConfig, load
+from agent_build_kit.config import ConfigError, LimitsConfig, WorkspaceConfig, load
+from agent_build_kit.graph.state import SessionRole
 from tests.conftest import make_installation
 
 
@@ -228,3 +229,48 @@ def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited
     )
     with pytest.raises(ValidationError):
         LimitsConfig(max_check_rounds=-1)
+
+
+# --- the session_reuse: setting -------------------------------------------------
+
+
+def _reuse(config: WorkspaceConfig, role: SessionRole) -> bool:
+    return config.session_reuse.get(role, False)
+
+
+def test_session_reuse_defaults_to_build_on_and_review_off() -> None:
+    config = WorkspaceConfig.model_validate({})
+    assert _reuse(config, SessionRole.BUILD) is True
+    assert _reuse(config, SessionRole.REVIEW) is False
+
+
+def test_a_role_the_setting_does_not_name_is_off() -> None:
+    config = WorkspaceConfig.model_validate({"session_reuse": {}})
+    assert _reuse(config, SessionRole.BUILD) is False
+    assert _reuse(config, SessionRole.REVIEW) is False
+
+
+def test_build_reuse_can_be_switched_off() -> None:
+    config = WorkspaceConfig.model_validate({"session_reuse": {"build": False}})
+    assert _reuse(config, SessionRole.BUILD) is False
+
+
+def test_review_reuse_on_is_rejected_naming_the_setting() -> None:
+    with pytest.raises(ValidationError) as error:
+        WorkspaceConfig.model_validate({"session_reuse": {"build": True, "review": True}})
+    assert "session_reuse" in str(error.value)
+    assert "review" in str(error.value)
+
+
+def test_an_unknown_role_in_session_reuse_is_rejected() -> None:
+    with pytest.raises(ValidationError) as error:
+        WorkspaceConfig.model_validate({"session_reuse": {"planner": True}})
+    assert "planner" in str(error.value)
+
+
+def test_abk_yaml_with_review_reuse_on_fails_to_load(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("session_reuse:\n  review: true\n")
+    with pytest.raises(ConfigError) as error:
+        load(path)
+    assert "session_reuse" in str(error.value)

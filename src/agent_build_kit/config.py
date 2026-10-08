@@ -433,6 +433,8 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # Per agent role, whether its nodes continue the role's latest session.
+    session_reuse: dict[str, bool] = {}
 
     @model_validator(mode="after")
     def _usage_limits_only_on_claude(self) -> WorkspaceConfig:
