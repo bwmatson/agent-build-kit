@@ -45,7 +45,7 @@ def test_the_next_write_omits_an_empty_unknown_key(tmp_path, empty) -> None:
     assert written["run_log"] == "run.log"
 
 
-@pytest.mark.parametrize("valued", ["abc", ["x"], {"k": 1}, True, 3])
+@pytest.mark.parametrize("valued", ["abc", ["x"], {"k": 1}, True, 3, 0, 0.0])
 def test_an_unknown_key_with_a_value_is_refused_with_its_cause(tmp_path, valued) -> None:
     store = _store_with(tmp_path, from_newer_release=valued)
 

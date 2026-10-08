@@ -248,7 +248,9 @@ def _refuse_newer_release_fields(item: Any) -> None:
     if not isinstance(item, dict):
         return
     for key in [key for key in item if key not in StoredUnit.model_fields]:
-        if not item[key]:
+        value = item[key]
+        # `0 == False` in Python, so emptiness is tested by type, not truthiness.
+        if value is None or value is False or (isinstance(value, (str, list, dict)) and not value):
             del item[key]
         else:
             raise ValueError(
