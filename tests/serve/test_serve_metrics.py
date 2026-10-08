@@ -283,6 +283,41 @@ def test_with_prometheus_down_durations_and_unit_counts_come_from_local_files(
     assert counted == expected
 
 
+def test_with_prometheus_down_the_ledgers_metric_records_draw_their_charts(
+    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    point_at(monkeypatch, dead_url())
+    seed_pipeline(inst)
+
+    def record(name: str, value: float, **attributes: str) -> dict:
+        return {
+            "kind": "metric",
+            "at": "2026-01-01T10:00:00+00:00",
+            "metric": name,
+            "value": value,
+            "attributes": attributes,
+        }
+
+    write_ledger(
+        inst.state_dir / "usage-ledger.jsonl",
+        record("abk.tick.duration", 2, outcome="idle"),
+        record("abk.tick.duration", 4, outcome="idle"),
+        record("abk.usage.pauses", 1, kind="usage"),
+        record("abk.usage.pauses", 1, kind="usage"),
+    )
+
+    answer = page.get("/api/metrics").json()
+
+    ticks = metric(answer, "abk.tick.duration")["series"]
+    assert [(s["labels"], [p[1] for p in s["points"]]) for s in ticks] == [
+        ({"outcome": "idle"}, [3.0])
+    ]
+    pauses = metric(answer, "abk.usage.pauses")["series"]
+    assert [(s["labels"], [p[1] for p in s["points"]]) for s in pauses] == [
+        ({"kind": "usage"}, [2.0])
+    ]
+
+
 def test_a_query_prometheus_refuses_leaves_one_chart_empty_not_the_page_local(
     page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

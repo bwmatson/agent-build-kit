@@ -22,6 +22,7 @@ import httpx
 from pydantic import ValidationError
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.metric_records import MetricRecord
 from agent_build_kit.pipeline.spans import Span
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, records_in
@@ -302,6 +303,18 @@ def _spans_in(lines: list[str]) -> list[Span]:
     return spans
 
 
+def _metric_records_in(lines: list[str]) -> list[MetricRecord]:
+    found = []
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            if raw.get("kind") == "metric":
+                found.append(MetricRecord.model_validate(raw))
+        except (ValueError, AttributeError, ValidationError):
+            continue
+    return found
+
+
 def local_traces(spans: list[Span]) -> list[Trace]:
     """The most recent stretches of work the ledger's span lines record."""
     work = sorted((s for s in spans if not s.command), key=lambda s: s.started, reverse=True)
@@ -313,8 +326,10 @@ def local_traces(spans: list[Span]) -> list[Trace]:
 
 class LocalSource:
     """The figures the pipeline's own files hold: the usage ledger gives cost,
-    tokens and turns by day, its span lines the node and wait durations, and the
-    unit store the count of units in each state."""
+    tokens and turns by day, its span lines the node and wait durations, its
+    `metric` lines the figures the pipeline records about itself (tick and unit
+    durations, review rounds, check failures, usage pauses), and the unit store the count of
+    units in each state."""
 
     name = "local"
 
@@ -328,6 +343,7 @@ class LocalSource:
         lines = read_lines(ledger)
         self._calls = [r for r in records_in(lines) if r.usage_source != "none"]
         self.spans = _spans_in(lines)
+        self._metrics = _metric_records_in(lines)
         self._units = units or []
         self._now = now
 
@@ -346,6 +362,14 @@ class LocalSource:
             labels = _span_measure(instrument.name, span)
             if labels is not None:
                 samples.append((span.at, labels, span.duration_ms / 1000))
+        for record in self._metrics:
+            if record.metric == instrument.name:
+                labels = {
+                    a: str(record.attributes[a])
+                    for a in instrument.attributes
+                    if a in record.attributes
+                }
+                samples.append((record.at, labels, record.value))
         return samples
 
     def _unit_series(self) -> list[Series]:

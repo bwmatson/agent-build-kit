@@ -17,7 +17,9 @@
   A metrics page lists every metric the code emits with its type, attributes and a chart
   (labelled series, axes and values), and says whether Prometheus (`ABK_PROMETHEUS_URL`) or
   local files drew the charts; without Prometheus, cost, tokens, turns, node and wait
-  durations and units by state are derived from the usage ledger and the unit store. It also
+  durations, the pipeline's own metric records (tick and unit durations, review rounds,
+  check failures, usage pauses) and units by state are derived from the usage ledger and
+  the unit store. It also
   lists recent traces from Tempo (`ABK_TEMPO_URL`), or from the ledger's spans when Tempo
   does not answer, and links to the pipeline dashboard in Grafana. The
   shipped dashboard now sums samples over each window instead of taking rates, which

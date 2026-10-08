@@ -141,7 +141,8 @@ The pages:
   A line says whether Prometheus (`ABK_PROMETHEUS_URL`, summing samples over each window) or
   local files drew the charts; with no URL, or Prometheus not answering, they are derived
   from the usage ledger (cost, tokens, turns, and node and wait durations from its span
-  lines) and the unit store (units by state). A second list shows the pipeline's recent
+  lines), the ledger's `metric` records (tick and unit durations, review rounds, check
+  failures, usage pauses) and the unit store (units by state). A second list shows the pipeline's recent
   traces from Tempo's search (`ABK_TEMPO_URL`), or, with Tempo unset or not answering, from
   the ledger's span lines, and says which. The `Dashboard` link opens the pipeline dashboard
   in the Grafana at `ABK_GRAFANA_URL`.
