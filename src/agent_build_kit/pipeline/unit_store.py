@@ -238,6 +238,28 @@ def _refuse_old_engine_fields(item: Any) -> None:
             )
 
 
+def _refuse_newer_release_fields(item: Any) -> None:
+    """Drop a key no field of this release names when it is empty; refuse one that holds a value.
+
+    A newer release can add a field while this one still runs. An empty one carries
+    nothing, so the next write omits it; a valued one is information this release
+    cannot keep.
+    """
+    if not isinstance(item, dict):
+        return
+    for key in [key for key in item if key not in StoredUnit.model_fields]:
+        value = item[key]
+        # `0 == False` in Python, so emptiness is tested by type, not truthiness.
+        if value is None or value is False or (isinstance(value, (str, list, dict)) and not value):
+            del item[key]
+        else:
+            raise ValueError(
+                f"{item.get('id', '?')}: the units store holds `{key}` = {item[key]!r}, "
+                "a field this release does not know; a newer release wrote it, so update "
+                "this checkout to that release"
+            )
+
+
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
 
 
@@ -298,6 +320,7 @@ class UnitStore:
             # should fail here — naming the field — rather than construct
             # something odd that breaks three steps later.
             _refuse_old_engine_fields(item)
+            _refuse_newer_release_fields(item)
             try:
                 unit = StoredUnit.model_validate(item)
             except ValidationError as error:
