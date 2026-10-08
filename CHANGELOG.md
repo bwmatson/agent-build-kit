@@ -33,6 +33,7 @@
   agent's. Tool results are cut at `limits.transcript_result_chars`, a unit keeps the
   transcripts of its last `limits.transcript_runs_kept` runs (all the calls of a run
   together), and archiving a change removes its transcripts.
+
 - A repeated create is now safe on both hosts. Looking up a pull request by its branch raises
   when GitHub cannot be reached or answers something unreadable, instead of reporting that
   there is none, so an outage can no longer lead to a second pull request. A create refused
