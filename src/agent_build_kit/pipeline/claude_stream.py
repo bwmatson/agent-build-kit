@@ -158,6 +158,10 @@ def records(event: dict) -> list[TranscriptEvent]:
     found: list[TranscriptEvent] = []
     if kind in ("assistant", "user"):
         for block in _content(event):
+            # A `user` event is the harness speaking: a skill's expanded body or an
+            # interruption notice is text there that the agent did not write.
+            if kind == "user" and block.get("type") != "tool_result":
+                continue
             if (made := _record_of(block)) is not None:
                 found.append(made.model_copy(update={"session": session}))
     elif kind == "result":

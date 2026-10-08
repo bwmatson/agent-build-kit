@@ -6,6 +6,7 @@ the step and the file on disk is the real wiring.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.config import models
@@ -18,6 +19,7 @@ from tests.factories import unit
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 
 UNIT = "add-marker/1"
+STARTED = datetime(2026, 9, 23, 22, 44, 5, tzinfo=UTC)
 
 
 def step(tmp_path: Path, **limits: int) -> Path:
@@ -29,7 +31,11 @@ def step(tmp_path: Path, **limits: int) -> Path:
     run = build_run(
         runtime=ClaudeCodeRuntime(execute=FakeClaude(stdout=finished_build(tree, "Done."))),
         planning_repo=planning,
-        record_for=(unit(UNIT, change="add-marker"), transcript_dir(installation.state_dir)),
+        record_for=(
+            unit(UNIT, change="add-marker"),
+            transcript_dir(installation.state_dir),
+            STARTED,
+        ),
     )
     token = attribution.set(f"{UNIT}:review:2")
     try:
@@ -70,7 +76,11 @@ def test_a_step_outside_a_node_is_recorded_under_its_role_in_round_zero(tmp_path
     run = build_run(
         runtime=ClaudeCodeRuntime(execute=FakeClaude(stdout=finished_build(tree, "Done."))),
         planning_repo=planning,
-        record_for=(unit(UNIT, change="add-marker"), transcript_dir(installation.state_dir)),
+        record_for=(
+            unit(UNIT, change="add-marker"),
+            transcript_dir(installation.state_dir),
+            STARTED,
+        ),
     )
 
     run("Implement it.", cwd=tree, model=models().implement)

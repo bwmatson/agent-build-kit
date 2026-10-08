@@ -1,6 +1,6 @@
 """The recorded history of a unit's agent runs and chat turns (docs/architecture.md).
 
-One file per run, one JSON event per line, appended as the agent streams. The
+One file per agent call, one JSON event per line, appended as the agent streams. The
 same shape for every runtime; tool results are cut at a configured size.
 """
 
@@ -79,8 +79,11 @@ def _unit_files(directory: Path, prefix: str) -> list[Path]:
 
 
 class Transcript:
-    """One run's (or chat turn's) file. A diagnostic copy, so a write that fails
-    is dropped: it never affects the run it records."""
+    """One agent call's file. Every call of a run (a unit thread's pass, or one chat
+    turn) is opened with that run's `started` stamp, and retention counts runs by
+    it, as the run log does: the runs beyond `runs_kept` go whole, oldest first. A
+    diagnostic copy, so a write that fails is dropped: it never affects the run it
+    records."""
 
     def __init__(
         self,
@@ -106,8 +109,12 @@ class Transcript:
         try:
             directory.mkdir(parents=True, exist_ok=True)
             self._path.touch()
-            for old in _unit_files(directory, _prefix(unit))[:-runs_kept]:
-                old.unlink(missing_ok=True)
+            files = _unit_files(directory, _prefix(unit))
+            skip = len(_prefix(unit))
+            older = set(sorted({path.name[skip : skip + 15] for path in files})[:-runs_kept])
+            for old in files:
+                if old.name[skip : skip + 15] in older:
+                    old.unlink(missing_ok=True)
         except OSError:
             pass
 

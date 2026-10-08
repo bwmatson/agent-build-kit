@@ -221,7 +221,7 @@ def test_an_acp_steps_events_are_recorded_in_order_with_the_session(
 
     events = recorded(tmp_path)
 
-    assert kinds(events) == [
+    assert [e.kind for e in events] == [
         "reasoning",
         "text",
         "tool_call",
@@ -231,14 +231,61 @@ def test_an_acp_steps_events_are_recorded_in_order_with_the_session(
         "stop",
     ]
     assert {e.session for e in events} == {ACP_SESSION}
-    assert "".join(e.text for e in events if e.kind == "reasoning") == THOUGHT
-    texts = [
-        "".join(e.text for e in group).strip()
-        for is_text, group in groupby(events, key=lambda e: e.kind == "text")
-        if is_text
-        for group in [list(group)]
-    ]
-    assert texts == [PREAMBLE, ANSWER]
+    assert [e.text for e in events if e.kind == "reasoning"] == [THOUGHT]
+    assert [e.text.strip() for e in events if e.kind == "text"] == [PREAMBLE, ANSWER]
+
+
+def test_an_acp_plan_is_recorded_one_entry_to_a_line_with_its_status(
+    worktree: Path, tmp_path: Path
+) -> None:
+    plan = [["Add the marker", "in_progress"], ["Run the tests", "pending"]]
+
+    run_acp(worktree, tmp_path, act=[{"plan": plan}])
+
+    (recorded_plan,) = [e for e in recorded(tmp_path) if e.kind == "plan"]
+    assert recorded_plan.text == "[in_progress] Add the marker\n[pending] Run the tests"
+    assert recorded_plan.session == ACP_SESSION
+
+
+def test_an_acp_permission_request_and_what_it_was_answered_are_recorded(
+    worktree: Path, tmp_path: Path
+) -> None:
+    run_acp(
+        worktree,
+        tmp_path,
+        act=[
+            {"ask": "execute", "command": "git status"},
+            {"ask": "execute", "command": "git push origin spec/add-marker/1"},
+        ],
+    )
+
+    allowed, refused = [e for e in recorded(tmp_path) if e.kind == "permission"]
+
+    assert (allowed.tool, allowed.text) == ("git status", "allow_once: Allow once")
+    assert allowed.call
+    assert (refused.tool, refused.call != allowed.call) == (
+        "git push origin spec/add-marker/1",
+        True,
+    )
+    assert refused.text.startswith("reject_once: Reject (refused: ")
+    assert len(refused.text) > len("reject_once: Reject (refused: )")
+
+
+def test_a_user_event_s_text_is_not_the_agent_s_reply(worktree: Path, tmp_path: Path) -> None:
+    opening = finished_build(worktree, "done").splitlines()[0]
+    expansion = {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "Base directory for this skill: /skills/x"}],
+        },
+        "isMeta": True,
+        "session_id": claude_cli.SESSION,
+    }
+
+    run_claude(worktree, tmp_path, opening + "\n" + stream(expansion))
+
+    assert not any("Base directory" in e.text for e in recorded(tmp_path))
 
 
 def test_an_acp_tool_call_and_its_result_are_recorded_though_the_session_would_not_replay_them(

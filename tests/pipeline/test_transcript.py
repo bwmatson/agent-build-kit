@@ -187,6 +187,24 @@ def test_only_the_most_recent_runs_of_a_unit_are_kept(tmp_path: Path) -> None:
     assert [e.text for e in read_transcripts(directory, "add-marker/1")] == ["run 1", "run 2"]
 
 
+def test_a_runs_calls_are_one_run_to_retention_and_go_together(tmp_path: Path) -> None:
+    directory = transcript_dir(tmp_path)
+    steps = [("implement", 0), ("review", 1), ("rework", 1), ("rework_review", 1)]
+    first = [
+        open_transcript(directory, node=node, round=round, runs_kept=1) for node, round in steps
+    ]
+    for opened in first:
+        opened.record(said(f"{opened.path.name}"))
+
+    assert all(opened.path.exists() for opened in first)
+    assert len(read_transcripts(directory, "add-marker/1")) == 4
+
+    later = open_transcript(directory, at=START + timedelta(hours=1), runs_kept=1)
+
+    assert not any(opened.path.exists() for opened in first)
+    assert later.path.exists()
+
+
 def test_removing_a_changes_transcripts_leaves_other_changes_alone(tmp_path: Path) -> None:
     directory = transcript_dir(tmp_path)
     open_transcript(directory, "add-marker/1").record(said("one"))
