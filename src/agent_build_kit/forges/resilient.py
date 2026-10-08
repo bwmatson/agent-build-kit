@@ -135,6 +135,9 @@ class ResilientForge:
         # A closed stack cannot be what this create made.
         if spec.lands == "stack_of" and found is not None and not found.open:
             return None
+        # A post or reply promises a list of ids; the read finds the one comment.
+        if spec.lands == "comment_exists" and found is not None:
+            return [found]
         return found
 
     def _pause(self, name: str, failure: TransportError, attempt: int, started: float) -> bool:

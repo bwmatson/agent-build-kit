@@ -479,6 +479,8 @@ class AzureDevOpsForge:
             for comment in thread.comments:
                 if reply_to is not None and comment.parent_comment_id != int(parent or 0):
                     continue
+                if comment.is_deleted:
+                    continue
                 if comment.content == body and marker in body:
                     return f"{thread.id}.{comment.id}"
         return None

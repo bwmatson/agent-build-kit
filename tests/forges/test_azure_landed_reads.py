@@ -150,6 +150,14 @@ def test_no_matching_comment_is_none(content: str) -> None:
     assert forge(host).comment_exists(REPO, 162, MARKER, BODY) is None
 
 
+def test_a_deleted_comment_with_the_same_body_is_not_a_landed_one() -> None:
+    deleted = top_level(900, BODY)
+    deleted["comments"][0]["isDeleted"] = True
+    host = RestHost(azure_answers.OPEN, threads={162: [deleted]})
+
+    assert forge(host).comment_exists(REPO, 162, MARKER, BODY) is None
+
+
 def test_no_threads_is_none() -> None:
     assert forge(RestHost(azure_answers.OPEN)).comment_exists(REPO, 162, MARKER, BODY) is None
 
