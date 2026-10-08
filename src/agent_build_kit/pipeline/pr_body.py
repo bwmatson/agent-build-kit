@@ -92,6 +92,42 @@ def _scope_lines(unit: StoredUnit) -> str:
     return "\n".join(lines)
 
 
+# What shrinking keeps of the tier 2 output before the output goes altogether.
+_OUTPUT_FLOOR = 500
+_OUTPUT_CUT = "_(earlier output trimmed to fit the host's description limit)_"
+_OUTPUT_GONE = "_The full output was trimmed: it did not fit the host's description limit._"
+
+
+def _output_parts(verification: str) -> tuple[str, str, str, int, int] | None:
+    """The tier 2 section split around its output: what precedes the output,
+    the output, what follows it, and where the details block starts and ends."""
+    start = verification.find("<details>")
+    end = verification.rfind("</details>")
+    opened = verification.find("```\n", start) if start != -1 else -1
+    closed = verification.rfind("\n```", 0, end) if end != -1 else -1
+    if min(start, end, opened, closed) == -1 or closed < opened + 4:
+        return None
+    return (
+        verification[: opened + 4],
+        verification[opened + 4 : closed],
+        verification[closed:],
+        start,
+        end + len("</details>"),
+    )
+
+
+def _trim_output(output: str, excess: int) -> str:
+    """The output without its first `excess` characters, or as much of that as
+    the floor allows, cut on a line boundary with the tail kept."""
+    keep = max(len(output) - excess - len(_OUTPUT_CUT) - 1, _OUTPUT_FLOOR)
+    if keep >= len(output) - len(_OUTPUT_CUT) - 1:
+        return output
+    tail = output[-keep:]
+    if output[-keep - 1] != "\n":
+        tail = tail.partition("\n")[2]
+    return f"{_OUTPUT_CUT}\n{tail}"
+
+
 def build_pr_body(
     unit: StoredUnit,
     *,
@@ -103,6 +139,7 @@ def build_pr_body(
     follow_ups: list[str] | None = None,
     stacks: bool = False,
     linear: bool = True,
+    limit: int | None = None,
 ) -> str:
     """The full description for a unit's PR."""
     if unit.tier == "tier2":
@@ -125,13 +162,17 @@ def build_pr_body(
         if open_points
         else ""
     )
-    follow_ups_block = (
-        "\n## Left for later\n\nApproved, with these recorded rather than blocking:\n\n"
-        + "\n".join(f"- {item}" for item in follow_ups)
-        + "\n"
-        if follow_ups
-        else ""
-    )
+
+    def follow_ups_block(shown: int) -> str:
+        if not follow_ups:
+            return ""
+        more = len(follow_ups) - shown
+        return (
+            "\n## Left for later\n\nApproved, with these recorded rather than blocking:\n\n"
+            + "\n".join(f"- {item}" for item in follow_ups[:shown])
+            + (f"{chr(10) * 2 if shown else ''}_…and {more} more._" if more else "")
+            + "\n"
+        )
 
     # Where the host renders the stack, it shows the order and what is beneath
     # this PR; repeated here, the pipeline's copy is the one that goes stale.
@@ -157,7 +198,8 @@ def build_pr_body(
         position += " It merges after everything beneath it in the stack has merged."
     order = "the stack order the host shows" if stacks else "the stack order above"
 
-    return f"""\
+    def render(verification: str, shown: int) -> str:
+        return f"""\
 {position}
 
 {_scope_lines(unit)}
@@ -167,7 +209,7 @@ def build_pr_body(
 {assumptions(unit, graph, trunk_of(unit.repo))}
 
 {verification}
-{restack}{open_points_block}{follow_ups_block}
+{restack}{open_points_block}{follow_ups_block(shown)}
 ## How this was built
 
 Tests were committed first and seen to fail before any implementation
@@ -179,6 +221,33 @@ formatting and types pass at the tip.
 _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
+
+    count = len(follow_ups or ())
+    body = render(verification, count)
+    if limit is None or len(body) <= limit:
+        return body
+
+    # Least important first: the output's start, then the follow-ups, then the
+    # output altogether. The headings and the pass or fail line stay.
+    def fitted(text: str) -> str:
+        for shown in range(count, -1, -1):
+            body = render(text, shown)
+            if len(body) <= limit:
+                break
+        return body
+
+    parts = _output_parts(verification)
+    if parts is None:
+        return fitted(verification)
+    head, output, tail, start, end = parts
+    if len(output) > _OUTPUT_FLOOR:
+        trimmed = head + _trim_output(output, len(body) - limit) + tail
+    else:
+        trimmed = verification
+    body = fitted(trimmed)
+    if len(body) <= limit:
+        return body
+    return fitted(verification[:start] + _OUTPUT_GONE + verification[end:])
 
 
 def _landed_elsewhere(unit: StoredUnit, graph: Sequence[StoredUnit]) -> StoredUnit | None:

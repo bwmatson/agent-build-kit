@@ -20,7 +20,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph import END
 from langgraph.types import interrupt
 
-from agent_build_kit import telemetry
+from agent_build_kit import forges, telemetry
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun, Verdict
@@ -1137,6 +1137,7 @@ class BuildPath:
             open_points=stored.feedback if state.spent else None,
             follow_ups=r.follow_ups_for(unit) or None,
             linear=r.linear(tree, local_ref(base)),
+            limit=forges.for_repo(unit.repo)[0].description_limit,
         )
         try:
             pr = r.open_pr(

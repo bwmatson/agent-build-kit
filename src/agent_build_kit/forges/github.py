@@ -42,6 +42,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    fit_description,
     key,
 )
 from agent_build_kit.forges.github_models import (
@@ -201,6 +202,7 @@ class GitHubForge:
     read_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "view"), ("gh", "pr", "diff"))
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
+    description_limit: int = 65_536
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every API call goes through; None is the network.
@@ -346,7 +348,12 @@ class GitHubForge:
                 made = gh.rest.pulls.create(
                     repo.account,
                     repo.name,
-                    data={"head": head, "base": base, "title": title, "body": body},
+                    data={
+                        "head": head,
+                        "base": base,
+                        "title": title,
+                        "body": fit_description(body, self.description_limit),
+                    },
                 )
         except TransportError as error:
             # The host's words only: the request holds the title and body.
@@ -368,7 +375,7 @@ class GitHubForge:
         """
         changes: dict[str, Any] = {
             **({"base": base} if base else {}),
-            **({"body": body} if body else {}),
+            **({"body": fit_description(body, self.description_limit)} if body else {}),
         }
         if not changes:
             return

@@ -32,6 +32,29 @@ if TYPE_CHECKING:
 Run = Callable[..., subprocess.CompletedProcess]
 
 
+DESCRIPTION_CUT_NOTE = "_Description cut to fit the host's limit._"
+
+
+def fit_description(body: str, limit: int) -> str:
+    """The body as it was if it fits, else cut on a line boundary to at most
+    `limit` characters, with an open code fence and details block closed and a
+    note saying so. A forge calls this on every description it sends."""
+    if len(body) <= limit:
+        return body
+    lines = body.split("\n")
+    for count in range(len(lines), 0, -1):
+        kept = lines[:count]
+        fenced = sum(line.lstrip().startswith("```") for line in kept) % 2 == 1
+        depth = sum(line.strip().startswith("<details") for line in kept) - sum(
+            "</details>" in line for line in kept
+        )
+        closers = (["```"] if fenced else []) + ["</details>"] * max(depth, 0)
+        cut = "\n".join([*kept, *closers, "", DESCRIPTION_CUT_NOTE])
+        if len(cut) <= limit:
+            return cut
+    return DESCRIPTION_CUT_NOTE[:limit]
+
+
 class BaseMissing(RuntimeError):
     """A pull request refused because its base branch is not on the host.
 
@@ -179,6 +202,9 @@ class Forge(RegistersStacks, Protocol):
     # What this host's CI is called, for a pull request body that says who runs
     # the checks.
     ci_name: str
+    # The most characters this host takes in a pull request description; the
+    # forge cuts what it is handed to it with `fit_description`.
+    description_limit: int
 
     def parse_remote(self, url: str) -> RepoId | None: ...
 
