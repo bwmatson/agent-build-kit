@@ -75,7 +75,7 @@ def test_another_refusal_is_a_failure_that_is_not_a_missing_base() -> None:
             {
                 "resource": "PullRequest",
                 "code": "custom",
-                "message": "A pull request already exists for example:spec/add-marker/1.",
+                "message": "No commits between main and spec/add-marker/1.",
             }
         ],
     )
@@ -85,7 +85,7 @@ def test_another_refusal_is_a_failure_that_is_not_a_missing_base() -> None:
         forge(host).create_pr(REPO, head=HEAD, base="main", title="t", body="b")
 
     assert not isinstance(refused.value, BaseMissing)
-    assert "already exists" in str(refused.value)
+    assert "No commits between" in str(refused.value)
 
 
 def test_a_title_quoting_the_missing_base_does_not_make_another_refusal_one() -> None:
@@ -98,7 +98,7 @@ def test_a_title_quoting_the_missing_base_does_not_make_another_refusal_one() ->
             {
                 "resource": "PullRequest",
                 "code": "custom",
-                "message": "A pull request already exists.",
+                "message": "No commits between main and spec/add-marker/1.",
             }
         ],
     )
@@ -126,15 +126,19 @@ def test_finding_a_pull_request_by_branch_asks_for_it_in_the_repository() -> Non
     assert call.params["state"] == "all"
 
 
-def test_a_lookup_that_finds_nothing_or_nothing_usable_reads_as_no_pull_request_yet() -> None:
-    """A malformed answer must not read as a number: a second pull request for
-    the same branch is the failure this prevents."""
+def test_a_lookup_that_finds_nothing_reads_as_no_pull_request_yet() -> None:
     assert (
         forge(GitHubHost(routes={("GET", f"{BASE}/pulls"): answer([])})).find_pr(REPO, head=HEAD)
         is None
     )
+
+
+def test_a_malformed_answer_is_neither_a_number_nor_none() -> None:
+    """A second pull request for the same branch is the failure this prevents."""
     odd = GitHubHost(routes={("GET", f"{BASE}/pulls"): answer([{"unexpected": True}])})
-    assert forge(odd).find_pr(REPO, head=HEAD) is None
+
+    with pytest.raises(RuntimeError):
+        forge(odd).find_pr(REPO, head=HEAD)
 
 
 # --- editing ----------------------------------------------------------------------

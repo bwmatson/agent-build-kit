@@ -314,6 +314,11 @@ class GitHubForge:
             # Could not tell reads as no pull request yet.
             return None
 
+    def comment_exists(
+        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
+    ) -> str | None:
+        raise NotImplementedError
+
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         try:
             with self._on(repo) as gh:

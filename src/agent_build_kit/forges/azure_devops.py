@@ -460,6 +460,18 @@ class AzureDevOpsForge:
         )
         return found[0].pull_request_id if found else None
 
+    def comment_exists(
+        self,
+        repo: RepoId,
+        pr: int,
+        marker: str,
+        body: str,
+        *,
+        reply_to: str | None = None,
+        run: Run | None = None,
+    ) -> str | None:
+        raise NotImplementedError
+
     def create_pr(
         self,
         repo: RepoId,

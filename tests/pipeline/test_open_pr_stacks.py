@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges import RepoId, Stack, StackRefused
+from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, UnitState
 from agent_build_kit.pipeline.wiring import build_open_pr
@@ -380,3 +381,20 @@ def test_a_host_without_stacks_gets_the_body_that_states_the_order(
     open_with(forge, store)(CHILD, base="spec/feature/1", cwd=tmp_path, **BODIES)
 
     assert forge.bodies == [BODIES["body"]]
+
+
+def test_a_lookup_that_cannot_tell_is_the_host_being_unavailable_not_no_pull_request(
+    store: UnitStore, tmp_path: Path
+) -> None:
+    """A second pull request for the branch is what reading it as none would make."""
+
+    class Down(StackingForge):
+        def find_pr(self, repo, *, head):
+            raise HostUnavailable("find_pr", "no route to host", 3)
+
+    forge = Down()
+
+    with pytest.raises(HostUnavailable):
+        open_with(forge, store)(CHILD, base="spec/feature/1", body="b", cwd=tmp_path)
+
+    assert forge.calls == []
