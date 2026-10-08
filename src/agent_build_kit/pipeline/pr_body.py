@@ -103,6 +103,7 @@ def build_pr_body(
     follow_ups: list[str] | None = None,
     stacks: bool = False,
     linear: bool = True,
+    limit: int | None = None,
 ) -> str:
     """The full description for a unit's PR."""
     if unit.tier == "tier2":

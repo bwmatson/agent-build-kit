@@ -179,6 +179,7 @@ class Forge(RegistersStacks, Protocol):
     # What this host's CI is called, for a pull request body that says who runs
     # the checks.
     ci_name: str
+    description_limit: int
 
     def parse_remote(self, url: str) -> RepoId | None: ...
 

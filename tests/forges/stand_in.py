@@ -38,6 +38,7 @@ class StandInForge:
     read_commands: tuple[tuple[str, ...], ...] = ()
     requires: tuple[str, ...] = ()
     ci_name: str = "the stand-in CI"
+    description_limit: int = 0
 
     def __init__(
         self,

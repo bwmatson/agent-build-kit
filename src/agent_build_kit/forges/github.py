@@ -201,6 +201,7 @@ class GitHubForge:
     read_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "view"), ("gh", "pr", "diff"))
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
+    description_limit: int = 0
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every API call goes through; None is the network.
