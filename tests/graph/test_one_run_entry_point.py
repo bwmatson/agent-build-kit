@@ -14,6 +14,7 @@ from tests.factories import init_repo
 from tests.graph.agent_fakes import MODELS, Runs, distinct_models
 from tests.graph.test_build_path import FAILING, build, once, restacked
 from tests.graph_driver import fresh, tick
+from tests.runner_fakes import rejecting
 
 FEEDBACK = "[comment c1] src/app.py:3 — remove this line"
 
@@ -86,6 +87,23 @@ def test_adapt_runs_on_the_rework_model_with_the_predecessor_named(tmp_path: Pat
     assert adapt.model == MODELS.rework
     assert "c/2" in adapt.prompt
     assert adapt.cwd == tmp_path / "tree"
+
+
+def test_a_rework_after_a_rejecting_review_runs_on_the_rework_model_with_the_findings(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [rejecting("the session registry leaks")]
+    runs = Runs(recorder)
+
+    tick(tmp_path, recorder, run=runs)
+
+    *_, rework = runs.calls
+    assert len(runs.calls) == 3, "the tests, the implementation, the rework"
+    assert rework.model == MODELS.rework
+    assert "the session registry leaks" in rework.prompt
+    assert rework.cwd == tmp_path / "tree"
 
 
 class Fixer:

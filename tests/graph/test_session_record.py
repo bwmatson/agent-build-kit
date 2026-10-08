@@ -7,11 +7,16 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.config import models
 from agent_build_kit.graph.state import Node, SessionRole
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.wiring import build_run
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.graph.agent_fakes import MODELS, Reviews, Runs, distinct_models
 from tests.graph.test_build_path import FAILING, build, once, restacked
 from tests.graph_driver import fresh, position, tick
 from tests.runner_fakes import Killed, rejecting
+from tests.runtimes.claude_cli import SESSION, FakeClaude, finished_build
 
 
 def test_the_build_and_review_sessions_are_each_recorded_under_their_role(tmp_path: Path) -> None:
@@ -84,3 +89,23 @@ def test_a_unit_entering_at_adapt_has_its_build_model_from_adapt(tmp_path: Path)
     assert state is not None
     assert state.build_model == MODELS.rework
     assert state.sessions[SessionRole.BUILD].node == Node.ADAPT
+
+
+def test_the_real_build_run_leaves_the_stream_session_with_its_runtime_and_model(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    recorder = fresh(tmp_path)
+    run = build_run(
+        runtime=ClaudeCodeRuntime(execute=FakeClaude(stdout=finished_build(tmp_path, "done")))
+    )
+
+    tick(tmp_path, recorder, run=run)
+
+    state = position(tmp_path).state
+    assert state is not None
+    built = state.sessions[SessionRole.BUILD]
+    assert (built.session_id, built.runtime, built.model) == (
+        SESSION,
+        "claude_code",
+        models().implement,
+    )

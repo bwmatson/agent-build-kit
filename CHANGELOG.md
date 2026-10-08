@@ -29,8 +29,10 @@
   the call, and each completed node leaves its role's session (`build` or `review`) and
   the model the build began on in the unit's state. Nothing resumes a session yet and no
   behaviour changes; a unit saved by an earlier release loads with no sessions recorded.
-  Agent calls that were labelled `rework` in usage records are now labelled `implement`,
-  and `abk report --by model` still tells them apart.
+  Agent calls that were labelled `rework` in usage records and in the `role` attribute of
+  the `abk.agent.turns` and `abk.agent.tokens` metrics are now labelled `implement`, so a
+  dashboard splitting by role loses its `rework` series; `abk report --by model` still
+  tells them apart.
 
 - A pull request description is shrunk to what the host accepts instead of being refused:
   a long tier 2 output loses its start first, then follow-ups are cut to whole items, and
