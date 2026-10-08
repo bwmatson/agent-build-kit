@@ -129,7 +129,7 @@ module ends with `_: AgentRuntime = RUNTIME`, so the type checker in
 | `policy_coverage` | attr | `all_calls`, `agent_flagged` or `none` — how much of what an agent does abk can interpose on |
 | `supports_usage_tracking` | attr | whether `get_usage_status` can ever answer |
 | `supports_streaming` | attr | whether `AgentRequest.on_event` is ever called |
-| `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable` |
+| `supports_session_resume` | attr | whether `AgentRequest.resume_session` continues an earlier session; `on_session` is told each session's id as soon as it is known. A runtime without it is never sent a session to resume, and a session it cannot continue raises `SessionUnavailable`. The `acp` runtime supports it where the agent declares the `loadSession` capability; see ACP sessions below |
 | `passes_env` | attr | whether the runtime may be minted a gateway key: its agent takes the key from `AgentRequest.env`. One that does not is never minted one (see Spend through a gateway). It may still add `request.env` to its agent's environment, as Claude Code does for `ABK_OUT` |
 | `requires` | attr | the `runtimes.<name>` keys it cannot run without; a selection missing one fails at load |
 | `agent_command` | attr | the argv that starts its agent when `runtimes.<name>.command` is unset; a set `command` replaces it in every run and in `abk doctor`'s PATH check alike |
@@ -690,6 +690,16 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   be a real case for one repo building under one agent while another builds
   under a different one? Nothing today suggests it, and `ABK_RUNTIME` covers
   trialling; the `abk.yaml` shape above assumes not.
+
+## ACP sessions: recorded and resumed
+
+An `acp` step tells `on_session` its session id as soon as the session is opened (`session/new`,
+or `session/load`), before the prompt is sent, so a step that is killed still leaves its id for the
+unit's record. On a resume, the runtime reads the agent's `loadSession` capability from its
+`initialize` answer. An agent that declares it is sent `session/load` with the recorded id and the
+step continues in that session; the history the agent replays while loading is not progress and
+not the step's answer, so it is dropped. An agent that does not declare it, or that refuses the
+load, gets a new session instead, and the run log and stderr say `session <id> not resumed`.
 
 ## Spend through a gateway
 

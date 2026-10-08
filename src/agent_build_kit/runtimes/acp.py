@@ -552,6 +552,9 @@ class _Session:
         # None when it reported none or in another currency).
         self.session_id: str | None = None
         self.cost_usd: float | None = None
+        # True while `session/load` replays the earlier turns: history, not
+        # this step's progress or answer.
+        self.replaying = False
         # Set once the connection exists (`on_connect`), so `request_permission`
         # can itself send `session/cancel` when it cancels a turn: denying
         # the one call is not enough to stop the agent's turn, and the
@@ -620,6 +623,8 @@ class _Session:
         return merged
 
     async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
+        if self.replaying:
+            return
         if isinstance(update, UsageUpdate):
             if update.cost is not None:
                 self.cost_usd = update.cost.amount if update.cost.currency == "USD" else None
@@ -1101,7 +1106,7 @@ class AcpRuntime:
     policy_coverage: PolicyCoverage = "agent_flagged"
     supports_usage_tracking: bool = False
     supports_streaming: bool = True
-    supports_session_resume: bool = False
+    supports_session_resume: bool = True
     passes_env: bool = True
     # There is no default agent to spawn.
     requires: tuple[str, ...] = ("command",)
@@ -1300,25 +1305,61 @@ class AcpRuntime:
             client_info=Implementation(name="abk", title="agent-build-kit", version=__version__),
         )
         cwd = request.cwd or Path.cwd()
-        opened = await conn.new_session(
-            cwd=str(cwd),
-            additional_directories=self._roots(initialized, session, request),
-            mcp_servers=[],
+        roots = self._roots(initialized, session, request)
+        session_id, config_options = await self._open(
+            conn, session, request, initialized, str(cwd), roots
         )
-        session.session_id = opened.session_id
+        session.session_id = session_id
+        if request.on_session is not None:
+            request.on_session(session_id)
         if request.model:
-            await self._select_model(
-                conn, session, opened.session_id, opened.config_options, request.model
-            )
+            await self._select_model(conn, session, session_id, config_options, request.model)
         # `session.answer` is only the full text once every `session/update`
         # notification up to the answer has been handled: this library
         # (pinned in pyproject.toml) awaits that before `prompt()` returns,
         # and `conn.close()` cancels any still in flight, so a version bump
         # that changes the ordering could silently truncate it.
-        response = await conn.prompt(
-            session_id=opened.session_id, prompt=[text_block(request.prompt)]
-        )
+        response = await conn.prompt(session_id=session_id, prompt=[text_block(request.prompt)])
         return response
+
+    async def _open(
+        self,
+        conn: Any,
+        session: _Session,
+        request: AgentRequest,
+        initialized: InitializeResponse,
+        cwd: str,
+        roots: list[str] | None,
+    ) -> tuple[str, list[Any] | None]:
+        """The session the step runs in: the recorded one loaded, where the agent
+        declares it can load sessions; otherwise a new one, said in the log."""
+        if request.resume_session:
+            capabilities = initialized.agent_capabilities
+            if capabilities is not None and capabilities.load_session:
+                session.replaying = True
+                try:
+                    loaded = await conn.load_session(
+                        cwd=cwd,
+                        session_id=request.resume_session,
+                        additional_directories=roots,
+                        mcp_servers=[],
+                    )
+                except RequestError as exc:
+                    session.notice(
+                        f"session {request.resume_session} not resumed ({exc}); "
+                        "starting a new session"
+                    )
+                else:
+                    return request.resume_session, loaded.config_options
+                finally:
+                    session.replaying = False
+            else:
+                session.notice(
+                    f"session {request.resume_session} not resumed: the agent does not "
+                    "declare session loading; starting a new session"
+                )
+        opened = await conn.new_session(cwd=cwd, additional_directories=roots, mcp_servers=[])
+        return opened.session_id, opened.config_options
 
     def _roots(
         self, initialized: InitializeResponse, session: _Session, request: AgentRequest
