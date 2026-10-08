@@ -368,6 +368,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | passed to the resource (`k=v,k2=v2`) | `agent-build-kit`, unset |
 | `ABK_GRAFANA_URL`, `ABK_GRAFANA_TOKEN` | the Grafana `abk telemetry push-dashboard` pushes the pipeline's dashboard (package data) to, and an optional service-account token; with no token the push is anonymous (no authorization header), and a 401 or 403 then names `ABK_GRAFANA_TOKEN`; a missing URL is named and exits non-zero; `abk doctor` says which path is used | unset |
 | `ABK_GRAFANA_FOLDER` | the folder the dashboard goes into, created when missing; pushing again overwrites the one dashboard | `agent-build-kit` |
+| `ABK_PROMETHEUS_URL`, `ABK_TEMPO_URL` | the stores `abk serve`'s metrics page queries (Prometheus for the charts, Tempo's search for recent traces); empty or not answering means the page draws from local files and says so | unset |
 
 A bad collector cannot fail or slow a run: exports are batched, a failure is
 at most a warning, and `shutdown()` is bounded. `abk doctor` warns when

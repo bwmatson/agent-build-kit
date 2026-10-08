@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     grafana_url: str = ""
     grafana_token: str = ""
     grafana_folder: str = "agent-build-kit"
+    # The stores `abk serve`'s metrics page queries; empty means local files.
+    prometheus_url: str = ""
+    tempo_url: str = ""
 
 
 settings = Settings()
