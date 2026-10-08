@@ -163,8 +163,9 @@ lasts as long as the work it can reach — watch the pass, not a unit.
 
 A round reclaims too: a unit marked `running` that no process holds and that
 has no thread to resume goes back to `planned`, so its state is true for as
-long as a pause lasts. A unit in the pass's building or started set is left,
-since a worker not yet holding its branch lock looks the same. A running unit
+long as a pause lasts. A unit in flight is left even before its
+worker takes the branch lock, and a unit the pass already started is left until
+the pass ends. A running unit
 that no process holds takes no build slot until the round starts it again, and
 is started before planned units. A change that
 fully merges early in a long pass is verified live and archived by the next

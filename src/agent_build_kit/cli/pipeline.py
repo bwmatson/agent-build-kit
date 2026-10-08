@@ -641,8 +641,8 @@ def run_round(
     spends anything on planning. Each later step that raises is logged and the
     rest still run. `building` and `started` name the units this pass holds, so
     the reclaim and the readiness rules leave them alone; a `readmit` lets a
-    sent-back unit out of what it started, and is then the only source of
-    `started`: a `started` passed beside it is ignored.
+    sent-back unit out of what it started, and its set replaces `started`, so
+    pass one or the other.
     `quiet` leaves out the guard's line saying why a build may start.
     """
     if readmit is not None:
@@ -1027,7 +1027,6 @@ def _schedule(
                 inst,
                 store,
                 building=in_flight,
-                started=readmission.started,
                 only=only,
                 submit=True,
                 readmit=readmission,

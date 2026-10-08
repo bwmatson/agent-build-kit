@@ -436,8 +436,9 @@ def test_a_unit_in_the_passes_building_set_is_not_reclaimed(
 def test_a_unit_just_submitted_whose_worker_has_not_taken_its_lock_is_not_reclaimed(
     inst: Installation, tmp_path: Path
 ) -> None:
-    """In the pool but not in `building`, as a unit is between the submit and
-    the worker's lock; the pass's started set is what says so."""
+    """A unit this pass started is not reclaimed mid-pass, even with no run in
+    flight and not in `building`: its build has returned, and the pass spares
+    it until the pass ends."""
     store = UnitStore(tmp_path / "units.json")
     running(store, "handed/1")
 
@@ -722,7 +723,6 @@ def rounds(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         calls.append(
             {
                 "building": set(kwargs["building"]),
-                "started": set(kwargs["started"]),
                 "only": kwargs["only"],
             }
         )
