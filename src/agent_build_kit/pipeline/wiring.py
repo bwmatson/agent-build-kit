@@ -41,7 +41,7 @@ from agent_build_kit.config import (
     models,
     stack_versions_for,
 )
-from agent_build_kit.forges import Forge, RegistersStacks, RepoId, StackRefused
+from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
@@ -76,6 +76,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
+from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
@@ -847,6 +848,8 @@ class _StackingHost(RegistersStacks, Protocol):
 
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None: ...
 
+    def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]: ...
+
 
 # How long to wait before asking a stack busy with another request again, once
 # per retry; after the last the refusal is recorded. Overlapping ticks make a
@@ -906,7 +909,25 @@ def build_open_pr(
                 # A PR the host would not stack must still say what order it
                 # merges in, and one it did stack no longer should.
                 forge.update_pr(repo, number, base=base, body=stacked_body if stacked else body)
+        try:
+            _record_size(unit, forge.pr_changes(repo, number))
+        except Exception as error:
+            log(f"{unit.id}: could not read the size of PR #{number}: {error}")
         return number
+
+    def _record_size(unit: Unit, changes: list[FileChange]) -> None:
+        """Record the size the reviewer sees now, and say so when it is over
+        the ceiling. Bookkeeping: the caller never lets it stop the unit."""
+        if not changes:
+            return
+        lines = actual_lines(changes)
+        if store is not None:
+            store.set_actual_lines(unit.id, lines)
+        if over_ceiling(lines):
+            log(
+                f"{unit.id}: estimated {unit.estimated_lines}, landed {lines}, "
+                f"over the ceiling of {active().limits.max_unit_lines}"
+            )
 
     def _below(unit: Unit, base: str) -> int | None:
         """The PR the base branch belongs to: found by what the PR targets, not

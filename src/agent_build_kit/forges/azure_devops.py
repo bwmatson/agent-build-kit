@@ -48,6 +48,7 @@ from agent_build_kit.forges.azure_models import (
 )
 from agent_build_kit.forges.base import (
     BaseMissing,
+    FileChange,
     Label,
     PullRequest,
     RepoId,
@@ -531,6 +532,10 @@ class AzureDevOpsForge:
     def _threads(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[ThreadDoc]:
         route = f"pullrequests/{pr}/threads"
         return _items(self._git(repo, "GET", route, run=run), ThreadDoc, f"GET {route}")
+
+    def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
+        """Azure DevOps reports no per-file line counts, so no size is known."""
+        return []
 
     def pr_files(self, repo: RepoId, pr: int, run: Run | None = None) -> list[str]:
         """The paths this pull request touches.

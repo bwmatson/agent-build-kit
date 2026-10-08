@@ -412,8 +412,11 @@ Rules the graph must satisfy:
   a plan with such a unit is rejected. A single group estimated over it
   cannot be planned at all — give it its honest estimate in a unit of its own
   and it will be reported as needing its tasks split.
-- `estimated_lines` is your estimate of additions plus deletions, excluding
-  generated files such as lockfiles.
+- `estimated_lines` is your estimate of additions plus deletions across
+  every file the group touches: source, tests, docs, fixtures and the
+  changelog included, and excluding generated files such as lockfiles. For a
+  group that removes or rewrites code, count the removed lines too. When
+  unsure, estimate high: the host counts what actually lands.
 - Dependencies in the same repo may be in_review — the unit stacks on them.
   A cross-repo dependency means the dependent waits for a merge, so state it
   and keep the order right.

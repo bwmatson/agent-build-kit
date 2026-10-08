@@ -13,14 +13,31 @@ from agent_build_kit.config import ConfigError, LimitsConfig, load
 from tests.conftest import make_installation
 
 
-def test_the_ceiling_on_a_unit_defaults_to_a_thousand_lines() -> None:
-    """With nothing configured, the default floor still sits under it, and a
-    floor raised to meet it is refused — the default is a ceiling, not a
+def test_a_unit_defaults_to_a_floor_of_400_and_a_ceiling_of_750_lines() -> None:
+    """With nothing configured, the default floor still sits under the ceiling,
+    and a floor raised to meet it is refused — the default is a ceiling, not a
     number nothing reads."""
-    assert LimitsConfig().max_unit_lines == 1000
+    limits = LimitsConfig()
+    assert (limits.min_unit_lines, limits.max_unit_lines) == (400, 750)
 
     with pytest.raises(ValidationError):
-        LimitsConfig(min_unit_lines=1000)
+        LimitsConfig(min_unit_lines=750)
+
+
+def test_a_workspace_that_sets_either_size_keeps_it() -> None:
+    assert LimitsConfig(min_unit_lines=600).min_unit_lines == 600
+    assert LimitsConfig(min_unit_lines=600).max_unit_lines == 750
+    assert LimitsConfig(max_unit_lines=1000).min_unit_lines == 400
+    assert LimitsConfig(max_unit_lines=1000).max_unit_lines == 1000
+
+
+def test_abk_yaml_with_no_limits_loads_the_new_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("{}\n")
+
+    limits = load(path).limits
+
+    assert (limits.min_unit_lines, limits.max_unit_lines) == (400, 750)
 
 
 def test_a_floor_above_the_ceiling_is_refused_naming_both() -> None:

@@ -52,6 +52,9 @@ class StackingForge:
         self.refusals = list(refusals or [])
         self.calls: list[tuple] = []
 
+    def pr_changes(self, repo, pr):
+        return []
+
     def find_pr(self, repo, *, head):
         return self.existing
 

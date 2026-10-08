@@ -78,6 +78,14 @@ class RepoId(Frozen):
     project: str = ""
 
 
+class FileChange(Frozen):
+    """One file a pull request changes, with the host's own line counts."""
+
+    path: str
+    additions: int
+    deletions: int
+
+
 class PullRequest(Frozen):
     """One pull request, as the poller needs to see it.
 
@@ -245,6 +253,11 @@ class Forge(RegistersStacks, Protocol):
         """The paths a PR touches, which is what `abk verify` checks a change
         against. Raises when the host cannot answer: an empty list reads as
         "this change touched nothing"."""
+        ...
+
+    def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
+        """Every file a PR changes with the host's additions and deletions for
+        it, which is what a unit's actual size is summed from."""
         ...
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]: ...

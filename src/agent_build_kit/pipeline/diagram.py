@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges
+from agent_build_kit.pipeline.unit_size import over_ceiling
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
     HELD,
@@ -97,7 +98,12 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
-            label = f"{head}<small>{unit.tier} · {name}{pr}</small>"
+            big = (
+                f"<br/>landed {unit.actual_lines} lines, over the ceiling"
+                if over_ceiling(unit.actual_lines)
+                else ""
+            )
+            label = f"{head}<small>{unit.tier} · {name}{pr}{big}</small>"
             lines.append(f'        {_node_id(unit.id)}["{label}"]')
         lines.append("    end")
 

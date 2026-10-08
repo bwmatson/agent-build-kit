@@ -173,10 +173,26 @@ class LimitsConfig(Frozen):
     # (finishing, rework, resuming, a further review round) still runs.
     max_units_in_progress: Annotated[int, Field(ge=1)] = 5
     # Estimated changed lines before a unit stops absorbing the next task group.
-    min_unit_lines: int = 500
-    # Estimated changed lines one unit may carry. It shapes plans only: a
-    # branch is not measured against it, so a unit can still land larger.
-    max_unit_lines: int = 1000
+    min_unit_lines: int = 400
+    # Estimated changed lines one unit may carry. It shapes plans; a unit whose
+    # pull request lands over it is logged, marked on the graph page and listed
+    # by `abk status`, never blocked.
+    max_unit_lines: int = 750
+    # Path patterns (fnmatch, against the whole path or the file name) of
+    # generated files, left out of a unit's actual size.
+    generated_files: tuple[str, ...] = (
+        "uv.lock",
+        "poetry.lock",
+        "Pipfile.lock",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Cargo.lock",
+        "go.sum",
+        "Gemfile.lock",
+        "composer.lock",
+    )
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
     # How many times a branch that fails its checks (lint, types, tests) is sent

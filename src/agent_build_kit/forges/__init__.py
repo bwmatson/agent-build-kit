@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agent_build_kit.forges.base import (
+    FileChange,
     Forge,
     Label,
     PullRequest,
@@ -121,6 +122,7 @@ def _load_builtin() -> None:
 
 
 __all__ = [
+    "FileChange",
     "Forge",
     "Label",
     "PullRequest",

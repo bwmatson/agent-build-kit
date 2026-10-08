@@ -35,6 +35,7 @@ from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.base import (
     BaseMissing,
+    FileChange,
     Label,
     PullRequest,
     RepoId,
@@ -454,6 +455,13 @@ class GitHubForge:
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
         files = self._pages(repo, lambda gh: gh.rest.pulls.list_files, FileDoc, pull_number=pr)
         return [item.filename for item in files]
+
+    def pr_changes(self, repo: RepoId, pr: int) -> list[FileChange]:
+        files = self._pages(repo, lambda gh: gh.rest.pulls.list_files, FileDoc, pull_number=pr)
+        return [
+            FileChange(path=item.filename, additions=item.additions, deletions=item.deletions)
+            for item in files
+        ]
 
     def review_notes(self, repo: RepoId, pr: int) -> list[ReviewNote]:
         """The reviewer's words: review bodies, then inline comments.
