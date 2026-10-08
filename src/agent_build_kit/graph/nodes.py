@@ -567,7 +567,10 @@ class BuildPath:
         head = self.runner.head(cwd)
         if session.head and head != session.head:
             follow_up = f"{MOVED_NOTE.format(old=session.head, new=head)}\n\n{follow_up}"
-        self.say(f"continuing the {SESSION_ROLES[Node(self._node)]} session {session.session_id}")
+        self.say(
+            f"continuing the {SESSION_ROLES[Node(self._node)]} session {session.session_id}"
+            f" on {session.model or model}"
+        )
         result = run(
             *args,
             cwd=cwd,
