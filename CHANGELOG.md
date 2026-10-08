@@ -93,8 +93,10 @@
   instead of starting over with the whole task; the first thing in it is the branch's old and new head when the
   branch moved. A session that cannot be continued (gone, over its context, a runtime that
   cannot resume, a head no longer in the worktree) gives a new session with the full prompt,
-  and the run log says why. `review` never continues a session. `fix_checks` now runs on
-  the model the build began on, not the rework model, whether or not reuse is on.
+  and the run log says why. `review` never continues a build session or an earlier review round's session.
+  `fix_checks` now starts a new session on the model the build began on, not the rework
+  model, and a continued session runs on the model it recorded. The accounting rounds of
+  `adapt` continue the session the port ran in, which stays the recorded build session.
   Agent calls that were labelled `rework` in usage records and in the `role` attribute of
   the `abk.agent.turns` and `abk.agent.tokens` metrics are now labelled `implement`, so a
   dashboard splitting by role loses its `rework` series; `abk report --by model` still

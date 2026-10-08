@@ -475,3 +475,85 @@ def test_a_unit_entering_at_adapt_starts_the_build_session_and_a_later_node_cont
     assert fix.resume_session == "sess-1"
     assert fix.model == MODELS.rework, "the model the build session started on"
     assert FAILING in fix.prompt
+
+
+def test_an_adapt_follow_up_continues_the_port_and_the_port_stays_the_recorded_session(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+    missing = "tests/test_marker.py::test_marks"
+    conflicts = iter([restacked(conflict="x", old_tests=(missing,))] * 2)
+
+    build(
+        tmp_path,
+        recorder,
+        base="spec/c/2",
+        branch_commits=lambda cwd, base: recorder.made,
+        restack_onto=lambda **kw: next(conflicts, None),
+        reset_to=lambda tree, onto, keep: None,
+        tests_in=lambda tree: set(),
+        tests_changed=lambda tree, ref: set(),
+        **agents(runtime),
+    )
+
+    port, follow_up = runtime.built[2:4]
+    assert port.resume_session == "sess-1", "the port continues the build session"
+    assert missing in follow_up.prompt, "the accounting round ran"
+    assert follow_up.resume_session == "sess-1", "the session the port ended in"
+    assert follow_up.model == MODELS.implement, "the model the port's session recorded"
+    state = position(tmp_path).state
+    assert state is not None
+    assert state.sessions[SessionRole.BUILD].session_id == "sess-1"
+
+
+def test_an_adapt_follow_up_that_starts_a_new_session_does_not_replace_the_port(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    reuse(build=False)
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+    missing = "tests/test_marker.py::test_marks"
+    conflicts = iter([restacked(conflict="x", old_tests=(missing,))] * 2)
+
+    build(
+        tmp_path,
+        recorder,
+        base="spec/c/2",
+        branch_commits=lambda cwd, base: recorder.made,
+        restack_onto=lambda **kw: next(conflicts, None),
+        reset_to=lambda tree, onto, keep: None,
+        tests_in=lambda tree: set(),
+        tests_changed=lambda tree, ref: set(),
+        **agents(runtime),
+    )
+
+    port, follow_up = runtime.built[2:4]
+    assert follow_up.resume_session == "", "reuse is off: a new session"
+    state = position(tmp_path).state
+    assert state is not None
+    recorded = state.sessions[SessionRole.BUILD].session_id
+    assert recorded != "sess-5", "not the accounting-only session"
+    assert recorded == "sess-4", "the session that did the port"
+
+
+def test_a_rework_killed_in_its_continuation_resumes_on_the_model_the_session_recorded(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    runtime = Sessions(verdicts=[rejecting(REWORK_ASK), approving()], die_on=4)
+    # tests, implement, review, then the rework continuing sess-1
+    with pytest.raises(Killed):
+        tick(tmp_path, recorder, **agents(runtime))
+    killed = runtime.built[2]
+    assert killed.resume_session == "sess-1" and REWORK_ASK in killed.prompt
+
+    tick(tmp_path, recorder, **agents(runtime))
+
+    again = runtime.built[3]
+    assert again.resume_session == "sess-1"
+    assert again.model == MODELS.implement
+    assert "interrupted" in again.prompt.lower()

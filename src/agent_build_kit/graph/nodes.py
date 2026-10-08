@@ -452,10 +452,11 @@ class BuildPath:
         state: UnitRun,
         model: str = "",
         follow_up: str = "",
-        **inputs: str,
+        session: AgentSession | None = None,
+        **inputs: Any,
     ) -> str:
         """One agent run, continuing the session a killed run of this node left, or the
-        role's latest session when the node has a `follow_up` to say to it.
+        role's latest session (or the `session` given) when the node has a `follow_up` to say to it.
 
         `args` and `inputs` are what `run` is called with besides the worktree,
         the model and the session; `args[0]` is the full prompt. A session the
@@ -466,7 +467,14 @@ class BuildPath:
         token = attribution.set(place)
         try:
             return self._run_agent(
-                run, args, cwd=cwd, state=state, model=model, follow_up=follow_up, inputs=inputs
+                run,
+                args,
+                cwd=cwd,
+                state=state,
+                model=model,
+                follow_up=follow_up,
+                session=session,
+                inputs=inputs,
             )
         finally:
             attribution.reset(token)
@@ -480,10 +488,18 @@ class BuildPath:
         state: UnitRun,
         model: str,
         follow_up: str,
-        inputs: dict[str, str],
+        session: AgentSession | None,
+        inputs: dict[str, Any],
     ) -> str:
         if state.session_id:
             self.say(f"continuing agent session {state.session_id}")
+            # A session this node's role recorded keeps the model and runtime it began on.
+            role = SESSION_ROLES.get(Node(self._node))
+            held = state.sessions.get(role) if role else None
+            if held is not None and held.session_id == state.session_id:
+                model, resume_runtime = held.model or model, held.runtime
+            else:
+                resume_runtime = ""
             # Before the run, so a run killed again still leaves the trace; a session that
             # cannot be continued is counted again as a new one below.
             self._resuming_over_leftovers("resumed")
@@ -493,6 +509,7 @@ class BuildPath:
                     cwd=cwd,
                     **_model(model),
                     resume_session=state.session_id,
+                    **({"resume_runtime": resume_runtime} if resume_runtime else {}),
                     on_session=self.on_session,
                     on_result=self._recorder(state, resumed=True),
                     **inputs,
@@ -503,13 +520,13 @@ class BuildPath:
                     "running the node from its start in a new session"
                 )
         elif follow_up:
-            session, why = self._continuable(state, cwd)
-            if session is not None:
+            found, why = self._continuable(state, cwd, session)
+            if found is not None:
                 try:
                     return self._continue(
                         run,
                         args,
-                        session,
+                        found,
                         cwd=cwd,
                         state=state,
                         model=model,
@@ -536,13 +553,16 @@ class BuildPath:
             **inputs,
         )
 
-    def _continuable(self, state: UnitRun, cwd: Path) -> tuple[AgentSession | None, str]:
-        """The session this node may continue, or why it may not: nothing when reuse is off or
-        there is none yet, which is not a reason to say."""
+    def _continuable(
+        self, state: UnitRun, cwd: Path, given: AgentSession | None = None
+    ) -> tuple[AgentSession | None, str]:
+        """The session this node may continue (the `given` one, else the role's recorded one),
+        or why it may not: nothing when reuse is off or there is none yet, which is not a
+        reason to say."""
         role = SESSION_ROLES.get(Node(self._node))
         if role is None or not active().reuses_session(role.value):
             return None, ""
-        if (session := state.sessions.get(role)) is None:
+        if (session := given or state.sessions.get(role)) is None:
             return None, ""
         if session.head and not self.runner.head_reachable(cwd, session.head):
             return None, f"the commit {session.head} it last saw is gone from the worktree"
@@ -800,6 +820,9 @@ class BuildPath:
             ),
         )
         r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
+        # The session that did the port: the follow-up rounds continue it, and it is the one
+        # recorded for the role whatever they do.
+        ported = self._ended
         # Only now does the tree hold what the agent carried over.
         present = r.tests_in(tree)
         changed = r.tests_changed(tree, keep)
@@ -810,12 +833,15 @@ class BuildPath:
         for _ in range(active().limits.max_adapt_rounds - 1):
             if not problems:
                 break
+            listed = "\n".join(f"- {p}" for p in problems)
             answer = self.agent(
                 r.run,
-                ADAPT_FOLLOWUP_PROMPT.format(problems="\n".join(f"- {p}" for p in problems)),
+                ADAPT_FOLLOWUP_PROMPT.format(problems=listed),
                 cwd=tree,
                 state=state,
                 model=models().rework,
+                follow_up=ADAPT_FOLLOWUP_PROMPT.format(problems=listed),
+                session=self.ported_session(ported, state, r.head(tree)),
             )
             # Merged over the first answer's: an agent that answers only for the
             # tests just named must not lose the decisions it already gave.
@@ -823,6 +849,9 @@ class BuildPath:
             by_name.update({d.name: d for d in parse_test_decisions(answer)})
             decisions = list(by_name.values())
             problems = check_test_decisions(required, decisions, present, changed)
+        # A follow-up that could not continue the port's session opened one that has seen
+        # only the accounting; the port's is the one to keep.
+        self._ended = ported
         if problems:
             why = "the adapt step did not account for its tests: " + "; ".join(problems)
             outstanding = [n for n in required if any(f"`{n}`" in p for p in problems)]
@@ -843,6 +872,22 @@ class BuildPath:
         )
         feedback = r.store.get(unit.id).feedback
         return {"conflict": None, **self.standing(r.branch_commits(tree, ref), feedback)}
+
+    def ported_session(
+        self, ended: tuple[str, str, str] | None, state: UnitRun, head: str
+    ) -> AgentSession | None:
+        """The session the port ran in, as the adapt follow-up rounds continue it."""
+        if ended is None:
+            return None
+        session_id, runtime, model = ended
+        return AgentSession(
+            session_id=session_id,
+            runtime=runtime,
+            model=model,
+            node=Node.ADAPT,
+            round=_round(Node.ADAPT, state),
+            head=head,
+        )
 
     @staticmethod
     def port_note(restacked: Restacked, required: Any, decisions: Any) -> str:
@@ -1001,7 +1046,7 @@ class BuildPath:
         judged = r.head(tree)
         model = models().review if first else models().rework_review
         self.say(f"review round {round_number + 1} ({model})")
-        context = r.review_notes(
+        context: dict[str, Any] = r.review_notes(
             unit,
             round_number=round_number,
             total=total,
