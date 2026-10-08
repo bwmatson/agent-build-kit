@@ -20,6 +20,8 @@ from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.wiring import INTERRUPTED_PROMPT
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 from tests.factories import unit
+from tests.graph.test_build_path import build
+from tests.graph.test_remaining_paths import Adapting, decisions
 from tests.graph_driver import fresh, position, tick
 from tests.leftovers_driver import LEFTOVER, Habitat, Hands
 from tests.runner_fakes import Killed, Recorder, rejecting
@@ -555,3 +557,37 @@ def test_a_requeue_before_the_tree_is_clean_leaves_the_unit_parked(tmp_path: Pat
     assert outcome.status == RunStatus.OPEN
     assert [s.split(":")[0] for s in habitat.commits_on_branch()] == ["test", "feat"]
     assert recorder.store.get(UNIT).state == "in_review"
+
+
+def test_a_killed_adapt_leaves_its_name_and_resumes_the_port(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    adapting = Adapting(
+        recorder,
+        [decisions(("test_click", "keep", ""))],
+        old_tests=("test_click",),
+        present={"test_click"},
+    )
+    overrides = adapting.overrides()
+    port = overrides["run_rework"]
+    dies = [True]
+
+    def run_rework(prompt: str, **kw: Any) -> str:
+        if dies:
+            dies.pop()
+            raise Killed("power loss")
+        return port(prompt, **kw)
+
+    overrides["run_rework"] = run_rework
+
+    with pytest.raises(Killed):
+        build(tmp_path, recorder, base="spec/c/2", **overrides)
+
+    stopped = position(tmp_path)
+    assert stopped.next == (Node.ADAPT,)
+    assert stopped.state is not None
+    assert stopped.state.running_node == Node.ADAPT.value
+
+    outcome = build(tmp_path, recorder, base="spec/c/2", **overrides)
+
+    assert outcome.status == RunStatus.OPEN
+    assert "commit:adapt" in recorder.events
