@@ -6,6 +6,7 @@
   a long tier 2 output loses its start first, then follow-ups are cut to whole items, and
   the output is dropped last, keeping the pass or fail line. A forge cuts anything still
   over its limit on a line, closing an open code fence or details block.
+
 - An archived change keeps its usage breakdown: the per-unit summary written when a change
   is archived now carries one item per node, role, model and source, summing to the
   totals, so `abk report --by node`, `--by role` and `--by model` split archived work as
