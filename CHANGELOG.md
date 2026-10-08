@@ -7,6 +7,8 @@
   starts a new session with its full prompt. `session/load` is no longer used. The usage ledger
   now counts a call under the node that made it, so a fix that continues the build session is
   the fix's spend, with the session id kept as an attribute of the record.
+  A resumed ACP call records only the cost that session added during the call, not the
+  session's running total, so continuing a session never counts earlier spend twice.
 
 - A unit no longer stays `running` after its run is gone. At the start of each pass, a running
   unit whose branch lock names a dead process is failed, so `abk requeue` can move it; one

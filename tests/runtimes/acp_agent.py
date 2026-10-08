@@ -59,6 +59,9 @@ response carry a `usage` payload: the protocol's own counts, the same with
 fields no client knows, counts that are not numbers, a payload with none of
 the four counts, an empty one, or a negative count. Without it the response
 carries none.
+`--prior-cost X` makes a resumed session carry X of cumulative cost: `session/resume` reports it
+in a `usage_update`, and the cost `--cost` reports before the answer adds to it, as the
+protocol's cumulative cost does.
 `--cost USD|EUR` has the agent send a `usage_update` before the answer, with
 the session's cumulative cost in that currency, as the protocol's own update
 carries it.
@@ -276,7 +279,9 @@ class FakeAgent:
         list_sessions: bool = False,
         sessions: tuple[str, ...] = (),
         page_size: int = 100,
+        prior_cost: float = 0.0,
     ) -> None:
+        self._prior_cost = prior_cost
         self._load_session = load_session
         self._resume = resume
         self._list = list_sessions
@@ -403,6 +408,16 @@ class FakeAgent:
         if not self._resume:
             raise RequestError.method_not_found("session/resume")
         self._cwd = cwd
+        if self._prior_cost and self._client is not None:
+            await self._client.session_update(
+                session_id=session_id,
+                update=UsageUpdate(
+                    session_update="usage_update",
+                    used=9200,
+                    size=200000,
+                    cost=Cost(amount=self._prior_cost, currency=self._cost or "USD"),
+                ),
+            )
         # Held or not, the answer is the same and names no session.
         return ResumeSessionResponse(config_options=[_model_option(self._model)])
 
@@ -442,7 +457,7 @@ class FakeAgent:
                     session_update="usage_update",
                     used=9200,
                     size=200000,
-                    cost=Cost(amount=COST_AMOUNT, currency=self._cost),
+                    cost=Cost(amount=COST_AMOUNT + self._prior_cost, currency=self._cost),
                 )
             )
         for chunk in self._preamble():
@@ -873,6 +888,7 @@ def command(
     list_sessions: bool = False,
     sessions: tuple[str, ...] = (),
     page_size: int | None = None,
+    prior_cost: float | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -913,6 +929,8 @@ def command(
         argv += ["--sessions", ",".join(sessions)]
     if page_size is not None:
         argv += ["--page-size", str(page_size)]
+    if prior_cost is not None:
+        argv += ["--prior-cost", str(prior_cost)]
     return argv
 
 
@@ -937,6 +955,7 @@ def use_agent(
     list_sessions: bool = False,
     sessions: tuple[str, ...] = (),
     page_size: int | None = None,
+    prior_cost: float | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -961,6 +980,7 @@ def use_agent(
             list_sessions=list_sessions,
             sessions=sessions,
             page_size=page_size,
+            prior_cost=prior_cost,
         )
     )
 
@@ -1006,6 +1026,7 @@ def main() -> None:
     parser.add_argument("--list", dest="list_sessions", action="store_true")
     parser.add_argument("--sessions", default="")
     parser.add_argument("--page-size", type=int, default=100)
+    parser.add_argument("--prior-cost", type=float, default=0.0)
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -1027,6 +1048,7 @@ def main() -> None:
         list_sessions=args.list_sessions,
         sessions=tuple(filter(None, args.sessions.split(","))),
         page_size=args.page_size,
+        prior_cost=args.prior_cost,
     )
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
     # Only the methods these tests drive: the rest answer "method not found".

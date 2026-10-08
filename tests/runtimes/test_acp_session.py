@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.runtimes.base import SessionUnavailable
-from tests.runtimes.acp_agent import ANSWER, SESSION, requests, use_agent
+from tests.runtimes.acp_agent import ANSWER, COST_AMOUNT, SESSION, requests, use_agent
 
 EARLIER = "sess_Ln3Vt8QaRcXe5mJd"
 
@@ -222,3 +222,48 @@ def test_the_runtime_reports_resumable_only_to_the_agent_that_can_be(
     runtime.run(_request(worktree, resume_session=EARLIER))
 
     assert runtime.supports_session_resume is True
+
+
+def test_a_resumed_calls_cost_is_the_increase_and_not_the_sessions_total(
+    tmp_path: Path, worktree: Path
+) -> None:
+    """`usage_update.cost` is the session's cumulative cost, so a resumed call's own spend is
+    what the total grew by while it ran."""
+    use_agent(
+        tmp_path / "agent.jsonl",
+        resume=True,
+        list_sessions=True,
+        sessions=(EARLIER,),
+        cost="USD",
+        prior_cost=0.5,
+    )
+
+    result = AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    assert result.cost_usd == pytest.approx(COST_AMOUNT)
+    assert result.usage_source == "reported"
+
+
+def test_a_resumed_call_with_no_baseline_reports_no_cost_rather_than_the_total(
+    tmp_path: Path, worktree: Path
+) -> None:
+    """The agent told no total on resuming, so the one it sends during the call cannot be told
+    from this call's spend."""
+    use_agent(
+        tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=(EARLIER,), cost="USD"
+    )
+
+    result = AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    assert result.cost_usd is None
+    assert result.usage_source == "none"
+
+
+def test_a_new_sessions_cost_is_still_the_whole_of_what_it_reports(
+    tmp_path: Path, worktree: Path
+) -> None:
+    use_agent(tmp_path / "agent.jsonl", cost="USD")
+
+    result = AcpRuntime().run(_request(worktree))
+
+    assert result.cost_usd == COST_AMOUNT

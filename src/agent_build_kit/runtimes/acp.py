@@ -562,6 +562,11 @@ class _Session:
         # None when it reported none or in another currency).
         self.session_id: str | None = None
         self.cost_usd: float | None = None
+        # A resumed session reports its running total, not this call's: the total
+        # when the prompt was sent, taken off the last one. `resumed` is set once
+        # the session is continued; `cost_baseline` is None until a cost was seen.
+        self.resumed = False
+        self.cost_baseline: float | None = None
         # Set once the connection exists (`on_connect`), so `request_permission`
         # can itself send `session/cancel` when it cancels a turn: denying
         # the one call is not enough to stop the agent's turn, and the
@@ -1133,8 +1138,14 @@ def _spent(raw: Any, session: _Session) -> dict:
     whose counts are not numbers is too, and is said once.
     """
     spent: dict = {"session_id": session.session_id}
-    if session.cost_usd is not None:
-        spent |= {"cost_usd": session.cost_usd, "usage_source": "reported"}
+    cost = session.cost_usd
+    if session.resumed:
+        # `usage_update.cost` is cumulative for the session, so a resumed call's own
+        # spend is the increase; without a baseline it cannot be told from the total.
+        baseline = session.cost_baseline
+        cost = None if cost is None or baseline is None else cost - baseline
+    if cost is not None:
+        spent |= {"cost_usd": cost, "usage_source": "reported"}
     if raw is None:
         return spent
     counts = (
@@ -1391,6 +1402,9 @@ class AcpRuntime:
             conn, session, request, initialized, str(cwd), roots
         )
         session.session_id = session_id
+        if request.resume_session:
+            session.resumed = True
+            session.cost_baseline, session.cost_usd = session.cost_usd, None
         if request.on_session is not None:
             request.on_session(session_id)
         if request.model:
