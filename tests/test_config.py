@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agent_build_kit.config import ConfigError, LimitsConfig, WorkspaceConfig, load
+from agent_build_kit.config import (
+    SESSION_REUSE_ROLES,
+    ConfigError,
+    LimitsConfig,
+    WorkspaceConfig,
+    load,
+)
 from agent_build_kit.graph.state import SessionRole
 from tests.conftest import make_installation
 
@@ -234,25 +240,25 @@ def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited
 # --- the session_reuse: setting -------------------------------------------------
 
 
-def _reuse(config: WorkspaceConfig, role: SessionRole) -> bool:
-    return config.session_reuse.get(role, False)
-
-
 def test_session_reuse_defaults_to_build_on_and_review_off() -> None:
     config = WorkspaceConfig.model_validate({})
-    assert _reuse(config, SessionRole.BUILD) is True
-    assert _reuse(config, SessionRole.REVIEW) is False
+    assert config.reuses_session(SessionRole.BUILD) is True
+    assert config.reuses_session(SessionRole.REVIEW) is False
 
 
 def test_a_role_the_setting_does_not_name_is_off() -> None:
     config = WorkspaceConfig.model_validate({"session_reuse": {}})
-    assert _reuse(config, SessionRole.BUILD) is False
-    assert _reuse(config, SessionRole.REVIEW) is False
+    assert config.reuses_session(SessionRole.BUILD) is False
+    assert config.reuses_session(SessionRole.REVIEW) is False
+
+
+def test_the_reuse_roles_are_the_roles_the_graph_records() -> None:
+    assert set(SESSION_REUSE_ROLES) == {role.value for role in SessionRole}
 
 
 def test_build_reuse_can_be_switched_off() -> None:
     config = WorkspaceConfig.model_validate({"session_reuse": {"build": False}})
-    assert _reuse(config, SessionRole.BUILD) is False
+    assert config.reuses_session(SessionRole.BUILD) is False
 
 
 def test_review_reuse_on_is_rejected_naming_the_setting() -> None:

@@ -418,6 +418,7 @@ def stack_versions_for(verify: VerifyConfig, profile: infra.InfraProfile) -> lis
 CLAUDE_CODE = "claude_code"
 
 
+# Mirrors graph.state.SessionRole, which config cannot import; a test keeps them in step.
 SESSION_REUSE_ROLES = ("build", "review")
 
 
@@ -439,6 +440,11 @@ class WorkspaceConfig(Frozen):
     # Per agent role (`build`, `review`), whether its nodes continue the role's
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
+
+    def reuses_session(self, role: str) -> bool:
+        """Whether `role`'s nodes continue the role's latest session. A role
+        `session_reuse` does not name is off."""
+        return self.session_reuse.get(role, False)
 
     @model_validator(mode="after")
     def _session_reuse_roles(self) -> WorkspaceConfig:
