@@ -258,6 +258,10 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     alongside the same-repo ones they replace — every caller today filters
     the result by repo before using it, so this is harmless, but the result
     is not same-repo-only on its own.
+
+    A dependency in `merge_before` is left out, the unit's own and a satisfied
+    parent's: it is an ordering edge ("wait for the merge"), not a base, so no
+    caller that asks what the unit is built on may treat it as a candidate.
     """
     index = _by_id(graph)
 
@@ -323,7 +327,8 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
 
     A cross-repo dependency is never a base — stacks can't span repos, so that
     edge is an ordering constraint instead, and `ready_units` makes the
-    dependent wait for a merge.
+    dependent wait for a merge. A same-repo dependency in `merge_before` is the
+    same kind of edge and is left out too (`through_satisfied`).
     """
     index = _by_id(graph)
     candidates = [
@@ -430,6 +435,18 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
         elif not landed(parent):
             waiting.append(parent)
     return waiting
+
+
+def unmet_gates(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
+    """The dependencies `unit` must wait to see merged that have not: the
+    entries of `waiting_on` its `merge_before` names. A same-repo parent that
+    only has to be back in review is not one."""
+    return [parent for parent in waiting_on(unit, graph) if parent.id in unit.merge_before]
+
+
+def merge_wait(units: Sequence[Unit]) -> str:
+    """What a unit held by these merge gates is waiting for, in a person's words."""
+    return f"waiting for {group_names(units)} to merge"
 
 
 def group_names(units: Sequence[Unit]) -> str:

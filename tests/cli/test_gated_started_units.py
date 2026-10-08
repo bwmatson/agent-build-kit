@@ -316,6 +316,7 @@ def test_an_in_review_unit_sent_back_while_its_gate_is_unmet_is_gated_until_it_c
         # The gate is written and a review comment sends the unit back.
         if store.get("feature/1").state == IN_REVIEW and not sent:
             sent.append(1)
+            write_needs(inst)  # every round recomputes the gate from tasks.md
             store.set_dependencies("feature/1", ("dep/1",))
             store.set_merge_before("feature/1", ("dep/1",))
             store.set_state("feature/1", PLANNED, note="reworking", cause=Cause.REWORK)
@@ -392,3 +393,35 @@ def test_status_lists_a_gated_unit_as_waiting_on_the_group(
     waiting = next(line for line in lines if "feature/1" in line and "waiting" in line)
     assert "dep group 1" in waiting
     assert not any("feature/1" in line and "failed" in line for line in lines[1:])
+
+
+# --- a stacking parent is not a merge gate -------------------------------------------
+
+
+def test_a_unit_sent_back_while_its_stacking_parent_reworks_is_not_gated(
+    store: UnitStore,
+) -> None:
+    """`feature/1` stacked on `dep/1`, same repo, no `Needs:` line: it only
+    needs the parent back in review, so no merge is involved."""
+    store.upsert([stored("dep/1"), stored("feature/1", depends_on=("dep/1",))])
+    store.set_state("dep/1", PLANNED, note="reworking", cause=Cause.REWORK)
+    store.set_state("feature/1", PLANNED, note="reworking", cause=Cause.REWORK)
+
+    cli.gate_sent_back(store)
+
+    assert store.get("feature/1").cause is Cause.REWORK
+
+
+def test_a_failed_child_requeued_while_its_parent_reworks_resumes_instead_of_waiting_to_merge(
+    store: UnitStore, thread: Thread, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store.upsert([stored("dep/1"), stored("feature/1", depends_on=("dep/1",))])
+    store.set_state("dep/1", PLANNED, note="reworking", cause=Cause.REWORK)
+    store.set_state("feature/1", FAILED, branch="spec/feature/1")
+
+    assert main(["requeue", "feature/1"]) == 0
+
+    (call,) = thread.delivered
+    assert call["requeue"] is RequeueReason.RESUME
+    assert store.get("feature/1").cause is not Cause.GATED
+    assert "to merge" not in capsys.readouterr().out

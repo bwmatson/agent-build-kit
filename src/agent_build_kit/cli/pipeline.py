@@ -104,13 +104,14 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
-    group_names,
     in_progress,
     in_progress_label,
     local_ref,
+    merge_wait,
     ready_units,
     start_room,
     trunk_of,
+    unmet_gates,
     waiting_on,
 )
 from agent_build_kit.pipeline.usage_guard import (
@@ -270,9 +271,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
         if unit.state == PLANNED and unit.cause is Cause.GATED:
-            waits = waiting_on(unit, units)
+            waits = unmet_gates(unit, units)
             if waits:
-                log(f"  waiting: {unit.id} ({unit.repo}) for {group_names(waits)} to merge")
+                log(f"  {unit.id} ({unit.repo}) {merge_wait(waits)}")
         if unit.state == IN_REVIEW:
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
@@ -792,15 +793,10 @@ def gate_sent_back(store: UnitStore) -> None:
     for unit in units:
         if unit.state != PLANNED or unit.cause not in READMITTED_CAUSES:
             continue
-        waits = waiting_on(unit, units)
+        waits = unmet_gates(unit, units)
         if waits:
-            store.set_state(
-                unit.id,
-                PLANNED,
-                note=f"waiting for {group_names(waits)} to merge",
-                cause=Cause.GATED,
-            )
-            log(f"{unit.id}: waiting for {group_names(waits)} to merge")
+            store.set_state(unit.id, PLANNED, note=merge_wait(waits), cause=Cause.GATED)
+            log(f"{unit.id}: {merge_wait(waits)}")
 
 
 def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()) -> None:
@@ -886,7 +882,13 @@ def _evaluate(
             unit = unit.model_copy(update={"state": RUNNING})
         elif unit.id in idle:
             unit = unit.model_copy(update={"state": HELD})
-        elif unit.state == PLANNED and (unit.id in started or (only and unit.id not in only)):
+        elif unit.state == PLANNED and (
+            unit.id in started
+            or (only and unit.id not in only)
+            # A requeue is still to be delivered to its thread: starting the
+            # unit as a planned build would drop the mode it was requeued with.
+            or (unit.cause is Cause.GATED and unit.gated_requeue is not None)
+        ):
             unit = unit.model_copy(update={"state": HELD})
         view.append(unit)
     ready = ready_units(
@@ -2183,18 +2185,18 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
-    waits = waiting_on(known[args.unit], list(known.values()))
+    waits = unmet_gates(known[args.unit], list(known.values()))
     if waits and has_thread(inst, args.unit):
         # The gate is unmet: the thread is left where it stopped, and the pass
         # delivers the event in this mode once the dependency has merged.
         store.set_state(
             args.unit,
             PLANNED,
-            note=f"requeued: waiting for {group_names(waits)} to merge",
+            note=f"requeued: {merge_wait(waits)}",
             cause=Cause.GATED,
         )
         store.set_gated_requeue(args.unit, why)
-        print(f"{args.unit} requeued ({mode}), waiting for {group_names(waits)} to merge")
+        print(f"{args.unit} requeued ({mode}), {merge_wait(waits)}")
         return 0
     try:
         delivered = resume_thread(
