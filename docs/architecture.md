@@ -891,6 +891,16 @@ usage reader skips every line that is not an agent call.
 An `acp` agent's `thoughtTokens` are not read: only `outputTokens` is recorded, and whether it
 includes reasoning tokens depends on the agent. Move the ignore line if `planning.state_dir` is changed.
 
+## The web server
+
+`abk serve` (`serve/server.py`) is a FastAPI app on uvicorn, bound to `127.0.0.1`. Its
+readers are library calls over the same stores the tick uses, and read only: the unit
+store is parsed without write hooks, the ledger is read by line (an unparsable last line is
+skipped), run logs are tailed by byte offset, and the checkpoint database is opened
+read-only, never created. The log's host-local `[HH:MM:SS]` stamps are converted to UTC from
+the header's start time. Usage is the report builder's output unchanged, so the server and
+`abk report` cannot disagree.
+
 ## Why it is shaped this way
 
 - **Worktrees live outside the planning repo.** Agents reach the specs through
