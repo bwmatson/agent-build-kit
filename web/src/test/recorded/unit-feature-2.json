@@ -1,0 +1,41 @@
+{
+  "id": "feature/2",
+  "title": "Middle",
+  "change": "feature",
+  "repo": "app",
+  "state": "in_review",
+  "cause": null,
+  "held_by": "",
+  "note": "",
+  "branch": "spec/feature/2",
+  "pr": 12,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253817+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "running",
+      "at": "2026-10-08T14:51:07.255378+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "in_review",
+      "at": "2026-10-08T14:51:07.255704+00:00",
+      "cause": null,
+      "note": ""
+    }
+  ],
+  "base": "main",
+  "depends_on": [
+    {
+      "id": "feature/1",
+      "state": "merged"
+    }
+  ],
+  "merge_gates": [],
+  "review_round": null
+}

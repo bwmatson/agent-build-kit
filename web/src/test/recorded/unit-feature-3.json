@@ -1,0 +1,34 @@
+{
+  "id": "feature/3",
+  "title": "Gated",
+  "change": "feature",
+  "repo": "platform",
+  "state": "blocked",
+  "cause": null,
+  "held_by": "",
+  "note": "",
+  "branch": "",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253833+00:00",
+      "cause": null,
+      "note": ""
+    }
+  ],
+  "base": "main",
+  "depends_on": [
+    {
+      "id": "feature/2",
+      "state": "in_review"
+    }
+  ],
+  "merge_gates": [
+    {
+      "id": "feature/2",
+      "state": "in_review"
+    }
+  ],
+  "review_round": null
+}

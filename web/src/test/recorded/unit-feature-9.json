@@ -1,0 +1,30 @@
+{
+  "id": "feature/9",
+  "title": "Closed",
+  "change": "feature",
+  "repo": "app",
+  "state": "closed",
+  "cause": "closed",
+  "held_by": "",
+  "note": "closed unmerged",
+  "branch": "",
+  "pr": null,
+  "history": [
+    {
+      "state": "planned",
+      "at": "2026-10-08T14:51:07.253882+00:00",
+      "cause": null,
+      "note": ""
+    },
+    {
+      "state": "closed",
+      "at": "2026-10-08T14:51:07.257005+00:00",
+      "cause": "closed",
+      "note": "closed unmerged"
+    }
+  ],
+  "base": "main",
+  "depends_on": [],
+  "merge_gates": [],
+  "review_round": null
+}
