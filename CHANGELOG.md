@@ -9,6 +9,7 @@
   `resume_from` and `classic_run` the last release wrote on every unit are dropped on
   read, so a store it wrote loads as it is. The tick no longer moves such units onto
   threads.
+
 - `abk telemetry push-dashboard` works with `ABK_GRAFANA_URL` alone: without
   `ABK_GRAFANA_TOKEN` it sends no authorization header, for a Grafana that accepts anonymous
   editing. With a token nothing changes. When an anonymous push is refused (401 or 403) the
