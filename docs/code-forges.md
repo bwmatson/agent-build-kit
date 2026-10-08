@@ -293,7 +293,10 @@ and `create_pr` turns the two refusals that mean the base branch is gone into
 ## GitHub over REST and GraphQL
 
 `forges/github.py` talks to `https://api.github.com` through
-`githubkit` and starts no process. A forge holds
+`githubkit` and starts no process. `ABK_GITHUB_API_URL` names another address (a GitHub
+Enterprise host, or a stand-in in a process test); the forge and `abk doctor`'s credential
+check both call it, and a trailing slash is ignored. On an Enterprise host set `GH_TOKEN`, because the
+`gh auth token` lookup asks github.com. A forge holds
 one `githubkit.GitHub` client per repo owner, built with that owner's credential
 (`TokenAuthStrategy`), so units for two owners run side by side and a client is never
 shared across owners. HTTP caching is off, every call has `forge_timeout_seconds`, a

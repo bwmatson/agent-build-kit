@@ -242,6 +242,7 @@ class GitHubForge:
             if held is None or held[0] is not credentials:
                 client = GitHub(
                     TokenAuthStrategy(credentials.token),
+                    base_url=settings.github_api_url.rstrip("/"),
                     timeout=settings.forge_timeout_seconds,
                     transport=self.http,
                     auto_retry=_Retry(settings.forge_retries),

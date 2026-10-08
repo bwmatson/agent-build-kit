@@ -28,6 +28,7 @@ from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes import claude_code
+from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
 
 
@@ -154,6 +155,13 @@ def no_real_forge_host(monkeypatch: pytest.MonkeyPatch) -> None:
 
     clear_credentials()
     monkeypatch.setattr(doctor, "Transport", build)
+
+
+@pytest.fixture
+def github_server() -> Iterator[FakeGitHub]:
+    """A fake GitHub host on a free local port, stopped after the test."""
+    with FakeGitHub() as server:
+        yield server
 
 
 def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
