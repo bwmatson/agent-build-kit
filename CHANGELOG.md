@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A units store written by a newer release no longer stops every tick of an older one. A field
+  this release does not know is ignored when it is empty and dropped on the next write; one
+  holding a value is still refused, now with a message naming the unit, the field and the value
+  and saying a newer release wrote it.
+
 - A `Needs: ... merged` line added to a unit that has already started now gates it. A failed or
   held unit requeued before the dependency merges waits as `planned` with the cause `gated`,
   keeping its work, and `abk requeue` and `abk status` name the group it waits for; the tick
