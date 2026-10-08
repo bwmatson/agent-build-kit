@@ -44,16 +44,11 @@ _OUTCOME = "outcome: "
 
 
 def _read_units(path: Path) -> list[StoredUnit]:
-    """The stored units, read for display: a field this release does not know is
-    left out, where the pipeline's own store refuses the file."""
+    """The stored units, read for display."""
     if not path.exists():
         return []
-    known = set(StoredUnit.model_fields)
     document = json.loads(path.read_text())
-    return [
-        StoredUnit.model_validate({k: v for k, v in item.items() if k in known})
-        for item in document["units"]
-    ]
+    return [StoredUnit.model_validate(item) for item in document["units"]]
 
 
 @asynccontextmanager

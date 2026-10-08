@@ -29,7 +29,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import ValidationError, model_validator
 
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit, UnitState
@@ -207,6 +207,47 @@ class StoredUnit(Unit):
             # Written by a newer release; read as a record from before causes were kept.
             return None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_other_releases(cls, data: Any) -> Any:
+        """Drop what another release left empty; refuse what it left a value in.
+
+        An old-engine field written empty, and a key no field of this release names
+        when its value is empty, carry nothing, so the next write omits them. A valued
+        one is information this release cannot keep. Works on a copy, so the dict the
+        caller handed in is left as it was.
+        """
+        if not isinstance(data, dict):
+            return data
+        item = dict(data)
+        unit_id = item.get("id", "?")
+        for field in OLD_ENGINE_FIELDS:
+            if field in item and item[field] == _WRITTEN_EMPTY.get(field):
+                del item[field]
+        for field in OLD_ENGINE_FIELDS:
+            if field in item:
+                raise ValueError(
+                    f"{unit_id}: the units store holds `{field}`, a field of the "
+                    "previous engine; finish or requeue that unit's work with the release that "
+                    "wrote it, then remove the field"
+                )
+        for key in [key for key in item if key not in cls.model_fields]:
+            value = item[key]
+            # `0 == False` in Python, so emptiness is tested by type, not truthiness.
+            if (
+                value is None
+                or value is False
+                or (isinstance(value, (str, list, dict)) and not value)
+            ):
+                del item[key]
+            else:
+                raise ValueError(
+                    f"{unit_id}: the units store holds `{key}` = {value!r}, "
+                    "a field this release does not know; a newer release wrote it, so update "
+                    "this checkout to that release"
+                )
+        return item
+
 
 # The in-run fields a unit carried before its progress moved into its thread. A store
 # that still holds one is refused: that work must be finished or requeued first.
@@ -222,43 +263,6 @@ OLD_ENGINE_FIELDS = (
 # The previous release wrote these on every unit, empty when no run was in progress.
 # An empty one is dropped on read; only a value in it is old work.
 _WRITTEN_EMPTY = {"resume_from": "", "classic_run": {}}
-
-
-def _refuse_old_engine_fields(item: Any) -> None:
-    if not isinstance(item, dict):
-        return
-    for field in OLD_ENGINE_FIELDS:
-        if field in item and item[field] == _WRITTEN_EMPTY.get(field):
-            del item[field]
-    for field in OLD_ENGINE_FIELDS:
-        if field in item:
-            raise ValueError(
-                f"{item.get('id', '?')}: the units store holds `{field}`, a field of the "
-                "previous engine; finish or requeue that unit's work with the release that "
-                "wrote it, then remove the field"
-            )
-
-
-def _refuse_newer_release_fields(item: Any) -> None:
-    """Drop a key no field of this release names when it is empty; refuse one that holds a value.
-
-    A newer release can add a field while this one still runs. An empty one carries
-    nothing, so the next write omits it; a valued one is information this release
-    cannot keep.
-    """
-    if not isinstance(item, dict):
-        return
-    for key in [key for key in item if key not in StoredUnit.model_fields]:
-        value = item[key]
-        # `0 == False` in Python, so emptiness is tested by type, not truthiness.
-        if value is None or value is False or (isinstance(value, (str, list, dict)) and not value):
-            del item[key]
-        else:
-            raise ValueError(
-                f"{item.get('id', '?')}: the units store holds `{key}` = {item[key]!r}, "
-                "a field this release does not know; a newer release wrote it, so update "
-                "this checkout to that release"
-            )
 
 
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
@@ -320,8 +324,6 @@ class UnitStore:
             # predate a change to StoredUnit, so a missing or unknown key
             # should fail here — naming the field — rather than construct
             # something odd that breaks three steps later.
-            _refuse_old_engine_fields(item)
-            _refuse_newer_release_fields(item)
             try:
                 unit = StoredUnit.model_validate(item)
             except ValidationError as error:

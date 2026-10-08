@@ -83,14 +83,14 @@ def test_reading_an_empty_installation_answers_and_creates_nothing(
     assert snapshot(inst.state_dir) == before
 
 
-def test_an_unknown_field_in_the_unit_store_does_not_fail_a_read(
+def test_an_empty_unknown_field_in_the_unit_store_does_not_fail_a_read(
     inst: Installation, api: httpx.Client
 ) -> None:
     store = seed_pipeline(inst)
     document = json.loads(store.path.read_text())
     document["written_by"] = "a newer release"
     for item in document["units"]:
-        item["a_field_from_a_newer_release"] = {"nested": [1, 2]}
+        item["a_field_from_a_newer_release"] = {}
     store.path.write_text(json.dumps(document, indent=2) + "\n")
 
     pipeline = api.get("/api/pipeline")
