@@ -424,3 +424,87 @@ def test_a_call_that_succeeds_first_time_logs_and_counts_nothing(
 
     assert counted.lines == []
     assert "forge pr_files" not in caplog.text
+
+
+# --- label adds are advisory, removes are not --------------------------------------
+
+
+def test_an_exhausted_label_add_is_contained_and_an_exhausted_remove_raises(
+    waits: Waits, counted: Counted
+) -> None:
+    inner = FakeForge(add_label=[down()], remove_label=[down()])
+    forge = layer(inner, waits)
+
+    assert forge.add_label(REPO, 7, "x") is None
+    assert counted.outcomes("add_label")[-1] == "contained"
+    with pytest.raises(HostUnavailable):
+        forge.remove_label(REPO, 7, "x")
+
+
+def test_a_best_effort_write_is_repeated_then_contained(waits: Waits, counted: Counted) -> None:
+    inner = FakeForge(post_status=[down()], update_pr=[down(), None])
+    forge = layer(inner, waits)
+
+    assert forge.post_status(REPO, sha="s", ok=True, context="c", description="d") is None
+    assert inner.made("post_status") == ATTEMPTS
+    assert counted.outcomes("post_status")[-1] == "contained"
+    forge.update_pr(REPO, 7, base="main")
+    assert inner.made("update_pr") == 2
+
+
+def test_a_comment_given_up_on_returns_no_ids_and_a_fresh_list_each_time(waits: Waits) -> None:
+    inner = FakeForge(post_comment=[down()], comment_exists=[None])
+    forge = layer(inner, waits)
+
+    first = forge.post_comment(REPO, 7, body="b")
+    first.append("x")
+
+    assert forge.post_comment(REPO, 7, body="b") == []
+
+
+def test_a_comment_with_no_read_to_ask_is_contained_after_one_try(waits: Waits) -> None:
+    class NoRead(FakeForge):
+        def __getattr__(self, name: str) -> Callable[..., Any]:
+            if name == "comment_exists":
+                raise AttributeError(name)
+            return super().__getattr__(name)
+
+    inner = NoRead(post_comment=[down()])
+
+    assert layer(inner, waits).post_comment(REPO, 7, body="b") == []
+    assert inner.made("post_comment") == 1
+
+
+# --- a stack create is confirmed by the PR it adds ---------------------------------
+
+
+class _Stack:
+    def __init__(self, open_: bool) -> None:
+        self.open = open_
+
+
+def test_a_create_stack_is_not_taken_as_landed_by_the_bottom_prs_closed_stack(
+    waits: Waits,
+) -> None:
+    closed = _Stack(open_=False)
+    made = _Stack(open_=True)
+    seen: list[int] = []
+
+    class Stacks(FakeForge):
+        def stack_of(self, repo: RepoId, pr: int) -> Any:
+            seen.append(pr)
+            return closed if pr == 11 else None
+
+    inner = Stacks(create_stack=[down(), made])
+
+    assert layer(inner, waits).create_stack(REPO, [11, 12]) is made
+    assert inner.made("create_stack") == 2
+    assert seen == [12]
+
+
+def test_a_closed_stack_found_for_the_new_pr_is_not_a_landed_create(waits: Waits) -> None:
+    made = _Stack(open_=True)
+    inner = FakeForge(add_to_stack=[down(), made], stack_of=[_Stack(open_=False)])
+
+    assert layer(inner, waits).add_to_stack(REPO, 4, [12]) is made
+    assert inner.made("add_to_stack") == 2

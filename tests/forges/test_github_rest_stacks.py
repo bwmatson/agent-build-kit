@@ -16,6 +16,7 @@ import pytest
 
 from agent_build_kit.forges.base import RepoId, Stack, StackRefused
 from agent_build_kit.forges.github import GitHubForge
+from agent_build_kit.forges.transport import HostError
 from tests.forges.github_host import GitHubHost, answer, refusal
 
 pytestmark = pytest.mark.usefixtures("github_env")
@@ -215,8 +216,8 @@ def test_a_listing_holding_a_mis_shaped_stack_is_a_refusal() -> None:
         forge(host).stack_of(REPO, 12)
 
 
-def test_a_host_that_cannot_be_reached_is_a_refusal() -> None:
+def test_a_host_that_cannot_be_reached_is_left_for_the_retry_layer() -> None:
     host = GitHubHost(routes={("POST", STACKS): httpx.ConnectError("no route to host")})
 
-    with pytest.raises(StackRefused):
+    with pytest.raises(HostError):
         forge(host).create_stack(REPO, [11, 12])

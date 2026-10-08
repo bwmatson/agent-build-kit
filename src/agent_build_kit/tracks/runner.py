@@ -54,6 +54,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges, runtimes
+from agent_build_kit.forges.transport import TransportError
 from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -165,7 +166,10 @@ def repo_reachable(name: str, inst: Installation) -> bool:
     chokepoint, and it read every Azure DevOps repo as unreachable.
     """
     forge, repo = inst.forge_of(name)
-    problem = forge.check_access(repo)
+    try:
+        problem = forge.check_access(repo)
+    except TransportError as error:
+        problem = f"cannot reach {forges.key(repo)}: {error}"
     if problem:
         log(f"{forges.key(repo)}: {problem}")
     return not problem

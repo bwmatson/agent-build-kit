@@ -83,6 +83,11 @@ class HostUnavailable(TransportError):
         self.attempts = attempts
 
 
+# What the retry layer repeats. A forge operation lets these out unchanged, even
+# when it swallows its other failures, so the layer is what decides.
+TRANSIENT = (HostError, RateLimited)
+
+
 class Credentials(Frozen):
     scheme: str
     token: str

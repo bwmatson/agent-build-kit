@@ -60,6 +60,7 @@ from agent_build_kit.forges.github_models import (
 )
 from agent_build_kit.forges.transport import (
     PAGE_EXCERPT,
+    TRANSIENT,
     AuthError,
     Credentials,
     HostError,
@@ -290,6 +291,8 @@ class GitHubForge:
         except (NotFound, AuthError):
             # 404 where there is none, 403 where the plan has no such thing.
             return f"no branch protection on {branch}"
+        except TRANSIENT:
+            raise
         except TransportError as error:
             return f"cannot tell what guards {branch}: {error}"
         return "" if _body(found) else f"no branch protection on {branch}"
@@ -305,6 +308,8 @@ class GitHubForge:
                     repo.account, repo.name, head=f"{repo.account}:{head}", state="all", per_page=1
                 )
             return _items(found, NumberDoc, "GET pulls")[0].number
+        except TRANSIENT:
+            raise
         except (TransportError, IndexError):
             # Could not tell reads as no pull request yet.
             return None
@@ -349,6 +354,8 @@ class GitHubForge:
         try:
             with self._on(repo) as gh:
                 gh.rest.pulls.update(repo.account, repo.name, pr, **changes)
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not update pull request %s of %s: %s", pr, key(repo), error)
 
@@ -374,6 +381,8 @@ class GitHubForge:
         try:
             with self._on(repo) as gh:
                 return _body(gh.request(method, f"/repos/{key(repo)}/stacks{path}", **kwargs))
+        except TRANSIENT:
+            raise
         except TransportError as error:
             # 409: another request is changing the same stack right now.
             raise StackRefused(_reason(error), concurrent=error.status == 409) from error
@@ -396,6 +405,8 @@ class GitHubForge:
                     context=context,
                     description=description[:139],
                 )
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not post %s on %s of %s: %s", context, sha, key(repo), error)
 
@@ -474,6 +485,8 @@ class GitHubForge:
                     repo.account, repo.name, pr, int(note_id), data={"body": body}
                 )
             made = _parse(reply, InlineCommentDoc, "POST reply")
+        except TRANSIENT:
+            raise
         except (TransportError, ValueError) as error:
             log.warning("could not reply to %s on %s of %s: %s", note_id, pr, key(repo), error)
             return []
@@ -485,6 +498,8 @@ class GitHubForge:
                         repo.account, repo.name, pr, made.pull_request_review_id
                     )
                 ids.append(_parse(review, NodeIdDoc, "GET review").node_id)
+            except TRANSIENT:
+                raise
             except TransportError as error:
                 log.warning("could not read the review a reply to %s made: %s", note_id, error)
         return [i for i in ids if i]
@@ -496,6 +511,8 @@ class GitHubForge:
                     repo.account, repo.name, pr, data={"body": body}
                 )
             made = _parse(reply, NodeIdDoc, "POST comment")
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not comment on %s of %s: %s", pr, key(repo), error)
             return []
@@ -527,6 +544,8 @@ class GitHubForge:
             try:
                 with self._on(repo) as gh:
                     gh.rest.actions.re_run_workflow_failed_jobs(repo.account, repo.name, int(run))
+            except TRANSIENT:
+                raise
             except TransportError as error:
                 raise TransportError(
                     f"rerun of run {run} ({key(repo)}): {_reason(error)}"
@@ -706,6 +725,8 @@ class GitHubForge:
         try:
             with self._on(repo) as gh:
                 gh.rest.git.delete_ref(repo.account, repo.name, f"heads/{branch}")
+        except TRANSIENT:
+            raise
         except TransportError as error:
             log.warning("could not delete %s of %s: %s", branch, key(repo), error)
 

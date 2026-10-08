@@ -325,7 +325,8 @@ one `githubkit.GitHub` client per repo owner, built with that owner's credential
 (`TokenAuthStrategy`), so units for two owners run side by side and a client is never
 shared across owners. HTTP caching is off, every call has `forge_timeout_seconds`, a
 redirect is not followed (a job log's signed link is fetched by the forge, without the
-credential), and githubkit's `auto_retry` is off: the forge makes each call once. A test passes its `httpx.MockTransport` as `transport=`. The documents it reads
+credential), and githubkit's `auto_retry` is off: the forge makes each call once. A test
+passes its `httpx.MockTransport` as `transport=`. The documents it reads
 are the models in `forges/github_models.py`: only the fields the pipeline reads, an
 unknown field ignored.
 

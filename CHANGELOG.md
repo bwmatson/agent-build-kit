@@ -17,7 +17,10 @@
   instead of by a loop in each. Every forge operation declares whether it is a read, an
   idempotent write, a create or advisory: reads and idempotent writes are repeated on a server
   error, a network failure or a rate limit; a create is repeated only after a read shows it did
-  not land; an advisory call that cannot complete is logged and skipped. Retries are logged and
+  not land; an advisory call (a label add, a draft toggle) that cannot complete is logged and
+  skipped, as is a status, comment, branch delete or PR edit that the pipeline never needed to
+  succeed. A transient failure now reaches the layer from every operation, including the ones
+  that used to log and carry on. Retries are logged and
   counted as `abk.forge.retries`, and a host that stays down raises `HostUnavailable`. New
   `ABK_FORGE_DEADLINE_SECONDS` (default 120) bounds the total time spent on one call.
 
