@@ -18,13 +18,15 @@ from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.stack_runner import LEFTOVERS_NOTE, RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.wiring import INTERRUPTED_PROMPT
+from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 from tests.factories import unit
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import Adapting, decisions
 from tests.graph_driver import fresh, position, tick
-from tests.leftovers_driver import LEFTOVER, Habitat, Hands
+from tests.leftovers_driver import LEFTOVER, Habitat, Hands, step_of
 from tests.runner_fakes import Killed, Recorder, rejecting
+from tests.runtimes.acp_agent import requests, use_agent
 
 STRAY = "stray.txt"
 UNIT = unit().id
@@ -591,3 +593,30 @@ def test_a_killed_adapt_leaves_its_name_and_resumes_the_port(tmp_path: Path) -> 
 
     assert outcome.status == RunStatus.OPEN
     assert "commit:adapt" in recorder.events
+
+
+# --- 1.5 an ACP agent that cannot load the session gets the node's full prompt ----------
+
+
+def test_an_acp_agent_that_cannot_load_the_session_is_sent_the_full_prompt(
+    tmp_path: Path,
+) -> None:
+    habitat, recorder = killed_in(tmp_path, "implement")
+    state = position(tmp_path).state
+    assert state is not None and state.session_id, "the killed run left its session id"
+    killed = next(r for r in habitat.runtime.requests if step_of(r.prompt) == "implement")
+    record = tmp_path / "agent.jsonl"
+    use_agent(record)
+    habitat.runtime = AcpRuntime()  # pyrefly: ignore
+
+    resumed(tmp_path, habitat, recorder)
+
+    prompts = [
+        block["text"]
+        for request in requests(record, "session/prompt")
+        for block in request["prompt"]
+    ]
+    assert len(prompts) == 1, "the one prompt the agent got, in a session of its own"
+    assert prompts[0].startswith(killed.prompt)
+    assert INTERRUPTED_PROMPT not in prompts
+    assert any("cannot be continued" in line for line in recorder.logged)

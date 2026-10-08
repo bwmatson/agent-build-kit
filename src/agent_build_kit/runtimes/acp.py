@@ -98,6 +98,7 @@ from agent_build_kit.runtimes.base import (
     AgentRuntime,
     PolicyCoverage,
     PolicyReport,
+    SessionUnavailable,
     ToolPolicy,
 )
 from agent_build_kit.runtimes.traced import traced
@@ -1332,32 +1333,31 @@ class AcpRuntime:
         roots: list[str] | None,
     ) -> tuple[str, list[Any] | None]:
         """The session the step runs in: the recorded one loaded, where the agent
-        declares it can load sessions; otherwise a new one, said in the log."""
+        declares it can load sessions. Where it cannot, or refuses, the session
+        is unavailable: a resume's prompt assumes the old session holds the
+        task, so starting a new one with the full prompt is the caller's."""
         if request.resume_session:
             capabilities = initialized.agent_capabilities
-            if capabilities is not None and capabilities.load_session:
-                session.replaying = True
-                try:
-                    loaded = await conn.load_session(
-                        cwd=cwd,
-                        session_id=request.resume_session,
-                        additional_directories=roots,
-                        mcp_servers=[],
-                    )
-                except RequestError as exc:
-                    session.notice(
-                        f"session {request.resume_session} not resumed ({exc}); "
-                        "starting a new session"
-                    )
-                else:
-                    return request.resume_session, loaded.config_options
-                finally:
-                    session.replaying = False
-            else:
-                session.notice(
+            if capabilities is None or not capabilities.load_session:
+                raise SessionUnavailable(
                     f"session {request.resume_session} not resumed: the agent does not "
-                    "declare session loading; starting a new session"
+                    "declare session loading"
                 )
+            session.replaying = True
+            try:
+                loaded = await conn.load_session(
+                    cwd=cwd,
+                    session_id=request.resume_session,
+                    additional_directories=roots,
+                    mcp_servers=[],
+                )
+            except RequestError as exc:
+                raise SessionUnavailable(
+                    f"session {request.resume_session} not resumed ({exc})"
+                ) from exc
+            finally:
+                session.replaying = False
+            return request.resume_session, loaded.config_options
         opened = await conn.new_session(cwd=cwd, additional_directories=roots, mcp_servers=[])
         return opened.session_id, opened.config_options
 

@@ -38,7 +38,9 @@ what `hang` does: a wrapper whose real agent keeps stderr open. `detach` is
 `orphan` with the child in a session of its own, out of reach of a kill of the
 agent's process group. `set_model` leaves the model on offer but answers every
 `session/set_config_option` for it with a JSON-RPC error, as an agent that
-offers a model and then refuses to switch to it.
+offers a model and then refuses to switch to it. `load` answers every
+`session/load` with a JSON-RPC error, as an agent that declares the capability
+and no longer holds the session.
 
 Three more options make it do work, in place of the edit it otherwise only
 reports. What it did, and what the client answered, is appended to RECORD as
@@ -344,6 +346,8 @@ class FakeAgent:
     ) -> LoadSessionResponse:
         if not self._load_session:
             raise RequestError.method_not_found("session/load")
+        if self._fail == "load":
+            raise RequestError.internal_error({"details": "the session is gone"})
         self._cwd = cwd
         client = self._client
         assert client is not None
@@ -909,7 +913,7 @@ def main() -> None:
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
     parser.add_argument("--linger", action="store_true")
     parser.add_argument(
-        "--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach", "set_model"]
+        "--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach", "set_model", "load"]
     )
     parser.add_argument("--act", type=Path)
     parser.add_argument("--probe", choices=["terminal", "ask"])

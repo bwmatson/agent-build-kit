@@ -699,7 +699,10 @@ unit's record. On a resume, the runtime reads the agent's `loadSession` capabili
 `initialize` answer. An agent that declares it is sent `session/load` with the recorded id and the
 step continues in that session; the history the agent replays while loading is not progress and
 not the step's answer, so it is dropped. An agent that does not declare it, or that refuses the
-load, gets a new session instead, and the run log and stderr say `session <id> not resumed`.
+load, raises `SessionUnavailable` (`session <id> not resumed: ...`) before any prompt is sent. The
+runtime never opens a session of its own then, because a resume's prompt assumes the old session
+holds the task; the node says the session cannot be continued and starts the step over in a new
+session with its full prompt.
 
 ## Spend through a gateway
 

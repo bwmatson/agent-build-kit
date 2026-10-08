@@ -1,14 +1,16 @@
 """An ACP step records its session when it starts and resumes it where the agent
-can load one; where it cannot, it starts a new session and says so."""
+can load one; where it cannot, it raises `SessionUnavailable` and sends no prompt."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.acp import AcpRuntime
+from agent_build_kit.runtimes.base import SessionUnavailable
 from tests.runtimes.acp_agent import ANSWER, EARLIER_TURN, SESSION, requests, use_agent
 
 EARLIER = "sess_Ln3Vt8QaRcXe5mJd"
@@ -88,30 +90,33 @@ def test_the_history_a_load_replays_is_not_the_steps_answer(tmp_path: Path, work
     assert EARLIER_TURN not in result.text
 
 
-def test_an_agent_that_does_not_declare_session_loading_gets_a_new_session(
-    tmp_path: Path, worktree: Path, capsys: pytest.CaptureFixture[str]
+def test_an_agent_that_does_not_declare_session_loading_cannot_continue_the_session(
+    tmp_path: Path, worktree: Path
 ) -> None:
     record = tmp_path / "agent.jsonl"
     use_agent(record)
     told: list[str] = []
 
-    result = AcpRuntime().run(_request(worktree, resume_session=EARLIER, on_session=told.append))
+    with pytest.raises(SessionUnavailable, match=f"{EARLIER} not resumed.*session loading"):
+        AcpRuntime().run(_request(worktree, resume_session=EARLIER, on_session=told.append))
 
-    assert result.ok is True
     assert requests(record, "session/load") == []
-    assert len(requests(record, "session/new")) == 1
-    assert result.session_id == SESSION
-    assert told == [SESSION]
-    [said] = [line for line in capsys.readouterr().err.splitlines() if EARLIER in line]
-    assert "not resumed" in said
+    assert requests(record, "session/new") == [], "a new session is the caller's to start"
+    assert requests(record, "session/prompt") == []
+    assert told == []
 
 
-def test_the_notice_that_a_session_was_not_resumed_reaches_the_runs_log(
+def test_an_agent_that_refuses_the_load_cannot_continue_the_session(
     tmp_path: Path, worktree: Path
 ) -> None:
-    use_agent(tmp_path / "agent.jsonl")
-    logged: list[str] = []
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, load_session=True, fail="load")
 
-    AcpRuntime().run(_request(worktree, resume_session=EARLIER, on_event=logged.append))
+    with pytest.raises(
+        SessionUnavailable, match=re.escape(f"{EARLIER} not resumed (Internal error)")
+    ):
+        AcpRuntime().run(_request(worktree, resume_session=EARLIER))
 
-    assert any(EARLIER in line and "not resumed" in line for line in logged)
+    assert len(requests(record, "session/load")) == 1
+    assert requests(record, "session/new") == []
+    assert requests(record, "session/prompt") == []
