@@ -163,13 +163,17 @@ class TestGitHub:
 
     def test_a_comment_that_never_lands_returns_no_ids(self) -> None:
         route = ("POST", f"{BASE}/issues/7/comments")
-        host = GitHubHost(routes={route: refusal(503, "down")})
+        host = GitHubHost(
+            routes={route: refusal(503, "down"), ("GET", f"{BASE}/issues/7/comments"): answer([])}
+        )
 
         assert wrap(GitHubForge(http=host)).post_comment(GITHUB, 7, body="x") == []
 
     def test_a_reply_that_never_lands_returns_no_ids(self) -> None:
         route = ("POST", f"{BASE}/pulls/7/comments/5/replies")
-        host = GitHubHost(routes={route: refusal(503, "down")})
+        host = GitHubHost(
+            routes={route: refusal(503, "down"), ("GET", f"{BASE}/pulls/7/comments"): answer([])}
+        )
 
         assert wrap(GitHubForge(http=host)).post_reply(GITHUB, 7, note_id="5", body="x") == []
 

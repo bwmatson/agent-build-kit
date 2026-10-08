@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from agent_build_kit import telemetry
-from agent_build_kit.forges.base import Forge
+from agent_build_kit.forges.base import COMMENT_MARKER, Forge
 from agent_build_kit.forges.operations import OPERATIONS, OperationSpec
 from agent_build_kit.forges.transport import (
     MAX_DELAY,
@@ -50,7 +50,9 @@ def _landing_call(
         # The PR the create adds is last in both: the bottom one may already
         # be in a closed stack that says nothing about this create.
         return (repo, pulls[-1]), run
-    return (repo, args[1]), {"body": kwargs["body"], **run}
+    # A post or a reply: the comment is found by the pipeline's marker and its body.
+    reply = {"reply_to": kwargs["note_id"]} if "note_id" in kwargs else {}
+    return (repo, args[1], COMMENT_MARKER, kwargs["body"]), {**reply, **run}
 
 
 class ResilientForge:

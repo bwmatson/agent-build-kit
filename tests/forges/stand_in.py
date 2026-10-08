@@ -139,6 +139,11 @@ class StandInForge:
     def find_pr(self, repo: RepoId, *, head: str) -> int | None:
         return self.existing
 
+    def comment_exists(
+        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
+    ) -> str | None:
+        return None
+
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         self.created.append({"head": head, "base": base, "title": title, "body": body})
         return self.number

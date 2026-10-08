@@ -302,22 +302,35 @@ class GitHubForge:
     def find_pr(self, repo: RepoId, *, head: str) -> int | None:
         # The owner qualifies the branch, as the API asks: a bare name matches
         # nothing on a fork's or another owner's.
-        try:
-            with self._on(repo) as gh:
-                found = gh.rest.pulls.list(
-                    repo.account, repo.name, head=f"{repo.account}:{head}", state="all", per_page=1
-                )
-            return _items(found, NumberDoc, "GET pulls")[0].number
-        except TRANSIENT:
-            raise
-        except (TransportError, IndexError):
-            # Could not tell reads as no pull request yet.
-            return None
+        # An answer that cannot be read raises: only an empty list is "none".
+        with self._on(repo) as gh:
+            found = gh.rest.pulls.list(
+                repo.account, repo.name, head=f"{repo.account}:{head}", state="all", per_page=1
+            )
+        pulls = _items(found, NumberDoc, "GET pulls")
+        return pulls[0].number if pulls else None
 
     def comment_exists(
         self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
     ) -> str | None:
-        raise NotImplementedError
+        if reply_to is None:
+            comments = self._pages(
+                repo, lambda gh: gh.rest.issues.list_comments, InlineCommentDoc, issue_number=pr
+            )
+        else:
+            comments = [
+                comment
+                for comment in self._pages(
+                    repo,
+                    lambda gh: gh.rest.pulls.list_review_comments,
+                    InlineCommentDoc,
+                    pull_number=pr,
+                )
+                if comment.in_reply_to_id == int(reply_to)
+            ]
+        return next(
+            (c.node_id for c in comments if c.body == body and marker in body and c.node_id), None
+        )
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         try:
@@ -336,6 +349,10 @@ class GitHubForge:
             # The host's words only: the request holds the title and body.
             if error.status == 422 and _base_missing(error):
                 raise BaseMissing(_reason(error)) from error
+            if error.status == 422 and _already_exists(error):
+                existing = self.find_pr(repo, head=head)
+                if existing is not None:
+                    return existing
             if error.status == 422:
                 raise TransportError(f"POST pulls: {_reason(error)}") from error
             raise
@@ -867,6 +884,13 @@ def _base_missing(error: TransportError) -> bool:
     message, errors = _said(error)
     words = " ".join([message, *(str(e.get("message", "")) for e in errors)])
     return any(e.get("field") == "base" for e in errors) or any(t in words for t in _BASE_MISSING)
+
+
+def _already_exists(error: TransportError) -> bool:
+    """Whether a 422 says a pull request for this head and base is already there."""
+    message, errors = _said(error)
+    words = " ".join([message, *(str(e.get("message", "")) for e in errors)])
+    return "pull request already exists" in words.lower()
 
 
 def _stack(found: object) -> Stack:

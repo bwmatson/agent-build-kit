@@ -383,12 +383,13 @@ def test_a_refused_pull_request_status_is_a_warning_not_a_failure(
     assert [c.route for c in host.writes()][0] == "commits/abc123/statuses"
 
 
-def test_a_refused_commit_status_raises() -> None:
+def test_a_refused_commit_status_is_advisory_and_does_not_raise() -> None:
     host = RestHost(azure_answers.OPEN)
     host.refuse[("POST", "commits/abc123/statuses")] = refusal(400, "TF400898: no")
 
-    with pytest.raises(TransportError):
-        post(host)
+    post(host)
+
+    assert [c.route for c in host.writes()] == ["commits/abc123/statuses"]
 
 
 # --- files, closing, draft, branches ----------------------------------------------
