@@ -6,12 +6,15 @@ import argparse
 import threading
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.serve.server import start_server
 
 DEFAULT_PORT = 8765
 
 
 def cmd_serve(args: argparse.Namespace, inst: Installation) -> int:
+    # Imported here so the web server's dependencies load only for `abk serve`,
+    # not for every command that builds the parser.
+    from agent_build_kit.serve.server import start_server
+
     running = start_server(inst, port=args.port)
     try:
         server = running.__enter__()
