@@ -215,7 +215,8 @@ class StoredUnit(Unit):
         An old-engine field written empty, and a key no field of this release names
         when its value is empty, carry nothing, so the next write omits them. A valued
         one is information this release cannot keep. Works on a copy, so the dict the
-        caller handed in is left as it was.
+        caller handed in is left as it was. It applies to every construction, so a
+        misspelled keyword given an empty value in code is dropped too.
         """
         if not isinstance(data, dict):
             return data

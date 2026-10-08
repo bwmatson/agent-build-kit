@@ -102,6 +102,17 @@ def test_an_empty_unknown_field_in_the_unit_store_does_not_fail_a_read(
     assert one.json()["state"] == "in_review"
 
 
+def test_a_valued_unknown_field_in_the_unit_store_fails_a_read(
+    inst: Installation, api: httpx.Client
+) -> None:
+    store = seed_pipeline(inst)
+    document = json.loads(store.path.read_text())
+    document["units"][0]["a_field_from_a_newer_release"] = "merged"
+    store.path.write_text(json.dumps(document, indent=2) + "\n")
+
+    assert api.get("/api/pipeline").status_code != 200
+
+
 def test_a_read_while_a_writer_holds_the_checkpoints_open_changes_nothing(
     inst: Installation, api: httpx.Client
 ) -> None:
