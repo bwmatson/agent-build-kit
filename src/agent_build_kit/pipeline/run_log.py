@@ -16,6 +16,10 @@ from agent_build_kit.pipeline.units import Unit
 # How many runs of one unit are kept; older ones go when a new one is written.
 RUNS_KEPT = 3
 
+# What each further line of a multi-line message starts with, so every line
+# that begins at the margin is a new entry and the file stays parsable by line.
+CONTINUATION = "    "
+
 
 def run_log_dir(state_dir: Path) -> Path:
     """The directory of its own, under the state directory."""
@@ -89,7 +93,8 @@ class RunLog:
             self._failed(error)
 
     def emit(self, message: str) -> None:
-        self._append(f"{message}\n")
+        first, *rest = message.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        self._append("".join(f"{line}\n" for line in [first, *(CONTINUATION + r for r in rest)]))
 
     def close(self, outcome: str) -> None:
         self._append(f"\noutcome: {outcome}\n")

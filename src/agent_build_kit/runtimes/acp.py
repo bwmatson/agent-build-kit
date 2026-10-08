@@ -498,6 +498,7 @@ class _Session:
         self,
         report: Callable[[str], None] | None,
         *,
+        transcript: Callable[[str], None] | None = None,
         worktree: Path | None = None,
         policy: ToolPolicy | None = None,
         roots: tuple[Path, ...] = (),
@@ -506,6 +507,7 @@ class _Session:
         read_only: tuple[str, ...] | None = None,
     ) -> None:
         self._report = report
+        self._transcript = transcript
         # A read-only run (`_is_read_only`): the command patterns it may run,
         # and no edit at all. None for any other run.
         self._read_only = read_only
@@ -1006,7 +1008,7 @@ class _Session:
         text = "".join(self._unsaid)
         self._unsaid = []
         if text.strip():
-            self._tell(f"says: {text}")
+            self._tell(f"says: {text}", whole=f"says: {text.strip()}")
 
     def notice(self, line: str) -> None:
         """Something the operator should know about the run, not a step of it:
@@ -1014,13 +1016,20 @@ class _Session:
         print(f"{NAME}: {line}", file=sys.stderr)
         self._tell(line)
 
-    def _tell(self, line: str) -> None:
-        if self._report is None:
-            return
-        try:
-            self._report(f"  {' '.join(line.split())}")
-        except Exception:  # noqa: BLE001 — progress is for a reader, never the run's to lose
-            pass
+    def _tell(self, line: str, *, whole: str | None = None) -> None:
+        """`line` flattened to one line for the journal; the unit's log gets
+        `whole` as it came, line breaks kept, when there is one."""
+        flat = f"  {' '.join(line.split())}"
+        for callback, text in (
+            (self._report, flat),
+            (self._transcript, f"  {whole}" if whole else flat),
+        ):
+            if callback is None:
+                continue
+            try:
+                callback(text)
+            except Exception:  # noqa: BLE001 — progress is for a reader, never the run's to lose
+                pass
 
 
 USAGE_KEYS = {
@@ -1151,6 +1160,7 @@ class AcpRuntime:
     async def _run(self, command: list[str], request: AgentRequest) -> AgentResult:
         session = _Session(
             request.on_event,
+            transcript=request.on_transcript,
             worktree=request.cwd,
             policy=request.policy,
             roots=request.add_dirs,

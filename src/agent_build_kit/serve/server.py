@@ -25,7 +25,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.run_log import run_log_dir
+from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -227,7 +227,22 @@ def create_app(installation: Installation) -> FastAPI:
         started = _started(fields)
         clock = started
         lines: list[dict[str, Any]] = []
-        for raw in data.decode(errors="replace").splitlines():
+        for raw in data.decode(errors="replace").split("\n")[:-1]:
+            if raw.startswith(CONTINUATION):
+                if lines:
+                    # A further line of the entry before it, its indent taken off.
+                    lines[-1]["text"] += "\n" + raw[len(CONTINUATION) :]
+                else:
+                    # The entry began before this poll's offset: the client
+                    # joins this to the last entry it holds.
+                    lines.append(
+                        {
+                            "at": clock.isoformat() if clock else None,
+                            "text": raw[len(CONTINUATION) :],
+                            "continues": True,
+                        }
+                    )
+                continue
             if not raw.strip() or raw.startswith(_OUTCOME):
                 continue
             match = _STAMPED.match(raw)

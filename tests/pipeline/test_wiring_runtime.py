@@ -12,17 +12,20 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.config import models
+from agent_build_kit import runtimes
+from agent_build_kit.config import RepoConfig, models
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import (
     REVIEW_PROMPT,
     REVIEW_TOOLS,
     AgentPushed,
     build_run_claude,
     build_run_review,
+    build_runner,
 )
 from agent_build_kit.runtimes import ToolPolicy
 from tests.conftest import make_installation
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, unit
 from tests.runtimes.stand_in import StandInRuntime
 
 
@@ -205,3 +208,68 @@ def test_a_step_that_leaves_the_remote_alone_is_not_failed(tmp_path: Path) -> No
     git(tree, "checkout", "-q", "-b", "spec/add-marker/1")
 
     assert build_run_claude(runtime=StandInRuntime(answer="ok"))("Go.", cwd=tree) == "ok"
+
+
+def _noop(text: str) -> None:
+    return None
+
+
+def test_a_build_gives_the_journal_to_events_and_the_transcript_to_the_whole_text(
+    tmp_path: Path,
+) -> None:
+    def journal(line: str) -> None:
+        return None
+
+    runtime = StandInRuntime()
+
+    build_run_claude(runtime=runtime, journal=journal, transcript=_noop)("Go.", cwd=tmp_path)
+
+    assert runtime.request.on_event is journal
+    assert runtime.request.on_transcript is _noop
+
+
+def test_a_review_gives_the_journal_to_events_and_the_transcript_to_the_whole_text(
+    tmp_path: Path,
+) -> None:
+    def journal(line: str) -> None:
+        return None
+
+    runtime = StandInRuntime()
+
+    build_run_review(runtime=runtime, journal=journal, transcript=_noop)(cwd=tmp_path)
+
+    assert runtime.request.on_event is journal
+    assert runtime.request.on_transcript is _noop
+
+
+def test_every_agent_step_of_a_runner_carries_the_journal_and_the_transcript(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "planning"
+    repo = RepoConfig(path=root / "checkouts" / "app", slug="example/app")
+    installation = make_installation(root, repos={"app": repo.model_dump(mode="json")})
+    agent = StandInRuntime(answer="ok")
+    monkeypatch.setattr(runtimes, "active", lambda: agent)
+
+    def journal(line: str) -> None:
+        return None
+
+    runner = build_runner(
+        unit(),
+        store=UnitStore(tmp_path / "units.json"),
+        installation=installation,
+        log=lambda _: None,
+        journal=journal,
+        transcript=_noop,
+    )
+    tree = tmp_path / "tree"
+    tree.mkdir()
+
+    runner.run_claude("Implement.", cwd=tree)
+    runner.run_rework("Rework.", cwd=tree)
+    runner.run_review(cwd=tree)
+    runner.run_rework_review(cwd=tree)
+
+    assert [r.role for r in agent.requests] == ["implement", "rework", "review", "rework_review"]
+    assert all(r.on_transcript is _noop for r in agent.requests)
+    assert all(r.on_event is journal for r in agent.requests)
