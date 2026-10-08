@@ -354,7 +354,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | the OTLP/HTTP collector base URL; `/v1/traces` and `/v1/metrics` are appended | unset |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | per-signal full URLs, overriding the shared endpoint (traces and metrics usually have different intake ports) | unset |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | passed to the resource (`k=v,k2=v2`) | `agent-build-kit`, unset |
-| `ABK_GRAFANA_URL`, `ABK_GRAFANA_TOKEN` | the Grafana and service-account token `abk telemetry push-dashboard` pushes the pipeline's dashboard (package data) to; the command names whichever is missing and exits non-zero | unset |
+| `ABK_GRAFANA_URL`, `ABK_GRAFANA_TOKEN` | the Grafana `abk telemetry push-dashboard` pushes the pipeline's dashboard (package data) to, and an optional service-account token; with no token the push is anonymous (no authorization header), and a 401 or 403 then names `ABK_GRAFANA_TOKEN`; a missing URL is named and exits non-zero; `abk doctor` says which path is used | unset |
 | `ABK_GRAFANA_FOLDER` | the folder the dashboard goes into, created when missing; pushing again overwrites the one dashboard | `agent-build-kit` |
 
 A bad collector cannot fail or slow a run: exports are batched, a failure is

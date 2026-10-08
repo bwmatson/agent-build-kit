@@ -834,6 +834,14 @@ def _telemetry() -> list[Check]:
     return checks
 
 
+def _grafana() -> list[Check]:
+    """Which path `abk telemetry push-dashboard` takes; nothing when no Grafana is set."""
+    if not settings.grafana_url:
+        return []
+    path = "token" if settings.grafana_token else "anonymous"
+    return [_ok("grafana", f"{settings.grafana_url} ({path})")]
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -874,6 +882,7 @@ def run_doctor(
     checks += _python_tools(inst)
     checks += _skills(inst)
     checks += _telemetry()
+    checks += _grafana()
     return checks
 
 

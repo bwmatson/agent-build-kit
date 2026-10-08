@@ -19,7 +19,8 @@ key of its own and its usage is read from the gateway's records), the
 code-host call bounds `ABK_FORGE_TIMEOUT_SECONDS` and `ABK_FORGE_RETRIES`, the
 telemetry switch `ABK_OTEL_ENABLED` and its
 `OTEL_*` endpoints, and `ABK_GRAFANA_URL`/`ABK_GRAFANA_TOKEN`/`ABK_GRAFANA_FOLDER`
-for `abk telemetry push-dashboard`) go in the planning repo's `.env`, which is not
+for `abk telemetry push-dashboard`, whose token is optional: without it the push is
+anonymous) go in the planning repo's `.env`, which is not
 committed.
 
 The schema is strict: an unknown key fails at load. `abk config --show`
