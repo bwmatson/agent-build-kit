@@ -9,6 +9,11 @@
   for rework waits the same way, and a running one is told once and left alone. A merge gate is
   never the unit's base, and an edit that only adds a `Needs:` line no longer re-plans the change.
 
+- An ACP step now records its session id as soon as the session opens, so an interrupted step can
+  be continued. When the agent declares that it can load sessions, the next run loads the recorded
+  session; when it cannot, the step starts over in a new session with its full prompt, and the
+  unit's log says the earlier one cannot be continued.
+
 - The pipeline now keeps a local record of each tick's duration, each pause for usage, each
   unit's review rounds, each failed check and each unit's outcome in the usage ledger, whether
   or not telemetry is on, with the unit and change they belong to. Archiving a change rolls up
