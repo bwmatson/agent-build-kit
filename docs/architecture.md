@@ -14,10 +14,10 @@ change (tasks.md) ─► plan ─► units ─► build ─► PR ─► human r
 ```
 
 Everything below is a tick (`abk tick`), which a timer runs every few minutes
-in the planning repo. One tick, in order: check the usage window, fetch and
-poll each repo's host, plan what is new, verify and archive what has fully
-merged, work
-out what is ready, and build it. Every step is idempotent, and a tick with
+in the planning repo. One tick starts with a round, in order: check the usage
+window, fetch and poll each repo's host, plan what is new, reclaim what no run
+holds, verify and archive what has fully merged, and work out what is ready;
+then it builds that. Every step is idempotent, and a tick with
 nothing to do exits silently before reading usage or calling any host.
 
 ### 1. An OpenSpec change
@@ -151,16 +151,26 @@ running, so a pass with one long build must not wait for it to look. A unit
 the pass has already built and a poll then sends back for rework is started
 again in the same pass, at most twice; anything else the pass started stays
 handed out, which is what lets a pass end. The caps apply to every
-evaluation, and `--only` narrows every one. Planning stays once per pass. A
-build reporting that the pass should stop (the usage window spent) ends
-submission, and the builds in flight are still awaited. A pass therefore lasts
-as long as the work it can reach — watch the pass, not a unit.
+evaluation, and `--only` narrows every one. The tick and each of those
+refreshes run the same round (`run_round`): the usage check, fetch and poll,
+planning, reclaim, verification and archive, then readiness. A change added or
+edited during a pass is planned by its next refresh (a change whose tasks are
+unchanged costs no model call), a unit sent back is let in again, and a step
+that raises is logged while the others still run. A build reporting that the
+pass should stop (the usage window spent), or a refresh whose guard refuses,
+ends submission, and the builds in flight are still awaited. A pass therefore
+lasts as long as the work it can reach — watch the pass, not a unit.
 
-A tick reclaims first: a unit marked `running` that no process holds and that
-has no thread to resume goes back to `planned` before the usage check, so its
-state is true for as long as a pause lasts. Reclaiming, verifying and archiving also stay at the start of a pass. With a
-oneshot timer, a change that fully merges early in a long pass is verified
-live and archived by the next pass, not the moment it merges.
+A round reclaims too: a unit marked `running` that no process holds and that
+has no thread to resume goes back to `planned`, so its state is true for as
+long as a pause lasts. A unit in flight is left even before its
+worker takes the branch lock, and a unit the pass already started is left until
+the pass ends. A running unit
+that no process holds takes no build slot until the round starts it again, and
+is started before planned units. A change that
+fully merges early in a long pass is verified live and archived by the next
+round, not the next pass; verification takes the live-stack lock without
+waiting, and is skipped and logged for that round while a tier 2 run holds it.
 
 Those mid-pass polls run while other builds are still going, so an event can
 name a unit being built. Each handler takes the unit's branch lock first, as

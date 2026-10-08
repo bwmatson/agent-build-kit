@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +28,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus, UnitRunner
@@ -54,7 +57,7 @@ from tests.runtimes.selectable import SelectableRuntime, select
 # How long a build waits for something the pass should make happen meanwhile.
 # Long enough never to trip when the pass does it; against a pass that fixes
 # its batch at the start, it is what the slow unit waits before giving up.
-WAIT = 5
+WAIT = 30
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -68,6 +71,14 @@ def eventually(condition: Callable[[], bool]) -> bool:
             return False
         time.sleep(0.01)
     return True
+
+
+@pytest.fixture(autouse=True)
+def warm_unit_graphs(tmp_path: Path) -> None:
+    """The unit-graph database already in WAL, so builds opening it together do
+    not race to switch the journal mode (`database is locked`)."""
+    with closing(sqlite3.connect(unit_graphs_path(tmp_path))) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
 
 
 @pytest.fixture(autouse=True)
@@ -721,11 +732,11 @@ def test_a_repo_refused_mid_pass_is_not_built_and_the_pass_fails(
     assert builder.store.get("slow/1").state == IN_REVIEW
 
 
-def test_planning_happens_once_per_pass(
+def test_planning_happens_in_every_round_of_the_pass(
     builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Planning is an agent call, and nothing in a pass creates a unit for it
-    to find."""
+    """A change written during a pass is planned by its next refresh; a change
+    already planned costs no model call (see `test_round`)."""
     inst = workspace(tmp_path, max_concurrent=1)
     builder.store.upsert([stored("feature/1"), stored("feature/2"), stored("feature/3")])
     plans: list[int] = []
@@ -734,7 +745,7 @@ def test_planning_happens_once_per_pass(
     assert tick(inst) == 0
 
     assert builder.started == ["feature/1", "feature/2", "feature/3"]
-    assert plans == [1]
+    assert len(plans) == 4, "the tick's round, then one after each of three completions"
 
 
 # --- a refresh mid-pass leaves the builds in flight alone --------------------------

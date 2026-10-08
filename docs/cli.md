@@ -43,12 +43,15 @@ The pass keeps building until nothing is in flight and nothing is ready. Every
 build that finishes is followed by another fetch, another poll and a fresh
 readiness check, so what it unblocked — a child whose parent is now in
 review, a dependent whose dependency merged — starts in the same pass. A pass
-can therefore run for hours. Planning, verifying and archiving
-happen only at its start. A poll event for a unit whose build is still running
-is left for a later poll rather than acted on mid-build. A unit is started at
-most once per pass: one this pass already built that a review sends back
-mid-pass waits for the next pass, while one requeued before this pass reached
-it is built in this one.
+can therefore run for hours. Every refresh of a pass runs the same round as the
+tick: the usage check, fetch and poll, planning, reclaim, verification and
+archive, then readiness. Verification is skipped for that round while the live
+stack is in use. A poll event for a unit whose build is still running is left
+for a later poll rather than acted on mid-build. A unit the pass built that a
+review sends back, that its own build held because its base moved, or whose thread a
+comment resumes, is started again in the same pass, at most twice; a unit stopped for
+any other cause waits for the next pass. A refresh whose usage guard refuses stops new builds, like a build that
+pauses (below).
 
 - `--dry-run` runs everything up to the build and reports what is ready
   without building.
