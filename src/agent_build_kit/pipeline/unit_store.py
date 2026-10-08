@@ -31,6 +31,7 @@ from typing import Any
 
 from pydantic import ValidationError, model_validator
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit, UnitState
 
@@ -124,6 +125,15 @@ def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
 
+class ClosePending(Frozen):
+    """A satisfied unit's pull request that is still to be closed: its number, the
+    reason to post on it, and whether that reason is already there."""
+
+    pr: int
+    reason: str
+    reason_posted: bool = False
+
+
 class StoredUnit(Unit):
     """A unit plus what has happened to it."""
 
@@ -174,6 +184,8 @@ class StoredUnit(Unit):
     # How a requeue that found its merge gate unmet is delivered once the gate
     # clears (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
+    # The close of a satisfied unit's pull request, kept until it is done.
+    close_pending: ClosePending | None = None
     history: tuple[dict, ...] = ()
 
     @property
@@ -617,6 +629,9 @@ class UnitStore:
 
     def set_merge_before(self, unit_id: str, merge_before: Sequence[str]) -> None:
         self._update(unit_id, merge_before=tuple(merge_before))
+
+    def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
+        raise NotImplementedError
 
     def set_predecessor_note(self, unit_id: str, note: str) -> None:
         self._update(unit_id, predecessor_note=note)

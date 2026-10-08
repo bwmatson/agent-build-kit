@@ -154,15 +154,16 @@ def build_post_replies(
     root: Path,
     for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
     log: Callable[[str], None] = print,
-) -> Callable[..., None]:
-    """Post a rework's answer to its PR, recording what was posted."""
+) -> Callable[..., str]:
+    """Post a rework's answer to its PR, recording what was posted, and return the answer
+    text of what is still owed ("" when nothing is)."""
     for_repo = for_repo or forges.for_repo
 
-    def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> None:
+    def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> str:
         answer = parse_answer(answer_text)
         if answer is None:
             log("no replies posted: the rework did not end with its answer as JSON")
-            return
+            return ""
 
         forge, repo_id = for_repo(repo)
         posted: list[str] = []
@@ -176,6 +177,7 @@ def build_post_replies(
             f"posted {len(answer.replies)} repl(ies)"
             + (" and a summary" if answer.summary.strip() else "")
         )
+        return ""
 
     def _post_all(
         forge: Forge,

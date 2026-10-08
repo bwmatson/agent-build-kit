@@ -217,6 +217,12 @@ def _usage_line(reading: UsageReading) -> str:
     return ", ".join(parts)
 
 
+def retry_closes(store: UnitStore, *, close_pr: Callable[[Unit, int, str], None]) -> None:
+    """Close again each satisfied unit's pull request that is still open, removing the
+    record of those that closed."""
+    raise NotImplementedError
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
