@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # sign-in session, which is the other supported way to be authenticated.
     ado_pat: str = Field("", validation_alias=AliasChoices("AZURE_DEVOPS_EXT_PAT", "ABK_ADO_PAT"))
 
+    # The address GitHub calls are made to; another host for GitHub Enterprise,
+    # or a stand-in in a process test.
+    github_api_url: str = "https://api.github.com"
+
     # Every call to a code host (forges/transport.py): the timeout in seconds,
     # and how many times a failed call is retried after the first attempt.
     forge_timeout_seconds: float = 30.0
