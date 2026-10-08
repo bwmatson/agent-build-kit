@@ -95,6 +95,23 @@ async def thread_position(saver: BaseCheckpointSaver, unit_id: str) -> Position:
     return _position(await _compiled(saver).aget_state(_config(unit_id)))
 
 
+async def set_pending_replies(
+    saver: BaseCheckpointSaver, unit_id: str, replies: tuple[str, ...]
+) -> None:
+    """Replace the replies a unit's thread still owes its pull request, leaving it waiting
+    for review where it is. A thread that is not waiting there is not touched: its own run
+    holds those replies."""
+    compiled = _compiled(saver)
+    where = _position(await compiled.aget_state(_config(unit_id)))
+    if tuple(where.next) != (Node.AWAIT_REVIEW,):
+        return
+    # `open_pr` is the node that sends a thread to wait for review, so writing as it keeps
+    # the thread's next step the same; without a node the update is ambiguous.
+    await compiled.aupdate_state(
+        _config(unit_id), {"pending_replies": replies}, as_node=Node.OPEN_PR.value
+    )
+
+
 async def seed_thread(
     saver: BaseCheckpointSaver, state: UnitRun, *, as_node: Node | None = None
 ) -> None:

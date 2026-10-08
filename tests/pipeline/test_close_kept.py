@@ -8,7 +8,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import RepoId
 from agent_build_kit.forges.base import COMMENT_MARKER
 from agent_build_kit.pipeline.unit_store import ClosePending, UnitStore
-from agent_build_kit.pipeline.units import SATISFIED, Unit
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, SATISFIED, Unit, UnitState
 from agent_build_kit.pipeline.wiring import build_close_pr
 from tests.factories import stored_unit, unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -73,6 +73,22 @@ def test_a_close_that_fails_again_stays_pending_for_the_next_pass(tmp_path: Path
     cli.retry_closes(store, close_pr=close)
 
     assert store.get(ID).close_pending == pending
+
+
+@pytest.mark.parametrize("state", [PLANNED, IN_REVIEW])
+def test_a_unit_that_left_satisfied_is_not_closed_and_its_record_is_dropped(
+    tmp_path: Path, state: UnitState
+) -> None:
+    """A requeued unit may be reviewing the very pull request the record names."""
+    store = pending_store(tmp_path, pending=ClosePending(pr=4, reason=REASON))
+    store.set_state(ID, state, pr=4)
+
+    def close(u: Unit, pr: int, reason: str) -> None:
+        raise AssertionError("the pull request is under review again")
+
+    cli.retry_closes(store, close_pr=close)
+
+    assert store.get(ID).close_pending is None
 
 
 def test_a_unit_with_nothing_pending_is_left_alone(tmp_path: Path) -> None:

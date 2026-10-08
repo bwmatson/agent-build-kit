@@ -93,6 +93,33 @@ def test_the_next_pass_posts_what_is_left_once(tmp_path: Path) -> None:
     assert {"reply-11", "reply-12"} <= own_posts(tmp_path, SLUG, 17)
 
 
+class LandedAtFirstSha(StandInForge):
+    """A host that holds the reply to note 11 exactly as it was signed at the first commit."""
+
+    def comment_exists(
+        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
+    ) -> str | None:
+        return "reply-11-earlier" if reply_to == "11" and "in aaaaaaaaa" in body else None
+
+
+def test_an_owed_reply_is_signed_again_with_the_commit_it_was_first_signed_at(
+    tmp_path: Path,
+) -> None:
+    first = Refusing()
+    left = build_post_replies(root=tmp_path, for_repo=lookup(first), log=lambda line: None)(
+        repo="platform", pr=17, answer_text=ANSWER, sha="a" * 12
+    )
+    host = LandedAtFirstSha()
+
+    again = build_post_replies(root=tmp_path, for_repo=lookup(host), log=lambda line: None)(
+        repo="platform", pr=17, answer_text=left, sha="b" * 12
+    )
+
+    assert again == ""
+    assert [note for note, _ in host.replies] == ["12"], "11 is held, signed at the first commit"
+    assert "reply-11-earlier" in own_posts(tmp_path, SLUG, 17)
+
+
 def test_a_reply_the_host_already_holds_is_posted_no_more_and_recorded_as_ours(
     tmp_path: Path,
 ) -> None:

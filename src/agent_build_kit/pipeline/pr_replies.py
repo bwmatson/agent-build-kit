@@ -71,6 +71,9 @@ class Answer(BaseModel):
 
     replies: list[Reply] = []
     summary: str = ""
+    # The commit the replies were first signed with, kept on what is owed so a retry signs the
+    # same words and the host's existing post is recognised as it.
+    sha: str = ""
 
 
 def last_json(text: str, keys: set[str]) -> dict | None:
@@ -168,6 +171,7 @@ def build_post_replies(
         forge, repo_id = for_repo(repo)
         posted: list[str] = []
         owed = Answer()
+        sha = answer.sha or sha
         try:
             owed = _post_all(forge, repo_id, answer, pr, sha, posted)
         finally:
@@ -235,6 +239,6 @@ def build_post_replies(
                     posted += ids
                 else:
                     summary = answer.summary
-        return Answer(replies=owed, summary=summary)
+        return Answer(replies=owed, summary=summary, sha=sha)
 
     return post_replies

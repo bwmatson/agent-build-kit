@@ -17,7 +17,12 @@ from agent_build_kit.pipeline.units import IN_REVIEW, SATISFIED
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 
-ANSWER = json.dumps({"replies": [{"comment_id": 11, "body": "done"}], "summary": ""})
+ANSWER = json.dumps(
+    {
+        "replies": [{"comment_id": 11, "body": "done"}, {"comment_id": 12, "body": "moved"}],
+        "summary": "Also dropped a key.",
+    }
+)
 
 
 def position_of(inst: Installation, unit_id: str) -> Position:
@@ -45,5 +50,6 @@ def test_status_lists_a_unit_with_unposted_replies_and_a_pending_close(
     lines = capsys.readouterr().out.splitlines()
     replies = next(line for line in lines if "one/1" in line and "unposted" in line)
     assert "#5" in replies
+    assert "3 waiting" in replies, "two replies and a summary, not one answer"
     close = next(line for line in lines if "two/1" in line and "close" in line)
     assert "#6" in close

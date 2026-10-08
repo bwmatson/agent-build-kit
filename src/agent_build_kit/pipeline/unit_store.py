@@ -126,12 +126,11 @@ def corrupt_store_message(path: Path) -> str:
 
 
 class ClosePending(Frozen):
-    """A satisfied unit's pull request that is still to be closed: its number, the
-    reason to post on it, and whether that reason is already there."""
+    """A satisfied unit's pull request that is still to be closed: its number and the
+    reason to post on it."""
 
     pr: int
     reason: str
-    reason_posted: bool = False
 
 
 class StoredUnit(Unit):

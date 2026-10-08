@@ -21,3 +21,15 @@ def test_a_round_retries_the_closes_that_are_pending(
     run(inst, cli.store_for(inst), submit=False)
 
     assert calls
+
+
+def test_a_round_posts_the_replies_that_are_owed(
+    inst: Installation,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(cli, "retry_replies", lambda *args, **kwargs: calls.append(args))
+
+    run(inst, cli.store_for(inst), submit=False)
+
+    assert calls
