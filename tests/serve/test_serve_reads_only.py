@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
 import httpx
 
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.state import Node, UnitRun
+from agent_build_kit.graph.unit import seed_thread
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.run_log import RunLog, run_log_dir
 from agent_build_kit.pipeline.usage_report import GROUPINGS
@@ -96,3 +100,38 @@ def test_an_unknown_field_in_the_unit_store_does_not_fail_a_read(
     assert {item["id"] for item in pipeline.json()["units"]} == set(EXPECTED)
     assert one.status_code == 200
     assert one.json()["state"] == "in_review"
+
+
+def test_a_read_while_a_writer_holds_the_checkpoints_open_changes_nothing(
+    inst: Installation, api: httpx.Client
+) -> None:
+    seed_pipeline(inst)
+    database = unit_graphs_path(inst.state_dir)
+    wal = database.with_name(f"{database.name}-wal")
+
+    async def scenario() -> httpx.Response:
+        async with open_checkpointer(database) as saver:
+            state = UnitRun(unit_id="feature/2", change="feature", review_round=2)
+            await seed_thread(saver, state, as_node=Node.AWAIT_REVIEW)
+            assert wal.exists() and wal.stat().st_size > 0
+            before = snapshot(inst.state_dir)
+            answer = await asyncio.to_thread(api.get, "/api/units/feature/2")
+            assert snapshot(inst.state_dir) == before
+            return answer
+
+    answer = asyncio.run(scenario())
+
+    assert answer.status_code == 200
+    assert answer.json()["review_round"] == 2
+
+
+def test_an_unreadable_checkpoint_database_leaves_the_review_round_empty(
+    inst: Installation, api: httpx.Client
+) -> None:
+    seed_pipeline(inst)
+    unit_graphs_path(inst.state_dir).write_bytes(b"not a database, but long enough to be read " * 8)
+
+    answer = api.get("/api/units/feature/2")
+
+    assert answer.status_code == 200
+    assert answer.json()["review_round"] is None

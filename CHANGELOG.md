@@ -5,7 +5,8 @@
 - `abk serve` starts a read-only web server on the loopback address (port 8765, or
   `--port`) over the pipeline's state: the units with their state, cause and history,
   each unit's run logs from a byte offset, and the usage report as `abk report --json`
-  prints it. Units are addressed as `change/N`. Nothing it reads is changed.
+  prints it. Units are addressed as `change/N`. Nothing it reads is changed. A port already in use is reported by
+  name with a non-zero exit.
 
 - A pull request description is shrunk to what the host accepts instead of being refused:
   a long tier 2 output loses its start first, then follow-ups are cut to whole items, and

@@ -77,6 +77,21 @@ def test_a_stamp_after_the_host_midnight_is_dated_by_the_start(
     ]
 
 
+def test_a_line_in_the_second_the_run_starts_keeps_the_start_date(
+    inst: Installation, api: httpx.Client
+) -> None:
+    run = start_run(inst, started=datetime(2026, 9, 23, 23, 44, 5, 734000, tzinfo=UTC))
+    run.emit("[18:44:05] first")
+    run.emit("[18:44:06] second")
+
+    body = read(api, run)
+
+    assert [line["at"] for line in body["lines"]] == [
+        "2026-09-23T23:44:05+00:00",
+        "2026-09-23T23:44:06+00:00",
+    ]
+
+
 def test_a_run_with_no_outcome_line_is_live_until_it_ends(
     inst: Installation, api: httpx.Client
 ) -> None:

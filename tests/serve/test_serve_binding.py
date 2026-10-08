@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 import socket
 
 import httpx
 import pytest
 
+from agent_build_kit.cli.serve_cmd import cmd_serve
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.server import start_server
 
@@ -46,3 +48,16 @@ def test_the_server_stops_listening_when_it_is_stopped(inst: Installation) -> No
 
     with pytest.raises(httpx.TransportError):
         httpx.get(f"{url}/api/pipeline", timeout=2)
+
+
+def test_a_port_already_in_use_is_reported_by_name_with_a_failing_exit(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with start_server(inst) as server:
+        port = server.port
+        code = cmd_serve(argparse.Namespace(port=port), inst)
+
+    assert code != 0
+    out = capsys.readouterr().out
+    assert str(port) in out
+    assert "--port" in out

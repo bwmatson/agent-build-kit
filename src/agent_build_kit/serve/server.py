@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -71,7 +72,10 @@ def _review_round(installation: Installation, unit_id: str) -> int | None:
             position = await thread_position(saver, unit_id)
         return position.state.review_round if position.state else None
 
-    return asyncio.run(read())
+    try:
+        return asyncio.run(read())
+    except (sqlite3.Error, aiosqlite.Error):
+        return None
 
 
 def _header(path: Path) -> tuple[dict[str, str], int]:
@@ -105,8 +109,9 @@ def _outcome_of(path: Path) -> str | None:
 def _stamp(previous: datetime, h: int, m: int, s: int) -> datetime:
     """A host-clock time as UTC: on the host's date of the previous line, a day
     on when the clock has passed midnight since."""
-    moment = previous.astimezone().replace(hour=h, minute=m, second=s, microsecond=0)
-    if moment < previous.astimezone():
+    previous = previous.astimezone().replace(microsecond=0)
+    moment = previous.replace(hour=h, minute=m, second=s)
+    if moment < previous:
         moment = (moment.replace(tzinfo=None) + timedelta(days=1)).astimezone()
     return moment.astimezone(UTC)
 

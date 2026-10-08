@@ -12,12 +12,19 @@ DEFAULT_PORT = 8765
 
 
 def cmd_serve(args: argparse.Namespace, inst: Installation) -> int:
-    with start_server(inst, port=args.port) as server:
+    running = start_server(inst, port=args.port)
+    try:
+        server = running.__enter__()
+    except RuntimeError:
+        print(f"abk serve: could not listen on port {args.port}; it may be in use (pass --port)")
+        return 1
+    try:
         print(f"abk serve: listening on {server.url} (Ctrl-C to stop)")
-        try:
-            threading.Event().wait()
-        except KeyboardInterrupt:
-            pass
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        running.__exit__(None, None, None)
     return 0
 
 
