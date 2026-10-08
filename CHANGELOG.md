@@ -36,6 +36,9 @@
   the call, and each completed node leaves its role's session (`build` or `review`) and
   the model the build began on in the unit's state. Nothing resumes a session yet and no
   behaviour changes; a unit saved by an earlier release loads with no sessions recorded.
+  `abk.yaml` gains `session_reuse`, per agent role (`build` on, `review` off by default); a
+  role it does not name is off, and `review: true` or an unknown role is refused. Nothing
+  reads it yet.
   Agent calls that were labelled `rework` in usage records and in the `role` attribute of
   the `abk.agent.turns` and `abk.agent.tokens` metrics are now labelled `implement`, so a
   dashboard splitting by role loses its `rework` series; `abk report --by model` still

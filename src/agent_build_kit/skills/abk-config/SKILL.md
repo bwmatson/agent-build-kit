@@ -87,6 +87,10 @@ models:                       # bare aliases, not pinned ids; ABK_*_MODEL
   review: opus
   rework_review: fable        # a different model reviews a rework
 
+session_reuse:                # per agent role: continue the role's latest session
+  build: true                 # tests/implement/fix/rework/adapt share one session
+  review: false               # always false: a review starts fresh; a role left out is off
+
 limits:
   stack_depth_build_cap: 3    # longest chain of in-review PRs from main
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
