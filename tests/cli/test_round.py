@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -433,7 +434,24 @@ def test_a_unit_in_the_passes_building_set_is_not_reclaimed(
     assert store.get("building/1").state == RUNNING
 
 
-def test_a_unit_just_submitted_whose_worker_has_not_taken_its_lock_is_not_reclaimed(
+def test_a_round_given_both_started_and_a_readmission_refuses_rather_than_ignore_one(
+    inst: Installation, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+
+    with pytest.raises(ValueError, match="not both"):
+        cli.run_round(
+            inst,
+            store,
+            building=set(),
+            started={"x/1"},
+            only=frozenset(),
+            submit=True,
+            readmit=SimpleNamespace(started={}),  # type: ignore[arg-type]
+        )
+
+
+def test_a_unit_the_pass_started_is_not_reclaimed_until_the_pass_ends(
     inst: Installation, tmp_path: Path
 ) -> None:
     """A unit this pass started is not reclaimed mid-pass, even with no run in

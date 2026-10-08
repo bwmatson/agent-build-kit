@@ -641,11 +641,13 @@ def run_round(
     spends anything on planning. Each later step that raises is logged and the
     rest still run. `building` and `started` name the units this pass holds, so
     the reclaim and the readiness rules leave them alone; a `readmit` lets a
-    sent-back unit out of what it started, and its set replaces `started`, so
-    pass one or the other.
+    sent-back unit out of what it started and carries that set itself, so
+    pass one or the other; both raise `ValueError`.
     `quiet` leaves out the guard's line saying why a build may start.
     """
     if readmit is not None:
+        if started:
+            raise ValueError("pass `started` or `readmit`, not both")
         started = readmit.started
     spared = {*building, *started}
     if not _may_build(inst, store, spared=spared, quiet=quiet):

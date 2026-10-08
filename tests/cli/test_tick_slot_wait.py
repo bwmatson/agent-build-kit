@@ -88,8 +88,7 @@ def test_a_unit_submitted_while_every_slot_is_busy_records_the_wait_as_slot(
     build = Build(store, clock, seconds=30)
     monkeypatch.setattr(cli, "build_runner", build)
 
-    with branch_lock("spec/other/1", root=inst.state_dir / "locks"):
-        assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
+    assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
 
     first, second = build.started
     waits = [s for s in span_lines(inst) if s.get("waited") == "slot"]
