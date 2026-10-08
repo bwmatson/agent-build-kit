@@ -15,6 +15,12 @@
   read, so a store it wrote loads as it is. The tick no longer moves such units onto
   threads.
 
+- `abk telemetry push-dashboard` works with `ABK_GRAFANA_URL` alone: without
+  `ABK_GRAFANA_TOKEN` it sends no authorization header, for a Grafana that accepts anonymous
+  editing. With a token nothing changes. When an anonymous push is refused (401 or 403) the
+  message names `ABK_GRAFANA_TOKEN`, and `abk doctor` reports whether a configured Grafana is
+  used with a token or anonymously.
+
 - Each repo has a `changelog` setting in `abk.yaml`: the path of its changelog (default
   `CHANGELOG.md`), or `null` to turn the changelog convention off. For a repo with it on,
   the build, rework, test-writing, resolver and review prompts carry the convention, from

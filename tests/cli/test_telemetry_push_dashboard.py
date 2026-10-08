@@ -31,6 +31,8 @@ class FakeGrafana:
     dashboards: dict[str, dict[str, Any]] = field(default_factory=dict)  # uid -> dashboard
     dashboard_folders: dict[str, str] = field(default_factory=dict)  # uid -> folder uid
     auth: list[str | None] = field(default_factory=list)
+    refuse_anonymous: int | None = None  # status answered to a request with no credentials
+    reject_tokens: int | None = None  # status answered to a request carrying a token
 
     @property
     def url(self) -> str:
@@ -53,8 +55,19 @@ def _handler(grafana: FakeGrafana) -> type[http.server.BaseHTTPRequestHandler]:
         def _body(self) -> dict[str, Any]:
             return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
 
-        def do_GET(self) -> None:
+        def _refused(self) -> bool:
             grafana.auth.append(self.headers.get("Authorization"))
+            if grafana.refuse_anonymous and self.headers.get("Authorization") is None:
+                self._reply(grafana.refuse_anonymous, {"message": "Unauthorized"})
+                return True
+            if grafana.reject_tokens and self.headers.get("Authorization") is not None:
+                self._reply(grafana.reject_tokens, {"message": "invalid API key"})
+                return True
+            return False
+
+        def do_GET(self) -> None:
+            if self._refused():
+                return
             path = self.path.split("?")[0].rstrip("/")
             if path == "/api/folders":
                 self._reply(200, [{"uid": u, "title": t} for u, t in grafana.folders.items()])
@@ -74,7 +87,8 @@ def _handler(grafana: FakeGrafana) -> type[http.server.BaseHTTPRequestHandler]:
                 self._reply(404, {"message": "not found"})
 
         def do_POST(self) -> None:
-            grafana.auth.append(self.headers.get("Authorization"))
+            if self._refused():
+                return
             body = self._body()
             path = self.path.split("?")[0].rstrip("/")
             if path == "/api/folders":
@@ -218,16 +232,77 @@ def test_without_a_url_it_names_the_setting_and_fails(
     assert "ABK_GRAFANA_URL" in captured.out + captured.err
 
 
-def test_without_a_token_it_names_the_setting_and_calls_nothing(
-    grafana: FakeGrafana, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def _url_only(monkeypatch: pytest.MonkeyPatch, grafana: FakeGrafana) -> None:
     monkeypatch.setenv("ABK_GRAFANA_URL", grafana.url)
     reload(None)
+
+
+def test_without_a_token_the_push_sends_no_authorization_header(
+    grafana: FakeGrafana, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _url_only(monkeypatch, grafana)
+
+    assert main(["telemetry", "push-dashboard"]) == 0
+
+    assert list(grafana.folders.values()) == ["agent-build-kit"]
+    assert len(grafana.dashboards) == 1
+    # the folder lookup, the folder create and the dashboard post, none with credentials
+    assert len(grafana.auth) >= 3
+    assert set(grafana.auth) == {None}
+
+
+def test_a_repeat_anonymous_push_leaves_one_dashboard(
+    grafana: FakeGrafana, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _url_only(monkeypatch, grafana)
+
+    assert main(["telemetry", "push-dashboard"]) == 0
+    assert main(["telemetry", "push-dashboard"]) == 0
+
+    assert len(grafana.folders) == 1
+    assert len(grafana.dashboards) == 1
+    assert set(grafana.auth) == {None}
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_anonymous_push_names_the_token_setting_and_fails(
+    status: int,
+    grafana: FakeGrafana,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    grafana.refuse_anonymous = status
+    _url_only(monkeypatch, grafana)
 
     code = main(["telemetry", "push-dashboard"])
 
     captured = capsys.readouterr()
+    text = captured.out + captured.err
     assert code != 0
-    assert "ABK_GRAFANA_TOKEN" in captured.out + captured.err
-    assert grafana.auth == []
-    assert not grafana.folders and not grafana.dashboards
+    assert "ABK_GRAFANA_TOKEN" in text
+    assert "anonymous" in text
+    assert grafana.url in text
+    assert not grafana.dashboards
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refusal_with_a_token_does_not_blame_the_missing_token(
+    status: int,
+    grafana: FakeGrafana,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # a Grafana that rejects the bearer token itself
+    grafana.reject_tokens = status
+    _configure(monkeypatch, grafana)
+
+    code = main(["telemetry", "push-dashboard"])
+
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert code != 0
+    assert "anonymous" not in text
+    assert "set ABK_GRAFANA_TOKEN" not in text
+    assert grafana.url in text
+    assert str(status) in text
+    assert not grafana.dashboards

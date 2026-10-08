@@ -747,6 +747,11 @@ The last four are the usage ledger's figures, exported by the recorder that writ
 line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds
 nothing, and with telemetry off nothing is exported.
 
+`abk telemetry push-dashboard` pushes the packaged dashboard to the Grafana at `ABK_GRAFANA_URL`.
+`ABK_GRAFANA_TOKEN` is optional: set, every call carries it as a bearer token; unset, the calls
+carry no authorization header, for a Grafana that accepts anonymous editing. A 401 or 403 on an
+anonymous push is reported as a refusal that names the token setting.
+
 Unit ids and change names are on spans only, never on a metric. Tokens are recorded where the
 runtime's output carries them: Claude Code's result event, and the `usage` of an `acp` agent's
 prompt response when it sends one.

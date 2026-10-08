@@ -21,14 +21,14 @@ from agent_build_kit.settings import settings
 
 def _call(method: str, path: str, body: object | None = None) -> Any:
     data = None if body is None else json.dumps(body).encode()
+    headers = {"Content-Type": "application/json"}
+    if settings.grafana_token:
+        headers["Authorization"] = f"Bearer {settings.grafana_token}"
     request = urllib.request.Request(
         settings.grafana_url.rstrip("/") + path,
         data=data,
         method=method,
-        headers={
-            "Authorization": f"Bearer {settings.grafana_token}",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read() or b"null")
@@ -44,16 +44,8 @@ def _folder_uid(title: str) -> str:
 
 
 def cmd_push_dashboard(args: argparse.Namespace, inst: Installation | None) -> int:
-    missing = [
-        name
-        for name, value in (
-            ("ABK_GRAFANA_URL", settings.grafana_url),
-            ("ABK_GRAFANA_TOKEN", settings.grafana_token),
-        )
-        if not value
-    ]
-    if missing:
-        print(f"abk telemetry push-dashboard: set {' and '.join(missing)}")
+    if not settings.grafana_url:
+        print("abk telemetry push-dashboard: set ABK_GRAFANA_URL")
         return 2
     path = resources.files("agent_build_kit") / "telemetry" / "dashboards" / "pipeline.json"
     dashboard = json.loads(path.read_text())
@@ -64,6 +56,16 @@ def cmd_push_dashboard(args: argparse.Namespace, inst: Installation | None) -> i
             "/api/dashboards/db",
             {"dashboard": dashboard, "folderUid": folder, "overwrite": True},
         )
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403) and not settings.grafana_token:
+            print(
+                f"abk telemetry push-dashboard: {settings.grafana_url} refused the anonymous "
+                f"push (HTTP {error.code}): that Grafana does not allow anonymous Editor "
+                "access; set ABK_GRAFANA_TOKEN to a service-account token"
+            )
+        else:
+            print(f"abk telemetry push-dashboard: {settings.grafana_url}: {error}")
+        return 1
     except (urllib.error.URLError, OSError) as error:
         print(f"abk telemetry push-dashboard: {settings.grafana_url}: {error}")
         return 1
@@ -76,6 +78,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     commands = parser.add_subparsers(dest="telemetry_command", required=True)
     push = commands.add_parser(
         "push-dashboard",
-        help="push the pipeline's Grafana dashboard (ABK_GRAFANA_URL, _TOKEN, _FOLDER)",
+        help="push the pipeline's Grafana dashboard (ABK_GRAFANA_URL, _TOKEN optional, _FOLDER)",
     )
     push.set_defaults(func=cmd_push_dashboard, needs_installation="optional")
