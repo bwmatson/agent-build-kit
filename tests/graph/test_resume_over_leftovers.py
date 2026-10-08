@@ -568,16 +568,16 @@ def test_a_killed_adapt_leaves_its_name_and_resumes_the_port(tmp_path: Path) -> 
         present={"test_click"},
     )
     overrides = adapting.overrides()
-    port = overrides["run_rework"]
+    port = overrides["run"]
     dies = [True]
 
-    def run_rework(prompt: str, **kw: Any) -> str:
+    def run_agent(prompt: str, **kw: Any) -> str:
         if dies:
             dies.pop()
             raise Killed("power loss")
         return port(prompt, **kw)
 
-    overrides["run_rework"] = run_rework
+    overrides["run"] = run_agent
 
     with pytest.raises(Killed):
         build(tmp_path, recorder, base="spec/c/2", **overrides)

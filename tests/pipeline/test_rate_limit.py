@@ -23,7 +23,9 @@ import pytest
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.usage_guard import RateLimited, rate_limit_reset
-from agent_build_kit.pipeline.wiring import build_run_claude
+from agent_build_kit.pipeline.wiring import build_run
+
+MODEL = "m"
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -81,7 +83,7 @@ def test_a_refused_run_raises_rather_than_returning_nothing(tmp_path: Path) -> N
     nothing staged, and the unit was recorded as the model having produced
     nothing. The account being out of room is not that."""
     with pytest.raises(RateLimited):
-        build_run_claude(run=lambda *a, **k: refusal())("do the thing", cwd=tmp_path)
+        build_run(run=lambda *a, **k: refusal())("do the thing", cwd=tmp_path, model=MODEL)
 
 
 def test_an_ordinary_failure_also_stops_the_run(tmp_path: Path) -> None:
@@ -90,7 +92,7 @@ def test_an_ordinary_failure_also_stops_the_run(tmp_path: Path) -> None:
     broken = subprocess.CompletedProcess(["claude"], 1, "", "error: something broke")
 
     with pytest.raises(RuntimeError) as caught:
-        build_run_claude(run=lambda *a, **k: broken)("do the thing", cwd=tmp_path)
+        build_run(run=lambda *a, **k: broken)("do the thing", cwd=tmp_path, model=MODEL)
 
     assert not isinstance(caught.value, RateLimited)
 
@@ -116,7 +118,7 @@ def test_a_streamed_transcript_that_mentions_rate_limits_is_not_a_refusal(
     broken = subprocess.CompletedProcess(["claude"], 1, transcript, "")
 
     with pytest.raises(RuntimeError) as caught:
-        build_run_claude(run=lambda *a, **k: broken)("do the thing", cwd=tmp_path)
+        build_run(run=lambda *a, **k: broken)("do the thing", cwd=tmp_path, model=MODEL)
 
     assert not isinstance(caught.value, RateLimited)
     assert str(caught.value) == "claude exited 1: Execution error"
@@ -136,13 +138,16 @@ def test_a_refusal_reported_in_the_result_s_errors_is_a_refusal(tmp_path: Path) 
     refused = subprocess.CompletedProcess(["claude"], 1, transcript, "")
 
     with pytest.raises(RateLimited):
-        build_run_claude(run=lambda *a, **k: refused)("do the thing", cwd=tmp_path)
+        build_run(run=lambda *a, **k: refused)("do the thing", cwd=tmp_path, model=MODEL)
 
 
 def test_a_successful_run_is_unaffected(tmp_path: Path) -> None:
     ok = subprocess.CompletedProcess(["claude"], 0, "did the thing", "")
 
-    assert build_run_claude(run=lambda *a, **k: ok)("do the thing", cwd=tmp_path) == "did the thing"
+    assert (
+        build_run(run=lambda *a, **k: ok)("do the thing", cwd=tmp_path, model=MODEL)
+        == "did the thing"
+    )
 
 
 def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
@@ -180,4 +185,4 @@ def test_a_claude_killed_by_a_signal_is_interrupted(tmp_path: Path) -> None:
     killed = subprocess.CompletedProcess(["claude"], -9, '{"type":"system"}', "")
 
     with pytest.raises(Interrupted, match="signal 9"):
-        build_run_claude(run=lambda *a, **k: killed)("do the thing", cwd=tmp_path)
+        build_run(run=lambda *a, **k: killed)("do the thing", cwd=tmp_path, model=MODEL)

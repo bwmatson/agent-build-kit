@@ -33,7 +33,7 @@ PermissionMode = Literal["edit", "allowed_tools_only"]
 # The abk-level roles every call site resolves a model for today
 # (config.ModelsConfig). A runtime with no equivalent split may point every
 # role at the same model name.
-Role = Literal["implement", "rework", "review", "rework_review", "generic"]
+Role = Literal["implement", "review", "rework_review", "generic"]
 
 # How much of what an agent does abk can interpose on. `all_calls`: every
 # tool call reaches abk before it runs (Claude Code's hook; an ACP agent that

@@ -2,7 +2,7 @@
 
 The runner's worktree, commit and branch-count callables are the real ones over a
 real repository; only the agent is a stand-in, reached through the real
-`build_run_claude`. `Hands` writes files into the worktree the way an agent does,
+`build_run`. `Hands` writes files into the worktree the way an agent does,
 reports a session when asked to, and dies once in the step it was told to,
 leaving a half-made edit behind.
 """
@@ -17,7 +17,7 @@ from agent_build_kit.pipeline.units import branch_name
 from agent_build_kit.pipeline.wiring import (
     branch_commits,
     build_commit,
-    build_run_claude,
+    build_run,
     build_worktree,
 )
 from agent_build_kit.pipeline.workspaces import worktree_path
@@ -117,14 +117,13 @@ class Habitat:
         self.trees = tmp_path / "trees"
 
     def overrides(self) -> dict[str, Any]:
-        agent = build_run_claude(runtime=self.runtime)
+        agent = build_run(runtime=self.runtime)
         return dict(
             worktree=build_worktree({"app": self.repo}, root=self.trees),
             commit=build_commit(unit_id=unit().id),
             head=lambda cwd: git_out(cwd, "rev-parse", "HEAD"),
             branch_commits=lambda cwd, base: branch_commits(cwd, base),
-            run_claude=agent,
-            run_rework=agent,
+            run=agent,
         )
 
     @property

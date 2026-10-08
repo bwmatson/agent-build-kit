@@ -35,7 +35,7 @@ def test_a_rework_is_run_though_the_branch_is_ahead_of_the_tip_the_thread_record
         return recorder.claude(prompt, **kwargs)
 
     tick(tmp_path, recorder, event=rework_event())
-    tick(tmp_path, recorder, run_rework=agent)
+    tick(tmp_path, recorder, run=agent)
 
     assert recorder.events.count("claude:rework") == 1, "the agent ran on the feedback"
     assert len(rework_prompts) == 1
@@ -61,9 +61,9 @@ def test_a_rework_step_cut_short_after_the_agent_committed_does_not_run_it_again
         return recorder.claude(prompt, **kwargs)
 
     with pytest.raises(Killed):
-        tick(tmp_path, recorder, run_rework=agent)
+        tick(tmp_path, recorder, run=agent)
     assert len(runs) == 2, "the delivered rework, then the review's ask"
 
-    tick(tmp_path, recorder, run_rework=agent)
+    tick(tmp_path, recorder, run=agent)
 
     assert len(runs) == 2, "the step was not run again on resume"

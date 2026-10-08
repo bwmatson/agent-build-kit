@@ -177,11 +177,10 @@ INTERRUPTED_PROMPT = (
 )
 
 
-def build_run_claude(
+def build_run(
     *,
     run: Run | None = None,
     planning_repo: Path | None = None,
-    model: str | None = None,
     allowed_tools: str | None = None,
     log: Callable[[str], None] | None = None,
     journal: Callable[[str], None] | None = None,
@@ -207,14 +206,14 @@ def build_run_claude(
     at $0.50.
     """
     specs = _specs_dir(planning_repo)
-    model = model or models().implement
     # Half-configured gateway settings already said, once for this runner.
     warned: set[str] = set()
 
-    def run_claude(
+    def run_agent(
         prompt: str,
         *,
         cwd: Path,
+        model: str,
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: AgentCallback | None = None,
@@ -300,7 +299,7 @@ def build_run_claude(
             raise RuntimeError(result.error)
         return result.text
 
-    return run_claude
+    return run_agent
 
 
 # The reviewer reads and judges; it does not edit. Anything it wants changed it
@@ -451,12 +450,9 @@ def build_run_review(
 ) -> Callable[..., str]:
     """The review pass. Separate from implementation so the standards are
     loaded only here, not during the expensive run."""
-    # Its own model, not the implementation one it would otherwise inherit
-    # from sharing this plumbing.
-    inner = build_run_claude(
+    inner = build_run(
         run=run,
         planning_repo=planning_repo,
-        model=model or models().review,
         # Reading its pull request is allowed (the review may need what a
         # comment says in place); nothing that changes the host is.
         allowed_tools=f"{REVIEW_TOOLS} {forge_read_tools(forge)}" if forge else REVIEW_TOOLS,
@@ -478,9 +474,11 @@ def build_run_review(
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
         prompt = REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
+        # Its own model, not the implementation one a build call names.
         return inner(
             f"{context}\n\n{prompt}" if context else prompt,
             cwd=cwd,
+            model=model or models().review,
             resume_session=resume_session,
             on_session=on_session,
             on_result=on_result,
@@ -556,7 +554,7 @@ def build_commit(
                 break
             output = f"{result.stdout}\n{result.stderr}".strip()
             before = head()
-            fix(COMMIT_FIX_PROMPT.format(output=output), cwd=cwd)
+            fix(COMMIT_FIX_PROMPT.format(output=output), cwd=cwd, model=models().implement)
             # The agent has `git` and could commit around the gate — a skip
             # flag, SKIP, another hooks path, a deleted hook. The policy hook
             # refuses the ones it can name; this catches every form, since
@@ -1850,7 +1848,7 @@ def build_runner(
 
     forge = forges.get(repo.forge)
     tools = allowed_tools(profile, forge)
-    run_claude = build_run_claude(
+    run = build_run(
         planning_repo=planning_repo,
         allowed_tools=tools,
         log=log,
@@ -1867,16 +1865,7 @@ def build_runner(
         tests_changed=tests_changed,
         may_start=build_may_start(),
         resume_at=build_resume_at(),
-        run_claude=run_claude,
-        run_rework=build_run_claude(
-            planning_repo=planning_repo,
-            model=models().rework,
-            allowed_tools=tools,
-            log=log,
-            journal=journal,
-            transcript=transcript,
-            role="rework",
-        ),
+        run=run,
         run_review=build_run_review(
             planning_repo=planning_repo,
             log=log,
@@ -1896,7 +1885,7 @@ def build_runner(
             repo=repo,
         ),
         # A rejected commit goes back to the build run's agent, same policy.
-        commit=build_commit(unit_id=unit.id, fix=run_claude),
+        commit=build_commit(unit_id=unit.id, fix=run),
         branch_commits=branch_commits,
         upstream_incomplete=build_upstream_incomplete(store),
         base_moved=build_base_moved(store),

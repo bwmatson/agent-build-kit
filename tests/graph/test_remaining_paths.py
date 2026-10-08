@@ -612,11 +612,12 @@ class Adapting:
         self.resets: list[tuple[str, str]] = []
         self.changed_asked_after_commit: list[bool] = []
 
-    def run_rework(
+    def run(
         self,
         prompt: str,
         *,
         cwd: Path,
+        model: str = "",
         resume_session: str = "",
         on_session: object = None,
         on_result: object = None,
@@ -640,7 +641,7 @@ class Adapting:
             "reset_to": lambda tree, onto, keep: self.resets.append((onto, keep)),
             "tests_in": self.tests_in,
             "tests_changed": self.tests_changed,
-            "run_rework": self.run_rework,
+            "run": self.run,
         }
 
 
@@ -864,12 +865,13 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
         present={"test_click"},
     )
     overrides: dict[str, Any] = adapting.overrides()
-    port = overrides["run_rework"]
+    port = overrides["run"]
 
     def adapt(
         prompt: str,
         *,
         cwd: Path,
+        model: str = "",
         resume_session: str = "",
         on_session: object = None,
         on_result: object = None,
@@ -877,7 +879,7 @@ def test_a_base_rewritten_while_a_resume_adapts_holds_the_build(tmp_path: Path) 
         tip[0] = "rewritten"  # the parent is restacked while the port runs
         return port(prompt, cwd=cwd, resume_session=resume_session, on_session=on_session)
 
-    wired: dict[str, Any] = {**overrides, "run_rework": adapt}
+    wired: dict[str, Any] = {**overrides, "run": adapt}
     outcome = build(
         tmp_path,
         recorder,

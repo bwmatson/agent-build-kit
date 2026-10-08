@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.wiring import (
     REVIEW_PROMPT,
     REVIEW_TOOLS,
     AgentPushed,
-    build_run_claude,
+    build_run,
     build_run_review,
     build_runner,
 )
@@ -27,6 +27,8 @@ from agent_build_kit.runtimes import ToolPolicy
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.runtimes.stand_in import StandInRuntime
+
+MODEL = "m"
 
 
 def test_a_build_asks_the_runtime_for_a_policed_run_in_the_worktree(tmp_path: Path) -> None:
@@ -36,8 +38,8 @@ def test_a_build_asks_the_runtime_for_a_policed_run_in_the_worktree(tmp_path: Pa
     tree = tmp_path / "tree"
     runtime = StandInRuntime(answer="built it")
 
-    answer = build_run_claude(runtime=runtime, planning_repo=planning, allowed_tools="Read Edit")(
-        "Implement it.", cwd=tree
+    answer = build_run(runtime=runtime, planning_repo=planning, allowed_tools="Read Edit")(
+        "Implement it.", cwd=tree, model=models().implement
     )
 
     assert answer == "built it"
@@ -53,13 +55,14 @@ def test_a_build_asks_the_runtime_for_a_policed_run_in_the_worktree(tmp_path: Pa
     assert request.on_event is not None
 
 
-def test_a_rework_is_asked_for_as_a_rework(tmp_path: Path) -> None:
-    runtime = StandInRuntime()
+def test_each_call_names_the_model_it_runs_on(tmp_path: Path) -> None:
+    for model in (models().implement, models().rework):
+        runtime = StandInRuntime()
 
-    build_run_claude(runtime=runtime, model=models().rework, role="rework")("Fix it.", cwd=tmp_path)
+        build_run(runtime=runtime)("Go.", cwd=tmp_path, model=model)
 
-    assert runtime.request.role == "rework"
-    assert runtime.request.model == models().rework
+        assert runtime.request.role == "implement"
+        assert runtime.request.model == model
 
 
 def test_a_failed_build_raises_what_the_runtime_said(tmp_path: Path) -> None:
@@ -67,7 +70,7 @@ def test_a_failed_build_raises_what_the_runtime_said(tmp_path: Path) -> None:
     runtime = StandInRuntime(ok=False, error="the turn ended early")
 
     with pytest.raises(RuntimeError, match="^the turn ended early$"):
-        build_run_claude(runtime=runtime)("Implement it.", cwd=tmp_path)
+        build_run(runtime=runtime)("Implement it.", cwd=tmp_path, model=MODEL)
 
 
 def test_a_review_asks_the_runtime_for_a_read_only_judgement(tmp_path: Path) -> None:
@@ -123,7 +126,7 @@ def test_a_branch_that_moves_on_the_remote_during_an_agent_step_fails_the_step(
         git(tree, "push", "-q", "origin", branch)
 
     with pytest.raises(AgentPushed, match=branch):
-        build_run_claude(runtime=StandInRuntime(act=push))("Implement it.", cwd=tree)
+        build_run(runtime=StandInRuntime(act=push))("Implement it.", cwd=tree, model=MODEL)
 
 
 def _pushed_unit(tmp_path: Path) -> tuple[Path, Path, str]:
@@ -148,7 +151,7 @@ def test_a_remote_that_cannot_be_read_after_the_step_does_not_fail_it(tmp_path: 
 
     runtime = StandInRuntime(answer="ok", act=lose_the_remote)
 
-    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+    assert build_run(runtime=runtime)("Go.", cwd=tree, model=MODEL) == "ok"
 
 
 def test_a_remote_that_cannot_be_read_before_the_step_does_not_fail_it(tmp_path: Path) -> None:
@@ -161,7 +164,7 @@ def test_a_remote_that_cannot_be_read_before_the_step_does_not_fail_it(tmp_path:
 
     runtime = StandInRuntime(answer="ok", act=bring_it_back)
 
-    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+    assert build_run(runtime=runtime)("Go.", cwd=tree, model=MODEL) == "ok"
 
 
 def test_a_push_from_elsewhere_during_the_step_is_not_the_agents(tmp_path: Path) -> None:
@@ -177,7 +180,7 @@ def test_a_push_from_elsewhere_during_the_step_is_not_the_agents(tmp_path: Path)
 
     runtime = StandInRuntime(answer="ok", act=a_person_pushes)
 
-    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+    assert build_run(runtime=runtime)("Go.", cwd=tree, model=MODEL) == "ok"
 
 
 def test_a_head_the_agent_only_fetched_is_not_the_agents_push(tmp_path: Path) -> None:
@@ -196,7 +199,7 @@ def test_a_head_the_agent_only_fetched_is_not_the_agents_push(tmp_path: Path) ->
 
     runtime = StandInRuntime(answer="ok", act=a_person_pushes_and_the_agent_fetches)
 
-    assert build_run_claude(runtime=runtime)("Go.", cwd=tree) == "ok"
+    assert build_run(runtime=runtime)("Go.", cwd=tree, model=MODEL) == "ok"
 
 
 def test_a_step_that_leaves_the_remote_alone_is_not_failed(tmp_path: Path) -> None:
@@ -207,7 +210,7 @@ def test_a_step_that_leaves_the_remote_alone_is_not_failed(tmp_path: Path) -> No
     git(tree, "remote", "add", "origin", str(remote))
     git(tree, "checkout", "-q", "-b", "spec/add-marker/1")
 
-    assert build_run_claude(runtime=StandInRuntime(answer="ok"))("Go.", cwd=tree) == "ok"
+    assert build_run(runtime=StandInRuntime(answer="ok"))("Go.", cwd=tree, model=MODEL) == "ok"
 
 
 def _noop(text: str) -> None:
@@ -222,7 +225,7 @@ def test_a_build_gives_the_journal_to_events_and_the_transcript_to_the_whole_tex
 
     runtime = StandInRuntime()
 
-    build_run_claude(runtime=runtime, journal=journal, transcript=_noop)("Go.", cwd=tmp_path)
+    build_run(runtime=runtime, journal=journal, transcript=_noop)("Go.", cwd=tmp_path, model=MODEL)
 
     assert runtime.request.on_event is journal
     assert runtime.request.on_transcript is _noop
@@ -265,11 +268,10 @@ def test_every_agent_step_of_a_runner_carries_the_journal_and_the_transcript(
     tree = tmp_path / "tree"
     tree.mkdir()
 
-    runner.run_claude("Implement.", cwd=tree)
-    runner.run_rework("Rework.", cwd=tree)
+    runner.run("Implement.", cwd=tree, model=MODEL)
     runner.run_review(cwd=tree)
     runner.run_rework_review(cwd=tree)
 
-    assert [r.role for r in agent.requests] == ["implement", "rework", "review", "rework_review"]
+    assert [r.role for r in agent.requests] == ["implement", "review", "rework_review"]
     assert all(r.on_transcript is _noop for r in agent.requests)
     assert all(r.on_event is journal for r in agent.requests)

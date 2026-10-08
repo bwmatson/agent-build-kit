@@ -49,7 +49,7 @@ from agent_build_kit.pipeline.units import (
 )
 
 # The change lives in the planning repo, which the run can read because
-# `build_run_claude` passes `--add-dir`. Named by path rather than driven by
+# `build_run` passes `--add-dir`. Named by path rather than driven by
 # `/opsx:apply`: that command exists only where OpenSpec is installed, which
 # is the planning repo, while the unit is built in the target repo's worktree.
 CHANGE_DIR = "{planning_repo}/openspec/changes/{change}"
@@ -1003,8 +1003,7 @@ class UnitRunner(BaseModel):
     # When the usage guard expects to allow a start again, for the interrupt a
     # refusal makes; None when it cannot say.
     resume_at: Callable[[], datetime | None] = lambda: None
-    run_claude: Callable[..., str]
-    run_rework: Callable[..., str]
+    run: Callable[..., str]
     run_review: Callable[..., str]
     run_rework_review: Callable[..., str]
     commit: Callable[..., int]

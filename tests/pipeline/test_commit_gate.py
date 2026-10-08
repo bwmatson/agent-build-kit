@@ -96,7 +96,7 @@ class Agent:
         self.edit = edit
         self.limit = limit
 
-    def __call__(self, prompt: str, *, cwd: Path) -> str:
+    def __call__(self, prompt: str, *, cwd: Path, model: str = "") -> str:
         self.prompts.append(prompt)
         self.cwds.append(cwd)
         if len(self.prompts) > self.limit:
