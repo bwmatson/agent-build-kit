@@ -74,6 +74,16 @@ class HostError(TransportError):
         self.retry_after = retry_after
 
 
+class HostUnavailable(TransportError):
+    """Every attempt of an operation failed transiently."""
+
+    def __init__(self, operation: str, cause: str, attempts: int):
+        super().__init__(f"{operation}: host unavailable after {attempts} attempts ({cause})")
+        self.operation = operation
+        self.cause = cause
+        self.attempts = attempts
+
+
 class Credentials(Frozen):
     scheme: str
     token: str
