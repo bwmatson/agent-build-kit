@@ -184,6 +184,8 @@ def build_run_claude(
     model: str | None = None,
     allowed_tools: str | None = None,
     log: Callable[[str], None] | None = None,
+    journal: Callable[[str], None] | None = None,
+    transcript: Callable[[str], None] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "implement",
 ) -> Callable[..., str]:
@@ -192,6 +194,8 @@ def build_run_claude(
 
     Streamed where the runtime can: each message and tool call goes to `log`
     as it happens, so the tick log shows what a twenty-minute run is doing.
+    With a `transcript`, the run's own steps go to `journal` (default `log`)
+    clipped to a line and to `transcript` whole.
     `run` is the older injection point — Claude Code, run through it rather
     than the real process.
 
@@ -269,7 +273,8 @@ def build_run_claude(
             allowed_tools=allowed_tools or BASE_TOOLS,
             permission_mode="edit",
             policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
-            on_event=log or print,
+            on_event=journal or log or print,
+            on_transcript=transcript,
         )
         try:
             # Its own folder for long command output, gone when the run ends:
@@ -437,6 +442,8 @@ def build_run_review(
     planning_repo: Path | None = None,
     model: str | None = None,
     log: Callable[[str], None] | None = None,
+    journal: Callable[[str], None] | None = None,
+    transcript: Callable[[str], None] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "review",
     forge: Forge | None = None,
@@ -454,6 +461,8 @@ def build_run_review(
         # comment says in place); nothing that changes the host is.
         allowed_tools=f"{REVIEW_TOOLS} {forge_read_tools(forge)}" if forge else REVIEW_TOOLS,
         log=log,
+        journal=journal,
+        transcript=transcript,
         runtime=runtime,
         role=role,
     )
@@ -1791,6 +1800,8 @@ def build_runner(
     record_merge: Callable[[str, int], object] = lambda repo, pr: None,
     log: Callable[[str], None] = print,
     log_reaches_run_log: bool = False,
+    journal: Callable[[str], None] | None = None,
+    transcript: Callable[[str], None] | None = None,
 ) -> UnitRunner:
     """Assemble the runner for one unit, with every step bound to reality.
 
@@ -1839,7 +1850,13 @@ def build_runner(
 
     forge = forges.get(repo.forge)
     tools = allowed_tools(profile, forge)
-    run_claude = build_run_claude(planning_repo=planning_repo, allowed_tools=tools, log=log)
+    run_claude = build_run_claude(
+        planning_repo=planning_repo,
+        allowed_tools=tools,
+        log=log,
+        journal=journal,
+        transcript=transcript,
+    )
     return UnitRunner(
         store=store,
         planning_repo=planning_repo,
@@ -1856,14 +1873,25 @@ def build_runner(
             model=models().rework,
             allowed_tools=tools,
             log=log,
+            journal=journal,
+            transcript=transcript,
             role="rework",
         ),
-        run_review=build_run_review(planning_repo=planning_repo, log=log, forge=forge, repo=repo),
+        run_review=build_run_review(
+            planning_repo=planning_repo,
+            log=log,
+            journal=journal,
+            transcript=transcript,
+            forge=forge,
+            repo=repo,
+        ),
         run_rework_review=build_run_review(
             planning_repo=planning_repo,
             forge=forge,
             model=models().rework_review,
             log=log,
+            journal=journal,
+            transcript=transcript,
             role="rework_review",
             repo=repo,
         ),

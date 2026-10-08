@@ -25,7 +25,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.run_log import run_log_dir
+from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -227,7 +227,11 @@ def create_app(installation: Installation) -> FastAPI:
         started = _started(fields)
         clock = started
         lines: list[dict[str, Any]] = []
-        for raw in data.decode(errors="replace").splitlines():
+        for raw in data.decode(errors="replace").split("\n")[:-1]:
+            if raw.startswith(CONTINUATION) and lines:
+                # A further line of the entry before it, its indent taken off.
+                lines[-1]["text"] += "\n" + raw[len(CONTINUATION) :]
+                continue
             if not raw.strip() or raw.startswith(_OUTCOME):
                 continue
             match = _STAMPED.match(raw)

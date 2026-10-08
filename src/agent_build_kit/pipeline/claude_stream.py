@@ -134,13 +134,14 @@ def own_words(stdout: str) -> str:
     return "\n".join(line for line in stdout.splitlines() if _parse(line) is None)
 
 
-def describe(event: dict) -> list[str]:
-    """One line per thing in `event` worth putting in the log."""
+def describe(event: dict, *, whole: bool = False) -> list[str]:
+    """One line per thing in `event` worth putting in the log. `whole` keeps a
+    reply or a command as written, line breaks and all, instead of clipping it."""
     kind = event.get("type")
     if kind == "system" and event.get("subtype") == "init":
         return [f"claude started ({event.get('model', '?')})"]
     if kind == "assistant":
-        return [line for block in _content(event) if (line := _block(block))]
+        return [line for block in _content(event) if (line := _block(block, whole))]
     if kind == "result":
         seconds = round((event.get("duration_ms") or 0) / 1000)
         turns = event.get("num_turns", "?")
@@ -149,11 +150,12 @@ def describe(event: dict) -> list[str]:
     return []
 
 
-def _block(block: dict) -> str:
+def _block(block: dict, whole: bool = False) -> str:
+    keep = (lambda text: text.strip()) if whole else _short
     if block.get("type") == "text":
-        return f"says: {_short(block.get('text', ''))}" if block.get("text", "").strip() else ""
+        return f"says: {keep(block.get('text', ''))}" if block.get("text", "").strip() else ""
     if block.get("type") == "tool_use":
-        return f"{block.get('name', '?')} {_short(_tool_target(block.get('input') or {}))}".rstrip()
+        return f"{block.get('name', '?')} {keep(_tool_target(block.get('input') or {}))}".rstrip()
     return ""
 
 

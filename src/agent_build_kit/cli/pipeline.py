@@ -1693,6 +1693,13 @@ def _build_unit(
         if run_log is not None:
             run_log.emit(f"[{at}] {message}")
 
+    def journal_only(message: str) -> None:
+        log(f"{unit.id}: {message}", at=stamp())
+
+    def unit_log_only(message: str) -> None:
+        if run_log is not None:
+            run_log.emit(f"[{stamp()}] {message}")
+
     def end(message: str, outcome: UnitOutcome) -> None:
         nonlocal ended
         ended = message
@@ -1744,6 +1751,8 @@ def _build_unit(
                     record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
                     log=say,
                     log_reaches_run_log=True,
+                    journal=journal_only,
+                    transcript=unit_log_only,
                 )
                 outcome = run_unit_thread(
                     inst, runner, unit, base=base, graph=graph, run_log=run_log
