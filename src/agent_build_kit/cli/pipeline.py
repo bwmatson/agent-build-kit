@@ -58,6 +58,7 @@ from agent_build_kit.pipeline.events import (
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
+from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
 from agent_build_kit.pipeline.planning_repo import (
@@ -473,7 +474,9 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         tick.outcome = "error"
         raise
     finally:
-        telemetry.duration("abk.tick.duration", time.monotonic() - started, outcome=tick.outcome)
+        elapsed = time.monotonic() - started
+        telemetry.duration("abk.tick.duration", elapsed, outcome=tick.outcome)
+        record_metric("abk.tick.duration", elapsed, log, outcome=tick.outcome)
         if recording:
             _record_unit_states(inst)
         # Before returning: a tick is a short-lived process, and what it
@@ -582,6 +585,7 @@ def _may_build(
             if not paused:
                 # A new pause; the rounds that find it still in force are not more of them.
                 telemetry.count("abk.usage.pauses", kind="usage")
+                record_metric("abk.usage.pauses", 1, log, kind="usage")
             _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return False
         reason = decision.reason
@@ -1649,12 +1653,11 @@ def build_unit(
             if run.outcome is UnitOutcome.FAILED:
                 telemetry.failed(span)
             span.set_attribute("outcome", run.outcome)
-            telemetry.duration(
-                "abk.unit.duration",
-                time.monotonic() - started,
-                repo=unit.repo,
-                tier=unit.tier,
-                outcome=run.outcome,
+            elapsed = time.monotonic() - started
+            labels = {"repo": unit.repo, "tier": unit.tier, "outcome": str(run.outcome)}
+            telemetry.duration("abk.unit.duration", elapsed, **labels)
+            record_metric(
+                "abk.unit.duration", elapsed, log, unit=unit.id, change=unit.change, **labels
             )
 
 
@@ -1787,6 +1790,9 @@ def _build_unit(
                 kind="rate_limit",
             )
             telemetry.count("abk.usage.pauses", kind="rate_limit")
+            record_metric(
+                "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="rate_limit"
+            )
             end(f"rate limited — pausing until {state.until:%H:%M UTC}", UnitOutcome.RATE_LIMITED)
             return False
         except BranchBusy as error:
@@ -1808,6 +1814,9 @@ def _build_unit(
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
             telemetry.count("abk.usage.pauses", kind="usage")
+            record_metric(
+                "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
+            )
             _pause_for_usage(inst, outcome.pause or PauseInfo(reason=outcome.detail))
             return False
         return True

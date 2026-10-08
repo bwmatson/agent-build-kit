@@ -888,6 +888,25 @@ and for waits a `waited` bucket:
 Recording is as best-effort as the agent lines and shares their once-per-process report. The
 usage reader skips every line that is not an agent call.
 
+#### Metric records
+
+The same file carries `kind: metric` lines, whether or not telemetry is on
+(`pipeline/metric_records.py`). Each is written beside the instrument it mirrors and carries the
+instrument's `metric` name, its `value` and its `attributes`, plus the `unit` and `change` it
+belongs to where there is one (an exported metric never carries them):
+
+| `metric` | written when | `value` |
+|---|---|---|
+| `abk.tick.duration` | a tick ends | seconds |
+| `abk.unit.duration` | a unit's run ends | seconds |
+| `abk.review.rounds` | a unit's run ends other than paused | the review rounds it took |
+| `abk.checks.failures` | a tier 1 run fails | 1 |
+| `abk.usage.pauses` | a pause for the usage window or a rate limit begins | 1 |
+
+Durations and counts are the very figures given the instruments, so a total derived from the
+records equals the exported one. The archive roll-up leaves these lines as they are, and the usage
+reader skips them. Recording is best-effort like the rest of the ledger.
+
 An `acp` agent's `thoughtTokens` are not read: only `outputTokens` is recorded, and whether it
 includes reasoning tokens depends on the agent. Move the ignore line if `planning.state_dir` is changed.
 

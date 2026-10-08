@@ -22,6 +22,7 @@ from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
 from agent_build_kit.pipeline.unit_store import StoredUnit, feedback_source_of
@@ -291,6 +292,15 @@ async def run_unit(
         telemetry.observe(
             "abk.review.rounds",
             ended.review_round if ended else 0,
+            repo=unit.repo,
+            outcome=str(outcome.status),
+        )
+        record_metric(
+            "abk.review.rounds",
+            ended.review_round if ended else 0,
+            runner.log,
+            unit=unit.id,
+            change=unit.change,
             repo=unit.repo,
             outcome=str(outcome.status),
         )

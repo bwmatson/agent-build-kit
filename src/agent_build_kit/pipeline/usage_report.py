@@ -584,7 +584,9 @@ def roll_up_change(ledger: Path, change: str) -> None:
         for line in lines:
             try:
                 raw = json.loads(line)
-                ours = (raw.get("change") or str(raw["unit"]).split("/")[0]) == change
+                ours = raw.get("kind") != "metric" and (
+                    (raw.get("change") or str(raw["unit"]).split("/")[0]) == change
+                )
             except (ValueError, AttributeError, KeyError):
                 ours = False
             if line and not ours:
