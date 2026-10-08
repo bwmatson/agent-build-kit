@@ -42,6 +42,14 @@
   transcripts of its last `limits.transcript_runs_kept` runs (all the calls of a run
   together), and archiving a change removes its transcripts.
 
+- A repeated create is now safe on both hosts. Looking up a pull request by its branch raises
+  when GitHub cannot be reached or answers something unreadable, instead of reporting that
+  there is none, so an outage can no longer lead to a second pull request. A create refused
+  because the pull request already exists returns that pull request. Each host can say whether
+  a comment or reply with the pipeline's marker and a given body is already there, so a post
+  whose answer was lost is not posted twice. On Azure DevOps a refused body update or commit
+  status after a create is logged and skipped, as on GitHub, instead of failing the unit.
+
 - A `Needs: ... merged` line added to a unit that has already started now gates it. A failed or
   held unit requeued before the dependency merges waits as `planned` with the cause `gated`,
   keeping its work, and `abk requeue` and `abk status` name the group it waits for; the tick

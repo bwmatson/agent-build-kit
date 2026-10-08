@@ -50,6 +50,7 @@ class PullRequestDoc(_Doc):
 
 class CommentDoc(_Doc):
     id: int
+    parent_comment_id: int | None = None
     content: str | None = None
     comment_type: str | None = None
     is_deleted: bool | None = None

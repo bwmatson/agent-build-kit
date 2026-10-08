@@ -46,6 +46,8 @@ class InlineCommentDoc(_Rest):
     path: str = ""
     line: int | None = None
     pull_request_review_id: int | None = None
+    # Absent on a comment that answers nothing.
+    in_reply_to_id: int | None = None
 
 
 class LabelDoc(_Rest):

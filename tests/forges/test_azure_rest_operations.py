@@ -94,7 +94,7 @@ def test_a_refusal_for_a_missing_base_is_its_own_error(message: str) -> None:
 def test_a_refusal_that_is_not_about_the_base_is_a_plain_failure_whatever_the_body_quotes() -> None:
     host = RestHost()
     host.refuse[("POST", "pullrequests")] = refusal(
-        409, "TF401179: An active pull request for the source and target already exists."
+        403, "TF401027: You need the GenericContribute permission."
     )
 
     with pytest.raises(TransportError) as caught:
@@ -103,7 +103,7 @@ def test_a_refusal_that_is_not_about_the_base_is_a_plain_failure_whatever_the_bo
         )
 
     assert not isinstance(caught.value, BaseMissing)
-    assert "TF401179" in str(caught.value), "what the host said"
+    assert "TF401027" in str(caught.value), "what the host said"
 
 
 def test_a_missing_reference_that_is_not_the_base_is_a_plain_failure() -> None:
@@ -383,12 +383,13 @@ def test_a_refused_pull_request_status_is_a_warning_not_a_failure(
     assert [c.route for c in host.writes()][0] == "commits/abc123/statuses"
 
 
-def test_a_refused_commit_status_raises() -> None:
+def test_a_refused_commit_status_is_advisory_and_does_not_raise() -> None:
     host = RestHost(azure_answers.OPEN)
     host.refuse[("POST", "commits/abc123/statuses")] = refusal(400, "TF400898: no")
 
-    with pytest.raises(TransportError):
-        post(host)
+    post(host)
+
+    assert [c.route for c in host.writes()] == ["commits/abc123/statuses"]
 
 
 # --- files, closing, draft, branches ----------------------------------------------

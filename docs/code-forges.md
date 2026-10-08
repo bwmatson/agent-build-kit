@@ -45,8 +45,9 @@ parts are free functions beside it rather than inherited behaviour.
 | `access_fix(repo)` | `doctor` | what an operator should run about it |
 | `merge_guard(repo, branch, run)` | `doctor` | what stops a merge on the server, "" when nothing does |
 | `list_prs(repo, head_prefix)` | the poller | every pull request, as `PullRequest` values |
-| `find_pr(repo, head)` | the PR step | the number open for a branch, or None |
-| `create_pr(repo, ...)` | the PR step | the new pull request's number; raises `BaseMissing` when the base branch is not on the host |
+| `find_pr(repo, head)` | the PR step | the number open for a branch; None only when the host answered that there is none, and a raise when it could not tell |
+| `create_pr(repo, ...)` | the PR step | the new pull request's number, or the existing one when the host refuses a duplicate; raises `BaseMissing` when the base branch is not on the host |
+| `comment_exists(repo, pr, marker, body, reply_to)` | the retry layer | the id of the comment (or reply to `reply_to`) carrying the marker and exactly that body, or None |
 | `update_pr(repo, pr, base, body)` | the PR step, restack | retarget or re-describe |
 | `pr_files(repo, pr)` | `abk verify` | the paths a change touched |
 | `review_notes(repo, pr)` | rework | the reviewer's words, and whether each is still live |
@@ -260,7 +261,8 @@ declares a kind for every protocol method, and a test fails when one has no entr
   limit waits the larger of the backoff and the host's hint; a hint longer than the
   transport's ceiling fails the call at once with the hint on the error.
 - `create`: repeated only after the read named in its `lands` shows it did not land
-  (`find_pr` for a pull request, `stack_of` for the stack calls). A hit returns that
+  (`find_pr` for a pull request, `stack_of` for the stack calls, `comment_exists` for a
+  comment or reply). A hit returns that
   result without a second create; a failing read counts as an attempt; a create with no
   usable read is never repeated. A rate-limited create was refused before it did
   anything, so it is repeated without asking.
@@ -349,6 +351,8 @@ without the credential.
 
 A refusal (githubkit's `RequestFailed`) raises a `TransportError` (a `RuntimeError`) that
 carries the host's `status` and whole `body`; `create_pr` reads the body to tell a missing base branch
-(`BaseMissing`) from any other 422. `update_pr`, `delete_remote_branch`, `post_comment`,
+(`BaseMissing`) from a duplicate, which returns the existing pull request, and from any other 422.
+`update_pr` and `post_status` are advisory on both hosts (Azure DevOps contains a refused body
+update or status as GitHub does). `update_pr`, `delete_remote_branch`, `post_comment`,
 `post_reply` and `post_status` keep their best-effort behaviour: a failure is logged, not
 raised. `Forge.client` is optional: a forge reached over HTTP alone names no command.

@@ -86,6 +86,8 @@ _PAGE = 100
 # TF401028 a missing reference, TF401398 a source or target that no longer exists.
 _MISSING_REFERENCE = "TF401028"
 _MISSING_BRANCH = "TF401398"
+# TF401179: an active pull request for this source and target already exists.
+_ALREADY_EXISTS = "TF401179"
 # The all-zero object id a ref is "updated" to when it is deleted.
 _NO_OBJECT = "0" * 40
 # What the host calls a comment's type, in a request: 1 is `text`, where the
@@ -460,6 +462,29 @@ class AzureDevOpsForge:
         )
         return found[0].pull_request_id if found else None
 
+    def comment_exists(
+        self,
+        repo: RepoId,
+        pr: int,
+        marker: str,
+        body: str,
+        *,
+        reply_to: str | None = None,
+        run: Run | None = None,
+    ) -> str | None:
+        thread_id, _, parent = (reply_to or "").partition(".")
+        for thread in self._threads(repo, pr, run=run):
+            if reply_to is not None and str(thread.id) != thread_id:
+                continue
+            for comment in thread.comments:
+                if reply_to is not None and comment.parent_comment_id != int(parent or 0):
+                    continue
+                if comment.is_deleted:
+                    continue
+                if comment.content == body and marker in body:
+                    return f"{thread.id}.{comment.id}"
+        return None
+
     def create_pr(
         self,
         repo: RepoId,
@@ -488,6 +513,10 @@ class AzureDevOpsForge:
             # body, is not in the error.
             if _base_missing(str(error), base):
                 raise BaseMissing(str(error)) from error
+            if _ALREADY_EXISTS in str(error):
+                existing = self.find_pr(repo, head=head, status="active", run=run)
+                if existing is not None:
+                    return existing
             raise
         return _parse(made, PullRequestDoc, "POST pullrequests").pull_request_id
 
@@ -515,13 +544,20 @@ class AzureDevOpsForge:
             if self._pull_doc(repo, pr, run=run).target_ref_name != target:
                 self._git(repo, "PATCH", route, json={"targetRefName": target}, run=run)
         if body:
-            self._git(
-                repo,
-                "PATCH",
-                route,
-                json={"description": fit_description(body, self.description_limit)},
-                run=run,
-            )
+            # Advisory: a body that is not updated is not worth failing the unit
+            # over, least of all after the pull request exists.
+            try:
+                self._git(
+                    repo,
+                    "PATCH",
+                    route,
+                    json={"description": fit_description(body, self.description_limit)},
+                    run=run,
+                )
+            except TRANSIENT:
+                raise
+            except TransportError as error:
+                log.warning("could not update the body of pull request %s: %s", pr, error)
 
     # --- stacks ---------------------------------------------------------------------
 
@@ -658,7 +694,13 @@ class AzureDevOpsForge:
             "description": description[:_DESCRIPTION],
             "context": {"genre": genre or "abk", "name": name},
         }
-        self._git(repo, "POST", f"commits/{quote(sha)}/statuses", json=payload, run=run)
+        try:
+            self._git(repo, "POST", f"commits/{quote(sha)}/statuses", json=payload, run=run)
+        except TRANSIENT:
+            raise
+        except TransportError as error:
+            log.warning("could not post %s on %s: %s", context, sha, error)
+            return
         if head:
             self._post_pr_status(repo, head, payload, run=run)
 

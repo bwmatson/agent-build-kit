@@ -155,6 +155,11 @@ class Stack(Frozen):
     pulls: tuple[int, ...]
 
 
+# What every comment and reply the pipeline posts carries, so that a person's
+# can be told from it and a post that landed can be found again.
+COMMENT_MARKER = "<!-- spec-driven:reply -->"
+
+
 class StackRefused(RuntimeError):
     """The host would not register a stack, and why.
 
@@ -241,7 +246,18 @@ class Forge(RegistersStacks, Protocol):
         """
         ...
 
-    def find_pr(self, repo: RepoId, *, head: str) -> int | None: ...
+    def find_pr(self, repo: RepoId, *, head: str) -> int | None:
+        """The pull request for a head branch: None only when the host answered
+        that there is none, and a raise when it could not tell."""
+        ...
+
+    def comment_exists(
+        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
+    ) -> str | None:
+        """The id of the comment on a pull request (or, with `reply_to`, the reply
+        to that note) that carries `marker` and exactly `body`; None when no
+        comment matches. The read that shows a repeated post would duplicate."""
+        ...
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int: ...
 

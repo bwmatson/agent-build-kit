@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from agent_build_kit.forges.azure_devops import AzureDevOpsForge
-from agent_build_kit.forges.base import PullRequest, RepoId
+from agent_build_kit.forges.base import COMMENT_MARKER, PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.resilient import ResilientForge, RetryPolicy
 from agent_build_kit.forges.transport import HostUnavailable
@@ -161,15 +161,47 @@ class TestGitHub:
 
         assert len(host.calls(*route)) == 2
 
+    def test_a_comment_that_landed_before_the_503_returns_its_id_in_a_list(self) -> None:
+        body = f"Done.\n{COMMENT_MARKER}"
+        route = ("POST", f"{BASE}/issues/7/comments")
+        stored = {"id": 102, "node_id": "IC_kwDOAAAAAc4AAAAC", "body": body}
+        host = GitHubHost(
+            routes={route: refusal(503, "down")},
+            paged={f"{BASE}/issues/7/comments": [stored]},
+        )
+
+        ids = wrap(GitHubForge(http=host)).post_comment(GITHUB, 7, body=body)
+
+        assert ids == ["IC_kwDOAAAAAc4AAAAC"]
+        assert len(host.calls(*route)) == 1
+
+    def test_a_reply_that_landed_before_the_503_returns_its_id_in_a_list(self) -> None:
+        body = f"Fixed.\n{COMMENT_MARKER}"
+        route = ("POST", f"{BASE}/pulls/7/comments/5/replies")
+        stored = {"id": 12, "node_id": "PRRC_kwDOAAAAAc4AAAAM", "body": body, "in_reply_to_id": 5}
+        host = GitHubHost(
+            routes={route: refusal(503, "down")},
+            paged={f"{BASE}/pulls/7/comments": [stored]},
+        )
+
+        ids = wrap(GitHubForge(http=host)).post_reply(GITHUB, 7, note_id="5", body=body)
+
+        assert ids == ["PRRC_kwDOAAAAAc4AAAAM"]
+        assert len(host.calls(*route)) == 1
+
     def test_a_comment_that_never_lands_returns_no_ids(self) -> None:
         route = ("POST", f"{BASE}/issues/7/comments")
-        host = GitHubHost(routes={route: refusal(503, "down")})
+        host = GitHubHost(
+            routes={route: refusal(503, "down"), ("GET", f"{BASE}/issues/7/comments"): answer([])}
+        )
 
         assert wrap(GitHubForge(http=host)).post_comment(GITHUB, 7, body="x") == []
 
     def test_a_reply_that_never_lands_returns_no_ids(self) -> None:
         route = ("POST", f"{BASE}/pulls/7/comments/5/replies")
-        host = GitHubHost(routes={route: refusal(503, "down")})
+        host = GitHubHost(
+            routes={route: refusal(503, "down"), ("GET", f"{BASE}/pulls/7/comments"): answer([])}
+        )
 
         assert wrap(GitHubForge(http=host)).post_reply(GITHUB, 7, note_id="5", body="x") == []
 
@@ -217,6 +249,25 @@ class TestGitHub:
 
 @pytest.mark.usefixtures("rest_env")
 class TestAzureDevOps:
+    def test_a_comment_that_landed_before_the_503_returns_its_id_in_a_list(self) -> None:
+        body = f"Done.\n{COMMENT_MARKER}"
+        route = ("POST", "pullrequests/162/threads")
+        stored = azure_answers.thread(
+            id=900,
+            threadContext=None,
+            comments=[{"id": 1, "parentCommentId": 0, "commentType": "text", "content": body}],
+        )
+        host = RestHost(
+            azure_answers.OPEN,
+            threads={162: [stored]},
+            refuse={route: azure_refusal(503, "down")},
+        )
+
+        ids = wrap(AzureDevOpsForge(http=host)).post_comment(AZURE, 162, body=body)
+
+        assert ids == ["900.1"]
+        assert len(host.calls(*route)) == 1
+
     def test_a_pull_request_status_answered_503_then_200_is_posted_twice(self) -> None:
         route = ("POST", "pullrequests/162/statuses")
         host = RestHost(azure_answers.OPEN, refuse=OnceRefused({route: azure_refusal(503, "down")}))
