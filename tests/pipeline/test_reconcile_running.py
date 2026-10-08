@@ -1,7 +1,8 @@
 """A unit never stays `running` after its run is gone.
 
 A `running` unit whose branch lock names a dead process is failed at the start
-of a pass, so `abk requeue` can move it. A live holder, a missing lock and any
+of a pass, so `abk requeue` can move it. A live holder, a missing or unreadable
+lock, a unit with a thread to resume from, one the pass is holding and any
 other state are left alone. Recording an outcome retries once when the store
 cannot be read, and says so when it still cannot.
 """
@@ -18,7 +19,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import main
-from agent_build_kit.cli.pipeline import reconcile_running
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.cli.pipeline import reconcile_running, resumable_units
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -103,6 +105,42 @@ def test_a_running_unit_with_no_lock_is_unchanged_and_reported(
     assert "add-marker/1" in capsys.readouterr().out
 
 
+def test_a_running_unit_with_a_thread_is_left_to_resume(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    branch = stored(store, "add-marker/1")
+    lock_held_by(inst, branch, dead_pid())
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+
+    reconcile_running(inst, store)
+
+    assert store.get("add-marker/1").state == RUNNING
+    resumable = resumable_units(inst, store.all(), only=frozenset())
+    assert [unit.id for unit in resumable] == ["add-marker/1"]
+
+
+def test_a_running_unit_in_flight_is_left_alone(inst: Installation, store: UnitStore) -> None:
+    branch = stored(store, "add-marker/1")
+    lock_held_by(inst, branch, dead_pid())
+
+    reconcile_running(inst, store, in_flight={"add-marker/1"})
+
+    assert store.get("add-marker/1").state == RUNNING
+
+
+def test_a_running_unit_whose_lock_is_empty_is_unchanged(
+    inst: Installation, store: UnitStore
+) -> None:
+    branch = stored(store, "add-marker/1")
+    lock_held_by(inst, branch, os.getpid())
+    (lock,) = (inst.state_dir / "locks").glob("*.lock")
+    lock.write_text("")
+
+    reconcile_running(inst, store)
+
+    assert store.get("add-marker/1").state == RUNNING
+
+
 @pytest.mark.parametrize("state", [PLANNED, IN_REVIEW, HELD, FAILED])
 def test_a_unit_in_another_state_is_untouched_whatever_its_lock_says(
     inst: Installation, store: UnitStore, state: UnitState
@@ -152,7 +190,6 @@ def test_two_failed_reads_log_the_unit_as_stranded_and_raise_as_before(
     store: UnitStore,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     stored(store, "add-marker/1")
     store.path.write_text('{"units": [')
@@ -163,6 +200,6 @@ def test_two_failed_reads_log_the_unit_as_stranded_and_raise_as_before(
         store.set_state("add-marker/1", FAILED)
 
     assert len(waits) == 1
-    said = capsys.readouterr().out + caplog.text
+    said = capsys.readouterr().out
     assert "add-marker/1" in said
     assert "stranded" in said

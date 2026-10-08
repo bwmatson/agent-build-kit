@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import functools
 import json
-import logging
 import os
 import time
 from collections.abc import Callable, Sequence
@@ -261,8 +260,6 @@ def _refuse_newer_release_fields(item: Any) -> None:
                 "this checkout to that release"
             )
 
-
-_LOG = logging.getLogger(__name__)
 
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
 
@@ -515,13 +512,14 @@ class UnitStore:
         except ValueError as error:
             if corrupt_store_message(self.path) not in str(error):
                 raise
-            # A read can land while a writer is replacing the file; one more
+            # The file can read as torn for a moment where a replace is not atomic
+            # (some network filesystems) or while someone edits it by hand; one more
             # look usually finds it whole. The outcome is not worth losing to that.
             time.sleep(1)
             try:
                 unit, everything, opened = record()
             except ValueError:
-                _LOG.error("%s: stranded — its outcome %s was not recorded", unit_id, state)
+                # Printed, as the tick's journal reads stdout.
                 print(f"{unit_id}: stranded — its outcome {state} was not recorded", flush=True)
                 raise
         if self.on_state:

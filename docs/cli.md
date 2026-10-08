@@ -241,7 +241,8 @@ A unit never has to be requeued out of `running` by hand. At the start of each
 pass, a `running` unit whose branch lock names a process that is gone is
 failed with the note "the run ended without recording its outcome", and can then
 be requeued as above. One with a live holder is left, and so is one with no lock
-at all, which the pass reports. Recording an outcome reads the unit store again
+(or an unreadable one) at all, which the pass reports. So is one with a thread,
+or one the pass is holding: a run killed in a node resumes from its thread. Recording an outcome reads the unit store again
 once, after a second, when the first read fails; if the second fails too, the
 unit is logged as stranded and the error is raised as before.
 
