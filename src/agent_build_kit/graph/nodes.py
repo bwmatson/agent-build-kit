@@ -47,13 +47,19 @@ from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
+    ADAPT_CONTINUATION,
     ADAPT_FOLLOWUP_PROMPT,
     ADAPT_PROMPT,
+    CHECKS_CONTINUATION,
     CHECKS_PROMPT,
+    IMPLEMENTATION_CONTINUATION,
     IMPLEMENTATION_PROMPT,
     LEFTOVERS_NOTE,
+    MOVED_NOTE,
     PREDECESSOR_NOTE,
+    REVIEW_FEEDBACK_CONTINUATION,
     REVIEW_FEEDBACK_PROMPT,
+    REWORK_CONTINUATION,
     REWORK_PROMPT,
     TESTS_PROMPT,
     TIER1_FAILED,
@@ -145,6 +151,11 @@ SESSION_ROLES: dict[Node, SessionRole] = {
 }
 # The nodes a thread waits in, for the forge or for a person.
 WAITS = frozenset({Node.AWAIT_REVIEW, Node.HELD})
+
+
+def _model(model: str) -> dict[str, str]:
+    """The model a call names, when it names one: a review's runner has its own."""
+    return {"model": model} if model else {}
 
 
 class BuildPath:
@@ -302,7 +313,13 @@ class BuildPath:
 
     def _sessions_after(self, node: Node, state: UnitRun, update: Update) -> Update:
         """The role's session as the node leaves it, and the model the build began on."""
-        if (role := SESSION_ROLES.get(node)) is None or self._ended is None:
+        if (role := SESSION_ROLES.get(node)) is None:
+            return {}
+        if self._ended is None:
+            # A call killed before it reported its result leaves no session to record, and
+            # the role's earlier one no longer holds what the node did.
+            if state.session_id and role in state.sessions:
+                return {"sessions": {k: v for k, v in state.sessions.items() if k != role}}
             return {}
         session_id, runtime, model = self._ended
         head = update["head"] if "head" in update else state.head
@@ -428,19 +445,29 @@ class BuildPath:
         return {"restack": True, "rebased": True, "base": base}
 
     def agent(
-        self, run: Callable[..., str], *args: str, cwd: Path, state: UnitRun, **inputs: str
+        self,
+        run: Callable[..., str],
+        *args: str,
+        cwd: Path,
+        state: UnitRun,
+        model: str = "",
+        follow_up: str = "",
+        **inputs: str,
     ) -> str:
-        """One agent run, continuing the session a killed run of this node left.
+        """One agent run, continuing the session a killed run of this node left, or the
+        role's latest session when the node has a `follow_up` to say to it.
 
-        `args` and `inputs` are what `run` is called with besides the worktree
-        and the session. A session the runtime cannot continue is not an error:
-        the node runs from its start in a new one, as it would have without a
-        recorded id.
+        `args` and `inputs` are what `run` is called with besides the worktree,
+        the model and the session; `args[0]` is the full prompt. A session the
+        runtime cannot continue is not an error: the node runs from its start in
+        a new session on `model`, as it would have without a recorded id.
         """
         place = f"{self.unit.id}:{self._node}:{_round(Node(self._node), state)}"
         token = attribution.set(place)
         try:
-            return self._run_agent(run, args, cwd=cwd, state=state, inputs=inputs)
+            return self._run_agent(
+                run, args, cwd=cwd, state=state, model=model, follow_up=follow_up, inputs=inputs
+            )
         finally:
             attribution.reset(token)
 
@@ -451,6 +478,8 @@ class BuildPath:
         *,
         cwd: Path,
         state: UnitRun,
+        model: str,
+        follow_up: str,
         inputs: dict[str, str],
     ) -> str:
         if state.session_id:
@@ -462,6 +491,7 @@ class BuildPath:
                 return run(
                     *args,
                     cwd=cwd,
+                    **_model(model),
                     resume_session=state.session_id,
                     on_session=self.on_session,
                     on_result=self._recorder(state, resumed=True),
@@ -472,6 +502,27 @@ class BuildPath:
                     f"session {state.session_id} cannot be continued ({error}); "
                     "running the node from its start in a new session"
                 )
+        elif follow_up:
+            session, why = self._continuable(state, cwd)
+            if session is not None:
+                try:
+                    return self._continue(
+                        run,
+                        args,
+                        session,
+                        cwd=cwd,
+                        state=state,
+                        model=model,
+                        follow_up=follow_up,
+                        inputs=inputs,
+                    )
+                except SessionUnavailable as error:
+                    why = str(error)
+            if why:
+                self.say(
+                    f"the {SESSION_ROLES[Node(self._node)]} session cannot be continued ({why}); "
+                    "running the node from its start in a new session"
+                )
         if self._leftovers:
             self._resuming_over_leftovers("new")
             note = LEFTOVERS_NOTE.format(paths=_listed(self._leftovers))
@@ -479,8 +530,54 @@ class BuildPath:
         return run(
             *args,
             cwd=cwd,
+            **_model(model),
             on_session=self.on_session,
             on_result=self._recorder(state, resumed=False),
+            **inputs,
+        )
+
+    def _continuable(self, state: UnitRun, cwd: Path) -> tuple[AgentSession | None, str]:
+        """The session this node may continue, or why it may not: nothing when reuse is off or
+        there is none yet, which is not a reason to say."""
+        role = SESSION_ROLES.get(Node(self._node))
+        if role is None or not active().reuses_session(role.value):
+            return None, ""
+        if (session := state.sessions.get(role)) is None:
+            return None, ""
+        if session.head and not self.runner.head_reachable(cwd, session.head):
+            return None, f"the commit {session.head} it last saw is gone from the worktree"
+        return session, ""
+
+    def _continue(
+        self,
+        run: Callable[..., str],
+        args: tuple[str, ...],
+        session: AgentSession,
+        *,
+        cwd: Path,
+        state: UnitRun,
+        model: str,
+        follow_up: str,
+        inputs: dict[str, str],
+    ) -> str:
+        """The node's `follow_up` said to `session`, which says first what moved on the branch
+        since it last spoke."""
+        if self._leftovers:
+            follow_up = f"{LEFTOVERS_NOTE.format(paths=_listed(self._leftovers))}\n\n{follow_up}"
+        head = self.runner.head(cwd)
+        if session.head and head != session.head:
+            follow_up = f"{MOVED_NOTE.format(old=session.head, new=head)}\n\n{follow_up}"
+        self.say(f"continuing the {SESSION_ROLES[Node(self._node)]} session {session.session_id}")
+        self._resuming_over_leftovers("resumed")
+        return run(
+            *args,
+            cwd=cwd,
+            model=model,
+            resume_session=session.session_id,
+            follow_up=follow_up,
+            resume_runtime=session.runtime,
+            on_session=self.on_session,
+            on_result=self._recorder(state, resumed=True),
             **inputs,
         )
 
@@ -672,6 +769,8 @@ class BuildPath:
             r.reset_to(tree, ref, keep)
         # Otherwise a killed run already reset the branch: resetting again would
         # overwrite `keep` with the half-ported tree and lose the old work.
+        # The author of the work ports it: the build session's model, else the rework one.
+        model = state.build_model or models().rework
         answer = self.agent(
             r.run,
             ADAPT_PROMPT.format(
@@ -686,7 +785,15 @@ class BuildPath:
             ),
             cwd=tree,
             state=state,
-            model=models().rework,
+            model=model,
+            follow_up=ADAPT_CONTINUATION.format(
+                onto_unit=restacked.onto_unit,
+                onto_intent=restacked.onto_intent,
+                conflict=restacked.conflict[:2000],
+                old_ref=keep,
+                old_base=restacked.old_base,
+                tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
+            ),
         )
         r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
         # Only now does the tree hold what the agent carried over.
@@ -796,7 +903,16 @@ class BuildPath:
             )
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
-            self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
+            self.agent(
+                r.run,
+                prompt,
+                cwd=tree,
+                state=state,
+                model=models().implement,
+                follow_up=IMPLEMENTATION_CONTINUATION.format(
+                    changelog=changelog_note(tree, r.repo_config)
+                ),
+            )
             r.commit(f"feat: {unit.title}", cwd=tree)
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
@@ -842,18 +958,22 @@ class BuildPath:
         build_boundary, _ = r.boundary_notes(unit, self.graph)
         attempt = state.fix_rounds + 1
         if r.head(tree) == state.head:
-            self.say(f"fix the failing checks ({models().rework}), round {attempt}")
+            # The model that wrote the code fixes it, whatever the configuration says now.
+            model = state.build_model or models().implement
+            feedback = r.store.get(unit.id).feedback
+            self.say(f"fix the failing checks ({model}), round {attempt}")
             self.agent(
                 r.run,
                 CHECKS_PROMPT.format(
                     change_dir=change_dir,
                     groups=groups,
-                    feedback=r.store.get(unit.id).feedback,
+                    feedback=feedback,
                     boundary=build_boundary,
                 ),
                 cwd=tree,
                 state=state,
-                model=models().rework,
+                model=model,
+                follow_up=CHECKS_CONTINUATION.format(feedback=feedback),
             )
             r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
             if r.head(tree) == state.head:
@@ -985,6 +1105,9 @@ class BuildPath:
                 cwd=tree,
                 state=state,
                 model=models().rework,
+                follow_up=REVIEW_FEEDBACK_CONTINUATION.format(
+                    feedback=feedback, changelog=changelog_note(tree, r.repo_config)
+                ),
             )
             kept["review_rounds"] = with_response(state.review_rounds, response)
             r.commit(f"fix: {unit.title} (review round {state.review_round})", cwd=tree)
@@ -1017,6 +1140,13 @@ class BuildPath:
                 cwd=tree,
                 state=state,
                 model=models().rework,
+                follow_up=CHECKS_CONTINUATION.format(feedback=feedback)
+                if failed_check
+                else REWORK_CONTINUATION.format(
+                    feedback=feedback,
+                    pr=stored.pr or "(not yet opened)",
+                    changelog=changelog_note(tree, r.repo_config),
+                ),
             )
             r.commit(f"fix: {unit.title}", cwd=tree)
             if answer and stored.pr and not failed_check:

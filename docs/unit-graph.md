@@ -466,6 +466,39 @@ that cannot (`supports_session_resume` is false, or the session is gone or
 refused: `SessionUnavailable`) is not an error: the node runs from its start in
 a new session and says so in the run log.
 
+A completed build node also leaves the role's latest session in the state: its
+id, runtime, model, node, round and the branch's head when it ended, and
+`build_model`, the model the first build node ran on. With `session_reuse` on
+for the role (`build` by default), one resolution step before the agent call
+chooses between the three ways a node can speak:
+
+1. The node's own interrupted run (`session_id` set): continue it with the
+   interruption prompt, as above.
+2. The role's latest session, when the runtime that recorded it is the one
+   running and can resume, and its recorded head is still readable in the
+   worktree: continue it on the model it recorded, with the node's
+   **continuation prompt**, which carries only what is new (the failure output,
+   the review findings, the predecessor and the conflict) and drops the change
+   path, task groups and boundary notes the session already holds. When the
+   branch's head is not the recorded one, the prompt begins with the two hashes
+   and an instruction to read what changed, never a log or a diff. After
+   `adapt`'s reset the old work is under `refs/spec-driven/pre-adapt/<unit>`,
+   which the prompt names.
+3. Otherwise, or when the resume raises `SessionUnavailable` (including a
+   context overflow, which Claude Code reports as a prompt too long): a new
+   session with the full prompt on the node's model, and a line in the run log
+   saying why.
+
+`tests` always starts the build session; `implement`, `fix_checks`, a rework of
+a review round or of failing checks, and `adapt` continue it. A rework that
+answers a comment on the pull request starts over, as does `review`, which
+never continues a session: its judgement does not share the author's context.
+`fix_checks` runs on `build_model` (the configured implement model when none is
+recorded) whether or not it continues a session. A node that completes without
+its call reporting a session, after one was started and killed, drops the
+role's recorded session rather than keep one that no longer describes the
+branch.
+
 ## Concurrency
 
 - One tick process runs the threads on asyncio, at most `max_concurrent_stacks`

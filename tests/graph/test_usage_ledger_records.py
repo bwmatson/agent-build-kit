@@ -45,7 +45,8 @@ class Silent(StandInRuntime):
 
 class KilledInImplement(StandInRuntime):
     """A runtime that numbers its sessions, reports each call it finishes, and
-    dies in the second call (the implement node) once it has announced its session."""
+    dies in the second call (the implement node, which continues the session the tests
+    started) once it has announced its session."""
 
     name = "killable"
     supports_session_resume = True
@@ -60,7 +61,7 @@ class KilledInImplement(StandInRuntime):
         self.session = request.resume_session or f"sess-{len(self.requests)}"
         if request.on_session:
             request.on_session(self.session)
-        if len(self.requests) == 2 and not request.resume_session:
+        if len(self.requests) == 2:
             raise Killed("power loss")
 
     def run(self, request: AgentRequest) -> AgentResult:
@@ -231,6 +232,6 @@ def test_a_node_killed_and_resumed_leaves_one_record_marked_resumed(
     (implement,) = [r for r in records if r["node"] == "implement"]
     assert implement["resumed"] is True
     assert implement["round"] == 0
-    assert implement["session_id"] == "sess-2"
+    assert implement["session_id"] == "sess-1"
     read = read_ledger(workspace.state_dir / "usage-ledger.jsonl")
-    assert [(r.round, r.session_id) for r in read if r.node == "implement"] == [(0, "sess-2")]
+    assert [(r.round, r.session_id) for r in read if r.node == "implement"] == [(0, "sess-1")]
