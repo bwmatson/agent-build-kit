@@ -355,7 +355,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_GATEWAY_SETTLE_SECONDS` | how long after a call ends its gateway spend rows are waited for, since a gateway writes its logs in batches; the bound on the whole wait | `30` |
 | `ABK_GATEWAY_QUIET_SECONDS` | how long a call's gateway spend rows must have stopped growing before they are taken as complete; set it to at least the gateway's flush interval. Rows still arriving at the settle bound are used and the log says the totals may be incomplete | `10` |
 | `GH_TOKEN` (or `ABK_GH_TOKEN`) | one GitHub token for every GitHub call, instead of the per-owner lookup `gh auth token --user <owner>`. Read from `.env`, since pydantic-settings does not export to the environment. | unset: per-owner lookup |
-| `ABK_GITHUB_API_URL` | the address GitHub calls go to, for GitHub Enterprise or a stand-in host | `https://api.github.com` |
+| `ABK_GITHUB_API_URL` | the address GitHub calls go to, for GitHub Enterprise or a stand-in host. On an Enterprise host set `GH_TOKEN`: the `gh auth token` lookup asks github.com | `https://api.github.com` |
 | `ABK_FORGE_TIMEOUT_SECONDS` | the timeout on every call to a code host | `30` |
 | `ABK_FORGE_RETRIES` | how many times a failed code-host call is retried after the first attempt | `3` |
 | `ABK_WORKTREE_ROOT` | overrides `planning.worktree_root` on this machine | unset |

@@ -13,7 +13,7 @@ import pytest
 
 from agent_build_kit.forges.base import Label, RepoId
 from agent_build_kit.forges.github import GitHubForge
-from agent_build_kit.forges.transport import clear_credentials
+from agent_build_kit.forges.transport import TransportError, clear_credentials
 from agent_build_kit.settings import settings
 from tests.forges.github_server import FakeGitHub
 
@@ -218,5 +218,47 @@ def test_a_wrong_credential_fails_the_forge_the_way_the_host_does(
     monkeypatch.setattr(settings, "forge_retries", 0)
     clear_credentials()
 
-    with pytest.raises(Exception, match="401|Bad credentials"):
+    with pytest.raises(TransportError) as refused:
         GitHubForge().create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+    assert refused.value.status == 401
+
+
+def test_a_base_change_through_the_forge_shows_in_the_next_read(
+    github_server: FakeGitHub, forge: GitHubForge
+) -> None:
+    forge.create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+
+    forge.update_pr(REPO, 1, base="develop", body="new body")
+
+    assert forge.list_prs(REPO)[0].base == "develop"
+    assert github_server.unrouted() == []
+
+
+def test_a_comment_posted_through_the_forge_shows_in_the_next_read(
+    github_server: FakeGitHub, forge: GitHubForge
+) -> None:
+    forge.create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+
+    nodes = forge.post_comment(REPO, 1, body="reworked as asked")
+
+    assert len(nodes) == 1
+    assert forge.list_prs(REPO)[0].comment_bodies == ("reworked as asked",)
+    assert github_server.unrouted() == []
+
+
+def test_the_files_of_a_pull_request_read_without_error(
+    github_server: FakeGitHub, forge: GitHubForge
+) -> None:
+    forge.create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+
+    assert forge.pr_changes(REPO, 1) == []
+    assert github_server.unrouted() == []
+
+
+def test_a_status_posted_through_the_forge_is_held_by_the_server(
+    github_server: FakeGitHub, forge: GitHubForge
+) -> None:
+    forge.post_status(REPO, sha="abc123", ok=True, context="abk/tier2", description="passed")
+
+    assert github_server.statuses() == [("abc123", "abk/tier2", "success")]
+    assert github_server.unrouted() == []

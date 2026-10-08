@@ -22,7 +22,10 @@ from tests.forges.github_host import GitHubHost, answer, refusal
 from tests.forges.mock_host import recorded
 
 _PULLS = re.compile(r"/repos/(?P<owner>[^/]+)/[^/]+/pulls")
-_PULL_LISTS = re.compile(r"/repos/[^/]+/[^/]+/pulls/(?P<n>\d+)/(?P<what>reviews|comments)")
+_PULL_LISTS = re.compile(r"/repos/[^/]+/[^/]+/pulls/(?P<n>\d+)/(?P<what>reviews|comments|files)")
+_PULL_ONE = re.compile(r"/repos/[^/]+/[^/]+/pulls/(?P<n>\d+)")
+_ISSUE_COMMENTS = re.compile(r"/repos/[^/]+/[^/]+/issues/(?P<n>\d+)/comments")
+_STATUSES = re.compile(r"/repos/[^/]+/[^/]+/statuses/(?P<sha>[^/]+)")
 _MERGED_AT = "2026-10-01T12:00:00Z"
 _DECIDING = ("APPROVED", "CHANGES_REQUESTED")
 
@@ -30,13 +33,17 @@ _DECIDING = ("APPROVED", "CHANGES_REQUESTED")
 class _Pull:
     """What the forge and the test have done to one pull request."""
 
-    def __init__(self, number: int, head: str, base: str, title: str, body: str) -> None:
+    def __init__(
+        self, number: int, owner: str, head: str, base: str, title: str, body: str
+    ) -> None:
         self.number = number
+        self.owner = owner
         self.head = head
         self.base = base
         self.title = title
         self.body = body
         self.merged = False
+        self.closed = False
         self.comments: list[tuple[str, str]] = []
         self.reviews: list[tuple[str, str, str]] = []
 
@@ -46,6 +53,9 @@ class _Pull:
 
 
 class FakeGitHub:
+    """The host standing in for one repository, such as `example/app`: pull
+    requests are kept by number alone, whatever repository the path names."""
+
     # What the server requires in `Authorization`; the test makes the stand-in
     # `gh auth token` print the same.
     token: str
@@ -59,6 +69,7 @@ class FakeGitHub:
         self._ids = 0
         self._host = GitHubHost()
         self._pulls: dict[int, _Pull] = {}
+        self._statuses: list[tuple[str, str, str]] = []
         self._requests: list[tuple[str, str]] = []
         self._unrouted: list[tuple[str, str]] = []
         self._lock = threading.Lock()
@@ -133,6 +144,11 @@ class FakeGitHub:
                 if (method is None or r[0] == method) and (path is None or r[1] == path)
             ]
 
+    def statuses(self) -> list[tuple[str, str, str]]:
+        """Every commit status posted, as `(sha, context, state)`."""
+        with self._lock:
+            return list(self._statuses)
+
     def unrouted(self) -> list[tuple[str, str]]:
         """Every `(method, path)` the server had no route for."""
         with self._lock:
@@ -168,7 +184,7 @@ class FakeGitHub:
                 number,
                 head=pull.head,
                 base=pull.base,
-                state="MERGED" if pull.merged else "OPEN",
+                state="MERGED" if pull.merged else "CLOSED" if pull.closed else "OPEN",
                 draft=node["isDraft"],
                 merged_at=_MERGED_AT if pull.merged else None,
                 review_decision=pull.decision(),
@@ -184,12 +200,12 @@ class FakeGitHub:
         return {
             "number": pull.number,
             "node_id": node["id"],
-            "state": "closed" if pull.merged else "open",
+            "state": "closed" if pull.merged or pull.closed else "open",
             "draft": node["isDraft"],
             "title": pull.title,
             "body": pull.body,
             "merged": pull.merged,
-            "head": {"ref": pull.head, "label": f"{github_answers.OWNER}:{pull.head}"},
+            "head": {"ref": pull.head, "label": f"{pull.owner}:{pull.head}"},
             "base": {"ref": pull.base},
             "html_url": node["url"],
         }
@@ -209,13 +225,43 @@ class FakeGitHub:
             pull = self._pulls.get(int(listed["n"]))
             if pull is None:
                 return refusal(404, "Not Found")
-            if listed["what"] == "comments":
+            if listed["what"] != "reviews":
                 return answer([])
             return answer(
                 [
                     {"id": 1000 + i, "node_id": node, "body": body, "state": state}
                     for i, (node, state, body) in enumerate(pull.reviews)
                 ]
+            )
+        one = _PULL_ONE.fullmatch(path)
+        if one and request.method == "PATCH":
+            pull = self._pulls.get(int(one["n"]))
+            if pull is None:
+                return refusal(404, "Not Found")
+            changes = json.loads(request.content or b"{}")
+            pull.base = str(changes.get("base", pull.base))
+            pull.body = str(changes.get("body", pull.body))
+            if "state" in changes:
+                pull.closed = changes["state"] == "closed"
+            self._sync()
+            return answer(self._document(pull))
+        posted = _ISSUE_COMMENTS.fullmatch(path)
+        if posted and request.method == "POST":
+            pull = self._pulls.get(int(posted["n"]))
+            if pull is None:
+                return refusal(404, "Not Found")
+            body = str(json.loads(request.content or b"{}").get("body", ""))
+            self._ids += 1
+            node = f"IC_kwDOAAAAAc{self._ids:08d}"
+            pull.comments.append((node, body))
+            return answer({"id": 2000 + self._ids, "node_id": node, "body": body}, 201)
+        status = _STATUSES.fullmatch(path)
+        if status and request.method == "POST":
+            made = json.loads(request.content or b"{}")
+            context, state = str(made.get("context", "")), str(made.get("state", ""))
+            self._statuses.append((status["sha"], context, state))
+            return answer(
+                {"id": 3000 + len(self._statuses), "context": context, "state": state}, 201
             )
         return None
 
@@ -231,7 +277,9 @@ class FakeGitHub:
         number = self._next
         self._next += 1
         base = str(body.get("base", "main"))
-        pull = _Pull(number, head, base, str(body.get("title", "")), str(body.get("body", "")))
+        pull = _Pull(
+            number, owner, head, base, str(body.get("title", "")), str(body.get("body", ""))
+        )
         self._pulls[number] = pull
         self._host.pulls.append(github_answers.pull(number, head=head, base=base))
         self._sync()
