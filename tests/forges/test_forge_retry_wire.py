@@ -40,6 +40,12 @@ def wrap(inner: Any) -> ResilientForge:
     )
 
 
+def failing(number: int) -> PullRequest:
+    return PullRequest(
+        number=number, head="spec/x/1", base="main", state="open", failing_checks=("pre-commit",)
+    )
+
+
 class OnceRefused(dict):
     """`RestHost.refuse` whose answers are each given once."""
 
@@ -175,6 +181,35 @@ class TestGitHub:
 
         assert wrap(GitHubForge(http=host)).merge_guard(GITHUB, branch="main") == ""
         assert len(host.calls(*route)) == 2
+
+    def test_a_jobs_listing_answered_503_then_a_failed_job_returns_the_log(self) -> None:
+        run, job = 36892939541, 110472774948
+        route = ("GET", f"{BASE}/actions/runs/{run}/jobs")
+        listing = {"total_count": 1, "jobs": [gh.job(job, "pre-commit", "failure", run)]}
+        host = GitHubHost(
+            gh.pull(50, checks=[gh.check_run("pre-commit", "FAILURE", run=run, job=job)]),
+            routes={route: [refusal(503, "down"), answer(listing)]},
+            job_logs={job: gh.JOB_LOG},
+        )
+
+        text = wrap(GitHubForge(http=host)).failed_check_logs(GITHUB, failing(50))
+
+        assert "pre-commit" in text
+        assert "could not be fetched" not in text
+        assert len(host.calls(*route)) == 2
+
+    def test_a_jobs_listing_that_stays_down_returns_an_empty_string_not_a_raise(self) -> None:
+        run, job = 36892939541, 110472774948
+        route = ("GET", f"{BASE}/actions/runs/{run}/jobs")
+        host = GitHubHost(
+            gh.pull(50, checks=[gh.check_run("pre-commit", "FAILURE", run=run, job=job)]),
+            routes={route: refusal(503, "down")},
+        )
+
+        text = wrap(GitHubForge(http=host)).failed_check_logs(GITHUB, failing(50))
+
+        assert text == ""
+        assert len(host.calls(*route)) == ATTEMPTS
 
 
 # --- Azure DevOps ------------------------------------------------------------------

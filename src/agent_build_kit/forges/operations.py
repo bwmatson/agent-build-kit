@@ -52,7 +52,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "pr_changes": _READ,
     "review_notes": _READ,
     "stack_of": _READ,
-    "failed_check_logs": _READ,
+    "failed_check_logs": OperationSpec(kind="read", contained=True, neutral=""),
     "update_pr": _BEST_EFFORT,
     "post_status": _BEST_EFFORT,
     "close_pr": _WRITE,

@@ -588,6 +588,8 @@ class GitHubForge:
                     repo.account, repo.name, int(run), per_page=_PAGE
                 )
             jobs = _parse(listed, JobsDoc, "GET jobs").jobs
+        except TRANSIENT:
+            raise
         except TransportError:
             return ""
         out = []
@@ -618,11 +620,18 @@ class GitHubForge:
             location = reply.headers.get("location")
             if not location:
                 return reply.text
-            with httpx.Client(
-                transport=self.http, timeout=settings.forge_timeout_seconds
-            ) as storage:
-                stored = storage.get(location)
+            try:
+                with httpx.Client(
+                    transport=self.http, timeout=settings.forge_timeout_seconds
+                ) as storage:
+                    stored = storage.get(location)
+            except httpx.TransportError as error:
+                raise HostError(f"GET job log storage: {error!r}") from error
+            if stored.status_code >= 500:
+                raise HostError(f"GET job log storage: {stored.status_code}")
             return stored.text if stored.is_success else ""
+        except TRANSIENT:
+            raise
         except (TransportError, httpx.HTTPError):
             return ""
 

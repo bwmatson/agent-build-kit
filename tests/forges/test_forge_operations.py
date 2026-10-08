@@ -70,6 +70,14 @@ def test_an_operation_is_declared_with_the_kind_its_effect_calls_for(
     assert OPERATIONS[name].lands == lands
 
 
+def test_failed_check_logs_is_a_read_that_is_contained_with_an_empty_neutral() -> None:
+    spec = OPERATIONS["failed_check_logs"]
+
+    assert spec.kind == "read"
+    assert spec.contains
+    assert spec.neutral == ""
+
+
 def test_the_wrapper_offers_every_protocol_method() -> None:
     for name in protocol_methods():
         assert callable(getattr(ResilientForge, name, None)), name
