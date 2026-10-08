@@ -1,9 +1,10 @@
 """An ACP step records its session when it starts and resumes it where the agent
-can load one; where it cannot, it raises `SessionUnavailable` and sends no prompt."""
+advertises `session/resume` and `session/list` and lists it; where it cannot, it raises
+`SessionUnavailable` and sends no prompt."""
 
 from __future__ import annotations
 
-import re
+import json
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ import pytest
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.runtimes.base import SessionUnavailable
-from tests.runtimes.acp_agent import ANSWER, EARLIER_TURN, SESSION, requests, use_agent
+from tests.runtimes.acp_agent import ANSWER, SESSION, requests, use_agent
 
 EARLIER = "sess_Ln3Vt8QaRcXe5mJd"
 
@@ -59,64 +60,165 @@ def test_a_run_with_no_session_to_resume_opens_a_new_one(tmp_path: Path, worktre
     assert requests(record, "session/load") == []
 
 
-def test_an_agent_that_declares_session_loading_loads_the_recorded_session(
+def test_a_listed_session_is_resumed_and_no_new_one_is_opened(
     tmp_path: Path, worktree: Path
 ) -> None:
     record = tmp_path / "agent.jsonl"
-    use_agent(record, load_session=True)
+    use_agent(record, resume=True, list_sessions=True, sessions=(EARLIER,))
     told: list[str] = []
 
     result = AcpRuntime().run(_request(worktree, resume_session=EARLIER, on_session=told.append))
 
     assert result.ok is True
-    [loaded] = requests(record, "session/load")
-    assert loaded["sessionId"] == EARLIER
-    assert loaded["cwd"] == str(worktree)
+    [resumed] = requests(record, "session/resume")
+    assert resumed["sessionId"] == EARLIER
+    assert resumed["cwd"] == str(worktree)
     assert requests(record, "session/new") == []
     [prompt] = requests(record, "session/prompt")
-    assert prompt["sessionId"] == EARLIER, "the step continues in the loaded session"
+    assert prompt["sessionId"] == EARLIER, "the step continues in the resumed session"
     assert result.session_id == EARLIER
     assert told == [EARLIER]
 
 
-def test_the_history_a_load_replays_is_not_the_steps_answer(tmp_path: Path, worktree: Path) -> None:
-    record = tmp_path / "agent.jsonl"
-    use_agent(record, load_session=True)
-
-    result = AcpRuntime().run(_request(worktree, resume_session=EARLIER))
-
-    assert len(requests(record, "session/load")) == 1
-    assert result.text == ANSWER
-    assert EARLIER_TURN not in result.text
-
-
-def test_an_agent_that_does_not_declare_session_loading_cannot_continue_the_session(
+def test_the_listing_is_asked_for_the_worktrees_sessions_before_the_resume(
     tmp_path: Path, worktree: Path
 ) -> None:
     record = tmp_path / "agent.jsonl"
-    use_agent(record)
+    use_agent(record, resume=True, list_sessions=True, sessions=(EARLIER,))
+
+    AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    [listed] = requests(record, "session/list")
+    assert listed["cwd"] == str(worktree)
+    methods = [
+        json.loads(line)["method"] for line in record.read_text().splitlines() if line.strip()
+    ]
+    assert methods.index("session/list") < methods.index("session/resume")
+
+
+def test_an_unlisted_session_is_not_resumed_and_gets_no_prompt(
+    tmp_path: Path, worktree: Path
+) -> None:
+    """An agent may answer a resume of an id it lacks by quietly starting a session, so the
+    continuation prompt would reach a cold agent: the listing is what prevents it, and the
+    caller starts the new session with the full prompt."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, resume=True, list_sessions=True, sessions=("sess_other",))
     told: list[str] = []
 
-    with pytest.raises(SessionUnavailable, match=f"{EARLIER} not resumed.*session loading"):
+    with pytest.raises(SessionUnavailable, match=f"{EARLIER} not resumed"):
         AcpRuntime().run(_request(worktree, resume_session=EARLIER, on_session=told.append))
 
-    assert requests(record, "session/load") == []
+    assert len(requests(record, "session/list")) == 1
+    assert requests(record, "session/resume") == []
     assert requests(record, "session/new") == [], "a new session is the caller's to start"
     assert requests(record, "session/prompt") == []
     assert told == []
 
 
-def test_an_agent_that_refuses_the_load_cannot_continue_the_session(
+def test_a_session_on_a_later_page_is_found_by_following_the_cursor(
     tmp_path: Path, worktree: Path
 ) -> None:
     record = tmp_path / "agent.jsonl"
-    use_agent(record, load_session=True, fail="load")
+    held = ("sess_a", "sess_b", EARLIER, "sess_d")
+    use_agent(record, resume=True, list_sessions=True, sessions=held, page_size=2)
 
-    with pytest.raises(
-        SessionUnavailable, match=re.escape(f"{EARLIER} not resumed (Internal error)")
-    ):
+    result = AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    pages = requests(record, "session/list")
+    assert len(pages) == 2
+    assert not pages[0].get("cursor")
+    assert pages[1]["cursor"] == "2", "the cursor the first page answered with"
+    [resumed] = requests(record, "session/resume")
+    assert resumed["sessionId"] == EARLIER
+    assert result.session_id == EARLIER
+
+
+def test_the_pages_are_followed_to_their_end_before_a_session_is_given_up_on(
+    tmp_path: Path, worktree: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    use_agent(
+        record,
+        resume=True,
+        list_sessions=True,
+        sessions=("sess_a", "sess_b", "sess_c"),
+        page_size=1,
+    )
+
+    with pytest.raises(SessionUnavailable):
         AcpRuntime().run(_request(worktree, resume_session=EARLIER))
 
-    assert len(requests(record, "session/load")) == 1
-    assert requests(record, "session/new") == []
+    assert len(requests(record, "session/list")) == 3
+    assert requests(record, "session/resume") == []
+
+
+@pytest.mark.parametrize(
+    ("resume", "listing"),
+    [
+        pytest.param(True, False, id="resume-without-list"),
+        pytest.param(False, True, id="list-without-resume"),
+        pytest.param(False, False, id="neither"),
+    ],
+)
+def test_an_agent_advertising_less_than_both_capabilities_is_not_resumed_and_not_an_error(
+    tmp_path: Path, worktree: Path, resume: bool, listing: bool
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, resume=resume, list_sessions=listing, sessions=(EARLIER,))
+    told: list[str] = []
+
+    with pytest.raises(SessionUnavailable, match=f"{EARLIER} not resumed"):
+        AcpRuntime().run(_request(worktree, resume_session=EARLIER, on_session=told.append))
+
+    assert requests(record, "session/resume") == []
+    assert requests(record, "session/new") == [], "a new session is the caller's to start"
     assert requests(record, "session/prompt") == []
+    assert told == []
+
+
+def test_session_load_is_never_called_even_where_the_agent_declares_it(
+    tmp_path: Path, worktree: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, load_session=True, resume=True, list_sessions=True, sessions=(EARLIER,))
+
+    AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    use_agent(record, load_session=True)
+    with pytest.raises(SessionUnavailable):
+        AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    assert requests(record, "session/load") == []
+
+
+def test_what_a_resumed_session_answers_with_is_the_steps_answer(
+    tmp_path: Path, worktree: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    use_agent(record, resume=True, list_sessions=True, sessions=(EARLIER,))
+
+    result = AcpRuntime().run(_request(worktree, resume_session=EARLIER))
+
+    assert result.text == ANSWER
+
+
+def test_the_runtime_reports_resumable_only_to_the_agent_that_can_be(
+    tmp_path: Path, worktree: Path
+) -> None:
+    """`supports_session_resume` is set from what the agent advertised at initialize, so a
+    runtime that has spoken to an agent without both capabilities no longer claims it."""
+    record = tmp_path / "agent.jsonl"
+    use_agent(record)
+    runtime = AcpRuntime()
+
+    with pytest.raises(SessionUnavailable):
+        runtime.run(_request(worktree, resume_session=EARLIER))
+
+    assert runtime.supports_session_resume is False
+
+    use_agent(record, resume=True, list_sessions=True, sessions=(EARLIER,))
+    runtime = AcpRuntime()
+    runtime.run(_request(worktree, resume_session=EARLIER))
+
+    assert runtime.supports_session_resume is True
