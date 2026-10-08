@@ -132,10 +132,12 @@ def archive_ready_changes(
         if usage_ledger is not None:
             try:
                 roll_up_change(usage_ledger, change)
-            except OSError:
+            except (OSError, ValueError) as exc:
                 # The ledger is a record, never a reason to stop archiving; the
                 # detail stays and is rolled up by nothing, but still reports.
-                pass
+                logger.warning(
+                    "not rolling up the usage of %s, leaving its detail: %s", change, exc
+                )
         if run_logs is not None:
             remove_change_logs(run_logs, change)
 

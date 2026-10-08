@@ -7,6 +7,13 @@
   the output is dropped last, keeping the pass or fail line. A forge cuts anything still
   over its limit on a line, closing an open code fence or details block.
 
+- An archived change keeps its usage breakdown: the per-unit summary written when a change
+  is archived now carries one item per node, role, model and source, summing to the
+  totals, so `abk report --by node`, `--by role` and `--by model` split archived work as
+  they did before it was archived instead of showing it as one `(summary)` row. Totals
+  are unchanged. A summary from an older ledger still loads and shows as one
+  `(archived, no breakdown)` row.
+
 - Breaking: a `units.json` with a unit that still carries a value in one of the previous
   engine's fields (`review_rounds`, `deferred`, `pending_replies`, `person_comments`,
   `resume_from` or `classic_run`) no longer loads; the error names the unit and the field.

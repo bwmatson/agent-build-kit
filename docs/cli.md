@@ -92,9 +92,11 @@ stay out of the totals unless `--include-estimates`; a figure never recorded pri
 `gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported
 figures differ by more than 10%. `--json` prints the same rows, with the difference.
 A change archived by the pipeline is read from its per-unit summary, so its totals do
-not change, but its nodes, roles and models read as `(summary)`, and its figures
-are dated by the unit's last call, so `--by day` and `--since` place them all on that
-day. Exit 0.
+not change, and its summary keeps a breakdown by node, role, model and source, so
+`--by node`, `--by role` and `--by model` split it as before it was archived. A summary
+written before breakdowns existed reads as one row, `(archived, no breakdown)`. Archived
+figures are dated by the unit's last call, so `--by day` and `--since` place them all on
+that day. Exit 0.
 
 The same figures are written to `planning.usage_page` on every store write.
 
