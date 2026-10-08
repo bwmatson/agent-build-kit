@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A pull request description is shrunk to what the host accepts instead of being refused:
+  a long tier 2 output loses its start first, then follow-ups are cut to whole items, and
+  the output is dropped last, keeping the pass or fail line. A forge cuts anything still
+  over its limit on a line, closing an open code fence or details block.
+
 - Breaking: a `units.json` with a unit that still carries a value in one of the previous
   engine's fields (`review_rounds`, `deferred`, `pending_replies`, `person_comments`,
   `resume_from` or `classic_run`) no longer loads; the error names the unit and the field.

@@ -149,7 +149,12 @@ flags.
    tracks' default allow-list are composed from them. A test fails if one
    overlaps any forge's `denied_commands`, so a read command can never be a
    write.
-6. **Record real fixtures.** From a real pull request, keeping the fields your
+7. **State the description limit.** `description_limit` is the most characters
+   the host takes in a pull request description. The pipeline shrinks the body
+   to it first; the forge's `create_pr` and `update_pr` still cut what is over,
+   through `fit_description` in `forges/base.py`, which cuts on a line, closes
+   an open code fence and details block, and appends a note.
+8. **Record real fixtures.** From a real pull request, keeping the fields your
    code does *not* read. That is what makes a host's traps catchable by a test
    rather than by an incident — see below.
 

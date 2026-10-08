@@ -364,7 +364,11 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    recorded on the unit (`stack_refusal`), logged once, and changes nothing
    else — except that a PR the host did not stack keeps the order in its
    body, as on a host without stacks, which is never asked. Either way the
-   body says when the branch no longer sits on its base. The `local/tier2` commit
+   body says when the branch no longer sits on its base. A body over the host's
+   description limit shrinks in order: the start of the tier 2 output (its tail
+   kept), then the follow-ups to whole items with a line counting the rest, then
+   the output altogether, keeping the headings and the pass or fail line; the
+   forge cuts whatever is still over. The `local/tier2` commit
    status is posted for the tested SHA (and, on a host that shows statuses on
    the pull request, on the open pull request for the branch too); the rework's replies to review threads
    are posted in those threads, signed with the commit. The unit is

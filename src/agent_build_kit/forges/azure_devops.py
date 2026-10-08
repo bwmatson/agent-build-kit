@@ -55,6 +55,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    fit_description,
 )
 from agent_build_kit.forges.transport import (
     AZURE_CLI_SOURCE,
@@ -177,7 +178,7 @@ class AzureDevOpsForge:
     )
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
     ci_name: str = "Azure Pipelines"
-    description_limit: int = 0
+    description_limit: int = 4_000
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every REST call goes through; None is the network.
@@ -472,7 +473,7 @@ class AzureDevOpsForge:
                     "sourceRefName": f"refs/heads/{head}",
                     "targetRefName": f"refs/heads/{base}",
                     "title": title,
-                    "description": body,
+                    "description": fit_description(body, self.description_limit),
                 },
                 run=run,
             )
@@ -508,7 +509,13 @@ class AzureDevOpsForge:
             if self._pull_doc(repo, pr, run=run).target_ref_name != target:
                 self._git(repo, "PATCH", route, json={"targetRefName": target}, run=run)
         if body:
-            self._git(repo, "PATCH", route, json={"description": body}, run=run)
+            self._git(
+                repo,
+                "PATCH",
+                route,
+                json={"description": fit_description(body, self.description_limit)},
+                run=run,
+            )
 
     # --- stacks ---------------------------------------------------------------------
 
