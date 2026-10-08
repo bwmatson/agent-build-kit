@@ -29,6 +29,7 @@ from pathlib import Path
 
 from agent_build_kit import openspec
 from agent_build_kit.pipeline.run_log import remove_change_logs
+from agent_build_kit.pipeline.scratch import remove_leftovers
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import SATISFIED, satisfied_landed
 from agent_build_kit.pipeline.usage_report import roll_up_change
@@ -95,10 +96,12 @@ def archive_ready_changes(
     specs_dir: str = "openspec",
     run_logs: Path | None = None,
     usage_ledger: Path | None = None,
+    worktrees: Callable[[str], list[Path]] = lambda change: [],
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change
-    has been deployed and passed its live tests (verify.py).
+    has been deployed and passed its live tests (verify.py). `worktrees` names a
+    change's worktrees, whose scratch folders are cleared once it is archived.
 
     A change that fails to archive, or has no directory (withdrawn), is logged
     and skipped.
@@ -140,5 +143,9 @@ def archive_ready_changes(
                 )
         if run_logs is not None:
             remove_change_logs(run_logs, change)
+        # What a killed run left in a unit's scratch folder.
+        for worktree in worktrees(change):
+            if worktree.is_dir():
+                remove_leftovers(worktree)
 
     return archived

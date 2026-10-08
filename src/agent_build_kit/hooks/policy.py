@@ -35,6 +35,7 @@ import tempfile
 from pathlib import Path
 
 from agent_build_kit.pipeline.command_policy import check_command, check_no_push
+from agent_build_kit.pipeline.scratch import carries_scratch
 
 
 def _deny(reason: str) -> dict:
@@ -228,8 +229,17 @@ def decide(
                 "so it cannot tell whether this command is allowed there"
             )
 
+        # Only a checkout that carries a scratch folder is one a unit's run is in.
+        checkout = _checkout_of(Path(cwd))
+        if checkout is not None and not carries_scratch(checkout):
+            checkout = None
         verdict = check_command(
-            command, branch=branch, planning_repo=planning_repo, protected=protected_branches
+            command,
+            branch=branch,
+            planning_repo=planning_repo,
+            protected=protected_branches,
+            worktree=checkout,
+            cwd=Path(cwd).resolve(),
         )
         if verdict.allowed and no_push:
             verdict = check_no_push(command)

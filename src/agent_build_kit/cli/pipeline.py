@@ -131,7 +131,7 @@ from agent_build_kit.pipeline.work_graph import (
     group_needs,
     validate_tasks,
 )
-from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 from agent_build_kit.profiles.base import ProfileUnsupported
 
 if TYPE_CHECKING:
@@ -357,6 +357,20 @@ def verify_ready(
     return may_archive
 
 
+def _worktrees_of(inst: Installation, units: list[StoredUnit]) -> Callable[[str], list[Path]]:
+    """Where each change's units are built, for clearing what killed runs left there."""
+    checkouts = inst.checkouts
+
+    def of(change: str) -> list[Path]:
+        return [
+            worktree_path(checkouts[unit.repo], unit.branch, inst.worktree_root)
+            for unit in units
+            if unit.change == change and unit.branch and unit.repo in checkouts
+        ]
+
+    return of
+
+
 def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
     """Verify one change by hand — after fixing what made it fail — and
     archive it if it passes: the tick sees no work once everything merged."""
@@ -374,6 +388,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
+        worktrees=_worktrees_of(inst, units),
     )
     for change in archived:
         print(f"archived {change}")
@@ -524,6 +539,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
+        worktrees=_worktrees_of(inst, units),
     )
     for change in archived:
         log(f"archived {change}")

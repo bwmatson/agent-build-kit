@@ -38,6 +38,7 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
+from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -83,6 +84,8 @@ The pipeline pushes this branch, after review and tier 1; you never do. Run no
 `git push`, to any remote or branch, however it is spelled.
 """
 
+OUTPUT_NOTE = "\n" + output_convention()
+
 NO_REWRITE_NOTE = """\
 Do not rewrite history either: no amend, rebase, squash, reset or force. Your
 work is new commits on top of what is already here, and the commits that exist
@@ -118,6 +121,7 @@ the unit has passed review, tier 1 and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + OUTPUT_NOTE
 )
 
 REVIEW_FEEDBACK_PROMPT = (
@@ -150,6 +154,7 @@ the unit has passed review, tier 1 and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + OUTPUT_NOTE
     + NO_REWRITE_NOTE
 )
 
@@ -476,6 +481,7 @@ the unit has passed review, tier 1 and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + OUTPUT_NOTE
     + NO_REWRITE_NOTE
 )
 
@@ -493,6 +499,7 @@ the unit has passed review, tier 1 and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + OUTPUT_NOTE
 )
 
 # Given to every build-side prompt above, only when this change has units
@@ -605,6 +612,7 @@ or edit anything under {change_dir}.
 
 """
     + PIPELINE_PUSHES_NOTE
+    + OUTPUT_NOTE
     + """
 Finish with JSON and nothing after it:
 

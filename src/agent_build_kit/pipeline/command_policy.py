@@ -32,10 +32,12 @@ from pathlib import Path
 from agent_build_kit import forges
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.scratch import SCRATCH
 
 # Splitting on shell operators is what stops `git status && gh pr merge 4`
-# from sneaking a denied command past a check on the first word.
-SEGMENT_SPLIT = re.compile(r"&&|\|\||\||;|\n")
+# from sneaking a denied command past a check on the first word. The `|` of a
+# clobber redirect (`>|`) stays in its segment, with the redirect it belongs to.
+SEGMENT_SPLIT = re.compile(r"&&|\|\||(?<!>)\||;|\n")
 
 # Commands that run another command. Without stripping these, `xargs gh pr
 # merge` or `env FOO=1 git push --force` would sail past a check that only
@@ -318,9 +320,178 @@ def _check_planning(segment: str, planning_repo: Path, current: str | None) -> V
     return Verdict(allowed=True)
 
 
+REDIRECT_REASON = (
+    "a shell redirect may write only into the run's scratch folder: redirect to "
+    "`$ABK_OUT/<name>.log`, never onto a file in the worktree"
+)
+
+# `>` and `>>`, either stream at once (`&>`), and clobber (`>|`); `>&` is
+# either a duplicated descriptor (`2>&1`) or a file for both streams.
+REDIRECTS = {">", ">>", "&>", "&>>", ">|"}
+ABK_OUT = re.compile(r"\$ABK_OUT\b|\$\{ABK_OUT\}")
+SCRATCH_PARTS = SCRATCH.parts
+
+
+CHANGE_DIRECTORY = ("cd", "pushd")
+OPERATOR_CHARS = frozenset("()<>|&;")
+
+
+def _shell_tokens(segment: str) -> list[str]:
+    """Split a segment into shell words and operator runs, keeping quotes in the
+    words. A word is every adjacent quoted and unquoted piece up to the next
+    unquoted whitespace or operator, so `"$ABK_OUT"/y` is one word and a quoted
+    `">"` is not an operator. Raises ValueError on an unbalanced quote."""
+    tokens: list[str] = []
+    word = ""
+    run = ""
+    index = 0
+    while index < len(segment):
+        char = segment[index]
+        if char in OPERATOR_CHARS:
+            if word:
+                tokens.append(word)
+                word = ""
+            run += char
+            index += 1
+            continue
+        if run:
+            tokens.append(run)
+            run = ""
+        if char.isspace():
+            if word:
+                tokens.append(word)
+                word = ""
+            index += 1
+        elif char in "\"'":
+            end = index + 1
+            while end < len(segment) and segment[end] != char:
+                end += 2 if char == '"' and segment[end] == "\\" else 1
+            if end >= len(segment):
+                raise ValueError("unbalanced quote")
+            word += segment[index : end + 1]
+            index = end + 1
+        elif char == "\\":
+            word += segment[index : index + 2]
+            index += 2
+        else:
+            word += char
+            index += 1
+    if word:
+        tokens.append(word)
+    if run:
+        tokens.append(run)
+    return tokens
+
+
+def _expand_word(word: str, scratch_run: Path) -> str:
+    """A shell word with its quotes removed piece by piece and `$ABK_OUT`
+    replaced by `scratch_run` in the unquoted and double-quoted pieces. A
+    single-quoted or escaped `$` stays, so the caller cannot mistake it for
+    `$ABK_OUT`."""
+    out = ""
+    plain = ""  # the pieces in which the shell expands a variable
+
+    def flush() -> str:
+        nonlocal plain
+        expanded = ABK_OUT.sub(str(scratch_run), plain)
+        plain = ""
+        return expanded
+
+    index = 0
+    while index < len(word):
+        char = word[index]
+        if char == "'":
+            end = word.index("'", index + 1)
+            out += flush() + word[index + 1 : end]
+            index = end + 1
+        elif char == '"':
+            index += 1
+            while word[index] != '"':
+                if word[index] == "\\" and word[index + 1] in '"\\$`':
+                    out += flush() + word[index + 1]
+                    index += 2
+                else:
+                    plain += word[index]
+                    index += 1
+            index += 1
+        elif char == "\\":
+            out += flush() + word[index + 1 : index + 2]
+            index += 2
+        else:
+            plain += char
+            index += 1
+    return out + flush()
+
+
+def _redirect_targets(segment: str) -> list[str]:
+    try:
+        tokens = _shell_tokens(segment)
+    except ValueError:
+        # Unbalanced quotes: we cannot see where a redirect lands.
+        return [segment]
+    targets: list[str] = []
+    for index, token in enumerate(tokens[:-1]):
+        target = tokens[index + 1]
+        if token in REDIRECTS or (token == ">&" and not re.fullmatch(r"\d+|-", target)):
+            targets.append(target)
+    return targets
+
+
+def _check_redirects(segment: str, worktree: Path, cwd: Path | None) -> Verdict:
+    """Refuse a redirect that lands in the worktree outside a run's scratch folder.
+
+    A path outside the worktree (`/dev/null`, the temp directory) is no concern
+    of this rule. A target the rule cannot resolve — another variable, a
+    substitution, or a relative path after a `cd` it could not follow (`cwd` is
+    None) — is refused, since it could land anywhere.
+    """
+    # Real paths on both sides: a target that reaches the worktree through a
+    # symlink is still in it.
+    root = Path(os.path.realpath(worktree))
+    # Which run's folder is not known here, and need not be: any run's.
+    scratch = root.joinpath(*SCRATCH_PARTS)
+    for token in _redirect_targets(segment):
+        try:
+            expanded = _expand_word(token, scratch / "run")
+        except (ValueError, IndexError):
+            # The unbalanced-quote fallback hands over the whole segment.
+            expanded = token
+        if "$" in expanded or "`" in expanded:
+            return Verdict(allowed=False, reason=REDIRECT_REASON)
+        if cwd is None and not Path(expanded).is_absolute():
+            return Verdict(allowed=False, reason=REDIRECT_REASON)
+        base = cwd.absolute() if cwd is not None else root
+        path = Path(os.path.realpath(base / expanded))
+        if not path.is_relative_to(root):
+            continue
+        # Inside a run's folder: `.abk/out/<run>/<file>`, not the folder itself
+        # or a file beside the runs.
+        if not (path.is_relative_to(scratch) and len(path.relative_to(scratch).parts) >= 2):
+            return Verdict(allowed=False, reason=REDIRECT_REASON)
+    return Verdict(allowed=True)
+
+
 def _cd_target(segment: str) -> str | None:
     tokens = _tokens(segment)
-    return tokens[1] if len(tokens) == 2 and tokens[0] == "cd" else None
+    return tokens[1] if len(tokens) == 2 and tokens[0] in CHANGE_DIRECTORY else None
+
+
+def _after_cd(segment: str, here: Path | None) -> Path | None:
+    """Where the shell is after `segment`, given it started in `here`: moved by a
+    `cd <dir>` or `pushd <dir>`, unknown (None) after one to a directory that
+    cannot be read off the text (a variable, `-`, `~`, none at all) and after
+    `popd`."""
+    tokens = _tokens(segment)
+    if tokens[:1] == ["popd"]:
+        return None
+    if not tokens or tokens[0] not in CHANGE_DIRECTORY:
+        return here
+    target = tokens[1] if len(tokens) == 2 else None
+    if target is None or re.fullmatch(r"[+-]\d*", target) or re.search(r"[$`~*?]", target):
+        return None
+    if here is None and not Path(target).is_absolute():
+        return None
+    return Path(os.path.normpath((here or Path("/")).absolute() / target))
 
 
 def check_command(
@@ -329,23 +500,34 @@ def check_command(
     branch: str,
     planning_repo: Path | None = None,
     protected: Collection[str] = (),
+    worktree: Path | None = None,
+    cwd: Path | None = None,
 ) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 
     `protected` names the branches repos integrate on, beyond the `main` and
     `master` that are always refused a direct push.
 
+    `worktree` is the checkout the command runs in: with it set, a redirect into
+    the worktree is refused unless it lands in the run's scratch folder. `cwd` is
+    where the command starts, when that is not the worktree's root.
+
     Every segment is checked, so a denied command behind `&&`, `;` or a pipe
     is still denied. With `planning_repo` set (a track run), commands that move
     that repo's branches are refused too: the pipeline commits there.
     """
     current: str | None = None
+    # Where the shell is by now: moved by each `cd`, None once it cannot be told.
+    here: Path | None = cwd or worktree
     for segment in SEGMENT_SPLIT.split(command):
         segment = segment.strip()
         verdict = _check_segment(segment, branch, protected)
+        if verdict.allowed and worktree is not None:
+            verdict = _check_redirects(segment, worktree, here)
         if verdict.allowed and planning_repo is not None:
             verdict = _check_planning(segment, planning_repo, current)
         if not verdict.allowed:
             return verdict
         current = _cd_target(segment) or current
+        here = _after_cd(segment, here)
     return Verdict(allowed=True)

@@ -62,7 +62,11 @@ class ResultEvent(BaseModel):
 
 
 def stream_run(
-    args: list[str], *, cwd: Path | None, on_event: Callable[[dict], None]
+    args: list[str],
+    *,
+    cwd: Path | None,
+    on_event: Callable[[dict], None],
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run `args`, calling `on_event` for each JSON line as it is printed.
 
@@ -74,7 +78,7 @@ def stream_run(
     # the child, which would then never finish the stdout this loop is reading.
     with tempfile.TemporaryFile("w+") as stderr:
         with subprocess.Popen(
-            args, cwd=cwd, stdout=subprocess.PIPE, stderr=stderr, text=True, bufsize=1
+            args, cwd=cwd, stdout=subprocess.PIPE, stderr=stderr, text=True, bufsize=1, env=env
         ) as process:
             assert process.stdout is not None
             for line in process.stdout:

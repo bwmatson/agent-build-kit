@@ -28,6 +28,17 @@
   message names `ABK_GRAFANA_TOKEN`, and `abk doctor` reports whether a configured Grafana is
   used with a token or anonymously.
 
+- Each agent run has its own ignored scratch folder, `.abk/out/<run>/` in the worktree, and
+  is told where it is in `ABK_OUT`. The build, rework and resolver prompts tell the agent
+  to redirect long command output and exit status there, read it with `tail`, `grep` or
+  `sed -n`, and not rerun a command to see more of it; the reviewer is told to run its own
+  commands. The command policy allows a redirect into the folder and refuses one onto a
+  tracked file or anywhere else in the worktree. The folder is git-excluded through the
+  repository's local exclude file, removed when the run ends, and a killed run's leftovers
+  are removed when the unit next runs or its change is archived. A file in a live run's
+  folder past a size cap is cut to its tail. No agent's output reaches another agent or
+  replaces tier 1's own run.
+
 - Each repo has a `changelog` setting in `abk.yaml`: the path of its changelog (default
   `CHANGELOG.md`), or `null` to turn the changelog convention off. For a repo with it on,
   the build, rework, test-writing, resolver and review prompts carry the convention, from

@@ -11,6 +11,7 @@ spent usage window, an interruption, or a failed result as
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -86,11 +87,14 @@ def spawn(
     *,
     cwd: Path | None = None,
     on_event: Callable[[dict], None] | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """The real `claude` process: streamed when there is someone to tell."""
+    """The real `claude` process: streamed when there is someone to tell. `env`
+    is added to this process's own environment."""
+    merged = {**os.environ, **env} if env else None
     if on_event is not None:
-        return stream_run(argv, cwd=cwd, on_event=on_event)
-    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
+        return stream_run(argv, cwd=cwd, on_event=on_event, env=merged)
+    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False, env=merged)
 
 
 NAME = "claude_code"
@@ -198,7 +202,8 @@ class ClaudeCodeRuntime:
     supports_streaming: bool = True
     # `--resume <id>`, with the id its init event reports.
     supports_session_resume: bool = True
-    # It starts `claude` with its own environment and never reads `request.env`.
+    # `request.env` is added to `claude`'s environment, but the gateway's key is
+    # still not offered to it: that is a decision about the gateway, not the run.
     passes_env: bool = False
     # `claude` on PATH is all it needs.
     requires: tuple[str, ...] = ()
@@ -223,7 +228,10 @@ class ClaudeCodeRuntime:
 
     def _run(self, request: AgentRequest) -> AgentResult:
         execute = self._execute or spawn
-        result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request))
+        # Only when there is something to add: an injected `execute` written
+        # before the environment was passed does not take the argument.
+        extra = {"env": request.env} if request.env else {}
+        result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request), **extra)
         outcome = self._finish(request, result)
         if request.on_result is not None:
             request.on_result(outcome)
@@ -352,7 +360,7 @@ def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeR
     which never streamed, kept so a caller handing one in still sees the
     exact argv."""
 
-    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None):
+    def execute(argv: list[str], *, cwd: Path | None = None, on_event=None, env=None):
         return run(argv, cwd=cwd)
 
     return ClaudeCodeRuntime(execute=execute)

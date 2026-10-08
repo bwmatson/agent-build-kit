@@ -64,6 +64,7 @@ from agent_build_kit.pipeline.restack import (
     remote_head,
     resolved_move,
 )
+from agent_build_kit.pipeline.scratch import run_folder
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
 from agent_build_kit.pipeline.tier2 import (
@@ -270,7 +271,12 @@ def build_run_claude(
             on_event=log or print,
         )
         try:
-            result = agent.run(request)
+            # Its own folder for long command output, gone when the run ends:
+            # nothing one agent wrote reaches another.
+            with run_folder(cwd) as out:
+                if out is not None:
+                    request = request.model_copy(update={"env": {**env, "ABK_OUT": str(out)}})
+                result = agent.run(request)
         finally:
             spend()
         if branch and (after := _agent_pushed(cwd, branch, before)):
@@ -298,6 +304,11 @@ def build_run_claude(
 REVIEW_PROMPT = """\
 Review the changes on this branch against the repo's conventions in its
 CLAUDE.md and against the change this unit implements.
+
+Run your own commands (`git diff`, `git log`, `git show`) to check what you are
+unsure of: nothing another agent ran or printed is shown to you, and what you
+run is not shown to anyone else. If one may print a lot, redirect it into
+`$ABK_OUT/` and read the file with your Read or Grep tool.
 
 You cannot edit anything, and you never push — the pipeline does. Report what
 should change and someone else will make it, so describe each problem precisely
