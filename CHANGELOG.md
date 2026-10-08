@@ -12,7 +12,8 @@
 - A units store written by a newer release no longer stops every tick of an older one. A field
   this release does not know is ignored when it is empty and dropped on the next write; one
   holding a value is still refused, now with a message naming the unit, the field and the value
-  and saying a newer release wrote it.
+  and saying a newer release wrote it. The rule belongs to the stored unit itself, so the web
+  page reads such a store the same way instead of filtering fields on its own.
 
 - Calls to a code host are now repeated by one layer, the same for GitHub and Azure DevOps,
   instead of by a loop in each. Every forge operation declares whether it is a read, an

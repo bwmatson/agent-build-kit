@@ -152,7 +152,10 @@ eslint with typescript-eslint and the react-hooks rules, `tsc`, vitest); `poe fo
 it after pre-commit. Its tests render the pages against answers recorded from the real
 server (`web/src/test/recorded`).
 
-A field in `units.json` this release does not know is ignored on a read. Exit 0.
+A field in `units.json` this release does not know is ignored on a read when it is empty. One
+holding a value makes the read fail, naming the unit, the field and the value, the same way the
+pipeline refuses that store; the page's API then answers with an error instead of a partial
+view. Exit 0.
 
 ### `abk verify CHANGE`
 
