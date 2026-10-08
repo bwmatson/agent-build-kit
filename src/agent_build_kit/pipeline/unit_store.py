@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import os
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -260,6 +262,8 @@ def _refuse_newer_release_fields(item: Any) -> None:
             )
 
 
+_LOG = logging.getLogger(__name__)
+
 StateChanged = Callable[[StoredUnit, list[StoredUnit], bool], None]
 
 
@@ -495,7 +499,8 @@ class UnitStore:
         `held_by` is who owns a hold and `held_base` the branch a depth hold is
         still on; any other state forgets both.
         """
-        unit, everything, opened = self._record_state(
+        record = functools.partial(
+            self._record_state,
             unit_id,
             state,
             pr=pr,
@@ -505,6 +510,20 @@ class UnitStore:
             cause=cause,
             held_base=held_base,
         )
+        try:
+            unit, everything, opened = record()
+        except ValueError as error:
+            if corrupt_store_message(self.path) not in str(error):
+                raise
+            # A read can land while a writer is replacing the file; one more
+            # look usually finds it whole. The outcome is not worth losing to that.
+            time.sleep(1)
+            try:
+                unit, everything, opened = record()
+            except ValueError:
+                _LOG.error("%s: stranded — its outcome %s was not recorded", unit_id, state)
+                print(f"{unit_id}: stranded — its outcome {state} was not recorded", flush=True)
+                raise
         if self.on_state:
             self.on_state(unit, everything, opened)
 

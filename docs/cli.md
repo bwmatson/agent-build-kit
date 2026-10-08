@@ -237,6 +237,14 @@ those came from a wrong base, remove them first (`git worktree remove`, then
 `git branch -D`, after checking nothing on it is unpushed). Exit 2 for an
 unknown unit, 1 when the unit is not stuck, else 0.
 
+A unit never has to be requeued out of `running` by hand. At the start of each
+pass, a `running` unit whose branch lock names a process that is gone is
+failed with the note "the run ended without recording its outcome", and can then
+be requeued as above. One with a live holder is left, and so is one with no lock
+at all, which the pass reports. Recording an outcome reads the unit store again
+once, after a second, when the first read fails; if the second fails too, the
+unit is logged as stranded and the error is raised as before.
+
 ## Setting up
 
 ### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--register-store ID]`

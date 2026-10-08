@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A unit no longer stays `running` after its run is gone. At the start of each pass, a running
+  unit whose branch lock names a dead process is failed, so `abk requeue` can move it; one
+  with a live holder is left, and one with no lock is reported. Recording an outcome now
+  retries once when the unit store cannot be read, and logs the unit as stranded if it still
+  cannot.
+
 - A units store written by a newer release no longer stops every tick of an older one. A field
   this release does not know is ignored when it is empty and dropped on the next write; one
   holding a value is still refused, now with a message naming the unit, the field and the value

@@ -116,9 +116,7 @@ def test_a_unit_in_another_state_is_untouched_whatever_its_lock_says(
     assert store.get("add-marker/1") == before
 
 
-def test_only_the_unit_whose_holder_is_dead_is_failed(
-    inst: Installation, store: UnitStore
-) -> None:
+def test_only_the_unit_whose_holder_is_dead_is_failed(inst: Installation, store: UnitStore) -> None:
     gone = stored(store, "add-marker/1")
     alive = stored(store, "add-marker/2")
     lock_held_by(inst, gone, dead_pid())
