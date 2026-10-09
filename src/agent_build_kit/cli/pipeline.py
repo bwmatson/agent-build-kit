@@ -31,7 +31,7 @@ from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from agent_build_kit import config, forges, profiles, runtimes, telemetry
 from agent_build_kit.forges import PullRequest
@@ -705,8 +705,9 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
 
 def _may_build(
     inst: Installation, store: UnitStore, *, spared: Collection[str], quiet: bool
-) -> bool:
-    """The pause checks: whether this round may start builds.
+) -> Literal["yes", "usage", "rate_limit"]:
+    """The pause checks: whether this round may start builds. "usage" means the
+    guard refused; "rate_limit" means the model's own pause is in force.
 
     A pause is not a lock: the guard is asked again on every round, so a
     threshold raised by hand, or the ramp offering room before the reset,
@@ -722,7 +723,7 @@ def _may_build(
         # A pause builds nothing, so a unit no run holds should read `planned`
         # for as long as it lasts. Not otherwise: a round that goes on resumes it.
         _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
-        return False
+        return "rate_limit"
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
     # the account's window says nothing about an on-demand agent. Its own
@@ -740,7 +741,7 @@ def _may_build(
                 telemetry.count("abk.usage.pauses", kind="usage")
                 record_metric("abk.usage.pauses", 1, log, kind="usage")
             _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
-            return False
+            return "usage"
         reason = decision.reason
     else:
         reason = f"runtime {runtime.name} has no usage window; not checking one"
@@ -750,7 +751,7 @@ def _may_build(
     clear_pause(_paused_marker(inst))
     if not quiet:
         log(reason)
-    return True
+    return "yes"
 
 
 class _Readmission:
@@ -804,8 +805,10 @@ def run_round(
     """One round: everything a tick does before it starts builds, safe to repeat
     beside builds in flight. Returns the units to start when `submit`.
 
-    The usage check comes first, so a low window stops the round before it
-    spends anything on planning. Each later step that raises is logged and the
+    The usage check comes first. The model's own refusal (a `rate_limit` pause)
+    ends the round there. A usage refusal skips planning, which spends a model
+    call, and returns no units to start; the rest of the round runs, so merges
+    and comments are recorded during a usage pause. Each later step that raises is logged and the
     rest still run. `building` and `started` name the units this pass holds, so
     the reclaim and the readiness rules leave them alone; a `readmit` lets a
     sent-back unit out of what it started and carries that set itself, so
@@ -817,8 +820,13 @@ def run_round(
             raise ValueError("pass `started` or `readmit`, not both")
         started = readmit.started
     spared = {*building, *started}
-    if not _may_build(inst, store, spared=spared, quiet=quiet):
+    may = _may_build(inst, store, spared=spared, quiet=quiet)
+    if may == "rate_limit":
         return []
+    # A usage refusal only withholds builds: the round still fetches and polls,
+    # so merges and comments are recorded while it lasts. Planning spends a
+    # model call, so it stays behind the guard.
+    admitted = may == "yes"
 
     # Before anything is scheduled: a PR that merged since the last round frees
     # a depth slot and changes what the branches above it should sit on, so
@@ -827,7 +835,8 @@ def run_round(
     # straight away, and they must land on the trunk as it now is.
     _refresh(inst, store=store)
     _step("creating the thread store", _create_thread_store, inst)
-    _step("planning", plan_all, inst, store=store)
+    if admitted:
+        _step("planning", plan_all, inst, store=store)
     _step("linking needs", link_needs, inst, store=store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("gating sent-back units", gate_sent_back, store)
@@ -861,7 +870,7 @@ def run_round(
     _step("archiving", archive)
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
-    if not submit:
+    if not submit or not admitted:
         return []
 
     units = store.all()
@@ -1218,10 +1227,12 @@ def _schedule(
     one is followed by a refresh from GitHub and a fresh evaluation, rather
     than waiting for the whole batch and the next tick. The refresh asks
     GitHub rather than hearing from it, since a tick has no endpoint for a
-    webhook to reach; a completion is when it asks. A build reporting that
-    the pass should stop, or a pause recorded meanwhile, ends submission; the
-    builds already running are still awaited, since each checks the usage
-    guard itself and killing one would leave its work uncommitted.
+    webhook to reach; a completion is when it asks. Only the model's own
+    refusal (a `rate_limit` pause, or a build returning False) ends
+    submission. A usage refusal pauses only that unit: later rounds ask the
+    guard again and resume it. The builds already running are still awaited,
+    since each checks the usage guard itself and killing one would leave its
+    work uncommitted.
 
     The refresh runs while other builds are still going, so what it hears may
     concern one of them. The event handlers leave a unit whose build holds its
@@ -1291,8 +1302,10 @@ def _schedule(
                 if not future.result():
                     stopping = True
             # A build still in flight — or another tick — may already have
-            # paused the pipeline; its report is not needed to stop here.
-            stopping = stopping or bool(is_paused(_paused_marker(inst)))
+            # recorded the model's refusal; its report is not needed to stop
+            # here. A usage pause is not one: the round asks the guard again.
+            held = is_paused(_paused_marker(inst))
+            stopping = stopping or bool(held and held.kind == "rate_limit")
             if stopping or refused:
                 continue
 
@@ -1997,7 +2010,8 @@ def _build_unit(
     queued: spans.Mark | None = None,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
-    and run it to a wait or the end. Returns False only when the tick should stop.
+    and run it to a wait or the end. Returns False only when the model refused
+    (rate limited) and the tick should stop.
 
     The branch's lock is held around the run, from reading the thread's position
     until it returns: a thread waiting for review holds nothing, as the run has
@@ -2165,7 +2179,6 @@ def _build_unit(
                 "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
             )
             _pause_for_usage(inst, outcome.pause or PauseInfo(reason=outcome.detail))
-            return False
         return True
     finally:
         if run_log is not None:

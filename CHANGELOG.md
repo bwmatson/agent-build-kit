@@ -27,6 +27,12 @@
   every pass. In this repo's tests, a hung test fails after a minute, and a guard rejects a new
   bare sleep, unjoined thread or fixed port.
 
+- A start the usage guard refuses now pauses only that unit. The pass keeps running its rounds,
+  recording merges and comments, asks the guard again at each one, admits builds as soon as it
+  allows and resumes the paused units, instead of ending at the first refusal. A window that is
+  used up still refuses every start; a build the model itself refuses still holds new builds
+  until its pause ends.
+
 - A usage pause no longer ends before it was written. The grace after a reset is added once, a
   reset time that has already passed counts as unknown (retry in thirty minutes), and a reading
   too old to trust pauses for a short, new `usage_stale_retry_minutes` (five by default) and

@@ -216,13 +216,26 @@ def test_the_units_of_a_tick_built_in_parallel_threads_share_the_ticks_trace(
     assert all(own.values()), "each unit's steps sit below its own span"
 
 
+def allow_once_then_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The round admits the unit, then the window is spent: the guard the build
+    meets agrees with the rounds after it, as a real one does."""
+    answers = iter([Decision(may_start=True, reason="plenty")])
+    monkeypatch.setattr(
+        cli,
+        "may_start_unit",
+        lambda r: next(answers, Decision(may_start=False, reason="session usage at 88%")),
+    )
+
+
 def test_a_unit_resumed_in_a_later_tick_links_to_its_earlier_trace(
-    ticks: Ticks, exported: Collector
+    ticks: Ticks, exported: Collector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ticks.agents()
     ticks.options["may_start"] = lambda: (False, "session usage at 88%")
     ticks.options["resume_at"] = lambda: datetime.now(UTC) + timedelta(hours=1)
+    allow_once_then_refuse(monkeypatch)
     ticks.tick()
+    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
     earlier = one(exported.spans(), "unit")
     assert ticks.store.get(UNIT).state == RUNNING
 
@@ -244,7 +257,9 @@ def test_a_tick_that_skips_a_unit_leaves_the_trace_of_the_run_that_built_it(
     ticks.agents()
     ticks.options["may_start"] = lambda: (False, "session usage at 88%")
     ticks.options["resume_at"] = lambda: datetime.now(UTC) + timedelta(hours=1)
+    allow_once_then_refuse(monkeypatch)
     ticks.tick()
+    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
     first = one(exported.spans(), "unit")
     built = ticks.store.get(UNIT).trace
     assert built.startswith(first.trace_id)

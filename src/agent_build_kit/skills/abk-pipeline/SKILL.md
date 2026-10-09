@@ -214,4 +214,7 @@ for the reset. A pause never ends before it was written: a reset already past co
 `usage_stale_retry_minutes` (five by default) and says it is stale. Times are local. Nothing needs doing; a tick before that time exits without
 work. `abk status` prints each window as `used%/threshold%` with its time to
 reset, which is what explains a pause at a percentage the configured floor
-alone doesn't account for.
+alone doesn't account for. A refusal by the guard pauses only the unit that asked: the
+pass keeps running its rounds, asks the guard again at each, and resumes the unit once it
+allows. Only a pause written because the model refused a build holds every start until its
+deadline.
