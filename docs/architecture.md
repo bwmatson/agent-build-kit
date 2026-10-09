@@ -936,7 +936,11 @@ The UI is a single-page app in `web/`, built by Vite (with Tailwind) into
 because the build output is git-ignored. `create_app` serves a file from there when the
 path names one and `index.html` for any other path outside `/api`, so client-side routes
 load on a direct visit; an unmatched `/api` path stays a JSON 404, and with no build a
-page answers 503 saying how to build. The pages are described under `abk serve` in
+page answers 503 saying how to build. The review endpoints (`serve/review.py`) are the
+server's only writes: a unit's diff is `git diff` from where its branch left its base to
+one resolved commit, and its threads, replies, summary and one decision per round are kept
+in `reviews/` in the state directory, each thread anchored to the commit it was made at and
+placed at the branch tip when read. The pages are described under `abk serve` in
 [cli.md](cli.md).
 
 ## Why it is shaped this way
