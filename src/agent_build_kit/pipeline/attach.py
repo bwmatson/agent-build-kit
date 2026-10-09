@@ -22,6 +22,10 @@ from agent_build_kit.pipeline.workspaces import (
 PLANNING = "planning"
 
 
+class NothingToCommit(RuntimeError):
+    """The tree holds nothing to commit, so no commit was made, marked or delivered."""
+
+
 class Adopted(Frozen):
     """What ending an attachment by a commit did: the commit, the unit's state, and whether
     the adopted event reached its thread."""
@@ -95,13 +99,15 @@ def adopt(
     """Commit the unit's changes through the repo's hooks, with `fix` (the unit's agent) given
     what they reject; record the commit on the lease, deliver the adopted event and remove the
     lease. Raises `CommitRejected` when the hooks still reject the commit, with the lease and
-    the changes kept."""
+    the changes kept, and `NothingToCommit` when there was nothing to commit, with the lease
+    kept."""
     from agent_build_kit.pipeline.wiring import build_commit
 
     tree = worktree_of(inst, unit)
     if tree is None:
         raise ValueError(f"{unit.id} has no worktree")
-    build_commit(unit_id=unit.id, fix=fix, adopted_from=session)(message, cwd=tree)
+    if not build_commit(unit_id=unit.id, fix=fix, adopted_from=session)(message, cwd=tree):
+        raise NothingToCommit("nothing to commit")
     head = git_out(tree, "rev-parse", "HEAD")
     leases = leases_of(inst)
     if held := leases.attachment(unit.id):
@@ -113,9 +119,11 @@ def commit_planning(
     inst: Installation, unit: StoredUnit, message: str, *, fix: Callable[..., str] | None = None
 ) -> str:
     """Commit the planning checkout and release its part of the lease; no unit is sent
-    anything. Returns the new head."""
+    anything. Returns the new head. Raises `NothingToCommit` when the checkout holds no
+    change."""
     from agent_build_kit.pipeline.wiring import build_commit
 
-    build_commit(fix=fix)(message, cwd=inst.root)
+    if not build_commit(fix=fix)(message, cwd=inst.root):
+        raise NothingToCommit("nothing to commit")
     leases_of(inst).release_checkout(unit.id, PLANNING)
     return git_out(inst.root, "rev-parse", "HEAD")

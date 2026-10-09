@@ -853,6 +853,7 @@ _SPENT_LAST = (
 
 
 def _round_budget_note(round_number: int, total: int) -> str:
+    round_number = min(round_number, total)
     remaining = total - round_number
     return ROUND_BUDGET_NOTE.format(
         round=round_number,

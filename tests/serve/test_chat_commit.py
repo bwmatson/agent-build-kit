@@ -182,6 +182,12 @@ def test_a_hook_the_agent_must_fix_is_given_to_the_agent_and_the_commit_tried_ag
     assert git(tree, "show", "HEAD:notes.txt") == "fine"
     assert head(tree) != before
     assert attachment(inst) is None
+    kept = " ".join(
+        path.read_text()
+        for path in sorted((inst.state_dir / "transcripts").rglob("*commit*.jsonl"))
+    )
+    assert "lint: BAD word in notes.txt" in kept, "the fix turn is in the unit's transcript"
+    assert kept.index('"kind":"user"') < kept.index('"kind":"stop"'), "the turn ran to its stop"
 
 
 def test_a_commit_still_rejected_after_the_bound_is_a_conflict_that_keeps_everything(
@@ -203,6 +209,24 @@ def test_a_commit_still_rejected_after_the_bound_is_a_conflict_that_keeps_everyt
     kept = attachment(inst)
     assert kept is not None and kept.changed == 1 and not kept.stale
     assert waiting_at(inst) == (Node.AWAIT_REVIEW,), "nothing was delivered"
+    assert adoptions(inst) == 0
+
+
+def test_a_commit_with_nothing_to_commit_is_a_conflict_that_changes_nothing(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripted(monkeypatch, tree, {})
+    chat_edit(api)
+    before = head(tree)
+
+    answer = commit(api)
+
+    assert answer.status_code == 409
+    assert "nothing to commit" in answer.text
+    assert head(tree) == before
+    kept = attachment(inst)
+    assert kept is not None and not kept.committed, "the lease is kept"
+    assert waiting_at(inst) == (Node.AWAIT_REVIEW,)
     assert adoptions(inst) == 0
 
 

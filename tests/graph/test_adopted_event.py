@@ -180,3 +180,21 @@ def test_a_review_that_asks_for_changes_after_an_adopted_commit_is_reworked_not_
     assert "rounds spent" not in stored.note
     state = position(tmp_path).state
     assert state is not None and state.review_round >= 1, "the counted rounds start at the rework"
+
+
+def test_the_review_after_a_rework_of_a_spent_budget_is_told_it_is_the_last(
+    tmp_path: Path,
+) -> None:
+    recorder = spent(tmp_path)
+    tick(tmp_path, recorder, event=ADOPTED)
+    recorder.verdicts = [asks_for("rename it again")]
+    tick(tmp_path, recorder)
+    recorder.verdicts = [asks_for("and once more")]
+
+    tick(tmp_path, recorder)
+
+    told = " ".join(recorder.contexts[-1].split()).lower()
+    assert "-1 remaining" not in told
+    assert "final round" in told
+    stored = recorder.store.get(unit().id)
+    assert (stored.state, stored.held_by) == (HELD, "review")

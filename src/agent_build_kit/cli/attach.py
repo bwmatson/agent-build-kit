@@ -29,6 +29,9 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
         return 1
     leases = attach.leases_of(inst)
     held = leases.attachment(unit.id)
+    if held is not None and held.committed and not held.stale:
+        print(f"{unit.id}: commit {held.committed[:9]} is being delivered by {held.holder}")
+        return 1
     if held is not None and held.committed:
         done = attach.finish(inst, unit, held.committed)
         if not done.delivered:
@@ -54,6 +57,9 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
             done = attach.adopt(
                 inst, unit, args.commit, session=held.session if held is not None else ""
             )
+        except attach.NothingToCommit:
+            print(f"{unit.id}: nothing to commit; the lease is kept")
+            return 1
         except CommitRejected as error:
             print(f"{unit.id}: the commit was rejected; the changes and the lease are kept")
             print(str(error))

@@ -395,19 +395,7 @@ class Chat:
             self._turns[tab] = self._turns.get(tab, 0) + 1
         events: queue.Queue[Any] = queue.Queue()
         encoder = AgUiEncoder(unit.id if unit else session or uuid.uuid4().hex, uuid.uuid4().hex)
-        record = None
-        if unit is not None:
-            limits = self.installation.config.limits
-            record = Transcript(
-                self.transcripts,
-                unit,
-                node="chat",
-                round=0,
-                source="chat",
-                started=datetime.now(UTC),
-                result_limit=limits.transcript_result_chars,
-                runs_kept=limits.transcript_runs_kept,
-            )
+        record = self.transcript(unit, "chat") if unit is not None else None
         finished: list[bool] = []
         asked: list[bool] = []
 
@@ -477,6 +465,20 @@ class Chat:
                 yield _sse(item)
 
         return StreamingResponse(body(), media_type="text/event-stream")
+
+    def transcript(self, unit: StoredUnit, node: str) -> Transcript:
+        """A chat-sourced transcript file on the unit, for a turn the person's page made."""
+        limits = self.installation.config.limits
+        return Transcript(
+            self.transcripts,
+            unit,
+            node=node,
+            round=0,
+            source="chat",
+            started=datetime.now(UTC),
+            result_limit=limits.transcript_result_chars,
+            runs_kept=limits.transcript_runs_kept,
+        )
 
     def request(
         self,
@@ -650,7 +652,7 @@ def register(
                     await asyncio.sleep(POLL_SECONDS)
                     for path in unit_transcript_files(chat.transcripts, unit.id):
                         events, read[path.name] = read_file_events(path, read.get(path.name, 0))
-                        live = [e for e in events if e.source == "build"]
+                        live = [e for e in events if e.source == "build" or "-commit-" in path.name]
                         if not live:
                             continue
                         if path.name not in runs:
@@ -776,10 +778,19 @@ def register(
         builder = recorded is not None and session == recorded.session_id
 
         def fix(prompt: str, *, cwd: Path, model: str = "") -> str:
-            """The attached session fixes what the hooks reject."""
+            """The attached session fixes what the hooks reject; its turn is kept in the
+            unit's transcript, where the page's history and live tail read it."""
+            record = chat.transcript(unit, "commit")
+            asked: list[bool] = []
+
+            def on_session(session_id: str) -> None:
+                if not asked:
+                    asked.append(True)
+                    record.record(TranscriptEvent(kind="user", session=session_id, text=prompt))
+
             runtimes.get(runtime_name).run(
                 chat.request(
-                    {},
+                    {"on_record": record.record, "on_session": on_session},
                     prompt,
                     cwd,
                     model=recorded.model if recorded and builder else None,
@@ -800,7 +811,7 @@ def register(
             return attach.adopt(
                 installation, unit, body.message, session=session, fix=fix
             ).model_dump()
-        except CommitRejected as error:
+        except (CommitRejected, attach.NothingToCommit) as error:
             raise _conflict(str(error)) from None
 
     @app.post("/api/permissions/{ask_id}")

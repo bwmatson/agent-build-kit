@@ -236,7 +236,10 @@ Ends a chat's attachment to a unit without the server: the uncommitted changes a
 in the unit's worktree are committed (`--commit`) or thrown away (`--discard`), and the lease
 is released, as one command. A dirty tree given neither is refused (exit 1, nothing changed),
 as is any call while a step holds the unit's branch. A commit a hook rejects prints the
-hook's output, exits 1 and keeps the changes and the lease. A clean tree is simply released.
+hook's output, exits 1 and keeps the changes and the lease; the command does not run the
+unit's agent to fix what a hook rejects (the web UI's commit does), only the reformat retry.
+A commit with nothing to commit exits 1 and keeps the lease. A commit already made and held
+by a live server is left for that server to deliver. A clean tree is simply released.
 A unit the tick held as `attached` stays held; `abk requeue` returns it.
 
 ### `abk requeue UNIT [--restart | --rework]`
