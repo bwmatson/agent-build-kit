@@ -197,7 +197,9 @@ in the reason — `usage_pause_pct` (in the `session` or `weekly` section of
 `runtimes.claude_code.limits`) for most of a window, rising to its
 `usage_pause_ceiling_pct` as that window's reset nears, when one is set — and a resume is
 scheduled for when the rising threshold would clear the current usage, or
-for the reset. Nothing needs doing; a tick before that time exits without
+for the reset. A pause never ends before it was written: a reset already past counts as unknown
+(retry in thirty minutes), and a reading too old to trust pauses for
+`usage_stale_retry_minutes` (five by default) and says it is stale. Times are local. Nothing needs doing; a tick before that time exits without
 work. `abk status` prints each window as `used%/threshold%` with its time to
 reset, which is what explains a pause at a percentage the configured floor
 alone doesn't account for.

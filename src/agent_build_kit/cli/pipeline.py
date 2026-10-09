@@ -61,7 +61,7 @@ from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
-from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
+from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_line, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
 from agent_build_kit.pipeline.planning_repo import (
     default_branch_of,
@@ -304,7 +304,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
     if paused:
-        log(f"paused until {paused.until:%Y-%m-%d %H:%M UTC} — {paused.reason}")
+        log(pause_line(paused))
 
     try:
         runtime = runtimes.active()
@@ -683,7 +683,7 @@ def _may_build(
     _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
-        log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
+        log(pause_line(paused))
         # A pause builds nothing, so a unit no run holds should read `planned`
         # for as long as it lasts. Not otherwise: a round that goes on resumes it.
         _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
@@ -699,10 +699,7 @@ def _may_build(
             state = pause_until(
                 decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
             )
-            log(
-                f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
-                f" — {decision.reason}"
-            )
+            log(pause_line(state, verb="paused" if paused else "pausing"))
             if not paused:
                 # A new pause; the rounds that find it still in force are not more of them.
                 telemetry.count("abk.usage.pauses", kind="usage")

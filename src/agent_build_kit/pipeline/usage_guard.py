@@ -63,6 +63,7 @@ from agent_build_kit.config import (
     active_root,
 )
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -78,13 +79,6 @@ LIVE_TTL = timedelta(minutes=3)
 # five-hour window is the shorter of the two, so an hour is already a
 # meaningful fraction of it. Live readings are exempt: they were just taken.
 MAX_ANCHOR_AGE = timedelta(hours=1)
-
-# Resuming exactly at the reset would race the window boundary and pause again.
-RESUME_GRACE = timedelta(minutes=2)
-
-# How long to wait before looking again when the reading is unusable. Short
-# enough to pick up a recovered endpoint, long enough not to spin.
-UNKNOWN_RETRY = timedelta(minutes=30)
 
 # The two windows' lengths, which the endpoint doesn't report. A window's start
 # is its reset minus its length, and that is all the ramp needs.
@@ -302,9 +296,10 @@ def _reset_time(value: object) -> datetime | None:
 def _resume_after(reading: UsageReading) -> datetime:
     """When to look again after refusing: just past the reset, or — with no
     window open to reset — after the usual retry interval."""
-    if reading.resets_at is None:
-        return datetime.now(UTC) + UNKNOWN_RETRY
-    return reading.resets_at + RESUME_GRACE
+    now = datetime.now(UTC)
+    if reading.resets_at is None or reading.resets_at <= now:
+        return now + UNKNOWN_RETRY
+    return reading.resets_at
 
 
 class Band(Frozen):
@@ -465,7 +460,7 @@ def read_live_usage(
             cached = json.loads(cache_path.read_text())
             fetched_at = datetime.fromisoformat(cached["fetched_at"])
             if now - fetched_at < ttl:
-                return _reading_from_payload(cached, observed_at=fetched_at, source="live")
+                return _reading_from_payload(cached, observed_at=fetched_at, source="cache")
         except (OSError, ValueError, KeyError, TypeError):
             pass  # A bad cache is just a cache miss.
 
@@ -638,7 +633,7 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
             resume_at=_resume_after(reading),
         )
 
-    # A live reading was just taken, so only the local cache can be stale.
+    # A live reading was just taken, so only a reading from a cache can be stale.
     if not reading.is_live and reading.age > MAX_ANCHOR_AGE:
         return Decision(
             may_start=False,
@@ -646,7 +641,7 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
                 f"usage reading is stale ({int(reading.age.total_seconds() // 60)}m old, "
                 f"from {reading.source}); headless runs don't refresh it"
             ),
-            resume_at=_resume_after(reading),
+            resume_at=now + _stale_retry(),
         )
 
     for window in reading.windows:
@@ -668,6 +663,11 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
             f"({_thresholds_note(reading, now=now, limits=limits)}, {reading.source})"
         ),
     )
+
+
+def _stale_retry() -> timedelta:
+    claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
+    return timedelta(minutes=claude.usage_stale_retry_minutes)
 
 
 def _threshold_note(window: Window, threshold: int, limits: Limits) -> str:
@@ -703,5 +703,6 @@ def _resume_to(window: Window, *, now: datetime, limits: Limits) -> datetime:
     """
     relief = relief_at(window, now=now, limits=limits)
     if relief is None:
-        relief = window.resets_at + RESUME_GRACE if window.resets_at else now + UNKNOWN_RETRY
+        reset = window.resets_at
+        relief = reset if reset and reset > now else now + UNKNOWN_RETRY
     return min(relief, now + MAX_SCHEDULED_PAUSE)

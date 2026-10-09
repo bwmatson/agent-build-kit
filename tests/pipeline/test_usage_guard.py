@@ -126,9 +126,9 @@ def test_pausing_says_when_to_resume(tmp_path: Path) -> None:
 
     assert decision.resume_at is not None
     assert decision.resume_after_seconds > 0
-    # Just after the reset, not exactly on it: a resume racing the window
-    # boundary would pause again immediately.
-    assert decision.resume_after_seconds > timedelta(hours=3).total_seconds()
+    # The reset itself: the grace that keeps a resume from racing the window
+    # boundary is added once, when the pause is written (`pause_until`).
+    assert decision.resume_after_seconds == pytest.approx(timedelta(hours=3).total_seconds(), abs=5)
 
 
 def test_an_unknown_anchor_pauses(tmp_path: Path) -> None:

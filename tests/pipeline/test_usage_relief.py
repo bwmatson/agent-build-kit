@@ -28,7 +28,6 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline.usage_guard import (
     MAX_SCHEDULED_PAUSE,
-    RESUME_GRACE,
     SESSION_WINDOW,
     WEEKLY_WINDOW,
     Band,
@@ -236,9 +235,7 @@ def test_a_window_the_ramp_can_never_clear_waits_for_the_reset() -> None:
     decision = may_start_unit(reading(session_pct=99, resets_in=timedelta(hours=2)))
 
     assert not decision.may_start
-    assert decision.resume_after_seconds == pytest.approx(
-        (timedelta(hours=2) + RESUME_GRACE).total_seconds(), abs=5
-    )
+    assert decision.resume_after_seconds == pytest.approx(timedelta(hours=2).total_seconds(), abs=5)
 
 
 def test_no_pause_is_scheduled_further_out_than_the_recheck_cap() -> None:
