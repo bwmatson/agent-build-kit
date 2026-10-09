@@ -28,6 +28,13 @@ export interface UnitDetail extends UnitSummary {
   depends_on: Related[];
   merge_gates: Related[];
   review_round: number | null;
+  actions?: UnitAction[];
+}
+
+export interface UnitAction {
+  name: string;
+  enabled: boolean;
+  reason: string;
 }
 
 export interface UsageRow {
@@ -93,4 +100,18 @@ export async function getJson<T>(path: string): Promise<T> {
     throw new Error(`${path}: ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+/** Post a unit action; the answer's message, or the reason it was refused. */
+export async function postAction(unit: string, name: string): Promise<string> {
+  const response = await fetch(`/api/units/${unit}/actions/${name}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const body = (await response.json().catch(() => ({}))) as { message?: string; detail?: string };
+  if (!response.ok) {
+    throw new Error(body.detail ?? `${name}: ${response.status}`);
+  }
+  return body.message ?? "";
 }

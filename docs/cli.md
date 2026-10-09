@@ -106,18 +106,30 @@ The same figures are written to `planning.usage_page` on every store write.
 ### `abk serve [--port PORT]`
 
 Serves the pipeline's state over HTTP on the loopback address only (`127.0.0.1`, port
-8765 unless `--port`), until interrupted. The API is read-only: it answers from the
-unit store, the usage ledger, the run logs and the checkpoint database, and changes
-none of them. A unit is addressed as `change/N`.
+8765 unless `--port`), until interrupted. Apart from the unit actions below, the API is
+read-only: it answers from the unit store, the usage ledger, the run logs and the
+checkpoint database, and changes none of them. A unit is addressed as `change/N`.
 
 | Path | Answers |
 |---|---|
 | `/api/pipeline` | every unit with its effective state, cause, holder and note |
-| `/api/units/<change>/<n>` | one unit: state, cause, note, history, base, branch, pull request, dependencies and merge gates with their states, and the review round from its thread |
+| `/api/units/<change>/<n>` | one unit: state, cause, note, history, base, branch, pull request, dependencies and merge gates with their states, the review round from its thread, and `actions`: each of requeue, hold, release and approve with `name`, `enabled` and the `reason` it is not |
+| `POST /api/units/<change>/<n>/actions/<action>` | runs `requeue`, `hold`, `release` or `approve` (see below): 200 with a `message`, 409 with the refusal as `detail`, 404 for an unknown unit or action |
 | `/api/units/<change>/<n>/logs` | the unit's runs: name, step, start (UTC) and whether each is live |
 | `/api/units/<change>/<n>/logs/<name>?offset=<bytes>` | the run's lines after the offset with their clock in UTC, the offset to ask from next, `live`, and the `outcome` once it has ended; a run removed meanwhile answers empty with `missing` |
 | `/api/usage?by=&since=&change=&unit=&include_estimates=` | the JSON `abk report --by <grouping> --json` prints |
 | `/api/metrics` | every metric the code emits (name, type, attributes) with a chart's series, `source` (`prometheus` or `local`), the recent `traces` with their `source` (`tempo` or `local`), and `dashboard`, the pipeline dashboard's URL in Grafana (`<ABK_GRAFANA_URL>/d/abk-pipeline`) when set |
+
+**Unit actions.** Each takes the unit store's lock with its real write hooks and logs
+`chosen by the web UI` as the actor. *Requeue* is `abk requeue`'s own function; its body
+may carry `mode` (`resume`, the default, `rework` or `restart`, as the CLI's flags). *Hold*
+and *release* hand the poller's own dispatch a `hold` or `release` for the unit's pull
+request, so the unit's thread, branch claim and depth rules are as for the label; they
+change the pipeline's record only, not the label on the host, so a hold says to set the
+label there too, and a release is refused while the last poll saw the label on the
+pull request (remove it on the host). A unit being built answers 409 for those, as the
+poller would defer. *Approve* is always refused: the CLI has no approve command. Each
+refusal carries the CLI's reason, and the unit page shows the buttons disabled with it.
 
 Any other path answers the built web UI, so `/units/<change>/<n>` loads on a direct visit;
 an unknown `/api/...` path stays a JSON 404. The UI is built from `web/` (see below) and
@@ -133,7 +145,8 @@ The pages:
   request, dependencies and merge gates (each gate links to its unit); *Logs* groups each
   run's lines by the node that wrote them, shows a reply whole and follows a live run until
   its outcome line appears, asking again after a failed read; *Usage* is the usage report
-  filtered to the unit, by node.
+  filtered to the unit, by node. Above the tabs, the unit's action buttons; a disabled one
+  shows its reason, and the page reloads the unit after an action succeeds.
 - **Usage** (`/usage`): the report for a chosen grouping. In the unit grouping a key that is
   a unit's name links to the unit; placeholder keys such as `(none)` are plain text.
 - **Metrics** (`/metrics`): every metric in a catalogue read from the code's telemetry

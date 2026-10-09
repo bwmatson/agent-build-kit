@@ -36,6 +36,8 @@ from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
+from agent_build_kit.serve.actions import available as available_actions
+from agent_build_kit.serve.actions import register as register_actions
 from agent_build_kit.serve.chat import register as register_chat
 from agent_build_kit.serve.metrics import dashboard_uid, metrics_page
 from agent_build_kit.serve.review import (
@@ -229,6 +231,8 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
         recorded_session=lambda unit_id: _recorded_session(installation, unit_id),
     )
 
+    register_actions(app, installation, find)
+
     @app.get("/api/pipeline")
     def pipeline() -> dict[str, Any]:
         units = _read_units(units_path)
@@ -252,6 +256,7 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             "depends_on": related(unit.depends_on, units),
             "merge_gates": related(unit.merge_before, units),
             "review_round": _review_round(installation, unit.id),
+            "actions": available_actions(unit, installation),
         }
 
     reviews = ReviewStore(installation.state_dir / "reviews")

@@ -20,6 +20,12 @@
   made at an earlier commit is marked outdated and moved to its line where the lines still
   match.
 
+- `abk serve` unit pages have requeue, hold, release and approve buttons. They run the same code
+  as `abk requeue` and the poller's hold and release under the unit store's lock, log the web
+  UI as the actor, and are disabled, with the reason shown, when the unit cannot take them.
+  Hold and release do not change the label on the host. Approve is always disabled: the CLI has
+  no approve command.
+
 - A reply to a reviewer that the host did not take now stays pending and is posted on a later
   pass, once, instead of being lost; a reply the host already holds counts as posted. The close
   of a satisfied unit's pull request is likewise repeated each pass until done, without posting
