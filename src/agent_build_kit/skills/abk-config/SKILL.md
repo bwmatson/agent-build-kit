@@ -74,6 +74,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
+      usage_cache_minutes: 15          # how long a good usage reading is reused
+      usage_fallback_minutes: 30       # age of the last good reading that covers a failed call
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor
