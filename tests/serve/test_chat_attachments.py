@@ -26,7 +26,7 @@ from tests.serving import seed_pipeline
 pytestmark = pytest.mark.serial
 
 CHAT = "/api/units/feature/2/chat"
-CLAUDE_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d31"
+CLAUDE_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d32"
 
 MARKER = {
     "file": "src/app/marker.py",
