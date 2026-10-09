@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { postAction } from "./api";
 import type { Related, UnitDetail, UnitSummary } from "./api";
 import { AgentTab } from "./agent";
 import { LogsTab } from "./logs";
+import { ReviewTab } from "./review/tab";
 import { unitPath } from "./unitName";
 import { UsageTab, UsageTable } from "./usage";
 import { useApi } from "./useApi";
@@ -122,7 +123,7 @@ function Actions({ unit, changed }: { unit: UnitDetail; changed: () => void }) {
   );
 }
 
-const TABS = ["Status", "Logs", "Agent", "Usage"] as const;
+const TABS = ["Status", "Logs", "Agent", "Usage", "Review"] as const;
 
 /** The history as a timeline of state, cause and note, newest last. */
 function History({ unit }: { unit: UnitDetail }) {
@@ -143,12 +144,23 @@ function History({ unit }: { unit: UnitDetail }) {
   );
 }
 
-export function UnitPage() {
+/** A unit; `review` opens it on the Review tab, which has an address of its own. */
+export function UnitPage({ review = false }: { review?: boolean }) {
   const { change = "", number = "" } = useParams();
   const name = `${change}/${number}`;
   const [reload, setReload] = useState(0);
   const unit = useApi<UnitDetail>(`/api/units/${name}`, reload);
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Status");
+  const [chosen, setTab] = useState<(typeof TABS)[number]>("Status");
+  const navigate = useNavigate();
+  const tab = review ? "Review" : chosen;
+
+  function open(t: (typeof TABS)[number]) {
+    if (t === "Review") navigate(`${unitPath(name)}/review`);
+    else {
+      setTab(t);
+      if (review) navigate(unitPath(name));
+    }
+  }
   const detail = unit && "data" in unit ? unit.data : null;
   return (
     <>
@@ -162,7 +174,7 @@ export function UnitPage() {
           <>
             <div role="tablist">
               {TABS.map((t) => (
-                <button key={t} role="tab" aria-selected={t === tab} onClick={() => setTab(t)}>
+                <button key={t} role="tab" aria-selected={t === tab} onClick={() => open(t)}>
                   {t}
                 </button>
               ))}
@@ -172,6 +184,7 @@ export function UnitPage() {
             {tab === "Logs" && <LogsTab name={name} />}
             {tab === "Agent" && <AgentTab name={name} />}
             {tab === "Usage" && <UsageTab name={name} />}
+            {tab === "Review" && <ReviewTab />}
           </>
         )}
       </main>

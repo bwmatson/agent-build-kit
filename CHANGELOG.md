@@ -37,6 +37,19 @@
   Hold and release do not change the label on the host. Approve is always disabled: the CLI has
   no approve command.
 
+- The web UI has a review tab at `/units/<change>/<n>/review`: the unit's diff with a file tree,
+  its threads beside their lines (outdated ones marked) and the reviewer's findings. Selecting
+  lines highlights them without making a comment, and the selection is kept in the address, so
+  a line or range can be linked to; a finding in the verdict highlights its line, and a link to
+  a line of an earlier commit opens at the nearest matching line or says the line is gone. A
+  large diff draws each file as it scrolls into view. The tab is one of the unit page's tabs.
+  A reviewer can comment on the selected line or range, reply to a thread, resolve or reopen
+  it, write a summary and choose Request changes or Approve; a round that already has a
+  decision shows the server's reason. The review answer now lists the latest review round's
+  findings and the follow-ups it deferred, and `abk serve` locates a line of an earlier commit
+  on the branch tip. Hovering a thread highlights its lines, and a thread that could not be
+  moved to a line, or sits on a file no longer in the diff, is still shown, marked outdated.
+
 - A reply to a reviewer that the host did not take now stays pending and is posted on a later
   pass, once, instead of being lost; a reply the host already holds counts as posted. The close
   of a satisfied unit's pull request is likewise repeated each pass until done, without posting

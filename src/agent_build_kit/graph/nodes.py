@@ -1081,6 +1081,8 @@ class BuildPath:
             "review_round": round_number + 1,
             "head": judged,
             "review_rounds": weighed.rounds,
+            # Kept past the push, which clears the rounds: the review tab shows it.
+            "last_findings": weighed.findings,
         }
         if weighed.approved:
             return {

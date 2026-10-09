@@ -115,3 +115,23 @@ export async function postAction(unit: string, name: string): Promise<string> {
   }
   return body.message ?? "";
 }
+
+/** Send `body` as JSON with `method`. A refusal throws the server's own `detail`. */
+export async function sendJson<T>(method: string, path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const answer = (await response.json()) as { detail?: unknown };
+      detail = typeof answer.detail === "string" ? answer.detail : "";
+    } catch {
+      // The refusal had no JSON body; the status says enough.
+    }
+    throw new Error(detail || `${path}: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}

@@ -17,7 +17,12 @@ from tests.conftest import make_installation
 
 @pytest.fixture
 def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
-    installation = make_installation(tmp_path / "planning")
+    # Worktrees under the test's own directory: by default they sit under the home directory
+    # by the planning root's name, a path every run of the suite on the machine would share,
+    # and a `claude` working in it would read as holding a session in another run's test.
+    installation = make_installation(
+        tmp_path / "planning", planning={"worktree_root": str(tmp_path / "worktrees")}
+    )
     (installation.root / "abk.yaml").write_text(dump(installation.config))
     monkeypatch.chdir(installation.root)
     return installation

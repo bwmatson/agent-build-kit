@@ -100,13 +100,11 @@ def unit_diff(repo: Path, *, base: str, branch: str, commit: str | None = None) 
     return UnitDiff(commit=tip, base=base, base_commit=fork, patch=patch)
 
 
-def _moved(repo: Path, thread: Thread, line: int | None, tip: str) -> int | None:
-    """Where `line` of `thread`'s file at its commit is at `tip`, None where it was changed."""
+def relocate(repo: Path, path: str, line: int | None, commit: str, tip: str) -> int | None:
+    """Where `line` of `path` at `commit` is at `tip`, None where it was changed."""
     if line is None:
         return None
-    diff = git(
-        repo, "diff", "-U0", "--no-renames", thread.commit, tip, "--", thread.path, check=False
-    )
+    diff = git(repo, "diff", "-U0", "--no-renames", commit, tip, "--", path, check=False)
     if diff.returncode:
         return None
     patch = diff.stdout
@@ -132,8 +130,8 @@ def placed(repo: Path, thread: Thread, tip: str | None) -> Thread:
         return thread
     if thread.side == "old":
         return thread.model_copy(update={"outdated": True})
-    line = _moved(repo, thread, thread.line, tip)
-    start = _moved(repo, thread, thread.start_line, tip)
+    line = relocate(repo, thread.path, thread.line, thread.commit, tip)
+    start = relocate(repo, thread.path, thread.start_line, thread.commit, tip)
     if line is None or (thread.start_line is not None and start is None):
         return thread.model_copy(update={"outdated": True, "line": None, "start_line": None})
     return thread.model_copy(update={"outdated": True, "line": line, "start_line": start})

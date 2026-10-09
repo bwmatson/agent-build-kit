@@ -77,6 +77,20 @@ def _follow_ups_block_end(content: str, start: int, marker: str) -> int:
     return next_marker + 1 if next_marker != -1 else len(content)
 
 
+def unit_follow_ups(planning_repo: Path | str, change: str, unit_id: str) -> tuple[str, ...]:
+    """The points unit `unit_id` of `change` last deferred, from the change's follow-ups file."""
+    path = Path(CHANGE_DIR.format(planning_repo=planning_repo, change=change)) / FOLLOW_UPS_FILE
+    if not path.exists():
+        return ()
+    content = path.read_text()
+    marker = _follow_ups_marker(unit_id)
+    start = content.find(marker)
+    if start == -1:
+        return ()
+    block = content[start + len(marker) : _follow_ups_block_end(content, start, marker)]
+    return tuple(line[2:].strip() for line in block.splitlines() if line.startswith("- "))
+
+
 # Said in every prompt that gives an agent a worktree. The pipeline's push
 # carries a lease on the commit it last published, so a push from anywhere
 # else makes it fail as a stale remote.
@@ -1101,6 +1115,8 @@ class Weighed(Frozen):
     rounds: tuple[dict, ...] = ()
     # The approved verdict's follow-ups, for the push that makes them true; none otherwise.
     deferred: tuple[str, ...] = ()
+    # This round's findings as shown (numbered, optional ones capped), approved or not.
+    findings: tuple[dict, ...] = ()
 
 
 class Comment(Frozen):
@@ -1319,6 +1335,7 @@ class UnitRunner(BaseModel):
                 earlier_rounds=earlier_rounds,
                 rounds=earlier_rounds,
                 deferred=points,
+                findings=tuple(f.model_dump() for f in kept),
             )
 
         self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
@@ -1336,6 +1353,7 @@ class UnitRunner(BaseModel):
             why=why,
             earlier_rounds=answered,
             rounds=(*answered, recorded),
+            findings=tuple(f.model_dump() for f in kept),
         )
 
     def _change_dir(self, change: str) -> str:
@@ -1388,16 +1406,7 @@ class UnitRunner(BaseModel):
         re-pushes without repeating them, and a later plain approval must not
         make an earlier one's follow-ups disappear from the PR.
         """
-        path = self._follow_ups_path(unit)
-        if not path.exists():
-            return []
-        content = path.read_text()
-        marker = _follow_ups_marker(unit.id)
-        start = content.find(marker)
-        if start == -1:
-            return []
-        block = content[start + len(marker) : _follow_ups_block_end(content, start, marker)]
-        return [line[2:].strip() for line in block.splitlines() if line.startswith("- ")]
+        return list(unit_follow_ups(self.planning_repo, unit.change, unit.id))
 
     def record_follow_ups(self, unit: Unit, items: Sequence[str]) -> None:
         if not items:
