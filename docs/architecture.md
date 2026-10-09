@@ -1035,6 +1035,25 @@ outdated), or whose line the diff does not show, is drawn at the top of its file
 collapsed or not; one on a file the patch no longer holds is listed in a separate region of
 threads on files no longer in the diff, so no thread is ever left out.
 
+## How a process test fakes the host
+
+A test that runs `abk` as a process fakes GitHub at the host's API, not at the
+`gh` command. `tests/forges/github_server.py` is a fake host (`FakeGitHub`) that
+answers the forge's routes over HTTP from the recorded answers, numbering its
+first pull request as the test asks; the test writes reviews, comments and
+merges into it and reads back the requests it received (`requests`,
+`unrouted`). `tests/forges/process_host.py` (`process_env`) points the process
+at it with `ABK_GITHUB_API_URL` and puts one script on `PATH`: `gh auth token`,
+which prints the server's token. Any other `gh` call fails, so a forge that
+falls back to the command shows up as a failure.
+
+A review the test writes may carry an inline comment with its own id, path and
+line, listed at the pull request's comments. A reply is accepted only to an
+inline comment's id (any other id, a review's included, is a 404, as on GitHub)
+and creates the empty review GitHub makes for it. Each process-test module
+checks `unrouted()` at teardown, so a route the fake does not serve fails the
+module naming it, whichever test made the call.
+
 ## Why it is shaped this way
 
 - **Worktrees live outside the planning repo.** Agents reach the specs through
