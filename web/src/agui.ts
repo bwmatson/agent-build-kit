@@ -58,6 +58,12 @@ export interface PermissionRequest {
   options: Option[];
 }
 
+/** The agent's flag that a request contradicts a requirement of the unit's change. */
+export interface SpecConflict {
+  requirement: string;
+  reason: string;
+}
+
 export type Item =
   | { kind: "message"; id: string; role: "user" | "assistant" | "reasoning"; text: string }
   | { kind: "tool"; id: string; name: string; args: string; result: string | null };
@@ -67,6 +73,7 @@ export interface Conversation {
   running: boolean;
   error: string | null;
   ask: PermissionRequest | null;
+  conflict: SpecConflict | null;
   session: string | null;
   continuedAsNew: boolean;
 }
@@ -76,6 +83,7 @@ export const EMPTY: Conversation = {
   running: false,
   error: null,
   ask: null,
+  conflict: null,
   session: null,
   continuedAsNew: false,
 };
@@ -170,6 +178,9 @@ export function reduce(conversation: Conversation, event: AguiEvent): Conversati
       if (event.name === "permission_request") {
         return { ...conversation, ask: event.value as PermissionRequest };
       }
+      if (event.name === "spec_conflict") {
+        return { ...conversation, conflict: event.value as SpecConflict };
+      }
       if (event.name === "session") {
         return { ...conversation, session: (event.value as { id: string }).id };
       }
@@ -184,5 +195,10 @@ export function reduce(conversation: Conversation, event: AguiEvent): Conversati
 export function asked(conversation: Conversation, prompt: string): Conversation {
   const id = `sent-${conversation.items.length}`;
   const item: Item = { kind: "message", id, role: "user", text: prompt };
-  return { ...conversation, items: [...conversation.items, item] };
+  return { ...conversation, conflict: null, items: [...conversation.items, item] };
+}
+
+/** `conversation` with its spec-conflict callout dismissed. */
+export function dismissed(conversation: Conversation): Conversation {
+  return { ...conversation, conflict: null };
 }

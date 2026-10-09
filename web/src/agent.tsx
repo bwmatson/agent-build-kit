@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import type { ReactElement } from "react";
 
-import { EMPTY, asked, readEvents, reduce } from "./agui";
+import { EMPTY, asked, dismissed, readEvents, reduce } from "./agui";
 import type { AguiEvent, Conversation } from "./agui";
 import { Composer } from "./composer";
 import type { Turn } from "./composer";
@@ -14,10 +14,12 @@ interface AgentState {
   attached_by: string | null;
 }
 
-type Action = { event: AguiEvent } | { asked: string };
+type Action = { event: AguiEvent } | { asked: string } | { dismissed: true };
 
 function step(conversation: Conversation, action: Action): Conversation {
-  return "event" in action ? reduce(conversation, action.event) : asked(conversation, action.asked);
+  if ("event" in action) return reduce(conversation, action.event);
+  if ("asked" in action) return asked(conversation, action.asked);
+  return dismissed(conversation);
 }
 
 /** A random id for this page, which the server holds the lease and open requests against. */
@@ -69,10 +71,46 @@ export function Permission({
   );
 }
 
+/** The agent's flag that a request contradicts the change, with the three ways on. */
+export function SpecConflictCallout({
+  conversation,
+  onProceed,
+  onChangeSpec,
+  onCancel,
+}: {
+  conversation: Conversation;
+  onProceed: () => void;
+  onChangeSpec: () => void;
+  onCancel: () => void;
+}): ReactElement | null {
+  const conflict = conversation.conflict;
+  if (!conflict) return null;
+  return (
+    <section
+      role="alert"
+      aria-label="Spec conflict"
+      className="rounded border border-amber-400 bg-amber-50 p-3 text-amber-900"
+    >
+      <p>
+        <strong>This request contradicts the change.</strong>
+      </p>
+      <p>
+        Requirement: <span>{conflict.requirement}</span>
+      </p>
+      <p>
+        Reason: <span>{conflict.reason}</span>
+      </p>
+      <button onClick={onProceed}>Proceed anyway</button>
+      <button onClick={onChangeSpec}>Change the spec instead</button>
+      <button onClick={onCancel}>Cancel</button>
+    </section>
+  );
+}
+
 /** Read a turn's reply into `dispatch`; an unreadable reply is an error line. */
 export async function follow(
   response: Response,
-  dispatch: (action: Action) => void,
+  dispatch: (action: { event: AguiEvent }) => void,
 ): Promise<void> {
   if (!response.ok) {
     const detail = ((await response.json().catch(() => ({}))) as { detail?: string }).detail;
@@ -156,6 +194,34 @@ export function AgentTab({ name }: { name: string }): ReactElement {
     [name, tab],
   );
 
+  const [planning, planningDispatch] = useReducer(step, EMPTY);
+  const runtime = state && "data" in state ? state.data.session?.runtime : undefined;
+
+  const proceed = useCallback(() => {
+    void send({ prompt: "Proceed anyway.", attachments: [] });
+  }, [send]);
+
+  // A free session on the planning root, whose first message is the flag itself.
+  const changeSpec = useCallback(async () => {
+    const conflict = conversation.conflict;
+    if (!conflict) return;
+    dispatch({ dismissed: true });
+    const prompt = `${conflict.requirement}: ${conflict.reason}`;
+    planningDispatch({ asked: prompt });
+    const response = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tab,
+        runtime: runtime ?? "claude_code",
+        repo: "planning",
+        prompt,
+        attachments: [],
+      }),
+    });
+    await follow(response, planningDispatch);
+  }, [conversation.conflict, runtime, tab]);
+
   const release = useCallback(async () => {
     await fetch(`/api/units/${name}/lease?tab=${tab}`, { method: "DELETE" });
     setVersion((v) => v + 1);
@@ -179,6 +245,18 @@ export function AgentTab({ name }: { name: string }): ReactElement {
         conversation={conversation}
         onAnswer={(id, option) => void answerPermission(id, option)}
       />
+      <SpecConflictCallout
+        conversation={conversation}
+        onProceed={proceed}
+        onChangeSpec={() => void changeSpec()}
+        onCancel={() => dispatch({ dismissed: true })}
+      />
+      {planning.items.length > 0 && (
+        <section aria-label="Planning session">
+          <ConversationView conversation={planning} />
+          {planning.error && <p role="alert">{planning.error}</p>}
+        </section>
+      )}
       {agent?.attached_by === `tab:${tab}` && (
         <button onClick={() => void release()}>Release the unit to the pipeline</button>
       )}

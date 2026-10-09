@@ -49,3 +49,11 @@ def test_a_flag_that_arrives_in_chunks_is_one_event() -> None:
     out = encoded("This contradicts the change.\n\n", BLOCK[:cut], BLOCK[cut:])
 
     assert flags(out) == [{"requirement": REQUIREMENT, "reason": REASON}]
+
+
+def test_a_flag_with_a_trailing_space_and_crlf_line_endings_is_still_a_flag() -> None:
+    crlf = BLOCK.replace("```spec-conflict", "```spec-conflict ").replace("\n", "\r\n")
+
+    out = encoded(f"This contradicts the change.\r\n\r\n{crlf}")
+
+    assert flags(out) == [{"requirement": REQUIREMENT, "reason": REASON}]

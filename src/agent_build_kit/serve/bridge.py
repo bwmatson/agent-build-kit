@@ -16,7 +16,7 @@ from typing import Any
 
 from agent_build_kit.pipeline.transcript import TranscriptEvent
 
-_FLAG = re.compile(r"```spec-conflict\n(.*?)\n```", re.DOTALL)
+_FLAG = re.compile(r"```spec-conflict[ \t]*\r?\n(.*?)\r?\n```", re.DOTALL)
 
 
 class AgUiEncoder:

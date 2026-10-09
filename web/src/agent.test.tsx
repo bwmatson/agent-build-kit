@@ -1,6 +1,6 @@
 // The agent tab: what the server streamed, the composer it enables or disables, a turn, a
 // permission request, and giving the unit back. Rendered from the server's recorded answers.
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
@@ -131,6 +131,94 @@ describe("the agent tab", () => {
       controller.close();
     });
     expect(screen.queryByRole("alert", { name: /permission request/i })).not.toBeInTheDocument();
+  });
+
+  describe("when the agent flags a request against a requirement", () => {
+    const REQUIREMENT = "The registry is written through its journal";
+    const REASON = "The request writes the registry file directly.";
+    const events = [
+      { type: "RUN_STARTED", threadId: "feature/2", runId: "r1" },
+      { type: "TEXT_MESSAGE_START", messageId: "m1", role: "assistant" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "This contradicts the change." },
+      { type: "TEXT_MESSAGE_END", messageId: "m1" },
+      {
+        type: "CUSTOM",
+        name: "spec_conflict",
+        value: { requirement: REQUIREMENT, reason: REASON },
+      },
+      {
+        type: "RUN_FINISHED",
+        threadId: "feature/2",
+        runId: "r1",
+        result: { stopReason: "end_turn" },
+      },
+    ];
+    const FLAGGED = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+
+    async function flagged() {
+      const api = recordedApi();
+      api.answer("/api/units/feature/2/chat", () => stream(FLAGGED));
+      await openAgent("feature/2");
+      await userEvent.type(await screen.findByRole("textbox"), "Write the file directly.");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      const callout = await screen.findByRole("alert", { name: /spec conflict/i });
+      return { api, callout };
+    }
+
+    it("shows a callout with the requirement, the reason and the three choices", async () => {
+      const { callout } = await flagged();
+
+      expect(callout).toHaveTextContent(REQUIREMENT);
+      expect(callout).toHaveTextContent(REASON);
+      for (const name of ["Proceed anyway", "Change the spec instead", "Cancel"]) {
+        expect(within(callout).getByRole("button", { name })).toBeVisible();
+      }
+    });
+
+    it("sends a confirming turn on the same session when told to proceed", async () => {
+      const { api } = await flagged();
+      api.answer("/api/units/feature/2/chat", () => stream(CHAT));
+
+      await userEvent.click(screen.getByRole("button", { name: "Proceed anyway" }));
+
+      await vi.waitFor(() =>
+        expect(api.sent.filter((r) => r.path === "/api/units/feature/2/chat")).toHaveLength(2),
+      );
+      const [, proceed] = api.sent.filter((r) => r.path === "/api/units/feature/2/chat");
+      expect(proceed.body).toMatchObject({ prompt: "Proceed anyway.", attachments: [] });
+      expect(api.sent.some((r) => r.path === "/api/sessions" && r.method === "POST")).toBe(false);
+      expect(screen.queryByRole("alert", { name: /spec conflict/i })).not.toBeInTheDocument();
+    });
+
+    it("opens a planning session from the flag when told to change the spec", async () => {
+      const { api } = await flagged();
+      api.answer("/api/sessions", () => stream(CHAT));
+
+      await userEvent.click(screen.getByRole("button", { name: "Change the spec instead" }));
+
+      await vi.waitFor(() =>
+        expect(api.sent.some((r) => r.path === "/api/sessions" && r.method === "POST")).toBe(true),
+      );
+      const opened = api.sent.find((r) => r.path === "/api/sessions" && r.method === "POST");
+      expect(opened?.body).toMatchObject({
+        runtime: "claude_code",
+        repo: "planning",
+        prompt: `${REQUIREMENT}: ${REASON}`,
+      });
+      expect(await screen.findByRole("region", { name: "Planning session" })).toHaveTextContent(
+        "Because.",
+      );
+      expect(screen.queryByRole("alert", { name: /spec conflict/i })).not.toBeInTheDocument();
+    });
+
+    it("dismisses the callout on cancel and sends nothing", async () => {
+      const { api } = await flagged();
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(screen.queryByRole("alert", { name: /spec conflict/i })).not.toBeInTheDocument();
+      expect(api.sent.filter((r) => r.path === "/api/units/feature/2/chat")).toHaveLength(1);
+    });
   });
 
   it("gives the unit back to the pipeline when asked", async () => {

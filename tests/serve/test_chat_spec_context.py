@@ -22,10 +22,12 @@ from pathlib import Path
 import httpx
 import pytest
 
+from agent_build_kit import runtimes
 from agent_build_kit.installation import Installation
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.attach_driver import changed_files, checked_out, head
 from tests.chat_serving import claude_session_file, record_session, turn, use_claude
-from tests.runtimes.claude_cli import replied
+from tests.runtimes.claude_cli import FakeClaude, finished_build, replied
 from tests.serving import seed_pipeline
 
 pytestmark = pytest.mark.serial
@@ -148,6 +150,47 @@ def test_a_request_against_a_requirement_is_flagged_and_edits_nothing(
     )
     assert "flag" in everything_sent(fake.calls[0][0]).lower(), "the agent was told to flag"
     assert changed_files(tree) == []
+    assert head(tree) == before
+
+
+# --- proceeding anyway --------------------------------------------------------------------------
+
+
+class FlagThenEdit(FakeClaude):
+    """A `claude` that flags the first turn and edits the worktree on the next."""
+
+    def __init__(self, tree: Path) -> None:
+        super().__init__(stdout=replied(tree, FLAG))
+        self.tree = tree
+
+    def __call__(self, argv, **kwargs):  # type: ignore[no-untyped-def]
+        if self.calls:
+            (self.tree / "notes.txt").write_text("a change\n")
+            self.stdout = finished_build(self.tree, "Done.")
+        return super().__call__(argv, **kwargs)
+
+
+def test_proceeding_after_a_flag_is_a_builder_turn_on_the_same_session_that_edits(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FlagThenEdit(tree)
+    runtimes.names()
+    monkeypatch.setitem(runtimes._REGISTRY, "claude_code", ClaudeCodeRuntime(execute=fake))
+    before = head(tree)
+
+    flagged = turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "Write the file directly."})
+    assert [e for e in flagged if e["type"] == "CUSTOM" and e["name"] == "spec_conflict"]
+    assert changed_files(tree) == []
+
+    turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "Proceed anyway."})
+
+    argv, _ = fake.calls[1]
+    sent = everything_sent(argv)
+    for name, text in CONTEXT.items():
+        assert text in sent, f"the {name} is still part of the turn"
+    assert "--specs" in sent, "the builder's policy"
+    assert BUILD_SESSION in sent, "the unit's own session"
+    assert changed_files(tree) == ["notes.txt"]
     assert head(tree) == before
 
 
