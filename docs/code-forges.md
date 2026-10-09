@@ -33,16 +33,20 @@ review decision are read from the review store the web UI writes (see
 other. Labels, drafts, statuses, check reruns and stacks are accepted and do
 nothing, and `supports_stacks` is false, so units serialise per repo.
 
-A person merges with git; nothing in the pipeline or the UI does. A pull request
-is listed as merged when its branch tip is contained in the trunk or its change
-is found there by patch identity (a squash). Once seen merged it stays merged, so deleting the branch afterwards
-loses nothing. Approving in the UI
-leaves it open.
+A person merges with git; nothing in the pipeline or the UI does. The forge
+remembers the tip of the branch while it has commits of its own beyond the trunk,
+and lists the pull request as merged when that tip is contained in the trunk or
+its change is found there by patch identity (a squash). A branch reset onto the
+trunk by the pipeline, which holds no work of its own, leaves the pull request
+open. Once seen merged it stays merged, so deleting the branch afterwards loses
+nothing. Approving in the UI leaves it open.
 
 A repo with no `origin` is built against its own trunk: the push, the per-unit
 and per-pass fetch, `local_ref` and the dev-stack base use the local trunk and
-local branches, and only the commit review approved is the branch tip pushed.
-With an `origin`, behaviour is unchanged.
+local branches. The push gate still refuses a head that is not the commit review
+approved, and stops the unit; but with no remote the branch itself is what a
+person sees (`abk pr diff`, the UI) and merges, so unreviewed commits on it are
+visible even though the unit is held. With an `origin`, behaviour is unchanged.
 
 `abk pr view [number] [--repo NAME]` and `abk pr diff [number] [--repo NAME]`
 print a local pull request and its diff, read-only; they are the forge's

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from enum import IntEnum, StrEnum
+from pathlib import Path
 from typing import Self
 
 from pydantic import Field
@@ -175,9 +176,17 @@ def local_ref(base: str, repo: str | None = None) -> str:
 
     A repo with no remote (named by `repo`) has its own trunk to build on.
     """
+    checkout = active().repos[repo].path.expanduser() if repo is not None else None
+    return build_ref(checkout, base)
+
+
+def build_ref(checkout: Path | None, base: str) -> str:
+    """The ref to build on for `base` in `checkout`, the one rule `local_ref` and the local
+    forge share: a unit's branch, or the trunk of a checkout with no remote, as it is; the
+    remote's trunk otherwise. No checkout is a repo with a remote."""
     if base.startswith(active().git.branch_prefix):
         return base
-    if repo is not None and not has_origin(active().repos[repo].path.expanduser()):
+    if checkout is not None and not has_origin(checkout):
         return base
     return f"origin/{base}"
 

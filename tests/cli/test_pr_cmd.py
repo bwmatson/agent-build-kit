@@ -119,19 +119,32 @@ def test_the_default_repo_is_found_from_a_worktree_outside_the_checkout(
     tree = tmp_path / "tree"
     git(opened.repo, "worktree", "add", "-q", str(tree), HEAD)
     monkeypatch.chdir(tree)
+    # As an agent runs it: no `--config`, only the environment the pipeline gave it.
+    monkeypatch.setenv("ABK_CONFIG", str(opened.config))
 
-    assert opened.run("pr", "view") == 0
+    assert main(["pr", "view"]) == 0
 
     assert "Register the marker" in capsys.readouterr().out
 
 
-def test_neither_command_changes_anything(opened: Opened) -> None:
+def test_neither_command_changes_anything(
+    opened: Opened, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Something to record: new work on the branch, then the trunk fast-forwarded onto it.
+    git(opened.repo, "checkout", "-q", HEAD)
+    (opened.repo / "more.txt").write_text("more\n")
+    git(opened.repo, "add", "more.txt")
+    git(opened.repo, "commit", "-q", "-m", "more")
+    git(opened.repo, "checkout", "-q", "main")
+    git(opened.repo, "merge", "-q", "--ff-only", HEAD)
     before = opened.snapshot()
+    capsys.readouterr()
 
     assert opened.run("pr", "view", "--repo", "app", str(opened.number)) == 0
     assert opened.run("pr", "diff", "--repo", "app", str(opened.number)) == 0
 
     assert opened.snapshot() == before
+    assert "state: merged" in capsys.readouterr().out
 
 
 def test_a_pull_request_that_does_not_exist_is_an_error(opened: Opened) -> None:

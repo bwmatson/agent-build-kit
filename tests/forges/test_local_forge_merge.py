@@ -6,6 +6,7 @@ merge is done with git, and the forge's listing is read back.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -116,3 +117,27 @@ def test_a_branch_deleted_without_a_merge_is_still_open(local: Local) -> None:
     git(local.repo, "branch", "-q", "-D", HEAD)
 
     assert local.listed().state == "open"
+
+
+def stored_pull(local: Local) -> dict:
+    stored = json.loads((local.forge.state_dir / "local-prs.json").read_text())
+    return stored[next(iter(stored))][0]
+
+
+def test_a_branch_reset_onto_the_trunk_is_not_merged(local: Local) -> None:
+    assert local.listed().state == "open"
+    tip = stored_pull(local)["tip"]
+
+    git(local.repo, "branch", "-f", HEAD, "main")
+
+    assert local.listed().state == "open"
+    assert stored_pull(local)["state"] == "open"
+    assert stored_pull(local)["tip"] == tip
+
+    # new work on the reset branch is its own, and the pull request stays open
+    git(local.repo, "checkout", "-q", HEAD)
+    commit(local.repo, "again.txt")
+    git(local.repo, "checkout", "-q", "main")
+
+    assert local.listed().state == "open"
+    assert stored_pull(local)["tip"] == git(local.repo, "rev-parse", HEAD)

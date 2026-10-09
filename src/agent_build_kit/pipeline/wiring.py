@@ -34,6 +34,8 @@ from typing import Protocol
 
 from agent_build_kit import forges, infra, profiles, runtimes
 from agent_build_kit.config import (
+    CONFIG_ENV,
+    CONFIG_FILENAME,
     ProjectConfig,
     RepoConfig,
     active,
@@ -288,6 +290,10 @@ def build_run(
         handle: object = None
         if source is not None:
             env, handle = source.begin(place)
+        # Where the installation's abk.yaml is, for the `abk` commands an agent may run from a
+        # worktree that sits outside the planning repo.
+        if (root := active_root()) is not None:
+            env = {**env, CONFIG_ENV: str(root / CONFIG_FILENAME)}
         spent: list[Spend] = []
 
         def spend() -> Spend:
