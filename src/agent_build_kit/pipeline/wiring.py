@@ -1271,6 +1271,42 @@ def build_resume_at(
     return resume_at
 
 
+def build_usage_gate(
+    *,
+    usage: Callable[[], UsageReading | None] | None = None,
+    decide: Callable[[UsageReading | None], Decision] | None = None,
+) -> tuple[Callable[[], tuple[bool, str]], Callable[[], datetime | None]]:
+    """`may_start` and `resume_at` for one gate, taking one reading between them.
+
+    A gate asks whether a start is allowed and, when it is not, when to look
+    again. Both answers come from the reading the first took, so a refusal is
+    one read of usage and its reason and its deadline describe the same moment.
+    """
+    usage = usage or current_usage
+    decide = decide or may_start_unit
+    held: list[tuple[UsageReading | None, Decision]] = []
+
+    def may_start() -> tuple[bool, str]:
+        runtime = runtimes.active()
+        if not runtime.supports_usage_tracking:
+            held.clear()
+            return True, f"runtime {runtime.name} has no usage window"
+        reading = usage()
+        decision = decide(reading)
+        held[:] = [(reading, decision)]
+        return decision.may_start, decision.reason
+
+    def resume_at() -> datetime | None:
+        if not held:
+            return build_resume_at(usage=usage, decide=decide)()
+        reading, decision = held[0]
+        if not decision.may_start and decision.resume_at:
+            return decision.resume_at
+        return reading.resets_at if reading else None
+
+    return may_start, resume_at
+
+
 class Tier2Session:
     """One unit's tier 2 run, and the status that follows it.
 
@@ -1987,6 +2023,7 @@ def build_runner(
         transcript=transcript,
         record_for=record_for,
     )
+    gate_may_start, gate_resume_at = build_usage_gate()
     return UnitRunner(
         store=store,
         planning_repo=planning_repo,
@@ -1996,8 +2033,8 @@ def build_runner(
         head_reachable=head_reachable,
         tests_in=tests_in,
         tests_changed=tests_changed,
-        may_start=build_may_start(),
-        resume_at=build_resume_at(),
+        may_start=gate_may_start,
+        resume_at=gate_resume_at,
         run=run,
         run_review=build_run_review(
             planning_repo=planning_repo,

@@ -18,7 +18,9 @@
   reading is reused for fifteen minutes (`usage_cache_minutes`) by every process, a rate-limit
   answer starts a cool-down that all processes honour, a timeout is retried once, and a failed
   call falls back to the last good reading younger than `usage_fallback_minutes` before the
-  editor's. The cause of a failed call is logged.
+  editor's. The cause of a failed call is logged once per tick, a refused start names the rate
+  limit and when the next call is made, an expired token answered with an HTTP error is still
+  refreshed, and a unit's gate takes one reading for both its answer and its resume time.
 
 - A runtime that names no models, such as ACP, now builds units: the nodes that write tests,
   implement, fix checks, rework and adapt, and a continued session, no longer fail at once with

@@ -57,13 +57,15 @@ class Response:
         return self._raw.read(*args)
 
 
-def too_many_requests(retry_after: str | None = "900") -> urllib.error.HTTPError:
+def http_error(code: int, message: str, retry_after: str | None = None) -> urllib.error.HTTPError:
     headers = Message()
     if retry_after is not None:
         headers["Retry-After"] = retry_after
-    return urllib.error.HTTPError(
-        usage_guard.USAGE_URL, 429, "Too Many Requests", headers, io.BytesIO(b"")
-    )
+    return urllib.error.HTTPError(usage_guard.USAGE_URL, code, message, headers, io.BytesIO(b""))
+
+
+def too_many_requests(retry_after: str | None = "900") -> urllib.error.HTTPError:
+    return http_error(429, "Too Many Requests", retry_after)
 
 
 class Host:
@@ -85,6 +87,7 @@ class Host:
         monkeypatch.setattr("urllib.request.urlopen", self.urlopen)
         monkeypatch.setattr("time.sleep", self.sleeps.append)
         config_module.activate(WorkspaceConfig(), None)
+        usage_guard.forget_logged_failures()
 
     def urlopen(self, request: object, timeout: float | None = None) -> Response:
         self.calls += 1
@@ -357,3 +360,145 @@ def test_a_failure_is_not_cached_as_a_reading(host: Host) -> None:
     assert host.calls == 3
     assert reading is not None
     assert (reading.session_pct, reading.source) == (9, "live")
+
+
+# --- review round ----------------------------------------------------------------
+
+
+def cooldown_end(host: Host) -> datetime:
+    return datetime.fromisoformat(json.loads(host.cache.read_text())["cooldown_until"])
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [("900", timedelta(minutes=15)), (None, usage_guard.DEFAULT_COOLDOWN)],
+)
+def test_the_cool_down_lasts_what_the_answer_names_or_the_default(
+    host: Host, retry_after: str | None, expected: timedelta
+) -> None:
+    host.answers = [too_many_requests(retry_after)]
+    before = datetime.now(UTC)
+
+    current_usage()
+
+    assert abs(cooldown_end(host) - (before + expected)) < timedelta(seconds=30)
+
+
+def test_the_endpoint_is_asked_again_once_the_cool_down_ends(host: Host) -> None:
+    host.answers = [too_many_requests()]
+    current_usage()
+    body = json.loads(host.cache.read_text())
+    body["cooldown_until"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    host.cache.write_text(json.dumps(body))
+    host.answers = [payload(session=40.0)]
+
+    reading = current_usage()
+
+    assert host.calls == 2
+    assert reading is not None
+    assert (reading.session_pct, reading.source) == (40, "live")
+
+
+def test_the_reason_names_the_rate_limit_and_when_the_next_call_is(host: Host) -> None:
+    host.keep_reading(timedelta(minutes=20), session=85.0)
+    host.answers = [too_many_requests("900")]
+
+    decision = may_start_unit(current_usage())
+
+    until = cooldown_end(host).astimezone()
+    assert not decision.may_start
+    assert "rate limited" in decision.reason
+    assert f"{until:%H:%M}" in decision.reason
+
+
+def test_an_unknown_reading_during_a_cool_down_names_the_rate_limit(host: Host) -> None:
+    host.answers = [too_many_requests("900")]
+
+    decision = may_start_unit(current_usage())
+
+    assert not decision.may_start
+    assert "rate limited" in decision.reason
+    assert f"{cooldown_end(host).astimezone():%H:%M}" in decision.reason
+
+
+def test_the_editor_s_reading_during_a_cool_down_names_the_rate_limit(host: Host) -> None:
+    host.editor_reading(timedelta(hours=6))
+    host.answers = [too_many_requests("900")]
+
+    decision = may_start_unit(current_usage())
+
+    assert "rate limited" in decision.reason
+
+
+@pytest.mark.parametrize(
+    "failure", [TimeoutError("timed out"), http_error(503, "Service Unavailable")]
+)
+def test_a_failure_that_keeps_failing_is_logged_once_across_readers(
+    host: Host, caplog: pytest.LogCaptureFixture, failure: BaseException
+) -> None:
+    cause = "HTTP 503" if isinstance(failure, urllib.error.HTTPError) else "TimeoutError"
+    host.answers = [failure] * 6
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            current_usage()
+
+    assert len([r for r in caplog.records if cause in r.getMessage()]) == 1
+
+
+def test_a_new_tick_logs_the_cause_again(host: Host, caplog: pytest.LogCaptureFixture) -> None:
+    host.answers = [TimeoutError("timed out")] * 4
+
+    with caplog.at_level(logging.WARNING):
+        current_usage()
+        usage_guard.forget_logged_failures()
+        current_usage()
+
+    assert len([r for r in caplog.records if "TimeoutError" in r.getMessage()]) == 2
+
+
+def test_an_expired_token_answered_with_401_is_refreshed_and_asked_again(
+    host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real endpoint answers an expired token with an HTTP error, which
+    `urlopen` raises as `HTTPError`, not as a plain `OSError`."""
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN")
+    credentials = host.home / "credentials.json"
+    credentials.write_text(json.dumps({"claudeAiOauth": {"accessToken": "old", "expiresAt": 1}}))
+    monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", credentials)
+    refreshed: list[bool] = []
+
+    def refresh() -> None:
+        refreshed.append(True)
+        credentials.write_text(
+            json.dumps({"claudeAiOauth": {"accessToken": "new", "expiresAt": 9_999_999_999_999}})
+        )
+
+    host.answers = [http_error(401, "Unauthorized"), payload(session=31.0)]
+
+    reading = usage_guard.read_live_usage(refresh=refresh)
+
+    assert refreshed == [True]
+    assert host.calls == 2
+    assert reading is not None
+    assert (reading.session_pct, reading.source) == (31, "live")
+
+
+def test_a_kept_reading_whose_window_has_reset_is_not_a_fallback(host: Host) -> None:
+    host.keep_reading(timedelta(minutes=10), session=95.0, resets_in=timedelta(minutes=-5))
+    host.editor_reading(timedelta(minutes=1), session=30)
+    host.answers = [TimeoutError("timed out"), TimeoutError("timed out")]
+
+    reading = current_usage()
+
+    assert reading is not None
+    assert (reading.session_pct, reading.source) == (30, "claude.json")
+
+
+def test_a_body_that_cannot_be_read_is_not_retried(host: Host) -> None:
+    host.answers = [ValueError("not json")]
+
+    current_usage()
+
+    assert host.calls == 1
+    assert host.sleeps == []

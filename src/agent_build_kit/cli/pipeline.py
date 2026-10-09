@@ -130,6 +130,7 @@ from agent_build_kit.pipeline.usage_guard import (
     RateLimited,
     UsageReading,
     current_usage,
+    forget_logged_failures,
     may_start_unit,
     threshold_at,
 )
@@ -576,6 +577,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     Ordering matters in one place: the usage check comes first, so a low
     window stops the tick before it spends anything on planning.
     """
+    forget_logged_failures()
     if is_repo(inst.root) and not restore_default_branch(
         inst.root, default_branch_of(inst.root), log
     ):

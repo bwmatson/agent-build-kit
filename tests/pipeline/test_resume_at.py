@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from agent_build_kit.pipeline.usage_guard import UsageReading, may_start_unit
-from agent_build_kit.pipeline.wiring import build_resume_at
+from agent_build_kit.pipeline.wiring import build_resume_at, build_usage_gate
 
 
 def reading(**overrides) -> UsageReading:
@@ -36,3 +36,23 @@ def test_a_guard_that_has_no_time_of_its_own_gives_the_windows_reset() -> None:
     open_window = reading()
 
     assert build_resume_at(usage=lambda: open_window)() == open_window.resets_at
+
+
+def test_a_gate_takes_one_reading_for_the_refusal_and_its_deadline() -> None:
+    full = reading(session_pct=99)
+    reads: list[UsageReading] = []
+
+    def usage() -> UsageReading:
+        reads.append(full)
+        return full
+
+    may_start, resume_at = build_usage_gate(usage=usage)
+
+    allowed, why = may_start()
+    until = resume_at()
+
+    decision = may_start_unit(full)
+    assert not allowed
+    assert why == decision.reason
+    assert until == decision.resume_at
+    assert len(reads) == 1

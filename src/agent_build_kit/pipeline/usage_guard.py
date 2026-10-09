@@ -77,6 +77,10 @@ DEFAULT_ANCHOR_PATH = Path.home() / ".claude.json"
 
 log = logging.getLogger(__name__)
 
+# The causes already logged by this process, which is a tick: one line per cause,
+# however many readers meet the failure.
+_logged_failures: set[str] = set()
+
 # After a rate-limit answer that names no time, no call is made for this long.
 DEFAULT_COOLDOWN = timedelta(minutes=5)
 
@@ -513,7 +517,9 @@ def read_live_usage(
     kept = _kept_reading(cached)
 
     def last_good() -> UsageReading | None:
-        return kept if kept is not None and now - kept.observed_at < fallback_age else None
+        if kept is None or now - kept.observed_at >= fallback_age or _past_reset(kept, now):
+            return None
+        return kept
 
     if kept is not None and ttl > timedelta(0) and now - kept.observed_at < ttl:
         if not _past_reset(kept, now):
@@ -538,44 +544,49 @@ def read_live_usage(
         )
 
     def failed(error: Exception) -> UsageReading | None:
-        cause = (
-            f"HTTP {error.code}"
-            if isinstance(error, urllib.error.HTTPError)
-            else type(error).__name__
-        )
-        log.warning("the usage endpoint failed (%s); using the last good reading if any", cause)
+        if isinstance(error, urllib.error.HTTPError):
+            cause = f"HTTP {error.code}"
+            if error.code == 429:
+                until = now + timedelta(seconds=_cooldown_seconds(error))
+                try:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(
+                        json.dumps({**cached, "cooldown_until": until.isoformat()})
+                    )
+                except (OSError, TypeError):
+                    pass
+        else:
+            cause = type(error).__name__
+        if cause not in _logged_failures:
+            _logged_failures.add(cause)
+            log.warning("the usage endpoint failed (%s); using the last good reading if any", cause)
         return last_good()
 
     try:
         payload = ask(token)
-    except urllib.error.HTTPError as error:
-        if error.code != 429:
-            return failed(error)
-        until = now + timedelta(seconds=_cooldown_seconds(error))
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps({**cached, "cooldown_until": until.isoformat()}))
-        except (OSError, TypeError):
-            pass
-        return failed(error)
     except Exception as error:
+        rate_limited = isinstance(error, urllib.error.HTTPError) and error.code == 429
+        if rate_limited:
+            return failed(error)
         # An expired token is the one failure with a known fix; see
-        # `refresh_login`. Only for the saved token, never one passed in.
+        # `refresh_login`. Only for the saved token, never one passed in, and
+        # whatever the failure was: an expired token is answered with a 401.
         if given is None and (expired or token_expired)():
             (refresh or refresh_login)()
             fresh = read_oauth_token()
             if not fresh or fresh == token:
                 return failed(error)
-            try:
-                payload = ask(fresh)
-            except Exception as again:
-                return failed(again)
-        else:
+            retry_with = fresh
+        elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):
+            # A timeout or a connection error: once more after a short delay.
             time.sleep(RETRY_DELAY_SECONDS)
-            try:
-                payload = ask(token)
-            except Exception as again:
-                return failed(again)
+            retry_with = token
+        else:
+            return failed(error)
+        try:
+            payload = ask(retry_with)
+        except Exception as again:
+            return failed(again)
 
     reading = _reading_from_payload(payload, observed_at=now, source="live")
     if reading is None:
@@ -620,9 +631,34 @@ def read_cached_usage(path: Path | None = None) -> UsageReading | None:
         return None
 
 
+def forget_logged_failures() -> None:
+    """Start a tick: a failure's cause is logged again the first time it recurs."""
+    _logged_failures.clear()
+
+
+def rate_limit_note(cache_path: Path | None = None) -> str | None:
+    """Words for an endpoint cool-down in force and when it ends, else None."""
+    try:
+        until = datetime.fromisoformat(_load_cache(cache_path or _cache_file())["cooldown_until"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if until <= datetime.now(UTC):
+        return None
+    return f"rate limited until {_hhmm(until)}"
+
+
 def current_usage() -> UsageReading | None:
-    """The best reading available: live if possible, else the local cache."""
-    return read_live_usage() or read_cached_usage()
+    """The best reading available: live if possible, else the local cache.
+
+    While the endpoint is rate limited, a reading that is not live says so in
+    its source, so the reason a start was refused names the rate limit and
+    when the next call will be made.
+    """
+    reading = read_live_usage() or read_cached_usage()
+    note = rate_limit_note()
+    if reading is not None and note is not None and not reading.is_live:
+        return reading.model_copy(update={"source": f"{reading.source} ({note})"})
+    return reading
 
 
 # The shapes a refusal has been seen to arrive in. Not a contract — Claude
@@ -688,9 +724,11 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
     now = datetime.now(UTC)
 
     if reading is None:
+        note = rate_limit_note()
         return Decision(
             may_start=False,
-            reason="usage is unknown: neither the usage endpoint nor ~/.claude.json could be read",
+            reason="usage is unknown: neither the usage endpoint nor ~/.claude.json could be read"
+            + (f" (the usage endpoint is {note})" if note else ""),
             resume_at=now + UNKNOWN_RETRY,
         )
 
