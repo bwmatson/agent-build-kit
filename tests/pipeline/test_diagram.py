@@ -10,6 +10,7 @@ by repo, marking cross-repo edges, and staying diff-friendly when it is
 regenerated.
 """
 
+import re
 from pathlib import Path
 
 from agent_build_kit.pipeline.diagram import in_view, render_markdown, render_mermaid, write_page
@@ -286,3 +287,12 @@ def test_an_independent_unit_is_drawn_with_no_edge_from_its_predecessor() -> Non
     edges = [line.strip() for line in render_mermaid(stored).splitlines() if "->" in line]
 
     assert edges == ["feature_1 --> feature_2"]
+
+
+def test_a_priority_that_is_not_normal_shows_a_badge() -> None:
+    diagram = render_mermaid([unit("a", priority=1), unit("b"), unit("c", priority=4)])
+
+    nodes = {line.strip().split("[")[0]: line for line in diagram.splitlines() if "[" in line}
+    assert re.search(r"priority 1|P1", nodes["a"])
+    assert re.search(r"priority 4|P4", nodes["c"])
+    assert not re.search(r"priority|P\d", nodes["b"])
