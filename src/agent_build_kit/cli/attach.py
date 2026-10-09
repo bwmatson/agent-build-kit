@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from typing import Any
 
+from agent_build_kit.cli.pipeline import branch_is_held
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import attach
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import HELD
 
 
 def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
@@ -20,6 +23,9 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
     if args.commit is not None and args.discard:
         print("abk attach release: choose --commit or --discard, not both")
         return 2
+    if unit.branch and branch_is_held(inst, unit.branch):
+        print(f"{unit.id}: a step is running on the unit; nothing was changed")
+        return 1
     files = attach.changes_of(inst, unit)
     if files and args.commit is None and not args.discard:
         print(
@@ -32,13 +38,21 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
         attach.discard(inst, unit)
         print(f"{unit.id}: discarded {len(files)} file(s); released")
     elif args.commit is not None and files:
-        head = attach.commit(inst, unit, args.commit)
+        try:
+            head = attach.commit(inst, unit, args.commit)
+        except subprocess.CalledProcessError as error:
+            output = (error.stdout or "") + (error.stderr or "")
+            print(f"{unit.id}: the commit was rejected; the changes and the lease are kept")
+            print(output.strip() or str(error))
+            return 1
         print(f"{unit.id}: committed {head[:9]}; released")
     elif leases.attachment(unit.id) is None:
         print(f"{unit.id} is not attached")
     else:
         leases.drop(unit.id)
         print(f"{unit.id}: released")
+    if unit.state == HELD and unit.cause is Cause.ATTACHED:
+        print(f"{unit.id} is still held as attached: `abk requeue {unit.id}` gives it another go")
     return 0
 
 

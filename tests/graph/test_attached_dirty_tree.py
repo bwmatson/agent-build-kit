@@ -14,7 +14,10 @@ from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
+from agent_build_kit.pipeline.units import FAILED
+from agent_build_kit.serve.chat import Chat
 from tests.attach_driver import leave_lease
+from tests.conftest import make_installation
 from tests.graph.test_resume_over_leftovers import (
     STRAY,
     UNIT,
@@ -22,7 +25,7 @@ from tests.graph.test_resume_over_leftovers import (
     killed_in,
     rework_event,
 )
-from tests.graph_driver import fresh, tick
+from tests.graph_driver import fresh, position, tick
 from tests.leftovers_driver import LEFTOVER, Habitat, Hands
 
 
@@ -72,4 +75,24 @@ def test_a_stale_lease_with_changes_wins_over_a_killed_nodes_recorded_start(
     assert recorder.store.get(UNIT).cause == Cause("attached")
     assert len(habitat.runtime.requests) == asked, "the node was not resumed"
     assert (habitat.tree / LEFTOVER).exists(), "and its leftovers were not committed"
+    assert git_out(habitat.tree, "status", "--porcelain").split() == ["??", LEFTOVER]
+
+
+def test_taking_a_lease_over_a_killed_nodes_start_clears_it_and_keeps_the_leftovers(
+    tmp_path: Path,
+) -> None:
+    """The files that run left are taken over with the chat's, so no later run of the node
+    takes them for its own."""
+    habitat, recorder = killed_in(tmp_path, "implement")
+    before = position(tmp_path).state
+    assert before is not None and before.running_node == "implement"
+    recorder.store.set_state(UNIT, FAILED, note="killed", cause=Cause.FAILED)
+    inst = make_installation(tmp_path, planning=dict(state_dir="state"))
+    chat = Chat(inst, units=recorder.store.all, recorded_session=lambda unit_id: None)
+
+    assert chat.claim(recorder.store.get(UNIT), "t1") is True
+
+    state = position(tmp_path).state
+    assert state is not None and state.running_node == ""
+    assert (habitat.tree / LEFTOVER).exists()
     assert git_out(habitat.tree, "status", "--porcelain").split() == ["??", LEFTOVER]

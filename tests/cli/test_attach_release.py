@@ -12,6 +12,9 @@ from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import HELD
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.attach_driver import changed_files, checked_out, head, leave_lease
 from tests.conftest import make_installation
 from tests.factories import git
@@ -117,3 +120,51 @@ def test_releasing_a_unit_that_is_not_attached_says_so(
 
 def test_an_unknown_unit_is_refused(inst: Installation) -> None:
     assert main(["attach", "release", "feature/99", "--discard"]) != 0
+
+
+def test_a_unit_with_a_step_running_is_left_alone_by_either_flag(
+    inst: Installation, tree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = head(tree)
+
+    with branch_lock("spec/feature/2", root=inst.state_dir / "locks"):
+        discarded = main(["attach", "release", UNIT, "--discard"])
+        committed = main(["attach", "release", UNIT, "--commit", "half done"])
+
+    assert (discarded, committed) == (1, 1)
+    assert "step is running" in capsys.readouterr().out
+    assert changed_files(tree) == ["base.txt", "new.py"], "the running agent's work stays"
+    assert head(tree) == before
+    kept = attachment(inst)
+    assert kept is not None and kept.changed == 2
+
+
+def test_a_rejected_commit_prints_the_hook_output_and_keeps_the_changes_and_the_lease(
+    inst: Installation, tree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hooks = Path(git(tree, "rev-parse", "--git-common-dir").strip()).resolve() / "hooks"
+    hooks.mkdir(exist_ok=True)
+    hook = hooks / "pre-commit"
+    hook.write_text("#!/bin/sh\necho 'lint: no trailing spaces' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    before = head(tree)
+
+    assert main(["attach", "release", UNIT, "--commit", "try"]) == 1
+
+    assert "lint: no trailing spaces" in capsys.readouterr().out
+    assert head(tree) == before
+    assert sorted(git(tree, "diff", "HEAD", "--name-only").split()) == ["base.txt", "new.py"]
+    kept = attachment(inst)
+    assert kept is not None and kept.changed == 2
+
+
+def test_releasing_a_unit_held_as_attached_says_it_still_needs_a_requeue(
+    inst: Installation, tree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    UnitStore(inst.state_dir / "units.json").set_state(
+        UNIT, HELD, note="uncommitted changes from a chat", cause=Cause.ATTACHED
+    )
+
+    assert main(["attach", "release", UNIT, "--discard"]) == 0
+
+    assert f"abk requeue {UNIT}" in capsys.readouterr().out

@@ -8,8 +8,11 @@
   files and outlives the page and the server, so the tick never mistakes them for a killed
   run's leftovers: it parks the unit as `attached` and `abk status` lists it with the number
   of files. `abk attach release <unit>` ends the attachment with `--commit MESSAGE` or
-  `--discard`, a started server takes over what a server left, and the page can list and
-  discard the changes. A unit paused mid-step is read-only with that reason.
+  `--discard` (never while a step is running on the unit, and a rejecting hook prints its
+  output and keeps the changes), a started server takes over what a server left, and the
+  page can list and discard the changes, including those it took over. A unit the store has
+  as running, paused or not, is read-only with that reason, and taking a lease clears a
+  killed run's recorded start so its files are the chat's.
 
 - New `abk approve <unit>`, and the web UI's approve button now works: both record your
   approval of the unit's current review round, with the head commit of its pull request, and

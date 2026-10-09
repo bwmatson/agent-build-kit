@@ -19,8 +19,9 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
+from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.serve.server import start_server
 from tests.attach_driver import changed_files, checked_out, head, leave_lease
@@ -282,9 +283,10 @@ def test_only_a_unit_in_a_stable_state_accepts_a_chat(
     for held_unit in ("feature/5", "feature/6"):
         record_session(inst, held_unit, BUILD_SESSION, runtime="claude_code")
     record_session(inst, "feature/7", FREE_SESSION, runtime="claude_code")
-    UnitStore(inst.state_dir / "units.json").set_state(
-        "feature/7", RUNNING, note="waiting out the usage window", cause=Cause.USAGE
-    )
+    store = UnitStore(inst.state_dir / "units.json")
+    # Paused for the usage window part-way through a rework of a review's comments.
+    store.set_feedback("feature/7", "rename it", source=FeedbackSource.REVIEW)
+    store.set_state("feature/7", RUNNING, note="waiting out the usage window", cause=Cause.USAGE)
 
     def composer(unit: str) -> dict:
         return api.get(f"/api/units/{unit}/agent", params={"tab": "t1"}).json()["composer"]
@@ -296,6 +298,11 @@ def test_only_a_unit_in_a_stable_state_accepts_a_chat(
     assert paused["enabled"] is False
     assert "paused" in paused["reason"].lower()
     assert "step is running" not in paused["reason"].lower()
+
+    reply = api.post("/api/units/feature/7/chat", json={"tab": "t1", "prompt": "Go on."})
+
+    assert reply.status_code == 409
+    assert Leases(lease_dir(inst.state_dir)).attachment("feature/7") is None, "no lease left"
 
 
 # --- the server takes over what a server left ---------------------------------------------------
@@ -315,3 +322,49 @@ def test_a_server_that_starts_takes_over_a_stale_lease_with_changes(
     assert taken is not None
     assert (taken.stale, taken.changed) == (False, 1)
     assert (tree / "notes.txt").read_text() == "left by a chat\n", "nothing was touched"
+
+
+def test_a_restarted_server_lets_a_fresh_page_discard_what_it_took_over(
+    inst: Installation, tree: Path
+) -> None:
+    (tree / "notes.txt").write_text("left by a chat\n")
+    leave_lease(lease_dir(inst.state_dir), UNIT, files=1)
+
+    with start_server(inst) as server, httpx.Client(base_url=server.url) as api:
+        refused = api.delete(f"{REVIEW}/lease", params={"tab": "fresh"})
+        discarded = api.post(f"{REVIEW}/discard", json={"tab": "fresh", "confirmed": True})
+
+    assert refused.status_code == 409, "a lease with changes is not released"
+    assert discarded.status_code == 200
+    assert changed_files(tree) == []
+    assert attachment(inst) is None
+
+
+# --- discard never runs under a step ------------------------------------------------------------
+
+
+def test_discard_is_refused_while_a_step_holds_the_units_branch(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    edits(monkeypatch, tree)
+    turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "Add a note."})
+
+    with branch_lock("spec/feature/2", root=inst.state_dir / "locks"):
+        refused = api.post(f"{REVIEW}/discard", json={"tab": "t1", "confirmed": True})
+
+    assert refused.status_code == 409
+    assert "step is running" in refused.text
+    assert (tree / "notes.txt").exists(), "the running agent's work is where it was"
+    kept = attachment(inst)
+    assert kept is not None and kept.changed == 1
+
+
+def test_discard_with_nothing_attached_is_refused(
+    inst: Installation, tree: Path, api: httpx.Client
+) -> None:
+    (tree / "notes.txt").write_text("by hand\n")
+
+    refused = api.post(f"{REVIEW}/discard", json={"tab": "t1", "confirmed": True})
+
+    assert refused.status_code == 409
+    assert (tree / "notes.txt").exists()

@@ -73,13 +73,21 @@ def unit_worktree(installation: Installation, unit_id: str) -> Path:
 
 
 def record_session(
-    installation: Installation, unit_id: str, session: str, *, runtime: str, model: str = "m"
+    installation: Installation,
+    unit_id: str,
+    session: str,
+    *,
+    runtime: str,
+    model: str = "m",
+    running_node: str = "",
+    after: Node = Node.AWAIT_REVIEW,
 ) -> None:
     """The unit's thread, waiting in review, with `session` as its build session."""
     change = unit_id.split("/")[0]
     state = UnitRun(
         unit_id=unit_id,
         change=change,
+        running_node=running_node,
         sessions={
             SessionRole.BUILD: AgentSession(
                 session_id=session,
@@ -94,7 +102,7 @@ def record_session(
 
     async def write() -> None:
         async with open_checkpointer(unit_graphs_path(installation.state_dir)) as saver:
-            await seed_thread(saver, state, as_node=Node.AWAIT_REVIEW)
+            await seed_thread(saver, state, as_node=after)
 
     asyncio.run(write())
 

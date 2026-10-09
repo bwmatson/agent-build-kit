@@ -1024,6 +1024,48 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   that died holds nothing. It is released explicitly, or when the tab's event stream closes
   and no turn that tab started is still running: a turn is never left editing a worktree the
   tick has taken back.
+- The lease is also the attachment. Its record holds the holder, the process that took it
+  and when that process started, plus the checkouts the chat covers, the number of files
+  those checkouts hold uncommitted (recorded after every turn), the session and runtime, the
+  branch head when it was taken, and a marker for a commit made and not yet delivered. A
+  record written without the new fields reads as before. A lease whose process has gone
+  and which holds no changes and no marker holds nothing, as it always did; one that holds
+  changes or the marker is a *stale lease*: it stays, no process holds it, and it is
+  resolved by a person. Closing a page releases only a lease that holds nothing; a lease with
+  changes stays and refuses `DELETE /lease`. A server that starts takes over every stale lease
+  with changes (holder `server`); the first page to chat, or to discard, takes it from there.
+- A chat attaches only while the unit is in review, held or failed. A unit the store has as
+  `running` is refused even when no process holds its branch (a pause for the usage window,
+  in a rework or not): its composer is disabled with the reason, and `claim` answers 409.
+  Taking a new lease also clears the checkpoint's `running_node`, so the files a killed
+  node left are the chat's from then on and a later run of that node does not take them as
+  its own.
+- A turn is policed by who runs it, decided by the session the unit's record names, not by
+  the directory it runs in. The unit's own session, resumed, carries the pipeline's policy
+  (worktree only, never the specs) plus `no_commit` beside `no_push`; any other session,
+  started here or in an editor, carries `ToolPolicy(scoped=False, no_commit=True)`: none of
+  the pipeline's rules, but `git commit` and `git push` refused, since the server started it.
+  Under Claude the hook runs with `--no-commit`, and `--refusals-only` for the second kind;
+  the ACP broker applies the same two.
+- What the tick does with a dirty worktree depends on the lease and on the thread's
+  `running_node`:
+
+  | lease | `running_node` | the tick |
+  |---|---|---|
+  | held by a live process | any | leaves the unit alone; `abk status` lists it as attached with the number of files |
+  | stale, marked as holding changes | any | commits and continues nothing; holds the unit with the cause `attached` |
+  | none | names the node being re-run | failure leftovers: resumes over them, the node's commit includes them |
+  | none | none | holds the unit as an unexplained dirty tree (`dirty_worktree`) |
+
+- `abk attach release <unit>` ends an attachment without the server: `--commit MESSAGE`
+  commits every change and releases, `--discard` restores the tree to the branch head
+  (tracked files reset, new files removed) and releases, and a dirty tree given neither is
+  refused. Both refuse while a step holds the unit's branch, and a commit a hook rejects
+  prints the hook's output and keeps the changes and the lease. A unit the tick held as
+  `attached` stays held afterwards; `abk requeue` returns it. The page does the same with
+  `GET .../changes` (the files at stake), `POST .../discard` (confirmed, refused while a step
+  runs or with nothing attached, and accepted for a lease the restarted server holds) and
+  the refused release above.
 - A page is a tab for as long as it is shown. The agent tab holds its tab open with its own
   event stream; the sessions page, which is not any one unit's, holds `/api/tabs/events`
   open for the whole page, whichever session or new-session form it is on. Either stream
@@ -1035,8 +1077,9 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   session forks it (Claude's `--fork-session`; for ACP, a new session seeded with the
   history); the first is never written to. An ACP agent that does not advertise both `session/resume` and `session/list`
   cannot resume, so its session is shown from the recorded history and continued as a new
-  seeded session. A Claude session whose directory is a unit's worktree is the unit's: it is
-  refused while a step runs, goes under the lease and carries the pipeline's tool policy.
+  seeded session. A Claude session whose directory is a unit's worktree goes under the unit's
+  lease and is refused while a step runs; it carries the pipeline's tool policy only when it
+  is the session the unit recorded.
 - A turn on a unit's session runs on the model that session recorded.
 - A permission request is offered to the browser (`AgentRequest.on_permission`) only after
   abk's own command rules allowed the call, and only as allow once or a refusal: an "always"

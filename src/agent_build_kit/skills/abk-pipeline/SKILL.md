@@ -112,6 +112,18 @@ cleaned, since the changes may be the only copy. Commit or remove them, then
 else again at `prepare`. A requeue while the tree is still dirty leaves it parked. Changes an agent left when it was killed
 mid-run are not this: the node resumes over them and commits them.
 
+### Attached to a chat
+
+A `held` unit with the cause `attached` has uncommitted changes in its worktree
+that a chat in `abk serve` left, under a lease whose server has since gone. The tick
+commits and continues nothing over them. `abk status` lists the unit as `attached`
+with the number of files (a chat that is still open is listed too, and the unit is left
+alone). Either start `abk serve` again, which takes the lease over so the page can commit or
+discard, or run `abk attach release <unit> --commit "MESSAGE"` to commit them or
+`abk attach release <unit> --discard` to restore the tree; with neither, a dirty tree is
+refused. The command refuses while a step is running on the unit. The unit stays held
+afterwards: `abk requeue <unit>` returns it.
+
 ### `failed`
 
 The run raised an exception, or its checks failed; its last log line in the

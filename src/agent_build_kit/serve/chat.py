@@ -24,7 +24,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_build_kit import runtimes
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import AgentSession
+from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -38,7 +40,7 @@ from agent_build_kit.pipeline.transcript import (
     unit_transcript_files,
 )
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
-from agent_build_kit.pipeline.vocabulary import effective_state
+from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
 from agent_build_kit.runtimes.base import (
     AgentRequest,
@@ -182,14 +184,33 @@ class Chat:
     def running(self, unit: StoredUnit) -> bool:
         units = self._units()
         fresh = next((u for u in units if u.id == unit.id), unit)
-        return effective_state(fresh, units) == "running"
+        # Whatever it is doing (rework, rebase, a pause for usage), a unit the store has as
+        # running is part-way through a node, and not one a chat attaches to.
+        return fresh.state == RUNNING
+
+    def step_active(self, unit: StoredUnit) -> bool:
+        """Whether a process is working on the unit's branch right now."""
+        from agent_build_kit.cli.pipeline import branch_is_held
+
+        return bool(unit.branch) and branch_is_held(self.installation, unit.branch)
+
+    def forget_start(self, unit: StoredUnit) -> None:
+        """Clear the start a killed node left in the unit's thread: the files it left are
+        taken over with the chat's."""
+        path = unit_graphs_path(self.installation.state_dir)
+        if not path.exists():
+            return
+
+        async def clear() -> None:
+            async with open_checkpointer(path) as saver:
+                await clear_running_node(saver, unit.id)
+
+        asyncio.run(clear())
 
     def claim(self, unit: StoredUnit, tab: str, session: str = "", runtime: str = "") -> bool:
         """Take the unit's lease for `tab`, and only then check that no step runs on the
         unit: a tick that started one in between is seen here, and one that comes after
         finds the lease. True when the lease is new."""
-        from agent_build_kit.cli.pipeline import branch_is_held
-
         mine = f"tab:{tab}"
         had = self.leases.holder(unit.id) == mine
         before = self.leases.attachment(unit.id)
@@ -207,10 +228,12 @@ class Chat:
             unit.id, mine, checkouts=("worktree",), session=session, runtime=runtime, head=head
         ):
             raise _conflict("another tab holds the lease")
-        if self.running(unit) or (unit.branch and branch_is_held(self.installation, unit.branch)):
+        if self.running(unit) or self.step_active(unit):
             if not had and not kept:
                 self.leases.release(unit.id, mine)
             raise _conflict("a step is running on the unit")
+        if not had:
+            self.forget_start(unit)
         return not had
 
     def leased(
@@ -512,7 +535,7 @@ def register(
         pids = chat.session_holders(recorded.runtime, recorded.session_id) if recorded else []
         mine = f"tab:{tab}"
         state = "attached" if holder else "paused"
-        if running and unit.cause is Cause.USAGE:
+        if running and unit.cause is Cause.USAGE and not chat.step_active(unit):
             state, enabled, reason = (
                 "paused",
                 False,
@@ -667,7 +690,7 @@ def register(
     def release(change: str, number: str, tab: str = "") -> Response:
         unit = chat.unit(change, number)
         held = chat.leases.attachment(unit.id)
-        if held is not None and held.changed and held.holder == f"tab:{tab}":
+        if held is not None and held.changed and held.holder in (f"tab:{tab}", SERVER):
             raise _conflict(
                 f"{held.changed} file(s) are changed and uncommitted: commit or discard them"
             )
@@ -685,8 +708,12 @@ def register(
         unit = chat.unit(change, number)
         if not body.confirmed:
             raise HTTPException(status_code=400, detail="discarding needs a confirmation")
+        if chat.running(unit) or chat.step_active(unit):
+            raise _conflict("a step is running on the unit")
         held = chat.leases.attachment(unit.id)
-        if held is not None and not held.stale and held.holder != f"tab:{body.tab}":
+        if held is None:
+            raise _conflict("nothing is attached to the unit")
+        if not held.stale and held.holder not in (f"tab:{body.tab}", SERVER):
             raise _conflict(f"{held.holder} holds the lease")
         files = attach.changes_of(installation, unit)
         attach.discard(installation, unit)
