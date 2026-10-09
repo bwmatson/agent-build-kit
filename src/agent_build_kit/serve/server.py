@@ -1,5 +1,6 @@
 """The server `abk serve` runs: a read API over the unit store, the usage ledger,
-the run logs and the checkpoint store, bound to the loopback address only."""
+the run logs and the checkpoint store, plus a unit's review diff and the review store,
+bound to the loopback address only."""
 
 from __future__ import annotations
 
@@ -9,12 +10,12 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import aiosqlite
 import uvicorn
@@ -22,10 +23,12 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, PlainTextResponse
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from pydantic import Field, model_validator
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of
@@ -33,6 +36,16 @@ from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.serve.metrics import dashboard_uid, metrics_page
+from agent_build_kit.serve.review import (
+    Decision,
+    NoDiff,
+    ReviewStore,
+    Thread,
+    branch_tip,
+    placed,
+    resolve_commit,
+    unit_diff,
+)
 from agent_build_kit.settings import settings
 
 HOST = "127.0.0.1"
@@ -41,6 +54,35 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _STAMPED = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\] ?(.*)$")
 _OUTCOME = "outcome: "
+
+
+class ThreadIn(Frozen):
+    path: str
+    side: Literal["old", "new"] = "new"
+    line: int = Field(ge=1)
+    start_line: int | None = Field(default=None, ge=1)
+    # The commit of the diff the reviewer was looking at; the branch tip when omitted.
+    commit: str | None = None
+    body: str
+
+    @model_validator(mode="after")
+    def _range_runs_forward(self) -> Self:
+        if self.start_line is not None and self.start_line > self.line:
+            raise ValueError("start_line is after line")
+        return self
+
+
+class ReplyIn(Frozen):
+    body: str
+
+
+class ResolveIn(Frozen):
+    resolved: bool
+
+
+class DecisionIn(Frozen):
+    decision: Decision
+    summary: str = ""
 
 
 def _read_units(path: Path) -> list[StoredUnit]:
@@ -185,6 +227,94 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             "merge_gates": related(unit.merge_before, units),
             "review_round": _review_round(installation, unit.id),
         }
+
+    reviews = ReviewStore(installation.state_dir / "reviews")
+
+    def checkout(unit: StoredUnit) -> Path:
+        path = installation.checkouts.get(unit.repo)
+        if path is None or not unit.branch:
+            raise HTTPException(status_code=409, detail=f"{unit.id} has no branch to review")
+        return path
+
+    def placed_thread(repo: Path, unit: StoredUnit, thread: Thread) -> dict[str, Any]:
+        return placed(repo, thread, branch_tip(repo, unit.branch)).model_dump()
+
+    @app.get("/api/units/{change}/{number}/diff")
+    def diff(change: str, number: str, commit: str | None = None) -> dict[str, Any]:
+        unit, units = find(change, number)
+        repo = checkout(unit)
+        try:
+            return unit_diff(
+                repo, base=base_of(unit, units), branch=unit.branch, commit=commit
+            ).model_dump()
+        except NoDiff as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+
+    @app.get("/api/units/{change}/{number}/review")
+    def review(change: str, number: str) -> dict[str, Any]:
+        unit, _ = find(change, number)
+        stored = reviews.read(unit.id)
+        repo = installation.checkouts.get(unit.repo)
+        tip = branch_tip(repo, unit.branch) if repo else None
+        threads = [placed(repo, t, tip) for t in stored.threads] if repo else stored.threads
+        return {
+            "round": _review_round(installation, unit.id) or 1,
+            "threads": [t.model_dump() for t in threads],
+            "decisions": [d.model_dump() for d in stored.decisions],
+        }
+
+    @app.post("/api/units/{change}/{number}/review/threads")
+    def add_thread(change: str, number: str, body: ThreadIn) -> dict[str, Any]:
+        unit, _ = find(change, number)
+        repo = checkout(unit)
+        tip = resolve_commit(repo, body.commit) if body.commit else branch_tip(repo, unit.branch)
+        if tip is None:
+            raise HTTPException(
+                status_code=409, detail=f"{body.commit or unit.branch} is not a commit to review"
+            )
+        thread = reviews.add_thread(
+            unit.id,
+            path=body.path,
+            side=body.side,
+            line=body.line,
+            start_line=body.start_line,
+            commit=tip,
+            body=body.body,
+        )
+        return thread.model_dump()
+
+    def thread_answer(
+        change: str, number: str, thread: Callable[[StoredUnit], Thread | None]
+    ) -> dict[str, Any]:
+        unit, _ = find(change, number)
+        found = thread(unit)
+        if found is None:
+            raise HTTPException(status_code=404, detail="no such thread")
+        repo = installation.checkouts.get(unit.repo)
+        return placed_thread(repo, unit, found) if repo else found.model_dump()
+
+    @app.post("/api/units/{change}/{number}/review/threads/{thread_id}/replies")
+    def reply(change: str, number: str, thread_id: str, body: ReplyIn) -> dict[str, Any]:
+        return thread_answer(
+            change, number, lambda unit: reviews.reply(unit.id, thread_id, body.body)
+        )
+
+    @app.patch("/api/units/{change}/{number}/review/threads/{thread_id}")
+    def resolve(change: str, number: str, thread_id: str, body: ResolveIn) -> dict[str, Any]:
+        return thread_answer(
+            change, number, lambda unit: reviews.resolve(unit.id, thread_id, body.resolved)
+        )
+
+    @app.put("/api/units/{change}/{number}/review/decision")
+    def decide(change: str, number: str, body: DecisionIn) -> dict[str, Any]:
+        unit, _ = find(change, number)
+        round_ = _review_round(installation, unit.id) or 1
+        verdict = reviews.decide(
+            unit.id, round=round_, decision=body.decision, summary=body.summary
+        )
+        if verdict is None:
+            raise HTTPException(status_code=409, detail=f"round {round_} already has a decision")
+        return verdict.model_dump()
 
     @app.get("/api/units/{change}/{number}/logs")
     def run_listing(change: str, number: str) -> dict[str, Any]:

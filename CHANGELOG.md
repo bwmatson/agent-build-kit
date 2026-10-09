@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk serve` now answers a unit's review diff, pinned to one commit and taken against the
+  base the unit builds on (only its own work, for a stacked or restacked unit), and keeps a
+  unit's review threads, replies, summary and decision in the state directory. A thread
+  made at an earlier commit is marked outdated and moved to its line where the lines still
+  match.
+
 - A reply to a reviewer that the host did not take now stays pending and is posted on a later
   pass, once, instead of being lost; a reply the host already holds counts as posted. The close
   of a satisfied unit's pull request is likewise repeated each pass until done, without posting
