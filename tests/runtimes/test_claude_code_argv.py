@@ -416,3 +416,52 @@ def test_a_workspace_on_main_adds_no_flag() -> None:
 
     settings = json.loads(argv[argv.index("--settings") + 1])
     assert "--protected-branches" not in settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+
+# --- a chat turn: the unit's builder, resumed, and a free session -----------------------------
+
+
+def _hook_command(argv: list[str], prompt: str) -> str:
+    carried = flags(argv, prompt)
+    settings = json.loads(carried["--settings"] or "")
+    return settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+
+def test_a_builders_turn_carries_the_hook_with_pushing_and_committing_refused(
+    tmp_path: Path,
+) -> None:
+    specs = _specs(tmp_path)
+    worktree = tmp_path / "worktrees" / "app"
+    request = AgentRequest(
+        prompt="Rename it.",
+        cwd=worktree,
+        resume_session="sess-1",
+        policy=ToolPolicy(specs_dir=specs, no_commit=True),
+    )
+
+    argv = _run(request, FakeClaude(stdout=finished_build(worktree, "done")))
+
+    command = _hook_command(argv, request.prompt)
+    assert f"--specs {specs}" in command
+    assert "--no-push" in command and "--no-commit" in command
+    assert flags(argv, request.prompt)["--disallowedTools"] == DENIED
+
+
+def test_a_free_sessions_turn_carries_none_of_the_builders_policy_but_refuses_commit_and_push(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktrees" / "app"
+    request = AgentRequest(
+        prompt="Look at it.",
+        cwd=worktree,
+        resume_session="sess-2",
+        policy=ToolPolicy(scoped=False, no_commit=True),
+    )
+
+    argv = _run(request, FakeClaude(stdout=finished_build(worktree, "done")))
+
+    command = _hook_command(argv, request.prompt)
+    assert "--refusals-only" in command
+    assert "--no-push" in command and "--no-commit" in command
+    assert "--specs" not in command
+    assert "--disallowedTools" not in flags(argv, request.prompt)

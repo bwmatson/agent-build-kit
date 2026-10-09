@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 
 
@@ -29,6 +30,22 @@ def _started(pid: int) -> str | None:
         return None
     # The command name, in parentheses, may itself hold spaces and parentheses.
     return stat[stat.rindex(")") + 2 :].split()[19]
+
+
+class Attachment(Frozen):
+    """What a lease records beyond its holder: the checkouts a chat covers, how many files
+    they hold uncommitted, the session and runtime, the branch head when it was taken, and
+    the commit made and not yet delivered. `stale` is a lease whose process has gone."""
+
+    unit_id: str
+    holder: str
+    checkouts: tuple[str, ...] = ()
+    changed: int = 0
+    session: str = ""
+    runtime: str = ""
+    head: str = ""
+    committed: str = ""
+    stale: bool = False
 
 
 class Leases:
@@ -52,7 +69,16 @@ class Leases:
             return None
         return holder if holder and _started(pid) == started else None
 
-    def take(self, unit_id: str, holder: str) -> bool:
+    def take(
+        self,
+        unit_id: str,
+        holder: str,
+        *,
+        checkouts: tuple[str, ...] = (),
+        session: str = "",
+        runtime: str = "",
+        head: str = "",
+    ) -> bool:
         """Take the unit's lease for `holder`; True also when `holder` already has it,
         False while another holds it."""
         with self._guard():
@@ -79,3 +105,20 @@ class Leases:
             for path in self._directory.glob("*.lease"):
                 if self._read(path) == holder:
                     path.unlink(missing_ok=True)
+
+    def mark_changes(self, unit_id: str, holder: str, files: int) -> None:
+        """Record that the covered checkouts hold `files` uncommitted files (none clears it)."""
+        raise NotImplementedError
+
+    def mark_committed(self, unit_id: str, holder: str, commit: str) -> None:
+        """Record a commit made and not yet delivered."""
+        raise NotImplementedError
+
+    def attachment(self, unit_id: str) -> Attachment | None:
+        """The unit's lease with what it records: live, or stale while it holds changes or a
+        commit not delivered; None when it holds nothing."""
+        raise NotImplementedError
+
+    def attachments(self) -> list[Attachment]:
+        """Every attachment, live or stale."""
+        raise NotImplementedError

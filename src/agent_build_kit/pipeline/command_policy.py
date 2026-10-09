@@ -269,6 +269,16 @@ def check_no_push(command: str) -> Verdict:
     return Verdict(allowed=True)
 
 
+COMMIT_REASON = (
+    "nothing is committed until the person says so — leave the changes in the working tree"
+)
+
+
+def check_no_commit(command: str) -> Verdict:
+    """Refuse a command in which any segment is a `git commit`."""
+    raise NotImplementedError
+
+
 PLANNING_REASON = (
     "the pipeline commits the planning repo itself and keeps it on its default branch — "
     "write the files and leave the branches, resets and cherry-picks to it"

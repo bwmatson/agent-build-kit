@@ -38,6 +38,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
@@ -1145,6 +1146,8 @@ class UnitRunner(BaseModel):
 
     store: UnitStore
     planning_repo: Path
+    # The chat leases, which tell a chat's uncommitted changes from a killed run's leftovers.
+    leases: Leases | None = None
     # The repo being built, for what its settings decide: None reads as the defaults.
     repo_config: RepoConfig | None = None
     worktree: Worktree

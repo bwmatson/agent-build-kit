@@ -201,6 +201,8 @@ def decide(
     planning_change_dir: Path | None = None,
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
+    no_commit: bool = False,
+    refusals_only: bool = False,
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
@@ -301,6 +303,8 @@ def hook_settings(
     planning_change_dir: Path | None = None,
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
+    no_commit: bool = False,
+    refusals_only: bool = False,
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
