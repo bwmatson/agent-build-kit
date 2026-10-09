@@ -119,6 +119,8 @@ class TaskGroup(Frozen):
     # An `Independent: <reason>` line in the group: it depends on no earlier
     # group of its change.
     independent: bool = False
+    # 1 (most urgent) to 5, from a `Priority:` line in the group or above the first.
+    priority: int = 3
 
 
 class ValidationError(Frozen):

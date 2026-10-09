@@ -16,8 +16,8 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from enum import StrEnum
+from collections.abc import Collection, Sequence
+from enum import IntEnum, StrEnum
 from typing import Self
 
 from agent_build_kit.config import active
@@ -75,6 +75,17 @@ IN_FLIGHT = (RUNNING, IN_REVIEW)
 REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
 
 
+class Priority(IntEnum):
+    """How urgent a unit is: 1 the most, 5 the least. A value between the named
+    ones is still valid and sorts as its integer."""
+
+    FIX = 1
+    HIGH = 2
+    NORMAL = 3
+    LOW = 4
+    NICE_TO_HAVE = 5
+
+
 class Member(Frozen):
     """Task groups of one change that a unit builds."""
 
@@ -108,6 +119,7 @@ class Unit(Frozen):
     issue: int | None = None
     groups: tuple[int, ...] = ()
     joined: tuple[Member, ...] = ()
+    priority: int = Priority.NORMAL
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
@@ -294,6 +306,20 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
         else:
             out.append(dep)
     return tuple(out)
+
+
+def waiting_on_me(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> list[Unit]:
+    """The units that wait on `unit`, directly or through a chain, in any repo."""
+    raise NotImplementedError
+
+
+def effective_priority(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> int:
+    """The most urgent priority among `unit` and every unit waiting on it."""
+    raise NotImplementedError
 
 
 def trunk_of(repo: str) -> str:
