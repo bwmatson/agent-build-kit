@@ -82,6 +82,7 @@ from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
     MERGED,
+    PLANNED,
     REVIEWED,
     Unit,
     base_of,
@@ -96,7 +97,8 @@ from agent_build_kit.pipeline.usage_guard import (
     current_usage,
     may_start_unit,
 )
-from agent_build_kit.pipeline.workspaces import prepare_detached, prepare_worktree
+from agent_build_kit.pipeline.vocabulary import effective_state
+from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
@@ -1787,6 +1789,28 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
     return upstream_incomplete
 
 
+def branch_is_changing(
+    parent: StoredUnit, graph: list[StoredUnit], head: Callable[[StoredUnit], str]
+) -> str:
+    """Why a predecessor's branch is changing, or an empty string when it isn't.
+
+    A predecessor in review, merged or satisfied is settled. Otherwise it is
+    changing when its branch holds a commit beyond its last pushed head, when it
+    is rebasing (its history is being rewritten before a new head exists), or
+    when it is itself planned for a changing upstream or a moved base.
+    """
+    if parent.state in REVIEWED:
+        return ""
+    if parent.state == PLANNED and parent.cause in (Cause.UPSTREAM_WENT_BACK, Cause.BASE_CHANGED):
+        return f"it is {parent.state}, waiting on a changing upstream"
+    if effective_state(parent, graph) == "rebasing":
+        return "it is rebasing"
+    now = head(parent)
+    if now and now != parent.pushed:
+        return "its branch holds a commit it has not pushed"
+    return ""
+
+
 def follow_predecessors(
     store: UnitStore,
     *,
@@ -1798,9 +1822,47 @@ def follow_predecessors(
     branch is changing; returns the ids moved.
 
     `head` reads a unit's branch head ("" when it has none). See the design of
-    the change this belongs to for when a branch is changing.
+    the change this belongs to for when a branch is changing. Repeats until
+    nothing moves, so a chain of dependents goes back in one pass. A unit with a
+    deferred restack is skipped, and one whose branch is busy is left for the
+    next pass.
     """
-    raise NotImplementedError
+    moved: list[str] = []
+    progressed = True
+    while progressed:
+        progressed = False
+        graph = list(store.all())
+        index = {u.id: u for u in graph}
+        for unit in graph:
+            if unit.state != IN_REVIEW or unit.cause in (
+                Cause.RESTACK_DEFERRED,
+                Cause.RESTACK_CONFLICT,
+            ):
+                continue
+            found = None
+            for dep in through_satisfied(unit, graph):
+                parent = index.get(dep)
+                if not parent or parent.repo != unit.repo:
+                    continue
+                if why := branch_is_changing(parent, graph, head):
+                    found = (parent, why)
+                    break
+            if found is None:
+                continue
+            parent, why = found
+            note = f"{parent.id} is changing: {why}"
+            try:
+                with claim(unit):
+                    # A build may have taken the unit while the claim was waited for.
+                    if store.get(unit.id).state != IN_REVIEW:
+                        continue
+                    store.set_state(unit.id, PLANNED, note=note, cause=Cause.UPSTREAM_WENT_BACK)
+            except BranchBusy:
+                continue
+            log(f"{unit.id}: set back to planned — {note}")
+            moved.append(unit.id)
+            progressed = True
+    return moved
 
 
 def tip(tree: Path, ref: str) -> str:

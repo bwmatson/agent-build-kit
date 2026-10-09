@@ -18,6 +18,11 @@
   implement, fix checks, rework and adapt, and a continued session, no longer fail at once with
   a missing `model` argument before the agent starts. An empty model means the agent's own
   default.
+- A unit in review now goes back to planned while a unit it is stacked on in the same repo is
+  changing its branch (a rework that has committed, a rebase, or a failed or held run with
+  commits it has not pushed), instead of staying ready for review on a base about to move.
+  It keeps its approval, branch and pull request, and when the predecessor is back in review
+  it restacks onto the new head, keeping the approval if the restack is clean.
 
 - A pull request's checks are now one list, each with a name, a status (`passed`, `failed`,
   `cancelled` or `pending`) and a link where the host gives one, on both GitHub and Azure
