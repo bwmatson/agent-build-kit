@@ -611,3 +611,13 @@ pull request's state label derive a finer name: `rebasing` when the unit was sen
 conflict, a moved base or a restack conflict or deferral, `reworking` when it is answering review
 or check feedback, and `running` otherwise. A pull request is a draft while its unit is `running`
 or `planned` and ready when it is `in_review`.
+
+## A unit in review follows its predecessor
+
+After each fetch and poll, a unit in review whose same-repo predecessor's branch is changing is
+set back to `planned` with the cause `upstream_went_back`, keeping its approval, branch and pull
+request. A branch is changing when the predecessor is not in review, merged or satisfied and it
+holds a commit beyond its last pushed head, is rebasing, or is itself planned for a changing
+upstream or a moved base. A chain moves in one pass; a unit with a deferred restack, or whose
+branch is busy, is left for a later pass. When the predecessor is back in review the unit is
+released and restacks onto its new head; an unchanged head restacks nothing.

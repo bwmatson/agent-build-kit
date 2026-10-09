@@ -221,6 +221,8 @@ def test_a_review_comment_during_a_rebase_reads_reworking(tmp_path: Path) -> Non
     store.set_feedback(UID, "fix the name", source=FeedbackSource.REVIEW)
 
     store.set_state(UID, RUNNING, cause=Cause.REWORK)
+    # `prepare` records its own entry, with no cause, after the rework's.
+    store.set_state(UID, RUNNING)
 
     assert status_of(store, UID) == "reworking"
 

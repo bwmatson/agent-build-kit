@@ -395,6 +395,10 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
 
 Between steps the unit can be stopped: a same-repo parent went back for
 rework (the unit `planned`, with cause `upstream_went_back`), or the usage window filled.
+After each fetch and poll, a unit in review is likewise set back to `planned` with that cause
+while a same-repo predecessor's branch is changing (a commit beyond its pushed head, rebasing, or
+itself planned for a changing upstream or a moved base). It keeps its approval, branch and pull
+request, and restacks onto the predecessor's new head when it is released.
 Every change that stops a unit, holds it or sends it back (and a merge, a close, a
 release, a failure) records a `cause`, a fixed set of values, on its history entry; the
 note beside it is prose for people and no code reads it. The entries for starting a run,

@@ -141,6 +141,7 @@ from agent_build_kit.pipeline.wiring import (
     build_resume_at,
     build_runner,
     build_tier1,
+    follow_predecessors,
 )
 from agent_build_kit.pipeline.work_graph import (
     NEEDS_LINE,
@@ -1306,6 +1307,25 @@ def _refresh(inst: Installation, *, store: UnitStore) -> None:
         # GitHub being unreachable is a reason to skip the update, not to stop
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
+    try:
+        follow_predecessors(
+            store,
+            head=partial(branch_head, inst),
+            claim=build_claim(inst.state_dir / "locks"),
+            log=log,
+        )
+    except Exception as error:  # noqa: BLE001
+        log(f"following predecessors skipped — {type(error).__name__}: {error}")
+
+
+def branch_head(inst: Installation, unit: StoredUnit) -> str:
+    """The commit a unit's branch is at in its repo's checkout, or an empty
+    string when it has none."""
+    path = inst.checkouts.get(unit.repo)
+    if path is None:
+        return ""
+    ref = f"refs/heads/{unit.branch or branch_name(unit)}"
+    return git(path, "rev-parse", "--verify", "-q", ref, check=False).stdout.strip()
 
 
 def branch_is_held(inst: Installation, branch: str) -> bool:
