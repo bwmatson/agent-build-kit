@@ -2387,6 +2387,65 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     return requeue(inst, args.unit, mode, say=say)
 
 
+def approve_refusal(inst: Installation, unit: StoredUnit) -> str | None:
+    """Why `unit` cannot be approved as stored; None when it can."""
+    from agent_build_kit.serve.review import ReviewStore, branch_tip
+    from agent_build_kit.serve.server import _review_round
+
+    if unit.pr is None:
+        return f"{unit.id} has no pull request; nothing to approve"
+    repo = inst.checkouts.get(unit.repo)
+    if repo is None or not repo.exists() or branch_tip(repo, unit.branch) is None:
+        return f"{unit.id}'s pull request has no head: its branch is not in the checkout"
+    round_ = _review_round(inst, unit.id) or 1
+    if any(
+        d.round == round_ for d in ReviewStore(inst.state_dir / "reviews").read(unit.id).decisions
+    ):
+        return f"{unit.id}: round {round_} already has a decision"
+    return None
+
+
+def approve_unit(inst: Installation, unit_id: str, *, say: Callable[..., None]) -> int:
+    """Record the person's approval of a unit's current review round at the head its
+    pull request has; `abk approve` and the web UI both call this.
+
+    Nothing is merged, pushed or voted on the host. Every message goes to `say`; the
+    result is the command's exit code.
+    """
+    from agent_build_kit.serve.review import ReviewStore, branch_tip
+    from agent_build_kit.serve.server import _review_round
+
+    known = {unit.id: unit for unit in store_for(inst).all()}
+    unit = known.get(unit_id)
+    if unit is None:
+        say(f"abk approve: no unit {unit_id!r} (known: {', '.join(sorted(known)) or 'none'})")
+        return 1
+    if (reason := approve_refusal(inst, unit)) is not None:
+        say(reason)
+        return 1
+    head = branch_tip(inst.checkouts[unit.repo], unit.branch) or ""
+    round_ = _review_round(inst, unit.id) or 1
+    summary = "approved from the command line or the web UI"
+    verdict = ReviewStore(inst.state_dir / "reviews").decide(
+        unit.id, round=round_, decision="approve", summary=summary, head=head
+    )
+    if verdict is None:
+        say(f"{unit.id}: round {round_} already has a decision")
+        return 1
+    say(f"approved {unit.id} at {head} for round {round_}")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace, inst: Installation) -> int:
+    """Record your approval of a unit's pull request in the review store.
+
+    It is the same record the web UI's approve makes: the unit's current review
+    round, at the head the pull request has now. It merges nothing, pushes nothing
+    and casts no vote on the host.
+    """
+    return approve_unit(inst, args.unit, say=print)
+
+
 def requeue_refusal(unit: StoredUnit) -> str | None:
     """Why `unit` cannot be requeued as stored; None when it can."""
     if unit.state in (FAILED, HELD):
@@ -2552,6 +2611,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         "(a failed check), instead of resuming into the same failure",
     )
     requeue.set_defaults(func=cmd_requeue)
+
+    approve = sub.add_parser(
+        "approve", help="record your approval of a unit's current review round"
+    )
+    approve.add_argument("unit", help="the unit id, e.g. add-marker/1")
+    approve.set_defaults(func=cmd_approve)
 
     archive = sub.add_parser("archive", help="openspec archive <change> --yes")
     archive.add_argument("change")

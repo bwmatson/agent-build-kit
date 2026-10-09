@@ -15,6 +15,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from agent_build_kit.cli.pipeline import (
+    approve_refusal,
+    approve_unit,
     deliver_hold_event,
     hold_label_on,
     log,
@@ -52,7 +54,7 @@ def refusal(action: str, unit: StoredUnit, installation: Installation) -> str | 
                 "remove the label on the host to release it"
             )
         return None
-    return f"{unit.id}: abk has no approve command; approve its pull request on the host"
+    return approve_refusal(installation, unit)
 
 
 def register(
@@ -79,6 +81,11 @@ def register(
                 (body or ActionBody()).mode,
                 say=lambda text, error=False: lines.append(text),
             )
+            if code:
+                raise HTTPException(status_code=409, detail="\n".join(lines))
+            return {"message": "\n".join(lines)}
+        if action == "approve":
+            code = approve_unit(installation, unit.id, say=lines.append)
             if code:
                 raise HTTPException(status_code=409, detail="\n".join(lines))
             return {"message": "\n".join(lines)}

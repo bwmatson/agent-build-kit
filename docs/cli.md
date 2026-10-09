@@ -128,7 +128,7 @@ request, so the unit's thread, branch claim and depth rules are as for the label
 change the pipeline's record only, not the label on the host, so a hold says to set the
 label there too, and a release is refused while the last poll saw the label on the
 pull request (remove it on the host). A unit being built answers 409 for those, as the
-poller would defer. *Approve* is always refused: the CLI has no approve command. Each
+poller would defer. *Approve* is `abk approve`'s own function, `approve_unit`: it records an `approved` decision for the unit's current review round with the head of its pull request, and is refused for a unit with no pull request or no head and for a round that already has a decision. Each
 refusal carries the CLI's reason, and the unit page shows the buttons disabled with it.
 
 Any other path answers the built web UI, so `/units/<change>/<n>` loads on a direct visit;
@@ -219,6 +219,14 @@ tests there fail for an accepted reason. `--cache` keeps results by patch-id
 across restacks. `--profile` defaults to the profile `abk.yaml` gives the repo
 containing `--repo`, else `python-uv`. Prints each problem prefixed `✗`; exit
 1 if any, else 0 with `✓ tests-first: ...`.
+
+### `abk approve UNIT`
+
+Records your approval of the unit's current review round in the review store, together
+with the head commit of its pull request at that moment, and prints the unit, the head and
+the round. It merges nothing, pushes nothing and casts no vote on the host. It exits 1,
+recording nothing, for a unit with no pull request or no head and for a round that already
+has a decision. The web UI's approve button calls the same function.
 
 ### `abk requeue UNIT [--restart | --rework]`
 
