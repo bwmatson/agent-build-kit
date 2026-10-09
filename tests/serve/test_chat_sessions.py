@@ -8,6 +8,7 @@ files and the process holding one as they are on a machine; ACP is a real agent 
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -45,9 +46,11 @@ from tests.serving import seed_pipeline
 # every server on the machine, so these cannot run beside each other.
 pytestmark = pytest.mark.serial
 
-EDITOR_SESSION = "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d31"
-IDLE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e47"
-OLD_ACP = "sess_Ln3Vt8QaRcXe5mJd"
+# Fresh per process: another checkout's run on the same machine, whose fake agents carry the
+# same ids, would otherwise look like a process holding these sessions.
+EDITOR_SESSION = str(uuid.uuid4())
+IDLE_SESSION = str(uuid.uuid4())
+OLD_ACP = f"sess_{uuid.uuid4().hex[:16]}"
 
 
 @pytest.fixture

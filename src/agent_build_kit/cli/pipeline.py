@@ -68,7 +68,13 @@ from agent_build_kit.pipeline.planning_repo import (
     is_repo,
     restore_default_branch,
 )
-from agent_build_kit.pipeline.pr_poller import Poller, state_path, unmergeable
+from agent_build_kit.pipeline.pr_poller import (
+    HOLD_LABEL,
+    Poller,
+    PrState,
+    state_path,
+    unmergeable,
+)
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
@@ -1784,7 +1790,9 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
     }
 
 
-def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
+def _dispatch(
+    inst: Installation, store: UnitStore, say: Callable[[str], None] = log
+) -> Callable[..., bool]:
     """What each poller event is handed to, every write to a repo's `.git` in
     that repo's turn. Also how a merge the poll has not reported yet is recorded."""
     return build_dispatch(
@@ -1796,8 +1804,31 @@ def _dispatch(inst: Installation, store: UnitStore) -> Callable[..., bool]:
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",
-        log=log,
+        log=say,
     )
+
+
+def deliver_hold_event(
+    inst: Installation,
+    store: UnitStore,
+    event: str,
+    unit: StoredUnit,
+    *,
+    say: Callable[[str], None],
+) -> bool:
+    """Hand a `hold` or `release` for the unit's pull request to the poller's own dispatch,
+    with its branch claim and thread delivery. False when the unit is being built and the
+    event was deferred; what the handler reports goes to `say`."""
+    if unit.pr is None:
+        say(f"{unit.id} has no pull request")
+        return False
+    return _dispatch(inst, store, say)(event, unit.pr, repo=unit.repo)
+
+
+def hold_label_on(inst: Installation, unit: StoredUnit) -> bool:
+    """Whether the last poll saw the hold label on the unit's pull request."""
+    recorded = PrState.load(state_path(inst.state_dir, unit.repo))
+    return HOLD_LABEL in (recorded.get(str(unit.pr)) or {}).get("labels", [])
 
 
 def poll_all(inst: Installation, *, store: UnitStore) -> None:
@@ -2351,81 +2382,100 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     in its thread, so putting it back to `planned` and nothing else leaves the
     thread where the failure stopped it.
     """
+    mode = "rework" if args.rework else "restart" if args.restart else "resume"
+
+    def say(text: str, *, error: bool = False) -> None:
+        print(text, file=sys.stderr if error else sys.stdout)
+
+    return requeue(inst, args.unit, mode, say=say)
+
+
+def requeue_refusal(unit: StoredUnit) -> str | None:
+    """Why `unit` cannot be requeued as stored; None when it can."""
+    if unit.state in (FAILED, HELD):
+        return None
+    return (
+        f"{unit.id} is {unit.state}; only a failed or held unit can be requeued "
+        "(a running one would be built twice, an in-review one has a PR to orphan)"
+    )
+
+
+def requeue(inst: Installation, unit_id: str, mode: str, *, say: Callable[..., None]) -> int:
+    """Give a failed or held unit another go; `abk requeue` and the web UI both call this.
+
+    `mode` is `resume`, `rework` or `restart`, as `cmd_requeue` describes them. Every
+    message goes to `say(text, error=...)` instead of being printed, so the caller
+    decides where it shows. The result is the command's exit code.
+    """
     store = store_for(inst)
     known = {unit.id: unit for unit in store.all()}
-    if args.unit not in known:
-        print(
-            f"abk requeue: no unit {args.unit!r} (known: {', '.join(sorted(known)) or 'none'})",
-            file=sys.stderr,
+    if unit_id not in known:
+        say(
+            f"abk requeue: no unit {unit_id!r} (known: {', '.join(sorted(known)) or 'none'})",
+            error=True,
         )
         return 2
-    state = known[args.unit].state
-    if state not in (FAILED, HELD):
-        print(
-            f"{args.unit} is {state}; only a failed or held unit can be requeued "
-            "(a running one would be built twice, an in-review one has a PR to orphan)"
-        )
+    if (refusal := requeue_refusal(known[unit_id])) is not None:
+        say(refusal)
         return 1
-    mode, why = (
-        ("rework", RequeueReason.FROM_FAILURE)
-        if args.rework
-        else ("restart", RequeueReason.RESTART)
-        if args.restart
-        else ("resume", RequeueReason.RESUME)
-    )
-    if args.rework and not known[args.unit].feedback:
-        print(
-            f"{args.unit} has no saved failure to rework from; "
+    why = {
+        "rework": RequeueReason.FROM_FAILURE,
+        "restart": RequeueReason.RESTART,
+        "resume": RequeueReason.RESUME,
+    }[mode]
+    if mode == "rework" and not known[unit_id].feedback:
+        say(
+            f"{unit_id} has no saved failure to rework from; "
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
-    waits = unmet_gates(known[args.unit], list(known.values()))
-    if waits and has_thread(inst, args.unit):
+    waits = unmet_gates(known[unit_id], list(known.values()))
+    if waits and has_thread(inst, unit_id):
         # The gate is unmet: the thread is left where it stopped, and the pass
         # delivers the event in this mode once the dependency has merged.
         store.set_state(
-            args.unit,
+            unit_id,
             PLANNED,
             note=f"requeued: {merge_wait(waits)}",
             cause=Cause.GATED,
         )
-        store.set_gated_requeue(args.unit, why)
-        print(f"{args.unit} requeued ({mode}), {merge_wait(waits)}")
+        store.set_gated_requeue(unit_id, why)
+        say(f"{unit_id} requeued ({mode}), {merge_wait(waits)}")
         return 0
     try:
         delivered = resume_thread(
-            inst, known[args.unit], "requeue", store=store, reason=mode, requeue=why
+            inst, known[unit_id], "requeue", store=store, reason=mode, requeue=why
         )
     except BranchBusy as error:
-        print(f"{args.unit} is being built ({error}); requeue it again once it has stopped")
+        say(f"{unit_id} is being built ({error}); requeue it again once it has stopped")
         return 1
     if delivered:
         outcome = delivered.outcome
-        print(
-            f"{args.unit} thread resumed ({mode}): {outcome.status} — {outcome.detail}",
-            file=sys.stderr if delivered.raised else sys.stdout,
+        say(
+            f"{unit_id} thread resumed ({mode}): {outcome.status} — {outcome.detail}",
+            error=delivered.raised,
         )
         return 1 if delivered.raised else 0
-    if args.rework:
+    if mode == "rework":
         store.set_state(
-            args.unit,
+            unit_id,
             PLANNED,
             note="requeued: reworking from the saved failure",
             cause=Cause.REQUEUED,
         )
-        print(f"{args.unit} requeued, the agent will rework it from the failure it saved")
-    elif args.restart:
-        store.set_feedback(args.unit, "")
-        store.set_state(args.unit, PLANNED, note="requeued: starting over", cause=Cause.REQUEUED)
-        print(f"{args.unit} requeued, starting over from the agent's step")
+        say(f"{unit_id} requeued, the agent will rework it from the failure it saved")
+    elif mode == "restart":
+        store.set_feedback(unit_id, "")
+        store.set_state(unit_id, PLANNED, note="requeued: starting over", cause=Cause.REQUEUED)
+        say(f"{unit_id} requeued, starting over from the agent's step")
     else:
         store.set_state(
-            args.unit,
+            unit_id,
             PLANNED,
             note="requeued: resuming where it stopped",
             cause=Cause.REQUEUED,
         )
-        print(f"{args.unit} requeued, resuming where it stopped")
+        say(f"{unit_id} requeued, resuming where it stopped")
     return 0
 
 

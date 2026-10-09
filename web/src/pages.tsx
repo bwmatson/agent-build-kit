@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { postAction } from "./api";
 import type { Related, UnitDetail, UnitSummary } from "./api";
 import { AgentTab } from "./agent";
 import { LogsTab } from "./logs";
@@ -81,6 +82,46 @@ function Status({ unit }: { unit: UnitDetail }) {
   );
 }
 
+function Actions({ unit, changed }: { unit: UnitDetail; changed: () => void }) {
+  const [answer, setAnswer] = useState<{ text: string; failed: boolean } | null>(null);
+  const [pending, setPending] = useState(false);
+  const run = (name: string) => {
+    setPending(true);
+    return postAction(unit.id, name)
+      .then(
+        (text) => {
+          setAnswer({ text: text || `${unit.id}: ${name} done`, failed: false });
+          changed();
+        },
+        (error: Error) => setAnswer({ text: error.message, failed: true }),
+      )
+      .finally(() => setPending(false));
+  };
+  return (
+    <div>
+      {(unit.actions ?? []).map((action) => (
+        <span key={action.name}>
+          <button
+            disabled={pending || !action.enabled}
+            title={action.enabled ? undefined : action.reason}
+            aria-describedby={action.enabled ? undefined : `why-${action.name}`}
+            onClick={() => void run(action.name)}
+          >
+            {action.name}
+          </button>
+          {!action.enabled && (
+            <small id={`why-${action.name}`} data-reason>
+              {action.reason}
+            </small>
+          )}
+        </span>
+      ))}
+      {answer &&
+        (answer.failed ? <p role="alert">{answer.text}</p> : <p role="status">{answer.text}</p>)}
+    </div>
+  );
+}
+
 const TABS = ["Status", "Logs", "Agent", "Usage"] as const;
 
 /** The history as a timeline of state, cause and note, newest last. */
@@ -105,7 +146,8 @@ function History({ unit }: { unit: UnitDetail }) {
 export function UnitPage() {
   const { change = "", number = "" } = useParams();
   const name = `${change}/${number}`;
-  const unit = useApi<UnitDetail>(`/api/units/${name}`);
+  const [reload, setReload] = useState(0);
+  const unit = useApi<UnitDetail>(`/api/units/${name}`, reload);
   const [tab, setTab] = useState<(typeof TABS)[number]>("Status");
   const detail = unit && "data" in unit ? unit.data : null;
   return (
@@ -126,6 +168,7 @@ export function UnitPage() {
               ))}
             </div>
             {tab === "Status" && <Status unit={detail} />}
+            <Actions unit={detail} changed={() => setReload((n) => n + 1)} />
             {tab === "Logs" && <LogsTab name={name} />}
             {tab === "Agent" && <AgentTab name={name} />}
             {tab === "Usage" && <UsageTab name={name} />}
