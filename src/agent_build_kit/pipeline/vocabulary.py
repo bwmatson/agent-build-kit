@@ -11,7 +11,7 @@ from collections.abc import Mapping
 
 from agent_build_kit.forges import Label
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, StoredUnit
+from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, FeedbackSource, StoredUnit
 from agent_build_kit.pipeline.units import (
     CLOSED,
     FAILED,
@@ -50,6 +50,8 @@ STATES: Mapping[str, StateStyle] = {
     PLANNED: _style("planned", "#eef2ff", "#6366f1", "#1e1b4b"),
     "blocked": _style("blocked", "#f5f5f4", "#a8a29e", "#44403c", "stroke-dasharray:3 3"),
     RUNNING: _style("running", "#fef3c7", "#d97706", "#451a03"),
+    "reworking": _style("reworking", "#fef9c3", "#ca8a04", "#422006"),
+    "rebasing": _style("rebasing", "#ccfbf1", "#0d9488", "#042f2e"),
     "paused_rework": _style(
         "paused-rework", "#ffedd5", "#ea580c", "#431407", "stroke-dasharray:3 3"
     ),
@@ -71,6 +73,8 @@ _DESCRIPTIONS = {
     "planned": "Ready to start when a slot allows",
     "blocked": "Waiting on a unit it depends on",
     "running": "An agent is building this unit",
+    "reworking": "An agent is answering review or check feedback on this unit",
+    "rebasing": "An agent is moving this unit onto a changed base or resolving a conflict",
     "paused_rework": "Stopped because a unit it depends on went back for rework",
     "held": "A person has taken this over; the pipeline will not touch it",
     "in_review": "Built and waiting for human review",
@@ -117,6 +121,8 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
     scheduler's own rule, which this used to restate and had drifted from: it
     showed a unit as startable while its same-repo parent was still building.
     """
+    if unit.state == RUNNING:
+        return _running_status(unit)
     if unit.state != PLANNED:
         return unit.state
 
@@ -127,3 +133,18 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
         paused = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
         return "paused_rework" if paused else "blocked"
     return PLANNED
+
+
+_REBASING_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_CONFLICT, Cause.RESTACK_DEFERRED)
+
+
+def _running_status(unit: StoredUnit) -> str:
+    """What a running unit is doing, from why it was last sent back and the
+    feedback it was given; derived, never stored."""
+    sent_back = next((e for e in reversed(unit.history) if e.get("state") != RUNNING), None)
+    cause = sent_back.get("cause") if sent_back else None
+    if unit.feedback_source is FeedbackSource.CONFLICT or cause in _REBASING_CAUSES:
+        return "rebasing"
+    if unit.feedback_source in (FeedbackSource.REVIEW, FeedbackSource.CI):
+        return "reworking"
+    return RUNNING

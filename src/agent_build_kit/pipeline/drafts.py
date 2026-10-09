@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 from agent_build_kit.pipeline.labels import ForRepo
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 
 
 class StateDrafts:
@@ -20,10 +20,10 @@ class StateDrafts:
         self._said_no_drafts = False
 
     def follow(self, unit: StoredUnit, units: list[StoredUnit], *, opened: bool) -> None:
-        """Make the unit's pull request a draft while it runs, ready in review."""
-        if opened or unit.pr is None or unit.state not in (RUNNING, IN_REVIEW):
+        """Make the unit's pull request a draft while it runs or waits, ready in review."""
+        if opened or unit.pr is None or unit.state not in (RUNNING, PLANNED, IN_REVIEW):
             return
-        draft = unit.state == RUNNING
+        draft = unit.state != IN_REVIEW
         try:
             forge, repo_id = self.for_repo(unit.repo)
             forge.set_draft(repo_id, unit.pr, draft)

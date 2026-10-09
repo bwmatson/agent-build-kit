@@ -17,7 +17,12 @@ from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
-from agent_build_kit.pipeline.vocabulary import STATES, effective_state, state_label
+from agent_build_kit.pipeline.vocabulary import (
+    STATES,
+    effective_state,
+    state_label,
+    state_label_names,
+)
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.forges.stand_in import StandInForge, lookup
@@ -41,6 +46,22 @@ def running(
         feedback_source=source,
         history=(sent_back, {"state": "running", "at": "t"}),
     )
+
+
+def run_through_the_store(
+    store: UnitStore,
+    uid: str,
+    *,
+    cause: Cause | None = None,
+    source: FeedbackSource = FeedbackSource.NONE,
+) -> None:
+    """Send a unit back and run it again, as the pipeline does."""
+    store.upsert([stored_unit(uid)])
+    if source is not FeedbackSource.NONE:
+        store.set_feedback(uid, "words", source=source)
+    if cause is not None:
+        store.set_state(uid, PLANNED, cause=cause)
+    store.set_state(uid, RUNNING)
 
 
 @pytest.mark.parametrize(
@@ -83,15 +104,14 @@ def test_a_unit_running_with_no_history_reads_running() -> None:
 
 def test_the_stored_state_is_running_for_all_three(tmp_path: Path) -> None:
     store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [
-            running("a/1", cause=Cause.BASE_CHANGED.value),
-            running("b/1", cause=Cause.REWORK.value, source=FeedbackSource.CI),
-            stored_unit("c/1", state="running"),
-        ]
-    )
+    run_through_the_store(store, "a/1", cause=Cause.BASE_CHANGED)
+    run_through_the_store(store, "b/1", cause=Cause.REWORK, source=FeedbackSource.CI)
+    run_through_the_store(store, "c/1")
 
-    assert {unit.id: unit.state for unit in store.all()} == {
+    stored = store.all()
+    units = {unit.id: effective_state(unit, stored) for unit in stored}
+    assert units == {"a/1": "rebasing", "b/1": "reworking", "c/1": "running"}
+    assert {unit.id: unit.state for unit in stored} == {
         "a/1": RUNNING,
         "b/1": RUNNING,
         "c/1": RUNNING,
@@ -143,7 +163,7 @@ def test_the_state_label_on_a_pull_request_follows_the_derived_status(tmp_path: 
 
     store.set_state(UID, RUNNING)
 
-    assert forge.on_pr[PR] == {"reworking"}
+    assert forge.on_pr[PR] & state_label_names() == {"reworking"}
 
 
 def test_status_counts_units_by_the_derived_name(
@@ -153,20 +173,14 @@ def test_status_counts_units_by_the_derived_name(
         tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
     )
     store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [
-            running("a/1", cause=Cause.BASE_CHANGED.value),
-            running("b/1", cause=Cause.REWORK.value, source=FeedbackSource.CI),
-            stored_unit("c/1", state="running"),
-        ]
-    )
+    run_through_the_store(store, "a/1", cause=Cause.BASE_CHANGED)
+    run_through_the_store(store, "b/1", cause=Cause.REWORK, source=FeedbackSource.CI)
+    run_through_the_store(store, "c/1")
     monkeypatch.setattr(cli, "current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 
-    units_line = next(
-        line for line in capsys.readouterr().out.splitlines() if line.startswith("units:")
-    )
+    units_line = next(line for line in capsys.readouterr().out.splitlines() if "] units: " in line)
     assert "1 rebasing" in units_line
     assert "1 reworking" in units_line
     assert "1 running" in units_line
