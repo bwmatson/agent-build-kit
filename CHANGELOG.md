@@ -7,6 +7,12 @@
   merge nothing, push nothing and vote on nothing. They are refused, with a reason, for a unit
   with no pull request or head and for a round that already has a decision. Stored review
   decisions now carry the head they were made at; older ones read as before.
+- Tier 1 now ends a command that does not finish. A command past `limits.tier1_command_seconds`
+  (an hour by default) is asked to abort so its runtime can dump its threads, killed after
+  `limits.tier1_abort_grace_seconds`, and fails tier 1 naming the command and the time with the
+  end of its output. The output cap is now idempotent, so an idle file is no longer rewritten
+  every pass. In this repo's tests, a hung test fails after a minute, and a guard rejects a new
+  bare sleep, unjoined thread or fixed port.
 
 - A usage pause no longer ends before it was written. The grace after a reset is added once, a
   reset time that has already passed counts as unknown (retry in thirty minutes), and a reading

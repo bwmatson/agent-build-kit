@@ -111,6 +111,8 @@ limits:
   max_check_reruns: 2         # re-runs of a head commit's cancelled checks
   transcript_result_chars: 20000  # longest tool result a transcript keeps whole
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
+  tier1_command_seconds: 3600       # longest a tier 1 command may run before it is aborted
+  tier1_abort_grace_seconds: 10    # how long an aborted command has to exit before it is killed
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet               # Claude Code's alias, sent to any runtime as
