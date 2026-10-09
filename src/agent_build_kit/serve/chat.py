@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.transcript import (
 )
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import RUNNING
+from agent_build_kit.pipeline.wiring import CommitRejected
 from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
 from agent_build_kit.runtimes.base import (
     AgentRequest,
@@ -87,6 +88,13 @@ class NewSession(Turn):
 class Discard(BaseModel):
     tab: str = ""
     confirmed: bool = False
+
+
+class Commit(BaseModel):
+    tab: str = ""
+    message: str = ""
+    commit: str = ""
+    checkouts: list[str] = []
 
 
 class Answer(BaseModel):
@@ -387,19 +395,7 @@ class Chat:
             self._turns[tab] = self._turns.get(tab, 0) + 1
         events: queue.Queue[Any] = queue.Queue()
         encoder = AgUiEncoder(unit.id if unit else session or uuid.uuid4().hex, uuid.uuid4().hex)
-        record = None
-        if unit is not None:
-            limits = self.installation.config.limits
-            record = Transcript(
-                self.transcripts,
-                unit,
-                node="chat",
-                round=0,
-                source="chat",
-                started=datetime.now(UTC),
-                result_limit=limits.transcript_result_chars,
-                runs_kept=limits.transcript_runs_kept,
-            )
+        record = self.transcript(unit, "chat") if unit is not None else None
         finished: list[bool] = []
         asked: list[bool] = []
 
@@ -470,6 +466,20 @@ class Chat:
 
         return StreamingResponse(body(), media_type="text/event-stream")
 
+    def transcript(self, unit: StoredUnit, node: str) -> Transcript:
+        """A chat-sourced transcript file on the unit, for a turn the person's page made."""
+        limits = self.installation.config.limits
+        return Transcript(
+            self.transcripts,
+            unit,
+            node=node,
+            round=0,
+            source="chat",
+            started=datetime.now(UTC),
+            result_limit=limits.transcript_result_chars,
+            runs_kept=limits.transcript_runs_kept,
+        )
+
     def request(
         self,
         callbacks: dict[str, Any],
@@ -525,7 +535,11 @@ def register(
     app.state.stop_chat = chat.shutdown
     # A lease a server left with changes is this server's to hold until it is resolved.
     for stale in chat.leases.attachments():
-        if stale.stale and stale.changed:
+        if stale.stale and stale.committed:
+            # A commit made and not delivered: finish the delivery, not a chat's leftovers.
+            if owner := next((u for u in units() if u.id == stale.unit_id), None):
+                attach.finish(installation, owner, stale.committed)
+        elif stale.stale and stale.changed:
             chat.leases.take(stale.unit_id, SERVER)
 
     def agent_state(unit: StoredUnit, tab: str) -> dict[str, Any]:
@@ -535,11 +549,18 @@ def register(
         pids = chat.session_holders(recorded.runtime, recorded.session_id) if recorded else []
         mine = f"tab:{tab}"
         state = "attached" if holder else "paused"
-        if running and unit.cause is Cause.USAGE and not chat.step_active(unit):
+        # A start carries no cause; one with a cause and no process on its branch is a
+        # unit whose tick has not resumed it.
+        if running and unit.cause is not None and not chat.step_active(unit):
+            waiting = (
+                "waiting out the usage window"
+                if unit.cause is Cause.USAGE
+                else "with no step running on it"
+            )
             state, enabled, reason = (
                 "paused",
                 False,
-                "The unit is paused part-way through a step, waiting out the usage window; "
+                f"The unit is paused part-way through a step, {waiting}; "
                 "its history is read-only until the step resumes.",
             )
         elif running:
@@ -631,7 +652,7 @@ def register(
                     await asyncio.sleep(POLL_SECONDS)
                     for path in unit_transcript_files(chat.transcripts, unit.id):
                         events, read[path.name] = read_file_events(path, read.get(path.name, 0))
-                        live = [e for e in events if e.source == "build"]
+                        live = [e for e in events if e.source == "build" or e.node == "commit"]
                         if not live:
                             continue
                         if path.name not in runs:
@@ -718,6 +739,80 @@ def register(
         files = attach.changes_of(installation, unit)
         attach.discard(installation, unit)
         return {"discarded": list(files)}
+
+    def already_adopted(unit: StoredUnit, commit: str) -> bool:
+        """Whether `commit` is on the unit's branch, so a repeated request has nothing to do."""
+        tree = chat.worktree(unit)
+        if not commit or tree is None:
+            return False
+        try:
+            git_out(tree, "merge-base", "--is-ancestor", commit, "HEAD")
+        except subprocess.CalledProcessError:
+            return False
+        return True
+
+    @app.post("/api/units/{change}/{number}/commit")
+    def commit(change: str, number: str, body: Commit) -> dict[str, Any]:
+        """Commit the chat's changes through the hooks, release the lease and deliver the
+        adopted event in one request."""
+        unit = chat.unit(change, number)
+        held = chat.leases.attachment(unit.id)
+        if held is None:
+            if already_adopted(unit, body.commit):
+                done = attach.Adopted(
+                    commit=body.commit, state=attach.state_of(installation, unit), delivered=True
+                )
+                return done.model_dump()
+            raise _conflict("nothing is attached to the unit")
+        if chat.running(unit) or chat.step_active(unit):
+            raise _conflict("a step is running on the unit")
+        if not held.stale and held.holder not in (f"tab:{body.tab}", SERVER):
+            raise _conflict(f"{held.holder} holds the lease")
+        if held.committed:
+            if body.commit and body.commit != held.committed:
+                raise _conflict(f"{held.committed} is the commit waiting to be delivered")
+            return attach.finish(installation, unit, held.committed).model_dump()
+        recorded = recorded_session(unit.id)
+        session = held.session or (recorded.session_id if recorded else "")
+        runtime_name = held.runtime or (recorded.runtime if recorded else "")
+        builder = recorded is not None and session == recorded.session_id
+
+        def fix(prompt: str, *, cwd: Path, model: str = "") -> str:
+            """The attached session fixes what the hooks reject; its turn is kept in the
+            unit's transcript, where the page's history and live tail read it."""
+            record = chat.transcript(unit, "commit")
+            asked: list[bool] = []
+
+            def on_session(session_id: str) -> None:
+                if not asked:
+                    asked.append(True)
+                    record.record(TranscriptEvent(kind="user", session=session_id, text=prompt))
+
+            runtimes.get(runtime_name).run(
+                chat.request(
+                    {"on_record": record.record, "on_session": on_session},
+                    prompt,
+                    cwd,
+                    model=recorded.model if recorded and builder else None,
+                    resume=session,
+                    builder=builder,
+                )
+            )
+            return ""
+
+        try:
+            if body.checkouts == [attach.PLANNING]:
+                made = attach.commit_planning(installation, unit, body.message, fix=fix)
+                return {
+                    "commit": made,
+                    "state": attach.state_of(installation, unit),
+                    "delivered": False,
+                }
+            return attach.adopt(
+                installation, unit, body.message, session=session, fix=fix
+            ).model_dump()
+        except (CommitRejected, attach.NothingToCommit) as error:
+            raise _conflict(str(error)) from None
 
     @app.post("/api/permissions/{ask_id}")
     def permission(ask_id: str, body: Answer) -> Response:

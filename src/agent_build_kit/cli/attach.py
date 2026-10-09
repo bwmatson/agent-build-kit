@@ -10,7 +10,8 @@ from agent_build_kit.cli.pipeline import branch_is_held
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import HELD
+from agent_build_kit.pipeline.units import HELD, RUNNING
+from agent_build_kit.pipeline.wiring import CommitRejected
 
 
 def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
@@ -26,26 +27,50 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
     if unit.branch and branch_is_held(inst, unit.branch):
         print(f"{unit.id}: a step is running on the unit; nothing was changed")
         return 1
+    leases = attach.leases_of(inst)
+    held = leases.attachment(unit.id)
+    if held is not None and held.committed and not held.stale:
+        print(f"{unit.id}: commit {held.committed[:9]} is being delivered by {held.holder}")
+        return 1
+    if held is not None and held.committed:
+        done = attach.finish(inst, unit, held.committed)
+        if not done.delivered:
+            print(f"{unit.id}: commit {done.commit[:9]} is not delivered yet; the branch is busy")
+            return 1
+        print(f"{unit.id}: delivered commit {done.commit[:9]}; released")
+        return 0
     files = attach.changes_of(inst, unit)
+    if (files or held is not None) and units[unit.id].state == RUNNING:
+        print(f"{unit.id}: the store has it running part-way through a node; nothing was changed")
+        return 1
     if files and args.commit is None and not args.discard:
         print(
             f"{unit.id} holds {len(files)} uncommitted file(s): "
             "choose --commit MESSAGE to commit them or --discard to restore the tree"
         )
         return 1
-    leases = attach.leases_of(inst)
     if args.discard:
         attach.discard(inst, unit)
         print(f"{unit.id}: discarded {len(files)} file(s); released")
     elif args.commit is not None and files:
         try:
-            head = attach.commit(inst, unit, args.commit)
+            done = attach.adopt(
+                inst, unit, args.commit, session=held.session if held is not None else ""
+            )
+        except attach.NothingToCommit:
+            print(f"{unit.id}: nothing to commit; the lease is kept")
+            return 1
+        except CommitRejected as error:
+            print(f"{unit.id}: the commit was rejected; the changes and the lease are kept")
+            print(str(error))
+            return 1
         except subprocess.CalledProcessError as error:
             output = (error.stdout or "") + (error.stderr or "")
             print(f"{unit.id}: the commit was rejected; the changes and the lease are kept")
             print(output.strip() or str(error))
             return 1
-        print(f"{unit.id}: committed {head[:9]}; released")
+        delivery = "delivered" if done.delivered else "not delivered yet"
+        print(f"{unit.id}: committed {done.commit[:9]}; released; {delivery}")
     elif leases.attachment(unit.id) is None:
         print(f"{unit.id} is not attached")
     else:

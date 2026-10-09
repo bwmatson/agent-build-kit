@@ -84,6 +84,7 @@ class Cause(StrEnum):
     RESTACK_DEFERRED = "restack_deferred"
     DIRTY_WORKTREE = "dirty_worktree"
     ATTACHED = "attached"
+    ADOPTED = "adopted"
     MERGED = "merged"
     CLOSED = "closed"
     FAILED = "failed"

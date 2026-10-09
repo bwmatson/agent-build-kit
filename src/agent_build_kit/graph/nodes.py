@@ -1070,17 +1070,23 @@ class BuildPath:
         _, review_boundary = r.boundary_notes(unit, self.graph)
         total = active().limits.max_review_rounds
         round_number = state.review_round
-        reworking = state.had_feedback or bool(r.store.get(unit.id).predecessor_note)
+        zero = state.adopted  # a chat's commit: reviewed, but no place in the round limit
+        reworking = zero or state.had_feedback or bool(r.store.get(unit.id).predecessor_note)
         first = round_number == 0 and not reworking
         # A fresh build starts a fresh loop; a reworking one carries the rounds it had.
         rounds = () if first else state.review_rounds
         judged = r.head(tree)
         model = models().review if first else models().rework_review
-        self.say(f"review round {round_number + 1} ({model})")
+        self.say(
+            f"review of a chat's commit ({model})"
+            if zero
+            else f"review round {round_number + 1} ({model})"
+        )
         context: dict[str, Any] = r.review_notes(
             unit,
             round_number=round_number,
             total=total,
+            round_zero=zero,
             review_boundary=review_boundary,
             rounds=rounds,
             person_comments=state.person_comments,
@@ -1091,7 +1097,8 @@ class BuildPath:
         )
         weighed = r.weigh_review(unit, raw, judged=judged, rounds=rounds)
         update: Update = {
-            "review_round": round_number + 1,
+            "review_round": round_number if zero else round_number + 1,
+            "adopted": False,
             "head": judged,
             "review_rounds": weighed.rounds,
             # Kept past the push, which clears the rounds: the review tab shows it.
@@ -1152,7 +1159,10 @@ class BuildPath:
         # Kept as feedback, so the rework addresses what this round asked for, or
         # a person who inherits the branch reads what is outstanding.
         r.store.set_feedback(unit.id, weighed.why)
-        if round_number == total - 1:
+        if zero:
+            # Counted rounds start at one with the rework this asks for.
+            return {**update, "verdict": Verdict.CHANGES, "fix_rounds": 0, "review_round": 1}
+        if round_number >= total - 1:
             # The last round's review is the verdict: a rework after it would never be reviewed.
             return {**update, "spent": True}
         return {**update, "verdict": Verdict.CHANGES, "fix_rounds": 0}
@@ -1601,6 +1611,17 @@ class BuildPath:
                     # A CI log or a conflict text gives the agent no comment, so none of
                     # those on the pull request was given; they were answered before.
                     update["seen_comments"] = self.covered(pr)
+        elif event.kind is EventKind.ADOPTED:
+            # A chat's commit is on the branch: nothing earlier is approved, and the checks
+            # start with a fix budget of their own. The recorded node start is the chat's now.
+            r.store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"adopted: {event.reason or 'a commit from a chat'}",
+                cause=Cause.ADOPTED,
+            )
+            update.update(self.fresh_run())
+            update.update({"spent": False, "adopted": True, "running_node": ""})
         elif event.kind is EventKind.HOLD:
             current = r.store.get(unit.id)
             if held_for_its_own_reason(current):
@@ -1723,6 +1744,7 @@ class BuildPath:
             "held": "",
             "hold_state": "",
             "hold_note": "",
+            "adopted": False,
         }
 
     def failed(self, state: UnitRun) -> Update:
@@ -1851,6 +1873,8 @@ def after_await_review(state: UnitRun) -> Node | str:
         return Node.REWORK
     if kind in (EventKind.BASE_MOVED, EventKind.REQUEUE):
         return Node.PREPARE
+    if kind is EventKind.ADOPTED:
+        return Node.CHECKS
     if kind is EventKind.HOLD:
         return Node.HELD
     if kind in (EventKind.MERGED, EventKind.CLOSED):
@@ -1873,6 +1897,8 @@ def after_held(state: UnitRun) -> Node | str:
         if state.event and resumes_parked(state, state.event):
             return Node(state.parked_node)
         return Node.PREPARE
+    if kind is EventKind.ADOPTED:
+        return Node.CHECKS
     if kind is EventKind.RELEASE:
         return Node.AWAIT_REVIEW
     if kind in (EventKind.MERGED, EventKind.CLOSED):
@@ -1935,10 +1961,10 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW)),
     Node.AWAIT_REVIEW: (
         after_await_review,
-        (Node.REWORK, Node.PREPARE, Node.HELD, Node.AWAIT_REVIEW, END),
+        (Node.REWORK, Node.PREPARE, Node.CHECKS, Node.HELD, Node.AWAIT_REVIEW, END),
     ),
     Node.HELD: (
         after_held,
-        (Node.PREPARE, Node.AWAIT_REVIEW, Node.HELD, END, *sorted(PARKABLE)),
+        (Node.PREPARE, Node.CHECKS, Node.AWAIT_REVIEW, Node.HELD, END, *sorted(PARKABLE)),
     ),
 }
