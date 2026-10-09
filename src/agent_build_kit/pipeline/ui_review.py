@@ -68,17 +68,21 @@ def _with_review(pull: PullRequest, review: Review | None) -> PullRequest:
         return pull
     ids: list[str] = []
     bodies: list[str] = []
+
+    def add(comment_id: str, body: str) -> None:
+        # A listing that already carries the review (the local forge's) is not given it twice.
+        if comment_id not in pull.conversation:
+            ids.append(comment_id)
+            bodies.append(body)
+
     for thread in review.threads:
-        ids.append(thread.id)
-        bodies.append(thread.body)
+        add(thread.id, thread.body)
         for number, reply in enumerate(thread.replies, 1):
             if pr_replies.MARKER not in reply.body:
-                ids.append(reply_id(thread, number))
-                bodies.append(reply.body)
+                add(reply_id(thread, number), reply.body)
     for decision in sorted(review.decisions, key=lambda d: d.round):
         if decision.decision == "request_changes":
-            ids.append(decision_id(decision.round))
-            bodies.append(decision.summary)
+            add(decision_id(decision.round), decision.summary)
     update: dict[str, object] = {}
     if ids:
         update["conversation"] = (*pull.conversation, *ids)
