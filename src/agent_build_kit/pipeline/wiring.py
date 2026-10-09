@@ -67,7 +67,7 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
 )
 from agent_build_kit.pipeline.scratch import run_folder
-from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
@@ -870,7 +870,7 @@ def build_push(
                 host_head=remote,
                 last_pushed=last_pushed,
                 cwd=cwd,
-                base=local_ref(trunk_of(store.get(unit_id).repo)),
+                base=local_ref(trunk_of(store.get(unit_id).repo), repo=store.get(unit_id).repo),
             )
             store.record_push(unit_id, remote)
             after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
@@ -1082,6 +1082,8 @@ def build_fetch(
     """Fetch one unit's repo, in that repo's turn. Raises when the fetch fails."""
 
     def fetch(unit: Unit) -> None:
+        if not has_origin(checkouts[unit.repo]):
+            return  # no remote: the repo's own trunk and branches are current
         with turn(unit.repo):
             result = git(checkouts[unit.repo], "fetch", "-q", "--prune", "origin", check=False)
         if result.returncode:
@@ -1950,7 +1952,7 @@ def build_base_moved(store: UnitStore) -> Callable[..., tuple[Cause, str] | None
             return Cause.BASE_CHANGED, f"its base moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or
         # the resume's restack takes it in. Rewritten is not.
-        if start and not _is_ancestor(tree, start, local_ref(base)):
+        if start and not _is_ancestor(tree, start, local_ref(base, repo=unit.repo)):
             return Cause.BASE_CHANGED, f"its base {base} was rewritten while it built"
         return None
 
@@ -1973,7 +1975,7 @@ def dev_stack_underneath(
     base = installation.dev_stack_base(unit.repo)
     if base is None:
         return None
-    ref = f"origin/{installation.repo(base).default_branch}"
+    ref = local_ref(installation.repo(base).default_branch, repo=base)
     return lambda: prepare(
         installation.checkouts[base], "_dev_stack_base", ref=ref, root=installation.worktree_root
     )

@@ -1408,7 +1408,12 @@ def build_restack(
         if (
             parent.state == SATISFIED
             and git(
-                repo, "merge-base", "--is-ancestor", local_ref(new_base), branch, check=False
+                repo,
+                "merge-base",
+                "--is-ancestor",
+                local_ref(new_base, repo=child.repo),
+                branch,
+                check=False,
             ).returncode
             == 0
         ):
@@ -1443,7 +1448,7 @@ def build_restack(
                 host_head=remote,
                 last_pushed=last_pushed,
                 cwd=cwd,
-                base=local_ref(new_base),
+                base=local_ref(new_base, repo=child.repo),
             )
             store.record_push(child.id, remote)
             if adopted == before:
@@ -1477,7 +1482,7 @@ def build_restack(
             moved = move(
                 repo,
                 branch,
-                new_base=local_ref(new_base),
+                new_base=local_ref(new_base, repo=child.repo),
                 old_base=old_base,
                 moving_unit=child.id,
                 moving_intent=child.title,
@@ -1515,7 +1520,7 @@ def build_restack(
             was_approved
             and not moved.resolved
             and diff_before
-            and diff_id(repo, local_ref(new_base), branch) == diff_before
+            and diff_id(repo, local_ref(new_base, repo=child.repo), branch) == diff_before
         )
         if not unchanged:
             if moved.resolved:
@@ -1543,7 +1548,7 @@ def build_restack(
 
         context = spans.current_unit.set((child.id, child.change, "restack", 0))
         try:
-            passed, output = tier1(cwd=cwd, base=local_ref(new_base))
+            passed, output = tier1(cwd=cwd, base=local_ref(new_base, repo=child.repo))
         finally:
             spans.current_unit.reset(context)
         if not passed:
@@ -1618,7 +1623,7 @@ def build_settled(repos: dict[str, Path]) -> Callable[[StoredUnit, str], bool]:
             repos[child.repo],
             "merge-base",
             "--is-ancestor",
-            local_ref(base),
+            local_ref(base, repo=child.repo),
             branch_name(child),
             check=False,
         )

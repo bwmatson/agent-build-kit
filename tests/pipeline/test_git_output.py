@@ -58,8 +58,10 @@ def repo(tmp_path: Path) -> Path:
     return repo
 
 
-def push_answering(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
-    """Make the push, and only the push, end as the recording says."""
+def push_answering(repo: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Make the push, and only the push, end as the recording says. The repo has a remote
+    for it to go to: a repo without one publishes nowhere."""
+    git(repo, "remote", "add", "origin", str(repo.parent / "remote.git"))
     original = shell.git
 
     def answer(repo: Path, *args: str, **kwargs):
@@ -73,7 +75,7 @@ def push_answering(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
 def test_only_a_stale_lease_is_reported_as_someone_elses_push(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    push_answering(monkeypatch, "push_stale_lease")
+    push_answering(repo, monkeypatch, "push_stale_lease")
 
     with pytest.raises(StaleRemote):
         push_with_lease(repo, "main", last_pushed="0" * 40)
@@ -91,7 +93,7 @@ def test_only_a_stale_lease_is_reported_as_someone_elses_push(
 def test_any_other_failure_is_not_reported_as_someone_elses_push(
     repo: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
-    push_answering(monkeypatch, name)
+    push_answering(repo, monkeypatch, name)
 
     with pytest.raises(RuntimeError) as raised:
         push_with_lease(repo, "main", last_pushed="0" * 40)

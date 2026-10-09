@@ -33,6 +33,21 @@ review decision are read from the review store the web UI writes (see
 other. Labels, drafts, statuses, check reruns and stacks are accepted and do
 nothing, and `supports_stacks` is false, so units serialise per repo.
 
+A person merges with git; nothing in the pipeline or the UI does. A pull request
+is listed as merged when its branch tip is contained in the trunk or its change
+is found there by patch identity (a squash or rebase), and approving in the UI
+leaves it open.
+
+A repo with no `origin` is built against its own trunk: the push, the per-unit
+and per-pass fetch, `local_ref` and the dev-stack base use the local trunk and
+local branches, and only the commit review approved is the branch tip pushed.
+With an `origin`, behaviour is unchanged.
+
+`abk pr view [number] [--repo NAME]` and `abk pr diff [number] [--repo NAME]`
+print a local pull request and its diff, read-only; they are the forge's
+`read_commands`, and it denies none. Without a number they use the open pull
+request of the branch checked out in the working directory.
+
 The rule that shapes the package: **a forge returns typed values, not the
 host's JSON.** Every `mergedAt` and `CHANGES_REQUESTED` the pipeline used to
 read is an attribute on a `PullRequest` or a `ReviewNote`, so a second host is

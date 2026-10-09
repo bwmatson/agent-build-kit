@@ -403,6 +403,10 @@ def remote_head(repo: Path, branch: str) -> str | None:
     Read from `push_target`, not `origin`: that is what every lease is
     checked against, and where the two differ `origin` may not even answer.
     """
+    if not shell.has_origin(repo):
+        # The branch is kept where it is built.
+        local = git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}", check=False)
+        return local.stdout.strip()
     try:
         found = git(
             repo,
@@ -568,6 +572,10 @@ def push_with_lease(repo: Path, branch: str, *, last_pushed: str | None) -> str:
     A branch that has never been pushed needs no force at all — and using one
     there would hide a naming mistake rather than surface it.
     """
+    if not shell.has_origin(repo):
+        # Nowhere to publish to: the branch is the pull request's head as it stands.
+        return git(repo, "rev-parse", branch).stdout.strip()
+
     target = push_target(repo)
 
     if last_pushed is None:

@@ -25,6 +25,8 @@ from agent_build_kit.forges.base import (
     key,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.shell import git, has_origin
+from agent_build_kit.pipeline.units import MERGED
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
@@ -113,11 +115,35 @@ class LocalForge:
     def merge_guard(self, repo: RepoId, *, branch: str, run: Run | None = None) -> str:
         return ""
 
+    def _checkout(self, repo: RepoId) -> Path | None:
+        """Where the repo is checked out, found by identity among the active workspace's repos."""
+        from agent_build_kit import config
+
+        for candidate in config.active().repos.values():
+            if candidate.forge == self.name and self.identity(candidate) == repo:
+                return candidate.path.expanduser()
+        return None
+
     # --- pull requests --------------------------------------------------------------
 
     def find_pr(self, repo: RepoId, *, head: str) -> int | None:
         found = [int(str(p["number"])) for p in self._pulls(repo) if _is_open(p, head)]
         return max(found) if found else None
+
+    def record(self, repo: RepoId, pr: int) -> dict[str, object] | None:
+        """The pull request as stored, or None when this forge holds no such number."""
+        return next((dict(p) for p in self._pulls(repo) if p["number"] == pr), None)
+
+    def diff(self, repo: RepoId, pr: int) -> str | None:
+        """The branch's own work over its base, as `git diff` prints it; None when the
+        pull request, the checkout or either ref is missing."""
+        pull = self.record(repo, pr)
+        checkout = self._checkout(repo)
+        if pull is None or checkout is None:
+            return None
+        trunk = ("origin/" if has_origin(checkout) else "") + str(pull["base"])
+        shown = git(checkout, "diff", f"{trunk}...refs/heads/{pull['head']}", check=False)
+        return None if shown.returncode else shown.stdout
 
     def comment_exists(
         self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
@@ -167,12 +193,13 @@ class LocalForge:
         from agent_build_kit.pipeline.unit_store import UnitStore
         from agent_build_kit.serve.review import ReviewStore
 
+        checkout = self._checkout(repo)
         pulls = [
             PullRequest(
                 number=int(str(p["number"])),
                 head=str(p["head"]),
                 base=str(p["base"]),
-                state=str(p["state"]),
+                state=_state(checkout, p),
             )
             for p in self._pulls(repo)
             if str(p["head"]).startswith(head_prefix)
@@ -267,6 +294,37 @@ class LocalForge:
 
     def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
         return Stack(number=stack, open=True, pulls=tuple(pulls))
+
+
+def _state(checkout: Path | None, pull: Stored) -> str:
+    """The stored state, but merged for an open pull request the trunk already holds."""
+    state = str(pull["state"])
+    if state == "open" and checkout is not None and _in_trunk(checkout, pull):
+        return MERGED
+    return state
+
+
+def _in_trunk(checkout: Path, pull: Stored) -> bool:
+    """Is the branch's tip in the trunk, or its change found there by patch identity?"""
+    head = "refs/heads/" + str(pull["head"])
+    trunk = ("origin/" if has_origin(checkout) else "") + str(pull["base"])
+    for ref in (head, trunk):
+        if git(checkout, "rev-parse", "--verify", "-q", ref, check=False).returncode:
+            return False
+    if not git(checkout, "merge-base", "--is-ancestor", head, trunk, check=False).returncode:
+        return True
+    fork = git(checkout, "merge-base", trunk, head, check=False).stdout.strip()
+    ours = _patch_id(checkout, "diff", fork, head) if fork else ""
+    if not ours:
+        return False
+    since = git(checkout, "rev-list", f"{fork}..{trunk}", check=False).stdout.split()
+    return any(_patch_id(checkout, "show", sha) == ours for sha in since)
+
+
+def _patch_id(checkout: Path, *show: str) -> str:
+    patch = git(checkout, *show, check=False).stdout
+    found = git(checkout, "patch-id", "--stable", check=False, input=patch).stdout.split()
+    return found[0] if found else ""
 
 
 def _comments(pull: Stored) -> list[Stored]:

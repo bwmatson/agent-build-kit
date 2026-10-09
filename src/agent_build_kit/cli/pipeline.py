@@ -84,7 +84,7 @@ from agent_build_kit.pipeline.pr_poller import (
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
 from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.stack_runner import (
     PauseInfo,
     RunOutcome,
@@ -1785,6 +1785,8 @@ def fetch_all(inst: Installation) -> None:
     user's, and are left exactly where they are.
     """
     for repo, path in inst.checkouts.items():
+        if not has_origin(path):
+            continue
         with repo_turn(inst, repo):
             result = git(path, "fetch", "-q", "--prune", "origin", check=False)
         if result.returncode:
@@ -2670,7 +2672,7 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
                 profile_name = profile_name or inst.repo(name).profile
                 # The remote's copy, as the runner builds on: the local branch of
                 # that name is the user's, and nothing updates it.
-                base = base or local_ref(trunk_of(name))
+                base = base or local_ref(trunk_of(name), repo=name)
                 break
     profile = profiles.get(profile_name or "python-uv")
     cache = CheckCache(args.cache) if args.cache else None

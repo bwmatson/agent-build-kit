@@ -24,6 +24,7 @@ from pydantic import Field
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.shell import has_origin
 
 
 class UnitState(StrEnum):
@@ -171,8 +172,14 @@ def local_ref(base: str, repo: str | None = None) -> str:
     predecessor merged, so its review judges it against a group that no
     longer exists. The trunk is taken from the remote, which
     each tick fetches first; the PR's base stays the bare name GitHub knows.
+
+    A repo with no remote (named by `repo`) has its own trunk to build on.
     """
-    return base if base.startswith(active().git.branch_prefix) else f"origin/{base}"
+    if base.startswith(active().git.branch_prefix):
+        return base
+    if repo is not None and not has_origin(active().repos[repo].path.expanduser()):
+        return base
+    return f"origin/{base}"
 
 
 def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: int) -> list[Unit]:
