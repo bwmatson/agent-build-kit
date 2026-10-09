@@ -52,6 +52,7 @@ from agent_build_kit.pipeline.wiring import (
 from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.settings import reload
 from tests.conftest import make_installation
+from tests.factories import git, init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
 
 # How long a build waits for something the pass should make happen meanwhile.
@@ -1467,3 +1468,52 @@ def test_each_refresh_follows_predecessors_after_fetching_and_polling(
     refreshes = [i for i, step in enumerate(steps) if step == "fetch"]
     assert refreshes
     assert all(steps[i : i + 3] == ["fetch", "poll", "follow"] for i in refreshes)
+
+
+def app_checkout(inst: Installation, *branches: str) -> dict[str, str]:
+    """A real `app` checkout with a commit on each named branch; the branch heads."""
+    repo = init_repo(inst.checkouts["app"])
+    (repo / "base.txt").write_text("base")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    heads = {}
+    for branch in branches:
+        git(repo, "checkout", "-q", "-b", branch, "main")
+        (repo / "work.txt").write_text(branch)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", branch)
+        heads[branch] = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "main")
+    return heads
+
+
+def test_the_branch_head_is_the_local_branch_a_unit_names(tmp_path: Path) -> None:
+    inst = workspace(tmp_path)
+    heads = app_checkout(inst, "spec/chain/1")
+
+    assert cli.branch_head(inst, stored("chain/1")) == heads["spec/chain/1"]
+    assert cli.branch_head(inst, stored("chain/9")) == ""
+    assert cli.branch_head(inst, stored("chain/1", repo="elsewhere")) == ""
+
+
+def test_a_tick_sets_back_a_unit_whose_predecessor_committed_a_rework(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = workspace(tmp_path)
+    app_checkout(inst, "spec/chain/1")
+    monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
+    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
+    store = builder.store
+    store.upsert([stored("chain/1"), stored("chain/2", depends_on=("chain/1",))])
+    store.set_state("chain/1", IN_REVIEW, pr=1, branch="spec/chain/1")
+    store.record_push("chain/1", "0" * 40)
+    store.set_state("chain/1", RUNNING)
+    store.set_state("chain/2", IN_REVIEW, pr=2, branch="spec/chain/2")
+
+    tick(inst)
+
+    # The pass goes on to build what it set back; the entry is what it left.
+    assert any(
+        entry["state"] == PLANNED and entry.get("cause") == Cause.UPSTREAM_WENT_BACK.value
+        for entry in store.get("chain/2").history
+    )

@@ -18,8 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.restack import move_branch_onto
+from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     FAILED,
@@ -32,7 +31,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     waiting_on,
 )
-from agent_build_kit.pipeline.wiring import follow_predecessors
+from agent_build_kit.pipeline.wiring import build_restack_onto, follow_predecessors
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from tests.factories import git, init_repo
 from tests.factories import stored_unit as unit
@@ -424,19 +423,9 @@ class Stack:
         store.set_state(CHILD, IN_REVIEW, pr=2, branch=f"spec/{CHILD}")
         store.record_approval(CHILD, self.old_child)
         store.record_push(CHILD, self.old_child)
-        self.restacked = events.build_restack(
-            repos={"app": self.repo},
-            store=store,
-            root=tmp_path / "trees",
-            move=lambda repo, branch, *, new_base, old_base, **k: move_branch_onto(
-                repo, branch, new_base=new_base, old_base=old_base
-            ),
-            tier1=lambda **k: (True, ""),
-            push=lambda repo, branch, *, last_pushed: self.sha(branch),
-            retarget=lambda *a, **k: None,
-            comment=lambda *a, **k: None,
-            remote_head_of=lambda repo, branch: None,
-        )
+        self.tree = tmp_path / "child-tree"
+        git(self.repo, "worktree", "add", "-q", str(self.tree), f"spec/{CHILD}")
+        self.restacked = build_restack_onto(store, repo=None)
 
     def commit(self, name: str) -> None:
         (self.repo / name).write_text(name)
@@ -462,13 +451,14 @@ class Stack:
         self.store.set_state(PARENT, IN_REVIEW)
         self.store.record_push(PARENT, self.sha(f"spec/{PARENT}"))
 
-    def restack_child(self) -> None:
-        self.restacked(
+    def restack_child(self) -> Restacked | None:
+        """What the build's `prepare` does for a released dependent: the old base
+        is worked out from the store and the tree, not given."""
+        return self.restacked(
+            tree=self.tree,
             branch=f"spec/{CHILD}",
-            old_base=self.old_parent,
-            new_base=f"spec/{PARENT}",
-            child=self.store.get(CHILD),
-            parent=self.store.get(PARENT),
+            base=f"spec/{PARENT}",
+            unit=self.store.get(CHILD),
         )
 
 
@@ -498,13 +488,14 @@ def test_the_released_dependent_restacks_onto_the_new_head_and_keeps_its_approva
     follow(store, real.heads(), logged)
     real.parent_returns()
 
-    real.restack_child()
+    restacked = real.restack_child()
 
+    assert restacked is not None
+    assert restacked.conflict == ""
     child = store.get(CHILD)
     new_parent = real.sha(f"spec/{PARENT}")
     assert child.approved == real.sha(f"spec/{CHILD}") != real.old_child
     assert git(real.repo, "merge-base", "--is-ancestor", new_parent, f"spec/{CHILD}") == ""
-    assert child.pushed == child.approved
 
 
 def test_a_predecessor_back_on_an_unchanged_head_restacks_nothing(
@@ -515,7 +506,7 @@ def test_a_predecessor_back_on_an_unchanged_head_restacks_nothing(
     assert store.get(CHILD).state == PLANNED
     real.parent_returns()
 
-    real.restack_child()
+    assert real.restack_child() is None
 
     assert real.sha(f"spec/{CHILD}") == real.old_child
     assert store.get(CHILD).approved == real.old_child

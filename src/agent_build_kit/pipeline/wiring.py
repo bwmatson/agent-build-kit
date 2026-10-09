@@ -1801,8 +1801,10 @@ def branch_is_changing(
     """
     if parent.state in REVIEWED:
         return ""
-    if parent.state == PLANNED and parent.cause in (Cause.UPSTREAM_WENT_BACK, Cause.BASE_CHANGED):
-        return f"it is {parent.state}, waiting on a changing upstream"
+    if parent.state == PLANNED and parent.cause is Cause.UPSTREAM_WENT_BACK:
+        return "it is planned, waiting on a changing upstream"
+    if parent.state == PLANNED and parent.cause is Cause.BASE_CHANGED:
+        return "it is planned to move onto a moved base"
     if effective_state(parent, graph) == "rebasing":
         return "it is rebasing"
     now = head(parent)
@@ -1821,8 +1823,8 @@ def follow_predecessors(
     """Set each unit in review back to planned while a same-repo predecessor's
     branch is changing; returns the ids moved.
 
-    `head` reads a unit's branch head ("" when it has none). See the design of
-    the change this belongs to for when a branch is changing. Repeats until
+    `head` reads a unit's branch head ("" when it has none). `branch_is_changing`
+    says when a branch is changing. Repeats until
     nothing moves, so a chain of dependents goes back in one pass. A unit with a
     deferred restack is skipped, and one whose branch is busy is left for the
     next pass.
