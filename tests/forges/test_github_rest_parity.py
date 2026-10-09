@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.forges.base import PullRequest, RepoId
+from agent_build_kit.forges.base import (
+    Check,
+    CheckStatus,
+    PullRequest,
+    RepoId,
+    cancelled_names,
+    failing_names,
+)
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 from tests.forges import github_answers as gh
@@ -18,6 +25,8 @@ from tests.forges.github_host import GitHubHost, listing_of
 pytestmark = pytest.mark.usefixtures("github_env")
 
 REPO = RepoId(forge="github", account="example", name="app")
+
+RUN_LINK = f"{gh.WEB}/actions/runs/1/job/2"
 
 
 def listing(host: GitHubHost, **kwargs) -> list[PullRequest]:
@@ -79,8 +88,13 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
             conversation=("IC_1", "IC_2", "PRR_1", "PRR_3"),
             comment_bodies=("looks close", "one more thing"),
             review_decision="changes_requested",
-            failing_checks=("CI", "slow"),
-            cancelled_checks=("flaky",),
+            checks=(
+                Check(name="lint", status=CheckStatus.PASSED, url=RUN_LINK),
+                Check(name="CI", status=CheckStatus.FAILED, url=RUN_LINK),
+                Check(name="slow", status=CheckStatus.FAILED, url=RUN_LINK),
+                Check(name="flaky", status=CheckStatus.CANCELLED, url=RUN_LINK),
+                Check(name="later", status=CheckStatus.PENDING, url=RUN_LINK),
+            ),
             mergeable=False,
         ),
         PullRequest(
@@ -201,7 +215,7 @@ def test_only_a_failing_conclusion_is_a_failing_check() -> None:
         ]
     )
 
-    assert pull.failing_checks == ("CI", "slow")
+    assert failing_names(pull.checks) == ("CI", "slow")
 
 
 def test_changes_requested_is_the_only_decision_that_reworks() -> None:
@@ -227,8 +241,8 @@ def test_the_hosts_three_words_for_mergeability(said: str, means: bool | None) -
 def test_a_cancelled_check_is_cancelled_and_not_failing() -> None:
     pull = one(checks=[gh.check_run("CI", "CANCELLED"), gh.check_run("lint", "SUCCESS")])
 
-    assert pull.cancelled_checks == ("CI",)
-    assert pull.failing_checks == ()
+    assert cancelled_names(pull.checks) == ("CI",)
+    assert failing_names(pull.checks) == ()
 
 
 def test_a_failed_and_a_cancelled_check_are_told_apart() -> None:
@@ -240,19 +254,19 @@ def test_a_failed_and_a_cancelled_check_are_told_apart() -> None:
         ]
     )
 
-    assert pull.failing_checks == ("CI", "slow")
-    assert pull.cancelled_checks == ("lint",)
+    assert failing_names(pull.checks) == ("CI", "slow")
+    assert cancelled_names(pull.checks) == ("lint",)
 
 
 def test_a_check_with_no_conclusion_is_neither() -> None:
     pull = one(checks=[gh.check_run("CI", None, status="IN_PROGRESS")])
 
-    assert pull.failing_checks == ()
-    assert pull.cancelled_checks == ()
+    assert failing_names(pull.checks) == ()
+    assert cancelled_names(pull.checks) == ()
 
 
 def test_a_commit_with_no_checks_has_none() -> None:
     pull = one(checks=None)
 
-    assert pull.failing_checks == ()
-    assert pull.cancelled_checks == ()
+    assert failing_names(pull.checks) == ()
+    assert cancelled_names(pull.checks) == ()

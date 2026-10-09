@@ -48,6 +48,8 @@ from agent_build_kit.forges.azure_models import (
 )
 from agent_build_kit.forges.base import (
     BaseMissing,
+    Check,
+    CheckStatus,
     FileChange,
     Label,
     PullRequest,
@@ -56,6 +58,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    failing_names,
     fit_description,
 )
 from agent_build_kit.forges.transport import (
@@ -110,6 +113,10 @@ _POLICY_FAILING = ("rejected", "broken")
 # only `rejected`, so the build is asked.
 _BUILD_CANCELLED = "canceled"
 
+# What a build policy evaluation came to. `notApplicable` is not a check at all.
+_POLICY_PASSING = "approved"
+_POLICY_NOT_APPLICABLE = "notApplicable"
+
 # The policy type of build validation. `az repos pr policy list` evaluates every
 # policy on the target branch - reviewers, work item linking, comments, status -
 # and a pull request waiting for its approval is `rejected` on those too, which
@@ -133,6 +140,14 @@ def _base_missing(stderr: str, base: str) -> bool:
 # `pending` and `notSet` are waiting, not failing: read as failures they would
 # send a unit back for rework while its build was still running.
 _FAILING = ("failed", "error")
+_STATUS_NOT_APPLICABLE = "notApplicable"
+_STATUS_CHECKS = {
+    "succeeded": CheckStatus.PASSED,
+    "failed": CheckStatus.FAILED,
+    "error": CheckStatus.FAILED,
+    "pending": CheckStatus.PENDING,
+    "notSet": CheckStatus.PENDING,
+}
 
 # A status description well inside what the API accepts. Over the limit the
 # whole status is refused, not its tail.
@@ -373,28 +388,44 @@ class AzureDevOpsForge:
     ) -> PullRequest:
         """The pull request with what was said on it, for the poller to diff."""
         notes = _notes(self._threads(repo, pull.number, run=run), live_only=False)
-        failing_evaluations, cancelled_evaluations = self._split_evaluations(
-            repo, pull.number, project, run=run
-        )
-        failing = tuple(
-            sorted(
-                [
-                    _context(status)
-                    for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
-                    if status.state in _FAILING
-                ]
-                + [_policy_name(item) for item in failing_evaluations]
+        checks = [
+            Check(
+                name=_context(status),
+                status=_STATUS_CHECKS.get(status.state, CheckStatus.PENDING),
+                url=status.target_url or "",
             )
-        )
-        cancelled = tuple(sorted(_policy_name(item) for item in cancelled_evaluations))
+            for status in _latest_statuses(self._statuses(repo, pull.number, run=run))
+            if status.state != _STATUS_NOT_APPLICABLE
+        ]
+        for item in self._build_evaluations(repo, pull.number, project, run=run):
+            if item.status == _POLICY_NOT_APPLICABLE:
+                continue
+            checks.append(
+                Check(
+                    name=_policy_name(item),
+                    status=self._evaluation_status(repo, item, run=run),
+                )
+            )
         return pull.model_copy(
             update={
                 "conversation": tuple(note.id for note in notes),
                 "comment_bodies": tuple(note.body for note in notes),
-                "failing_checks": failing,
-                "cancelled_checks": cancelled,
+                "checks": tuple(checks),
             }
         )
+
+    def _evaluation_status(
+        self, repo: RepoId, item: EvaluationDoc, *, run: Run | None = None
+    ) -> CheckStatus:
+        if item.status == _POLICY_PASSING:
+            return CheckStatus.PASSED
+        if item.status not in _POLICY_FAILING:
+            # running, queued, or a word this forge does not know: waiting.
+            return CheckStatus.PENDING
+        build = item.context.build_id if item.context else None
+        if build and self._build_result(repo, build, run=run) == _BUILD_CANCELLED:
+            return CheckStatus.CANCELLED
+        return CheckStatus.FAILED
 
     def _split_evaluations(
         self, repo: RepoId, pr: int, project: str, *, run: Run | None = None
@@ -406,12 +437,11 @@ class AzureDevOpsForge:
         """
         failing: list[EvaluationDoc] = []
         cancelled: list[EvaluationDoc] = []
-        for item in self._failing_evaluations(repo, pr, project, run=run):
-            build = item.context.build_id if item.context else None
-            if build and self._build_result(repo, build, run=run) == _BUILD_CANCELLED:
-                cancelled.append(item)
-            else:
-                failing.append(item)
+        for item in self._build_evaluations(repo, pr, project, run=run):
+            if item.status not in _POLICY_FAILING:
+                continue
+            status = self._evaluation_status(repo, item, run=run)
+            (cancelled if status == CheckStatus.CANCELLED else failing).append(item)
         return failing, cancelled
 
     def _build_result(self, repo: RepoId, build: int, *, run: Run | None = None) -> str:
@@ -419,10 +449,10 @@ class AzureDevOpsForge:
         found = self._call(repo, "GET", route, run=run)
         return _parse(found, BuildDoc, f"GET {route}").result or ""
 
-    def _failing_evaluations(
+    def _build_evaluations(
         self, repo: RepoId, pr: int, project: str, *, run: Run | None = None
     ) -> list[EvaluationDoc]:
-        """The build policy evaluations this pull request is failing.
+        """The build policy evaluations of this pull request, whatever they came to.
 
         A policy evaluation is a different resource from a status: a branch
         policy's build reports here and never as a status. The list is paged by
@@ -445,11 +475,7 @@ class AzureDevOpsForge:
             # An empty page, not a short one: the host may cap a page below `$top`.
             if not page:
                 break
-        return [
-            item
-            for item in found
-            if item.status in _POLICY_FAILING and item.configuration.type.id == _BUILD_POLICY_TYPE
-        ]
+        return [item for item in found if item.configuration.type.id == _BUILD_POLICY_TYPE]
 
     def find_pr(
         self, repo: RepoId, *, head: str, status: str = "all", run: Run | None = None
@@ -754,7 +780,7 @@ class AzureDevOpsForge:
         necessarily pipelines at all, and inventing a log fetch for a build
         that may not exist would put a guess in the rework's prompt.
         """
-        if not pull.failing_checks:
+        if not failing_names(pull.checks):
             return ""
         parts = [
             f"{_context(status)} - {status.description or 'failed'}"

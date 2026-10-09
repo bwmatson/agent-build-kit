@@ -74,7 +74,7 @@ def test_a_check_that_was_already_failing_is_not_news(tmp_path: Path) -> None:
 
     poller.poll()
 
-    assert [event for event, *_ in seen] == ["rework"]
+    assert seen == []
 
 
 def test_only_the_newly_failing_checks_are_named(tmp_path: Path) -> None:
@@ -109,6 +109,7 @@ def test_a_cancelled_check_is_rerun_as_before(tmp_path: Path) -> None:
 
 
 def test_a_cancelled_check_seen_first_is_rerun(tmp_path: Path) -> None:
+    (tmp_path / "poll.json").write_text(json.dumps({}))
     poller, seen = polling(tmp_path, [[pr(("CI", CheckStatus.CANCELLED))]])
 
     poller.poll()

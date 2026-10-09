@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.pr_poller import (
     unmergeable,
 )
 from agent_build_kit.pipeline.units import CLOSED, MERGED
+from tests.check_lists import failed_list
 
 
 def pr(number: int = 4, **overrides) -> PullRequest:
@@ -151,7 +152,7 @@ def test_a_failed_check_asks_for_rework(poller) -> None:
     instance, seen = poller(
         [
             [pr()],
-            [pr(failing_checks=("CI",))],
+            [pr(checks=failed_list("CI"))],
         ]
     )
     instance.poll()
@@ -431,7 +432,7 @@ def test_state_recorded_before_a_field_existed_still_polls(tmp_path: Path) -> No
         "merged": False,
         "last_comment": None,
         "labels": [],
-        "failing_checks": [],
+        "checks": {},
         "head": "spec/add-marker/1",
     }
     state.write_text(json.dumps({"16": old}))
@@ -459,7 +460,7 @@ def test_a_pr_first_seen_with_ci_already_red_is_reworked(tmp_path: Path) -> None
         repo="o/r",
         state_path=state,
         dispatch=lambda event, number, **k: seen.append((event, number, k.get("reason"))),
-        list_prs=lambda: [pr(20, failing_checks=("config-check",))],
+        list_prs=lambda: [pr(20, checks=failed_list("config-check"))],
     ).poll()
 
     assert seen == [("rework", 20, "failing checks: config-check")]

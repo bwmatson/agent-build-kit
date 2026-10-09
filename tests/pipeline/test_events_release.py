@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.pr_poller import Poller
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SATISFIED, UnitState
 from agent_build_kit.pipeline.workspaces import branch_lock
+from tests.check_lists import cancelled_list, failed_list
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
 
@@ -375,9 +376,9 @@ def test_a_failing_check_during_the_hold_is_delivered_after_the_release(
         [
             pull(),
             pull(labels=HOLD),
-            pull(labels=HOLD, failing_checks=("CI",)),
-            pull(failing_checks=("CI",)),
-            pull(failing_checks=("CI",)),
+            pull(labels=HOLD, checks=failed_list("CI")),
+            pull(checks=failed_list("CI")),
+            pull(checks=failed_list("CI")),
         ],
     )
     for _ in range(4):
@@ -584,7 +585,7 @@ def test_a_cancelled_check_first_seen_under_the_hold_is_rerun_once_after_the_rel
     tmp_path: Path, store: UnitStore, locks: Path
 ) -> None:
     store.record_push(UNIT, "aaa1111")
-    cancelled = {"cancelled_checks": ("CI",)}
+    cancelled = {"checks": cancelled_list("CI")}
     queue = iter(
         [
             pull(),

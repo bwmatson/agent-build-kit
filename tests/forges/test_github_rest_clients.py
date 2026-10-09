@@ -20,6 +20,7 @@ from agent_build_kit.forges.base import Label, PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.settings import settings
+from tests.check_lists import failed_list
 from tests.forges import github_answers as gh
 from tests.forges.conftest import GH_TOKEN
 from tests.forges.github_host import HOSTS, GitHubHost, answer
@@ -53,7 +54,9 @@ def started(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[object]]:
 
 
 def operations(forge: GitHubForge) -> dict[str, Callable[[], object]]:
-    pull = PullRequest(number=7, head="spec/x/1", base="main", state="open", failing_checks=("CI",))
+    pull = PullRequest(
+        number=7, head="spec/x/1", base="main", state="open", checks=failed_list("CI")
+    )
     label = Label(name="running", color="d97706", description="Building")
     return {
         "find_pr": lambda: forge.find_pr(REPO, head="spec/x/1"),

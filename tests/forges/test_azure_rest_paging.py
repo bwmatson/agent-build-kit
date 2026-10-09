@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 
 from agent_build_kit.forges.azure_devops import READ_POOL, AzureDevOpsForge
-from agent_build_kit.forges.base import RepoId
+from agent_build_kit.forges.base import RepoId, failing_names
 from agent_build_kit.forges.transport import TransportError
 from tests.forges import azure_answers
 from tests.forges.azure_rest_host import RestHost, refusal
@@ -73,7 +73,7 @@ def test_evaluations_paged_by_top_and_skip_are_all_read() -> None:
 
     [pull] = AzureDevOpsForge(http=host).list_prs(REPO)
 
-    assert pull.failing_checks == ("check 22", "check 24")
+    assert failing_names(pull.checks) == ("check 22", "check 24")
     skips = [int(c.params["$skip"]) for c in host.calls("GET", "policy/evaluations")]
     assert skips == [0, 10, 20, 25], "the skip is what has been read so far"
 

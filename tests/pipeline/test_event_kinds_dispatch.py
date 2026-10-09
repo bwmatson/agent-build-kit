@@ -13,6 +13,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_poller import REWORK_LABEL, Poller, snapshot
 from agent_build_kit.pipeline.unit_store import FeedbackSource, ReworkKind, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from tests.check_lists import failed_list
 from tests.factories import stored_unit as unit
 
 UNIT = "add-marker/1"
@@ -45,8 +46,8 @@ def polled(tmp_path: Path, before: PullRequest | None, now: PullRequest) -> list
 @pytest.mark.parametrize(
     ("before", "now", "kind"),
     [
-        (None, pr(failing_checks=("CI",)), ReworkKind.FAILING_CHECKS),
-        (pr(), pr(failing_checks=("CI",)), ReworkKind.FAILING_CHECKS),
+        (None, pr(checks=failed_list("CI")), ReworkKind.FAILING_CHECKS),
+        (pr(), pr(checks=failed_list("CI")), ReworkKind.FAILING_CHECKS),
         (None, pr(mergeable=False), ReworkKind.CONFLICT),
         (pr(mergeable=True), pr(mergeable=False), ReworkKind.CONFLICT),
         (pr(), pr(labels=(REWORK_LABEL,)), ReworkKind.LABEL),

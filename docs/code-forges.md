@@ -55,7 +55,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `post_comment(repo, pr, body)` | rework, restack | ditto, for a note about the PR itself |
 | `post_status(repo, sha, ok, ..., head)` | the tier 2 gate | publish a result against the tested commit; a host that shows statuses on the pull request also gets it there, found from `head` |
 | `failed_check_logs(repo, pull)` | rework | what the failing checks said |
-| `rerun_checks(repo, pull)` | `events` | run `pull.cancelled_checks` again: GitHub re-runs the workflow runs behind them, Azure DevOps requeues the build policy evaluations whose build was cancelled |
+| `rerun_checks(repo, pull)` | `events` | run the pull request's cancelled checks again: GitHub re-runs the workflow runs behind them, Azure DevOps requeues the build policy evaluations whose build was cancelled |
 | `delete_remote_branch(repo, branch)` | `events` | remove a merged unit's branch |
 | `close_pr(repo, pr)` | the satisfied outcome | close without merging, raising if the host refuses |
 | `add_label(repo, pr, label)` | state labels | put the label on, creating it in the repo first if missing; raises if the host refuses |
@@ -101,6 +101,24 @@ learns a second set of words for the same three outcomes. `conversation` is
 opaque comment ids, `comment_bodies` the words behind them, `labels` drives
 `agent-hold` and `agent-rework`, and `review_decision` is `""` or
 `"changes_requested"`.
+
+`checks` is the pull request's list of `Check(name, status, url)`, `status` being
+`passed`, `failed`, `cancelled` or `pending`; `url` is the host's link, `""` where it
+gives none. The failing and cancelled names are read from it with `failing_names` and
+`cancelled_names`, and `overall_result` is `failed` when any check failed, otherwise
+`pending` when any is pending (a list of cancelled checks only reads as pending),
+otherwise `passed`, and `none` for an empty list. A value a forge does not know maps to
+`pending`, never `failed`, so it cannot send a unit back.
+
+| Status | GitHub | Azure DevOps status | Azure DevOps build policy |
+|---|---|---|---|
+| passed | success, neutral, skipped | succeeded (not applicable is omitted) | approved (not applicable is omitted) |
+| failed | failure, timed out | failed, error | rejected or broken, the build not cancelled |
+| cancelled | cancelled | — | rejected with the build's result cancelled |
+| pending | no conclusion, or unknown | pending, not set | queued, running |
+
+Azure DevOps merges its two sources into one list: pull request statuses (the latest
+posting per genre and name wins) and the build-validation policy's evaluations.
 
 `ReviewNote` carries `live`: whether the note is still worth replaying to a
 rework. It is the generalisation of GitHub's outdated-comment convention —
