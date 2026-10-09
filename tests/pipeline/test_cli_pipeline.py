@@ -99,7 +99,7 @@ def test_a_low_window_pauses_before_planning(
         "may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 88%", resume_at=r.resets_at),
     )
-    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: planned.append("archive"))
+    monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: planned.append("plan"))
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
     assert planned == []
@@ -143,7 +143,7 @@ def test_a_paused_tick_asks_the_guard_again_and_stays_paused_when_it_refuses(
         lambda r: Decision(may_start=False, reason="weekly at 92%", resume_at=r.resets_at),
     )
     planned: list[str] = []
-    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: planned.append("archive"))
+    monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: planned.append("plan"))
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
 

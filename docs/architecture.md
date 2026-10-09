@@ -161,9 +161,11 @@ refreshes run the same round (`run_round`): the usage check, fetch and poll,
 planning, reclaim, verification and archive, then readiness. A change added or
 edited during a pass is planned by its next refresh (a change whose tasks are
 unchanged costs no model call), a unit sent back is let in again, and a step
-that raises is logged while the others still run. A build reporting that the
-pass should stop (the usage window spent), or a refresh whose guard refuses,
-ends submission, and the builds in flight are still awaited. A pass therefore
+that raises is logged while the others still run. Only the model's own
+refusal (a `rate_limit` pause, or a build returning False) ends submission,
+and the builds in flight are still awaited. A usage refusal pauses only that
+unit: a refused round still fetches, polls and archives, starts nothing, and
+later rounds ask the guard again and resume it. A pass therefore
 lasts as long as the work it can reach — watch the pass, not a unit.
 
 A round reclaims too: a unit marked `running` that no process holds and that

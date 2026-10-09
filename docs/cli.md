@@ -50,8 +50,8 @@ stack is in use. A poll event for a unit whose build is still running is left
 for a later poll rather than acted on mid-build. A unit the pass built that a
 review sends back, that its own build held because its base moved, or whose thread a
 comment resumes, is started again in the same pass, at most twice; a unit stopped for
-any other cause waits for the next pass. A refresh whose usage guard refuses stops new builds, like a build that
-pauses (below).
+any other cause waits for the next pass. A refresh whose usage guard refuses
+starts nothing and skips planning, but still fetches, polls and archives (below).
 
 - `--dry-run` runs everything up to the build and reports what is ready
   without building.
@@ -64,7 +64,9 @@ its rounds, recording merges and comments, asks the guard again at each one,
 admits builds as soon as it allows and resumes the paused units. A window
 that is used up refuses every start each round. A build the model itself
 refuses (rate limited) stops new builds from starting until its pause ends;
-builds already in flight are still awaited before the pass ends.
+builds already in flight are still awaited before the pass ends. Rounds run
+only while a build is in flight, so a pass resumes paused units only while
+other builds keep it running; otherwise the next tick does.
 
 Exit 0, including when paused or idle. A tick is idle unless a unit is
 planned, running or in review, a change's tasks are unplanned, or a change with
