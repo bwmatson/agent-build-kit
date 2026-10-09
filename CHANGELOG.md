@@ -15,6 +15,13 @@
   A resumed ACP call records only the cost that session added during the call, not the
   session's running total, so continuing a session never counts earlier spend twice.
 
+- A unit whose step cannot reach the code host is parked instead of failed. It goes back to
+  `planned` with the cause `host_unavailable`, the step and the error text, and the pass
+  readmits it after a wait that grows with each consecutive parking (1, 2, 5, 10, then 30
+  minutes), logging how long remains. A unit already approved and pushed resumes straight
+  at the pull request step, without running tier 2, review or rework again. Every failed
+  unit now records its error text and step, visible in `abk status`.
+
 - A unit no longer stays `running` after its run is gone. At the start of each pass, a running
   unit whose branch lock names a dead process is failed, so `abk requeue` can move it; one
   with a live holder, a thread to resume from, or no readable lock is left (the last is

@@ -24,7 +24,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -33,7 +33,16 @@ from pydantic import ValidationError, model_validator
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.units import HELD, PLANNED, Join, Member, Unit, UnitState
+from agent_build_kit.pipeline.units import (
+    FAILED,
+    HELD,
+    IN_REVIEW,
+    PLANNED,
+    Join,
+    Member,
+    Unit,
+    UnitState,
+)
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
@@ -76,6 +85,7 @@ class Cause(StrEnum):
     MERGED = "merged"
     CLOSED = "closed"
     FAILED = "failed"
+    HOST_UNAVAILABLE = "host_unavailable"
 
 
 class RequeueReason(StrEnum):
@@ -185,6 +195,10 @@ class StoredUnit(Unit):
     gated_requeue: RequeueReason | None = None
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None
+    # The step the unit last stopped in, and how many times in a row the code host
+    # being unavailable has parked it; a success resets the count.
+    step: str = ""
+    parked_attempts: int = 0
     history: tuple[dict, ...] = ()
 
     @property
@@ -563,6 +577,15 @@ class UnitStore:
                 "branch": branch if branch is not None else unit.branch,
                 "held_by": held_by if state == HELD else HeldBy.NONE,
                 "held_base": held_base if state == HELD else "",
+                # The step belongs to the failure or parking it describes (recorded just
+                # before it); any other state forgets it.
+                "step": unit.step if state == FAILED or cause is Cause.HOST_UNAVAILABLE else "",
+                # Parked again, or the count of parkings in a row starts over.
+                "parked_attempts": unit.parked_attempts + 1
+                if cause is Cause.HOST_UNAVAILABLE
+                else 0
+                if state in (IN_REVIEW, FAILED)
+                else unit.parked_attempts,
                 "history": (
                     *unit.history,
                     {
@@ -576,6 +599,10 @@ class UnitStore:
         )
         self._write(stored)
         return stored[unit_id], list(stored.values()), opened
+
+    def record_step(self, unit_id: str, step: str) -> None:
+        """The step the unit is in when it fails, kept with the failure."""
+        self._update(unit_id, step=step)
 
     @_exclusive
     def _update(self, unit_id: str, **fields: object) -> None:
@@ -673,3 +700,27 @@ def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# How long a unit parked for the host being unavailable waits, by consecutive parking.
+HOST_BACKOFF = (
+    timedelta(minutes=1),
+    timedelta(minutes=2),
+    timedelta(minutes=5),
+    timedelta(minutes=10),
+    timedelta(minutes=30),
+)
+
+
+def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
+    """How long until a unit parked for the host being unavailable may run again,
+    or None when it is not parked, or the wait is over."""
+    if unit.state != PLANNED or unit.cause is not Cause.HOST_UNAVAILABLE:
+        return None
+    try:
+        parked = datetime.fromisoformat(str(unit.history[-1].get("at", "")))
+    except ValueError:
+        return None
+    wait = HOST_BACKOFF[min(max(unit.parked_attempts, 1), len(HOST_BACKOFF)) - 1]
+    left = parked + wait - now
+    return left if left > timedelta(0) else None

@@ -441,6 +441,22 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   closed or is satisfied. An unfinished unit is exactly a thread that still
   exists.
 
+## Host outages
+
+A step that gives up because the code host is unavailable (`HostUnavailable`) is not
+a failure. The unit goes back to `planned` with the cause `host_unavailable`, the step
+and the error text, and its thread stays at the node. The running pass readmits it
+once its backoff has passed (1, 2, 5, 10, then 30 minutes by consecutive parking, from
+when it was parked) and logs how long remains until then; a success resets the count.
+Any other exception fails the unit and records its type, text and step.
+
+On a fresh start `prepare` notes whether the approved commit is the pushed head
+(`pushed_head`) and whether a pull request exists (`opened`). With the former, and no
+pull request or unposted replies, `after_prepare` routes straight to `open_pr`, before
+tier 2, review or rework from saved feedback. Known limitation: a unit started fresh this way
+has no tier 2 snapshot in its run state, so the pull request it opens lacks the tier 2 result
+section.
+
 ## Usage pauses
 
 Before an agent step (`tests`, `implement`, `fix_checks`, `review`, `rework`) a

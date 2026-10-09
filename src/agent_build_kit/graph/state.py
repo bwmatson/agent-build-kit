@@ -110,6 +110,8 @@ class UnitRun(Frozen):
     base_commits: int = 0  # commits on the branch when `prepare` finished
     head: str = ""  # the branch's tip when the last node finished, which a re-run compares with
     head_approved: bool = False  # the branch has work and review approved exactly its tip
+    pushed_head: bool = False  # the approved commit is the pushed head
+    opened: bool = False  # the unit has a pull request
     had_feedback: bool = False  # feedback was waiting when the run began
     fix_rounds: int = 0  # fixes of failing checks in this round of review
     review_round: int = 0

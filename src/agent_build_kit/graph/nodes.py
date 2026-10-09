@@ -253,6 +253,9 @@ class BuildPath:
                 try:
                     # Off the loop: the callables block on agents and git.
                     update = await asyncio.to_thread(self._step, node, body, state)
+                    if update.get("stopped"):
+                        # The run ends `failed` for this, and the record names the step.
+                        self.record_step(node)
                     outcome = (
                         UnitOutcome(update["status"]) if update.get("status") else UnitOutcome.OK
                     )
@@ -286,7 +289,11 @@ class BuildPath:
                 except AgentInterrupted:
                     outcome = UnitOutcome.INTERRUPTED
                     raise
-                except BaseException:
+                except BaseException as error:
+                    if isinstance(error, Exception):
+                        # Where it failed, for the unit's record (`abk status`).
+                        # The error being handled is the one to raise.
+                        self.record_step(node)
                     if current is not None:
                         telemetry.failed(current)
                     raise
@@ -311,6 +318,13 @@ class BuildPath:
                     )
 
         return run
+
+    def record_step(self, node: Node) -> None:
+        """Name `node` as the step the unit is failing in; never raises."""
+        try:
+            self.runner.store.record_step(self.unit.id, node.value)
+        except Exception as recording:  # noqa: BLE001
+            self.say(f"could not record the failing step — {recording}")
 
     def _sessions_after(self, node: Node, state: UnitRun, update: Update) -> Update:
         """The role's session as the node leaves it, and the model the build began on."""
@@ -768,7 +782,10 @@ class BuildPath:
         """What the branch holds, which is what the path from here is chosen on."""
         r, unit = self.runner, self.unit
         head = r.head(self.tree())
+        stored = r.store.get(unit.id)
         return {
+            "pushed_head": bool(existing) and head == stored.approved == stored.pushed,
+            "opened": stored.pr is not None,
             "base_commits": existing,
             "had_feedback": bool(feedback),
             "head": head,
@@ -1681,6 +1698,8 @@ class BuildPath:
             "produced_nothing": False,
             "moved": False,
             "head_approved": False,
+            "pushed_head": False,
+            "opened": False,
             "head": "",
             "seen_comments": None,
             "given_comments": (),
@@ -1728,6 +1747,9 @@ def after_prepare(state: UnitRun) -> Node:
         return stop
     if state.conflict:
         return Node.ADAPT
+    if state.pushed_head and (not state.opened or state.pending_replies):
+        # The work is approved and on the remote: only the pull request step is left.
+        return Node.OPEN_PR
     if state.had_feedback:
         return Node.REWORK
     if not state.base_commits:
@@ -1851,6 +1873,7 @@ PREPARED: tuple[Target, ...] = (
     Node.TESTS,
     Node.TIER2,
     Node.VERIFY_BASE,
+    Node.OPEN_PR,
 )
 ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = {
     Node.PREPARE: (

@@ -1430,6 +1430,6 @@ class UnitRunner(BaseModel):
         # Recorded rather than left at "planned": the next round would
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
-        self.store.set_state(unit.id, UnitState.FAILED, cause=Cause.FAILED)
+        self.store.set_state(unit.id, UnitState.FAILED, note=detail, cause=Cause.FAILED)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)
