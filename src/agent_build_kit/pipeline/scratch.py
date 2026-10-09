@@ -131,30 +131,23 @@ def remove_leftovers(worktree: Path) -> None:
             entry.unlink(missing_ok=True)
 
 
-class Watcher:
-    """The loop that holds a folder to the cap. `passed` is set after every pass, so a
-    test waits on it (clear it, then wait) instead of polling the folder."""
-
-    def __init__(self) -> None:
-        self.passed = threading.Event()
-
-
 @contextmanager
-def watch_folder(folder: Path, *, max_bytes: int, interval: float) -> Iterator[Watcher]:
-    """Run `cap_files` over `folder` every `interval` seconds, signalling `passed`
-    after each pass, until the block ends."""
+def watch_folder(folder: Path, *, max_bytes: int, interval: float) -> Iterator[threading.Event]:
+    """Run `cap_files` over `folder` every `interval` seconds until the block ends,
+    yielding an event set after each pass: a test clears it and waits on it instead of
+    polling the folder."""
     done = threading.Event()
-    watcher = Watcher()
+    passed = threading.Event()
 
     def enforce() -> None:
         while not done.wait(interval):
             cap_files(folder, max_bytes=max_bytes)
-            watcher.passed.set()
+            passed.set()
 
     thread = threading.Thread(target=enforce, daemon=True)
     thread.start()
     try:
-        yield watcher
+        yield passed
     finally:
         done.set()
         thread.join()

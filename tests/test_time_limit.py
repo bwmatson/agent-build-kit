@@ -33,6 +33,40 @@ def test_after_it():
 """
 
 
+SLOW_TEARDOWN = """\
+import time
+
+import pytest
+
+
+@pytest.fixture
+def slow_teardown():
+    yield
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        pass
+
+
+@pytest.fixture
+def slow_setup():
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        pass
+
+
+def test_with_a_slow_teardown(slow_teardown):
+    pass
+
+
+def test_with_a_slow_setup(slow_setup):
+    pass
+
+
+def test_after_them():
+    pass
+"""
+
+
 def run_pytest(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "PYTHONPATH": str(ROOT)}
     return subprocess.run(
@@ -54,6 +88,21 @@ def test_a_test_that_hangs_fails_naming_the_limit_and_the_run_goes_on(tmp_path: 
     assert result.returncode == 1, output
     assert "1 failed, 1 passed" in output
     assert re.search(r"time limit of 1 seconds?", output), output
+
+
+def test_a_fixture_that_hangs_in_setup_or_teardown_is_an_error_naming_the_limit(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "test_fixtures.py").write_text(SLOW_TEARDOWN)
+
+    result = run_pytest(tmp_path, "--test-time-limit=1", "-q")
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "2 passed, 2 errors" in output, output
+    assert len(re.findall(r"time limit of 1 seconds?", output)) >= 2, output
+    assert "test setup exceeded" in output
+    assert "test teardown exceeded" in output
 
 
 def test_the_default_limit_is_a_minute() -> None:

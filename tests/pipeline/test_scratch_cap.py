@@ -121,11 +121,11 @@ def test_the_watcher_signals_after_a_pass_that_has_cut_the_file(tmp_path: Path) 
     path = tmp_path / "suite.log"
     path.write_text("".join(lines(0, 5000)))
 
-    with watch_folder(tmp_path, max_bytes=CAP, interval=0.01) as watcher:
+    with watch_folder(tmp_path, max_bytes=CAP, interval=0.01) as passed:
         # The first pass may have begun before the file was written; the second began after.
         for _ in range(2):
-            watcher.passed.clear()
-            assert watcher.passed.wait(30), "the watcher never finished a pass"
+            passed.clear()
+            assert passed.wait(30), "the watcher never finished a pass"
 
         assert len(path.read_bytes()) <= CAP
         assert b"truncated" in marker_of(path.read_bytes())

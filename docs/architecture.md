@@ -770,7 +770,7 @@ approved.
   ("timed out after N seconds") and the end of its output, dump included. This catches a
   run whose tests all pass and whose process then does not exit.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
-  `--test-time-limit` (sixty seconds) from a timer thread, naming the limit; the run goes on.
+  `--test-time-limit` (sixty seconds) from a timer thread, in setup, call and teardown alike, naming the limit; the run goes on.
 - **A guard.** `tests/timing_hazards.py` parses the test tree and fails on a bare sleep, a
   function that makes a thread and neither joins nor signals it, or a fixed port, except in
   the shared helpers and the files on its allowlist. The allowlist may only shrink: a file
@@ -778,7 +778,7 @@ approved.
 - **A wait helper.** `tests/waiting.py` `wait_for(condition, what=, timeout=)` is the one way
   to wait for a condition; it names what it waited for on timeout.
 - **A step to call.** The output cap's pass is `scratch.cap_files`, idempotent (a cut file is
-  within the limit and is not rewritten), and `scratch.watch_folder` signals `passed` after
+  within the limit and is not rewritten), and `scratch.watch_folder` yields an event set after
   each pass, so a test calls the step or waits on the signal and never polls a file.
 
 ## Telemetry

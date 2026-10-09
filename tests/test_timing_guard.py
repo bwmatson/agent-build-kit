@@ -147,3 +147,125 @@ def test_an_allowlisted_file_that_no_longer_exists_must_leave_the_allowlist(
 
 def test_the_suite_has_no_hazard_outside_the_allowlist() -> None:
     assert check_tests(TESTS_ROOT, allowlist=ALLOWLIST, shared=SHARED_HELPERS) == []
+
+
+def test_a_tuple_argument_to_a_call_that_is_not_an_address_is_not_a_port(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_x.py": (
+                "def test_x():\n"
+                "    for index, name in enumerate((0, 5)):\n"
+                "        pass\n"
+                "    pairs = []\n"
+                "    pairs.append((1, 2))\n"
+            )
+        },
+    )
+
+    assert check_tests(root, allowlist=NONE, shared=NONE) == []
+
+
+def test_a_fixed_port_in_other_address_calls_is_found(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_x.py": (
+                "import socket\n\n\ndef test_x():\n"
+                "    socket.create_connection(('localhost', 8080))\n"
+            )
+        },
+    )
+
+    assert any("test_x.py:5" in p for p in check_tests(root, allowlist=NONE, shared=NONE))
+
+
+def test_a_class_of_the_files_own_called_thread_is_not_a_thread(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {"test_x.py": ("class Thread:\n    pass\n\n\ndef test_x():\n    return Thread()\n")},
+    )
+
+    assert check_tests(root, allowlist=NONE, shared=NONE) == []
+
+
+def test_a_thread_imported_from_threading_is_a_thread(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_x.py": (
+                "from threading import Thread\n\n\ndef test_x():\n"
+                "    Thread(target=print).start()\n"
+            )
+        },
+    )
+
+    assert any("test_x.py:5" in p for p in check_tests(root, allowlist=NONE, shared=NONE))
+
+
+def test_a_string_join_does_not_join_a_thread(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_x.py": (
+                "import threading\n\n\ndef test_x():\n"
+                "    threading.Thread(target=print).start()\n"
+                "    assert ', '.join(['a']) == 'a'\n"
+                "    assert ''.join(['a']) == 'a'\n"
+                "    separator = ','\n"
+                "    assert separator.join(['a']) == 'a'\n"
+            )
+        },
+    )
+
+    problems = check_tests(root, allowlist=NONE, shared=NONE)
+
+    assert len(problems) == 1
+    assert "test_x.py:5" in problems[0]
+
+
+def test_a_thread_joined_with_a_timeout_is_joined(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_x.py": (
+                "import threading\n\n\ndef test_x():\n"
+                "    worker = threading.Thread(target=print)\n"
+                "    worker.start()\n"
+                "    worker.join(5)\n"
+            ),
+            "test_y.py": (
+                "import threading\n\n\ndef test_x():\n"
+                "    worker = threading.Thread(target=print)\n"
+                "    worker.start()\n"
+                "    worker.join(timeout=5)\n"
+            ),
+        },
+    )
+
+    assert check_tests(root, allowlist=NONE, shared=NONE) == []
+
+
+# The allowlist only shrinks. Adding a file to it means editing this set, which is the
+# sign that a new hazard is being silenced instead of removed.
+ALLOWLIST_CEILING = frozenset(
+    {
+        "cli/test_gated_started_units.py",
+        "cli/test_round.py",
+        "cli/test_tick_host_outage_backoff.py",
+        "cli/test_tick_scheduling.py",
+        "graph/test_thread_resume.py",
+        "integration/test_telemetry_stack.py",
+        "pipeline/test_scratch_folder.py",
+        "pipeline/test_tier2.py",
+        "runtimes/test_acp_outcome.py",
+        "serve/test_chat_guards.py",
+        "serve/test_serve_binding.py",
+        "serve/test_serve_metrics.py",
+        "test_telemetry.py",
+    }
+)
+
+
+def test_the_allowlist_does_not_grow() -> None:
+    assert ALLOWLIST <= ALLOWLIST_CEILING

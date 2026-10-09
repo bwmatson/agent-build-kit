@@ -14,6 +14,9 @@ import signal
 import subprocess
 
 TIMED_OUT_EXIT = 124
+# How long to wait for the output of a killed group before giving up on a pipe that a
+# process outside the group still holds open.
+DRAIN_SECONDS = 5
 
 
 def run_limited(
@@ -43,7 +46,7 @@ def run_limited(
         out, err = process.communicate(timeout=grace)
     except subprocess.TimeoutExpired:
         _signal_group(process, signal.SIGKILL)
-        out, err = process.communicate()
+        out, err = _drain(process)
     note = f"\ntier 1 command timed out after {limit:g} seconds and was aborted\n"
     return subprocess.CompletedProcess(args, TIMED_OUT_EXIT, out or "", (err or "") + note)
 
@@ -53,3 +56,24 @@ def _signal_group(process: subprocess.Popen, number: signal.Signals) -> None:
         os.killpg(process.pid, number)
     except ProcessLookupError:
         pass
+
+
+def _text(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value or ""
+
+
+def _drain(process: subprocess.Popen) -> tuple[str, str]:
+    """What the killed process printed. A descendant that left the group and still holds
+    the pipes would keep the read open for good, so the wait is bounded: past it the
+    pipes are closed and what was read so far is returned."""
+    try:
+        return process.communicate(timeout=DRAIN_SECONDS)
+    except subprocess.TimeoutExpired as expired:
+        out, err = _text(expired.stdout), _text(expired.stderr)
+    for pipe in (process.stdout, process.stderr):
+        if pipe is not None:
+            pipe.close()
+    process.wait()
+    return out, err

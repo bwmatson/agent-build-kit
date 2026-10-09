@@ -40,6 +40,7 @@ import signal, threading
 signal.signal(signal.SIGABRT, signal.SIG_IGN)
 print("12 tests passed", flush=True)
 threading.Event().wait(15)
+print("EXITED ON ITS " + "OWN", flush=True)
 """
 
 FINISHES = """\
@@ -100,6 +101,7 @@ def test_a_command_that_ignores_the_abort_is_ended_after_the_grace(tmp_path: Pat
     assert not passed
     assert "2 seconds" in message
     assert "12 tests passed" in message
+    assert "EXITED ON ITS OWN" not in message, "it was ended, not waited for"
 
 
 def test_a_command_that_finishes_in_time_is_not_signalled(tmp_path: Path) -> None:
@@ -109,3 +111,35 @@ def test_a_command_that_finishes_in_time_is_not_signalled(tmp_path: Path) -> Non
 
     assert passed, message
     assert "SIGNALLED" not in message
+
+
+# The script leaves a child in a session of its own that holds the output pipes until
+# the file named by argv[1] exists, then ignores the abort itself.
+DETACHED_HOLDER = """\
+import signal, subprocess, sys, threading
+
+signal.signal(signal.SIGABRT, signal.SIG_IGN)
+child = (
+    "import os, sys, threading\\n"
+    "while not os.path.exists(sys.argv[1]):\\n"
+    "    threading.Event().wait(0.05)\\n"
+)
+subprocess.Popen([sys.executable, "-c", child, sys.argv[1]], start_new_session=True)
+print("12 tests passed", flush=True)
+threading.Event().wait(30)
+"""
+
+
+def test_a_detached_descendant_holding_the_output_does_not_hold_tier_1(tmp_path: Path) -> None:
+    release = tmp_path / "release"
+    script = DETACHED_HOLDER.replace("sys.argv[1]", repr(str(release)))
+    try:
+        passed, message = tier1(
+            tmp_path, script, tier1_command_seconds=1, tier1_abort_grace_seconds=1
+        )
+    finally:
+        release.write_text("")
+
+    assert not passed
+    assert "1 seconds" in message
+    assert "12 tests passed" in message

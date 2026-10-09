@@ -1,9 +1,10 @@
 """A pytest plugin that fails a test which runs past a time limit, from a thread.
 
-The limit is `--test-time-limit` seconds (default `DEFAULT_TEST_TIME_LIMIT`). A timer
-thread signals the main thread when it passes, which interrupts the test wherever it is,
-including in a blocking call. The test fails with "test exceeded the time limit of <n>
-seconds" and the run goes on.
+The limit, on each of a test's setup, call and teardown, is `--test-time-limit`
+seconds (default `DEFAULT_TEST_TIME_LIMIT`). A timer thread
+signals the main thread when it passes, which interrupts the test wherever it is,
+including in a blocking call. The test fails (or errors, in setup or teardown) with
+"test exceeded the time limit of <n> seconds" and the run goes on.
 """
 
 from __future__ import annotations
@@ -24,8 +25,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--test-time-limit", type=float, default=DEFAULT_TEST_TIME_LIMIT)
 
 
-@pytest.hookimpl(wrapper=True)
-def pytest_runtest_call(item: pytest.Item):
+def _under_limit(item: pytest.Item, phase: str):
+    """Run the rest of a hook, setup, call or teardown, under the limit."""
     limit = item.config.getoption("--test-time-limit")
     if limit <= 0 or threading.current_thread() is not threading.main_thread():
         return (yield)
@@ -43,8 +44,25 @@ def pytest_runtest_call(item: pytest.Item):
     try:
         return (yield)
     except TimedOut:
-        pytest.fail(f"test exceeded the time limit of {limit:g} seconds", pytrace=False)
+        what = "test" if phase == "call" else f"test {phase}"
+        pytest.fail(f"{what} exceeded the time limit of {limit:g} seconds", pytrace=False)
     finally:
         running = False
         timer.cancel()
+        timer.join()
         signal.signal(signal.SIGUSR2, previous)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item: pytest.Item):
+    return (yield from _under_limit(item, "setup"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item):
+    return (yield from _under_limit(item, "call"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item: pytest.Item):
+    return (yield from _under_limit(item, "teardown"))
