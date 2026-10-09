@@ -53,6 +53,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "merged",
         "closed",
         "failed",
+        "host_unavailable",
     }
 
 

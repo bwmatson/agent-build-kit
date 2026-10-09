@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 from agent_build_kit import config, forges, profiles, runtimes, telemetry
+from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -89,6 +90,7 @@ from agent_build_kit.pipeline.unit_store import (
     ReworkKind,
     StoredUnit,
     UnitStore,
+    backoff_remaining,
     feedback_source_of,
 )
 from agent_build_kit.pipeline.units import (
@@ -127,7 +129,6 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.wiring import (
-    CommitRejected,
     build_close_pr,
     build_resume_at,
     build_runner,
@@ -356,6 +357,14 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for unit in units:
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
+        step = unit.step or "an unknown step"
+        if unit.state == FAILED:
+            log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+        if (left := backoff_remaining(unit, spans.clock.now())) is not None:
+            log(
+                f"  waiting for the code host: {unit.id} ({unit.repo}) at {step}, "
+                f"{int(left.total_seconds())}s remain — {unit.note}"
+            )
         if unit.state == PLANNED and unit.cause is Cause.GATED:
             waits = unmet_gates(unit, units)
             if waits:
@@ -821,6 +830,12 @@ def run_round(
         return []
 
     units = store.all()
+    for unit in units:
+        if (left := backoff_remaining(unit, spans.clock.now())) is not None:
+            log(
+                f"{unit.id}: waiting for the code host, parked at {unit.step or 'a step'}; "
+                f"{int(left.total_seconds())}s remain"
+            )
     in_flight = set(building)
     if readmit:
         readmit.admit(units, in_flight)
@@ -1008,6 +1023,7 @@ def _evaluate(
     take no slot: they show as held, still blocking their dependents.
     """
     view: list[Unit] = []
+    now = spans.clock.now()
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -1019,6 +1035,8 @@ def _evaluate(
             # A requeue is still to be delivered to its thread: starting the
             # unit as a planned build would drop the mode it was requeued with.
             or (unit.cause is Cause.GATED and unit.gated_requeue is not None)
+            # Parked for the host being unavailable, and its backoff is not over.
+            or backoff_remaining(unit, now) is not None
         ):
             unit = unit.model_copy(update={"state": HELD})
         view.append(unit)
@@ -1104,7 +1122,8 @@ def _sent_back(
     skipped: set[tuple[str, str]] | None = None,
 ) -> set[str]:
     """Units this pass already built that have since been put back to planned for
-    a cause in `READMITTED_CAUSES`. A unit put back for any other cause, or for none
+    a cause in `READMITTED_CAUSES`, or parked for `host_unavailable` once its backoff
+    has elapsed. A unit put back for any other cause, or for none
     (a record from before causes were kept), waits for the next pass, and a unit that
     ended held is never let back in; each such skip is logged once, with its cause,
     in `skipped`."""
@@ -1128,8 +1147,16 @@ def _sent_back(
         if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
             out.add(unit.id)
         elif (
+            unit.state == PLANNED
+            and unit.cause is Cause.HOST_UNAVAILABLE
+            and backoff_remaining(unit, spans.clock.now()) is None
+        ):
+            out.add(unit.id)
+        elif (
             skipped is not None
             and unit.cause is not None
+            # Readmitted by a later round once its backoff is over.
+            and unit.cause is not Cause.HOST_UNAVAILABLE
             and (unit.id, str(last.get("at"))) not in skipped
         ):
             skipped.add((unit.id, str(last.get("at"))))
@@ -1933,6 +1960,12 @@ def _build_unit(
                 if unit.state not in (PLANNED, RUNNING):
                     end(f"skipped, it is now {unit.state}", UnitOutcome.SKIPPED)
                     return True
+                # A step recorded by an earlier run belongs to that run. A parked unit
+                # resumes at its node, which never passes `prepare`, so it is marked
+                # running here.
+                if unit.state == PLANNED and unit.cause is Cause.HOST_UNAVAILABLE:
+                    store.set_state(unit.id, RUNNING, branch=unit.branch or None)
+                store.record_step(unit.id, "")
                 if queued is not None:
                     spans.record_span(
                         queued,
@@ -2002,11 +2035,20 @@ def _build_unit(
             # drop a unit that is going fine out of the plan.
             end(f"skipped, {error}", UnitOutcome.SKIPPED)
             return True
+        except HostUnavailable as error:
+            # The work is fine and the thread stays at the step: parked, and the pass
+            # readmits it after a backoff, resuming at that step.
+            end(f"parked, {error}", UnitOutcome.INTERRUPTED)
+            try:
+                store.set_state(unit.id, PLANNED, note=str(error), cause=Cause.HOST_UNAVAILABLE)
+            except Exception as second:  # noqa: BLE001
+                say(f"could not be recorded as parked — {second}")
+            return True
         except Exception as error:  # noqa: BLE001 — see the docstring.
             end(f"failed, {type(error).__name__}: {error}", UnitOutcome.FAILED)
-            # A rejected commit's reason is the gate's own output: on the unit's
-            # record, not only in a tick log someone would have to find.
-            note = str(error) if isinstance(error, CommitRejected) else ""
+            # The error's type and text, and the step it came from, are on the
+            # unit's record, not only in a tick log someone would have to find.
+            note = f"{type(error).__name__}: {error}"
             try:
                 store.set_state(unit.id, UnitState.FAILED, note=note, cause=Cause.FAILED)
             except Exception as second:  # noqa: BLE001
@@ -2186,6 +2228,7 @@ def resume_thread(
             record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
             log=say,
         )
+        store.record_step(unit.id, "")
         outcome = asyncio.run(
             _on_thread(
                 inst, runner, unit, base=base, graph=graph, run_log=None, event=event, feedback=lazy
@@ -2201,7 +2244,12 @@ def resume_thread(
     except Exception as error:  # noqa: BLE001 — an event handler must not end the poll.
         detail = f"failed, {type(error).__name__}: {error}"
         try:
-            store.set_state(unit.id, UnitState.FAILED, cause=Cause.FAILED)
+            store.set_state(
+                unit.id,
+                UnitState.FAILED,
+                note=f"{type(error).__name__}: {error}",
+                cause=Cause.FAILED,
+            )
         except Exception as second:  # noqa: BLE001
             say(f"could not be recorded as failed — {second}")
         say(detail)

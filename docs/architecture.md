@@ -400,8 +400,9 @@ release, a failure) records a `cause`, a fixed set of values, on its history ent
 note beside it is prose for people and no code reads it. The entries for starting a run,
 reaching review and being satisfied carry none. A pass lets a unit it already
 built back in only when its last cause is `rework` or `base_changed` (resuming restacks
-it, so what held it is gone); a unit put back for any other cause waits for the next
-pass, and the tick log says which cause. A unit held for depth keeps the branch it is
+it, so what held it is gone), or `host_unavailable` once its backoff has elapsed (the
+code host could not be reached; 1, 2, 5, 10, then 30 minutes by consecutive parking); a
+unit put back for any other cause waits for the next pass, and the tick log says which cause. A unit held for depth keeps the branch it is
 still on as `held_base`, and who holds it as `held_by`. A record with no cause, or one
 this release does not know, is never readmitted by the pass; `abk status` lists it.
 A usage pause leaves the unit `running`, with its thread interrupted before
