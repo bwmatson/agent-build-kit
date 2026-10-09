@@ -102,6 +102,40 @@ def test_a_running_step_is_streamed_as_it_records(pipeline: Installation) -> Non
     assert seen[-1]["toolCallName"] == "Read"
 
 
+def test_the_live_tail_streams_a_commit_fix_turn_and_not_a_chat_turn(
+    pipeline: Installation,
+) -> None:
+    def chat_file(node: str) -> Transcript:
+        return Transcript(
+            transcript_dir(pipeline.state_dir),
+            unit("feature/2", change="feature"),
+            node=node,
+            round=0,
+            source="chat",
+            started=datetime(2026, 10, 1, 9, 0, 0, tzinfo=UTC),
+            result_limit=1000,
+            runs_kept=3,
+        )
+
+    fixing, chatting = chat_file("commit"), chat_file("chat")
+    with start_server(pipeline) as server, httpx.Client(base_url=server.url) as api:
+        with api.stream(
+            "GET", f"{REVIEW}/agent/events", params={"tab": "t1"}, timeout=WAIT
+        ) as stream:
+            events = events_of(stream)
+            assert next(events)["type"] == "MESSAGES_SNAPSHOT"
+
+            chatting.record(TranscriptEvent(kind="text", session=SESSION, text="A chat turn."))
+            fixing.record(TranscriptEvent(kind="text", session=SESSION, text="Fixing the hook."))
+
+            seen = []
+            for event in events:
+                seen.append(event)
+                if "Fixing the hook." in event.get("delta", ""):
+                    break
+    assert "A chat turn." not in "".join(e.get("delta", "") for e in seen)
+
+
 def test_a_unit_between_steps_accepts_turns(pipeline: Installation, api: httpx.Client) -> None:
     tab = api.get(f"{REVIEW}/agent", params={"tab": "t1"}).json()
 

@@ -652,7 +652,7 @@ def register(
                     await asyncio.sleep(POLL_SECONDS)
                     for path in unit_transcript_files(chat.transcripts, unit.id):
                         events, read[path.name] = read_file_events(path, read.get(path.name, 0))
-                        live = [e for e in events if e.source == "build" or "-commit-" in path.name]
+                        live = [e for e in events if e.source == "build" or e.node == "commit"]
                         if not live:
                             continue
                         if path.name not in runs:
