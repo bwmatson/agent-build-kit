@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable, Collection, Sequence
+from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 from agent_build_kit.model import Frozen
@@ -86,6 +87,38 @@ class FileChange(Frozen):
     deletions: int
 
 
+class CheckStatus(StrEnum):
+    """What a check came to, in the pipeline's words rather than a host's."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PENDING = "pending"
+
+
+class Check(Frozen):
+    """One check on a pull request: a name, a status and the host's link, if any."""
+
+    name: str
+    status: CheckStatus
+    url: str = ""
+
+
+def failing_names(checks: Sequence[Check]) -> tuple[str, ...]:
+    """The names of the failed checks, sorted."""
+    raise NotImplementedError
+
+
+def cancelled_names(checks: Sequence[Check]) -> tuple[str, ...]:
+    """The names of the cancelled checks, sorted."""
+    raise NotImplementedError
+
+
+def overall_result(checks: Sequence[Check]) -> str:
+    """`failed`, `pending`, `passed`, or `none` for an empty list."""
+    raise NotImplementedError
+
+
 class PullRequest(Frozen):
     """One pull request, as the poller needs to see it.
 
@@ -108,6 +141,7 @@ class PullRequest(Frozen):
     # them in both places would quote one twice.
     comment_bodies: tuple[str, ...] = ()
     review_decision: str = ""
+    checks: tuple[Check, ...] = ()
     failing_checks: tuple[str, ...] = ()
     # Checks the host cancelled: neither a pass nor a verdict on the commit.
     cancelled_checks: tuple[str, ...] = ()
