@@ -148,9 +148,8 @@ limits:
                                 # stops absorbing the next task group
   max_unit_lines: 750           # estimated changed lines one unit may carry;
                                 # must exceed min_unit_lines. Shapes plans;
-                                # a unit that lands over it is logged, marked
-                                # on the graph page and listed by `abk status`,
-                                # never blocked
+                                # a unit that lands over it is logged and
+                                # listed by `abk status`, never blocked
   generated_files: [uv.lock, package-lock.json, ...]
                                 # path patterns (whole path or file name) left
                                 # out of a unit's actual size; defaults to the

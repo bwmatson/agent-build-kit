@@ -97,9 +97,9 @@ The ceiling shapes plans only, and a unit never waits on it. An estimate counts
 additions plus deletions over every file, generated files excluded. Opening a
 pull request, and each push after it, records the unit's actual lines from the
 host's per-file totals less the configured generated files; one over the ceiling
-is logged and listed by `abk status`. A host that
-reports no per-file counts (Azure DevOps today) records no actual size, so
-nothing there is flagged. Failing to read the size never stops the unit.
+is logged and listed by `abk status`. A host that reports no per-file counts
+(Azure DevOps today) records no actual size, so nothing there is flagged.
+Failing to read the size never stops the unit.
 
 **Joining.** The planner is also shown, for every unit of another change, whether
 it is *unstarted* (`StoredUnit.unstarted`: planned, with no branch, commit, pull
