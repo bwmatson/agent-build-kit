@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -67,9 +68,12 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _resolve(repo: Path, *refs: str) -> str | None:
-    """The commit the first of `refs` names in `repo`, or None."""
+def resolve_commit(repo: Path, *refs: str) -> str | None:
+    """The commit the first of `refs` names in `repo`, or None. A ref that
+    starts with a dash is never one: git would read it as an option."""
     for ref in refs:
+        if ref.startswith("-"):
+            continue
         found = git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False)
         if found.returncode == 0:
             return found.stdout.strip()
@@ -77,16 +81,18 @@ def _resolve(repo: Path, *refs: str) -> str | None:
 
 
 def branch_tip(repo: Path, branch: str) -> str | None:
-    return _resolve(repo, branch, f"origin/{branch}") if branch else None
+    return resolve_commit(repo, branch, f"origin/{branch}") if branch else None
 
 
 def unit_diff(repo: Path, *, base: str, branch: str, commit: str | None = None) -> UnitDiff:
     """The unit's own work: `branch` (or the pinned `commit`) against the point
-    where it left `base`, so work the base gained since is not shown."""
-    tip = _resolve(repo, commit) if commit else branch_tip(repo, branch)
+    where it left `base`, so work the base gained since is not shown. The base is
+    the current one: a pinned commit from before the base was rewritten is diffed
+    against the current base's fork point."""
+    tip = resolve_commit(repo, commit) if commit else branch_tip(repo, branch)
     if tip is None:
         raise NoDiff(f"the branch {branch or '(none)'} is not in the checkout")
-    base_tip = _resolve(repo, local_ref(base), base)
+    base_tip = resolve_commit(repo, local_ref(base), base)
     if base_tip is None:
         raise NoDiff(f"the base {base} is not in the checkout")
     fork = git(repo, "merge-base", base_tip, tip).stdout.strip()
@@ -98,9 +104,12 @@ def _moved(repo: Path, thread: Thread, line: int | None, tip: str) -> int | None
     """Where `line` of `thread`'s file at its commit is at `tip`, None where it was changed."""
     if line is None:
         return None
-    patch = git(
+    diff = git(
         repo, "diff", "-U0", "--no-renames", thread.commit, tip, "--", thread.path, check=False
-    ).stdout
+    )
+    if diff.returncode:
+        return None
+    patch = diff.stdout
     shift = 0
     for match in _HUNK.finditer(patch):
         start, count, _, new_count = match.groups()
@@ -145,7 +154,7 @@ class ReviewStore:
             return Review()
         return Review.model_validate(json.loads(path.read_text()))
 
-    def _update(self, unit_id: str, change) -> object:
+    def _update[T](self, unit_id: str, change: Callable[[Review], tuple[Review, T]]) -> T:
         path = self._path(unit_id)
         with file_lock(path.with_suffix(".lock")):
             review, result = change(self.read(unit_id))
@@ -180,7 +189,9 @@ class ReviewStore:
         )
         return thread
 
-    def _change_thread(self, unit_id: str, thread_id: str, change) -> Thread | None:
+    def _change_thread(
+        self, unit_id: str, thread_id: str, change: Callable[[Thread], Thread]
+    ) -> Thread | None:
         def apply(review: Review) -> tuple[Review, Thread | None]:
             found = next((t for t in review.threads if t.id == thread_id), None)
             if found is None:
@@ -189,7 +200,7 @@ class ReviewStore:
             threads = tuple(changed if t.id == thread_id else t for t in review.threads)
             return review.model_copy(update={"threads": threads}), changed
 
-        return self._update(unit_id, apply)  # type: ignore[return-value]
+        return self._update(unit_id, apply)
 
     def reply(self, unit_id: str, thread_id: str, body: str) -> Thread | None:
         return self._change_thread(
@@ -214,4 +225,4 @@ class ReviewStore:
                 return review, None
             return review.model_copy(update={"decisions": (*review.decisions, verdict)}), verdict
 
-        return self._update(unit_id, apply)  # type: ignore[return-value]
+        return self._update(unit_id, apply)

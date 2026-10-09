@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, PlainTextResponse
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from pydantic import Field, model_validator
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
 from agent_build_kit.graph.unit import thread_position
@@ -42,6 +43,7 @@ from agent_build_kit.serve.review import (
     Thread,
     branch_tip,
     placed,
+    resolve_commit,
     unit_diff,
 )
 from agent_build_kit.settings import settings
@@ -57,9 +59,17 @@ _OUTCOME = "outcome: "
 class ThreadIn(Frozen):
     path: str
     side: Literal["old", "new"] = "new"
-    line: int
-    start_line: int | None = None
+    line: int = Field(ge=1)
+    start_line: int | None = Field(default=None, ge=1)
+    # The commit of the diff the reviewer was looking at; the branch tip when omitted.
+    commit: str | None = None
     body: str
+
+    @model_validator(mode="after")
+    def _range_runs_forward(self) -> Self:
+        if self.start_line is not None and self.start_line > self.line:
+            raise ValueError("start_line is after line")
+        return self
 
 
 class ReplyIn(Frozen):
@@ -257,9 +267,11 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     def add_thread(change: str, number: str, body: ThreadIn) -> dict[str, Any]:
         unit, _ = find(change, number)
         repo = checkout(unit)
-        tip = branch_tip(repo, unit.branch)
+        tip = resolve_commit(repo, body.commit) if body.commit else branch_tip(repo, unit.branch)
         if tip is None:
-            raise HTTPException(status_code=409, detail=f"{unit.id} has no branch to review")
+            raise HTTPException(
+                status_code=409, detail=f"{body.commit or unit.branch} is not a commit to review"
+            )
         thread = reviews.add_thread(
             unit.id,
             path=body.path,

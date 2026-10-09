@@ -9,7 +9,8 @@ import httpx
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.server import start_server
-from tests.review_repo import TWO, advance, rev, seed_branches
+from tests.factories import git
+from tests.review_repo import TWO, advance, commit, rev, seed_branches
 from tests.serving import seed_pipeline, seed_review_round
 
 THREADS = "/api/units/feature/2/review/threads"
@@ -120,6 +121,69 @@ def test_a_thread_is_relocated_when_lines_are_inserted_above_it(
 
     assert moved["outdated"] is True
     assert moved["line"] == 5
+
+
+def test_a_thread_is_anchored_to_the_commit_of_the_diff_it_was_made_on(
+    inst: Installation, api: httpx.Client
+) -> None:
+    seed_pipeline(inst)
+    repo = seed_branches(inst)
+    shown = api.get("/api/units/feature/2/diff").json()["commit"]
+    advance(repo, "spec/feature/2", "two.py", "new first\nnew second\n" + TWO)
+
+    thread = comment(api, line=3, commit=shown)
+
+    assert thread["commit"] == shown
+    [stored] = review(api)["threads"]
+    assert (stored["commit"], stored["outdated"], stored["line"]) == (shown, True, 5)
+
+
+def test_a_thread_on_a_commit_that_is_not_there_is_refused(
+    inst: Installation, api: httpx.Client
+) -> None:
+    seed_pipeline(inst)
+    seed_branches(inst)
+
+    for bad in ("0" * 40, "--all"):
+        answer = api.post(THREADS, json={"path": "two.py", "line": 3, "body": "x", "commit": bad})
+        assert answer.status_code == 409
+    assert review(api)["threads"] == []
+
+
+def test_an_anchor_must_be_a_line_or_a_range_that_runs_forward(
+    inst: Installation, api: httpx.Client
+) -> None:
+    seed_pipeline(inst)
+    seed_branches(inst)
+
+    for anchor in (
+        {"line": 0},
+        {"line": -2},
+        {"line": 3, "start_line": 0},
+        {"line": 3, "start_line": 5},
+    ):
+        answer = api.post(THREADS, json={"path": "two.py", "body": "x", **anchor})
+        assert answer.status_code == 422, anchor
+    assert review(api)["threads"] == []
+
+
+def test_a_thread_whose_commit_is_gone_is_outdated_with_no_line(
+    inst: Installation, api: httpx.Client
+) -> None:
+    seed_pipeline(inst)
+    repo = seed_branches(inst)
+    # A commit only a dropped branch holds, then collected.
+    git(repo, "checkout", "-q", "-b", "scratch", "spec/feature/2")
+    lost = commit(repo, "two.py", TWO + "lost\n", "lost")
+    git(repo, "checkout", "-q", "main")
+    thread = comment(api, line=3, commit=lost)
+    git(repo, "branch", "-q", "-D", "scratch")
+    git(repo, "reflog", "expire", "--expire=now", "--all")
+    git(repo, "gc", "-q", "--prune=now")
+
+    [stored] = review(api)["threads"]
+
+    assert (stored["id"], stored["outdated"], stored["line"]) == (thread["id"], True, None)
 
 
 def test_a_thread_whose_line_was_changed_is_outdated_with_no_line(
