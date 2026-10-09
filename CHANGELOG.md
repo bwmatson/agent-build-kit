@@ -21,7 +21,12 @@
   its checks and review without using a review round or the earlier approval, and releases
   the attachment; a commit made but not delivered is finished by the next server start,
   `abk attach release` or tick. `abk attach release` also leaves a unit the store has as
-  running alone.
+  running alone. The unit's own session is now given its change (proposal, design, spec
+  deltas and its task groups, read-only) and told to change tests and code together; when a
+  request contradicts a requirement it replies with a `spec-conflict` flag and edits
+  nothing, which the page receives as a `spec_conflict` event, and a review comment that
+  contradicts the change is answered in its thread with the flag. A session on the planning
+  repo can be opened with `repo` set to `planning`.
 
 - A repo can now set `forge: local`: its pull requests, and the review comments and decision
   made in the web UI, are kept in the state directory instead of on a code host, with no

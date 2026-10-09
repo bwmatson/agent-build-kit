@@ -10,10 +10,13 @@ the agent tab opens on.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from typing import Any
 
 from agent_build_kit.pipeline.transcript import TranscriptEvent
+
+_FLAG = re.compile(r"```spec-conflict\n(.*?)\n```", re.DOTALL)
 
 
 class AgUiEncoder:
@@ -28,6 +31,8 @@ class AgUiEncoder:
       `TOOL_CALL_RESULT` (`toolCallId`, `content`).
     - `plan` and `usage` are `CUSTOM` events named `plan` (value: the text) and `usage`
       (value: the counts).
+    - a fenced `spec-conflict` block in the assistant's words, however they are split, is also
+      a `CUSTOM` event named `spec_conflict` (value: its `requirement` and `reason`).
     - `stop` is `RUN_FINISHED` with `result` `{"stopReason": <the stop text>}`, or `RUN_ERROR`
       with `message` the stop text when it begins with `error`.
     """
@@ -37,6 +42,8 @@ class AgUiEncoder:
         self._run = run_id
         self._open: tuple[str, str] | None = None  # (message kind, message id)
         self._count = 0
+        self._said = ""  # the open text message's words, and the flags already shown from it
+        self._flags = 0
 
     def start(self) -> list[dict[str, Any]]:
         """The event that opens the run: nothing else of it may come before."""
@@ -65,6 +72,7 @@ class AgUiEncoder:
             return []
         kind, message = self._open
         self._open = None
+        self._said, self._flags = "", 0
         return [{"type": f"{kind}_MESSAGE_END", "messageId": message}]
 
     def _words(self, kind: str, text: str) -> list[dict[str, Any]]:
@@ -79,10 +87,25 @@ class AgUiEncoder:
         out.append({"type": f"{kind}_MESSAGE_CONTENT", "messageId": self._open[1], "delta": text})
         return out
 
+    def _flag(self, text: str) -> list[dict[str, Any]]:
+        """The events for the flags `text` completes in the open message."""
+        self._said += text
+        found = list(_FLAG.finditer(self._said))
+        out: list[dict[str, Any]] = []
+        for match in found[self._flags :]:
+            try:
+                value = json.loads(match.group(1))
+            except ValueError:
+                continue
+            if isinstance(value, dict):
+                out.append({"type": "CUSTOM", "name": "spec_conflict", "value": value})
+        self._flags = len(found)
+        return out
+
     def encode(self, event: TranscriptEvent) -> list[dict[str, Any]]:
         match event.kind:
             case "text":
-                return self._words("TEXT", event.text)
+                return [*self._words("TEXT", event.text), *self._flag(event.text)]
             case "reasoning":
                 return self._words("REASONING", event.text)
         out = self._end()

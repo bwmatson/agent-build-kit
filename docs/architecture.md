@@ -1099,6 +1099,16 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   lease and is refused while a step runs; it carries the pipeline's tool policy only when it
   is the session the unit recorded.
 - A turn on a unit's session runs on the model that session recorded.
+- A turn on the unit's own session is prefixed with its change (`serve/spec_context.py`): the
+  proposal, design, spec deltas and the unit's task groups, read-only, with the rule that
+  tests and code change together. A request that contradicts a requirement is answered first
+  with a flag, a fenced `spec-conflict` block of JSON (`requirement`, `reason`), and no edit;
+  the bridge turns the block, however the runtime chunks its words, into a `spec_conflict`
+  custom event the page shows as a callout. Change the spec instead opens a free session on
+  the planning root (`POST /api/sessions` with `repo: "planning"`) with the flag as its first
+  message. Other sessions get none of this. The rework prompt carries the same rule for
+  review comments: a conflicting one is answered in its thread with the flag and left until
+  the reviewer confirms.
 - A permission request is offered to the browser (`AgentRequest.on_permission`) only after
   abk's own command rules allowed the call, and only as allow once or a refusal: an "always"
   would make the agent stop asking, and abk's rules would no longer see its calls. The tab
