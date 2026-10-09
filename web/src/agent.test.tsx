@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 import { AppRoutes } from "./App";
+import { SpecConflictCallout } from "./agent";
+import { EMPTY, reduce } from "./agui";
 import paused from "./test/recorded/agent-feature-2.json";
 import running from "./test/recorded/agent-feature-7.json";
 import { CHAT, CHAT_WITH_PERMISSION, recordedApi, stream } from "./test/api";
@@ -203,12 +205,30 @@ describe("the agent tab", () => {
       expect(opened?.body).toMatchObject({
         runtime: "claude_code",
         repo: "planning",
-        prompt: `${REQUIREMENT}: ${REASON}`,
+        prompt: `Change feature: ${REQUIREMENT}: ${REASON}`,
       });
       expect(await screen.findByRole("region", { name: "Planning session" })).toHaveTextContent(
         "Because.",
       );
       expect(screen.queryByRole("alert", { name: /spec conflict/i })).not.toBeInTheDocument();
+    });
+
+    it("disables Proceed anyway, with the composer's reason, when no turn can be sent", () => {
+      const conversation = reduce(EMPTY, events[4]);
+
+      render(
+        <SpecConflictCallout
+          conversation={conversation}
+          proceedDisabledReason="A step is running."
+          onProceed={() => undefined}
+          onChangeSpec={() => undefined}
+          onCancel={() => undefined}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: "Proceed anyway" })).toBeDisabled();
+      expect(screen.getByText("A step is running.")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
     });
 
     it("dismisses the callout on cancel and sends nothing", async () => {

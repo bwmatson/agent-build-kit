@@ -74,11 +74,14 @@ export function Permission({
 /** The agent's flag that a request contradicts the change, with the three ways on. */
 export function SpecConflictCallout({
   conversation,
+  proceedDisabledReason,
   onProceed,
   onChangeSpec,
   onCancel,
 }: {
   conversation: Conversation;
+  /** Why a turn cannot be sent now; absent when it can. */
+  proceedDisabledReason?: string;
   onProceed: () => void;
   onChangeSpec: () => void;
   onCancel: () => void;
@@ -100,7 +103,10 @@ export function SpecConflictCallout({
       <p>
         Reason: <span>{conflict.reason}</span>
       </p>
-      <button onClick={onProceed}>Proceed anyway</button>
+      <button onClick={onProceed} disabled={!!proceedDisabledReason}>
+        Proceed anyway
+      </button>
+      {proceedDisabledReason && <p>{proceedDisabledReason}</p>}
       <button onClick={onChangeSpec}>Change the spec instead</button>
       <button onClick={onCancel}>Cancel</button>
     </section>
@@ -206,7 +212,7 @@ export function AgentTab({ name }: { name: string }): ReactElement {
     const conflict = conversation.conflict;
     if (!conflict) return;
     dispatch({ dismissed: true });
-    const prompt = `${conflict.requirement}: ${conflict.reason}`;
+    const prompt = `Change ${name.split("/")[0]}: ${conflict.requirement}: ${conflict.reason}`;
     planningDispatch({ asked: prompt });
     const response = await fetch("/api/sessions", {
       method: "POST",
@@ -220,7 +226,7 @@ export function AgentTab({ name }: { name: string }): ReactElement {
       }),
     });
     await follow(response, planningDispatch);
-  }, [conversation.conflict, runtime, tab]);
+  }, [conversation.conflict, name, runtime, tab]);
 
   const release = useCallback(async () => {
     await fetch(`/api/units/${name}/lease?tab=${tab}`, { method: "DELETE" });
@@ -247,6 +253,7 @@ export function AgentTab({ name }: { name: string }): ReactElement {
       />
       <SpecConflictCallout
         conversation={conversation}
+        proceedDisabledReason={agent && !agent.composer.enabled ? agent.composer.reason : undefined}
         onProceed={proceed}
         onChangeSpec={() => void changeSpec()}
         onCancel={() => dispatch({ dismissed: true })}
