@@ -122,6 +122,20 @@ def remove_leftovers(worktree: Path) -> None:
             entry.unlink(missing_ok=True)
 
 
+class Watcher:
+    """The loop that holds a folder to the cap. `passed` is set after every pass, so a
+    test waits on it (clear it, then wait) instead of polling the folder."""
+
+    passed: threading.Event
+
+
+@contextmanager
+def watch_folder(folder: Path, *, max_bytes: int, interval: float) -> Iterator[Watcher]:
+    """Run `cap_files` over `folder` every `interval` seconds, signalling `passed`
+    after each pass, until the block ends."""
+    raise NotImplementedError
+
+
 @contextmanager
 def run_folder(
     worktree: Path, *, max_bytes: int | None = None, interval: float | None = None
