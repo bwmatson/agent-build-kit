@@ -18,6 +18,7 @@
   implement, fix checks, rework and adapt, and a continued session, no longer fail at once with
   a missing `model` argument before the agent starts. An empty model means the agent's own
   default.
+
 - A unit in review now goes back to planned while a unit it is stacked on in the same repo is
   changing its branch (a rework that has committed, a rebase, or a failed or held run with
   commits it has not pushed), instead of staying ready for review on a base about to move.
