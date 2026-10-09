@@ -10,7 +10,6 @@ git worktree, and the fake edits it as an agent would. See `tests/chat_serving.p
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 import httpx
@@ -193,8 +192,12 @@ def test_closing_the_page_keeps_a_lease_that_holds_changes(
         next(page_events)
         turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "Add a note."})
         assert attachment(inst) is not None
+        # A lease of the page's that holds nothing: its release is how we see the server
+        # has handled the page going, since the lease with changes must not be released.
+        assert Leases(lease_dir(inst.state_dir)).take("feature/4", "tab:t1")
 
-    time.sleep(0.6)  # long enough for the server to see the page go
+    assert until(lambda: attachment(inst, "feature/4") is None)
+    assert Leases(lease_dir(inst.state_dir)).take("feature/4", "tab:probe"), "the pass is over"
 
     kept = attachment(inst)
     assert kept is not None and kept.changed == 1
