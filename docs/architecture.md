@@ -97,7 +97,7 @@ The ceiling shapes plans only, and a unit never waits on it. An estimate counts
 additions plus deletions over every file, generated files excluded. Opening a
 pull request, and each push after it, records the unit's actual lines from the
 host's per-file totals less the configured generated files; one over the ceiling
-is logged, marked on the graph page and listed by `abk status`. A host that
+is logged and listed by `abk status`. A host that
 reports no per-file counts (Azure DevOps today) records no actual size, so
 nothing there is flagged. Failing to read the size never stops the unit.
 
