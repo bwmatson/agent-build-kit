@@ -162,7 +162,7 @@ def branch_name(unit: Unit) -> str:
     return f"{active().git.branch_prefix}{unit.id}"
 
 
-def local_ref(base: str) -> str:
+def local_ref(base: str, repo: str | None = None) -> str:
     """The ref to build on locally for a PR base named `base`.
 
     A unit's own branch is local — its parent's worktree commits to it. The
