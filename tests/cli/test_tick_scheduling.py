@@ -1443,3 +1443,27 @@ def test_a_base_that_moved_is_reported_with_the_base_changed_cause(tmp_path: Pat
     assert found is not None
     assert found[0] == Cause.BASE_CHANGED
     assert "spec/a/1" in found[1]
+
+
+# --- dependents follow a predecessor whose branch is changing ----------------------
+
+
+def test_each_refresh_follows_predecessors_after_fetching_and_polling(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A poll can send a predecessor back for rework, so the units in review on
+    it are tested against what the poll found, not what the pass began with."""
+    inst = workspace(tmp_path)
+    steps: list[str] = []
+    monkeypatch.setattr(cli, "fetch_all", lambda inst: steps.append("fetch"))
+    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: steps.append("poll"))
+    monkeypatch.setattr(
+        cli, "follow_predecessors", lambda *args, **kwargs: steps.append("follow") or []
+    )
+    builder.store.upsert([stored("chain/1"), stored("chain/2", depends_on=("chain/1",))])
+
+    assert tick(inst) == 0
+
+    refreshes = [i for i, step in enumerate(steps) if step == "fetch"]
+    assert refreshes
+    assert all(steps[i : i + 3] == ["fetch", "poll", "follow"] for i in refreshes)

@@ -1787,6 +1787,22 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
     return upstream_incomplete
 
 
+def follow_predecessors(
+    store: UnitStore,
+    *,
+    head: Callable[[StoredUnit], str],
+    claim: Callable[[StoredUnit], AbstractContextManager[object]],
+    log: Callable[[str], None] = print,
+) -> list[str]:
+    """Set each unit in review back to planned while a same-repo predecessor's
+    branch is changing; returns the ids moved.
+
+    `head` reads a unit's branch head ("" when it has none). See the design of
+    the change this belongs to for when a branch is changing.
+    """
+    raise NotImplementedError
+
+
 def tip(tree: Path, ref: str) -> str:
     """The commit `ref` names in the worktree, or an empty string when it names none."""
     return git(tree, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False).stdout.strip()
