@@ -36,6 +36,7 @@
   UI as the actor, and are disabled, with the reason shown, when the unit cannot take them.
   Hold and release do not change the label on the host. Approve is always disabled: the CLI has
   no approve command.
+
 - The web UI has a review tab at `/units/<change>/<n>/review`: the unit's diff with a file tree,
   its threads beside their lines (outdated ones marked) and the reviewer's findings. Selecting
   lines highlights them without making a comment, and the selection is kept in the address, so
