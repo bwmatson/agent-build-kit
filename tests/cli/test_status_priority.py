@@ -11,6 +11,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import RUNNING
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 
@@ -51,8 +52,10 @@ def test_status_marks_units_whose_priority_is_not_normal(
         ],
     )
 
-    assert any("fix/1" in line and PRIORITY.search(line) for line in lines)
-    assert any("later/1" in line and re.search(r"priority 5|P5", line) for line in lines)
+    summary = next(line for line in lines if "priority:" in line)
+    assert "fix/1 1" in summary
+    assert "later/1 5" in summary
+    assert "plain/1" not in summary
     assert not any("plain/1" in line and re.search(r"priority \d|P\d", line) for line in lines)
 
 
@@ -109,13 +112,14 @@ def test_status_shows_the_priority_of_a_unit_that_is_not_ready(
         monkeypatch,
         capsys,
         [
-            stored_unit("base/1", change="base", repo="platform"),
-            stored_unit("fix/1", change="fix", priority=1, depends_on=("base/1",)),
+            stored_unit("fix/1", change="fix", priority=1, state=RUNNING),
+            stored_unit("plain/1", change="plain"),
         ],
     )
 
-    assert not any(re.search(r"\d\. fix/1", line) for line in queue_after_heading(lines))
-    assert any("fix/1" in line and PRIORITY.search(line) for line in lines)
+    assert not any("fix/1" in line for line in queue_after_heading(lines))
+    summary = next(line for line in lines if "priority:" in line)
+    assert "fix/1 1" in summary
 
 
 def test_a_unit_held_by_a_lease_gives_its_prerequisite_no_priority(

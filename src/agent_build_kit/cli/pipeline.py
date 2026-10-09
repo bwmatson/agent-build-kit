@@ -115,6 +115,7 @@ from agent_build_kit.pipeline.unit_store import (
     feedback_source_of,
 )
 from agent_build_kit.pipeline.units import (
+    CLOSED,
     FAILED,
     HELD,
     IN_FLIGHT,
@@ -373,6 +374,14 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
+
+    urgency = [
+        f"{unit.id} {unit.priority}"
+        for unit in units
+        if unit.priority != Priority.NORMAL and unit.state not in (MERGED, CLOSED)
+    ]
+    if urgency:
+        log("priority: " + ", ".join(urgency))
 
     for line in _ready_queue_lines(inst, units):
         log(line)

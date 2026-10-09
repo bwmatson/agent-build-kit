@@ -62,7 +62,7 @@ def test_a_unit_left_out_of_the_round_gives_its_prerequisite_no_priority() -> No
     assert started(graph, excluded={"fix/1"}) == ["older/1"]
 
 
-def test_an_open_pull_request_is_not_displaced_by_a_prerequisite_of_an_urgent_unit() -> None:
+def test_a_unit_in_review_does_not_stop_an_urgent_prerequisite_starting() -> None:
     graph = [
         new("review/1", state=IN_REVIEW, pr=3),
         new("base/1"),
