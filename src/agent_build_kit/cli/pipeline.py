@@ -59,6 +59,7 @@ from agent_build_kit.pipeline.events import (
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
+from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
@@ -987,13 +988,15 @@ def resumable_units(
     interrupted for the usage window, which the guard let this tick through.
     They are `running`, but hold no slot until the round starts them; a thread
     waiting for review or a person is not here, and holds none. `spared` names
-    the units a run is in flight on."""
+    the units a run is in flight on. A unit whose lease is held waits for its release."""
+    leases = Leases(lease_dir(inst.state_dir))
     return [
         unit
         for unit in units
         if unit.state == RUNNING
         and (not only or unit.id in only)
         and unit.id not in spared
+        and leases.holder(unit.id) is None
         and not branch_is_held(inst, unit.branch or branch_name(unit))
         and has_thread(inst, unit.id)
     ]
@@ -1024,6 +1027,7 @@ def _evaluate(
     """
     view: list[Unit] = []
     now = spans.clock.now()
+    leases = Leases(lease_dir(inst.state_dir))
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -1032,6 +1036,8 @@ def _evaluate(
         elif unit.state == PLANNED and (
             unit.id in started
             or (only and unit.id not in only)
+            # Someone is chatting with it: it goes back to the tick when the lease is released.
+            or leases.holder(unit.id) is not None
             # A requeue is still to be delivered to its thread: starting the
             # unit as a planned build would drop the mode it was requeued with.
             or (unit.cause is Cause.GATED and unit.gated_requeue is not None)
@@ -1959,6 +1965,12 @@ def _build_unit(
                 # which is how its thread resumes it.
                 if unit.state not in (PLANNED, RUNNING):
                     end(f"skipped, it is now {unit.state}", UnitOutcome.SKIPPED)
+                    return True
+                # A tab may have taken the lease since the pass picked this unit. The
+                # server writes the lease and then reads the branch lock; this takes the
+                # lock and then reads the lease, so one of the two always sees the other.
+                if Leases(lease_dir(inst.state_dir)).holder(unit.id) is not None:
+                    end("skipped, a tab holds its lease", UnitOutcome.SKIPPED)
                     return True
                 # A step recorded by an earlier run belongs to that run. A parked unit
                 # resumes at its node, which never passes `prepare`, so it is marked

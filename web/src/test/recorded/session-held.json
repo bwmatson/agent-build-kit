@@ -1,0 +1,23 @@
+{
+  "id": "11111111-2222-4333-8444-555555555555",
+  "runtime": "claude_code",
+  "events": [
+    {
+      "kind": "text",
+      "role": "user",
+      "text": "Fix the bug"
+    },
+    {
+      "kind": "text",
+      "role": "assistant",
+      "text": "I found the cause in the parser."
+    }
+  ],
+  "recorded": false,
+  "tool_calls_available": true,
+  "read_only": true,
+  "reason": "Process 600219 holds this session; it is read-only here.",
+  "actions": [
+    "fork"
+  ]
+}

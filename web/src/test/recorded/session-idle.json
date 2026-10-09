@@ -1,0 +1,24 @@
+{
+  "id": "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e47",
+  "runtime": "claude_code",
+  "events": [
+    {
+      "kind": "text",
+      "role": "user",
+      "text": "Idle one"
+    },
+    {
+      "kind": "text",
+      "role": "assistant",
+      "text": "I found the cause in the parser."
+    }
+  ],
+  "recorded": false,
+  "tool_calls_available": true,
+  "read_only": false,
+  "reason": "",
+  "actions": [
+    "continue",
+    "fork"
+  ]
+}

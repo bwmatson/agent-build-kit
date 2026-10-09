@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -36,3 +38,36 @@ def new_york_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
     monkeypatch.undo()
     time.tzset()
+
+
+@pytest.fixture(autouse=True)
+def no_real_claude_sessions(
+    inst: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sessions page lists Claude Code's sessions: never the machine's own. After
+    `inst`, whose settings reload would undo it."""
+    from agent_build_kit.settings import settings
+
+    empty = tmp_path / "empty-claude-home"
+    empty.mkdir()
+    monkeypatch.setattr(settings, "claude_home", empty)
+
+
+@pytest.fixture(autouse=True)
+def no_agent_outlives_its_test(tmp_path: Path) -> Iterator[None]:
+    """A fake agent left waiting for an answer is killed with its test. Its arguments name
+    the session ids it holds, and the next test's sessions page would see it as a process
+    that has them open."""
+    yield
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            arguments = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if str(tmp_path).encode() in b" ".join(arguments):
+            try:
+                os.kill(int(entry.name), signal.SIGKILL)
+            except OSError:
+                pass

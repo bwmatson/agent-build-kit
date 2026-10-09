@@ -7,6 +7,7 @@ export interface UnitSummary {
   note: string;
   branch: string;
   pr: number | null;
+  repo: string;
 }
 
 export interface Related {

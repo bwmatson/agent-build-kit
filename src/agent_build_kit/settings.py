@@ -64,6 +64,12 @@ class Settings(BaseSettings):
         None, validation_alias=AliasChoices("XDG_CONFIG_HOME", "ABK_CONFIG_HOME")
     )
 
+    # Where Claude Code keeps its sessions (`projects/<directory>/<id>.jsonl`), which the
+    # sessions page lists; `~/.claude` when unset. Claude Code's own variable comes first.
+    claude_home: Path | None = Field(
+        None, validation_alias=AliasChoices("CLAUDE_CONFIG_DIR", "ABK_CLAUDE_HOME")
+    )
+
     # The OpenSpec CLI version run through npx (openspec.py). A pin, so an
     # upgrade is a deliberate change here rather than whatever npx fetched.
     openspec_version: str = "1.13.1"

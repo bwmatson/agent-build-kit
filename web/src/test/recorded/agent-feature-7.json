@@ -1,0 +1,13 @@
+{
+  "session": {
+    "id": "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e47",
+    "runtime": "claude_code",
+    "model": "opus"
+  },
+  "state": "streaming",
+  "composer": {
+    "enabled": false,
+    "reason": "A step is running; its work is streamed here and takes no input."
+  },
+  "attached_by": null
+}

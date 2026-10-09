@@ -1,0 +1,27 @@
+data: {"type": "RUN_STARTED", "threadId": "feature/2", "runId": "eb12d768a2024941b64eb1fbc7cda67d"}
+
+data: {"type": "CUSTOM", "name": "session", "value": {"id": "3f1c2a9e-5b7d-4e2f-9a61-0c8d7e4b2a15"}}
+
+data: {"type": "TEXT_MESSAGE_START", "messageId": "eb12d768a2024941b64eb1fbc7cda67d-msg-1", "role": "assistant"}
+
+data: {"type": "TEXT_MESSAGE_CONTENT", "messageId": "eb12d768a2024941b64eb1fbc7cda67d-msg-1", "delta": "I'll add the marker to the app module."}
+
+data: {"type": "TEXT_MESSAGE_END", "messageId": "eb12d768a2024941b64eb1fbc7cda67d-msg-1"}
+
+data: {"type": "TOOL_CALL_START", "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx", "toolCallName": "Edit"}
+
+data: {"type": "TOOL_CALL_ARGS", "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx", "delta": "{\"file_path\": \"/work/trees/app/spec_feature_2/src/app.py\", \"old_string\": \"MARKER = None\", \"new_string\": \"MARKER = \\\"added\\\"\", \"replace_all\": false}"}
+
+data: {"type": "TOOL_CALL_END", "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx"}
+
+data: {"type": "TOOL_CALL_RESULT", "toolCallId": "toolu_01AbCdEfGhJkLmNpQrStUvWx", "messageId": "result-toolu_01AbCdEfGhJkLmNpQrStUvWx", "role": "tool", "content": "The file /work/trees/app/spec_feature_2/src/app.py has been updated."}
+
+data: {"type": "TEXT_MESSAGE_START", "messageId": "eb12d768a2024941b64eb1fbc7cda67d-msg-2", "role": "assistant"}
+
+data: {"type": "TEXT_MESSAGE_CONTENT", "messageId": "eb12d768a2024941b64eb1fbc7cda67d-msg-2", "delta": "Because."}
+
+data: {"type": "TEXT_MESSAGE_END", "messageId": "eb12d768a2024941b64eb1fbc7cda67d-msg-2"}
+
+data: {"type": "CUSTOM", "name": "usage", "value": {"input_tokens": 4, "cache_creation_input_tokens": 1822, "cache_read_input_tokens": 14671, "output_tokens": 212}}
+
+data: {"type": "RUN_FINISHED", "threadId": "feature/2", "runId": "eb12d768a2024941b64eb1fbc7cda67d", "result": {"stopReason": "success"}}
