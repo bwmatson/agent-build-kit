@@ -1517,3 +1517,181 @@ def test_a_tick_sets_back_a_unit_whose_predecessor_committed_a_rework(
         entry["state"] == PLANNED and entry.get("cause") == Cause.UPSTREAM_WENT_BACK.value
         for entry in store.get("chain/2").history
     )
+
+
+# --- a refused start stops only the unit that asked ----------------------------------
+
+
+def guard_log(monkeypatch: pytest.MonkeyPatch, events: list[str], *, allows) -> None:
+    """The guard answers `allows()` and notes in `events` each time it is asked."""
+
+    def decide(reading) -> Decision:
+        events.append("guard")
+        if allows():
+            return Decision(may_start=True, reason="plenty")
+        return Decision(may_start=False, reason="session at 99%")
+
+    monkeypatch.setattr(cli, "may_start_unit", decide)
+
+
+def test_a_unit_refused_for_usage_does_not_stop_the_pass(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal is the unit's: the next round still records a merge, asks
+    the guard again, and admits the unit waiting for a slot once it allows."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert(
+        [
+            stored("stops/1"),
+            stored("slow/1", repo="platform"),
+            stored("later/1"),
+            stored("done/1", repo="platform"),
+        ]
+    )
+    builder.store.set_state("done/1", IN_REVIEW, pr=90, branch="spec/done/1")
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    events: list[str] = []
+    guard_log(monkeypatch, events, allows=lambda: True)
+
+    def poll(inst, **kwargs) -> None:
+        events.append("poll")
+        if "stopped" in events and builder.store.get("done/1").state == IN_REVIEW:
+            builder.store.set_state("done/1", MERGED, pr=90)
+
+    monkeypatch.setattr(cli, "poll_all", poll)
+
+    def stops() -> str:
+        events.append("stopped")
+        return "paused"
+
+    builder.ends["stops/1"] = (PLANNED, Cause.USAGE, "paused before implement")
+    builder.scripts["stops/1"] = stops
+    builder.scripts["slow/1"] = lambda: (
+        None if eventually(lambda: "later/1" in builder.finished) else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert "later/1" in builder.started, "the pass stopped at the refusal"
+    after = events[events.index("stopped") :]
+    assert "poll" in after and "guard" in after
+    assert builder.store.get("done/1").state == MERGED
+    assert builder.store.get("slow/1").state == IN_REVIEW
+
+
+def test_units_paused_for_usage_resume_within_the_pass_when_the_guard_allows(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("waits/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    runs: list[int] = []
+
+    def pauses_once() -> str | None:
+        runs.append(1)
+        return "paused" if len(runs) == 1 else None
+
+    builder.ends["waits/1"] = (PLANNED, Cause.USAGE, "paused before implement")
+    builder.scripts["waits/1"] = pauses_once
+    builder.scripts["slow/1"] = lambda: (
+        None if eventually(lambda: builder.finished.count("waits/1") == 2) else "failed"
+    )
+
+    assert tick(inst) == 0
+
+    assert builder.started.count("waits/1") == 2
+    assert builder.store.get("waits/1").state == IN_REVIEW
+
+
+def test_a_unit_paused_for_usage_keeps_its_place_while_the_guard_refuses(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("waits/1"), stored("slow/1", repo="platform")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    events: list[str] = []
+    guard_log(monkeypatch, events, allows=lambda: "stopped" not in events)
+
+    def stops() -> str:
+        events.append("stopped")
+        return "paused"
+
+    def asked_after() -> int:
+        return events[events.index("stopped") :].count("guard") if "stopped" in events else 0
+
+    builder.ends["waits/1"] = (PLANNED, Cause.USAGE, "paused before implement")
+    builder.scripts["waits/1"] = stops
+    builder.scripts["slow/1"] = lambda: None if eventually(lambda: asked_after() >= 3) else "failed"
+
+    assert tick(inst) == 0
+
+    assert builder.started == ["waits/1", "slow/1"]
+    waiting = builder.store.get("waits/1")
+    assert waiting.state == PLANNED and waiting.cause is Cause.USAGE
+
+
+def test_a_window_used_up_refuses_every_start_each_round(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pass goes on, so the guard is asked every round, and says no."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("stops/1"), stored("slow/1", repo="platform"), stored("later/1")])
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    events: list[str] = []
+    guard_log(monkeypatch, events, allows=lambda: "stopped" not in events)
+
+    def stops() -> str:
+        events.append("stopped")
+        return "paused"
+
+    def asked_after() -> int:
+        return events[events.index("stopped") :].count("guard") if "stopped" in events else 0
+
+    builder.ends["stops/1"] = (PLANNED, Cause.USAGE, "paused before implement")
+    builder.scripts["stops/1"] = stops
+    builder.scripts["slow/1"] = lambda: None if eventually(lambda: asked_after() >= 3) else "failed"
+
+    assert tick(inst) == 0
+
+    assert asked_after() >= 3, "the guard was not asked again each round"
+    assert builder.started == ["stops/1", "slow/1"]
+    assert builder.store.get("later/1").state == PLANNED
+
+
+def test_a_rate_limit_pause_still_stops_new_builds_for_the_pass(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only a usage pause is the unit's. The model's own refusal says nothing
+    about the usage endpoint, so it holds every start until its deadline —
+    after the usage pause before it has let the pass go on to admit `mid/1`."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert(
+        [stored("stops/1"), stored("slow/1", repo="platform"), stored("mid/1"), stored("later/1")]
+    )
+    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    marker = tmp_path / "paused.json"
+    builder.ends["stops/1"] = (PLANNED, Cause.USAGE, "paused before implement")
+    builder.scripts["stops/1"] = lambda: "paused"
+
+    def refused_by_the_model() -> None:
+        pause.pause_until(
+            datetime.now(UTC) + timedelta(hours=1),
+            reason="the model refused",
+            marker=marker,
+            kind="rate_limit",
+        )
+
+    builder.scripts["mid/1"] = refused_by_the_model
+
+    def waits_out_rounds() -> str | None:
+        if not eventually(lambda: "mid/1" in builder.finished):
+            return "failed"
+        time.sleep(0.5)
+        return None
+
+    builder.scripts["slow/1"] = waits_out_rounds
+
+    assert tick(inst) == 0
+
+    assert builder.started == ["stops/1", "slow/1", "mid/1"]
+    assert builder.store.get("later/1").state == PLANNED
