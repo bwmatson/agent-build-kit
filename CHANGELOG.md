@@ -26,6 +26,7 @@
   end of its output. The output cap is now idempotent, so an idle file is no longer rewritten
   every pass. In this repo's tests, a hung test fails after a minute, and a guard rejects a new
   bare sleep, unjoined thread or fixed port.
+
 - A start the usage guard refuses now pauses only that unit. The pass keeps running its rounds,
   recording merges and comments, asks the guard again at each one, admits builds as soon as it
   allows and resumes the paused units, instead of ending at the first refusal. A window that is
