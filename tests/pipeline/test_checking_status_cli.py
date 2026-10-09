@@ -13,7 +13,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline.pr_poller import PrState, state_path
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.fake_clock import FakeClock, install
@@ -99,3 +99,72 @@ def test_the_poll_moves_the_label_between_in_review_and_checking_without_a_state
     cli.poll_all(inst, store=store)
     assert labels() == {"in-review"}
     assert store.get("add-marker/1").state == "in_review"
+
+
+def reviewing(inst, clock: FakeClock) -> UnitStore:
+    """A unit in review on PR 7, pushed an hour ago, in a store with the pipeline's hooks."""
+    store = cli.store_for(inst)
+    store.upsert([stored_unit("add-marker/1")])
+    store.set_state("add-marker/1", IN_REVIEW, pr=PR)
+    store.record_push("add-marker/1", "abc")
+    clock.advance(3600)
+    return store
+
+
+@pytest.mark.parametrize("status", ["pending", "passed"])
+def test_the_graph_page_shows_the_checks_the_last_poll_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: FakeClock, status: str
+) -> None:
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    forge = StandInForge()
+    monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
+    reviewing(inst, clock)
+    PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": status}}})
+
+    assert cli.cmd_graph(argparse.Namespace(), inst) == 0
+
+    page = inst.graph_page.read_text()
+    assert ("· checking" in page) == (status == "pending")
+    assert ("· in-review" in page) == (status == "passed")
+    assert "- **checking**" in page
+
+
+def test_a_poll_rewrites_the_graph_page_when_the_checks_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: FakeClock
+) -> None:
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    forge = StandInForge(prs=[pull(("CI", CheckStatus.PENDING))])
+    forge.on_pr[PR] = {"in-review"}
+    monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
+    store = reviewing(inst, clock)
+
+    cli.poll_all(inst, store=store)
+    assert "· checking" in inst.graph_page.read_text()
+
+    forge.prs = [pull(("CI", CheckStatus.PASSED))]
+    cli.poll_all(inst, store=store)
+    page = inst.graph_page.read_text()
+    assert "· in-review" in page and "· checking" not in page
+
+
+def test_a_unit_moving_into_review_is_labelled_for_the_checks_already_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: FakeClock
+) -> None:
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    forge = StandInForge()
+    monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
+    PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": "pending"}}})
+    store = cli.store_for(inst)
+    store.upsert([stored_unit("add-marker/1")])
+    store.set_state("add-marker/1", RUNNING, pr=PR)
+    store.record_push("add-marker/1", "abc")
+
+    store.set_state("add-marker/1", IN_REVIEW)
+
+    assert forge.on_pr[PR] & {"in-review", "checking"} == {"checking"}

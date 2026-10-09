@@ -189,7 +189,7 @@ def store_for(inst: Installation) -> UnitStore:
     def refresh_graph(units: list[StoredUnit]) -> None:
         # A view, so it must never take the store write down with it.
         try:
-            diagram.write_page(units, inst.graph_page)
+            diagram.write_page(units, inst.graph_page, checks_of=recorded_checks(inst.state_dir))
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
 
@@ -207,7 +207,7 @@ def store_for(inst: Installation) -> UnitStore:
     drafts = StateDrafts(inst.forge_of, log=log)
 
     def follow(unit: StoredUnit, units: list[StoredUnit], opened: bool) -> None:
-        labels.follow(unit, units, opened=opened)
+        labels.follow(unit, units, opened=opened, checks_of=recorded_checks(inst.state_dir))
         drafts.follow(unit, units, opened=opened)
 
     return UnitStore(
@@ -447,7 +447,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
 def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
     units = UnitStore(inst.state_dir / "units.json").all()
-    diagram.write_page(units, inst.graph_page)
+    diagram.write_page(units, inst.graph_page, checks_of=recorded_checks(inst.state_dir))
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
 
@@ -1995,6 +1995,16 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
             log=log,
         ).poll()
         _refresh_check_labels(inst, store, repo, labels)
+    _refresh_graph_page(inst, store)
+
+
+def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
+    """Rewrite the graph page after a poll: the checks it shows may have changed
+    with no store write. An unchanged body is skipped. A view, so it never fails the poll."""
+    try:
+        diagram.write_page(store.all(), inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+    except Exception as error:  # noqa: BLE001
+        log(f"graph not refreshed — {type(error).__name__}: {error}")
 
 
 def _refresh_check_labels(

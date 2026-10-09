@@ -140,7 +140,7 @@ def _pr_url(unit: StoredUnit) -> str:
     return forge.web_url(repo, pr=unit.pr)
 
 
-def render_markdown(units: list[StoredUnit]) -> str:
+def render_markdown(units: list[StoredUnit], *, checks_of: ChecksOf | None = None) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
     hidden = len(units) - len(shown)
@@ -165,7 +165,7 @@ units it builds on directly. Rewritten whenever a unit changes state; do not
 edit by hand.
 
 ```mermaid
-{render_mermaid(shown, graph=units)}
+{render_mermaid(shown, graph=units, checks_of=checks_of)}
 ```
 
 ## Legend
@@ -184,6 +184,8 @@ edit by hand.
   review again.
 - **in_review** — through the build/review loop; its PR is waiting for human
   review. Dependents in the same repo may stack on it. Deliberately uncapped.
+- **checking** — in review, but its checks are still running (or none has
+  registered since its push); it reads in-review once they pass.
 - **merged** — done, and no longer counted against its stack's depth.
 - **satisfied** — its groups needed nothing beyond what was already on the
   branch it built on; no PR of its own, and no longer counted against its
@@ -209,13 +211,13 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}{'' if n == 1 else 's'}"
 
 
-def write_page(units: list[StoredUnit], out: Path) -> None:
+def write_page(units: list[StoredUnit], out: Path, *, checks_of: ChecksOf | None = None) -> None:
     """Rewrite the page, keeping the old timestamp when nothing else changed.
 
     Called on every store write, so without this each tick would leave a
     one-line diff in a committed file for no change at all.
     """
-    page = render_markdown(units)
+    page = render_markdown(units, checks_of=checks_of)
     if out.exists() and _body(out.read_text()) == _body(page):
         return
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -232,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     from pathlib import Path
 
     from agent_build_kit.installation import load_installation
+    from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
 
     installation = load_installation()
@@ -241,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     units = UnitStore(args.store).all()
-    write_page(units, args.out)
+    write_page(units, args.out, checks_of=recorded_checks(installation.state_dir))
     print(f"{args.out}: {len(units)} unit(s)")
     return 0
 
