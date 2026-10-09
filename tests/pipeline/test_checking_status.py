@@ -18,6 +18,7 @@ from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.labels import StateLabels
+from agent_build_kit.pipeline.pr_poller import PrState, recorded_checks, state_path
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, in_progress, ready_units
 from agent_build_kit.pipeline.vocabulary import (
@@ -165,6 +166,40 @@ def test_a_store_written_before_pushed_at_reads_in_review_with_no_checks(
     store.record_push(UID, "def")
     fresh = store.get(UID)
     assert effective_state(fresh, [fresh], checks_of=checks_of()) == "checking"
+
+
+def test_a_replan_keeps_when_the_unit_was_pushed(tmp_path: Path, clock: FakeClock) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit(UID)])
+    store.set_state(UID, IN_REVIEW, pr=PR)
+    store.record_push(UID, "abc")
+    stamped = store.get(UID).pushed_at
+    clock.advance(5)
+
+    store.upsert([stored_unit(UID)])
+
+    replanned = store.get(UID)
+    assert replanned.pushed_at == stamped
+    assert effective_state(replanned, [replanned], checks_of=checks_of()) == "checking"
+
+
+def test_a_status_the_snapshot_does_not_know_reads_as_pending(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    inst = make_installation(tmp_path, planning={"state_dir": "."})
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit(UID)])
+    store.set_state(UID, IN_REVIEW, pr=PR)
+    store.record_push(UID, "abc")
+    clock.advance(3600)
+    unit = store.get(UID)
+    path = state_path(inst.state_dir, unit.repo)
+
+    PrState.save(path, {"7": {"checks": {"CI": "weird"}}})
+    assert effective_state(unit, [unit], checks_of=recorded_checks(inst.state_dir)) == "checking"
+
+    PrState.save(path, {"7": "not a dict"})
+    assert effective_state(unit, [unit], checks_of=recorded_checks(inst.state_dir)) == IN_REVIEW
 
 
 def test_checking_has_its_own_name_colour_and_label() -> None:

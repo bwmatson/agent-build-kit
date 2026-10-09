@@ -408,6 +408,7 @@ class UnitStore:
                 branch=existing.branch if existing else "",
                 pr=existing.pr if existing else None,
                 pushed=existing.pushed if existing else None,
+                pushed_at=existing.pushed_at if existing else None,
                 actual_lines=existing.actual_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,

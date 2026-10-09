@@ -425,12 +425,15 @@ def recorded_checks(state_dir: Path) -> ChecksOf:
     def checks_of(unit: StoredUnit) -> Sequence[Check]:
         if unit.repo not in loaded:
             loaded[unit.repo] = PrState.load(state_path(state_dir, unit.repo))
-        seen = loaded[unit.repo].get(str(unit.pr)) or {}
-        recorded = seen.get("checks")
+        seen = loaded[unit.repo].get(str(unit.pr))
+        recorded = seen.get("checks") if isinstance(seen, dict) else None
         if not isinstance(recorded, dict):
             return ()
+        # A status this release does not know reads as pending, as a host's would.
+        known = {str(status) for status in CheckStatus}
         return tuple(
-            Check(name=name, status=CheckStatus(status)) for name, status in recorded.items()
+            Check(name=name, status=CheckStatus(status if status in known else "pending"))
+            for name, status in recorded.items()
         )
 
     return checks_of
