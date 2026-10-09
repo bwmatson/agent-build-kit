@@ -129,6 +129,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    effective_priority,
     in_progress,
     in_progress_label,
     local_ref,
@@ -138,6 +139,7 @@ from agent_build_kit.pipeline.units import (
     trunk_of,
     unmet_gates,
     waiting_on,
+    waiting_on_me,
 )
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
@@ -371,6 +373,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
+
+    for line in _ready_queue_lines(inst, units):
+        log(line)
 
     # Units in flight from before causes were kept: nothing reads their notes, so
     # each is requeued (`abk requeue`) or, for a reviewer's hold, held again from
@@ -1143,6 +1148,34 @@ def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
         f"queue is full: {len(held)} units in progress, limit {inst.max_units_in_progress} "
         f"({states})"
     )
+
+
+def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+    """The ready queue in the order the scheduler starts it, with why each unit is where it is."""
+    attached = {held.unit_id for held in Leases(lease_dir(inst.state_dir)).attachments()}
+    ready = _evaluate(
+        inst,
+        units,
+        started=attached,
+        building=set(),
+        only=frozenset(),
+        enforce_limit=False,
+        max_concurrent=len(units),
+    )
+    if not ready:
+        return []
+    lines = ["ready queue (start order):"]
+    for place, unit in enumerate(ready, start=1):
+        urgency = effective_priority(unit, units)
+        if urgency < unit.priority:
+            source = min(waiting_on_me(unit, units), key=lambda waiter: waiter.priority)
+            why = f"priority {urgency}, from {source.id}"
+        elif unit.priority != Priority.NORMAL:
+            why = f"priority {unit.priority}"
+        else:
+            why = "planned order"
+        lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}")
+    return lines
 
 
 def _nothing_started_reason(

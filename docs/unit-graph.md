@@ -132,6 +132,13 @@ itself and every unit that waits on it, directly or through a chain, in any
 repo; merged, closed and satisfied units, and units the round leaves out, do not
 count.
 
+Within each class of start (open pull request, resumed build, never run) ready
+units start by effective priority, then in the order they were planned. `abk
+status` ends with the ready queue in that order, each unit with its reason:
+`planned order`, its own priority, or the priority it takes from the unit that
+waits on it. The graph page adds `priority N` to the node of a unit whose
+priority is not 3.
+
 ## The graph
 
 ```mermaid

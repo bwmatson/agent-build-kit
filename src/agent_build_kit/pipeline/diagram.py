@@ -34,6 +34,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    Priority,
 )
 from agent_build_kit.pipeline.vocabulary import STATES, ChecksOf, effective_state
 
@@ -102,7 +103,8 @@ def render_mermaid(
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
-            label = f"{head}<small>{unit.tier} · {name}{pr}</small>"
+            urgency = f" · priority {unit.priority}" if unit.priority != Priority.NORMAL else ""
+            label = f"{head}<small>{unit.tier} · {name}{pr}{urgency}</small>"
             lines.append(f'        {_node_id(unit.id)}["{label}"]')
         lines.append("    end")
 
