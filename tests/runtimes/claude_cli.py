@@ -228,6 +228,11 @@ def failed_build(cwd: Path, message: str) -> str:
     )
 
 
+def replied(cwd: Path, answer: str) -> str:
+    """A turn that only talks: one assistant message, no tool call, and the result."""
+    return stream(_init(cwd), _assistant([{"type": "text", "text": answer}]), _result(answer))
+
+
 def refused(cwd: Path, message: str) -> str:
     """A run the account had no room for: the refusal arrives as an error
     result, before any turn is spent."""
