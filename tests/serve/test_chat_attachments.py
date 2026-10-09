@@ -118,3 +118,29 @@ def test_a_turn_without_attachments_is_its_prompt_alone(
 
     assert "Why this change?" in prompt
     assert "@@" not in prompt
+
+
+def test_an_attachment_of_uncommitted_lines_is_marked_uncommitted_in_the_prompt(
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prompt = claude_prompt(pipeline, api, monkeypatch, [{**MARKER, "uncommitted": True}])
+
+    assert MARKER["text"] in prompt
+    assert "uncommitted" in prompt.lower()
+
+
+def test_an_attachment_of_committed_lines_is_not_marked_uncommitted(
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prompt = claude_prompt(pipeline, api, monkeypatch, [MARKER])
+
+    assert "uncommitted" not in prompt.lower()
+
+
+def test_only_the_uncommitted_attachment_of_a_turn_carries_the_marker(
+    pipeline: Installation, api: httpx.Client, tmp_path: Path
+) -> None:
+    prompt = acp_prompt(pipeline, api, tmp_path, [MARKER, {**OTHER, "uncommitted": True}])
+
+    assert prompt.lower().count("uncommitted") == 1
+    assert prompt.lower().index("uncommitted") > prompt.index(MARKER["text"])
