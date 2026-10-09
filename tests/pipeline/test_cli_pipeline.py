@@ -285,6 +285,17 @@ def healthy(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
 
 
+def window_spent_after_the_first_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The round admits the build, which the guard then stops: the rounds after
+    it meet the same guard, as a real one answers."""
+    answers = iter([Decision(may_start=True, reason="plenty")])
+    monkeypatch.setattr(
+        cli,
+        "may_start_unit",
+        lambda r: next(answers, Decision(may_start=False, reason="session usage at 71%")),
+    )
+
+
 def test_a_ready_unit_is_actually_built(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -356,6 +367,8 @@ def test_a_pause_resumes_when_the_window_resets(
 ) -> None:
     """Not the generic retry: the window's own reset is known, and waking
     before it just burns a tick finding the window still full."""
+    # Keep the marker the build wrote, which a later round would clear on an allowing guard.
+    monkeypatch.setattr(cli, "clear_pause", lambda marker: None)
     UnitStore(tmp_path / "units.json").upsert([stored()])
     resets = datetime.now(UTC) + timedelta(hours=3)
     monkeypatch.setattr(cli, "current_usage", lambda: reading(resets_at=resets))
@@ -374,6 +387,7 @@ def test_a_unit_that_pauses_records_the_pause_without_stopping_the_others(
     to hold back: the others are already running, and each checks the usage
     guard itself before its first Claude run. The pause still stops the
     following ticks."""
+    window_spent_after_the_first_round(monkeypatch)
     UnitStore(tmp_path / "units.json").upsert([stored(), stored("add-marker/2")])
     built: list[str] = []
 
@@ -449,6 +463,8 @@ def test_a_usage_pause_takes_its_reason_and_time_from_its_fields(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The outcome's detail is for people; the pause carries what the marker records."""
+    # Keep the marker the build wrote, which a later round would clear on an allowing guard.
+    monkeypatch.setattr(cli, "clear_pause", lambda marker: None)
     UnitStore(tmp_path / "units.json").upsert([stored()])
     resumes = datetime.now(UTC) + timedelta(hours=5)
 

@@ -137,10 +137,20 @@ def test_a_unit_killed_mid_node_is_resumed_there_by_the_next_tick(graph: Setup) 
     assert states == [PLANNED, RUNNING, IN_REVIEW], "never put back to planned"
 
 
-def test_a_tick_on_which_the_guard_allows_resumes_a_paused_thread(graph: Setup) -> None:
+def test_a_tick_on_which_the_guard_allows_resumes_a_paused_thread(
+    graph: Setup, monkeypatch: pytest.MonkeyPatch
+) -> None:
     graph.options["may_start"] = lambda: (False, "session usage at 88%")
     graph.options["resume_at"] = lambda: datetime.now(UTC) + timedelta(hours=1)
+    # The round admits the build, which the guard stops; later rounds meet it too.
+    answers = iter([Decision(may_start=True, reason="plenty")])
+    monkeypatch.setattr(
+        cli,
+        "may_start_unit",
+        lambda r: next(answers, Decision(may_start=False, reason="session usage at 88%")),
+    )
     graph.tick()
+    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
     assert graph.next() == (Node.TESTS,)
     assert graph.store.get(UNIT).state == RUNNING
     assert (graph.inst.state_dir / "paused.json").exists()

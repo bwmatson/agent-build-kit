@@ -1150,9 +1150,10 @@ REBUILDS_PER_PASS = 2
 # The causes a unit put back to planned is let back into the running pass for: sent
 # back for rework by a poll, or held by its own build because the branch it builds
 # on changed. Resuming restacks the unit onto its new base before anything else, so
-# that cause is gone by the time it runs again — unlike an unfinished upstream or a
-# full usage window, which a rerun would only meet again.
-READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED})
+# that cause is gone by the time it runs again — unlike an unfinished upstream, which
+# a rerun would only meet again. A usage pause is the unit's own: the guard is asked
+# at each round, so a unit it stopped is let back in only once the round admitted it.
+READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED, Cause.USAGE})
 
 
 def _sent_back(
@@ -1291,8 +1292,10 @@ def _schedule(
                 if not future.result():
                     stopping = True
             # A build still in flight — or another tick — may already have
-            # paused the pipeline; its report is not needed to stop here.
-            stopping = stopping or bool(is_paused(_paused_marker(inst)))
+            # recorded the model's refusal; its report is not needed to stop
+            # here. A usage pause is not one: the round asks the guard again.
+            held = is_paused(_paused_marker(inst))
+            stopping = stopping or bool(held and held.kind == "rate_limit")
             if stopping or refused:
                 continue
 
@@ -2165,7 +2168,6 @@ def _build_unit(
                 "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
             )
             _pause_for_usage(inst, outcome.pause or PauseInfo(reason=outcome.detail))
-            return False
         return True
     finally:
         if run_log is not None:

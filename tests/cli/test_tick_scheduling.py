@@ -487,29 +487,26 @@ def test_no_unit_is_started_twice_in_one_pass(builder: Builder, tmp_path: Path) 
 # --- 1.3 stopping, and --only ------------------------------------------------------
 
 
-def test_a_build_that_says_stop_ends_scheduling(
-    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_build_the_model_refused_ends_scheduling(builder: Builder, tmp_path: Path) -> None:
     """One slot: the first unit opens its PR and the second starts in the same
-    pass; the second finds the usage window spent, and the third is not
-    started — its report is acted on, not discarded.
-
-    The pause marker the build would also write is kept from being written,
-    so the report is the only thing that can stop the pass."""
+    pass; the model refuses the second, and the third is not started."""
     inst = workspace(tmp_path, max_concurrent=1)
     builder.store.upsert([stored("feature/1"), stored("feature/2"), stored("feature/3")])
-    builder.scripts["feature/2"] = lambda: "paused"
-    monkeypatch.setattr(
-        cli,
-        "pause_until",
-        lambda when, **kwargs: argparse.Namespace(until=datetime.now(UTC), reason="usage"),
-    )
+
+    def refused() -> None:
+        pause.pause_until(
+            datetime.now(UTC) + timedelta(hours=1),
+            reason="the model refused",
+            marker=tmp_path / "paused.json",
+            kind="rate_limit",
+        )
+
+    builder.scripts["feature/2"] = refused
 
     assert tick(inst) == 0
 
     assert builder.started == ["feature/1", "feature/2"]
     assert builder.store.get("feature/3").state == PLANNED
-    assert not (tmp_path / "paused.json").exists()
 
 
 def test_a_build_that_pauses_waits_for_the_ramp_not_the_reset(
@@ -535,7 +532,7 @@ def test_a_build_that_pauses_waits_for_the_ramp_not_the_reset(
     assert state.until == ramp + pause.RESUME_GRACE
 
 
-def test_a_pause_recorded_by_a_build_still_running_ends_scheduling(
+def test_a_rate_limit_pause_recorded_by_a_build_still_running_ends_scheduling(
     builder: Builder, tmp_path: Path
 ) -> None:
     """Two slots. The slow build records a pause and keeps going; the quick
@@ -547,7 +544,12 @@ def test_a_pause_recorded_by_a_build_still_running_ends_scheduling(
     marker = tmp_path / "paused.json"
 
     def slow() -> str | None:
-        pause.pause_until(None, reason="window spent", marker=marker)
+        pause.pause_until(
+            datetime.now(UTC) + timedelta(hours=1),
+            reason="the model refused",
+            marker=marker,
+            kind="rate_limit",
+        )
         return None if eventually(lambda: "quick/1" in builder.finished) else "failed"
 
     builder.scripts["slow/1"] = slow
@@ -574,7 +576,16 @@ def test_stopping_still_awaits_the_builds_in_flight(builder: Builder, tmp_path: 
             stored("later/1"),
         ]
     )
-    builder.scripts["stops/1"] = lambda: "paused"
+
+    def refused() -> None:
+        pause.pause_until(
+            datetime.now(UTC) + timedelta(hours=1),
+            reason="the model refused",
+            marker=tmp_path / "paused.json",
+            kind="rate_limit",
+        )
+
+    builder.scripts["stops/1"] = refused
     builder.scripts["slow/1"] = lambda: (
         None if eventually((tmp_path / "paused.json").exists) else "failed"
     )
@@ -1309,6 +1320,16 @@ def test_a_unit_held_for_a_moved_base_is_let_back_in_whatever_its_note_says(
     assert builder.started.count("sent/1") == 2
 
 
+def test_a_unit_paused_for_usage_is_let_back_in_once_the_round_admits_it(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ends_and_waits(
+        builder, tmp_path, monkeypatch, (PLANNED, Cause.USAGE, "paused"), readmitted=True
+    )
+
+    assert builder.started.count("sent/1") == 2
+
+
 def test_a_unit_sent_back_for_rework_is_let_back_in_whatever_its_note_says(
     builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1323,7 +1344,6 @@ def test_a_unit_sent_back_for_rework_is_let_back_in_whatever_its_note_says(
     "cause",
     [
         Cause.UPSTREAM_WENT_BACK,
-        Cause.USAGE,
         Cause.REQUEUED,
         Cause.RESTACK_CONFLICT,
         Cause.RESTACK_DEFERRED,
@@ -1625,7 +1645,7 @@ def test_a_unit_paused_for_usage_keeps_its_place_while_the_guard_refuses(
 
     assert tick(inst) == 0
 
-    assert builder.started == ["waits/1", "slow/1"]
+    assert sorted(builder.started) == ["slow/1", "waits/1"]
     waiting = builder.store.get("waits/1")
     assert waiting.state == PLANNED and waiting.cause is Cause.USAGE
 
@@ -1654,7 +1674,7 @@ def test_a_window_used_up_refuses_every_start_each_round(
     assert tick(inst) == 0
 
     assert asked_after() >= 3, "the guard was not asked again each round"
-    assert builder.started == ["stops/1", "slow/1"]
+    assert sorted(builder.started) == ["slow/1", "stops/1"]
     assert builder.store.get("later/1").state == PLANNED
 
 
@@ -1671,7 +1691,13 @@ def test_a_rate_limit_pause_still_stops_new_builds_for_the_pass(
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     marker = tmp_path / "paused.json"
     builder.ends["stops/1"] = (PLANNED, Cause.USAGE, "paused before implement")
-    builder.scripts["stops/1"] = lambda: "paused"
+    stops: list[int] = []
+
+    def pauses_once() -> str | None:
+        stops.append(1)
+        return "paused" if len(stops) == 1 else None
+
+    builder.scripts["stops/1"] = pauses_once
 
     def refused_by_the_model() -> None:
         pause.pause_until(
@@ -1693,5 +1719,6 @@ def test_a_rate_limit_pause_still_stops_new_builds_for_the_pass(
 
     assert tick(inst) == 0
 
-    assert builder.started == ["stops/1", "slow/1", "mid/1"]
+    assert set(builder.started) == {"mid/1", "slow/1", "stops/1"}
+    assert "later/1" not in builder.started
     assert builder.store.get("later/1").state == PLANNED

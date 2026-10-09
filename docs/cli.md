@@ -59,9 +59,12 @@ pauses (below).
   readiness check of the pass; polling, planning and archiving still happen.
   For pushing one unit through when usage is tight.
 
-A build that pauses (the usage window spent, or rate limited) stops new
-builds from starting; builds already in flight are still awaited before the
-pass ends.
+A build the usage guard refuses pauses only that unit: the pass goes on with
+its rounds, recording merges and comments, asks the guard again at each one,
+admits builds as soon as it allows and resumes the paused units. A window
+that is used up refuses every start each round. A build the model itself
+refuses (rate limited) stops new builds from starting until its pause ends;
+builds already in flight are still awaited before the pass ends.
 
 Exit 0, including when paused or idle. A tick is idle unless a unit is
 planned, running or in review, a change's tasks are unplanned, or a change with
