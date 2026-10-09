@@ -7,6 +7,7 @@
   the most urgent priority of its groups and keeps it once started, and `abk tags` shows a
   priority that is not 3. A priority is written to the units store only when it is not 3, so an
   older release refuses a store holding one with its usual message for a newer field.
+
 - A unit in review now reads `checking` while its pull request's checks are still running, or
   it was pushed moments ago and none has registered yet (`limits.checks_register_seconds`,
   default 120). It reads `in_review` once the checks pass. `abk status` lists a checking unit
