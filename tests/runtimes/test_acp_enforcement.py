@@ -835,7 +835,9 @@ def test_a_turn_that_may_not_commit_edits_the_worktree_and_commits_nothing(
     assert target.read_text() == 'MARKER = "edited"\n'
     [ran] = _did(record, "terminal")
     assert "error" in ran or ran.get("exitCode") != 0, ran
-    assert check_no_commit(" ".join([command, *args])).reason in json.dumps(ran), ran
+    assert check_no_commit(" ".join([command, *args])).reason in json.dumps(
+        ran, ensure_ascii=False
+    ), ran
     assert git(worktree, "rev-parse", "HEAD") == before, "the branch head did not move"
 
 

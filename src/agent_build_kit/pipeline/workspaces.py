@@ -136,6 +136,25 @@ def _porcelain(path: Path) -> list[tuple[str, str]]:
     return entries
 
 
+def changed_paths(path: Path) -> tuple[str, ...]:
+    """The paths a worktree holds uncommitted, every untracked file named."""
+    return tuple(name for _, name in _porcelain(path))
+
+
+def discard_changes(path: Path) -> None:
+    """Restore a worktree to its branch head: tracked files as committed, new files gone.
+    Ignored files, such as the scratch folder, stay."""
+    git_out(path, "reset", "-q", "--hard", "HEAD")
+    git_out(path, "clean", "-q", "-fd")
+
+
+def commit_changes(path: Path, message: str) -> str:
+    """Commit every change in a worktree with `message`, and return the new head."""
+    git_out(path, "add", "-A")
+    git_out(path, "commit", "-q", "-m", message)
+    return git_out(path, "rev-parse", "HEAD")
+
+
 def prepare_worktree(
     repo: Path, branch: str, *, base: str, root: Path, allow_dirty: bool = False
 ) -> Path:

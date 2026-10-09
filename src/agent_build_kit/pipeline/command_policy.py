@@ -276,7 +276,13 @@ COMMIT_REASON = (
 
 def check_no_commit(command: str) -> Verdict:
     """Refuse a command in which any segment is a `git commit`."""
-    raise NotImplementedError
+    for segment in SEGMENT_SPLIT.split(command):
+        tokens = _strip_wrappers(_tokens(segment.strip()))
+        if tokens and tokens[0] == "git":
+            _, args = _git_target(tokens, None)
+            if args[:1] == ["commit"]:
+                return Verdict(allowed=False, reason=COMMIT_REASON)
+    return Verdict(allowed=True)
 
 
 PLANNING_REASON = (

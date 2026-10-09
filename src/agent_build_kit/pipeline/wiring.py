@@ -48,6 +48,7 @@ from agent_build_kit.pipeline.changelog_convention import review_changelog_parag
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
+from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pr_replies import (
     MARKER,
     build_post_replies,
@@ -2039,6 +2040,7 @@ def build_runner(
     gate_may_start, gate_resume_at = build_usage_gate()
     return UnitRunner(
         store=store,
+        leases=Leases(lease_dir(root)),
         planning_repo=planning_repo,
         repo_config=repo,
         worktree=worktree_in_turn,

@@ -440,8 +440,21 @@ class BuildPath:
         }
         return {**update, "pr": pr} if pr else update
 
+    def _chat_changes(self) -> bool:
+        """Whether a chat left uncommitted changes under a lease whose server has gone: they
+        are the person's to commit or discard, never a killed run's leftovers."""
+        leases = self.runner.leases
+        held = leases.attachment(self.unit.id) if leases is not None else None
+        return held is not None and held.stale and held.changed > 0
+
     def park(self, error: DirtyWorktree) -> Update:
         """Hold the unit for a tree that is not the running node's own, touching nothing in it."""
+        if self._chat_changes():
+            why = (
+                f"uncommitted changes from a chat in the worktree: {_listed(error.paths)} "
+                "— start the server, or run `abk attach release` to commit or discard them"
+            )
+            return self.hold(HELD, why, why, cause=Cause.ATTACHED)
         why = (
             f"uncommitted changes in the worktree: {_listed(error.paths)} "
             "— commit or remove them by hand"
@@ -710,7 +723,7 @@ class BuildPath:
             try:
                 self._tree = self.runner.worktree(self.unit, base)
             except DirtyWorktree as dirty:
-                if not self._own:
+                if not self._own or self._chat_changes():
                     raise
                 self._tree = self.runner.worktree(self.unit, base, allow_dirty=True)
                 self._leftovers = dirty.paths

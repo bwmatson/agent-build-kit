@@ -166,9 +166,12 @@ def build_argv(request: AgentRequest) -> list[str]:
             request.policy.specs_dir,
             branch_prefix=request.policy.branch_prefix,
             no_push=True,
+            no_commit=request.policy.no_commit,
+            refusals_only=not request.policy.scoped,
             **planning,
         )
-        denied = f"{disallowed()} {denied}".strip()
+        if request.policy.scoped:
+            denied = f"{disallowed()} {denied}".strip()
     elif request.planning_repo is not None:
         settings = hook_settings(None, branch_prefix=config.active().git.branch_prefix, **planning)
     else:

@@ -54,4 +54,4 @@ def head(path: Path) -> str:
 
 
 def changed_files(path: Path) -> list[str]:
-    return [line[3:] for line in git(path, "status", "--porcelain", "-uall").splitlines()]
+    return sorted(git(path, "ls-files", "--modified", "--others", "--exclude-standard").split())
