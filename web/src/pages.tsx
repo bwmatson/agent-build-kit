@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { postAction } from "./api";
 import type { Related, UnitDetail, UnitSummary } from "./api";
 import { AgentTab } from "./agent";
+import type { Attachment } from "./composer";
 import { LogsTab } from "./logs";
 import { ReviewTab } from "./review/tab";
 import { unitPath } from "./unitName";
@@ -152,6 +153,11 @@ export function UnitPage({ review = false }: { review?: boolean }) {
   const unit = useApi<UnitDetail>(`/api/units/${name}`, reload);
   const [chosen, setTab] = useState<(typeof TABS)[number]>("Status");
   const navigate = useNavigate();
+  const handed = (useLocation().state as { attachment?: Attachment } | null)?.attachment;
+  const attachments = useMemo(() => (handed ? [handed] : []), [handed]);
+  useEffect(() => {
+    if (handed) setTab("Agent");
+  }, [handed]);
   const tab = review ? "Review" : chosen;
 
   function open(t: (typeof TABS)[number]) {
@@ -182,7 +188,7 @@ export function UnitPage({ review = false }: { review?: boolean }) {
             {tab === "Status" && <Status unit={detail} />}
             <Actions unit={detail} changed={() => setReload((n) => n + 1)} />
             {tab === "Logs" && <LogsTab name={name} />}
-            {tab === "Agent" && <AgentTab name={name} />}
+            {tab === "Agent" && <AgentTab name={name} attachments={attachments} />}
             {tab === "Usage" && <UsageTab name={name} />}
             {tab === "Review" && <ReviewTab />}
           </>

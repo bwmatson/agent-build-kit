@@ -6,6 +6,8 @@ export interface Attachment {
   lines: [number, number];
   hunk: string;
   text: string;
+  /** The lines are changes no commit holds yet. */
+  uncommitted?: boolean;
 }
 
 export interface Turn {

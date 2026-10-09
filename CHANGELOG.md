@@ -10,6 +10,11 @@
   change that makes the test deterministic, with no model, and every unit that met the
   flake gets a `Needs: ... merged` line on it and is parked gated until it merges, then
   runs tier 1 again. A flake on a moved base no longer sends the unit back as a moved base.
+- The review tab now shows a unit's uncommitted changes from a chat in their own section,
+  marked as not yet committed. Their lines can be highlighted but not commented on, because a
+  comment belongs to a commit. A selection in the diff can be sent to the unit's agent with
+  **Ask the agent**: the agent tab opens with the file, lines, hunk and text attached to the
+  next turn, and uncommitted lines are marked as such.
 
 - A task group can now say how urgent it is with a `Priority:` line, 1 (most urgent) to 5,
   3 when unsaid; a line above the first group sets the default for the change. A unit takes

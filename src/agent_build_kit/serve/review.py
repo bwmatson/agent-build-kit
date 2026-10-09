@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.units import local_ref
+from agent_build_kit.pipeline.workspaces import changed_paths
 
 Decision = Literal["request_changes", "approve"]
 
@@ -100,6 +101,26 @@ def unit_diff(repo: Path, *, base: str, branch: str, commit: str | None = None) 
     fork = git(repo, "merge-base", base_tip, tip).stdout.strip()
     patch = git(repo, "diff", "--no-renames", fork, tip).stdout
     return UnitDiff(commit=tip, base=base, base_commit=fork, patch=patch)
+
+
+class WorkingChanges(Frozen):
+    commit: str
+    files: tuple[str, ...]
+    patch: str
+
+
+def working_changes(tree: Path | None) -> WorkingChanges:
+    """What the worktree `tree` holds uncommitted, as a patch against the commit it stands on,
+    untracked files shown as additions. Nothing when there is no worktree."""
+    if tree is None:
+        return WorkingChanges(commit="", files=(), patch="")
+    commit = git(tree, "rev-parse", "HEAD").stdout.strip()
+    files = tuple(sorted(changed_paths(tree)))
+    patch = git(tree, "diff", "--no-renames", "HEAD").stdout
+    untracked = git(tree, "ls-files", "--others", "--exclude-standard", "-z").stdout.split("\0")
+    for name in sorted(filter(None, untracked)):
+        patch += git(tree, "diff", "--no-index", "--", "/dev/null", name, check=False).stdout
+    return WorkingChanges(commit=commit, files=files, patch=patch)
 
 
 def relocate(repo: Path, path: str, line: int | None, commit: str, tip: str) -> int | None:

@@ -71,6 +71,7 @@ class Attachment(BaseModel):
     lines: tuple[int, int]
     hunk: str = ""
     text: str = ""
+    uncommitted: bool = False
 
 
 class Turn(BaseModel):
@@ -110,7 +111,8 @@ def with_attachments(prompt: str, attachments: list[Attachment]) -> str:
     for item in attachments:
         parts += [
             "",
-            f"File: {item.file}, lines {item.lines[0]}-{item.lines[1]}",
+            f"File: {item.file}, lines {item.lines[0]}-{item.lines[1]}"
+            + (" (uncommitted: not in any commit yet)" if item.uncommitted else ""),
             "Diff hunk:",
             item.hunk,
             "Selected text:",

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { getJson, sendJson } from "../api";
+import type { Attachment } from "../composer";
 import { useApi } from "../useApi";
 import type { Decision, LineRange, ReviewThread } from "./types";
 import { DiffViewer, patchFiles } from "./viewer";
@@ -11,6 +12,12 @@ interface DiffAnswer {
   commit: string;
   base: string;
   base_commit: string;
+  patch: string;
+}
+
+interface WorkingAnswer {
+  commit: string;
+  files: string[];
   patch: string;
 }
 
@@ -52,20 +59,69 @@ function lineSelector(focus: Focus): string {
   return `[data-path="${quoted(focus.path)}"][data-${focus.side}-line="${focus.line}"]`;
 }
 
+/** The file, lines, hunk and text of `range` in `patch`, or null where the patch lacks them. */
+function attachmentOf(patch: string, range: LineRange): Attachment | null {
+  const sections = patch.split(/^(?=diff --git )/m);
+  const section = sections.find((part) => part.startsWith(`diff --git a/${range.path} b/`));
+  if (!section) return null;
+  const hunks = section.split(/^(?=@@ )/m).slice(1);
+  for (const hunk of hunks) {
+    const [header, ...body] = hunk.replace(/\n$/, "").split("\n");
+    const start = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(header);
+    if (!start) continue;
+    let oldLine = Number(start[1]);
+    let newLine = Number(start[2]);
+    const picked: string[] = [];
+    for (const row of body) {
+      if (row.startsWith("\\")) continue;
+      const mark = row[0];
+      const here = range.side === "new" ? newLine : oldLine;
+      const counts = range.side === "new" ? mark !== "-" : mark !== "+";
+      if (counts && here >= range.start && here <= range.end) picked.push(row.slice(1));
+      if (mark !== "+") oldLine++;
+      if (mark !== "-") newLine++;
+    }
+    if (picked.length > 0) {
+      return {
+        file: range.path,
+        lines: [range.start, range.end],
+        hunk: hunk.replace(/\n$/, ""),
+        text: picked.join("\n"),
+      };
+    }
+  }
+  return null;
+}
+
 const DECISION_LABELS = { request_changes: "Request changes", approve: "Approve" } as const;
 
 /** The composer for a comment on the selected lines. */
 function Composer({
   selection,
+  refused,
   onPost,
 }: {
   selection: LineRange;
+  /** Why a comment cannot be made on the selection; absent when it can. */
+  refused?: string;
   onPost: (body: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  if (refused !== undefined) {
+    return (
+      <>
+        <button type="button" disabled>
+          Comment
+        </button>
+        <p role="status" aria-label="Comment note">
+          {refused}
+        </p>
+      </>
+    );
+  }
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}>
@@ -166,6 +222,8 @@ export function ReviewTab(): ReactElement {
 function UnitReview({ name }: { name: string }): ReactElement {
   const diff = useApi<DiffAnswer>(`/api/units/${name}/diff`);
   const review = useApi<ReviewAnswer>(`/api/units/${name}/review`);
+  const working = useApi<WorkingAnswer>(`/api/units/${name}/review/working`);
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [focus, setFocus] = useState<Focus | null>(null);
   const [located, setLocated] = useState<{ start: number; end: number } | null>(null);
@@ -254,6 +312,18 @@ function UnitReview({ name }: { name: string }): ReactElement {
     setFocus({ path: finding.file, side: "new", line: finding.line });
   }
 
+  const workingPatch = working && "data" in working ? working.data.patch : "";
+  const workingFiles = useMemo(() => patchFiles(workingPatch), [workingPatch]);
+  const uncommitted = selection !== null && workingFiles.includes(selection.path);
+
+  function ask(range: LineRange) {
+    const found = attachmentOf(uncommitted ? workingPatch : (patch ?? ""), range);
+    if (found === null) return;
+    navigate(`/units/${name}`, {
+      state: { attachment: uncommitted ? { ...found, uncommitted: true } : found },
+    });
+  }
+
   const base = `/api/units/${name}/review`;
   const pinned = diff && "data" in diff ? diff.data.commit : "";
 
@@ -323,7 +393,18 @@ function UnitReview({ name }: { name: string }): ReactElement {
           <button type="button" onClick={() => select(null)}>
             Clear highlight
           </button>
-          <Composer selection={selection} onPost={(body) => comment(selection, body)} />
+          <Composer
+            selection={selection}
+            refused={
+              uncommitted
+                ? "These lines are uncommitted changes, and a comment anchors to a commit."
+                : undefined
+            }
+            onPost={(body) => comment(selection, body)}
+          />
+          <button type="button" onClick={() => ask(selection)}>
+            Ask the agent
+          </button>
         </>
       )}
       <ul aria-label="Findings">
@@ -358,6 +439,19 @@ function UnitReview({ name }: { name: string }): ReactElement {
         onResolve={resolve}
         reveal={focus?.path ?? null}
       />
+      {workingFiles.length > 0 && (
+        <section aria-label="Uncommitted changes">
+          <h2>Uncommitted changes</h2>
+          <p>Not yet committed: these were made in a chat, and cannot be commented on.</p>
+          <DiffViewer
+            patch={workingPatch}
+            threads={[]}
+            selection={selection}
+            onSelect={select}
+            reveal={focus?.path ?? null}
+          />
+        </section>
+      )}
     </section>
   );
 }
