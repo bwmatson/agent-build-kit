@@ -119,6 +119,37 @@ def test_a_branch_deleted_without_a_merge_is_still_open(local: Local) -> None:
     assert local.listed().state == "open"
 
 
+def rebase_and_fast_forward(local: Local) -> None:
+    commit(local.repo, "elsewhere.txt")
+    git(local.repo, "rebase", "-q", "main", HEAD)
+    git(local.repo, "checkout", "-q", "main")
+    git(local.repo, "merge", "-q", "--ff-only", HEAD)
+
+
+def test_a_rebase_merge_is_seen_as_merged_by_patch_identity(local: Local) -> None:
+    assert local.listed().state == "open"
+
+    rebase_and_fast_forward(local)
+
+    assert local.listed().state == MERGED
+
+
+def test_a_rebase_merge_stays_merged_when_the_branch_is_deleted(local: Local) -> None:
+    assert local.listed().state == "open"
+    rebase_and_fast_forward(local)
+    git(local.repo, "branch", "-q", "-D", HEAD)
+
+    assert local.listed().state == MERGED
+
+
+def test_a_branch_with_one_commit_not_in_the_trunk_is_not_a_rebase_merge(local: Local) -> None:
+    assert local.listed().state == "open"
+    # only the first of the two commits reaches the trunk, cherry-picked
+    git(local.repo, "cherry-pick", f"{HEAD}~1")
+
+    assert local.listed().state == "open"
+
+
 def stored_pull(local: Local) -> dict:
     stored = json.loads((local.forge.state_dir / "local-prs.json").read_text())
     return stored[next(iter(stored))][0]

@@ -369,7 +369,8 @@ def _is_ancestor(checkout: Path, ancestor: str, ref: str) -> bool:
 
 
 def _in_trunk(checkout: Path, tip: str, trunk: str) -> bool:
-    """Is the tip in the trunk, or its change found there by patch identity?"""
+    """Is the tip in the trunk, or its change found there by patch identity: the whole branch as
+    one commit (a squash), or each of its commits on its own (a rebase)?"""
     if _is_ancestor(checkout, tip, trunk):
         return True
     fork = git(checkout, "merge-base", trunk, tip, check=False).stdout.strip()
@@ -379,7 +380,11 @@ def _in_trunk(checkout: Path, tip: str, trunk: str) -> bool:
     if not ours:
         return False
     since = git(checkout, "log", "-p", "--no-merges", f"{fork}..{trunk}", check=False).stdout
-    return ours[0] in _patch_ids(checkout, since)
+    if ours[0] in _patch_ids(checkout, since):
+        return True
+    marks = git(checkout, "cherry", trunk, tip, check=False).stdout.split("\n")
+    marks = [line for line in marks if line]
+    return bool(marks) and all(line.startswith("-") for line in marks)
 
 
 def _patch_ids(checkout: Path, patch: str) -> list[str]:

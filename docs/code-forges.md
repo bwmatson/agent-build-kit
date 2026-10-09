@@ -36,7 +36,7 @@ nothing, and `supports_stacks` is false, so units serialise per repo.
 A person merges with git; nothing in the pipeline or the UI does. The forge
 remembers the tip of the branch while it has commits of its own beyond the trunk,
 and lists the pull request as merged when that tip is contained in the trunk or
-its change is found there by patch identity (a squash). A branch reset onto the
+its change is found there by patch identity (a squash or a rebase). A branch reset onto the
 trunk by the pipeline, which holds no work of its own, leaves the pull request
 open. Once seen merged it stays merged, so deleting the branch afterwards loses
 nothing. Approving in the UI leaves it open.
