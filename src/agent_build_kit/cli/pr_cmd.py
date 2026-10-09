@@ -20,11 +20,18 @@ def _repo_name(args: argparse.Namespace, inst: Installation) -> str | None:
     """The repo asked for, else the one whose checkout holds the working directory."""
     if args.repo:
         return args.repo
-    here = Path.cwd().resolve()
-    for name, path in inst.checkouts.items():
-        if here == path.resolve() or here.is_relative_to(path.resolve()):
-            return name
-    return None
+    here = _common_dir(Path.cwd())
+    if here is None:
+        return None
+    # Through git, so a worktree of a checkout, wherever it sits, finds that checkout.
+    return next((n for n, path in inst.checkouts.items() if _common_dir(path) == here), None)
+
+
+def _common_dir(path: Path) -> Path | None:
+    if not path.is_dir():
+        return None
+    found = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+    return None if found.returncode else Path(found.stdout.strip()).resolve()
 
 
 def _number(forge: LocalForge, repo: RepoId, args: argparse.Namespace) -> int | None:
@@ -59,7 +66,7 @@ def cmd_view(args: argparse.Namespace, inst: Installation) -> int:
     forge, repo, number = found
     pull = forge.record(repo, number) or {}
     print(f"#{number} {pull['title']}")
-    print(f"state: {pull['state']}")
+    print(f"state: {forge.state_of(repo, number) or pull['state']}")
     print(f"head: {pull['head']}")
     print(f"base: {pull['base']}")
     print()

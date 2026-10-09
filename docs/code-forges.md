@@ -35,7 +35,8 @@ nothing, and `supports_stacks` is false, so units serialise per repo.
 
 A person merges with git; nothing in the pipeline or the UI does. A pull request
 is listed as merged when its branch tip is contained in the trunk or its change
-is found there by patch identity (a squash or rebase), and approving in the UI
+is found there by patch identity (a squash). Once seen merged it stays merged, so deleting the branch afterwards
+loses nothing. Approving in the UI
 leaves it open.
 
 A repo with no `origin` is built against its own trunk: the push, the per-unit

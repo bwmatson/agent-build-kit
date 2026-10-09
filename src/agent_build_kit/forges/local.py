@@ -134,6 +134,40 @@ class LocalForge:
         """The pull request as stored, or None when this forge holds no such number."""
         return next((dict(p) for p in self._pulls(repo) if p["number"] == pr), None)
 
+    def state_of(self, repo: RepoId, pr: int) -> str | None:
+        """The state git shows for the pull request, as `list_prs` reports it; None when this
+        forge holds no such number."""
+        return next((p.state for p in self.list_prs(repo) if p.number == pr), None)
+
+    def _settle(self, repo: RepoId) -> None:
+        """Write down what git shows: the branch tip while it exists, and merged once the trunk
+        holds it, so deleting the branch afterwards loses neither."""
+        checkout = self._checkout(repo)
+        if checkout is None:
+            return
+        found: dict[int, Stored] = {}
+        for pull in self._pulls(repo):
+            if pull["state"] != "open":
+                continue
+            tip = _tip(checkout, pull)
+            settled: Stored = {}
+            if tip and tip != pull.get("tip"):
+                settled["tip"] = tip
+            if _in_trunk(checkout, pull, tip):
+                settled["state"] = MERGED
+            if settled:
+                found[int(str(pull["number"]))] = settled
+        if not found:
+            return
+
+        def write(pulls: list[Stored]) -> None:
+            for pull in pulls:
+                number = int(str(pull["number"]))
+                if number in found and pull["state"] == "open":
+                    pull.update(found[number])
+
+        self._change(repo, write)
+
     def diff(self, repo: RepoId, pr: int) -> str | None:
         """The branch's own work over its base, as `git diff` prints it; None when the
         pull request, the checkout or either ref is missing."""
@@ -161,6 +195,9 @@ class LocalForge:
         return None
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
+        checkout = self._checkout(repo)
+        tip = _tip(checkout, {"head": head}) if checkout else ""
+
         def add(pulls: list[Stored]) -> int:
             number = max((int(str(p["number"])) for p in pulls), default=0) + 1
             pulls.append(
@@ -171,6 +208,7 @@ class LocalForge:
                     "title": title,
                     "body": fit_description(body, self.description_limit),
                     "state": "open",
+                    **({"tip": tip} if tip else {}),
                 }
             )
             return number
@@ -193,13 +231,13 @@ class LocalForge:
         from agent_build_kit.pipeline.unit_store import UnitStore
         from agent_build_kit.serve.review import ReviewStore
 
-        checkout = self._checkout(repo)
+        self._settle(repo)
         pulls = [
             PullRequest(
                 number=int(str(p["number"])),
                 head=str(p["head"]),
                 base=str(p["base"]),
-                state=_state(checkout, p),
+                state=str(p["state"]),
             )
             for p in self._pulls(repo)
             if str(p["head"]).startswith(head_prefix)
@@ -296,35 +334,39 @@ class LocalForge:
         return Stack(number=stack, open=True, pulls=tuple(pulls))
 
 
-def _state(checkout: Path | None, pull: Stored) -> str:
-    """The stored state, but merged for an open pull request the trunk already holds."""
-    state = str(pull["state"])
-    if state == "open" and checkout is not None and _in_trunk(checkout, pull):
-        return MERGED
-    return state
+def _tip(checkout: Path, pull: Stored) -> str:
+    """The commit the branch is at now; empty when the branch is gone."""
+    ref = f"refs/heads/{pull['head']}^{{commit}}"
+    found = git(checkout, "rev-parse", "--verify", "-q", ref, check=False)
+    return "" if found.returncode else found.stdout.strip()
 
 
-def _in_trunk(checkout: Path, pull: Stored) -> bool:
-    """Is the branch's tip in the trunk, or its change found there by patch identity?"""
-    head = "refs/heads/" + str(pull["head"])
+def _in_trunk(checkout: Path, pull: Stored, tip: str) -> bool:
+    """Is the branch's tip in the trunk, or its change found there by patch identity?
+
+    A branch a person deleted after merging is read at the tip stored for it."""
+    head = tip or str(pull.get("tip", ""))
     trunk = ("origin/" if has_origin(checkout) else "") + str(pull["base"])
-    for ref in (head, trunk):
-        if git(checkout, "rev-parse", "--verify", "-q", ref, check=False).returncode:
-            return False
+    if not head or git(checkout, "cat-file", "-e", f"{head}^{{commit}}", check=False).returncode:
+        return False
+    if git(checkout, "rev-parse", "--verify", "-q", trunk, check=False).returncode:
+        return False
     if not git(checkout, "merge-base", "--is-ancestor", head, trunk, check=False).returncode:
         return True
     fork = git(checkout, "merge-base", trunk, head, check=False).stdout.strip()
-    ours = _patch_id(checkout, "diff", fork, head) if fork else ""
+    ours = (
+        _patch_ids(checkout, git(checkout, "diff", fork, head, check=False).stdout) if fork else []
+    )
     if not ours:
         return False
-    since = git(checkout, "rev-list", f"{fork}..{trunk}", check=False).stdout.split()
-    return any(_patch_id(checkout, "show", sha) == ours for sha in since)
+    since = git(checkout, "log", "-p", "--no-merges", f"{fork}..{trunk}", check=False).stdout
+    return ours[0] in _patch_ids(checkout, since)
 
 
-def _patch_id(checkout: Path, *show: str) -> str:
-    patch = git(checkout, *show, check=False).stdout
-    found = git(checkout, "patch-id", "--stable", check=False, input=patch).stdout.split()
-    return found[0] if found else ""
+def _patch_ids(checkout: Path, patch: str) -> list[str]:
+    """The stable patch id of each commit in `patch`, as `git patch-id` reads it."""
+    found = git(checkout, "patch-id", "--stable", check=False, input=patch)
+    return [line.split()[0] for line in found.stdout.splitlines() if line.split()]
 
 
 def _comments(pull: Stored) -> list[Stored]:

@@ -180,3 +180,42 @@ def test_the_dev_stack_comes_up_from_the_local_trunk_without_a_remote(tmp_path: 
     under()
 
     assert prepared == ["main"]
+
+
+def drive_push(tmp_path: Path, repo: Path, store: UnitStore) -> dict:
+    """The graph's push step over a real repo with no remote: the real gate and the real push."""
+    from agent_build_kit.graph.nodes import BuildPath
+    from agent_build_kit.graph.state import UnitRun
+    from tests.runner_fakes import Recorder, make_runner
+
+    runner = make_runner(
+        store,
+        Recorder(store),
+        tmp_path,
+        worktree=lambda u, base: repo,
+        head=lambda cwd: git(cwd, "rev-parse", "HEAD"),
+        push=build_push(store),
+    )
+    path = BuildPath(runner, UNIT, base="main", graph=[], run_log=None, tracer=None)
+    return path.push(UnitRun(unit_id=UNIT.id, change=UNIT.change))
+
+
+def test_the_push_gate_still_requires_the_approved_commit_without_a_remote(tmp_path: Path) -> None:
+    repo = local_repo(tmp_path / "app")
+    git(repo, "checkout", "-q", BRANCH)
+    approved = git(repo, "rev-parse", "HEAD")
+    commit(repo, "unreviewed.txt")
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([UNIT])
+    store.record_approval(UNIT.id, approved)
+
+    outcome = drive_push(tmp_path, repo, store)
+
+    assert "refusing to push" in outcome["stopped"]
+    assert store.get(UNIT.id).pushed is None
+
+    # with the head the approved commit, the branch tip is recorded
+    store.record_approval(UNIT.id, git(repo, "rev-parse", "HEAD"))
+
+    assert drive_push(tmp_path, repo, store) == {}
+    assert store.get(UNIT.id).pushed == git(repo, "rev-parse", BRANCH)

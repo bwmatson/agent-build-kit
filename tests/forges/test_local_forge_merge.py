@@ -83,10 +83,36 @@ def test_a_squash_is_seen_as_merged_by_patch_identity(local: Local) -> None:
 def test_a_branch_with_more_than_the_squashed_change_is_not_merged(local: Local) -> None:
     git(local.repo, "merge", "-q", "--squash", HEAD)
     git(local.repo, "commit", "-q", "-m", "the feature, squashed")
-    assert local.listed().state == MERGED
 
     git(local.repo, "checkout", "-q", HEAD)
     commit(local.repo, "c.txt", "c\n")
     git(local.repo, "checkout", "-q", "main")
+
+    assert local.listed().state == "open"
+
+
+def test_a_fast_forward_merge_stays_merged_when_the_branch_is_deleted(local: Local) -> None:
+    assert local.listed().state == "open"
+    git(local.repo, "merge", "-q", "--ff-only", HEAD)
+    git(local.repo, "branch", "-q", "-D", HEAD)
+
+    assert local.listed().state == MERGED
+    assert (local.forge.record(local.id, local.number) or {})["state"] == MERGED
+    assert local.forge.find_pr(local.id, head=HEAD) is None
+
+
+def test_a_squash_merge_stays_merged_when_the_branch_is_deleted(local: Local) -> None:
+    assert local.listed().state == "open"
+    commit(local.repo, "elsewhere.txt")
+    git(local.repo, "merge", "-q", "--squash", HEAD)
+    git(local.repo, "commit", "-q", "-m", "the feature, squashed")
+    git(local.repo, "branch", "-q", "-D", HEAD)
+
+    assert local.listed().state == MERGED
+
+
+def test_a_branch_deleted_without_a_merge_is_still_open(local: Local) -> None:
+    assert local.listed().state == "open"
+    git(local.repo, "branch", "-q", "-D", HEAD)
 
     assert local.listed().state == "open"

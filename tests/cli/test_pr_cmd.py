@@ -100,6 +100,31 @@ def test_the_pull_request_of_the_checked_out_branch_is_the_default(
     assert "Register the marker" in capsys.readouterr().out
 
 
+def test_view_prints_the_state_git_shows(
+    opened: Opened, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git(opened.repo, "merge", "-q", "--ff-only", HEAD)
+
+    assert opened.run("pr", "view", "--repo", "app", str(opened.number)) == 0
+
+    assert "state: merged" in capsys.readouterr().out
+
+
+def test_the_default_repo_is_found_from_a_worktree_outside_the_checkout(
+    opened: Opened,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tree = tmp_path / "tree"
+    git(opened.repo, "worktree", "add", "-q", str(tree), HEAD)
+    monkeypatch.chdir(tree)
+
+    assert opened.run("pr", "view") == 0
+
+    assert "Register the marker" in capsys.readouterr().out
+
+
 def test_neither_command_changes_anything(opened: Opened) -> None:
     before = opened.snapshot()
 

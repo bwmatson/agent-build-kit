@@ -39,7 +39,7 @@
   made in the web UI, are kept in the state directory instead of on a code host, with no
   network call. Labels, drafts, statuses, checks and stacks do nothing for it. The setting is
   never inferred from a remote. A merge you make with git (merge commit, fast-forward or
-  squash) is detected, a repo with no remote is built, fetched and pushed against its own
+  squash) is detected and remembered even if you delete the branch afterwards, a repo with no remote is built, fetched and pushed against its own
   trunk and local branches, and an agent can read its pull request with `abk pr view` and
   `abk pr diff`.
 
