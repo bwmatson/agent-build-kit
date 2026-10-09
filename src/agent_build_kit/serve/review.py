@@ -14,9 +14,9 @@ from typing import Literal
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.units import local_ref
 
-THREAD_PREFIX = "ui-"
 Decision = Literal["request_changes", "approve"]
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)

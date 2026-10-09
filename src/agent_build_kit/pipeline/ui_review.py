@@ -3,6 +3,7 @@ written back into the threads they answer, and the diff hunk on a review note.""
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -11,9 +12,9 @@ from typing import TYPE_CHECKING
 from agent_build_kit.forges import PullRequest, ReviewNote
 from agent_build_kit.pipeline import pr_replies
 from agent_build_kit.pipeline.pr_poller import ListPrs
+from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.serve.review import (
-    THREAD_PREFIX,
     NoDiff,
     Review,
     ReviewStore,
@@ -31,6 +32,10 @@ _HUNK_HEAD = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 _DECISIONS = {"request_changes": "changes_requested", "approve": "approved"}
 # Beside the line the agent's prompt marks the comment on, in the hunk it prints.
 _MARK = "  <- comment"
+# Lines of a hunk printed on each side of the marked one.
+HUNK_CONTEXT = 10
+
+log = logging.getLogger(__name__)
 
 
 def reply_id(thread: Thread, number: int) -> str:
@@ -78,7 +83,8 @@ def _with_review(pull: PullRequest, review: Review | None) -> PullRequest:
     if ids:
         update["conversation"] = (*pull.conversation, *ids)
         update["comment_bodies"] = (*pull.comment_bodies, *bodies)
-    if review.decisions:
+    if review.decisions and pull.review_decision != "changes_requested":
+        # A request for changes made on the host stands whatever the UI decided.
         latest = max(review.decisions, key=lambda d: d.round)
         update["review_decision"] = _DECISIONS[latest.decision]
     return pull.model_copy(update=update) if update else pull
@@ -96,7 +102,9 @@ def write_back_replies(
         if thread_id not in known:
             thread_id = thread_id.rsplit(".", 1)[0]
         thread = store.reply(unit_id, thread_id, f"{reply.body}\n{pr_replies.MARKER}")
-        if thread is not None:
+        if thread is None:
+            log.warning("reply to %s dropped: no review thread holds it", reply.comment_id)
+        else:
             written.append(reply_id(thread, len(thread.replies)))
     return written
 
@@ -108,7 +116,9 @@ def ui_review_notes(review: Review, *, repo: Path, tip: str | None) -> list[Revi
     notes: list[ReviewNote] = []
     for thread in review.threads:
         at = placed(repo, thread, tip)
-        live = not at.outdated or (at.line is not None and at.side == "new")
+        live = not thread.resolved and (
+            not at.outdated or (at.line is not None and at.side == "new")
+        )
         notes.append(
             ReviewNote(
                 id=thread.id,
@@ -138,16 +148,20 @@ def ui_review_notes(review: Review, *, repo: Path, tip: str | None) -> list[Revi
 
 def attach_hunks(notes: list[ReviewNote], patch: str) -> list[ReviewNote]:
     """`notes` with the hunk of `patch` holding each one's line on its side of the diff, that
-    line marked; a note whose line the patch does not contain, or that has none, gets no hunk."""
+    line marked and only `HUNK_CONTEXT` lines around it; a note whose line the patch does not
+    contain, or that has none, gets no hunk, nor does one on a line an earlier note has it for."""
     hunks = _hunks(patch)
+    shown: set[tuple[str, str, int]] = set()
     out = []
     for note in notes:
         found = ""
-        if note.line is not None:
+        key = (note.path, note.side, note.line or 0)
+        if note.line is not None and key not in shown:
             for old, new, lines in hunks.get(note.path, []):
                 first, count = old if note.side == "old" else new
                 if first <= note.line < first + count:
                     found = _marked(lines, first, note.line, note.side)
+                    shown.add(key)
                     break
         out.append(note.model_copy(update={"hunk": found}) if found else note)
     return out
@@ -165,7 +179,8 @@ def _marked(lines: list[str], first: int, line: int, side: str) -> str:
             continue
         out.append(f"{text}{_MARK}" if number == line else text)
         number += 1
-    return "\n".join(out)
+    at = next((i for i, text in enumerate(out) if text.endswith(_MARK)), 0)
+    return "\n".join([out[0], *out[max(1, at - HUNK_CONTEXT) : at + HUNK_CONTEXT + 1]])
 
 
 _Span = tuple[int, int]

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent_build_kit.forges import ReviewNote
 from agent_build_kit.pipeline.events import note_words, review_lines
-from agent_build_kit.pipeline.ui_review import attach_hunks, ui_review_notes
+from agent_build_kit.pipeline.ui_review import HUNK_CONTEXT, attach_hunks, ui_review_notes
 from agent_build_kit.serve.review import ReviewStore, unit_diff
 from tests.factories import git, init_repo
 from tests.review_repo import commit
@@ -135,3 +135,46 @@ def test_a_note_on_a_deleted_line_marks_that_line_and_no_added_one(tmp_path: Pat
     marked = [line for line in found.hunk.splitlines() if line.endswith("<- comment")]
     assert note.side == "old" and note.live
     assert marked == ["-line 3  <- comment"]
+
+
+def test_a_resolved_thread_is_not_live_and_prints_nothing(tmp_path: Path) -> None:
+    repo, first = seeded(tmp_path)
+    store = store_in(tmp_path)
+    thread = store.add_thread(
+        UNIT, path="a.py", side="new", line=30, start_line=None, commit=first, body="why?"
+    )
+    store.reply(UNIT, thread.id, "and this?")
+    store.resolve(UNIT, thread.id, True)
+
+    notes = ui_review_notes(store.read(UNIT), repo=repo, tip=first)
+
+    assert [n.live for n in notes] == [False, False]
+    assert review_lines(notes) == []
+
+
+def test_a_hunk_is_printed_once_for_a_thread_and_its_reply(tmp_path: Path) -> None:
+    repo, first = seeded(tmp_path)
+    store = store_in(tmp_path)
+    thread = store.add_thread(
+        UNIT, path="a.py", side="new", line=30, start_line=None, commit=first, body="why?"
+    )
+    store.reply(UNIT, thread.id, "and this?")
+    notes = ui_review_notes(store.read(UNIT), repo=repo, tip=first)
+
+    shown = attach_hunks(notes, patch_of(repo))
+
+    assert [bool(n.hunk) for n in shown] == [True, False]
+
+
+def test_a_hunk_is_a_window_around_the_marked_line(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "app")
+    commit(repo, "start.py", "x\n", "start")
+    git(repo, "checkout", "-q", "-b", "spec/feature/2")
+    commit(repo, "new.py", "".join(f"line {n}\n" for n in range(1, 61)), "add")
+
+    (found,) = attach_hunks([ReviewNote(id="1", body="b", path="new.py", line=30)], patch_of(repo))
+
+    lines = found.hunk.splitlines()
+    assert lines[0].startswith("@@")
+    assert "+line 30  <- comment" in lines
+    assert len(lines) <= 2 * HUNK_CONTEXT + 2

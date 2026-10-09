@@ -201,3 +201,18 @@ def test_approve_records_the_approval_and_merges_nothing(rig: Rig) -> None:
     assert events == []
     assert listed.review_decision == "approved"
     assert listed.state == "open"
+
+
+def test_a_host_request_for_changes_is_not_hidden_by_a_ui_approval(rig: Rig) -> None:
+    rig.store.decide(UNIT, round=1, decision="approve", summary="")
+    rig.pull = rig.pull.model_copy(update={"review_decision": "changes_requested"})
+
+    assert rig.listed().review_decision == "changes_requested"
+
+
+def test_a_host_request_for_changes_after_a_ui_approval_is_one_rework(rig: Rig) -> None:
+    rig.store.decide(UNIT, round=1, decision="approve", summary="")
+    rig.poll()
+    rig.pull = rig.pull.model_copy(update={"review_decision": "changes_requested"})
+
+    assert kinds(rig.poll()) == [("rework", ReworkKind.CHANGES_REQUESTED)]

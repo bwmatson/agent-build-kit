@@ -526,7 +526,8 @@ poller skips them too, but they are never read back as the pipeline's own.
 A review made in the web UI is a second comment source for the same poller
 (`pipeline/ui_review.py`): each unit's threads and replies are added to its
 pull request's comments under `ui-` ids that cannot collide with a host's, and
-its latest decision becomes the review decision (`approved` merges nothing).
+its latest decision becomes the review decision unless the host already says
+changes-requested, which stands (`approved` merges nothing).
 Each Request changes also adds one `ui-decision-<round>` comment holding its
 summary, so a second request in a later round is news although the decision
 was already changes-requested. When a rework is dispatched, the review it is

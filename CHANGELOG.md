@@ -44,7 +44,9 @@
   a Request changes. The agent's replies are written into the threads they answer, not posted
   to the host, and are not read back as new comments. Every review note, from the host or the
   UI, now carries the diff hunk for its line, and the rework prompt prints it under the
-  comment with that line marked; a line the diff no longer holds prints none.
+  comment with that line marked, with ten lines around it and once per line; a line the diff
+  no longer holds prints none. A changes-requested review made on the host is never hidden by
+  a UI approval, and a thread the reviewer resolved is not given to later reworks.
 
 - `abk serve` now answers a unit's review diff, pinned to one commit and taken against the
   base the unit builds on (only its own work, for a stacked or restacked unit), and keeps a

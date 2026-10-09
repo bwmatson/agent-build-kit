@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from agent_build_kit import forges
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.forges.base import COMMENT_MARKER
-from agent_build_kit.serve.review import THREAD_PREFIX
+from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 
 MARKER = COMMENT_MARKER
 
