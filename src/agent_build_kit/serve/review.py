@@ -50,6 +50,8 @@ class Verdict(Frozen):
     decision: Decision
     summary: str
     at: str
+    # The commit the decision was made at; empty on one recorded before heads were kept.
+    head: str = ""
 
 
 class Review(Frozen):
@@ -213,10 +215,10 @@ class ReviewStore:
         )
 
     def decide(
-        self, unit_id: str, *, round: int, decision: Decision, summary: str
+        self, unit_id: str, *, round: int, decision: Decision, summary: str, head: str = ""
     ) -> Verdict | None:
         """Record the round's decision; None when the round already has one."""
-        verdict = Verdict(round=round, decision=decision, summary=summary, at=_now())
+        verdict = Verdict(round=round, decision=decision, summary=summary, at=_now(), head=head)
 
         def apply(review: Review) -> tuple[Review, Verdict | None]:
             if any(d.round == round for d in review.decisions):

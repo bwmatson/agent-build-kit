@@ -127,7 +127,8 @@ def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
         return None
 
 
-def _review_round(installation: Installation, unit_id: str) -> int | None:
+def review_round(installation: Installation, unit_id: str) -> int | None:
+    """The review round the unit's thread is in, None when it has no thread to read."""
     run = _unit_run(installation, unit_id)
     return run.review_round if run else None
 
@@ -279,7 +280,7 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             "base": base_of(unit, units),
             "depends_on": related(unit.depends_on, units),
             "merge_gates": related(unit.merge_before, units),
-            "review_round": _review_round(installation, unit.id),
+            "review_round": review_round(installation, unit.id),
             "actions": available_actions(unit, installation),
         }
 
@@ -398,7 +399,7 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     @app.put("/api/units/{change}/{number}/review/decision")
     def decide(change: str, number: str, body: DecisionIn) -> dict[str, Any]:
         unit, _ = find(change, number)
-        round_ = _review_round(installation, unit.id) or 1
+        round_ = review_round(installation, unit.id) or 1
         verdict = reviews.decide(
             unit.id, round=round_, decision=body.decision, summary=body.summary
         )

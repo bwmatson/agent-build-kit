@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- New `abk approve <unit>`, and the web UI's approve button now works: both record your
+  approval of the unit's current review round, with the head commit of its pull request, and
+  merge nothing, push nothing and vote on nothing. They are refused, with a reason, for a unit
+  with no pull request or head and for a round that already has a decision. Stored review
+  decisions now carry the head they were made at; older ones read as before.
+
 - A usage pause no longer ends before it was written. The grace after a reset is added once, a
   reset time that has already passed counts as unknown (retry in thirty minutes), and a reading
   too old to trust pauses for a short, new `usage_stale_retry_minutes` (five by default) and
