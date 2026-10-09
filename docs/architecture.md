@@ -341,7 +341,7 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    branch is brought up on it (`script up`, `script test`, `script down`,
    always torn down) — and first, when the repo `consumes` one with a dev
    stack of its own, that repo's stack from a detached worktree at its
-   `origin/<default_branch>`, never the user's own checkout. Without a dev
+   `origin/<default_branch>` (the local trunk for a repo with no `origin`), never the user's own checkout. Without a dev
    stack the profile's tier-2 commands run against the live stack. Either way
    under the one `runs/tier2.lock` queue, and the result is recorded with the
    commit, the command, counts and the stack-versions command's output

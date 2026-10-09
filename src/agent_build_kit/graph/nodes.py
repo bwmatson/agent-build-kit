@@ -719,7 +719,7 @@ class BuildPath:
 
     def tree(self) -> Path:
         if self._tree is None:
-            base = local_ref(self.base)
+            base = local_ref(self.base, repo=self.unit.repo)
             try:
                 self._tree = self.runner.worktree(self.unit, base)
             except DirtyWorktree as dirty:
@@ -730,7 +730,7 @@ class BuildPath:
         return self._tree
 
     def ref(self, state: UnitRun) -> str:
-        return local_ref(state.base or self.base)
+        return local_ref(state.base or self.base, repo=self.unit.repo)
 
     def prepare(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -1430,7 +1430,7 @@ class BuildPath:
             moved = r.restack_onto(
                 tree=self.tree(),
                 branch=branch_name(unit),
-                base=local_ref(base),
+                base=local_ref(base, repo=unit.repo),
                 unit=unit,
                 resolve=False,
             )
@@ -1496,7 +1496,7 @@ class BuildPath:
             tier2_snapshot=state.snapshot or None,
             open_points=stored.feedback if state.spent else None,
             follow_ups=r.follow_ups_for(unit) or None,
-            linear=r.linear(tree, local_ref(base)),
+            linear=r.linear(tree, local_ref(base, repo=unit.repo)),
             limit=forges.for_repo(unit.repo)[0].description_limit,
         )
         try:

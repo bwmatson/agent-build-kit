@@ -45,6 +45,15 @@ def git_out(repo: Path, *args: str) -> str:
     return git(repo, *args).stdout.strip()
 
 
+def has_origin(repo: Path) -> bool:
+    """Does the checkout have an `origin`? Only a repo git itself says has none is
+    without one: a path git cannot read is left to fail where it is used."""
+    if not repo.is_dir():
+        return True
+    remotes = git(repo, "remote", check=False)
+    return bool(remotes.returncode) or "origin" in remotes.stdout.split()
+
+
 # --- the gh login -------------------------------------------------------------
 
 

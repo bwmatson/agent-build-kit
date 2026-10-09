@@ -18,12 +18,14 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from enum import IntEnum, StrEnum
+from pathlib import Path
 from typing import Self
 
 from pydantic import Field
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.shell import has_origin
 
 
 class UnitState(StrEnum):
@@ -162,7 +164,7 @@ def branch_name(unit: Unit) -> str:
     return f"{active().git.branch_prefix}{unit.id}"
 
 
-def local_ref(base: str) -> str:
+def local_ref(base: str, repo: str | None = None) -> str:
     """The ref to build on locally for a PR base named `base`.
 
     A unit's own branch is local — its parent's worktree commits to it. The
@@ -171,8 +173,22 @@ def local_ref(base: str) -> str:
     predecessor merged, so its review judges it against a group that no
     longer exists. The trunk is taken from the remote, which
     each tick fetches first; the PR's base stays the bare name GitHub knows.
+
+    A repo with no remote (named by `repo`) has its own trunk to build on.
     """
-    return base if base.startswith(active().git.branch_prefix) else f"origin/{base}"
+    checkout = active().repos[repo].path.expanduser() if repo is not None else None
+    return build_ref(checkout, base)
+
+
+def build_ref(checkout: Path | None, base: str) -> str:
+    """The ref to build on for `base` in `checkout`, the one rule `local_ref` and the local
+    forge share: a unit's branch, or the trunk of a checkout with no remote, as it is; the
+    remote's trunk otherwise. No checkout is a repo with a remote."""
+    if base.startswith(active().git.branch_prefix):
+        return base
+    if checkout is not None and not has_origin(checkout):
+        return base
+    return f"origin/{base}"
 
 
 def plan_units(change: str, groups: list[dict], *, min_lines: int, max_lines: int) -> list[Unit]:

@@ -130,6 +130,16 @@ def test_a_run_gets_a_folder_of_its_own_in_the_scratch_folder_and_is_told_where(
     assert found == []
 
 
+def test_a_run_is_told_where_the_installations_config_is(tree: Path, workspace) -> None:
+    seen: list[dict[str, str]] = []
+    runtime = StandInRuntime(act=lambda request: seen.append(dict(request.env)))
+
+    build_run(runtime=runtime)("Implement it.", cwd=tree, model=MODEL)
+
+    [env] = seen
+    assert env["ABK_CONFIG"] == str(workspace.root / "abk.yaml")
+
+
 @pytest.mark.parametrize(
     "runtime_for",
     [
