@@ -1115,6 +1115,8 @@ class Weighed(Frozen):
     rounds: tuple[dict, ...] = ()
     # The approved verdict's follow-ups, for the push that makes them true; none otherwise.
     deferred: tuple[str, ...] = ()
+    # This round's findings as shown (numbered, optional ones capped), approved or not.
+    findings: tuple[dict, ...] = ()
 
 
 class Comment(Frozen):
@@ -1333,6 +1335,7 @@ class UnitRunner(BaseModel):
                 earlier_rounds=earlier_rounds,
                 rounds=earlier_rounds,
                 deferred=points,
+                findings=tuple(f.model_dump() for f in kept),
             )
 
         self.log(f"review asked for changes: {' '.join(why.split())[:300]}")
@@ -1350,6 +1353,7 @@ class UnitRunner(BaseModel):
             why=why,
             earlier_rounds=answered,
             rounds=(*answered, recorded),
+            findings=tuple(f.model_dump() for f in kept),
         )
 
     def _change_dir(self, change: str) -> str:

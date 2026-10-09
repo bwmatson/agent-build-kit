@@ -29,12 +29,11 @@ def seed_run(inst: Installation, **fields: Any) -> None:
     asyncio.run(write())
 
 
-def test_the_review_lists_the_latest_rounds_findings_and_the_deferred_follow_ups(
+def test_a_pushed_units_review_lists_the_last_rounds_findings_and_the_deferred_follow_ups(
     inst: Installation, api: httpx.Client
 ) -> None:
     seed_pipeline(inst)
     seed_branches(inst)
-    first = {"id": "1.1", "file": "two.py", "line": 2, "summary": "old", "required": True}
     latest = {
         "id": "2.1",
         "file": "two.py",
@@ -49,7 +48,9 @@ def test_the_review_lists_the_latest_rounds_findings_and_the_deferred_follow_ups
     seed_run(
         inst,
         review_round=2,
-        review_rounds=({"findings": [first]}, {"findings": [latest, unplaced]}),
+        # What a pushed unit holds: the rounds are cleared, the last round's findings kept.
+        review_rounds=(),
+        last_findings=(latest, unplaced),
         deferred=("Add a changelog entry",),
     )
 

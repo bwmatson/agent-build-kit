@@ -1,6 +1,6 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ReactElement } from "react";
 
 import type { LineRange, ReviewThread } from "./types";
@@ -153,7 +153,7 @@ function Thread({
   );
 }
 
-function FileSection({
+const FileSection = memo(function FileSection({
   file,
   threads,
   selection,
@@ -182,12 +182,17 @@ function FileSection({
   const lines = drawn ? all : [];
   // A thread with no line the diff shows (the server could not move it, or the diff does
   // not hold its line) is drawn at the top of the file, so it is never lost.
-  const unplaced = useMemo(() => {
+  const { unplaced, byLine } = useMemo(() => {
     const shown = new Set(all.flatMap((r) => [`new:${r.new}`, `old:${r.old}`]));
-    return threads.filter(
-      (t) => t.path === path && (t.line === null || !shown.has(`${t.side}:${t.line}`)),
-    );
-  }, [all, threads, path]);
+    const placed = new Map<string, ReviewThread[]>();
+    const lost: ReviewThread[] = [];
+    for (const t of threads) {
+      const key = `${t.side}:${t.line}`;
+      if (t.line === null || !shown.has(key)) lost.push(t);
+      else placed.set(key, [...(placed.get(key) ?? []), t]);
+    }
+    return { unplaced: lost, byLine: placed };
+  }, [all, threads]);
 
   function click(row: Row, event: MouseEvent) {
     const side = row.new !== null ? "new" : "old";
@@ -217,12 +222,10 @@ function FileSection({
       ))}
       {!collapsed &&
         lines.map((row, index) => {
-          const here = threads.filter(
-            (t) =>
-              t.path === path &&
-              t.line !== null &&
-              t.line === (t.side === "new" ? row.new : row.old),
-          );
+          const here = [
+            ...(byLine.get(`new:${row.new}`) ?? []),
+            ...(byLine.get(`old:${row.old}`) ?? []),
+          ];
           const selected = [selection, hovered].some(
             (range) => inRange(range, path, "new", row.new) || inRange(range, path, "old", row.old),
           );
@@ -252,7 +255,9 @@ function FileSection({
         })}
     </section>
   );
-}
+});
+
+const NO_THREADS: ReviewThread[] = [];
 
 /** The only module that knows which diff library draws the patch. A file's lines are
  * drawn when it first scrolls into view, so a large patch stays responsive. */
@@ -271,9 +276,34 @@ export function DiffViewer({
   const observer = useRef<IntersectionObserver | null>(null);
   const root = useRef<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState<LineRange | null>(null);
-  const inPatch = new Set(parsed.map((file) => file.name));
-  const orphans = threads.filter((t) => !inPatch.has(t.path));
-  const hover = (thread: ReviewThread | null) => setHovered(thread && threadRange(thread));
+  // The parent's handlers change with every render; the sections get ones that do not, so a
+  // hover or a selection re-renders only the sections it concerns.
+  const latest = useRef({ onSelect, onReply, onResolve });
+  latest.current = { onSelect, onReply, onResolve };
+  const select = useCallback((range: LineRange | null) => latest.current.onSelect(range), []);
+  const reply = useMemo(
+    () =>
+      onReply && ((thread: ReviewThread, body: string) => latest.current.onReply!(thread, body)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onReply === undefined],
+  );
+  const resolve = useMemo(
+    () =>
+      onResolve &&
+      ((thread: ReviewThread, resolved: boolean) => latest.current.onResolve!(thread, resolved)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onResolve === undefined],
+  );
+  const hover = useCallback(
+    (thread: ReviewThread | null) => setHovered(thread && threadRange(thread)),
+    [],
+  );
+  const { byPath, orphans } = useMemo(() => {
+    const names = new Set(parsed.map((file) => file.name));
+    const grouped = new Map<string, ReviewThread[]>();
+    for (const t of threads) grouped.set(t.path, [...(grouped.get(t.path) ?? []), t]);
+    return { byPath: grouped, orphans: threads.filter((t) => !names.has(t.path)) };
+  }, [parsed, threads]);
 
   useEffect(() => {
     if (!observable) return;
@@ -292,9 +322,9 @@ export function DiffViewer({
     };
   }, [observable, parsed]);
 
-  const watch = (element: HTMLElement | null) => {
+  const watch = useCallback((element: HTMLElement | null) => {
     if (element) observer.current?.observe(element);
-  };
+  }, []);
 
   return (
     <div ref={root}>
@@ -302,13 +332,13 @@ export function DiffViewer({
         <FileSection
           key={file.name}
           file={file}
-          threads={threads}
-          selection={selection}
-          onSelect={onSelect}
-          onReply={onReply}
-          onResolve={onResolve}
+          threads={byPath.get(file.name) ?? NO_THREADS}
+          selection={selection?.path === file.name ? selection : null}
+          onSelect={select}
+          onReply={reply}
+          onResolve={resolve}
           onHover={hover}
-          hovered={hovered}
+          hovered={hovered?.path === file.name ? hovered : null}
           drawn={!observable || seen.has(file.name) || reveal === file.name}
           watch={watch}
         />
@@ -320,8 +350,8 @@ export function DiffViewer({
             <Thread
               key={thread.id}
               thread={thread}
-              onReply={onReply}
-              onResolve={onResolve}
+              onReply={reply}
+              onResolve={resolve}
               onHover={hover}
             />
           ))}

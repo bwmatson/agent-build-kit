@@ -82,6 +82,9 @@ class UnitRun(Frozen):
     # The review loop so far: each round's ask and the builder's response, for
     # later rounds to check against instead of starting over.
     review_rounds: tuple[dict[str, Any], ...] = ()
+    # The findings of the latest review round, whatever it decided. Unlike `review_rounds`
+    # the push leaves it, so the review tab can show it once the unit has a pull request.
+    last_findings: tuple[dict[str, Any], ...] = ()
     # The approved verdict's deferrable points, waiting for the push that makes them true.
     deferred: tuple[str, ...] = ()
     # A PR rework's replies, and the person's comments they answer, waiting for the

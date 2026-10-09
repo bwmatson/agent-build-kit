@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh
-from tests.graph_driver import run_on_graph
+from tests.graph_driver import position, run_on_graph, tick
 from tests.runner_fakes import Killed, Recorder, approving, make_runner
 
 FOLLOW_UPS = Path("openspec") / "changes" / "add-marker" / "follow-ups.md"
@@ -123,6 +123,24 @@ def test_an_approval_with_follow_ups_approves_and_records_them_against_the_chang
     )
     assert LOCK in later.prompts[0], "the change's next unit is built knowing what was left"
     assert LOCK in later.prompts[1], "the implementation prompt needs the same note"
+
+
+def test_the_last_rounds_findings_outlive_the_push_that_clears_the_rounds(tmp_path: Path) -> None:
+    """The review tab reads them once the unit has a pull request: the rounds are
+    cleared by then, and the approving round was never one of them."""
+    recorder = fresh(tmp_path)
+    finding = {"file": "src/marker.py", "line": 7, "summary": "name the lock", "required": False}
+    recorder.verdicts = [json.dumps({"approved": True, "feedback": "", "findings": [finding]})]
+
+    outcome = tick(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    state = position(tmp_path).state
+    assert state is not None
+    assert state.review_rounds == ()
+    assert [
+        (f["id"], f["file"], f["line"], f["summary"], f["required"]) for f in state.last_findings
+    ] == [("1.1", "src/marker.py", 7, "name the lock", False)]
 
 
 def test_an_unreadable_follow_up_item_blocks_rather_than_being_dropped(tmp_path: Path) -> None:

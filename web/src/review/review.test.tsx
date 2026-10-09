@@ -433,3 +433,67 @@ describe("the tab on the unit page", () => {
     expect(scrolled.mock.contexts).toContain(line(MARKER, "new", 15));
   });
 });
+
+describe("a diff whose files have not scrolled into view", () => {
+  beforeEach(() => {
+    // Nothing ever intersects, as for every file below the fold of a long diff.
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        takeRecords() {
+          return [];
+        }
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("draws, highlights and scrolls to the line an address names in a file not yet seen", async () => {
+    const api = recordedApi();
+    api.answer(`/api${ROOT}/diff`, diff);
+    api.answer(`/api${ROOT}/review`, state);
+    render(
+      <MemoryRouter
+        initialEntries={[`${ROOT}/review?file=${encodeURIComponent("src/new.py")}&lines=2`]}
+      >
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(selected()).toEqual(["src/new.py:2"]));
+    const target = line("src/new.py", "new", 2);
+    await waitFor(() => expect(scrolled.mock.contexts).toContain(target));
+    expect(target).toHaveAttribute("data-selected", "true");
+    expect(document.querySelector(`[data-path="${MARKER}"]`)).toBeNull();
+  });
+
+  it("does the same for a finding that points into a file not yet seen", async () => {
+    open(`${ROOT}/review`);
+    const findings = await screen.findByRole("list", { name: /findings/i });
+    expect(document.querySelector(`[data-path="${MARKER}"]`)).toBeNull();
+
+    await userEvent.click(
+      within(findings).getByRole("button", { name: /inserted line is not covered/ }),
+    );
+
+    await waitFor(() => expect(selected()).toEqual([`${MARKER}:15`]));
+    const target = line(MARKER, "new", 15);
+    await waitFor(() => expect(scrolled.mock.contexts).toContain(target));
+    expect(target).toHaveAttribute("data-selected", "true");
+  });
+});
+
+describe("threads the server could not place", () => {
+  it("offer Reply and Resolve like any other", async () => {
+    open(`${ROOT}/review`);
+
+    for (const id of [/ui-0005/, /ui-0006/]) {
+      const thread = await screen.findByRole("article", { name: id });
+      expect(within(thread).getByRole("textbox", { name: /reply/i })).toBeInTheDocument();
+      expect(within(thread).getByRole("button", { name: "Resolve" })).toBeInTheDocument();
+    }
+  });
+});

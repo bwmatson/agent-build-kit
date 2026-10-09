@@ -133,8 +133,8 @@ def _review_round(installation: Installation, unit_id: str) -> int | None:
 
 
 def _reviewer_findings(run: UnitRun | None) -> list[dict[str, Any]]:
-    """The findings of the latest review round the run kept, as the tab lists them."""
-    if run is None or not run.review_rounds:
+    """The findings of the latest review round, as the tab lists them."""
+    if run is None:
         return []
     return [
         {
@@ -144,7 +144,7 @@ def _reviewer_findings(run: UnitRun | None) -> list[dict[str, Any]]:
             "summary": f.get("summary", ""),
             "required": bool(f.get("required")),
         }
-        for f in run.review_rounds[-1].get("findings") or []
+        for f in run.last_findings
     ]
 
 
