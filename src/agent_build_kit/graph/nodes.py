@@ -1114,7 +1114,7 @@ class BuildPath:
             pending_replies=state.pending_replies,
         )
         if outside := self.outside_note(state, tree):
-            context = {"context": self.told(context.get("context", ""), outside).strip()}
+            context = {**context, "context": self.told(context.get("context", ""), outside).strip()}
         raw = self.agent(
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )

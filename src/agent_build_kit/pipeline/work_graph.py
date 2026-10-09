@@ -89,6 +89,29 @@ NEEDS_LINE = re.compile(
     re.I,
 )
 
+_CHECKBOX = re.compile(r"^(\s*-\s*\[)[ xX](\])", re.MULTILINE)
+
+
+def specification_text(text: str) -> str:
+    """A tasks file's text with progress stripped out.
+
+    What a re-plan should key on is what the change *asks for*, not how much
+    of it is done. The pipeline ticks these boxes as units land, and hashing
+    the raw file would re-plan on every tick — with the planner then seeing
+    the work marked done and proposing a graph that built no groups at all.
+    """
+    # `Needs:` lines too: they only add dependencies, which `link_needs`
+    # applies on its own. Re-planning a change for one would be a model call
+    # that can reshuffle units already built. Blank lines go with them: a
+    # `Needs:` line comes with the blank line that sets it off.
+    stripped = _CHECKBOX.sub(r"\1 \2", text)
+    return "\n".join(
+        line
+        for line in stripped.splitlines()
+        if line.strip() and not NEEDS_LINE.match(line.strip())
+    )
+
+
 # "Separate: reviewed and reverted on its own", inside a group: no other change's
 # groups are joined to its unit and it is never joined to another. The reason is
 # what review agrees to, as with `Acceptance: none`.
@@ -475,6 +498,18 @@ def group_needs(path: Path) -> dict[int, list[Need]]:
 
 def tasks_path(change: str, changes_dir: Path) -> Path:
     return changes_dir / change / "tasks.md"
+
+
+def check_tags(
+    change: str, changes_dir: Path, *, repos: tuple[str, ...]
+) -> tuple[list[TaskGroup], list[str]]:
+    """What `abk tags <change>` runs: the change's groups and every problem found, each
+    printed as the command prints it; a change with no tasks file has one problem."""
+    path = tasks_path(change, changes_dir)
+    if not path.exists():
+        return [], [f"no tasks.md for change {change!r} at {path}"]
+    groups, errors = validate_tasks(path, repos=repos)
+    return groups, [f"{path}:{error}" for error in errors]
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -28,6 +28,8 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import Member
 from agent_build_kit.pipeline.wiring import COMMIT_FIX_ROUNDS
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.attach_driver import checked_out, head, leave_lease
@@ -244,6 +246,12 @@ def consequences_of(
     return listed
 
 
+def builds(inst: Installation, unit_id: str, **update: object) -> None:
+    """Record which groups a seeded unit builds (and, perhaps, whose it is)."""
+    store = UnitStore(inst.state_dir / "units.json")
+    store.upsert([store.get(unit_id).model_copy(update=update)])
+
+
 def test_a_needs_only_edit_is_listed_as_applied_on_the_next_tick(
     inst: Installation,
     tree: Path,
@@ -251,6 +259,7 @@ def test_a_needs_only_edit_is_listed_as_applied_on_the_next_tick(
     api: httpx.Client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    builds(inst, UNIT, groups=(2,))
     edit(
         inst, "tasks.md", lambda text: text.replace("Needs: other group 1", "Needs: other group 2")
     )
@@ -260,6 +269,71 @@ def test_a_needs_only_edit_is_listed_as_applied_on_the_next_tick(
     assert item["kind"] == "needs"
     assert "feature/2" in item["units"]  # type: ignore[operator]
     assert "next tick" in str(item["message"]).lower()
+
+
+def test_a_needs_edit_lists_the_unit_that_builds_the_group_not_the_one_numbered_like_it(
+    inst: Installation,
+    tree: Path,
+    planning: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builds(inst, UNIT, groups=(1,))
+    builds(inst, "feature/7", groups=(1, 2))
+    edit(
+        inst, "tasks.md", lambda text: text.replace("Needs: other group 1", "Needs: other group 2")
+    )
+
+    [item] = consequences_of(inst, tree, planning, api, monkeypatch)
+
+    assert item["kind"] == "needs"
+    assert item["units"] == ["feature/7"]
+
+
+def test_a_unit_of_another_change_that_joined_the_group_is_listed(
+    inst: Installation,
+    tree: Path,
+    planning: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builds(inst, UNIT, groups=(1,))
+    joined = (Member(change="feature", groups=(2,)),)
+    builds(inst, "feature/7", change="other", groups=(1,), joined=joined)
+    edit(
+        inst, "tasks.md", lambda text: text.replace("Needs: other group 1", "Needs: other group 2")
+    )
+
+    [item] = consequences_of(inst, tree, planning, api, monkeypatch)
+
+    assert item["units"] == ["feature/7"]
+
+
+def test_ticking_a_checkbox_is_not_a_plan_change(
+    inst: Installation,
+    tree: Path,
+    planning: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builds(inst, UNIT, groups=(2,))
+    edit(inst, "tasks.md", lambda text: text.replace("- [ ] 2.1", "- [x] 2.1"))
+
+    assert consequences_of(inst, tree, planning, api, monkeypatch) == []
+
+
+def test_an_edit_above_the_first_group_is_a_plan_change(
+    inst: Installation,
+    tree: Path,
+    planning: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    edit(inst, "tasks.md", lambda text: text.replace("# Tasks\n", "# Tasks\n\nPriority: 2\n"))
+
+    listed = consequences_of(inst, tree, planning, api, monkeypatch)
+
+    assert [i["kind"] for i in listed] == ["replan"]
 
 
 def test_a_plan_change_is_listed_as_replanned_with_built_units_keeping_their_state(
@@ -302,3 +376,78 @@ def test_a_changed_requirement_flags_a_started_unit_for_a_rework_or_a_requeue_an
     assert "feature/2" in item["units"]  # type: ignore[operator]
     message = str(item["message"]).lower()
     assert "rework" in message and "requeue" in message
+
+
+# --- the lease and the checkouts a commit names -----------------------------------------------
+
+FREE_SESSION = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e71"
+
+
+def free_lease(inst: Installation, *, files: int) -> Leases:
+    """A live lease of a free session on both checkouts, as its turn leaves it."""
+    leases = Leases(lease_dir(inst.state_dir))
+    leases.drop(UNIT)
+    assert leases.take(
+        UNIT,
+        "tab:t1",
+        checkouts=("worktree", "planning"),
+        session=FREE_SESSION,
+        runtime="claude_code",
+        head="abc",
+    )
+    leases.mark_changes(UNIT, "tab:t1", files)
+    return leases
+
+
+def test_committing_the_only_dirty_checkout_leaves_a_lease_a_closing_page_frees(
+    inst: Installation,
+    tree: Path,
+    planning: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    leases = free_lease(inst, files=1)
+    edit(inst, "tasks.md", lambda text: text.replace("The middle", "The middle, reworded"))
+    agent(monkeypatch, tree, lambda prompt: {})
+
+    assert commit(api).status_code == 200
+
+    left = leases.attachment(UNIT)
+    assert left is not None and left.checkouts == ("worktree",) and left.changed == 0
+    leases.release_all("tab:t1")  # what closing the page does
+    assert leases.attachment(UNIT) is None
+
+
+def test_committing_the_planning_checkout_keeps_the_count_of_what_the_worktree_still_holds(
+    inst: Installation,
+    tree: Path,
+    planning: Path,
+    api: httpx.Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    leases = free_lease(inst, files=2)
+    (tree / "notes.py").write_text("NOTE = 1\n")
+    edit(inst, "tasks.md", lambda text: text.replace("The middle", "The middle, reworded"))
+    agent(monkeypatch, tree, lambda prompt: {})
+
+    assert commit(api).status_code == 200
+
+    left = leases.attachment(UNIT)
+    assert left is not None and left.changed == 1
+
+
+def test_a_commit_naming_both_checkouts_is_refused_and_commits_neither(
+    inst: Installation, tree: Path, planning: Path, api: httpx.Client
+) -> None:
+    leases = free_lease(inst, files=2)
+    (tree / "notes.py").write_text("NOTE = 1\n")
+    edit(inst, "tasks.md", lambda text: text.replace("The middle", "The middle, reworded"))
+    heads = (head(tree), head(planning))
+    both = {"tab": "t1", "message": "Both", "checkouts": ["worktree", "planning"]}
+
+    answer = api.post(COMMIT, json=both)
+
+    assert answer.status_code == 422
+    assert (head(tree), head(planning)) == heads
+    kept = leases.attachment(UNIT)
+    assert kept is not None and kept.changed == 2

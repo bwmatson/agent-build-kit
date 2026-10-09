@@ -129,20 +129,15 @@ def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
 
     def gate(cwd: Path) -> str:
         from agent_build_kit import openspec
-        from agent_build_kit.pipeline.work_graph import tasks_path, validate_tasks
+        from agent_build_kit.pipeline.work_graph import check_tags
 
         rejected = []
-        checked = openspec.validate(cwd)
-        if checked.returncode:
-            rejected.append(f"abk check failed:\n{checked.stdout}\n{checked.stderr}".strip())
-        path = tasks_path(change, inst.changes_dir)
-        if not path.exists():
-            rejected.append(f"abk tags {change} failed:\nno tasks.md for change {change!r}")
-        else:
-            _, errors = validate_tasks(path, repos=tuple(inst.repos))
-            if errors:
-                lines = "\n".join(f"{path}:{error}" for error in errors)
-                rejected.append(f"abk tags {change} failed:\n{lines}")
+        ok, output = openspec.check(cwd)
+        if not ok:
+            rejected.append(f"abk check failed:\n{output}".strip())
+        _, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
+        if errors:
+            rejected.append(f"abk tags {change} failed:\n" + "\n".join(errors))
         return "\n\n".join(rejected)
 
     return gate
@@ -162,6 +157,11 @@ def commit_planning(
     if not build_commit(fix=fix, gate=planning_gate(inst, unit.change))(message, cwd=inst.root):
         raise NothingToCommit("nothing to commit")
     after = git_out(inst.root, "rev-parse", "HEAD")
-    leases_of(inst).release_checkout(unit.id, PLANNING)
+    # What the lease still holds is what the checkouts it still covers hold: the planning
+    # files are committed now, so they must stop counting.
+    leases = leases_of(inst)
+    held = leases.attachment(unit.id)
+    left = len(changes_of(inst, unit)) if held and "worktree" in held.checkouts else 0
+    leases.release_checkout(unit.id, PLANNING, changed=left)
     listed = consequences_of(inst, unit.change, before, after, store=store_for(inst))
     return PlanningCommit(commit=after, consequences=tuple(listed))

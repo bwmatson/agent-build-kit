@@ -28,6 +28,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.outside_commits import outside_commits
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.wiring import COMMIT_FIX_ROUNDS
@@ -137,6 +138,27 @@ def test_one_request_commits_releases_and_hands_the_unit_to_its_checks(
     assert message.splitlines()[0] == "Add a note"
     assert f"Unit: {UNIT}" in message
     assert f"Adopted-From: {BUILD_SESSION}" in message
+
+
+def test_a_free_sessions_commit_carries_its_own_session_and_is_outside_the_builders(
+    inst: Installation, tree: Path, api: httpx.Client
+) -> None:
+    free = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e41"
+    leases = Leases(lease_dir(inst.state_dir))
+    assert leases.take(
+        UNIT, "tab:t1", checkouts=("worktree",), session=free, runtime="claude_code", head="abc"
+    )
+    (tree / "notes.txt").write_text("by a free session\n")
+    before = head(tree)
+
+    answer = commit(api, checkouts=["worktree"])
+
+    assert answer.status_code == 200
+    message = git(tree, "log", "-1", "--format=%B")
+    assert f"Adopted-From: {free}" in message
+    assert BUILD_SESSION not in message
+    [outside] = outside_commits(tree, before, BUILD_SESSION)
+    assert (outside.commit, outside.session) == (head(tree), free)
 
 
 # --- the hooks ----------------------------------------------------------------------------------

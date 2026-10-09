@@ -41,7 +41,8 @@
   comment that contradicts the change is answered in its thread with the flag. A session on
   the planning repo can be opened with `repo` set to `planning`. A session that is not the
   unit's own may change code and a change's task file together; its lease covers both
-  checkouts. The planning checkout is committed on its own through `abk check` and `abk tags`
+  checkouts. A commit names one checkout (the worktree or the planning checkout), never
+  both. The planning checkout is committed on its own through `abk check` and `abk tags`
   of the change, with the agent fixing what they reject, and the answer lists what the
   commit means for started units (a `Needs:` edit, a plan change, a requirement a unit was
   built to) without changing any of them. When a session other than the unit's own commits

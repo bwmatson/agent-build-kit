@@ -194,14 +194,17 @@ class Leases:
         """Record a commit made and not yet delivered, whether or not its process is alive."""
         self._update(unit_id, holder, alive=False, committed=commit, changed=0)
 
-    def release_checkout(self, unit_id: str, checkout: str) -> None:
-        """Drop one checkout from the lease's part; the lease goes with its last when it holds
-        no changes and no commit."""
+    def release_checkout(self, unit_id: str, checkout: str, *, changed: int | None = None) -> None:
+        """Drop one checkout from the lease's part, recording `changed` as what the checkouts
+        left still hold when given; the lease goes with its last when it holds no changes and
+        no commit."""
         with self._guard():
             record = self._load(self._path(unit_id))
             if record is None:
                 return
             left = [c for c in record.get("checkouts", ()) if c != checkout]
+            if changed is not None:
+                record = {**record, "changed": changed}
             if not left and not record.get("changed") and not record.get("committed"):
                 self._path(unit_id).unlink(missing_ok=True)
             else:

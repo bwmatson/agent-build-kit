@@ -771,6 +771,12 @@ def register(
     def commit(change: str, number: str, body: Commit) -> dict[str, Any]:
         """Commit the chat's changes through the hooks, release the lease and deliver the
         adopted event in one request."""
+        if body.checkouts not in ([], ["worktree"], [attach.PLANNING]):
+            raise HTTPException(
+                status_code=422,
+                detail='checkouts is [], ["worktree"] or ["planning"]: commit one checkout '
+                "at a time",
+            )
         unit = chat.unit(change, number)
         held = chat.leases.attachment(unit.id)
         if held is None:

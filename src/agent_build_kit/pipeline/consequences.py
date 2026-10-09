@@ -15,6 +15,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, RUNNING
+from agent_build_kit.pipeline.work_graph import specification_text
 
 STARTED = frozenset({RUNNING, IN_REVIEW, HELD, FAILED})
 _GROUP = re.compile(r"^## (\d+)\.", re.MULTILINE)
@@ -27,17 +28,22 @@ class Consequence(Frozen):
     message: str
 
 
-def _groups(text: str) -> dict[str, tuple[frozenset[str], tuple[str, ...]]]:
-    """Each task group's `Needs:` lines and every other line of it."""
+def _needs(text: str) -> dict[int, frozenset[str]]:
+    """Each task group's `Needs:` lines."""
     marks = list(_GROUP.finditer(text))
-    found: dict[str, tuple[frozenset[str], tuple[str, ...]]] = {}
+    found: dict[int, frozenset[str]] = {}
     for at, mark in enumerate(marks):
         end = marks[at + 1].start() if at + 1 < len(marks) else len(text)
         body = text[mark.start() : end].splitlines()
-        needs = frozenset(line.strip() for line in body if _NEEDS.match(line.strip()))
-        rest = tuple(line.rstrip() for line in body if line.strip() and not _NEEDS.match(line))
-        found[mark.group(1)] = (needs, rest)
+        found[int(mark.group(1))] = frozenset(
+            line.strip() for line in body if _NEEDS.match(line.strip())
+        )
     return found
+
+
+def _builds(unit: StoredUnit, change: str) -> frozenset[int]:
+    """The groups of `change` that `unit` builds, its own or carried."""
+    return frozenset(g for m in unit.members() if m.change == change for g in m.groups)
 
 
 def _show(root: Path, ref: str, path: str) -> str:
@@ -54,14 +60,17 @@ def consequences_of(
     root = inst.root
     prefix = f"{inst.changes_dir.relative_to(inst.root).as_posix()}/{change}/"
     touched = git_out(root, "diff", "--name-only", before, after).splitlines()
-    started = [u for u in store.all() if u.change == change and u.branch and u.state in STARTED]
+    started = [
+        u
+        for u in store.all()
+        if u.branch and u.state in STARTED and any(m.change == change for m in u.members())
+    ]
     ids = tuple(u.id for u in started)
     listed: list[Consequence] = []
     tasks = f"{prefix}tasks.md"
     if tasks in touched and ids:
-        old, new = _groups(_show(root, before, tasks)), _groups(_show(root, after, tasks))
-        replanned = old.keys() != new.keys() or any(old[n][1] != new[n][1] for n in old if n in new)
-        if replanned:
+        old, new = _show(root, before, tasks), _show(root, after, tasks)
+        if specification_text(old) != specification_text(new):
             listed.append(
                 Consequence(
                     kind="replan",
@@ -71,8 +80,9 @@ def consequences_of(
                 )
             )
         else:
-            moved = {n for n in old if old[n][0] != new[n][0]}
-            hit = tuple(u.id for u in started if _number(u) in moved)
+            was, now = _needs(old), _needs(new)
+            moved = {n for n in was.keys() | now.keys() if was.get(n) != now.get(n)}
+            hit = tuple(u.id for u in started if _builds(u, change) & moved)
             if hit:
                 listed.append(
                     Consequence(
@@ -92,7 +102,3 @@ def consequences_of(
             )
         )
     return listed
-
-
-def _number(unit: StoredUnit) -> str:
-    return unit.id.rsplit("/", 1)[-1]
