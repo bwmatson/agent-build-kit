@@ -144,6 +144,10 @@ class ClaudeLimitsConfig(Frozen):
     weekly: UsageWindowConfig = UsageWindowConfig()
     # How long a start is refused when the only reading is too old to trust.
     usage_stale_retry_minutes: Annotated[int, Field(gt=0)] = 5
+    # How long a good live usage reading answers every reader before the endpoint is asked again.
+    usage_cache_minutes: Annotated[int, Field(gt=0)] = 15
+    # How old the last good live reading may be and still stand in for a failed call.
+    usage_fallback_minutes: Annotated[int, Field(gt=0)] = 30
 
 
 class RuntimeConfig(Frozen):
