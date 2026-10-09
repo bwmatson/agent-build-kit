@@ -140,6 +140,8 @@ limits:
   stack_depth_rebase_cap:       # deepest a dependent may sit when a merge
                                 # restacks it; unset = the build cap's value
   max_concurrent_stacks: 4      # units being built at once, across all repos
+  checks_register_seconds: 120  # seconds after a push in which a pull request with no
+                                # checks yet still reads `checking`
   max_units_in_progress: 5      # units started and not finished, across all
                                 # repos, at least 1; at it no unit that has
                                 # never started does, while reworks, resumes

@@ -7,10 +7,14 @@ this rather than each keeping a copy that can drift.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+from datetime import timedelta
 
+from agent_build_kit.config import active
 from agent_build_kit.forges import Label
+from agent_build_kit.forges.base import Check, overall_result
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, FeedbackSource, StoredUnit
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -57,6 +61,7 @@ STATES: Mapping[str, StateStyle] = {
     ),
     HELD: _style("held", "#fae8ff", "#a21caf", "#4a044e"),
     IN_REVIEW: _style("in-review", "#dbeafe", "#2563eb", "#172554"),
+    "checking": _style("checking", "#e0f2fe", "#0284c7", "#082f49", "stroke-dasharray:3 3"),
     MERGED: _style("merged", "#dcfce7", "#16a34a", "#052e16"),
     SATISFIED: _style("satisfied", "#d1fae5", "#059669", "#022c22"),
     CLOSED: _style("closed", "#fee2e2", "#dc2626", "#450a0a"),
@@ -78,6 +83,7 @@ _DESCRIPTIONS = {
     "paused_rework": "Stopped because a unit it depends on went back for rework",
     "held": "A person has taken this over; the pipeline will not touch it",
     "in_review": "Built and waiting for human review",
+    "checking": "In review, but its checks are still running",
     "failed": "Stopped on something it could not get past",
 }
 
@@ -113,7 +119,13 @@ def change_label(change: str) -> Label:
     )
 
 
-def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
+# A unit's pull request's checks, as the last poll recorded them.
+ChecksOf = Callable[[StoredUnit], Sequence[Check]]
+
+
+def effective_state(
+    unit: StoredUnit, units: list[StoredUnit], *, checks_of: ChecksOf | None = None
+) -> str:
     """The key in `STATES` a unit currently reads as.
 
     A planned unit the scheduler would hold back is *blocked*, not merely
@@ -123,6 +135,8 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
     """
     if unit.state == RUNNING:
         return _running_status(unit)
+    if unit.state == IN_REVIEW and checks_of is not None and _checking(unit, checks_of):
+        return "checking"
     if unit.state != PLANNED:
         return unit.state
 
@@ -133,6 +147,19 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
         paused = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
         return "paused_rework" if paused else "blocked"
     return PLANNED
+
+
+def _checking(unit: StoredUnit, checks_of: ChecksOf) -> bool:
+    """Whether a unit in review has checks still running, or none yet within the
+    window after its last push, when CI may not have registered."""
+    checks = checks_of(unit)
+    result = overall_result(checks)
+    if result != "none":
+        return result == "pending"
+    if unit.pushed_at is None:
+        return False
+    window = timedelta(seconds=active().limits.checks_register_seconds)
+    return spans.clock.now() - unit.pushed_at < window
 
 
 _REBASING_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_CONFLICT, Cause.RESTACK_DEFERRED)

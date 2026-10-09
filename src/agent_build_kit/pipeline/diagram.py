@@ -35,7 +35,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
 )
-from agent_build_kit.pipeline.vocabulary import STATES, effective_state
+from agent_build_kit.pipeline.vocabulary import STATES, ChecksOf, effective_state
 
 
 def _carried(unit: StoredUnit) -> str:
@@ -78,7 +78,12 @@ def in_view(units: list[StoredUnit]) -> list[StoredUnit]:
     ]
 
 
-def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = None) -> str:
+def render_mermaid(
+    units: list[StoredUnit],
+    *,
+    graph: list[StoredUnit] | None = None,
+    checks_of: ChecksOf | None = None,
+) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn."""
     graph = graph if graph is not None else units
@@ -93,7 +98,7 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
     for repo in sorted({unit.repo for unit in units}):
         lines.append(f"    subgraph {repo}")
         for unit in [u for u in ordered if u.repo == repo]:
-            state = effective_state(unit, graph)
+            state = effective_state(unit, graph, checks_of=checks_of)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
@@ -121,7 +126,9 @@ def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = 
         lines.append(f"    classDef {state} {painted}")
 
     for unit in ordered:
-        lines.append(f"    class {_node_id(unit.id)} {effective_state(unit, graph)}")
+        lines.append(
+            f"    class {_node_id(unit.id)} {effective_state(unit, graph, checks_of=checks_of)}"
+        )
 
     return "\n".join(lines)
 
@@ -133,7 +140,7 @@ def _pr_url(unit: StoredUnit) -> str:
     return forge.web_url(repo, pr=unit.pr)
 
 
-def render_markdown(units: list[StoredUnit]) -> str:
+def render_markdown(units: list[StoredUnit], *, checks_of: ChecksOf | None = None) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
     hidden = len(units) - len(shown)
@@ -158,7 +165,7 @@ units it builds on directly. Rewritten whenever a unit changes state; do not
 edit by hand.
 
 ```mermaid
-{render_mermaid(shown, graph=units)}
+{render_mermaid(shown, graph=units, checks_of=checks_of)}
 ```
 
 ## Legend
@@ -177,6 +184,8 @@ edit by hand.
   review again.
 - **in_review** — through the build/review loop; its PR is waiting for human
   review. Dependents in the same repo may stack on it. Deliberately uncapped.
+- **checking** — in review, but its checks are still running (or none has
+  registered since its push); it reads in-review once they pass.
 - **merged** — done, and no longer counted against its stack's depth.
 - **satisfied** — its groups needed nothing beyond what was already on the
   branch it built on; no PR of its own, and no longer counted against its
@@ -202,13 +211,13 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}{'' if n == 1 else 's'}"
 
 
-def write_page(units: list[StoredUnit], out: Path) -> None:
+def write_page(units: list[StoredUnit], out: Path, *, checks_of: ChecksOf | None = None) -> None:
     """Rewrite the page, keeping the old timestamp when nothing else changed.
 
     Called on every store write, so without this each tick would leave a
     one-line diff in a committed file for no change at all.
     """
-    page = render_markdown(units)
+    page = render_markdown(units, checks_of=checks_of)
     if out.exists() and _body(out.read_text()) == _body(page):
         return
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -225,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     from pathlib import Path
 
     from agent_build_kit.installation import load_installation
+    from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
 
     installation = load_installation()
@@ -234,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     units = UnitStore(args.store).all()
-    write_page(units, args.out)
+    write_page(units, args.out, checks_of=recorded_checks(installation.state_dir))
     print(f"{args.out}: {len(units)} unit(s)")
     return 0
 

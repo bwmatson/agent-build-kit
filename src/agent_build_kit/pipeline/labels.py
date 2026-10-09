@@ -10,6 +10,7 @@ from collections.abc import Callable
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.vocabulary import (
+    ChecksOf,
     change_label,
     effective_state,
     state_label,
@@ -75,7 +76,14 @@ class StateLabels:
             repo,
         )
 
-    def follow(self, unit: StoredUnit, units: list[StoredUnit], *, opened: bool) -> None:
+    def follow(
+        self,
+        unit: StoredUnit,
+        units: list[StoredUnit],
+        *,
+        opened: bool,
+        checks_of: ChecksOf | None = None,
+    ) -> None:
         """Bring a unit's pull request in line with its recorded state.
 
         What `UnitStore` calls after a state change: the state label always,
@@ -87,4 +95,4 @@ class StateLabels:
         if opened:
             for member in unit.members():
                 self.tag_change(unit.repo, unit.pr, member.change)
-        self.set_state(unit.repo, unit.pr, effective_state(unit, units))
+        self.set_state(unit.repo, unit.pr, effective_state(unit, units, checks_of=checks_of))

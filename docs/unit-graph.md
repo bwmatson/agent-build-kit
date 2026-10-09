@@ -636,3 +636,13 @@ holds a commit beyond its last pushed head, is rebasing, or is itself planned fo
 upstream or a moved base. A chain moves in one pass; a unit with a deferred restack, or whose
 branch is busy, is left for a later pass. When the predecessor is back in review the unit is
 released and restacks onto its new head; an unchanged head restacks nothing.
+
+## The checking status
+
+A unit stored as `in_review` reads `checking` while any check on its pull request is pending, or
+while the pull request has none within `limits.checks_register_seconds` of the unit's last push
+(`pushed_at`, written with `pushed`). It reads `in_review` once its checks have passed, or the window
+has ended with none. The status is derived from the poller's snapshot (`prs-<repo>.json`), never
+stored, and counts as in review for scheduling, queue places and dependents. `abk status`, the graph
+and the pull request's state label show it, and the poll that records a pull request's checks moves
+the label between `in-review` and `checking`. The web UI still shows the stored state.

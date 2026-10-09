@@ -174,6 +174,9 @@ class LimitsConfig(Frozen):
     stack_depth_rebase_cap: int | None = None
     # How many units are implemented at once, across all repos.
     max_concurrent_stacks: int = 4
+    # Seconds after a push in which a pull request with no checks yet still reads
+    # `checking`: CI may not have registered.
+    checks_register_seconds: int = 120
     # How many units may be started and not finished at once, across all repos.
     # At it no unit that has never started does; what drains the queue
     # (finishing, rework, resuming, a further review round) still runs.

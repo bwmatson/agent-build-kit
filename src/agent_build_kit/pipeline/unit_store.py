@@ -158,6 +158,8 @@ class StoredUnit(Unit):
     # The SHA this runner last published for `branch`. The next push leases
     # against exactly this, so it has to outlive the process that pushed it.
     pushed: str | None = None
+    # When `pushed` was recorded; None for a store written before this field.
+    pushed_at: datetime | None = None
     # The head commit `check_reruns` counts for, and how many times its cancelled
     # checks have been re-run. Here because each poll is a new process.
     check_rerun_head: str = ""
@@ -406,6 +408,7 @@ class UnitStore:
                 branch=existing.branch if existing else "",
                 pr=existing.pr if existing else None,
                 pushed=existing.pushed if existing else None,
+                pushed_at=existing.pushed_at if existing else None,
                 actual_lines=existing.actual_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,
@@ -694,7 +697,7 @@ class UnitStore:
         Separate from `set_state` because a push is not a state change: a unit
         is pushed several times — once per restack — while staying `open`.
         """
-        self._update(unit_id, pushed=sha)
+        self._update(unit_id, pushed=sha, pushed_at=spans.clock.now())
 
 
 def _record(unit: StoredUnit) -> dict:

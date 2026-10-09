@@ -28,6 +28,7 @@ EVERY_STATE = {
     "paused_rework",
     "held",
     "in_review",
+    "checking",
     "merged",
     "satisfied",
     "closed",
