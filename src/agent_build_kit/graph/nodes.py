@@ -20,7 +20,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph import END
 from langgraph.types import interrupt
 
-from agent_build_kit import forges, telemetry
+from agent_build_kit import forges, profiles, telemetry
 from agent_build_kit.config import active, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
@@ -43,6 +43,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution
 from agent_build_kit.pipeline.metric_records import record_metric
+from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
@@ -732,6 +733,22 @@ class BuildPath:
     def ref(self, state: UnitRun) -> str:
         return local_ref(state.base or self.base, repo=self.unit.repo)
 
+    def outside_note(self, state: UnitRun, tree: Path) -> str:
+        """The prompt part listing commits made to the branch outside the build session."""
+        held = state.sessions.get(SessionRole.BUILD)
+        repo = self.runner.repo_config
+        profile = profiles.get(repo.profile if repo else "python-uv")
+        return outside_commits_note(
+            tree,
+            self.ref(state),
+            held.session_id if held else "",
+            is_test=profile.is_test_path,
+        )
+
+    @staticmethod
+    def told(text: str, note: str) -> str:
+        return f"{text}\n\n{note}" if note else text
+
     def prepare(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         branch = branch_name(unit)
@@ -1042,18 +1059,22 @@ class BuildPath:
             model = state.build_model or models().implement
             feedback = r.store.get(unit.id).feedback
             self.say(f"fix the failing checks ({model}), round {attempt}")
+            outside = self.outside_note(state, tree)
             self.agent(
                 r.run,
-                CHECKS_PROMPT.format(
-                    change_dir=change_dir,
-                    groups=groups,
-                    feedback=feedback,
-                    boundary=build_boundary,
+                self.told(
+                    CHECKS_PROMPT.format(
+                        change_dir=change_dir,
+                        groups=groups,
+                        feedback=feedback,
+                        boundary=build_boundary,
+                    ),
+                    outside,
                 ),
                 cwd=tree,
                 state=state,
                 model=model,
-                follow_up=CHECKS_CONTINUATION.format(feedback=feedback),
+                follow_up=self.told(CHECKS_CONTINUATION.format(feedback=feedback), outside),
             )
             r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
             if r.head(tree) == state.head:
@@ -1092,6 +1113,8 @@ class BuildPath:
             person_comments=state.person_comments,
             pending_replies=state.pending_replies,
         )
+        if outside := self.outside_note(state, tree):
+            context = {"context": self.told(context.get("context", ""), outside).strip()}
         raw = self.agent(
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )
@@ -1177,6 +1200,7 @@ class BuildPath:
         failed_check = stored.feedback_source in (FeedbackSource.TIER1, FeedbackSource.TIER2)
         in_loop = state.verdict is Verdict.CHANGES
         kept: Update = {}
+        outside = self.outside_note(state, tree)
         # An empty head is a rework just delivered by an event: no node has recorded the
         # branch's tip, so nothing is known to be done. `new_comments` records the tip,
         # which is the worktree's HEAD,
@@ -1187,18 +1211,24 @@ class BuildPath:
             self.say(f"address review round {state.review_round} ({models().rework})")
             response = self.agent(
                 r.run,
-                REVIEW_FEEDBACK_PROMPT.format(
-                    change_dir=change_dir,
-                    groups=groups,
-                    feedback=feedback,
-                    boundary=build_boundary,
-                    changelog=changelog_note(tree, r.repo_config),
+                self.told(
+                    REVIEW_FEEDBACK_PROMPT.format(
+                        change_dir=change_dir,
+                        groups=groups,
+                        feedback=feedback,
+                        boundary=build_boundary,
+                        changelog=changelog_note(tree, r.repo_config),
+                    ),
+                    outside,
                 ),
                 cwd=tree,
                 state=state,
                 model=models().rework,
-                follow_up=REVIEW_FEEDBACK_CONTINUATION.format(
-                    feedback=feedback, changelog=changelog_note(tree, r.repo_config)
+                follow_up=self.told(
+                    REVIEW_FEEDBACK_CONTINUATION.format(
+                        feedback=feedback, changelog=changelog_note(tree, r.repo_config)
+                    ),
+                    outside,
                 ),
             )
             kept["review_rounds"] = with_response(state.review_rounds, response)
@@ -1214,30 +1244,36 @@ class BuildPath:
                 kept["seen_comments"] = self.covered(stored.pr)
             answer = self.agent(
                 r.run,
-                CHECKS_PROMPT.format(
-                    groups=groups,
-                    change_dir=change_dir,
-                    feedback=feedback,
-                    boundary=build_boundary,
-                )
-                if failed_check
-                else REWORK_PROMPT.format(
-                    groups=groups,
-                    change_dir=change_dir,
-                    feedback=feedback,
-                    pr=stored.pr or "(not yet opened)",
-                    boundary=build_boundary,
-                    changelog=changelog_note(tree, r.repo_config),
+                self.told(
+                    CHECKS_PROMPT.format(
+                        groups=groups,
+                        change_dir=change_dir,
+                        feedback=feedback,
+                        boundary=build_boundary,
+                    )
+                    if failed_check
+                    else REWORK_PROMPT.format(
+                        groups=groups,
+                        change_dir=change_dir,
+                        feedback=feedback,
+                        pr=stored.pr or "(not yet opened)",
+                        boundary=build_boundary,
+                        changelog=changelog_note(tree, r.repo_config),
+                    ),
+                    outside,
                 ),
                 cwd=tree,
                 state=state,
                 model=models().rework,
-                follow_up=CHECKS_CONTINUATION.format(feedback=feedback)
-                if failed_check
-                else REWORK_CONTINUATION.format(
-                    feedback=feedback,
-                    pr=stored.pr or "(not yet opened)",
-                    changelog=changelog_note(tree, r.repo_config),
+                follow_up=self.told(
+                    CHECKS_CONTINUATION.format(feedback=feedback)
+                    if failed_check
+                    else REWORK_CONTINUATION.format(
+                        feedback=feedback,
+                        pr=stored.pr or "(not yet opened)",
+                        changelog=changelog_note(tree, r.repo_config),
+                    ),
+                    outside,
                 ),
             )
             r.commit(f"fix: {unit.title}", cwd=tree)

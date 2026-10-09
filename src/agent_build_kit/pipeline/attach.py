@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.consequences import Consequence, consequences_of
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -115,15 +116,52 @@ def adopt(
     return finish(inst, unit, head)
 
 
+class PlanningCommit(Frozen):
+    """A commit of the planning checkout and what it means for the change's started units."""
+
+    commit: str
+    consequences: tuple[Consequence, ...]
+
+
+def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
+    """The planning checkout's gate, what `abk check` and `abk tags <change>` run. It returns
+    what they reject, or nothing."""
+
+    def gate(cwd: Path) -> str:
+        from agent_build_kit import openspec
+        from agent_build_kit.pipeline.work_graph import tasks_path, validate_tasks
+
+        rejected = []
+        checked = openspec.validate(cwd)
+        if checked.returncode:
+            rejected.append(f"abk check failed:\n{checked.stdout}\n{checked.stderr}".strip())
+        path = tasks_path(change, inst.changes_dir)
+        if not path.exists():
+            rejected.append(f"abk tags {change} failed:\nno tasks.md for change {change!r}")
+        else:
+            _, errors = validate_tasks(path, repos=tuple(inst.repos))
+            if errors:
+                lines = "\n".join(f"{path}:{error}" for error in errors)
+                rejected.append(f"abk tags {change} failed:\n{lines}")
+        return "\n\n".join(rejected)
+
+    return gate
+
+
 def commit_planning(
     inst: Installation, unit: StoredUnit, message: str, *, fix: Callable[..., str] | None = None
-) -> str:
-    """Commit the planning checkout and release its part of the lease; no unit is sent
-    anything. Returns the new head. Raises `NothingToCommit` when the checkout holds no
-    change."""
+) -> PlanningCommit:
+    """Commit the planning checkout through the change's gate and release its part of the
+    lease; no unit is sent anything or changed. Raises `CommitRejected` when the gate still
+    rejects the commit after the agent's fixes, and `NothingToCommit` when the checkout holds
+    no change."""
+    from agent_build_kit.cli.pipeline import store_for
     from agent_build_kit.pipeline.wiring import build_commit
 
-    if not build_commit(fix=fix)(message, cwd=inst.root):
+    before = git_out(inst.root, "rev-parse", "HEAD")
+    if not build_commit(fix=fix, gate=planning_gate(inst, unit.change))(message, cwd=inst.root):
         raise NothingToCommit("nothing to commit")
+    after = git_out(inst.root, "rev-parse", "HEAD")
     leases_of(inst).release_checkout(unit.id, PLANNING)
-    return git_out(inst.root, "rev-parse", "HEAD")
+    listed = consequences_of(inst, unit.change, before, after, store=store_for(inst))
+    return PlanningCommit(commit=after, consequences=tuple(listed))

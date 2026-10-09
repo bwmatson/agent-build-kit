@@ -20,7 +20,9 @@ from pathlib import Path
 import httpx
 import pytest
 
+from agent_build_kit import config as config_module
 from agent_build_kit import runtimes
+from agent_build_kit.config import OpenSpecConfig
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
@@ -280,6 +282,22 @@ def test_repeating_the_request_with_the_same_commit_delivers_nothing_again(
 def test_a_commit_of_the_planning_checkout_releases_its_part_and_sends_the_unit_nothing(
     inst: Installation, tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The planning gate passes: OpenSpec, faked at its process boundary, finds nothing wrong,
+    # and the change's tasks are tagged.
+    openspec = inst.root.parent / "fake-openspec"
+    openspec.write_text("#!/bin/sh\necho '[]'\n")
+    openspec.chmod(0o755)
+    current = config_module.active()
+    config_module.activate(
+        current.model_copy(update={"openspec": OpenSpecConfig(command=[str(openspec)])}),
+        config_module.active_root(),
+    )
+    tasks = inst.changes_dir / "feature" / "tasks.md"
+    tasks.parent.mkdir(parents=True)
+    tasks.write_text(
+        "# Tasks\n\n## 1. [app] [tier1] A group\n\nAcceptance: none — nothing to drive\n\n"
+        "- [ ] 1.1 Test: it works\n"
+    )
     planning = init_repo(inst.root)
     (planning / ".gitignore").write_text("runs/\n")  # the pipeline's state is not a plan
     (planning / "notes.md").write_text("start\n")

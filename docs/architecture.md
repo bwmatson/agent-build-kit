@@ -1057,6 +1057,23 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   the pipeline's rules, but `git commit` and `git push` refused, since the server started it.
   Under Claude the hook runs with `--no-commit`, and `--refusals-only` for the second kind;
   the ACP broker applies the same two.
+- A free session may change the unit's worktree and the planning checkout together; after
+  its turn the lease covers `worktree` and `planning` when the latter holds changes, and
+  counts both. Commit is per checkout. The worktree's commit is adopted as above. The
+  planning checkout's (`checkouts: ["planning"]`) goes through `build_commit` with a gate,
+  `abk check` and `abk tags` of the unit's change: what they reject is given to the agent,
+  which fixes it, and the commit is tried again the helper's bounded number of times, a
+  rejection after that answering 409 with the gate's output and keeping the changes. It is
+  delivered to no unit; the answer's `consequences` list (`pipeline/consequences.py`) names
+  a `Needs:`-only edit (applied by the next tick), a plan change (re-planned by the next
+  tick, built units keeping their state) and a changed requirement (started units flagged for
+  a rework or a requeue), and changes none of them.
+- A commit carries the session in an `Adopted-From` trailer. The unit's check-fix, review and
+  rework prompts get a part listing the commits on the branch whose trailer names a session
+  other than the build session recorded in the unit's thread (hash, subject, files, session)
+  as authoritative and not to be reverted, and, for a test file such a commit changed, asking
+  for keep, adapt or retire only if the agent changes it (`pipeline/outside_commits.py`).
+  Nothing is stored: the trailer is compared with the recorded session when the prompt is built.
 - What the tick does with a dirty worktree depends on the lease and on the thread's
   `running_node`:
 

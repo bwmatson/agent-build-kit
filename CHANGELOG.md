@@ -39,7 +39,14 @@
   nothing, which the page shows as a callout with Proceed anyway, Change the spec instead
   (a planning session opened with the flag as its first message) and Cancel, and a review
   comment that contradicts the change is answered in its thread with the flag. A session on
-  the planning repo can be opened with `repo` set to `planning`.
+  the planning repo can be opened with `repo` set to `planning`. A session that is not the
+  unit's own may change code and a change's task file together; its lease covers both
+  checkouts. The planning checkout is committed on its own through `abk check` and `abk tags`
+  of the change, with the agent fixing what they reject, and the answer lists what the
+  commit means for started units (a `Needs:` edit, a plan change, a requirement a unit was
+  built to) without changing any of them. When a session other than the unit's own commits
+  to its branch, the unit's next check fix, review and rework prompts list that commit as
+  authoritative and not to be reverted.
 
 - A repo can now set `forge: local`: its pull requests, and the review comments and decision
   made in the web UI, are kept in the state directory instead of on a code host, with no

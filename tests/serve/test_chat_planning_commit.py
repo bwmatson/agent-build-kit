@@ -64,6 +64,7 @@ echo '{_report(valid=True)}'
 TASKS = (
     "# Tasks\n\n## 1. [app] [tier1] The base\n\n- [ ] 1.1 Test: the base works\n"
     "\n## 2. [app] [tier1] The middle\n\nNeeds: other group 1 — the base\n\n"
+    "Acceptance: none — nothing to drive\n\n"
     "- [ ] 2.1 Test: the middle works\n"
 )
 SPEC = (
@@ -71,6 +72,10 @@ SPEC = (
     "The system SHALL write the registry through its journal.\n\n"
     "#### Scenario: A restart\n\n- **WHEN** it restarts\n- **THEN** every session is found\n"
 )
+
+# What the agent writes to fix the rejected edit: valid, and not what is committed already.
+FIXED_SPEC = SPEC.replace("through its journal", "through its journal first")
+FIXED_TASKS = TASKS.replace("The base", "The base, reworded")
 
 
 @pytest.fixture
@@ -156,7 +161,7 @@ def test_a_spec_edit_that_abk_check_rejects_is_given_to_the_agent_and_the_commit
 ) -> None:
     spec = "openspec/changes/feature/specs/registry/spec.md"
     edit(inst, "specs/registry/spec.md", lambda text: text + "\nBROKEN\n")
-    fake = agent(monkeypatch, tree, lambda prompt: {spec: SPEC})
+    fake = agent(monkeypatch, tree, lambda prompt: {spec: FIXED_SPEC})
     before = head(planning)
 
     answer = commit(api)
@@ -165,7 +170,7 @@ def test_a_spec_edit_that_abk_check_rejects_is_given_to_the_agent_and_the_commit
     assert BROKEN in prompt_of(fake.calls[0][0]), "the gate's own output goes to the agent"
     assert Path(fake.calls[0][1] or "").resolve() == inst.root.resolve(), "in the planning checkout"
     assert head(planning) != before
-    assert git(planning, "show", f"HEAD:{spec}") == SPEC.rstrip("\n"), "the fixed file"
+    assert git(planning, "show", f"HEAD:{spec}") == FIXED_SPEC.rstrip("\n"), "the fixed file"
     assert git(planning, "log", "-1", "--format=%s").strip() == "Plan it"
     assert answer.json()["delivered"] is False
 
@@ -179,7 +184,7 @@ def test_a_task_file_that_abk_tags_rejects_is_given_to_the_agent_and_the_commit_
 ) -> None:
     tasks = "openspec/changes/feature/tasks.md"
     edit(inst, "tasks.md", lambda text: text.replace("[app] [tier1] The base", "The base"))
-    fake = agent(monkeypatch, tree, lambda prompt: {tasks: TASKS})
+    fake = agent(monkeypatch, tree, lambda prompt: {tasks: FIXED_TASKS})
     before = head(planning)
 
     answer = commit(api)
@@ -187,7 +192,7 @@ def test_a_task_file_that_abk_tags_rejects_is_given_to_the_agent_and_the_commit_
     assert answer.status_code == 200
     assert "tasks.md" in prompt_of(fake.calls[0][0]), "what `abk tags` printed"
     assert head(planning) != before
-    assert git(planning, "show", f"HEAD:{tasks}") == TASKS.rstrip("\n")
+    assert git(planning, "show", f"HEAD:{tasks}") == FIXED_TASKS.rstrip("\n")
 
 
 def test_a_commit_the_gate_still_rejects_after_the_bound_is_a_conflict_that_keeps_the_changes(

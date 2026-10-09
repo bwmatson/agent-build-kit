@@ -15,6 +15,7 @@ from typing import Any
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.runtimes import AgentResult
 from tests.factories import git, init_repo, unit
 from tests.graph.agent_fakes import Reviews
 from tests.graph_driver import fresh, tick
@@ -47,11 +48,16 @@ class Builder:
         *,
         cwd: Path,
         on_session: Callable[[str], None] | None = None,
+        on_result: Callable[..., None] | None = None,
+        model: str = "",
         **more: Any,
     ) -> str:
         if on_session:
             on_session(BUILD_SESSION)
         answer = self.recorder.claude(prompt, cwd=cwd)
+        if on_result:
+            result = AgentResult(ok=True, text=answer, session_id=BUILD_SESSION)
+            on_result(result, role="implement", model=model, runtime="fake")
         self.by_step.setdefault(self.recorder.events[-1], []).append(prompt)
         return answer
 
@@ -62,6 +68,7 @@ def branch(tmp_path: Path) -> Path:
     (repo / "base.txt").write_text("base\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "start")
+    git(repo, "update-ref", "refs/remotes/origin/main", "main")  # the trunk a unit builds on
     git(repo, "checkout", "-q", "-b", "spec/add-marker/1")
     return repo
 

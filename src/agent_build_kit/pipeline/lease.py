@@ -180,9 +180,15 @@ class Leases:
             if record and (self._alive(record) or not alive) and record["holder"] == holder:
                 self._write(unit_id, {**record, **fields})
 
-    def mark_changes(self, unit_id: str, holder: str, files: int) -> None:
-        """Record that the covered checkouts hold `files` uncommitted files (none clears it)."""
-        self._update(unit_id, holder, changed=files)
+    def mark_changes(
+        self, unit_id: str, holder: str, files: int, *, checkouts: tuple[str, ...] | None = None
+    ) -> None:
+        """Record that the covered checkouts hold `files` uncommitted files (none clears it);
+        `checkouts`, when given, replaces the checkouts the lease covers."""
+        if checkouts is None:
+            self._update(unit_id, holder, changed=files)
+        else:
+            self._update(unit_id, holder, changed=files, checkouts=list(checkouts))
 
     def mark_committed(self, unit_id: str, holder: str, commit: str) -> None:
         """Record a commit made and not yet delivered, whether or not its process is alive."""
