@@ -100,5 +100,10 @@ def pause_until(
     return Pause(until=deadline, reason=reason, kind=kind)
 
 
+def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = None) -> str:
+    """The run-log line announcing a pause: its end in local time, and why."""
+    raise NotImplementedError
+
+
 def clear_pause(marker: Path) -> None:
     marker.unlink(missing_ok=True)
