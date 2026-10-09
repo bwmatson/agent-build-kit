@@ -212,7 +212,7 @@ def test_a_reading_served_from_the_cache_file_has_a_source_of_its_own(tmp_path: 
     served = read_live_usage(token="t", fetch=fetch, cache_path=cache)
 
     assert served is not None
-    assert served.source != "live"
+    assert served.source == "cache"
     assert not served.is_live
 
 

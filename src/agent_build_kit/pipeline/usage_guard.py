@@ -691,7 +691,7 @@ def _thresholds_note(reading: UsageReading, *, now: datetime, limits: Limits) ->
 
 
 def _hhmm(moment: datetime) -> str:
-    return f"{moment:%m-%d %H:%M UTC}"
+    return f"{moment.astimezone():%m-%d %H:%M}"
 
 
 def _resume_to(window: Window, *, now: datetime, limits: Limits) -> datetime:

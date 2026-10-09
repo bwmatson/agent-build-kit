@@ -711,7 +711,7 @@ def _may_build(
         reason = f"runtime {runtime.name} has no usage window; not checking one"
 
     if paused:
-        log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
+        log(f"resuming a pause that was to last until {paused.until.astimezone():%H:%M}")
     clear_pause(_paused_marker(inst))
     if not quiet:
         log(reason)
@@ -2039,7 +2039,7 @@ def _build_unit(
             record_metric(
                 "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="rate_limit"
             )
-            end(f"rate limited — pausing until {state.until:%H:%M UTC}", UnitOutcome.RATE_LIMITED)
+            end(f"rate limited — {pause_line(state, verb='pausing')}", UnitOutcome.RATE_LIMITED)
             return False
         except BranchBusy as error:
             # Another tick is already on it. Not a failure — marking it one would
@@ -2091,7 +2091,7 @@ def _pause_for_usage(inst: Installation, pause: PauseInfo) -> None:
     """
     until = pause.until or build_resume_at(usage=current_usage, decide=may_start_unit)()
     state = pause_until(until, reason=pause.reason, marker=_paused_marker(inst))
-    log(f"pausing until {state.until:%H:%M UTC}")
+    log(pause_line(state, verb="pausing"))
 
 
 def _starting_step(inst: Installation, unit: StoredUnit) -> tuple[str, str]:

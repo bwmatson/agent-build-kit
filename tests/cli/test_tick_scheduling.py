@@ -499,7 +499,9 @@ def test_a_build_that_says_stop_ends_scheduling(
     builder.store.upsert([stored("feature/1"), stored("feature/2"), stored("feature/3")])
     builder.scripts["feature/2"] = lambda: "paused"
     monkeypatch.setattr(
-        cli, "pause_until", lambda when, **kwargs: argparse.Namespace(until=datetime.now(UTC))
+        cli,
+        "pause_until",
+        lambda when, **kwargs: argparse.Namespace(until=datetime.now(UTC), reason="usage"),
     )
 
     assert tick(inst) == 0
