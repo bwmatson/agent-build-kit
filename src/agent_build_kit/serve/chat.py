@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import subprocess
 import threading
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -23,9 +24,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_build_kit import runtimes
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import AgentSession
+from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.transcript import (
     Transcript,
     TranscriptEvent,
@@ -34,9 +39,9 @@ from agent_build_kit.pipeline.transcript import (
     transcript_dir,
     unit_transcript_files,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.vocabulary import effective_state
-from agent_build_kit.pipeline.workspaces import worktree_path
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.units import RUNNING
+from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
 from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
@@ -52,6 +57,7 @@ from agent_build_kit.serve.sessions import (
     holding_pids,
 )
 
+SERVER = "server"
 CLAUDE = "claude_code"
 ACP = "acp"
 POLL_SECONDS = 0.1
@@ -76,6 +82,11 @@ class NewSession(Turn):
     model: str = ""
     unit: str | None = None
     repo: str | None = None
+
+
+class Discard(BaseModel):
+    tab: str = ""
+    confirmed: bool = False
 
 
 class Answer(BaseModel):
@@ -173,31 +184,74 @@ class Chat:
     def running(self, unit: StoredUnit) -> bool:
         units = self._units()
         fresh = next((u for u in units if u.id == unit.id), unit)
-        return effective_state(fresh, units) == "running"
+        # Whatever it is doing (rework, rebase, a pause for usage), a unit the store has as
+        # running is part-way through a node, and not one a chat attaches to.
+        return fresh.state == RUNNING
 
-    def claim(self, unit: StoredUnit, tab: str) -> bool:
+    def step_active(self, unit: StoredUnit) -> bool:
+        """Whether a process is working on the unit's branch right now."""
+        from agent_build_kit.cli.pipeline import branch_is_held
+
+        return bool(unit.branch) and branch_is_held(self.installation, unit.branch)
+
+    def forget_start(self, unit: StoredUnit) -> None:
+        """Clear the start a killed node left in the unit's thread: the files it left are
+        taken over with the chat's."""
+        path = unit_graphs_path(self.installation.state_dir)
+        if not path.exists():
+            return
+
+        async def clear() -> None:
+            async with open_checkpointer(path) as saver:
+                await clear_running_node(saver, unit.id)
+
+        asyncio.run(clear())
+
+    def claim(self, unit: StoredUnit, tab: str, session: str = "", runtime: str = "") -> bool:
         """Take the unit's lease for `tab`, and only then check that no step runs on the
         unit: a tick that started one in between is seen here, and one that comes after
         finds the lease. True when the lease is new."""
-        from agent_build_kit.cli.pipeline import branch_is_held
-
         mine = f"tab:{tab}"
         had = self.leases.holder(unit.id) == mine
-        if not self.leases.take(unit.id, mine):
+        before = self.leases.attachment(unit.id)
+        kept = before is not None and bool(before.changed or before.committed)
+        if self.leases.holder(unit.id) == SERVER:
+            self.leases.hand_over(unit.id, SERVER, mine)
+        tree = self.worktree(unit)
+        head = ""
+        if not had and tree is not None:
+            try:
+                head = git_out(tree, "rev-parse", "HEAD")
+            except subprocess.CalledProcessError:
+                pass  # not a repository yet: nothing to compare the tree with
+        if not self.leases.take(
+            unit.id, mine, checkouts=("worktree",), session=session, runtime=runtime, head=head
+        ):
             raise _conflict("another tab holds the lease")
-        if self.running(unit) or (unit.branch and branch_is_held(self.installation, unit.branch)):
-            if not had:
+        if self.running(unit) or self.step_active(unit):
+            if not had and not kept:
                 self.leases.release(unit.id, mine)
             raise _conflict("a step is running on the unit")
+        if not had:
+            self.forget_start(unit)
         return not had
 
-    def leased(self, unit: StoredUnit, tab: str, start: Callable[[], StreamingResponse]):
+    def leased(
+        self,
+        unit: StoredUnit,
+        tab: str,
+        start: Callable[[], StreamingResponse],
+        *,
+        session: str = "",
+        runtime: str = "",
+    ):
         """`start()` under the unit's lease, which a refused start gives back."""
-        new = self.claim(unit, tab)
+        new = self.claim(unit, tab, session, runtime)
+        before = self.leases.attachment(unit.id)
         try:
             return start()
         except HTTPException:
-            if new:
+            if new and not (before and before.changed):
                 self.leases.release(unit.id, f"tab:{tab}")
             raise
 
@@ -253,6 +307,18 @@ class Chat:
                 self._closing.discard(tab)
         if closing:
             self.leases.release_all(f"tab:{tab}")
+
+    def note_changes(self, unit: StoredUnit, tab: str) -> None:
+        """Record on the tab's lease how many files the unit's worktree holds uncommitted,
+        so the tick knows whose they are once this page or server is gone."""
+        tree = self.worktree(unit)
+        if tree is None:
+            return
+        try:
+            files = len(changed_paths(tree))
+        except Exception:  # noqa: BLE001 — a turn's end must not hang on a git failure
+            return
+        self.leases.mark_changes(unit.id, f"tab:{tab}", files)
 
     def shutdown(self) -> None:
         """The server is stopping: every open permission request is denied, so no turn is left
@@ -391,6 +457,8 @@ class Chat:
             finally:
                 with self._lock:
                     self._busy -= owned
+                if unit is not None:
+                    self.note_changes(unit, tab)
                 events.put(None)
                 self._turn_ended(tab)
 
@@ -411,15 +479,19 @@ class Chat:
         model: str | None = None,
         resume: str = "",
         fork: bool = False,
-        policed: bool = True,
+        builder: bool = False,
     ) -> AgentRequest:
+        """A turn's call. The unit's builder, resumed, is held to the pipeline's rules; any
+        other session is the person's own. Neither commits nor pushes."""
         return AgentRequest(
             prompt=prompt,
             cwd=cwd,
             model=model or None,
             resume_session=resume,
             fork_session=fork,
-            policy=ToolPolicy(specs_dir=self.installation.specs_dir) if policed else None,
+            policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
+            if builder
+            else ToolPolicy(scoped=False, no_commit=True),
             **callbacks,
         )
 
@@ -451,6 +523,10 @@ def register(
     # The server's stop calls this before uvicorn waits on its open requests: a turn waiting
     # for an answer and a page's open stream are requests it would wait on for ever.
     app.state.stop_chat = chat.shutdown
+    # A lease a server left with changes is this server's to hold until it is resolved.
+    for stale in chat.leases.attachments():
+        if stale.stale and stale.changed:
+            chat.leases.take(stale.unit_id, SERVER)
 
     def agent_state(unit: StoredUnit, tab: str) -> dict[str, Any]:
         recorded = recorded_session(unit.id)
@@ -459,13 +535,20 @@ def register(
         pids = chat.session_holders(recorded.runtime, recorded.session_id) if recorded else []
         mine = f"tab:{tab}"
         state = "attached" if holder else "paused"
-        if running:
+        if running and unit.cause is Cause.USAGE and not chat.step_active(unit):
+            state, enabled, reason = (
+                "paused",
+                False,
+                "The unit is paused part-way through a step, waiting out the usage window; "
+                "its history is read-only until the step resumes.",
+            )
+        elif running:
             state, enabled, reason = (
                 "streaming",
                 False,
                 "A step is running; its work is streamed here and takes no input.",
             )
-        elif holder is not None and holder != mine:
+        elif holder not in (None, mine, SERVER):
             enabled, reason = False, f"{holder} is chatting with this unit; it holds the lease."
         elif recorded is None:
             enabled, reason = False, "No agent session was recorded for this unit."
@@ -592,19 +675,49 @@ def register(
             lambda: chat.stream(
                 runtime,
                 lambda cb: chat.request(
-                    cb, prompt, cwd, model=recorded.model, resume=recorded.session_id
+                    cb, prompt, cwd, model=recorded.model, resume=recorded.session_id, builder=True
                 ),
                 tab=body.tab,
                 unit=unit,
                 said=prompt,
                 session=recorded.session_id,
             ),
+            session=recorded.session_id,
+            runtime=recorded.runtime,
         )
 
     @app.delete("/api/units/{change}/{number}/lease")
     def release(change: str, number: str, tab: str = "") -> Response:
-        chat.leases.release(chat.unit(change, number).id, f"tab:{tab}")
+        unit = chat.unit(change, number)
+        held = chat.leases.attachment(unit.id)
+        if held is not None and held.changed and held.holder in (f"tab:{tab}", SERVER):
+            raise _conflict(
+                f"{held.changed} file(s) are changed and uncommitted: commit or discard them"
+            )
+        chat.leases.release(unit.id, f"tab:{tab}")
         return Response(status_code=204)
+
+    @app.get("/api/units/{change}/{number}/changes")
+    def changes(change: str, number: str, tab: str = "") -> dict[str, Any]:
+        """The files a discard would lose."""
+        return {"files": list(attach.changes_of(installation, chat.unit(change, number)))}
+
+    @app.post("/api/units/{change}/{number}/discard")
+    def discard(change: str, number: str, body: Discard) -> dict[str, Any]:
+        """Restore the worktree and release the lease in one request, once confirmed."""
+        unit = chat.unit(change, number)
+        if not body.confirmed:
+            raise HTTPException(status_code=400, detail="discarding needs a confirmation")
+        if chat.running(unit) or chat.step_active(unit):
+            raise _conflict("a step is running on the unit")
+        held = chat.leases.attachment(unit.id)
+        if held is None:
+            raise _conflict("nothing is attached to the unit")
+        if not held.stale and held.holder not in (f"tab:{body.tab}", SERVER):
+            raise _conflict(f"{held.holder} holds the lease")
+        files = attach.changes_of(installation, unit)
+        attach.discard(installation, unit)
+        return {"discarded": list(files)}
 
     @app.post("/api/permissions/{ask_id}")
     def permission(ask_id: str, body: Answer) -> Response:
@@ -718,6 +831,7 @@ def register(
         prompt = with_attachments(body.prompt, body.attachments)
         recorded = recorded_session(unit.id) if unit is not None else None
         model = recorded.model if recorded and recorded.session_id == session else None
+        builder = recorded is not None and recorded.session_id == session and not fork
 
         def start() -> StreamingResponse:
             return chat.stream(
@@ -729,7 +843,7 @@ def register(
                     model=model,
                     resume=session,
                     fork=fork,
-                    policed=unit is not None,
+                    builder=builder,
                 ),
                 tab=body.tab,
                 unit=unit,
@@ -737,7 +851,9 @@ def register(
                 session="" if fork else session,
             )
 
-        return chat.leased(unit, body.tab, start) if unit is not None else start()
+        if unit is None:
+            return start()
+        return chat.leased(unit, body.tab, start, session=session, runtime=CLAUDE)
 
     def acp_turn(session: str, body: Turn, *, seeded: bool) -> StreamingResponse:
         events, _ = history(ACP, session)
@@ -746,6 +862,7 @@ def register(
         prompt = with_attachments(body.prompt, body.attachments)
         recorded = recorded_session(unit.id)
         model = recorded.model if recorded and recorded.session_id == session else None
+        builder = recorded is not None and recorded.session_id == session and not seeded
         fresh = lambda cb: chat.request(cb, _seed(events, prompt), cwd, model=model)  # noqa: E731
         return chat.leased(
             unit,
@@ -754,13 +871,17 @@ def register(
                 runtimes.get(ACP),
                 fresh
                 if seeded
-                else lambda cb: chat.request(cb, prompt, cwd, model=model, resume=session),
+                else lambda cb: chat.request(
+                    cb, prompt, cwd, model=model, resume=session, builder=builder
+                ),
                 tab=body.tab,
                 unit=unit,
                 said=prompt,
                 session=session,
                 fallback=fresh,
             ),
+            session=session,
+            runtime=ACP,
         )
 
     @app.post("/api/sessions/{runtime}/{session}/continue")
@@ -811,4 +932,6 @@ def register(
                 said=prompt,
             )
 
-        return chat.leased(unit, body.tab, start) if unit is not None else start()
+        if unit is None:
+            return start()
+        return chat.leased(unit, body.tab, start, runtime=body.runtime)

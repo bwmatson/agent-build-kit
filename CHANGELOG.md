@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- A chat with a unit's agent can now change files in the unit's worktree, and nothing is
+  committed until you say so: those turns refuse `git commit` and `git push`, and sessions
+  that are not the unit's own get only that refusal. The chat's lease records the changed
+  files and outlives the page and the server, so the tick never mistakes them for a killed
+  run's leftovers: it parks the unit as `attached` and `abk status` lists it with the number
+  of files. `abk attach release <unit>` ends the attachment with `--commit MESSAGE` or
+  `--discard` (never while a step is running on the unit, and a rejecting hook prints its
+  output and keeps the changes), a started server takes over what a server left, and the
+  page can list and discard the changes, including those it took over. A unit the store has
+  as running, paused or not, is read-only with that reason, and taking a lease clears a
+  killed run's recorded start so its files are the chat's.
+
 - New `abk approve <unit>`, and the web UI's approve button now works: both record your
   approval of the unit's current review round, with the head commit of its pull request, and
   merge nothing, push nothing and vote on nothing. They are refused, with a reason, for a unit

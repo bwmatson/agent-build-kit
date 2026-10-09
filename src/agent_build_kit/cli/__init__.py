@@ -22,6 +22,7 @@ from agent_build_kit.installation import load_installation
 # Import order is the help order.
 COMMAND_MODULES = (
     "agent_build_kit.cli.pipeline",
+    "agent_build_kit.cli.attach",
     "agent_build_kit.cli.init",
     "agent_build_kit.cli.doctor",
     "agent_build_kit.cli.config_cmd",

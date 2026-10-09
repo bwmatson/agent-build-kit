@@ -50,6 +50,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "restack_conflict",
         "restack_deferred",
         "dirty_worktree",
+        "attached",
         "merged",
         "closed",
         "failed",

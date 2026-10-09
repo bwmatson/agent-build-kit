@@ -423,7 +423,13 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   (`parked_node` in the thread state), with that node's inputs as they stood, a
   rework's feedback included; a park anywhere else, and `abk requeue --restart`,
   begin again at `prepare`. A requeue while the tree is still dirty leaves the unit
-  parked.
+  parked. The dirty-tree rule reads the unit's chat lease first (see Chat in
+  [architecture.md](architecture.md)): a lease whose server has gone while the lease is marked as
+  holding changes means the files are a chat's, not a killed run's, so the unit is held
+  with the cause `attached` and nothing is committed or continued, whatever
+  `running_node` says; a lease held by a live process leaves the unit alone; a lease marked
+  as holding a commit that was made and not delivered is a delivery to finish, not changes.
+  Only with no lease at all does a recorded `running_node` make the tree the node's own.
 - **A killed run is resumed, not requeued.** The thread's next node is the
   one that was running, and the next tick carries on from it with no new
   input. The unit stays `running`, and the tick resumes it unless a live

@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.pipeline.command_policy import check_command, check_no_push
+from agent_build_kit.pipeline.command_policy import check_command, check_no_commit, check_no_push
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.acp import AcpRuntime, _Session
 from tests.factories import git, init_repo
@@ -793,3 +793,80 @@ def test_an_edit_approval_titled_with_its_path_is_weighed_on_that_path(
     inside_answer, spec_answer = _answered(record)
     assert inside_answer["optionKind"] == "allow_once", inside_answer
     assert spec_answer["optionKind"] in ("reject_once", "reject_always"), spec_answer
+
+
+# --- a chat turn: the unit's builder may edit and cannot commit; a free session is bare -------
+
+
+def _run_with(record: Path, worktree: Path, specs: Path, policy: ToolPolicy, **agent: Any):
+    use_agent(record, **agent)
+    return AcpRuntime().run(
+        AgentRequest(
+            prompt="Change it.", role="implement", cwd=worktree, add_dirs=(specs,), policy=policy
+        )
+    )
+
+
+COMMITS = [
+    pytest.param("git", ["commit", "-am", "wip"], id="plain"),
+    pytest.param("git add -A && git commit -m wip", [], id="behind-another-command"),
+]
+
+
+@pytest.mark.parametrize(("command", "args"), COMMITS)
+def test_a_turn_that_may_not_commit_edits_the_worktree_and_commits_nothing(
+    tmp_path: Path, worktree: Path, specs: Path, command: str, args: list[str]
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    target = worktree / "src" / "marker.py"
+    before = git(worktree, "rev-parse", "HEAD")
+
+    _run_with(
+        record,
+        worktree,
+        specs,
+        ToolPolicy(specs_dir=specs, no_commit=True),
+        act=[
+            {"write": str(target), "content": 'MARKER = "edited"\n'},
+            {"terminal": command, "args": args},
+        ],
+    )
+
+    assert target.read_text() == 'MARKER = "edited"\n'
+    [ran] = _did(record, "terminal")
+    assert "error" in ran or ran.get("exitCode") != 0, ran
+    assert check_no_commit(" ".join([command, *args])).reason in json.dumps(
+        ran, ensure_ascii=False
+    ), ran
+    assert git(worktree, "rev-parse", "HEAD") == before, "the branch head did not move"
+
+
+def test_a_free_sessions_turn_may_write_anywhere_and_still_cannot_commit_or_push(
+    tmp_path: Path, worktree: Path, specs: Path, other_checkout: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    elsewhere = other_checkout / "notes.txt"
+    in_specs = specs / "feature" / "tasks.md"
+    before = git(worktree, "rev-parse", "HEAD")
+
+    _run_with(
+        record,
+        worktree,
+        specs,
+        ToolPolicy(scoped=False, no_commit=True),
+        act=[
+            {"write": str(elsewhere), "content": "notes\n"},
+            {"write": str(in_specs), "content": "- [ ] 1.1\n"},
+            {"terminal": "git", "args": ["commit", "-am", "wip"]},
+            {"terminal": "git", "args": ["push", "origin", BRANCH]},
+        ],
+    )
+
+    assert elsewhere.read_text() == "notes\n", "outside the worktree is the person's to change"
+    assert in_specs.read_text() == "- [ ] 1.1\n", "and so are the specs"
+    first, second = _did(record, "write")
+    committed, pushed = _did(record, "terminal")
+    assert "error" not in first and "error" not in second
+    for refused in (committed, pushed):
+        assert "error" in refused or refused.get("exitCode") != 0, refused
+    assert git(worktree, "rev-parse", "HEAD") == before

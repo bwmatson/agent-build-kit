@@ -89,7 +89,12 @@ from acp.schema import (
 from agent_build_kit import __version__, config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.command_policy import Verdict, check_command, check_no_push
+from agent_build_kit.pipeline.command_policy import (
+    Verdict,
+    check_command,
+    check_no_commit,
+    check_no_push,
+)
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
@@ -535,6 +540,10 @@ class _Session:
         # Whether this run is policed: only then does the client do the agent's
         # file and terminal work; otherwise those methods are not there.
         self._policed = policy is not None
+        # A chat turn's policy: no commit, and for a person's own session nothing of the
+        # unit's rules (`ToolPolicy.scoped`).
+        self._no_commit = policy is not None and policy.no_commit
+        self._scoped = policy is None or policy.scoped
         # A run relying on headless permission denial (the planner's graph
         # call): every permission request is refused, whatever it names.
         self._grants_nothing = grants_nothing
@@ -744,7 +753,7 @@ class _Session:
             (
                 c
                 for c in commands
-                if not check_command(c, branch=branch, worktree=self._policed_worktree()).allowed
+                if not self._rules(c, branch=branch, worktree=self._policed_worktree()).allowed
             ),
             None,
         )
@@ -758,7 +767,7 @@ class _Session:
             self._refused(subject, " ".join(said.split())[:200], "the agent's own policy")
             return
         if forbidden:
-            verdict = check_command(forbidden, branch=branch, worktree=self._policed_worktree())
+            verdict = self._rules(forbidden, branch=branch, worktree=self._policed_worktree())
             self._answered.add(call_id)
             self._refused(forbidden, verdict.reason, "the agent's own configuration")
 
@@ -859,13 +868,13 @@ class _Session:
         if command:
             # Whatever the kind says: a request that names a command is
             # weighed on it.
-            verdict = check_command(
+            verdict = self._rules(
                 command,
                 branch=self._current_branch(self._worktree),
                 worktree=self._policed_worktree(),
             )
             if verdict.allowed:
-                verdict = check_no_push(command)
+                verdict = self._refusals(command)
             if verdict.allowed:
                 verdict = self._read_only_verdict(command)
             if not verdict.allowed or call.kind == "execute" or self._read_only is not None:
@@ -913,6 +922,8 @@ class _Session:
             candidate = self._absolute(raw).resolve()
         except OSError:
             return None
+        if not self._scoped:
+            return candidate
         if not candidate.is_relative_to(self._worktree):
             return None
         if self._specs is not None and candidate.is_relative_to(self._specs):
@@ -928,6 +939,19 @@ class _Session:
             return None
         roots = (*([self._worktree] if self._worktree else []), *self._readable)
         return candidate if any(candidate.is_relative_to(root) for root in roots) else None
+
+    def _rules(self, command: str, **where: Any) -> Verdict:
+        """`command` against the unit's command rules, when this run has them."""
+        if not self._scoped:
+            return Verdict(allowed=True)
+        return check_command(command, **where)
+
+    def _refusals(self, command: str) -> Verdict:
+        """What no turn the server runs may do: push, and commit when asked not to."""
+        verdict = check_no_push(command)
+        if verdict.allowed and self._no_commit:
+            verdict = check_no_commit(command)
+        return verdict
 
     def _policed_worktree(self) -> Path | None:
         """The worktree the redirect rule covers: only one that carries a scratch
@@ -973,14 +997,14 @@ class _Session:
         self._require_policed("terminal/create")
         line = " ".join([command, *(args or [])])
         where = cwd or (str(self._worktree) if self._worktree is not None else None)
-        verdict = check_command(
+        verdict = self._rules(
             line,
             branch=self._current_branch(Path(where) if where is not None else None),
             worktree=self._policed_worktree(),
             cwd=Path(where).resolve() if where is not None else None,
         )
         if verdict.allowed:
-            verdict = check_no_push(line)
+            verdict = self._refusals(line)
         if verdict.allowed:
             verdict = self._read_only_verdict(line)
         if not verdict.allowed:

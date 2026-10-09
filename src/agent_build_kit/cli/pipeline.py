@@ -379,6 +379,18 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"{unit.estimated_lines}, landed {unit.actual_lines}"
             )
 
+    for held in Leases(lease_dir(inst.state_dir)).attachments():
+        owner = next((u for u in units if u.id == held.unit_id), None)
+        where = f" ({owner.repo})" if owner else ""
+        files = f"{held.changed} file{'' if held.changed == 1 else 's'}"
+        if held.stale:
+            log(
+                f"  attached: {held.unit_id}{where} — {files} left by a chat whose server has "
+                "gone; start the server or run `abk attach release`"
+            )
+        else:
+            log(f"  attached: {held.unit_id}{where} — a chat is open with {files} changed")
+
     for unit in units:
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")

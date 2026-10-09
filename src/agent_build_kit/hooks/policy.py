@@ -34,7 +34,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from agent_build_kit.pipeline.command_policy import check_command, check_no_push
+from agent_build_kit.pipeline.command_policy import (
+    Verdict,
+    check_command,
+    check_no_commit,
+    check_no_push,
+)
 from agent_build_kit.pipeline.scratch import carries_scratch
 
 
@@ -201,9 +206,13 @@ def decide(
     planning_change_dir: Path | None = None,
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
+    no_commit: bool = False,
+    refusals_only: bool = False,
 ) -> dict | None:
     """The hook's answer: a deny decision, or None for "no objection"."""
     try:
+        if refusals_only and payload.get("tool_name") != "Bash":
+            return None
         if payload.get("tool_name") in FILE_TOOLS:
             return _check_file_write(
                 payload, specs, planning_state_dir, planning_repo, planning_change_dir
@@ -218,6 +227,14 @@ def decide(
         cwd = payload.get("cwd")
         if not isinstance(cwd, str):
             return _deny("the policy hook could not read the working directory")
+
+        if refusals_only:
+            verdict = Verdict(allowed=True)
+            if no_push:
+                verdict = check_no_push(command)
+            if verdict.allowed and no_commit:
+                verdict = check_no_commit(command)
+            return None if verdict.allowed else _deny(verdict.reason)
 
         branch = _branch_of(cwd)
         if branch is None:
@@ -243,6 +260,8 @@ def decide(
         )
         if verdict.allowed and no_push:
             verdict = check_no_push(command)
+        if verdict.allowed and no_commit:
+            verdict = check_no_commit(command)
         if verdict.allowed:
             return None
         return _deny(verdict.reason)
@@ -259,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planning-change-dir", type=Path, default=None)
     parser.add_argument("--protected-branches", default="")
     parser.add_argument("--no-push", action="store_true")
+    parser.add_argument("--no-commit", action="store_true")
+    parser.add_argument("--refusals-only", action="store_true")
     try:
         args = parser.parse_args(argv)
         if args.branch_prefix:
@@ -286,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
         planning_change_dir=args.planning_change_dir,
         protected_branches=tuple(b for b in args.protected_branches.split(",") if b),
         no_push=args.no_push,
+        no_commit=args.no_commit,
+        refusals_only=args.refusals_only,
     )
     if answer is not None:
         print(json.dumps(answer))
@@ -301,6 +324,8 @@ def hook_settings(
     planning_change_dir: Path | None = None,
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
+    no_commit: bool = False,
+    refusals_only: bool = False,
 ) -> dict:
     """Settings that register this hook, for `claude -p --settings`.
 
@@ -317,6 +342,9 @@ def hook_settings(
     `protected_branches` are the branches repos integrate on beyond `main` and
     `master`, which a direct push is refused to; the hook is its own process and
     knows no workspace, so it has to be told.
+    `no_commit` refuses every `git commit`: a chat turn leaves its changes in the tree
+    for the person to commit. `refusals_only` leaves out everything else the hook
+    enforces, for a session that is the person's own.
     `no_push` refuses every `git push`, as the acp broker does: a unit run never
     pushes, the pipeline does, and a push is refused before it runs rather than
     found after.
@@ -334,6 +362,10 @@ def hook_settings(
         command += f" --protected-branches {','.join(protected_branches)}"
     if no_push:
         command += " --no-push"
+    if no_commit:
+        command += " --no-commit"
+    if refusals_only:
+        command += " --refusals-only"
     return {
         "hooks": {
             "PreToolUse": [

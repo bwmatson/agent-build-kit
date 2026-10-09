@@ -95,6 +95,17 @@ async def thread_position(saver: BaseCheckpointSaver, unit_id: str) -> Position:
     return _position(await _compiled(saver).aget_state(_config(unit_id)))
 
 
+async def clear_running_node(saver: BaseCheckpointSaver, unit_id: str) -> None:
+    """Forget the start a killed node left in `unit_id`'s thread, leaving the thread where it
+    is. A person has taken over the files that run left, so no later run is to take them for
+    its own."""
+    compiled = _compiled(saver)
+    where = _position(await compiled.aget_state(_config(unit_id)))
+    if where.state is None or not where.state.running_node:
+        return
+    await compiled.aupdate_state(_config(unit_id), {"running_node": ""})
+
+
 async def set_pending_replies(
     saver: BaseCheckpointSaver, unit_id: str, replies: tuple[str, ...]
 ) -> None:

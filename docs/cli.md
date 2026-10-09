@@ -230,6 +230,15 @@ the round. It merges nothing, pushes nothing and casts no vote on the host. It e
 recording nothing, for a unit with no pull request or no head and for a round that already
 has a decision. The web UI's approve button calls the same function.
 
+### `abk attach release UNIT [--commit MESSAGE | --discard]`
+
+Ends a chat's attachment to a unit without the server: the uncommitted changes a chat left
+in the unit's worktree are committed (`--commit`) or thrown away (`--discard`), and the lease
+is released, as one command. A dirty tree given neither is refused (exit 1, nothing changed),
+as is any call while a step holds the unit's branch. A commit a hook rejects prints the
+hook's output, exits 1 and keeps the changes and the lease. A clean tree is simply released.
+A unit the tick held as `attached` stays held; `abk requeue` returns it.
+
 ### `abk requeue UNIT [--restart | --rework]`
 
 Gives a `failed` or `held` unit another go. Three different things, and the
