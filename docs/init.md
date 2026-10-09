@@ -94,6 +94,12 @@ out, set `changelog: null`; all three actions are skipped. `abk doctor` warns
 about a repo with a changelog and no union rule. `--dry-run` prints one line per
 repo and action.
 
+The acceptance run is the real `abk init` over a scratch workspace of three code
+repos (one with an `AGENTS.md`, one with only a `CLAUDE.md`, one with neither),
+checking each repo's files and `git status`, then running it again to see that
+nothing changes. It needs node for the OpenSpec CLI and no agent. Run it with
+`uv run pytest -m local_stack tests/integration/test_init_conventions_workspace.py`.
+
 ### 4. Research
 
 For each language detected across the workspace (`typescript` folds into
