@@ -72,12 +72,13 @@ def test_a_unit_whose_head_moved_still_takes_the_checks_path(tmp_path: Path) -> 
     assert recorder.events.index("tier1") < recorder.events.index("review")
 
 
-def test_a_unit_with_a_pull_request_and_replies_still_owed_goes_to_the_pull_request_step(
-    tmp_path: Path,
-) -> None:
+def owed_replies(tmp_path: Path, *, feedback: str = "") -> tuple[Recorder, list[str]]:
+    """A unit with a pull request and a reply still owed, run through `prepare`."""
     recorder = pushed(tmp_path)
     recorder.store.set_state(UNIT, PLANNED, pr=5)
     recorder.prs[f"spec/{UNIT}"] = 5
+    if feedback:
+        recorder.store.set_feedback(UNIT, feedback)
     replies: list[str] = []
 
     async def seed_and_run() -> None:
@@ -95,12 +96,25 @@ def test_a_unit_with_a_pull_request_and_replies_still_owed_goes_to_the_pull_requ
             await run_unit(runner, recorder.store.get(UNIT), base="main", graph=[], saver=saver)
 
     asyncio.run(seed_and_run())
+    return recorder, replies
+
+
+def test_a_unit_with_a_pull_request_and_replies_still_owed_goes_to_the_pull_request_step(
+    tmp_path: Path,
+) -> None:
+    recorder, replies = owed_replies(tmp_path)
 
     assert replies == ["Done."]
     assert "claude:rework" not in recorder.events
     assert "review" not in recorder.events
     assert "push" not in recorder.events, "straight to the pull request step"
     assert recorder.store.get(UNIT).state == IN_REVIEW
+
+
+def test_a_unit_with_replies_owed_and_new_feedback_is_reworked(tmp_path: Path) -> None:
+    recorder, _ = owed_replies(tmp_path, feedback="Rename the helper.")
+
+    assert "claude:rework" in recorder.events, "the requested rework is not dropped"
 
 
 def test_a_stop_in_the_graph_fails_the_unit_with_its_reason_and_step(
