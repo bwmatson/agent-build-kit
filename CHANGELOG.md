@@ -14,6 +14,12 @@
   says it is stale and where it came from. A reading served from the cache file now reports
   its own source instead of passing for live. The pause line shows local time.
 
+- The usage endpoint is asked less and one failed request no longer pauses anything. A good
+  reading is reused for fifteen minutes (`usage_cache_minutes`) by every process, a rate-limit
+  answer starts a cool-down that all processes honour, a timeout is retried once, and a failed
+  call falls back to the last good reading younger than `usage_fallback_minutes` before the
+  editor's. The cause of a failed call is logged.
+
 - A runtime that names no models, such as ACP, now builds units: the nodes that write tests,
   implement, fix checks, rework and adapt, and a continued session, no longer fail at once with
   a missing `model` argument before the agent starts. An empty model means the agent's own

@@ -47,8 +47,11 @@ overnight.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -57,6 +60,7 @@ from typing import Literal
 
 from agent_build_kit.config import (
     CLAUDE_CODE,
+    ClaudeLimitsConfig,
     RuntimeConfig,
     UsageWindowConfig,
     active,
@@ -71,9 +75,13 @@ OAUTH_BETA_HEADER = "oauth-2025-04-20"
 CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
 DEFAULT_ANCHOR_PATH = Path.home() / ".claude.json"
 
-# The endpoint belongs to somebody else and a start-check runs often, so
-# repeated checks inside this window reuse the cached response.
-LIVE_TTL = timedelta(minutes=3)
+log = logging.getLogger(__name__)
+
+# After a rate-limit answer that names no time, no call is made for this long.
+DEFAULT_COOLDOWN = timedelta(minutes=5)
+
+# A timeout or connection error is retried once, after this many seconds.
+RETRY_DELAY_SECONDS = 0.5
 
 # How old a *cached-file* reading may be before it says nothing useful. The
 # five-hour window is the shorter of the two, so an hour is already a
@@ -430,39 +438,93 @@ def refresh_login() -> None:
     claude_code.refresh_login()
 
 
+def _limits() -> ClaudeLimitsConfig:
+    return active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
+
+
+def _cache_file() -> Path:
+    root = active_root()
+    state = (
+        root / active().planning.state_dir if root else Path.home() / ".cache" / "agent-build-kit"
+    )
+    return state / "usage-cache.json"
+
+
+def _load_cache(path: Path) -> dict:
+    try:
+        cached = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return cached if isinstance(cached, dict) else {}
+
+
+def _kept_reading(cached: dict) -> UsageReading | None:
+    """The reading kept in the cache file, labelled as what it is: not live."""
+    try:
+        fetched_at = datetime.fromisoformat(cached["fetched_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return _reading_from_payload(cached, observed_at=fetched_at, source="cache")
+
+
+def _cooldown_seconds(error: urllib.error.HTTPError) -> float:
+    try:
+        named = float(error.headers.get("Retry-After", ""))
+    except (AttributeError, TypeError, ValueError):
+        return DEFAULT_COOLDOWN.total_seconds()
+    return named if named > 0 else DEFAULT_COOLDOWN.total_seconds()
+
+
+def _past_reset(reading: UsageReading, now: datetime) -> bool:
+    """Whether a window the reading describes has reset since it was taken."""
+    return any(
+        w.resets_at is not None and reading.observed_at < w.resets_at <= now
+        for w in reading.windows
+    )
+
+
 def read_live_usage(
     *,
     token: str | None = None,
     fetch: Fetch = _http_get_json,
     cache_path: Path | None = None,
-    ttl: timedelta = LIVE_TTL,
+    ttl: timedelta | None = None,
     expired: Callable[[], bool] | None = None,
     refresh: Callable[[], None] | None = None,
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.
 
-    The response is cached to `cache_path` so repeated start-checks inside
-    `ttl` don't hammer somebody else's service. The token is never written
+    A good answer is kept in `cache_path` for `ttl` (the configured cache time),
+    so every reader in every process shares it, and never past the reset of a
+    window it describes. A rate-limit answer starts a cool-down, kept in the same
+    file, during which no call is made; a timeout or connection error is retried
+    once. When the call fails the last good reading stands in while it is younger
+    than the configured fallback age, labelled `cache`. The token is never written
     there.
     """
-    if cache_path is None:
-        root = active_root()
-        state = (
-            root / active().planning.state_dir
-            if root
-            else Path.home() / ".cache" / "agent-build-kit"
-        )
-        cache_path = state / "usage-cache.json"
+    cache_path = cache_path or _cache_file()
+    limits = _limits()
+    if ttl is None:
+        ttl = timedelta(minutes=limits.usage_cache_minutes)
+    fallback_age = timedelta(minutes=limits.usage_fallback_minutes)
     now = datetime.now(UTC)
 
-    if cache_path.exists() and ttl > timedelta(0):
-        try:
-            cached = json.loads(cache_path.read_text())
-            fetched_at = datetime.fromisoformat(cached["fetched_at"])
-            if now - fetched_at < ttl:
-                return _reading_from_payload(cached, observed_at=fetched_at, source="cache")
-        except (OSError, ValueError, KeyError, TypeError):
-            pass  # A bad cache is just a cache miss.
+    cached = _load_cache(cache_path)
+    kept = _kept_reading(cached)
+
+    def last_good() -> UsageReading | None:
+        return kept if kept is not None and now - kept.observed_at < fallback_age else None
+
+    if kept is not None and ttl > timedelta(0) and now - kept.observed_at < ttl:
+        if not _past_reset(kept, now):
+            return kept
+
+    try:
+        cooling = datetime.fromisoformat(cached["cooldown_until"]) > now
+    except (KeyError, TypeError, ValueError):
+        cooling = False
+    if cooling:
+        return last_good()
 
     given = token
     token = token or read_oauth_token()
@@ -475,23 +537,45 @@ def read_live_usage(
             {"Authorization": f"Bearer {bearer}", "anthropic-beta": OAUTH_BETA_HEADER},
         )
 
+    def failed(error: Exception) -> UsageReading | None:
+        cause = (
+            f"HTTP {error.code}"
+            if isinstance(error, urllib.error.HTTPError)
+            else type(error).__name__
+        )
+        log.warning("the usage endpoint failed (%s); using the last good reading if any", cause)
+        return last_good()
+
     try:
         payload = ask(token)
-    except Exception:
+    except urllib.error.HTTPError as error:
+        if error.code != 429:
+            return failed(error)
+        until = now + timedelta(seconds=_cooldown_seconds(error))
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({**cached, "cooldown_until": until.isoformat()}))
+        except (OSError, TypeError):
+            pass
+        return failed(error)
+    except Exception as error:
         # An expired token is the one failure with a known fix; see
         # `refresh_login`. Only for the saved token, never one passed in.
-        if given is not None or not (expired or token_expired)():
-            # Any other failure — offline, 429, a contract that changed — is
-            # "unknown", which pauses. Never an excuse to assume headroom.
-            return None
-        (refresh or refresh_login)()
-        fresh = read_oauth_token()
-        if not fresh or fresh == token:
-            return None
-        try:
-            payload = ask(fresh)
-        except Exception:
-            return None
+        if given is None and (expired or token_expired)():
+            (refresh or refresh_login)()
+            fresh = read_oauth_token()
+            if not fresh or fresh == token:
+                return failed(error)
+            try:
+                payload = ask(fresh)
+            except Exception as again:
+                return failed(again)
+        else:
+            time.sleep(RETRY_DELAY_SECONDS)
+            try:
+                payload = ask(token)
+            except Exception as again:
+                return failed(again)
 
     reading = _reading_from_payload(payload, observed_at=now, source="live")
     if reading is None:
