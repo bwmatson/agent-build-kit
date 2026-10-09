@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline.pr_poller import Poller
+from tests.check_lists import cancelled_list, failed_list
 
 HOLD = ("agent-hold",)
 
@@ -132,7 +133,7 @@ def test_a_comment_arriving_with_the_release_is_delivered_by_the_next_poll(polle
 
 
 def test_a_failing_check_arriving_with_the_release_is_delivered_by_the_next_poll(poller) -> None:
-    red = pr(failing_checks=("CI",))
+    red = pr(checks=failed_list("CI"))
     instance, seen = poller([[pr(labels=HOLD)], [red], [red], [red]])
     for _ in range(4):
         instance.poll()
@@ -141,7 +142,7 @@ def test_a_failing_check_arriving_with_the_release_is_delivered_by_the_next_poll
 
 
 def test_a_cancelled_check_arriving_with_the_release_is_delivered_by_the_next_poll(poller) -> None:
-    cancelled = pr(cancelled_checks=("CI",))
+    cancelled = pr(checks=cancelled_list("CI"))
     instance, seen = poller([[pr(labels=HOLD)], [cancelled], [cancelled], [cancelled]])
     for _ in range(4):
         instance.poll()

@@ -17,7 +17,7 @@ treating every open PR as new.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agent_build_kit.config import active
 from agent_build_kit.forges import PullRequest
+from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline.unit_store import ReworkKind
 from agent_build_kit.pipeline.units import CLOSED, MERGED
 
@@ -112,14 +113,39 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         "comment_ids": sorted(ids),
         "review_decision": pull.review_decision,
         "labels": sorted(pull.labels),
-        "failing_checks": sorted(pull.failing_checks),
-        # Apart from the failing ones: the host cancelling a check is not a
-        # verdict on the commit, so it is re-run, not reworked.
-        "cancelled_checks": sorted(pull.cancelled_checks),
+        # Each check's status by name. A cancelled one is apart from the failed:
+        # the host cancelling a check is not a verdict on the commit, so it is
+        # re-run, not reworked. Snapshots recorded before this held two name
+        # lists instead and carry no `checks` key.
+        "checks": _statuses_by_name(pull.checks),
         "head": pull.head,
         # True, False, or None while the host has not worked it out.
         "mergeable": pull.mergeable,
     }
+
+
+# Most severe first. Checks can share a name (two workflows each with a job
+# `build`), and a name stands for the worst of them: a failure must not be
+# hidden behind a pass that happens to be listed after it.
+_SEVERITY = (
+    CheckStatus.FAILED,
+    CheckStatus.CANCELLED,
+    CheckStatus.PENDING,
+    CheckStatus.PASSED,
+)
+
+
+def _statuses_by_name(checks: Sequence[Check]) -> dict[str, str]:
+    worst: dict[str, CheckStatus] = {}
+    for check in checks:
+        held = worst.get(check.name)
+        if held is None or _SEVERITY.index(check.status) < _SEVERITY.index(held):
+            worst[check.name] = check.status
+    return {name: str(worst[name]) for name in sorted(worst)}
+
+
+def _with_status(checks: dict[str, str], status: CheckStatus) -> set[str]:
+    return {name for name, held in checks.items() if held == status}
 
 
 def _keep_unseen(before: dict, after: dict, labels: list[str]) -> None:
@@ -244,14 +270,15 @@ class Poller(BaseModel):
             return self.dispatch("merged", number, pull=pull)
         if current["state"] == CLOSED:
             return self.dispatch("closed", number, pull=pull)
-        if current["cancelled_checks"]:
+        if _with_status(current["checks"], CheckStatus.CANCELLED):
             self.dispatch("rerun_checks", number, pull=pull)
-        if current["failing_checks"]:
+        failing = sorted(_with_status(current["checks"], CheckStatus.FAILED))
+        if failing:
             return self.dispatch(
                 "rework",
                 number,
                 pull=pull,
-                reason=f"{FAILING_CHECKS_REASON}: {', '.join(current['failing_checks'])}",
+                reason=f"{FAILING_CHECKS_REASON}: {', '.join(failing)}",
                 rework=ReworkKind.FAILING_CHECKS,
             )
         if current["mergeable"] is False:
@@ -278,7 +305,16 @@ class Poller(BaseModel):
             return self.dispatch("closed", number, pull=pull)
 
         before_labels = list(before.get("labels") or [])
-        newly_cancelled = set(after["cancelled_checks"]) - set(before.get("cancelled_checks") or [])
+        # A snapshot from before the list of checks has no statuses to compare
+        # with: it is recorded afresh below, and no check is news until the next.
+        known_checks = "checks" in before
+        before_checks: dict[str, str] = before.get("checks") or {}
+        newly_cancelled = (
+            _with_status(after["checks"], CheckStatus.CANCELLED)
+            - _with_status(before_checks, CheckStatus.CANCELLED)
+            if known_checks
+            else set()
+        )
         if newly_cancelled:
             # Before anything that returns, so a comment arriving with it does
             # not swallow it. A check that is re-run leaves the list, so being
@@ -288,7 +324,8 @@ class Poller(BaseModel):
                 # A held unit's checks are left alone and that is reported as
                 # handled: recorded as seen, the check would stay cancelled after
                 # the release, with nothing left to ask the host again.
-                after["cancelled_checks"] = before.get("cancelled_checks") or []
+                for name in newly_cancelled:
+                    del after["checks"][name]
 
         labels_added = set(after["labels"]) - set(before_labels)
         if HOLD_LABEL in labels_added:
@@ -348,7 +385,14 @@ class Poller(BaseModel):
                 "rework", number, pull=pull, reason="new comment", rework=ReworkKind.COMMENT
             )
 
-        newly_failing = set(after["failing_checks"]) - set(before.get("failing_checks") or [])
+        newly_failing = (
+            sorted(
+                _with_status(after["checks"], CheckStatus.FAILED)
+                - _with_status(before_checks, CheckStatus.FAILED)
+            )
+            if known_checks
+            else []
+        )
         if newly_failing:
             # Only newly failing: a check that was already red is not news, and
             # green is the expected state rather than an event.

@@ -40,6 +40,7 @@ from pathlib import Path
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
+from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.pr_poller import FAILING_CHECKS_REASON  # noqa: F401 — re-exported
@@ -827,7 +828,7 @@ def build_fetch_check_logs(
             return ""
         forge, repo_id = for_repo(repo)
         text = forge.failed_check_logs(repo_id, pull)
-        if not pull.failing_checks:
+        if not failing_names(pull.checks):
             return text
         # Whatever the host could say, a rework is also told to run what CI
         # runs. A host may have no log to give (GitHub for a run still going,
@@ -1182,7 +1183,7 @@ def on_rerun_checks(
     head = unit.pushed or ""
     done = unit.check_reruns if unit.check_rerun_head == head else 0
     limit = active().limits.max_check_reruns
-    names = ", ".join(pull.cancelled_checks)
+    names = ", ".join(cancelled_names(pull.checks))
     if done >= limit:
         log(
             f"rerun #{pr}: {unit.id} at {head}: the host keeps cancelling the checks "

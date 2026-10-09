@@ -32,6 +32,8 @@ from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.forges.base import (
     BaseMissing,
+    Check,
+    CheckStatus,
     FileChange,
     Label,
     PullRequest,
@@ -40,6 +42,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    failing_names,
     fit_description,
     key,
 )
@@ -134,6 +137,7 @@ query($owner: String!, $name: String!, $number: Int!) {
 )
 _DRAFT = {True: "convertPullRequestToDraft", False: "markPullRequestReadyForReview"}
 
+_PASSING = ("SUCCESS", "NEUTRAL", "SKIPPED")
 _FAILING = ("FAILURE", "TIMED_OUT")
 _CANCELLED = ("CANCELLED",)
 _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
@@ -579,7 +583,7 @@ class GitHubForge:
         "failing checks: <name>" is not enough when the failure is a test tier
         1 never ran, and nothing local can say why.
         """
-        if not pull.failing_checks:
+        if not failing_names(pull.checks):
             return ""
         failed, runs = self._runs_with(repo, pull.number, _FAILING)
         names = ", ".join(str(c.name) for c in failed)
@@ -919,8 +923,19 @@ def _rollup(commits: Any) -> list[CheckNode]:
     ]
 
 
-def _named(checks: list[CheckNode], conclusions: Collection[str]) -> tuple[str, ...]:
-    return tuple(sorted(str(c.name) for c in checks if (c.conclusion or "").upper() in conclusions))
+def _check(node: CheckNode) -> Check:
+    """A check run as a check. No conclusion means it has not finished, and a
+    conclusion this forge does not know is waiting, never a verdict."""
+    conclusion = (node.conclusion or "").upper()
+    if conclusion in _PASSING:
+        status = CheckStatus.PASSED
+    elif conclusion in _FAILING:
+        status = CheckStatus.FAILED
+    elif conclusion in _CANCELLED:
+        status = CheckStatus.CANCELLED
+    else:
+        status = CheckStatus.PENDING
+    return Check(name=str(node.name), status=status, url=node.details_url or "")
 
 
 def _view(pull: PullNode) -> PullRequest:
@@ -937,8 +952,7 @@ def _view(pull: PullNode) -> PullRequest:
         conversation=tuple(_conversation(pull)),
         comment_bodies=tuple(c.body or "" for c in pull.comments.nodes) if pull.comments else (),
         review_decision="changes_requested" if pull.review_decision == "CHANGES_REQUESTED" else "",
-        failing_checks=_named(checks, _FAILING),
-        cancelled_checks=_named(checks, _CANCELLED),
+        checks=tuple(_check(node) for node in checks),
         # UNKNOWN is what GitHub says until it has worked the answer out.
         mergeable=_MERGEABLE.get(pull.mergeable or ""),
     )

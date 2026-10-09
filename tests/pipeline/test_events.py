@@ -31,6 +31,7 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.usage_guard import Interrupted, RateLimited
 from agent_build_kit.pipeline.workspaces import branch_lock
+from tests.check_lists import failed_list
 from tests.factories import stored_unit as unit
 from tests.forges.stand_in import StandInForge, lookup
 
@@ -1505,7 +1506,7 @@ def test_the_review_is_fetched_from_the_repo_the_event_was_reported_for(
 
 def checks_pull(*names: str) -> PullRequest:
     return PullRequest(
-        number=1, head="spec/add-marker/1", base="main", state="open", failing_checks=names
+        number=1, head="spec/add-marker/1", base="main", state="open", checks=failed_list(*names)
     )
 
 

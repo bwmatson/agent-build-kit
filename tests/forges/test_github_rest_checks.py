@@ -15,6 +15,7 @@ import pytest
 
 from agent_build_kit.forges.base import PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
+from tests.check_lists import failed_list
 from tests.forges import github_answers as gh
 from tests.forges.github_host import STORAGE, GitHubHost, answer, refusal
 
@@ -135,7 +136,7 @@ JOB = 110472774948
 
 def failing_pull(failing: tuple[str, ...] = ("pre-commit",)) -> PullRequest:
     return PullRequest(
-        number=50, head="spec/x/1", base="main", state="open", failing_checks=failing
+        number=50, head="spec/x/1", base="main", state="open", checks=failed_list(*failing)
     )
 
 

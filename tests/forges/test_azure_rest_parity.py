@@ -10,7 +10,14 @@ from __future__ import annotations
 import pytest
 
 from agent_build_kit.forges.azure_devops import AzureDevOpsForge
-from agent_build_kit.forges.base import PullRequest, RepoId
+from agent_build_kit.forges.base import (
+    Check,
+    CheckStatus,
+    PullRequest,
+    RepoId,
+    cancelled_names,
+    failing_names,
+)
 from agent_build_kit.pipeline.units import MERGED
 from tests.forges import azure_answers
 from tests.forges.azure_rest_host import RestHost
@@ -18,6 +25,9 @@ from tests.forges.azure_rest_host import RestHost
 pytestmark = pytest.mark.usefixtures("rest_env")
 
 REPO = RepoId(forge="azure_devops", account="acme", project="Some Project", name="Some Repo")
+
+POLICY_BUILD = "https://dev.azure.com/acme/Some%20Project/_build/results?buildId="
+BUILD = "https://dev.azure.com/acme/_build/results?buildId=1"
 
 
 def listing(host: RestHost, **kwargs) -> list[PullRequest]:
@@ -80,8 +90,13 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
                 "Addressed in a1b2c3d.",
                 "Confirmed against real data, thanks.",
             ),
-            failing_checks=("CI build", "continuous-integration/build"),
-            cancelled_checks=("slow build",),
+            checks=(
+                Check(name="continuous-integration/build", status=CheckStatus.FAILED, url=BUILD),
+                Check(name="continuous-integration/lint", status=CheckStatus.PASSED, url=BUILD),
+                Check(name="lint", status=CheckStatus.PASSED, url=POLICY_BUILD + "41"),
+                Check(name="CI build", status=CheckStatus.FAILED, url=POLICY_BUILD + "41"),
+                Check(name="slow build", status=CheckStatus.CANCELLED, url=POLICY_BUILD + "42"),
+            ),
         ),
         PullRequest(
             number=170,
@@ -195,22 +210,22 @@ def test_a_failed_build_policy_is_a_failing_check(status: str) -> None:
         builds={41: "failed"},
     )
 
-    assert pull.failing_checks == ("CI build",)
-    assert pull.cancelled_checks == ()
+    assert failing_names(pull.checks) == ("CI build",)
+    assert cancelled_names(pull.checks) == ()
 
 
 @pytest.mark.parametrize("status", ["running", "queued", "approved", "notApplicable"])
 def test_a_build_policy_that_is_not_finished_badly_is_not_reported(status: str) -> None:
     pull = one(azure_answers.OPEN, policies={162: [azure_answers.evaluation(status)]})
 
-    assert pull.failing_checks == pull.cancelled_checks == ()
+    assert failing_names(pull.checks) == cancelled_names(pull.checks) == ()
 
 
 def test_a_rejected_policy_that_is_not_a_build_is_not_a_failing_check() -> None:
     reviewers = {"id": "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", "displayName": "Reviewers"}
     evaluation = azure_answers.evaluation("rejected", "Reviewers", reviewers)
 
-    assert one(azure_answers.OPEN, policies={162: [evaluation]}).failing_checks == ()
+    assert failing_names(one(azure_answers.OPEN, policies={162: [evaluation]}).checks) == ()
 
 
 def test_a_cancelled_build_is_cancelled_and_not_failing() -> None:
@@ -220,8 +235,8 @@ def test_a_cancelled_build_is_cancelled_and_not_failing() -> None:
         builds={41: "canceled"},
     )
 
-    assert pull.cancelled_checks == ("CI build",)
-    assert pull.failing_checks == ()
+    assert cancelled_names(pull.checks) == ("CI build",)
+    assert failing_names(pull.checks) == ()
 
 
 def test_a_mixed_outcome_is_reported_in_both_lists() -> None:
@@ -233,14 +248,14 @@ def test_a_mixed_outcome_is_reported_in_both_lists() -> None:
         builds={41: "canceled", 42: "failed"},
     )
 
-    assert pull.cancelled_checks == ("CI build",)
-    assert pull.failing_checks == ("lint build",)
+    assert cancelled_names(pull.checks) == ("CI build",)
+    assert failing_names(pull.checks) == ("lint build",)
 
 
 def test_an_evaluation_with_no_build_to_ask_about_is_a_failure() -> None:
     pull = one(azure_answers.OPEN, policies={162: [evaluated("broken", "CI build", None)]})
 
-    assert pull.failing_checks == ("CI build",)
+    assert failing_names(pull.checks) == ("CI build",)
 
 
 def test_the_newest_status_of_each_genre_and_name_is_the_one_in_force() -> None:
@@ -251,13 +266,13 @@ def test_the_newest_status_of_each_genre_and_name_is_the_one_in_force() -> None:
 
     pull = one(azure_answers.OPEN, statuses={162: [newer, still, pending, older]})
 
-    assert pull.failing_checks == ("ci/lint",)
+    assert failing_names(pull.checks) == ("ci/lint",)
 
 
 def test_a_status_with_no_genre_is_named_by_its_name() -> None:
     status = {"id": 1, "state": "failed", "context": {"genre": None, "name": "smoke"}}
 
-    assert one(azure_answers.OPEN, statuses={162: [status]}).failing_checks == ("smoke",)
+    assert failing_names(one(azure_answers.OPEN, statuses={162: [status]}).checks) == ("smoke",)
 
 
 # --- conversation -----------------------------------------------------------------

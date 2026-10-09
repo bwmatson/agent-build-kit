@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable, Collection, Sequence
+from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 from agent_build_kit.model import Frozen
@@ -86,6 +87,53 @@ class FileChange(Frozen):
     deletions: int
 
 
+class CheckStatus(StrEnum):
+    """What a check came to, in the pipeline's words rather than a host's."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PENDING = "pending"
+
+
+class Check(Frozen):
+    """One check on a pull request: a name, a status and the host's link, if any."""
+
+    name: str
+    status: CheckStatus
+    url: str = ""
+
+
+def _named(checks: Sequence[Check], status: CheckStatus) -> tuple[str, ...]:
+    return tuple(sorted(check.name for check in checks if check.status == status))
+
+
+def failing_names(checks: Sequence[Check]) -> tuple[str, ...]:
+    """The names of the failed checks, sorted."""
+    return _named(checks, CheckStatus.FAILED)
+
+
+def cancelled_names(checks: Sequence[Check]) -> tuple[str, ...]:
+    """The names of the cancelled checks, sorted."""
+    return _named(checks, CheckStatus.CANCELLED)
+
+
+def overall_result(checks: Sequence[Check]) -> str:
+    """`failed`, `pending`, `passed`, or `none` for an empty list.
+
+    A list of cancelled checks only reads as pending: a cancelled check is neither
+    a pass nor a verdict, and the re-run path expects it to be waited on.
+    """
+    if not checks:
+        return "none"
+    statuses = {check.status for check in checks}
+    if CheckStatus.FAILED in statuses:
+        return "failed"
+    if statuses & {CheckStatus.PENDING, CheckStatus.CANCELLED}:
+        return "pending"
+    return "passed"
+
+
 class PullRequest(Frozen):
     """One pull request, as the poller needs to see it.
 
@@ -108,9 +156,8 @@ class PullRequest(Frozen):
     # them in both places would quote one twice.
     comment_bodies: tuple[str, ...] = ()
     review_decision: str = ""
-    failing_checks: tuple[str, ...] = ()
-    # Checks the host cancelled: neither a pass nor a verdict on the commit.
-    cancelled_checks: tuple[str, ...] = ()
+    # Every check the host reports on the newest commit, each with a status.
+    checks: tuple[Check, ...] = ()
     # Whether the host says the branch merges into its base; None while the
     # host has not worked it out, which is not a conflict.
     mergeable: bool | None = None

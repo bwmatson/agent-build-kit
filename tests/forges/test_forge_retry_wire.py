@@ -16,6 +16,7 @@ from agent_build_kit.forges.base import COMMENT_MARKER, PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.resilient import ResilientForge, RetryPolicy
 from agent_build_kit.forges.transport import HostUnavailable
+from tests.check_lists import failed_list
 from tests.fake_clock import FakeClock
 from tests.forges import azure_answers
 from tests.forges import github_answers as gh
@@ -42,7 +43,7 @@ def wrap(inner: Any) -> ResilientForge:
 
 def failing(number: int) -> PullRequest:
     return PullRequest(
-        number=number, head="spec/x/1", base="main", state="open", failing_checks=("pre-commit",)
+        number=number, head="spec/x/1", base="main", state="open", checks=failed_list("pre-commit")
     )
 
 
