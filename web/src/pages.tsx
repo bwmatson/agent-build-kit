@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -153,11 +153,17 @@ export function UnitPage({ review = false }: { review?: boolean }) {
   const unit = useApi<UnitDetail>(`/api/units/${name}`, reload);
   const [chosen, setTab] = useState<(typeof TABS)[number]>("Status");
   const navigate = useNavigate();
-  const handed = (useLocation().state as { attachment?: Attachment } | null)?.attachment;
-  const attachments = useMemo(() => (handed ? [handed] : []), [handed]);
+  const location = useLocation();
+  const arrived = (location.state as { attachment?: Attachment } | null)?.attachment;
+  // What the review tab handed over, kept here until a turn carries it or its chip is removed.
+  // The location state is consumed at once, so a reload does not bring it back.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   useEffect(() => {
-    if (handed) setTab("Agent");
-  }, [handed]);
+    if (!arrived) return;
+    setAttachments([arrived]);
+    setTab("Agent");
+    navigate(location.pathname, { replace: true, state: null });
+  }, [arrived, location.pathname, navigate]);
   const tab = review ? "Review" : chosen;
 
   function open(t: (typeof TABS)[number]) {
@@ -188,7 +194,15 @@ export function UnitPage({ review = false }: { review?: boolean }) {
             {tab === "Status" && <Status unit={detail} />}
             <Actions unit={detail} changed={() => setReload((n) => n + 1)} />
             {tab === "Logs" && <LogsTab name={name} />}
-            {tab === "Agent" && <AgentTab name={name} attachments={attachments} />}
+            {tab === "Agent" && (
+              <AgentTab
+                name={name}
+                attachments={attachments}
+                onSpent={(spent) =>
+                  setAttachments((held) => held.filter((a) => !spent.includes(a)))
+                }
+              />
+            )}
             {tab === "Usage" && <UsageTab name={name} />}
             {tab === "Review" && <ReviewTab />}
           </>

@@ -11,12 +11,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
+from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import local_ref
-from agent_build_kit.pipeline.workspaces import changed_paths
+from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
 
 Decision = Literal["request_changes", "approve"]
 
@@ -109,9 +111,17 @@ class WorkingChanges(Frozen):
     patch: str
 
 
+def unit_worktree(installation: Installation, unit: StoredUnit) -> Path | None:
+    """The unit's worktree, or None while it has none."""
+    if not unit.branch or unit.repo not in installation.checkouts:
+        return None
+    path = worktree_path(installation.checkouts[unit.repo], unit.branch, installation.worktree_root)
+    return path if path.is_dir() else None
+
+
 def working_changes(tree: Path | None) -> WorkingChanges:
     """What the worktree `tree` holds uncommitted, as a patch against the commit it stands on,
-    untracked files shown as additions. Nothing when there is no worktree."""
+    untracked files shown as additions. Nothing when `tree` is None, the unit having none."""
     if tree is None:
         return WorkingChanges(commit="", files=(), patch="")
     commit = git(tree, "rev-parse", "HEAD").stdout.strip()

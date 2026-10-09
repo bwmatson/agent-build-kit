@@ -159,10 +159,13 @@ export function usePresence(tab: string): void {
 export function AgentTab({
   name,
   attachments = [],
+  onSpent,
 }: {
   name: string;
   /** Pieces of the diff chosen as context for the next turn. */
   attachments?: Attachment[];
+  /** Attachments that were sent or removed, which are not offered again. */
+  onSpent?: (spent: Attachment[]) => void;
 }): ReactElement {
   const [tab] = useState(newTab);
   const [version, setVersion] = useState(0);
@@ -278,7 +281,11 @@ export function AgentTab({
         <Composer
           attachments={attachments}
           disabledReason={agent.composer.enabled ? undefined : agent.composer.reason}
-          onSend={(turn) => void send(turn)}
+          onRemove={(removed) => onSpent?.([removed])}
+          onSend={(turn) => {
+            onSpent?.(turn.attachments);
+            void send(turn);
+          }}
         />
       )}
     </section>

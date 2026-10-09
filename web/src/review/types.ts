@@ -31,4 +31,6 @@ export interface LineRange {
   side: "old" | "new";
   start: number;
   end: number;
+  /** The lines are in the uncommitted changes' section, not the branch's diff. */
+  working?: boolean;
 }

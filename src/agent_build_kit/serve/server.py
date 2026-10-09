@@ -37,7 +37,6 @@ from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
-from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.serve.actions import available as available_actions
 from agent_build_kit.serve.actions import register as register_actions
 from agent_build_kit.serve.chat import register as register_chat
@@ -52,6 +51,7 @@ from agent_build_kit.serve.review import (
     relocate,
     resolve_commit,
     unit_diff,
+    unit_worktree,
     working_changes,
 )
 from agent_build_kit.settings import settings
@@ -313,11 +313,7 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     @app.get("/api/units/{change}/{number}/review/working")
     def working(change: str, number: str) -> dict[str, Any]:
         unit, _ = find(change, number)
-        repo = installation.checkouts.get(unit.repo)
-        tree = worktree_path(repo, unit.branch, installation.worktree_root) if repo else None
-        if tree is None or not unit.branch or not tree.is_dir():
-            return working_changes(None).model_dump()
-        return working_changes(tree).model_dump()
+        return working_changes(unit_worktree(installation, unit)).model_dump()
 
     @app.get("/api/units/{change}/{number}/review")
     def review(change: str, number: str) -> dict[str, Any]:

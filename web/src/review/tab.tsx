@@ -42,6 +42,7 @@ interface Focus {
   path: string;
   side: "old" | "new";
   line: number | null;
+  working?: boolean;
 }
 
 function parseLines(value: string | null): { start: number; end: number } | null {
@@ -59,19 +60,27 @@ function lineSelector(focus: Focus): string {
   return `[data-path="${quoted(focus.path)}"][data-${focus.side}-line="${focus.line}"]`;
 }
 
-/** The file, lines, hunk and text of `range` in `patch`, or null where the patch lacks them. */
+/** The part of the page a focus is in: the uncommitted section, or the branch's diff, which
+ * comes first, so its first match is its own. */
+function sectionOf(focus: Focus): ParentNode {
+  return (focus.working && document.querySelector('[data-working="true"]')) || document;
+}
+
+/** The file, lines, hunk and text of `range` in `patch`: every hunk the range touches and the
+ * lines of it the patch shows. Null where the patch shows none of them. */
 function attachmentOf(patch: string, range: LineRange): Attachment | null {
   const sections = patch.split(/^(?=diff --git )/m);
   const section = sections.find((part) => part.startsWith(`diff --git a/${range.path} b/`));
   if (!section) return null;
-  const hunks = section.split(/^(?=@@ )/m).slice(1);
-  for (const hunk of hunks) {
+  const touched: string[] = [];
+  const picked: string[] = [];
+  for (const hunk of section.split(/^(?=@@ )/m).slice(1)) {
     const [header, ...body] = hunk.replace(/\n$/, "").split("\n");
     const start = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(header);
     if (!start) continue;
     let oldLine = Number(start[1]);
     let newLine = Number(start[2]);
-    const picked: string[] = [];
+    const before = picked.length;
     for (const row of body) {
       if (row.startsWith("\\")) continue;
       const mark = row[0];
@@ -81,16 +90,15 @@ function attachmentOf(patch: string, range: LineRange): Attachment | null {
       if (mark !== "+") oldLine++;
       if (mark !== "-") newLine++;
     }
-    if (picked.length > 0) {
-      return {
-        file: range.path,
-        lines: [range.start, range.end],
-        hunk: hunk.replace(/\n$/, ""),
-        text: picked.join("\n"),
-      };
-    }
+    if (picked.length > before) touched.push(hunk.replace(/\n$/, ""));
   }
-  return null;
+  if (picked.length === 0) return null;
+  return {
+    file: range.path,
+    lines: [range.start, range.end],
+    hunk: touched.join("\n"),
+    text: picked.join("\n"),
+  };
 }
 
 const DECISION_LABELS = { request_changes: "Request changes", approve: "Approve" } as const;
@@ -241,7 +249,8 @@ function UnitReview({ name }: { name: string }): ReactElement {
   const lines = useMemo(() => parseLines(linesText), [linesText]);
   const commit = params.get("commit");
   const side = params.get("side") === "old" ? "old" : "new";
-  const address = [file, linesText, side, commit].join("|");
+  const inWorking = params.get("working") === "1";
+  const address = [file, linesText, side, commit, inWorking].join("|");
   const threads = edited ?? answer?.threads ?? [];
   const decisions = decided ?? answer?.decisions ?? [];
 
@@ -251,7 +260,7 @@ function UnitReview({ name }: { name: string }): ReactElement {
     setGone(false);
     if (!file || !lines) return;
     if (!commit) {
-      setFocus({ path: file, side, line: lines.start });
+      setFocus({ path: file, side, line: lines.start, working: inWorking });
       return;
     }
     const query = new URLSearchParams({ file, line: String(lines.start), side, commit });
@@ -275,21 +284,21 @@ function UnitReview({ name }: { name: string }): ReactElement {
     return () => {
       current = false;
     };
-  }, [patch, address, file, lines, commit, side, name]);
+  }, [patch, address, file, lines, commit, side, name, inWorking]);
 
   useEffect(() => {
     if (focus === null || patch === null) return;
     const target =
-      (focus.line !== null && document.querySelector(lineSelector(focus))) ||
-      document.querySelector(`[data-file="${quoted(focus.path)}"]`);
+      (focus.line !== null && sectionOf(focus).querySelector(lineSelector(focus))) ||
+      sectionOf(focus).querySelector(`[data-file="${quoted(focus.path)}"]`);
     target?.scrollIntoView({ block: "center" });
   }, [focus, patch]);
 
   const selection: LineRange | null = useMemo(() => {
     if (!file || !lines) return null;
     if (commit) return located ? { path: file, side, ...located } : null;
-    return { path: file, side, ...lines };
-  }, [file, lines, commit, side, located]);
+    return { path: file, side, ...lines, working: inWorking };
+  }, [file, lines, commit, side, located, inWorking]);
 
   function select(range: LineRange | null) {
     setLocated(null);
@@ -302,7 +311,8 @@ function UnitReview({ name }: { name: string }): ReactElement {
     const text = range.start === range.end ? String(range.start) : `${range.start}-${range.end}`;
     const next: Record<string, string> = { file: range.path, lines: text };
     if (range.side === "old") next.side = "old";
-    written.current = [range.path, text, range.side, null].join("|");
+    if (range.working) next.working = "1";
+    written.current = [range.path, text, range.side, null, !!range.working].join("|");
     setParams(next);
   }
 
@@ -314,7 +324,7 @@ function UnitReview({ name }: { name: string }): ReactElement {
 
   const workingPatch = working && "data" in working ? working.data.patch : "";
   const workingFiles = useMemo(() => patchFiles(workingPatch), [workingPatch]);
-  const uncommitted = selection !== null && workingFiles.includes(selection.path);
+  const uncommitted = selection?.working === true;
 
   function ask(range: LineRange) {
     const found = attachmentOf(uncommitted ? workingPatch : (patch ?? ""), range);
@@ -433,22 +443,25 @@ function UnitReview({ name }: { name: string }): ReactElement {
       <DiffViewer
         patch={diff.data.patch}
         threads={threads}
-        selection={selection}
+        selection={uncommitted ? null : selection}
         onSelect={select}
         onReply={reply}
         onResolve={resolve}
-        reveal={focus?.path ?? null}
+        reveal={focus && !focus.working ? focus.path : null}
       />
       {workingFiles.length > 0 && (
-        <section aria-label="Uncommitted changes">
+        <section aria-label="Uncommitted changes" data-working="true">
           <h2>Uncommitted changes</h2>
-          <p>Not yet committed: these were made in a chat, and cannot be commented on.</p>
+          <p>
+            Not yet committed: these changes are in the unit&apos;s worktree and cannot be commented
+            on.
+          </p>
           <DiffViewer
             patch={workingPatch}
             threads={[]}
-            selection={selection}
-            onSelect={select}
-            reveal={focus?.path ?? null}
+            selection={uncommitted ? selection : null}
+            onSelect={(range) => select(range && { ...range, working: true })}
+            reveal={focus?.working ? focus.path : null}
           />
         </section>
       )}
