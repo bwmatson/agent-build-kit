@@ -46,7 +46,7 @@ def remote_repo(path: Path) -> Path:
     """The same, with a bare `origin` that holds `main`."""
     repo = local_repo(path / "clone")
     origin = path / "origin.git"
-    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
     git(repo, "remote", "add", "origin", str(origin))
     git(repo, "push", "-q", "origin", "main")
     return repo
