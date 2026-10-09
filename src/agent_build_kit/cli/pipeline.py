@@ -58,6 +58,7 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -363,6 +364,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
+
+    for flaky in flake_record(inst).counts():
+        times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
+        log(f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}")
 
     # What the last poll of each repo saw: an entry that cannot be merged is not
     # actionable, so it should not read like the others.

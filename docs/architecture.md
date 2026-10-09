@@ -812,6 +812,17 @@ approved.
 - **A step to call.** The output cap's pass is `scratch.cap_files`, idempotent (a cut file is
   within the limit and is not rewritten), and `scratch.watch_folder` yields an event set after
   each pass, so a test calls the step or waits on the signal and never polls a file.
+- **A flake is isolated, recorded and fixed once.** When tier 1 fails on tests, the profile's
+  optional `failed_tests` and `serial_rerun_command` hooks give the failed identifiers and a
+  serial command for just them, and `build_tier1` runs that twice. A rerun that fails leaves
+  the failure as it was. Both passing raises `FlakeFound`: the unit's node calls the runner's
+  `on_flake`, which has `flakes.wait_on_fix` make sure, under `flakes.lock` in the state
+  directory, that one open change exists for the test (a successor, `-2` and on, only after
+  the earlier one is archived) and add a `Needs: <change> group 1 merged` line to each of
+  the unit's groups, and appends the flake to `flakes.jsonl`. The unit is held `planned`,
+  cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
+  has merged: it restacks and runs tier 1 again. A unit of the fix change itself does not
+  wait. `abk status` lists each flaky test with its count and fix change.
 
 ## Telemetry
 

@@ -145,6 +145,11 @@ A unit with a `Needs: … merged` line whose dependency has not merged waits ins
 `abk requeue` leaves it `planned` with the cause `gated` (shown by `abk status` as
 waiting), and the tick resumes it in the requeued mode once the dependency merges.
 
+A test that failed under load and passed twice alone is a flake, not a failure: the unit is
+parked the same way (`gated`, its note names the test) with a `Needs:` line on the one
+change the pipeline wrote to fix that test. `abk status` lists each flaky test as `flaky:`
+with its count and fix change; the unit resumes at tier 1 once that change merges.
+
 ### What an agent may run on the code host
 
 Only to read its own pull request, by the commands its repo's forge declares

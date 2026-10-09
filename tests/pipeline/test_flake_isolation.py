@@ -102,7 +102,9 @@ def test_the_serial_command_runs_only_the_failed_tests_in_the_same_environment(
     assert rerun[: len(head)] == head, "the environment the run was made in is kept"
     assert set(tests) <= set(rerun)
     for gone in ("-n", "auto", "--maxprocesses=8", "-m", "not serial", "svc-a", "tests"):
-        assert gone not in rerun, f"{gone!r} would run more than the failed tests, or in parallel"
+        assert gone not in rerun[len(head) :], (
+            f"{gone!r} would run more than the failed tests, or in parallel"
+        )
 
 
 # --- tier 1 --------------------------------------------------------------------

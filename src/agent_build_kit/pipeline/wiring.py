@@ -49,6 +49,7 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, wait_on_fix
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pr_replies import (
@@ -112,6 +113,9 @@ from agent_build_kit.runtimes.claude_code import through
 logger = logging.getLogger(__name__)
 
 Run = Callable[..., subprocess.CompletedProcess]
+
+# How many times the failed tests are run again, alone, before they count as a flake.
+FLAKE_RERUNS = 2
 
 # Told a finished agent call: `(result, *, role, model, runtime)`, and `gateway`
 # (a function giving the run's `Spend`) when a gateway key was minted for it.
@@ -730,6 +734,7 @@ def build_tier1(
             for command in [lint_command, *test_commands]:
                 result = ran(command, where, toolchain)
                 if not toolchain.tolerates_exit(command, result.returncode):
+                    isolate(command, result, where, toolchain)
                     return False, _failure(command, result)
         # Once per checkout, in its root: these look at the repo, not at a project.
         for command in extra:
@@ -737,6 +742,35 @@ def build_tier1(
             if not profile.tolerates_exit(command, result.returncode):
                 return False, _failure(command, result)
         return True, ""
+
+    def isolate(
+        command: list[str],
+        result: subprocess.CompletedProcess,
+        where: Path,
+        toolchain: ToolchainProfile,
+    ) -> None:
+        """Run the failed tests again, alone and serially, twice. Raises `FlakeFound` when
+        they pass both times; returns when any fails again, or the profile cannot say
+        which tests failed, so the failure stands."""
+        failed_tests = getattr(toolchain, "failed_tests", None)
+        rerun_command = getattr(toolchain, "serial_rerun_command", None)
+        if failed_tests is None or rerun_command is None:
+            return
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        tests = failed_tests(output)
+        if not tests:
+            return
+        for _ in range(FLAKE_RERUNS):
+            again = ran(rerun_command(command, tests), where, toolchain)
+            if not toolchain.tolerates_exit(command, again.returncode):
+                return
+        at = datetime.now(UTC)
+        raise FlakeFound(
+            tuple(
+                Flake(test=test, command=shlex.join(command), output=output[-4000:], at=at)
+                for test in tests
+            )
+        )
 
     def ran(
         command: list[str], where: Path, toolchain: ToolchainProfile
@@ -767,6 +801,20 @@ def build_tier1(
         return result
 
     return tier1
+
+
+def build_on_flake(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[[Unit, Flake], None]:
+    """Make the unit wait on the one change that fixes a flake it met, and record it."""
+
+    def on_flake(unit: Unit, flake: Flake) -> None:
+        met = flake.model_copy(update={"unit": unit.id})
+        fix = wait_on_fix(installation, met, store.get(unit.id))
+        flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
+        log(f"{unit.id}: flaky test {flake.test} — waits for {fix or 'its own change'}")
+
+    return on_flake
 
 
 def _failure(command: list[str], result: subprocess.CompletedProcess) -> str:
@@ -2103,6 +2151,7 @@ def build_runner(
             log=log,
             repo=repo,
         ),
+        on_flake=build_on_flake(store, installation, log=log),
         run_tier2=tier2.run,
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
