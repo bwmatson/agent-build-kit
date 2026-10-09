@@ -126,6 +126,14 @@ plan dropped becomes `unplanned` only if it never started.
 
 ### 3. Building a unit
 
+Each unit has a priority, 1 (most urgent) to 5, 3 by default, set by the planner
+in code from the `Priority:` lines of the groups it builds: the most urgent of
+them, carried groups included. A started unit keeps the priority it started
+with, and the store leaves the default out of a unit's record. `waiting_on_me`
+(`pipeline/units.py`) answers which units wait on a unit, across repos and
+through chains, and `effective_priority` takes the most urgent of a unit and
+those waiting on it.
+
 `ready_units` picks planned units whose dependencies allow: a same-repo
 dependency may be `in_review` (the unit stacks on its branch), a cross-repo one
 must be `merged` (stacks cannot span repos). A `satisfied` dependency is

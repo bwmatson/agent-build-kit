@@ -311,15 +311,40 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
 def waiting_on_me(
     unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
 ) -> list[Unit]:
-    """The units that wait on `unit`, directly or through a chain, in any repo."""
-    raise NotImplementedError
+    """The units that wait on `unit`, directly or through a chain, in any repo.
+
+    The reverse of `depends_on`. A merged, closed or satisfied unit does not
+    wait, though a satisfied one is looked through: what depends on it waits on
+    what it was built on. Units in `excluded` (named away by `--only`, held by a
+    lease or in a backoff) are neither counted nor passed through.
+    """
+    dependents: dict[str, list[Unit]] = {}
+    for other in graph:
+        for dep in other.depends_on:
+            dependents.setdefault(dep, []).append(other)
+
+    found: dict[str, Unit] = {}
+    visited = {unit.id}
+    pending = [unit.id]
+    while pending:
+        for waiter in dependents.get(pending.pop(), ()):
+            if waiter.id in visited or waiter.id in excluded:
+                continue
+            visited.add(waiter.id)
+            if waiter.state == SATISFIED:
+                pending.append(waiter.id)
+            elif waiter.state not in (MERGED, CLOSED):
+                found[waiter.id] = waiter
+                pending.append(waiter.id)
+    return list(found.values())
 
 
 def effective_priority(
     unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
 ) -> int:
     """The most urgent priority among `unit` and every unit waiting on it."""
-    raise NotImplementedError
+    waiters = [waiter.priority for waiter in waiting_on_me(unit, graph, excluded)]
+    return min([unit.priority, *waiters])
 
 
 def trunk_of(repo: str) -> str:

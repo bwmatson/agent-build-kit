@@ -138,6 +138,23 @@ joined into a neighbouring unit. The reason is required, the first group cannot
 carry the line, and neither can an `[acceptance]`, `[contract]` or `[narrow]`
 group (a flagged group keeps the ordering rules its flag gives it); `abk tags` rejects each.
 
+## `Priority:` lines
+
+A group says how urgent it is on a line inside it, and a line above the first
+group sets the default for the change's groups; a group's own line wins:
+
+```
+Priority: 2
+```
+
+The scale is 1 to 5, 1 the most urgent, and 3 for a group that says nothing:
+1 a bug fix or a fix for a fault in the pipeline itself, 2 high priority (it
+unblocks other work), 3 normal, 4 can wait, 5 nice to have. The framework reads
+only the number. A unit takes the most urgent priority of the groups it builds,
+carried ones included, and keeps it once it has started. A value that is not an
+integer from 1 to 5, a second line in one place, or a line in a group that could
+not be read is an error; `abk tags` shows a priority that is not 3.
+
 ## Before committing a change
 
 ```

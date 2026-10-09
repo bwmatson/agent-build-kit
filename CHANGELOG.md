@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A task group can now say how urgent it is with a `Priority:` line, 1 (most urgent) to 5,
+  3 when unsaid; a line above the first group sets the default for the change. A unit takes
+  the most urgent priority of its groups and keeps it once started, and `abk tags` shows a
+  priority that is not 3. A priority is written to the units store only when it is not 3, so an
+  older release refuses a store holding one with its usual message for a newer field.
+
 - The graph page no longer marks a unit that landed over the size ceiling, so a merged unit
   stops looking unfinished. Its node reads as any other; the unit still records its actual
   size, the log still says it is over, and `abk status` still lists it.

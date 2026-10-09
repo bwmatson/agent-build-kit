@@ -63,7 +63,12 @@ from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_line, pause_until
-from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
+from agent_build_kit.pipeline.planner import (
+    GroupTooLarge,
+    in_flight_item,
+    plan_round,
+    unit_priority,
+)
 from agent_build_kit.pipeline.planning_repo import (
     default_branch_of,
     is_repo,
@@ -1534,6 +1539,10 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
             or (u.state == PLANNED and u.change != change)
         ]
+        catalog = {
+            path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
+            for path in inst.tasks_files()
+        }
         try:
             # The groups go in so the plan is checked against the tags, which
             # were validated on the change's own PR: a model handing one
@@ -1563,10 +1572,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
                 known={u.id for u in store.all()},
                 context=JoinContext(
                     stored=tuple(store.all()),
-                    catalog={
-                        path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
-                        for path in inst.tasks_files()
-                    },
+                    catalog=catalog,
                     needs={
                         group: tuple((need.change, need.group) for need in found)
                         for group, found in group_needs(tasks).items()
@@ -1596,6 +1602,12 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         store.upsert(units, change=change)
         dropped = [join for join in plan.joins if not _write_join(inst, store, join)]
         log(f"planned {change}: {len(units)} unit(s)")
+        # After the joins, so a unit that took in more work is as urgent as its
+        # most urgent group; a unit that has started keeps what it has.
+        for unit_id in dict.fromkeys([*(u.id for u in units), *(j.onto for j in plan.joins)]):
+            if unit_id in {j.unit for j in plan.joins if j.unit}:
+                continue
+            store.set_priority(unit_id, unit_priority(store.get(unit_id), catalog))
         orphaned = _orphaned_changes(store, before)
         for other in sorted(orphaned):
             # The unit that carried this change's groups is gone, and nothing
@@ -2417,7 +2429,8 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             continue
         print(f"{change}: {len(groups)} task group(s), all tagged")
         for group in groups:
-            print(f"  {group.number}. [{group.repo}] [{group.tier}] {group.title}")
+            urgency = f" (priority {group.priority})" if group.priority != 3 else ""
+            print(f"  {group.number}. [{group.repo}] [{group.tier}] {group.title}{urgency}")
     return 1 if failed else 0
 
 
