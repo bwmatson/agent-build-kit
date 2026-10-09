@@ -22,7 +22,7 @@ from tests.graph.test_remaining_paths import Adapting, decisions
 from tests.graph_driver import fresh, position, tick
 from tests.leftovers_driver import Habitat, Hands, step_of
 from tests.runner_fakes import rejecting
-from tests.runtimes.acp_agent import DEFAULT_MODEL, MODEL_AT_PROMPT, requests, use_agent
+from tests.runtimes.acp_agent import DEFAULT_MODEL, MODEL_AT_PROMPT, SESSION, requests, use_agent
 from tests.runtimes.stand_in import StandInRuntime
 
 
@@ -112,9 +112,7 @@ def test_the_rework_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
 
 def test_a_continued_session_reaches_the_agent_with_no_model(tmp_path: Path) -> None:
     """The implement node continues the tests session, which an agent that resumes one holds."""
-    record, runtime = on_acp(
-        tmp_path, resume=True, list_sessions=True, sessions=("sess_7Hq2Zk4PxYwVb9nR",)
-    )
+    record, runtime = on_acp(tmp_path, resume=True, list_sessions=True, sessions=(SESSION,))
     habitat = habitat_on(tmp_path, runtime)
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("rename it")]

@@ -7,6 +7,7 @@
   too old to trust pauses for a short, new `usage_stale_retry_minutes` (five by default) and
   says it is stale and where it came from. A reading served from the cache file now reports
   its own source instead of passing for live. The pause line shows local time.
+
 - A runtime that names no models, such as ACP, now builds units: the nodes that write tests,
   implement, fix checks, rework and adapt, and a continued session, no longer fail at once with
   a missing `model` argument before the agent starts. An empty model means the agent's own
