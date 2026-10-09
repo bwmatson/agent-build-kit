@@ -8,6 +8,7 @@
   does not know counts as pending, never failed. The poller records each check's status
   (the most severe where several checks share a name); snapshots recorded before this are
   recorded afresh on the next poll without sending anything back.
+
 - A running unit now reads `rebasing` (a conflict or moved base), `reworking` (review or check
   feedback) or `running` in `abk status`, the graph and the pull request's state label, and a
   pull request is made a draft whenever its unit goes back to planned, then published when the
