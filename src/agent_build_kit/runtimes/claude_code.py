@@ -184,6 +184,8 @@ def build_argv(request: AgentRequest) -> list[str]:
         argv += ["--model", request.model]
     if request.resume_session:
         argv += ["--resume", request.resume_session]
+        if request.fork_session:
+            argv.append("--fork-session")
     if (
         request.on_event
         or request.on_transcript

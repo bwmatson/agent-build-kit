@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import type { Related, UnitDetail, UnitSummary } from "./api";
+import { AgentTab } from "./agent";
 import { LogsTab } from "./logs";
 import { unitPath } from "./unitName";
 import { UsageTab, UsageTable } from "./usage";
@@ -80,7 +81,7 @@ function Status({ unit }: { unit: UnitDetail }) {
   );
 }
 
-const TABS = ["Status", "Logs", "Usage"] as const;
+const TABS = ["Status", "Logs", "Agent", "Usage"] as const;
 
 /** The history as a timeline of state, cause and note, newest last. */
 function History({ unit }: { unit: UnitDetail }) {
@@ -126,6 +127,7 @@ export function UnitPage() {
             </div>
             {tab === "Status" && <Status unit={detail} />}
             {tab === "Logs" && <LogsTab name={name} />}
+            {tab === "Agent" && <AgentTab name={name} />}
             {tab === "Usage" && <UsageTab name={name} />}
           </>
         )}

@@ -107,6 +107,21 @@
   does not answer, and links to the pipeline dashboard in Grafana. The
   shipped dashboard now sums samples over each window instead of taking rates, which
   undercounted the exporter's delta data.
+  A unit's agent tab streams a running step and, once the step has ended, takes turns to
+  the unit's session: the first turn takes a lease the tick respects (no step starts on the
+  unit while it is held), and releasing it or closing the page (once its turn has ended)
+  returns the unit; a lease left by a server that died holds nothing. One turn runs at a time
+  on a session, on the model it recorded, and a session a running editor or `claude` process
+  has open is read-only. A turn can
+  carry a file, line range, diff hunk and selection from the diff, and a permission request
+  waits in the browser (closing the page denies it). The sessions page lists sessions started
+  in an editor or elsewhere, resumes an idle one in place, forks one a running process holds
+  (never writing to the first), shows an ACP session its agent cannot resume read-only and
+  continues it as a new seeded session, and starts new sessions (a "New session" form) in a
+  unit's worktree or a repo on a chosen runtime and model. The sessions page counts as one
+  open page: leaving it returns any unit its turns took and denies their open requests, and a
+  "Release the unit" button gives the unit back sooner. `CLAUDE_CONFIG_DIR` (or `ABK_CLAUDE_HOME`) says where
+  Claude Code keeps its sessions.
 
 - A unit's run log now keeps the agent's replies and commands in full instead of clipped
   to a line. Line breaks are written as continuation lines indented by four spaces, so a

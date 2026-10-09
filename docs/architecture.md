@@ -944,6 +944,53 @@ in `reviews/` in the state directory, each thread anchored to the commit it was 
 placed at the branch tip when read. The pages are described under `abk serve` in
 [cli.md](cli.md).
 
+### Chat
+
+The agent tab and the sessions page write through `serve/chat.py`; the rest of the server
+only reads. Each turn is one agent call whose recorded events go through `serve/bridge.py`
+(`AgUiEncoder`, `messages_snapshot`) to the browser as AG-UI events over server-sent events.
+Every run opens with `RUN_STARTED` and ends with one `RUN_FINISHED` or `RUN_ERROR` carrying the
+thread and run ids; the tests check each event against the `ag-ui-protocol` models and the
+order of the whole stream. The prompt of a chat turn, with its attachments, is recorded in the
+unit's transcript as a `user` event, so a reloaded tab shows the question before the answer.
+
+- A running step is streamed from its transcript and takes no input. The tab's stream keeps a
+  read position per transcript file, so pruning an old run never shifts what a live step
+  sends, and opens each run it sees with its own `RUN_STARTED`.
+- Once the step has ended, the first turn takes the unit's lease (`pipeline/lease.py`, files
+  under the state directory), and only then checks that no step is running or holds the
+  unit's branch. `ready_units` and `resumable_units` leave leased units alone, so a tick
+  starts nothing on them, and a build that takes a unit's branch lock reads the lease again under it: the server writes the lease and then reads the lock, the build takes the lock and then reads the lease, so one always sees the other. A lease names the process that took it, so one left by a server
+  that died holds nothing. It is released explicitly, or when the tab's event stream closes
+  and no turn that tab started is still running: a turn is never left editing a worktree the
+  tick has taken back.
+- A page is a tab for as long as it is shown. The agent tab holds its tab open with its own
+  event stream; the sessions page, which is not any one unit's, holds `/api/tabs/events`
+  open for the whole page, whichever session or new-session form it is on. Either stream
+  closing is the page closing.
+- One turn at a time runs on a session; a second is refused with 409. A session is read-only
+  here while another process has it open (`serve/sessions.py`, a scan of `/proc`): one with
+  the session id among its arguments, or a `claude` working in the directory the session is the
+  newest of, which is how an editor's plain `claude` keeps its session. Continuing such a
+  session forks it (Claude's `--fork-session`; for ACP, a new session seeded with the
+  history); the first is never written to. An ACP agent that does not advertise both `session/resume` and `session/list`
+  cannot resume, so its session is shown from the recorded history and continued as a new
+  seeded session. A Claude session whose directory is a unit's worktree is the unit's: it is
+  refused while a step runs, goes under the lease and carries the pipeline's tool policy.
+- A turn on a unit's session runs on the model that session recorded.
+- A permission request is offered to the browser (`AgentRequest.on_permission`) only after
+  abk's own command rules allowed the call, and only as allow once or a refusal: an "always"
+  would make the agent stop asking, and abk's rules would no longer see its calls. The tab
+  closing, or no answer, denies it.
+- A turn's attachments (file, line range, hunk, selected text) are appended to its prompt.
+
+The browser's client (`web/src/agui.ts`) reads these streams itself. The spike (task 8.8)
+found that `@ag-ui/client`'s `HttpAgent` posts one `RunAgentInput` to one url and reads one
+run back, while this server has a persistent per-tab stream, its own turn body and a lease to
+release, so it would need a `requestInit` override plus a second client, and rxjs and zod in
+the bundle; no Node runtime is needed or used. Because every event is valid AG-UI,
+adopting the package later is a change to that one file.
+
 ## Why it is shaped this way
 
 - **Worktrees live outside the planning repo.** Agents reach the specs through

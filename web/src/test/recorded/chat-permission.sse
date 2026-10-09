@@ -1,0 +1,35 @@
+data: {"type": "RUN_STARTED", "threadId": "feature/2", "runId": "0aca4bfda14a49648bdfebbbe787faea"}
+
+data: {"type": "CUSTOM", "name": "session", "value": {"id": "sess_7Hq2Zk4PxYwVb9nR"}}
+
+data: {"type": "REASONING_MESSAGE_START", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-1", "role": "reasoning"}
+
+data: {"type": "REASONING_MESSAGE_CONTENT", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-1", "delta": "The marker belongs beside the other module constants."}
+
+data: {"type": "REASONING_MESSAGE_END", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-1"}
+
+data: {"type": "TEXT_MESSAGE_START", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-2", "role": "assistant"}
+
+data: {"type": "TEXT_MESSAGE_CONTENT", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-2", "delta": "I'll add the marker to the app module. "}
+
+data: {"type": "TEXT_MESSAGE_END", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-2"}
+
+data: {"type": "TOOL_CALL_START", "toolCallId": "call_01", "toolCallName": "ls src"}
+
+data: {"type": "TOOL_CALL_ARGS", "toolCallId": "call_01", "delta": "{\"command\": \"ls src\"}"}
+
+data: {"type": "TOOL_CALL_END", "toolCallId": "call_01"}
+
+data: {"type": "CUSTOM", "name": "permission_request", "value": {"id": "91ea1beb74f74586b7132a5305a69a76", "tool": "ls src", "input": {"command": "ls src"}, "options": [{"id": "proceed_once", "name": "Allow once", "kind": "allow_once"}, {"id": "cancel", "name": "Reject", "kind": "reject_once"}, {"id": "never", "name": "Always reject", "kind": "reject_always"}]}}
+
+data: {"type": "CUSTOM", "name": "permission", "value": "allow_once: Allow once"}
+
+data: {"type": "TOOL_CALL_RESULT", "toolCallId": "call_01", "messageId": "result-call_01", "role": "tool", "content": ""}
+
+data: {"type": "TEXT_MESSAGE_START", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-3", "role": "assistant"}
+
+data: {"type": "TEXT_MESSAGE_CONTENT", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-3", "delta": "{\"approved\": true, \"feedback\": \"\", \"needs_human\": false}"}
+
+data: {"type": "TEXT_MESSAGE_END", "messageId": "0aca4bfda14a49648bdfebbbe787faea-msg-3"}
+
+data: {"type": "RUN_FINISHED", "threadId": "feature/2", "runId": "0aca4bfda14a49648bdfebbbe787faea", "result": {"stopReason": "end_turn"}}

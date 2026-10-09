@@ -51,7 +51,7 @@ describe("a unit's route", () => {
 
     const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href") ?? "");
     for (const href of hrefs) {
-      expect(href).toMatch(/^\/(units\/[\w.-]+\/\d+|usage|metrics)?$/);
+      expect(href).toMatch(/^\/(units\/[\w.-]+\/\d+|usage|metrics|sessions)?$/);
     }
     expect(hrefs.some((href) => href.startsWith("/units/"))).toBe(true);
   });

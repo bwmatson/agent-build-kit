@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from agent_build_kit.pipeline.units import Unit
 
 EventKind = Literal[
-    "text", "reasoning", "tool_call", "tool_result", "plan", "usage", "permission", "stop"
+    "text", "reasoning", "tool_call", "tool_result", "plan", "usage", "permission", "stop", "user"
 ]
 Source = Literal["build", "chat"]
 
@@ -143,6 +143,30 @@ class Transcript:
                 file.write(line + "\n")
         except (OSError, ValueError):
             pass
+
+
+def unit_transcript_files(directory: Path, unit_id: str) -> list[Path]:
+    """The unit's transcript files, oldest run first."""
+    change, number = unit_id.rsplit("/", 1)
+    return _unit_files(directory, f"{change}-{int(number):02d}-")
+
+
+def read_file_events(path: Path, skip: int = 0) -> tuple[list[TranscriptEvent], int]:
+    """The events of one transcript file after its first `skip` lines, and how many lines
+    have now been read. A last line not yet ended is left for the next read, so a reader
+    that keeps the count never skips an event, whatever happens to other files."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return [], skip
+    lines = text.split("\n")[:-1]
+    events: list[TranscriptEvent] = []
+    for line in lines[skip:]:
+        try:
+            events.append(TranscriptEvent.model_validate_json(line))
+        except ValueError:
+            continue
+    return events, max(skip, len(lines))
 
 
 def read_transcripts(directory: Path, unit_id: str) -> list[TranscriptEvent]:

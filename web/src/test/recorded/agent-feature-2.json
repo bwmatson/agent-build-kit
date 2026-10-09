@@ -1,0 +1,13 @@
+{
+  "session": {
+    "id": "0b7e1d52-9c3a-4f8e-b1d6-2a5c7e9f0d31",
+    "runtime": "claude_code",
+    "model": "opus"
+  },
+  "state": "paused",
+  "composer": {
+    "enabled": true,
+    "reason": ""
+  },
+  "attached_by": null
+}

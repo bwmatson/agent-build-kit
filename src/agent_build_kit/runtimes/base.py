@@ -57,6 +57,23 @@ class ToolPolicy(Frozen):
     branch_prefix: str = "spec/"
 
 
+class PermissionChoice(Frozen):
+    """One option an agent offers when it asks permission."""
+
+    id: str
+    name: str
+    kind: str
+
+
+class PermissionAsk(Frozen):
+    """A permission request an agent made that a person is asked to answer."""
+
+    call: str
+    tool: str
+    input: dict[str, object] = {}
+    options: tuple[PermissionChoice, ...] = ()
+
+
 class AgentRequest(Frozen):
     """One call to an agent, in abk's own terms."""
 
@@ -99,6 +116,12 @@ class AgentRequest(Frozen):
     # Called by the runtime with the finished result, as `on_session` is with
     # the session.
     on_result: Callable[[AgentResult], None] | None = None
+    # Asked, on a worker thread, whether a call the abk rules allow may go ahead; it answers
+    # with the id of the option chosen, or None to deny. Never consulted for a call the
+    # rules forbid, so it cannot widen what a run may do. Honoured by a runtime that asks.
+    on_permission: Callable[[PermissionAsk], str | None] | None = None
+    # With `resume_session`: continue in a copy of the session, leaving the first untouched.
+    fork_session: bool = False
     # Added to the spawned agent's environment: where a per-run gateway key goes.
     env: dict[str, str] = {}
 

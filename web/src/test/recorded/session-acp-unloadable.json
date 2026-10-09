@@ -1,0 +1,43 @@
+{
+  "id": "sess_Ln3Vt8QaRcXe5mJd",
+  "runtime": "acp",
+  "events": [
+    {
+      "kind": "text",
+      "at": "2026-10-08T23:56:02.874162+00:00",
+      "unit": "feature/2",
+      "node": "implement",
+      "round": 0,
+      "session": "sess_Ln3Vt8QaRcXe5mJd",
+      "source": "build",
+      "text": "Earlier I read the module and found nothing to change.",
+      "tool": "",
+      "call": "",
+      "input": {},
+      "usage": {},
+      "truncated": null
+    },
+    {
+      "kind": "stop",
+      "at": "2026-10-08T23:56:02.874220+00:00",
+      "unit": "feature/2",
+      "node": "implement",
+      "round": 0,
+      "session": "sess_Ln3Vt8QaRcXe5mJd",
+      "source": "build",
+      "text": "end_turn",
+      "tool": "",
+      "call": "",
+      "input": {},
+      "usage": {},
+      "truncated": null
+    }
+  ],
+  "recorded": true,
+  "tool_calls_available": true,
+  "read_only": true,
+  "reason": "The agent cannot resume this session: it is shown read-only and can only be continued as a new session seeded with this history.",
+  "actions": [
+    "continue_as_new"
+  ]
+}

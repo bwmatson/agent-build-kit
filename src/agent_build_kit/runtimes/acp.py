@@ -99,6 +99,8 @@ from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
     AgentRuntime,
+    PermissionAsk,
+    PermissionChoice,
     PolicyCoverage,
     PolicyReport,
     SessionUnavailable,
@@ -510,7 +512,9 @@ class _Session:
         grants_nothing: bool = False,
         probe: _ProbeTracking | None = None,
         read_only: tuple[str, ...] | None = None,
+        permission: Callable[[PermissionAsk], str | None] | None = None,
     ) -> None:
+        self._permission = permission
         self._report = report
         self._transcript = transcript
         self._record = record
@@ -785,7 +789,38 @@ class _Session:
                 verdict.reason,
                 "abk's command rules",
             )
-        if verdict.allowed:
+        if verdict.allowed and self._permission is not None:
+            # A person answers: only for a call the rules already allow.
+            ask = PermissionAsk(
+                call=tool_call.tool_call_id,
+                tool=known.title or "",
+                input=known.raw_input if isinstance(known.raw_input, dict) else {},
+                # Never "always": that makes the agent stop asking, and abk's rules then
+                # no longer see the calls it covers.
+                options=tuple(
+                    PermissionChoice(id=o.option_id, name=o.name, kind=o.kind)
+                    for o in options
+                    if o.kind != "allow_always"
+                ),
+            )
+            picked = await asyncio.to_thread(self._permission, ask)
+            chosen = next(
+                (o for o in options if o.option_id == picked and o.kind != "allow_always"), None
+            )
+            if chosen is None:
+                self._flush_unrecorded()
+                self.record(
+                    TranscriptEvent(
+                        kind="permission",
+                        call=tool_call.tool_call_id,
+                        tool=known.title or "",
+                        text="cancelled: not answered",
+                    )
+                )
+                if self._conn is not None:
+                    await self._conn.cancel(session_id=session_id)
+                return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+        elif verdict.allowed:
             chosen = next((o for o in options if o.kind == "allow_once"), None)
         else:
             chosen = next((o for o in options if o.kind == "reject_once"), None) or next(
@@ -1203,6 +1238,7 @@ class AcpRuntime:
         # a tick runs through it.
         self._unoffered: set[str] = set()
         self._no_roots_told = False
+        self._resumable: dict[tuple[str, ...], bool] = {}
 
     def run(self, request: AgentRequest) -> AgentResult:
         return traced(NAME, request, lambda: self._call(request))
@@ -1251,6 +1287,7 @@ class AcpRuntime:
             grants_nothing=request.permission_mode == "allowed_tools_only"
             and not request.allowed_tools,
             read_only=_command_patterns(request.allowed_tools) if _is_read_only(request) else None,
+            permission=request.on_permission,
         )
         return await self._drive(command, request, session)
 
@@ -1432,12 +1469,7 @@ class AcpRuntime:
         task, and an agent may answer a resume of an id it lacks by quietly starting a
         session, so a new one with the full prompt is the caller's to start."""
         if request.resume_session:
-            sessions = (
-                initialized.agent_capabilities.session_capabilities
-                if initialized.agent_capabilities
-                else None
-            )
-            self.supports_session_resume = bool(sessions and sessions.resume and sessions.list)
+            self.supports_session_resume = _resumes(initialized)
             if not self.supports_session_resume:
                 raise SessionUnavailable(
                     f"session {request.resume_session} not resumed: the agent does not "
@@ -1524,6 +1556,51 @@ class AcpRuntime:
                 "running on its default"
             )
 
+    def can_resume_sessions(self) -> bool:
+        """Whether the agent advertises both `session/resume` and `session/list`, which a
+        session it was not running needs to be continued in place."""
+        command = config.runtime_entry(name=NAME).command or list(self.agent_command)
+        if not command:
+            return False
+        # Asked once per command for the life of the runtime: it starts the agent.
+        key = tuple(command)
+        if key not in self._resumable:
+            self._resumable[key] = asyncio.run(self._declares_loading(command))
+        return self._resumable[key]
+
+    async def _declares_loading(self, command: list[str]) -> bool:
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=LINE_LIMIT,
+                start_new_session=True,
+            )
+        except OSError:
+            return False
+        assert process.stdin is not None and process.stdout is not None
+        assert process.stderr is not None
+        stderr = _Drained(process.stderr)
+        conn = connect_to_agent(
+            cast(Client, _Session(None)), process.stdin, process.stdout, observers=[]
+        )
+        try:
+            initialized = await conn.initialize(
+                protocol_version=PROTOCOL_VERSION,
+                client_capabilities=_capabilities(None),
+                client_info=Implementation(
+                    name="abk", title="agent-build-kit", version=__version__
+                ),
+            )
+            return _resumes(initialized)
+        except Exception:  # noqa: BLE001 — an agent that will not answer cannot be loaded from
+            return False
+        finally:
+            await conn.close()
+            await _ended(process, stderr)
+
     def get_usage_status(self) -> None:
         """Billed per token, with no window to exhaust (docs/agent-runtimes.md)."""
         return None
@@ -1561,6 +1638,14 @@ class AcpRuntime:
             label for probed, label in PROBE_CLASSES if probed not in tracking.refused
         )
         return PolicyReport(ok=not unenforced, unenforced=unenforced)
+
+
+def _resumes(initialized: InitializeResponse) -> bool:
+    """Whether the agent advertises both `session/resume` and `session/list`, which a session
+    it was not running needs to be continued in place."""
+    capabilities = initialized.agent_capabilities
+    sessions = capabilities.session_capabilities if capabilities else None
+    return bool(sessions and sessions.resume and sessions.list)
 
 
 class _Drained:

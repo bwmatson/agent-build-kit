@@ -26,6 +26,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import Field, model_validator
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
+from agent_build_kit.graph.state import AgentSession, SessionRole
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -35,6 +36,7 @@ from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import GROUPINGS, build_report, render_json
 from agent_build_kit.pipeline.vocabulary import effective_state
+from agent_build_kit.serve.chat import register as register_chat
 from agent_build_kit.serve.metrics import dashboard_uid, metrics_page
 from agent_build_kit.serve.review import (
     Decision,
@@ -171,6 +173,23 @@ def _run_files(installation: Installation, change: str, number: str) -> list[Pat
     return sorted(p for p in directory.iterdir() if pattern.fullmatch(p.name))
 
 
+def _recorded_session(installation: Installation, unit_id: str) -> AgentSession | None:
+    """The unit's latest recorded agent session, from its checkpoint thread."""
+    path = unit_graphs_path(installation.state_dir)
+    if not path.exists():
+        return None
+
+    async def read() -> AgentSession | None:
+        async with _read_only_checkpointer(path) as saver:
+            position = await thread_position(saver, unit_id)
+        return position.state.sessions.get(SessionRole.BUILD) if position.state else None
+
+    try:
+        return asyncio.run(read())
+    except (sqlite3.Error, aiosqlite.Error):
+        return None
+
+
 def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> FastAPI:
     app = FastAPI(title="abk serve", docs_url=None, redoc_url=None, openapi_url=None)
     units_path = installation.state_dir / "units.json"
@@ -202,6 +221,13 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             {"id": uid, "state": effective_state(index[uid], units) if uid in index else "unknown"}
             for uid in ids
         ]
+
+    register_chat(
+        app,
+        installation,
+        units=lambda: _read_units(units_path),
+        recorded_session=lambda unit_id: _recorded_session(installation, unit_id),
+    )
 
     @app.get("/api/pipeline")
     def pipeline() -> dict[str, Any]:
@@ -451,6 +477,7 @@ class RunningServer:
     """A server that is listening; leaving its `with` block stops it."""
 
     def __init__(self, app: FastAPI, port: int) -> None:
+        self._app = app
         config = uvicorn.Config(app, host=HOST, port=port, log_level="warning")
         self._server = uvicorn.Server(config)
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -490,6 +517,11 @@ class RunningServer:
         error: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
+        # First: uvicorn waits for its open requests before it runs the app's shutdown, and
+        # a turn waiting on a person is one of them.
+        stop_chat = getattr(self._app.state, "stop_chat", None)
+        if stop_chat is not None:
+            stop_chat()
         self._server.should_exit = True
         self._thread.join(timeout=10)
 
