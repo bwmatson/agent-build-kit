@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The graph page no longer marks a unit that landed over the size ceiling, so a merged unit
+  stops looking unfinished. Its node reads as any other; the unit still records its actual
+  size, the log still says it is over, and `abk status` still lists it.
+
 - A chat with a unit's agent can now change files in the unit's worktree, and nothing is
   committed until you say so: those turns refuse `git commit` and `git push`, and sessions
   that are not the unit's own get only that refusal. The chat's lease records the changed

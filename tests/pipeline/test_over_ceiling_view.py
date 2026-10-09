@@ -1,5 +1,5 @@
-"""Where a unit that landed over the ceiling shows: its node on the graph page
-and a line of `abk status`."""
+"""Where a unit that landed over the ceiling shows: its log and a line of
+`abk status`, and not its node on the graph page."""
 
 from __future__ import annotations
 
@@ -55,21 +55,15 @@ def node_of(diagram: str, unit_id: str) -> str:
     return next(line for line in diagram.splitlines() if line.strip().startswith(unit_id))
 
 
-def test_the_graph_page_marks_a_unit_that_landed_over_the_ceiling() -> None:
+def test_the_graph_page_shows_a_unit_over_the_ceiling_as_it_shows_one_under_it() -> None:
     activate_with(limits={"min_unit_lines": 400, "max_unit_lines": 750})
-    diagram = render_mermaid(
-        [
-            unit("big", estimated_lines=600, actual_lines=1400),
-            unit("exact", estimated_lines=600, actual_lines=750),
-            unit("small", estimated_lines=600, actual_lines=300),
-            unit("none", estimated_lines=600),
-        ]
-    )
+    over = render_mermaid([unit("big", estimated_lines=600, actual_lines=1400)])
+    under = render_mermaid([unit("big", estimated_lines=600, actual_lines=300)])
 
-    assert "over the ceiling" in node_of(diagram, "big")
-    assert "1400" in node_of(diagram, "big")
-    for fine in ("exact", "small", "none"):
-        assert "over the ceiling" not in node_of(diagram, fine)
+    assert node_of(over, "big") == node_of(under, "big")
+    assert "landed" not in over
+    assert "over the ceiling" not in over
+    assert "1400" not in over
 
 
 def test_status_lists_the_units_over_the_ceiling(
@@ -99,3 +93,23 @@ def test_status_lists_the_units_over_the_ceiling(
     assert len(lines) == 1
     assert "a/1" in lines[0] and "1400" in lines[0] and "600" in lines[0]
     assert "a/2" not in lines[0] and "a/3" not in lines[0]
+
+
+def test_the_unit_records_its_size_and_the_log_says_it_is_over(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = make_installation(tmp_path)
+    activate_with(limits={"min_unit_lines": 400, "max_unit_lines": 750})
+    store = cli.store_for(inst)
+    store.upsert([unit("a/1", estimated_lines=600)])
+    store.set_state("a/1", IN_REVIEW, pr=1, branch="spec/a/1")
+    open_pr = build_open_pr(for_repo=lambda repo: (SizedForge(1400), REPO), store=store)
+    capsys.readouterr()
+
+    open_pr(plan_unit("a/1", change="a", estimated_lines=600), body="b", base="main", cwd=tmp_path)
+
+    output = capsys.readouterr()
+    logged = [line for line in (output.out + output.err).splitlines() if "over the ceiling" in line]
+    assert len(logged) == 1
+    assert "a/1" in logged[0] and "1400" in logged[0]
+    assert store.get("a/1").actual_lines == 1400
