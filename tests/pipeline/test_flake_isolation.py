@@ -90,21 +90,38 @@ def test_a_run_that_is_not_a_test_run_names_no_failed_tests() -> None:
     assert PythonUvProfile().failed_tests("3 passed in 0.01s\n") == []
 
 
-@pytest.mark.parametrize("command", [WORKSPACE_RUN, ROOT_RUN])
-def test_the_serial_command_runs_only_the_failed_tests_in_the_same_environment(
-    command: list[str],
-) -> None:
-    tests = ["svc-a/tests/test_x.py::test_y", "svc-a/tests/test_x.py::TestZ::test_w[3]"]
+TESTS = ["svc-a/tests/test_x.py::test_y", "svc-a/tests/test_x.py::TestZ::test_w[3]"]
 
-    rerun = PythonUvProfile().serial_rerun_command(command, tests)
 
-    head = command[: command.index("pytest") + 1]
-    assert rerun[: len(head)] == head, "the environment the run was made in is kept"
-    assert set(tests) <= set(rerun)
-    for gone in ("-n", "auto", "--maxprocesses=8", "-m", "not serial", "svc-a", "tests"):
-        assert gone not in rerun[len(head) :], (
-            f"{gone!r} would run more than the failed tests, or in parallel"
-        )
+def test_the_serial_command_for_a_workspace_member_keeps_its_package_and_runs_only_the_tests() -> (
+    None
+):
+    assert PythonUvProfile().serial_rerun_command(WORKSPACE_RUN, TESTS) == [
+        "uv",
+        "run",
+        "--package",
+        "svc-a",
+        "--isolated",
+        "pytest",
+        *TESTS,
+        "-q",
+    ]
+
+
+def test_the_serial_command_for_the_root_tests_keeps_every_with_extra() -> None:
+    assert PythonUvProfile().serial_rerun_command(ROOT_RUN, TESTS) == [
+        "uv",
+        "run",
+        "--no-project",
+        "--isolated",
+        "--with",
+        "pytest",
+        "--with",
+        "pytest-xdist",
+        "pytest",
+        *TESTS,
+        "-q",
+    ]
 
 
 # --- tier 1 --------------------------------------------------------------------

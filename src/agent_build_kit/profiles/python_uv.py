@@ -249,10 +249,19 @@ class PythonUvProfile:
 
     def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
         """`command`, a failed test run, as one that runs only `tests`, serially."""
-        if "pytest" not in command:
+        # The program, not the `--with pytest` that adds it to an environment.
+        program = next(
+            (
+                i
+                for i, word in enumerate(command)
+                if word == "pytest" and command[i - 1] != "--with"
+            ),
+            None,
+        )
+        if program is None:
             return [*command, *tests]
-        # What follows `pytest` is the run's selection, workers and markers: all dropped.
-        return [*command[: command.index("pytest") + 1], *tests, "-q"]
+        # What follows is the run's selection, workers and markers: all dropped.
+        return [*command[: program + 1], *tests, "-q"]
 
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.

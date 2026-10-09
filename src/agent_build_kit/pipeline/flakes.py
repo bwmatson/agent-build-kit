@@ -37,6 +37,14 @@ class Flake(Frozen):
     unit: str = ""
     # The change that fixes the test, once there is one.
     change: str = ""
+    # Where tier 1 ran it (a project below the repo root, or the root), which its
+    # identifier is relative to; empty when unknown.
+    directory: str = ""
+
+
+def waiting_note(tests: list[str]) -> str:
+    """What a unit parked for these flaky tests is waiting for, in a person's words."""
+    return f"waiting for the fix of the flaky test {', '.join(tests)}"
 
 
 class FlakeFound(Exception):
@@ -160,15 +168,22 @@ def _next_name(inst: Installation, test: str) -> str:
 
 def _add_needs(inst: Installation, change: str, group: int, fix: str, test: str) -> None:
     tasks = inst.changes_dir / change / "tasks.md"
-    if not tasks.is_file() or any(n.change == fix for n in group_needs(tasks).get(group, [])):
+    if not tasks.is_file():
         return
-    lines = tasks.read_text().splitlines()
-    for index, line in enumerate(lines):
-        heading = GROUP_HEADING.match(line)
-        if heading and int(heading["number"]) == group:
-            lines[index + 1 : index + 1] = ["", f"Needs: {fix} group 1 merged — flaky test {test}"]
-            tasks.write_text("\n".join(lines) + "\n")
+    # The lock `task_progress.mark_groups` takes: units of one change share this file.
+    with file_lock(tasks.with_name(f"{tasks.name}.lock")):
+        if any(n.change == fix for n in group_needs(tasks).get(group, [])):
             return
+        lines = tasks.read_text().splitlines()
+        for index, line in enumerate(lines):
+            heading = GROUP_HEADING.match(line)
+            if heading and int(heading["number"]) == group:
+                lines[index + 1 : index + 1] = [
+                    "",
+                    f"Needs: {fix} group 1 merged — flaky test {test}",
+                ]
+                tasks.write_text("\n".join(lines) + "\n")
+                return
 
 
 # --- the change that is written --------------------------------------------------
@@ -182,14 +197,14 @@ def _write_change(
     (root / "proposal.md").write_text(_proposal(inst, flake, unit, earlier))
     (root / "design.md").write_text(_design(flake))
     (root / "tasks.md").write_text(_tasks(flake, unit))
-    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake))
+    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake, successor=bool(earlier)))
 
 
 def _proposal(inst: Installation, flake: Flake, unit: StoredUnit, earlier: str) -> str:
     history = [e for e in flake_record(inst).entries() if e.test == flake.test]
     seen = [f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" for e in history]
     seen.append(f"- {flake.at:%Y-%m-%d %H:%M} UTC, unit {flake.unit or unit.id} (this one)")
-    modules = _modules_of(inst, unit.repo, flake.test)
+    modules = _modules_of(inst, unit.repo, flake)
     exercised = (
         "It exercises " + ", ".join(f"`{m}`" for m in modules) + "."
         if modules
@@ -244,9 +259,12 @@ def _tasks(flake: Flake, unit: StoredUnit) -> str:
     )
 
 
-def _spec(flake: Flake) -> str:
+def _spec(flake: Flake, *, successor: bool) -> str:
+    # The earlier attempt's archive added this requirement to the capability, and an
+    # archive refuses to add one that exists: a successor restates it.
+    verb = "MODIFIED" if successor else "ADDED"
     return (
-        "## ADDED Requirements\n\n"
+        f"## {verb} Requirements\n\n"
         f"### Requirement: `{flake.test}` is deterministic\n\n"
         "The test SHALL give the same result however loaded the machine running it is.\n\n"
         "#### Scenario: Run repeatedly under load\n\n"
@@ -255,15 +273,21 @@ def _spec(flake: Flake) -> str:
     )
 
 
-def _modules_of(inst: Installation, repo: str, test: str) -> list[str]:
-    """The files of the code repo that the test file imports, found from its imports."""
+def _modules_of(inst: Installation, repo: str, flake: Flake) -> list[str]:
+    """The files of the code repo that the test file imports, found from its imports. The
+    identifier is relative to the directory tier 1 ran in, else to the checkout's root."""
     checkout = inst.checkouts.get(repo)
     if checkout is None:
         return []
-    path = checkout / test.split("::", 1)[0]
-    try:
-        tree = ast.parse(path.read_text())
-    except (OSError, SyntaxError):
+    file = flake.test.split("::", 1)[0]
+    where = [Path(flake.directory)] if flake.directory else []
+    for base in [*where, checkout]:
+        try:
+            tree = ast.parse((base / file).read_text())
+        except (OSError, SyntaxError):
+            continue
+        break
+    else:
         return []
     names: list[str] = []
     for node in ast.walk(tree):
@@ -276,8 +300,11 @@ def _modules_of(inst: Installation, repo: str, test: str) -> list[str]:
         relative = Path(*name.split("."))
         for root in SOURCE_ROOTS:
             for candidate in (relative.with_suffix(".py"), relative / "__init__.py"):
-                if (checkout / root / candidate).is_file():
-                    shown = (Path(root) / candidate).as_posix()
+                if (base / root / candidate).is_file():
+                    full = base / root / candidate
+                    shown = (
+                        full.relative_to(checkout) if full.is_relative_to(checkout) else full
+                    ).as_posix()
                     if shown not in found:
                         found.append(shown)
                     break

@@ -10,10 +10,16 @@ from __future__ import annotations
 import argparse
 import re
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import flakes
 from agent_build_kit.pipeline.flakes import (
     Flake,
     flake_change_name,
@@ -295,3 +301,60 @@ def test_the_needs_line_gates_the_unit_on_the_fix_changes_unit_through_the_exist
     stored = store.get("feature/1")
     assert stored.depends_on == (f"{fix}/1",)
     assert stored.merge_before == (f"{fix}/1",), "waits for the merge, not only the build"
+
+
+def test_the_module_is_found_from_the_project_the_test_ran_in(installation: Installation) -> None:
+    project = installation.checkouts["app"] / "proj"
+    (project / "tests").mkdir(parents=True)
+    (project / "tests" / "test_widget.py").write_text("from app.widget import label\n")
+    (project / "src" / "app").mkdir(parents=True)
+    (project / "src" / "app" / "widget.py").write_text("def label():\n    return 1\n")
+    unit = change_with_unit(installation, "feature", "feature/1")
+
+    name = str(wait_on_fix(installation, flaked(directory=str(project)), unit))
+
+    proposal = (installation.changes_dir / name / "proposal.md").read_text()
+    assert "proj/src/app/widget.py" in proposal
+
+
+def test_a_successor_restates_the_requirement_the_archived_attempt_added(
+    installation: Installation,
+) -> None:
+    code_repo(installation)
+    unit = change_with_unit(installation, "feature", "feature/1")
+    fix = str(wait_on_fix(installation, flaked(), unit))
+    first = (installation.changes_dir / fix / "specs").rglob("spec.md")
+    added = next(first).read_text()
+    archive = installation.changes_dir / "archive"
+    archive.mkdir()
+    (installation.changes_dir / fix).rename(archive / f"2026-03-02-{fix}")
+
+    successor = str(wait_on_fix(installation, flaked(), unit))
+
+    delta = next((installation.changes_dir / successor / "specs").rglob("spec.md")).read_text()
+    assert "## ADDED Requirements" in added
+    header = next(line for line in added.splitlines() if line.startswith("### Requirement:"))
+    assert "## ADDED Requirements" not in delta, "the archive refuses to add it a second time"
+    assert "## MODIFIED Requirements" in delta and header in delta
+
+
+def test_the_needs_line_is_added_under_the_lock_that_ticking_boxes_takes(
+    installation: Installation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code_repo(installation)
+    unit = change_with_unit(installation, "feature", "feature/1")
+    tasks = installation.changes_dir / "feature" / "tasks.md"
+    held: list[Path] = []
+    real = flakes.file_lock
+
+    @contextmanager
+    def spy(path: Path) -> Iterator[None]:
+        with real(path):
+            held.append(path)
+            yield
+
+    monkeypatch.setattr(flakes, "file_lock", spy)
+
+    wait_on_fix(installation, flaked(), unit)
+
+    assert tasks.with_name("tasks.md.lock") in held

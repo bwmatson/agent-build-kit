@@ -41,7 +41,7 @@ from agent_build_kit.pipeline.events import (
     restore_depth_hold,
     takeover_note,
 )
-from agent_build_kit.pipeline.flakes import FlakeFound
+from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
@@ -1007,7 +1007,9 @@ class BuildPath:
         try:
             ok, output = r.run_tier1(cwd=tree, base=self.ref(state), whole_repo=False)
         except FlakeFound as found:
-            return self.wait_for_fix(found)
+            if (parked := self.wait_for_fix(found)) is not None:
+                return parked
+            ok, output = False, found.flakes[0].output
         self.say(f"checks {'passed' if ok else 'failed'}")
         head = r.head(tree)
         if ok:
@@ -1035,15 +1037,16 @@ class BuildPath:
             }
         return {"checks_ok": False, "head": head}
 
-    def wait_for_fix(self, found: FlakeFound) -> Update:
+    def wait_for_fix(self, found: FlakeFound) -> Update | None:
         """Tier 1 failed only on tests that passed alone: the unit is not failed for them.
         It waits, gated, for the change that fixes them, and runs tier 1 again once that
-        has merged."""
+        has merged. None when there is nothing to wait on, because the unit builds that
+        fix: the flake is then a tier 1 failure the unit's agent is told of."""
         r, unit = self.runner, self.unit
-        for flake in found.flakes:
-            r.on_flake(unit, flake)
-        tests = ", ".join(flake.test for flake in found.flakes)
-        note = f"waiting for the fix of the flaky test {tests}"
+        fixes = [r.on_flake(unit, flake) for flake in found.flakes]
+        if not any(fixes):
+            return None
+        note = waiting_note([flake.test for flake in found.flakes])
         update = self.hold(PLANNED, note, note, cause=Cause.GATED)
         r.store.set_gated_requeue(unit.id, RequeueReason.RESUME)
         return update
@@ -1328,7 +1331,9 @@ class BuildPath:
                 cwd=self.tree(), base=self.ref(state), whole_repo=state.produced_nothing
             )
         except FlakeFound as found:
-            return self.wait_for_fix(found)
+            if (parked := self.wait_for_fix(found)) is not None:
+                return parked
+            ok, output = False, found.flakes[0].output
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)

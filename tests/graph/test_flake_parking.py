@@ -51,11 +51,13 @@ class Flaking:
 class Told:
     """What the runner was told of each flake, and for which unit."""
 
-    def __init__(self) -> None:
+    def __init__(self, fix: str | None = "fix-flaky-widget") -> None:
+        self.fix = fix
         self.flakes: list[tuple[str, str]] = []
 
-    def __call__(self, unit: Unit, flake: Flake) -> None:
+    def __call__(self, unit: Unit, flake: Flake) -> str | None:
         self.flakes.append((unit.id, flake.test))
+        return self.fix
 
 
 def test_the_unit_is_told_of_the_flake_and_parked_gated_instead_of_failing(
@@ -123,3 +125,19 @@ def test_a_flake_on_the_base_does_not_send_the_unit_back_as_a_moved_base(
     assert "base moved" not in stored.note
     assert stored.feedback == "", "no tier 1 failure is left for the agent"
     assert "push" not in recorder.events
+
+
+def test_a_unit_of_the_fix_change_is_not_parked_and_its_agent_is_told_the_test_still_flakes(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    told = Told(fix=None)
+
+    outcome = tick(tmp_path, recorder, run_tier1=Flaking(recorder, nth=1), on_flake=told)
+
+    assert told.flakes == [("add-marker/1", TEST)]
+    assert outcome.status != RunStatus.HELD
+    stored = recorder.store.get("add-marker/1")
+    assert stored.cause is not Cause.GATED and stored.gated_requeue is None
+    fixes = [p for p in recorder.prompts if "assert 'a' == 'b'" in p]
+    assert fixes, "the fix round was given the failure output, as for any tier 1 failure"

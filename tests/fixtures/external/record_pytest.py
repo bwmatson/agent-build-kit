@@ -1,4 +1,5 @@
-"""Re-record `tests/fixtures/external/pytest/*.xml` from the installed pytest.
+"""Re-record `tests/fixtures/external/pytest/*.xml`, and `console_failures.txt` (pytest's
+console output for a run with failures, which the flake hooks read), from the installed pytest.
 
     uv run python tests/fixtures/external/record_pytest.py
 

@@ -760,14 +760,21 @@ def build_tier1(
         tests = failed_tests(output)
         if not tests:
             return
+        rerun = rerun_command(command, tests)
         for _ in range(FLAKE_RERUNS):
-            again = ran(rerun_command(command, tests), where, toolchain)
-            if not toolchain.tolerates_exit(command, again.returncode):
+            again = ran(rerun, where, toolchain)
+            if not toolchain.tolerates_exit(rerun, again.returncode):
                 return
         at = datetime.now(UTC)
         raise FlakeFound(
             tuple(
-                Flake(test=test, command=shlex.join(command), output=output[-4000:], at=at)
+                Flake(
+                    test=test,
+                    command=shlex.join(command),
+                    output=output[-4000:],
+                    at=at,
+                    directory=str(where),
+                )
                 for test in tests
             )
         )
@@ -805,14 +812,17 @@ def build_tier1(
 
 def build_on_flake(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
-) -> Callable[[Unit, Flake], None]:
-    """Make the unit wait on the one change that fixes a flake it met, and record it."""
+) -> Callable[[Unit, Flake], str | None]:
+    """Make the unit wait on the one change that fixes a flake it met, and record it.
+    Returns that change, or None for a unit of the change itself, which has nothing to
+    wait on."""
 
-    def on_flake(unit: Unit, flake: Flake) -> None:
+    def on_flake(unit: Unit, flake: Flake) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
         fix = wait_on_fix(installation, met, store.get(unit.id))
         flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
-        log(f"{unit.id}: flaky test {flake.test} — waits for {fix or 'its own change'}")
+        log(f"{unit.id}: flaky test {flake.test} — " + (f"waits for {fix}" if fix else "no wait"))
+        return fix
 
     return on_flake
 
