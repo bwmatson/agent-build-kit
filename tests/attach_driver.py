@@ -15,9 +15,9 @@ from tests.factories import git, init_repo
 _LEAVE = (
     "import sys; from pathlib import Path; "
     "from agent_build_kit.pipeline.lease import Leases; "
-    "directory, unit, holder, files, commit = sys.argv[1:]; "
+    "directory, unit, holder, files, commit, *checkouts = sys.argv[1:]; "
     "leases = Leases(Path(directory)); "
-    "assert leases.take(unit, holder, checkouts=('worktree',), session='sess', "
+    "assert leases.take(unit, holder, checkouts=tuple(checkouts), session='sess', "
     "runtime='claude_code', head='abc123'); "
     "int(files) and leases.mark_changes(unit, holder, int(files)); "
     "commit and leases.mark_committed(unit, holder, commit)"
@@ -25,12 +25,19 @@ _LEAVE = (
 
 
 def leave_lease(
-    directory: Path, unit_id: str, holder: str = "tab:gone", *, files: int = 0, commit: str = ""
+    directory: Path,
+    unit_id: str,
+    holder: str = "tab:gone",
+    *,
+    files: int = 0,
+    commit: str = "",
+    checkouts: tuple[str, ...] = ("worktree",),
 ) -> None:
     """A lease its process has left behind by exiting, holding `files` changed files
     and, when `commit` is given, a commit made and not delivered."""
     subprocess.run(
-        [sys.executable, "-c", _LEAVE, str(directory), unit_id, holder, str(files), commit],
+        [sys.executable, "-c", _LEAVE, str(directory), unit_id, holder, str(files), commit]
+        + list(checkouts),
         check=True,
     )
 

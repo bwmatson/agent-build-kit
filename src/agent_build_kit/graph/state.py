@@ -60,6 +60,7 @@ class EventKind(StrEnum):
     MERGED = "merged"
     CLOSED = "closed"
     REQUEUE = "requeue"
+    ADOPTED = "adopted"
 
 
 class ResumeEvent(Frozen):
