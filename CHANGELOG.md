@@ -16,7 +16,8 @@
 - A repo can now set `forge: local`: its pull requests, and the review comments and decision
   made in the web UI, are kept in the state directory instead of on a code host, with no
   network call. Labels, drafts, statuses, checks and stacks do nothing for it. The setting is
-  never inferred from a remote.
+  never inferred from a remote. Not yet usable end to end: a merge made with git is not yet
+  detected, and a repo with no remote is not yet built against its own trunk.
 
 - New `abk approve <unit>`, and the web UI's approve button now works: both record your
   approval of the unit's current review round, with the head commit of its pull request, and

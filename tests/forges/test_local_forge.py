@@ -15,15 +15,17 @@ import pytest
 
 from agent_build_kit import forges
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.forges import Label, RepoId
+from agent_build_kit.forges import Label, PullRequest, RepoId
 from agent_build_kit.forges.base import Forge
 from agent_build_kit.forges.local import LocalForge
 from agent_build_kit.forges.operations import OPERATIONS
 from agent_build_kit.forges.resilient import ResilientForge
 from agent_build_kit.pipeline.pr_poller import Poller
+from agent_build_kit.pipeline.ui_review import unit_of, with_ui_review
 from agent_build_kit.pipeline.unit_store import ReworkKind, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
-from agent_build_kit.serve.review import ReviewStore
+from agent_build_kit.pipeline.wiring import build_close_pr
+from agent_build_kit.serve.review import Review, ReviewStore
 from tests.conftest import make_installation
 from tests.factories import unit as make_unit
 
@@ -399,3 +401,119 @@ def test_no_remote_is_taken_for_a_local_repo(url: str) -> None:
     assert forges.get("local").parse_remote(url) is None
     identified = forges.identify(url)
     assert identified is None or identified.forge != "local"
+
+
+# --- a unit is found by its pull request, not by a directory name ---------------------
+
+
+def test_a_review_is_found_when_the_repo_key_differs_from_its_directory(
+    state: Path, forge: LocalForge
+) -> None:
+    repo = forge.identity(RepoConfig(path=state.parent / "app-checkout", forge="local"))
+    number = forge.create_pr(repo, head=HEAD, base="main", title="Feature", body="Body")
+    unit_in_review(state, number)
+    found = thread(state, "why this?")
+
+    [pull] = forge.list_prs(repo)
+
+    assert pull.conversation == (found,)
+
+
+def test_two_repos_whose_directories_share_a_name_are_kept_apart(
+    state: Path, forge: LocalForge
+) -> None:
+    first = forge.identity(RepoConfig(path=state.parent / "one" / "app", forge="local"))
+    second = forge.identity(RepoConfig(path=state.parent / "two" / "app", forge="local"))
+    open_pr(forge)
+    forge.create_pr(first, head=HEAD, base="main", title="t", body="b")
+
+    assert forges.key(first) != forges.key(second)
+    assert forge.list_prs(second) == []
+
+
+# --- comments are kept ----------------------------------------------------------------
+
+MARK = "<!-- spec-driven:reply -->"
+
+
+def test_a_posted_comment_is_found_again_and_kept(state: Path, forge: LocalForge) -> None:
+    number = open_pr(forge)
+
+    [made] = forge.post_comment(REPO, number, body=f"Closing\n{MARK}")
+
+    assert forge.comment_exists(REPO, number, MARK, f"Closing\n{MARK}") == made
+    assert LocalForge(state).comment_exists(REPO, number, MARK, f"Closing\n{MARK}") == made
+    assert forge.comment_exists(REPO, number, MARK, "other") is None
+
+
+def test_comment_ids_are_unique_within_the_repo(forge: LocalForge) -> None:
+    first = open_pr(forge)
+    second = open_pr(forge, head="spec/feature/3")
+
+    ids = [
+        *forge.post_comment(REPO, first, body="a"),
+        *forge.post_comment(REPO, first, body="b"),
+        *forge.post_comment(REPO, second, body="a"),
+    ]
+
+    assert len(set(ids)) == 3
+
+
+def test_a_reply_is_found_only_as_a_reply_to_its_note(forge: LocalForge) -> None:
+    number = open_pr(forge)
+    body = f"Done\n{MARK}"
+
+    [made] = forge.post_reply(REPO, number, note_id="note-1", body=body)
+
+    assert forge.comment_exists(REPO, number, MARK, body, reply_to="note-1") == made
+    assert forge.comment_exists(REPO, number, MARK, body) is None
+
+
+def test_a_comment_on_no_pull_request_is_refused_as_a_host_would(forge: LocalForge) -> None:
+    assert forge.post_comment(REPO, 99, body="hello") == []
+
+
+def test_closing_a_stale_pull_request_posts_the_reason_and_closes_it(
+    state: Path, forge: LocalForge
+) -> None:
+    number = open_pr(forge)
+    close = build_close_pr(for_repo=lambda _: (forge, REPO))
+
+    close(make_unit(UNIT), number, "Already satisfied")
+    close(make_unit(UNIT), number, "Already satisfied")
+
+    [pull] = LocalForge(state).list_prs(REPO)
+    assert pull.state == "closed"
+    assert forge.comment_exists(REPO, number, MARK, f"Already satisfied\n{MARK}") is not None
+
+
+def test_a_listing_that_carries_the_review_is_not_given_it_twice(
+    state: Path, forge: LocalForge
+) -> None:
+    unit_in_review(state, open_pr(forge))
+    units = UnitStore(state / "units.json")
+    reviews = ReviewStore(state / "reviews")
+
+    def review_of(pull: PullRequest) -> Review | None:
+        unit = unit_of(units, "app", pull.number)
+        return reviews.read(unit.id) if unit else None
+
+    def listing() -> list[PullRequest]:
+        return forge.list_prs(REPO)
+
+    wrapped = with_ui_review(listing, review_of=review_of)
+    events: list[tuple[str, Any]] = []
+    poller = Poller(
+        repo="app",
+        state_path=state / "poll.json",
+        list_prs=wrapped,
+        dispatch=lambda event, number, **kw: events.append((event, kw.get("rework"))),
+    )
+    poller.poll()
+    thread(state, "why this?")
+
+    poller.poll()
+
+    [pull] = wrapped()
+    assert len(pull.conversation) == 1 == len(pull.comment_bodies)
+    assert events == [("rework", ReworkKind.COMMENT)]

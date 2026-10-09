@@ -1916,12 +1916,6 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
         # The identity as one string: what `own-posts.json` has always been
         # keyed on, so an installation keeps its record of its own comments.
         slug = forges.key(repo_id)
-        listing = lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id)  # noqa: E731
-        if forge.name != "local":
-            # The local forge lists the UI review itself; a host's listing has it added here.
-            listing = with_ui_review(
-                listing, review_of=lambda pull, repo=repo: _ui_review_of(inst, store, repo, pull)
-            )
         Poller(
             repo=slug,
             state_path=state_path(inst.state_dir, repo),
@@ -1930,7 +1924,10 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
             dispatch=lambda event, number, repo=repo, **kwargs: dispatch(
                 event, number, repo=repo, **kwargs
             ),
-            list_prs=listing,
+            list_prs=with_ui_review(
+                lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
+                review_of=lambda pull, repo=repo: _ui_review_of(inst, store, repo, pull),
+            ),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
             log=log,

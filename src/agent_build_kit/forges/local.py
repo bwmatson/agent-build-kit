@@ -7,6 +7,7 @@ recorded here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
@@ -93,7 +94,9 @@ class LocalForge:
         return None
 
     def identity(self, repo: RepoConfig) -> RepoId:
-        return RepoId(forge=self.name, account="local", name=repo.path.name)
+        # The checkout's full path, hashed, tells apart two repos whose directories share a name.
+        where = hashlib.sha1(str(repo.path.expanduser().resolve()).encode()).hexdigest()[:8]
+        return RepoId(forge=self.name, account="local", name=repo.path.name, project=where)
 
     def config_entry(self, repo: RepoId) -> dict[str, object]:
         return {}
@@ -119,6 +122,16 @@ class LocalForge:
     def comment_exists(
         self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
     ) -> str | None:
+        for pull in self._pulls(repo):
+            if pull["number"] == pr:
+                return next(
+                    (
+                        str(c["id"])
+                        for c in _comments(pull)
+                        if c["body"] == body and c["reply_to"] == reply_to and marker in body
+                    ),
+                    None,
+                )
         return None
 
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
@@ -150,7 +163,7 @@ class LocalForge:
         self._change(repo, update)
 
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
-        from agent_build_kit.pipeline.ui_review import unit_of, with_ui_review
+        from agent_build_kit.pipeline.ui_review import with_ui_review
         from agent_build_kit.pipeline.unit_store import UnitStore
         from agent_build_kit.serve.review import ReviewStore
 
@@ -168,7 +181,10 @@ class LocalForge:
         reviews = ReviewStore(self.state_dir / "reviews")
 
         def review_of(pull: PullRequest) -> Review | None:
-            unit: StoredUnit | None = unit_of(units, repo.name, pull.number)
+            # A unit's branch is unique across repos, so this needs no repo name.
+            unit: StoredUnit | None = next(
+                (u for u in units.all() if u.pr == pull.number and u.branch == pull.head), None
+            )
             return reviews.read(unit.id) if unit else None
 
         return with_ui_review(lambda: pulls, review_of=review_of)()
@@ -184,10 +200,26 @@ class LocalForge:
         return []
 
     def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]:
-        return []
+        return self._post(repo, pr, body, note_id)
 
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
-        return []
+        return self._post(repo, pr, body, None)
+
+    def _post(self, repo: RepoId, pr: int, body: str, reply_to: str | None) -> list[str]:
+        """Keep a comment on the pull request and return its id; none for a pull request
+        this forge does not hold, as a host's refused post."""
+
+        def add(pulls: list[Stored]) -> list[str]:
+            for pull in pulls:
+                if pull["number"] == pr:
+                    comments = _comments(pull)
+                    made = f"local-{pr}-{len(comments) + 1}"
+                    comments.append({"id": made, "body": body, "reply_to": reply_to})
+                    pull["comments"] = comments
+                    return [made]
+            return []
+
+        return self._change(repo, add)
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         def close(pulls: list[Stored]) -> None:
@@ -235,6 +267,11 @@ class LocalForge:
 
     def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack:
         return Stack(number=stack, open=True, pulls=tuple(pulls))
+
+
+def _comments(pull: Stored) -> list[Stored]:
+    comments = pull.get("comments", [])
+    return comments if isinstance(comments, list) else []
 
 
 def _is_open(pull: Stored, head: str) -> bool:
