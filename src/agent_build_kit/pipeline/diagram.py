@@ -35,7 +35,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
 )
-from agent_build_kit.pipeline.vocabulary import STATES, effective_state
+from agent_build_kit.pipeline.vocabulary import STATES, ChecksOf, effective_state
 
 
 def _carried(unit: StoredUnit) -> str:
@@ -78,7 +78,12 @@ def in_view(units: list[StoredUnit]) -> list[StoredUnit]:
     ]
 
 
-def render_mermaid(units: list[StoredUnit], *, graph: list[StoredUnit] | None = None) -> str:
+def render_mermaid(
+    units: list[StoredUnit],
+    *,
+    graph: list[StoredUnit] | None = None,
+    checks_of: ChecksOf | None = None,
+) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn."""
     graph = graph if graph is not None else units

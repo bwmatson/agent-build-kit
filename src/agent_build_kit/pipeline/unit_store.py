@@ -158,6 +158,8 @@ class StoredUnit(Unit):
     # The SHA this runner last published for `branch`. The next push leases
     # against exactly this, so it has to outlive the process that pushed it.
     pushed: str | None = None
+    # When `pushed` was recorded; None for a store written before this field.
+    pushed_at: datetime | None = None
     # The head commit `check_reruns` counts for, and how many times its cancelled
     # checks have been re-run. Here because each poll is a new process.
     check_rerun_head: str = ""

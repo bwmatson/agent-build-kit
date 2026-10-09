@@ -7,9 +7,10 @@ this rather than each keeping a copy that can drift.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit.forges import Label
+from agent_build_kit.forges.base import Check
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import UNPLANNED, Cause, FeedbackSource, StoredUnit
 from agent_build_kit.pipeline.units import (
@@ -113,7 +114,13 @@ def change_label(change: str) -> Label:
     )
 
 
-def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
+# A unit's pull request's checks, as the last poll recorded them.
+ChecksOf = Callable[[StoredUnit], Sequence[Check]]
+
+
+def effective_state(
+    unit: StoredUnit, units: list[StoredUnit], *, checks_of: ChecksOf | None = None
+) -> str:
     """The key in `STATES` a unit currently reads as.
 
     A planned unit the scheduler would hold back is *blocked*, not merely
