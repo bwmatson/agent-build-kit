@@ -1066,6 +1066,22 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   `GET .../changes` (the files at stake), `POST .../discard` (confirmed, refused while a step
   runs or with nothing attached, and accepted for a lease the restarted server holds) and
   the refused release above.
+- Commit adopts the chat's changes into the normal cycle, in one request
+  (`POST .../commit`, or `abk attach release --commit`): the commit goes through the commit
+  helper, which retries a hook that reformats files and then gives a rejecting hook's output
+  to the attached session to fix, up to `COMMIT_FIX_ROUNDS`; still rejected, it answers 409
+  with the output and keeps the changes and the lease. A made commit carries the `Unit` and
+  `Adopted-From` trailers and is written into the lease as `committed` before the `adopted`
+  event is delivered, then the lease is removed; the answer is the commit, the unit's state
+  and whether the delivery completed. A commit made and not delivered is finished once by
+  the next server start, the next `abk attach release` and the tick, and repeating the
+  request with the same commit delivers nothing again. `adopted` enters at the checks from
+  a unit in review, held or failed (cause `adopted`), clears the recorded node start, never
+  reuses the previous approval and gives the checks a fix budget of their own. The review
+  after it is round zero: it takes no place in the round limit, cannot hold the unit as
+  having spent its rounds, keeps the earlier findings, and if it asks for changes the
+  rework is round one. A commit of the planning checkout (`checkouts: ["planning"]`)
+  releases that part of the lease and delivers nothing.
 - A page is a tab for as long as it is shown. The agent tab holds its tab open with its own
   event stream; the sessions page, which is not any one unit's, holds `/api/tabs/events`
   open for the whole page, whichever session or new-session form it is on. Either stream

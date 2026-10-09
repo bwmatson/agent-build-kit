@@ -128,6 +128,7 @@ class UnitRun(Frozen):
     tier2: bool = False  # the unit is a tier 2 unit
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port
     spent: bool = False  # the review rounds ran out with points outstanding
+    adopted: bool = False  # the next review follows a chat's commit and is round zero
     snapshot: str = ""  # tier 2's results, for the pull request body
     restack: bool = False  # go back to `prepare`: the base moved before the push
     rebased: bool = False  # the run already went back once, so the next time it holds

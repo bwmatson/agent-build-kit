@@ -564,7 +564,11 @@ COMMIT_FIX_ROUNDS = 2
 
 
 def build_commit(
-    *, unit_id: str = "", run: Run | None = None, fix: Callable[..., str] | None = None
+    *,
+    unit_id: str = "",
+    run: Run | None = None,
+    fix: Callable[..., str] | None = None,
+    adopted_from: str = "",
 ) -> Callable[..., int]:
     """Commit whatever is staged or unstaged, reporting how many commits resulted.
 
@@ -583,13 +587,19 @@ def build_commit(
     rejection, reworks included. The fix rounds do not ask the usage guard:
     it decides whether a unit starts, and these are at most
     `COMMIT_FIX_ROUNDS` short runs per commit of a unit already under way.
+
+    `adopted_from` names the chat session a commit made from a chat comes from, in a
+    trailer beside the unit's.
     """
     run = run or _run
 
     def commit(message: str, *, cwd: Path) -> int:
         # The unit id in the trailer keeps a branch's history readable without
         # the planning repo open beside it.
-        body = f"{message}\n\nUnit: {unit_id}\n" if unit_id else message
+        trailers = ([f"Unit: {unit_id}"] if unit_id else []) + (
+            [f"Adopted-From: {adopted_from}"] if adopted_from else []
+        )
+        body = f"{message}\n\n" + "\n".join(trailers) + "\n" if trailers else message
 
         def attempt() -> subprocess.CompletedProcess | None:
             run(["git", "add", "-A"], cwd=cwd)

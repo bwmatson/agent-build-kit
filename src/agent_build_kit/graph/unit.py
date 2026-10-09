@@ -251,7 +251,7 @@ async def _deliver(
             )
         command = Command(resume=event.model_dump(mode="json"))
         await run_thread(compiled, command, unit.id, interrupt_after=list(WAITS))
-    elif event.kind is EventKind.REQUEUE:
+    elif event.kind in (EventKind.REQUEUE, EventKind.ADOPTED):
         # An ended thread, `failed`: what a requeue of a held unit does, from the same place.
         update = await asyncio.to_thread(path.on_event, ended, event)
         await compiled.aupdate_state(_config(unit.id), update, as_node=Node.HELD.value)

@@ -834,6 +834,12 @@ after this one. {stake} Weigh a residual observation against losing correct \
 work — hold this to the bar you would approve, not to perfection.
 """
 
+ADOPTED_REVIEW_NOTE = """\
+**Review of a commit made in a chat.** A person changed this branch by hand through \
+the unit's own agent. This review takes no place in the round limit of {total}: it is \
+asked to judge the branch as it now stands, against the points raised before.
+"""
+
 _SPENT_MORE = (
     "If the budget runs out without an approval, the work is not merged and "
     "nothing is approved: the branch is pushed and held for a person, with "
@@ -1247,6 +1253,7 @@ class UnitRunner(BaseModel):
         round_number: int,
         total: int,
         review_boundary: str,
+        round_zero: bool = False,
         rounds: Sequence[dict] = (),
         person_comments: str = "",
         pending_replies: Sequence[str] = (),
@@ -1264,7 +1271,9 @@ class UnitRunner(BaseModel):
             else "",
             review_boundary,
             stored.predecessor_note,
-            _round_budget_note(round_number + 1, total),
+            ADOPTED_REVIEW_NOTE.format(total=total)
+            if round_zero
+            else _round_budget_note(round_number + 1, total),
             _earlier_rounds(rounds),
             _comments_note(person_comments, pending_replies) if person_comments else "",
         ]

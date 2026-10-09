@@ -12,7 +12,12 @@
   output and keeps the changes), a started server takes over what a server left, and the
   page can list and discard the changes, including those it took over. A unit the store has
   as running, paused or not, is read-only with that reason, and taking a lease clears a
-  killed run's recorded start so its files are the chat's.
+  killed run's recorded start so its files are the chat's. Committing is one request that
+  retries a reformatting hook, has the unit's agent fix a rejecting one, hands the unit to
+  its checks and review without using a review round or the earlier approval, and releases
+  the attachment; a commit made but not delivered is finished by the next server start,
+  `abk attach release` or tick. `abk attach release` also leaves a unit the store has as
+  running alone.
 
 - New `abk approve <unit>`, and the web UI's approve button now works: both record your
   approval of the unit's current review round, with the head commit of its pull request, and

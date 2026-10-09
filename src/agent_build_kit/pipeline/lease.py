@@ -174,10 +174,10 @@ class Leases:
                 ):
                     path.unlink(missing_ok=True)
 
-    def _update(self, unit_id: str, holder: str, **fields: Any) -> None:
+    def _update(self, unit_id: str, holder: str, *, alive: bool = True, **fields: Any) -> None:
         with self._guard():
             record = self._load(self._path(unit_id))
-            if record and self._alive(record) and record["holder"] == holder:
+            if record and (self._alive(record) or not alive) and record["holder"] == holder:
                 self._write(unit_id, {**record, **fields})
 
     def mark_changes(self, unit_id: str, holder: str, files: int) -> None:
@@ -185,8 +185,21 @@ class Leases:
         self._update(unit_id, holder, changed=files)
 
     def mark_committed(self, unit_id: str, holder: str, commit: str) -> None:
-        """Record a commit made and not yet delivered."""
-        self._update(unit_id, holder, committed=commit, changed=0)
+        """Record a commit made and not yet delivered, whether or not its process is alive."""
+        self._update(unit_id, holder, alive=False, committed=commit, changed=0)
+
+    def release_checkout(self, unit_id: str, checkout: str) -> None:
+        """Drop one checkout from the lease's part; the lease goes with its last when it holds
+        no changes and no commit."""
+        with self._guard():
+            record = self._load(self._path(unit_id))
+            if record is None:
+                return
+            left = [c for c in record.get("checkouts", ()) if c != checkout]
+            if not left and not record.get("changed") and not record.get("committed"):
+                self._path(unit_id).unlink(missing_ok=True)
+            else:
+                self._write(unit_id, {**record, "checkouts": left})
 
     def attachment(self, unit_id: str) -> Attachment | None:
         """The unit's lease with what it records: live, or stale while it holds changes or a

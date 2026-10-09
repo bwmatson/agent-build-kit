@@ -826,6 +826,7 @@ def run_round(
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
     _refresh(inst, store=store)
+    _step("finishing chat commits", deliver_committed, inst, store)
     _step("creating the thread store", _create_thread_store, inst)
     _step("planning", plan_all, inst, store=store)
     _step("linking needs", link_needs, inst, store=store)
@@ -978,6 +979,20 @@ def gate_sent_back(store: UnitStore) -> None:
         if waits:
             store.set_state(unit.id, PLANNED, note=merge_wait(waits), cause=Cause.GATED)
             log(f"{unit.id}: {merge_wait(waits)}")
+
+
+def deliver_committed(inst: Installation, store: UnitStore) -> None:
+    """Finish the delivery of every commit a chat made and a gone process did not deliver:
+    the adopted event once for that commit, then the lease that recorded it is removed."""
+    from agent_build_kit.pipeline import attach
+
+    for held in Leases(lease_dir(inst.state_dir)).attachments():
+        if not (held.stale and held.committed):
+            continue
+        if (unit := next((u for u in store.all() if u.id == held.unit_id), None)) is None:
+            continue
+        done = attach.finish(inst, unit, held.committed)
+        log(f"{unit.id}: commit {done.commit[:9]} {'delivered' if done.delivered else 'deferred'}")
 
 
 def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()) -> None:

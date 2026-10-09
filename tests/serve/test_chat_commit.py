@@ -155,7 +155,7 @@ def test_a_hook_that_reformats_the_files_is_retried_and_the_commit_succeeds(
     answer = commit(api)
 
     assert answer.status_code == 200 and answer.json()["delivered"] is True
-    assert git(tree, "show", "HEAD:notes.txt") == "a change\n", "the committed file is formatted"
+    assert git(tree, "show", "HEAD:notes.txt") == "a change", "the committed file is formatted"
     assert len(fake.calls) == 1, "the agent was not asked: the retry was enough"
 
 
@@ -179,7 +179,7 @@ def test_a_hook_the_agent_must_fix_is_given_to_the_agent_and_the_commit_tried_ag
     assert "lint: BAD word in notes.txt" in prompt_of(argv), "the hook's own output"
     assert cwd is not None and Path(cwd).resolve() == tree.resolve()
     assert BUILD_SESSION in argv, "the unit's own session fixes it"
-    assert git(tree, "show", "HEAD:notes.txt") == "fine\n"
+    assert git(tree, "show", "HEAD:notes.txt") == "fine"
     assert head(tree) != before
     assert attachment(inst) is None
 
@@ -199,7 +199,7 @@ def test_a_commit_still_rejected_after_the_bound_is_a_conflict_that_keeps_everyt
     assert "lint: no way" in answer.text, "the hook output"
     assert len(fake.calls) - asked == COMMIT_FIX_ROUNDS, "the helper's bound"
     assert head(tree) == before
-    assert changed_files(tree) == ["notes.txt"], "the changes stay uncommitted"
+    assert "notes.txt" in git(tree, "status", "--porcelain"), "the changes stay uncommitted"
     kept = attachment(inst)
     assert kept is not None and kept.changed == 1 and not kept.stale
     assert waiting_at(inst) == (Node.AWAIT_REVIEW,), "nothing was delivered"
@@ -257,6 +257,7 @@ def test_a_commit_of_the_planning_checkout_releases_its_part_and_sends_the_unit_
     inst: Installation, tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     planning = init_repo(inst.root)
+    (planning / ".gitignore").write_text("runs/\n")  # the pipeline's state is not a plan
     (planning / "notes.md").write_text("start\n")
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "start")
