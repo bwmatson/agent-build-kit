@@ -7,10 +7,11 @@ order of its commits, the unit's run log, the tick's own output arriving
 while the run works, and what `abk report` says the unit used.
 
 Needs an agent speaking the protocol, named by `ABK_ACCEPTANCE_ACP_COMMAND`
-(a command line), node for the OpenSpec CLI, and uv. Only `gh` is faked, at
-the command's own boundary: a script on PATH answering with what `gh` prints.
-Bills on demand and takes minutes, so it is marked with the tier-2 marker and
-excluded from the default suite.
+(a command line), node for the OpenSpec CLI, and uv. Only GitHub is faked, at
+the host's API: a fake server reached through `ABK_GITHUB_API_URL`, with
+`gh auth token` the one command left as a script. Bills on demand and takes
+minutes, so it is marked with the tier-2 marker and excluded from the default
+suite.
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ from agent_build_kit.pipeline.commit_order import check_structure, classify_path
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
 from tests.factories import git, init_repo, scratch_app
 from tests.factories import who_pushed as reflog_and_pushes
+from tests.forges.github_server import FakeGitHub
+from tests.forges.process_host import process_env
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -48,17 +51,6 @@ CHANGE = "add-marker"
 BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
 AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
-
-# What `gh` prints for the calls a build makes, and a record of each call.
-FAKE_GH = """#!/bin/sh
-echo "$@" >> "$GH_CALLS"
-case "$1 $2" in
-  "pr list") echo '[]' ;;
-  "pr create") echo 'https://github.com/example/app/pull/7' ;;
-  "auth token") echo 'token' ;;
-  *) echo '{}' ;;
-esac
-"""
 
 TASKS = """# Tasks
 
@@ -91,16 +83,29 @@ class Ticked(Frozen):
 
 
 class Scratch(Frozen):
+    model_config = {"arbitrary_types_allowed": True}
+
     planning: Path
     app: Path
     remote: Path
     state: Path
     env: dict[str, str]
-    calls: Path
+    host: FakeGitHub
 
 
 @pytest.fixture(scope="module")
-def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
+def github_host() -> Iterator[FakeGitHub]:
+    """The fake host, numbering its first pull request 7."""
+    with FakeGitHub(first_number=7) as server:
+        yield server
+        # Checked for every test of the module: a route the fake does not serve
+        # fails here, naming it, even when no test looked.
+        missed = server.unrouted()
+        assert missed == [], f"the forge called routes the fake host does not serve: {missed}"
+
+
+@pytest.fixture(scope="module")
+def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Iterator[Scratch]:
     tmp_path = tmp_path_factory.mktemp("acp-build")
     command = os.environ.get(AGENT_COMMAND, "")
     if not command:
@@ -138,16 +143,8 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
 
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    gh = bin_dir / "gh"
-    gh.write_text(FAKE_GH)
-    gh.chmod(0o755)
-    calls = tmp_path / "gh-calls.txt"
     env = {
-        **os.environ,
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "GH_CALLS": str(calls),
+        **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
         "ABK_CONFIG": str(planning / "abk.yaml"),
         "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
         # The per-machine override: abk.yaml still names the default runtime.
@@ -159,7 +156,7 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
         remote=remote,
         state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
         env=env,
-        calls=calls,
+        host=github_host,
     )
 
 
@@ -276,7 +273,7 @@ def test_the_unit_is_built_reviewed_and_pushed_through_the_runtime(
     log_lines = run_log(scratch).splitlines()
     assert any(f"{Node.REVIEW}: review round" in line for line in log_lines), log_lines
     assert any("in review: PR #7" in line for line in log_lines), log_lines
-    assert "pr create" in scratch.calls.read_text()
+    assert scratch.host.requests("POST", "/repos/example/app/pulls"), "no pull request was opened"
 
 
 def test_the_pipeline_alone_pushed_and_only_what_review_approved(

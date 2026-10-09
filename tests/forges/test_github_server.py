@@ -246,6 +246,72 @@ def test_a_comment_posted_through_the_forge_shows_in_the_next_read(
     assert github_server.unrouted() == []
 
 
+def test_an_inline_comment_the_test_writes_reads_back_with_its_path_and_line(
+    github_server: FakeGitHub, forge: GitHubForge
+) -> None:
+    forge.create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+
+    comment = github_server.add_review(
+        1, "COMMENTED", "", inline=("src/app/marker.py", 3, "name it")
+    )
+
+    inline = [n for n in forge.review_notes(REPO, 1) if n.path]
+    assert [(n.id, n.path, n.line, n.body, n.live) for n in inline] == [
+        (str(comment), "src/app/marker.py", 3, "name it", True)
+    ]
+    assert github_server.unrouted() == []
+
+
+def test_a_reply_to_an_inline_comment_returns_the_comment_and_its_review_and_is_listed(
+    github_server: FakeGitHub, forge: GitHubForge, client: httpx.Client
+) -> None:
+    forge.create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+    comment = github_server.add_review(
+        1, "COMMENTED", "", inline=("src/app/marker.py", 3, "name it")
+    )
+    [parent] = [c for c in github_server.review_comments(1) if c["id"] == comment]
+
+    ids = forge.post_reply(REPO, 1, note_id=str(comment), body="done")
+
+    [reply] = [c for c in github_server.review_comments(1) if c.get("in_reply_to_id") == comment]
+    assert reply["body"] == "done"
+    assert (reply["path"], reply["line"]) == ("src/app/marker.py", 3)
+    [made] = [
+        r
+        for r in client.get(f"{BASE}/pulls/1/reviews").json()
+        if r["id"] == reply["pull_request_review_id"]
+    ]
+    assert ids == [reply["node_id"], made["node_id"]]
+    assert (made["state"], made["body"]) == ("COMMENTED", "")
+    assert reply["pull_request_review_id"] != parent["pull_request_review_id"]
+    assert github_server.unrouted() == []
+
+
+def test_a_reply_to_a_review_id_or_an_unknown_id_is_refused_as_github_refuses_it(
+    github_server: FakeGitHub, forge: GitHubForge
+) -> None:
+    forge.create_pr(REPO, head=HEAD, base="main", title="t", body="b")
+    github_server.add_review(1, "COMMENTED", "please rename", inline=("src/app/marker.py", 3, "x"))
+    [review] = [n for n in forge.review_notes(REPO, 1) if not n.path and n.body]
+
+    assert forge.post_reply(REPO, 1, note_id=review.id, body="done") == []
+    assert forge.post_reply(REPO, 1, note_id="987654", body="done") == []
+    assert all(c.get("in_reply_to_id") is None for c in github_server.review_comments(1))
+
+
+def test_a_review_is_served_by_its_id(client: httpx.Client, github_server: FakeGitHub) -> None:
+    client.post(f"{BASE}/pulls", json=OPEN)
+    github_server.add_review(1, "APPROVED", "ship it")
+    [listed] = client.get(f"{BASE}/pulls/1/reviews").json()
+
+    found = client.get(f"{BASE}/pulls/1/reviews/{listed['id']}")
+    missing = client.get(f"{BASE}/pulls/1/reviews/31337")
+
+    assert found.json()["node_id"] == listed["node_id"]
+    assert {"user", "submitted_at", "commit_id", "html_url"} <= set(listed)
+    assert missing.status_code == 404
+
+
 def test_the_files_of_a_pull_request_read_without_error(
     github_server: FakeGitHub, forge: GitHubForge
 ) -> None:

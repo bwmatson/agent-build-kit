@@ -3,8 +3,9 @@
 `abk tick` is the real CLI run as a process against a scratch planning repo and
 a scratch code repo with a bare remote, with a real agent on this host
 (`ABK_ACCEPTANCE_ACP_COMMAND`) and telemetry switched on through the settings a
-person would set. Only the forge is faked, at the command's own boundary: a `gh`
-script on PATH that prints what `gh` prints.
+person would set. Only GitHub is faked: a fake server speaking the REST API,
+reached through `ABK_GITHUB_API_URL`, with `gh auth token` the one command left as
+a script.
 
 The stores are the stack's own, read back through the queries a person would
 use: the trace store's search API by unit id, and the metrics store's query API
@@ -44,6 +45,8 @@ import pytest
 
 from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo, scratch_app
+from tests.forges.github_server import FakeGitHub
+from tests.forges.process_host import process_env
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -64,17 +67,6 @@ METRICS_URL = "ABK_ACCEPTANCE_METRICS_URL"
 INGEST_WAIT = 90.0
 # How long a store that should hold nothing is given to prove it.
 QUIET_WAIT = 20.0
-
-FAKE_GH = """#!/bin/sh
-echo "$@" >> "$GH_CALLS"
-case "$1 $2" in
-  "pr list") echo '[]' ;;
-  "pr create") echo 'https://github.com/example/app/pull/7' ;;
-  "auth token") echo 'token' ;;
-  "api --paginate") echo '[]' ;;
-  *) echo '{}' ;;
-esac
-"""
 
 TASKS = """# Tasks
 
@@ -143,30 +135,28 @@ def run_tick(tmp_path: Path, *, traces: str, metrics: str, service: str | None =
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
 
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    gh = bin_dir / "gh"
-    gh.write_text(FAKE_GH)
-    gh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "GH_CALLS": str(tmp_path / "gh-calls.txt"),
-        "ABK_CONFIG": str(planning / "abk.yaml"),
-        "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
-        "ABK_RUNTIME": "acp",
-        "ABK_OTEL_ENABLED": "1",
-        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": traces,
-        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": metrics,
-        "OTEL_SERVICE_NAME": service,
-    }
-    run = subprocess.run(
-        [str(Path(sys.executable).parent / "abk"), "tick"],
-        cwd=planning,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=3600,
+    with FakeGitHub(first_number=7) as host:
+        env = {
+            **process_env(host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
+            "ABK_CONFIG": str(planning / "abk.yaml"),
+            "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
+            "ABK_RUNTIME": "acp",
+            "ABK_OTEL_ENABLED": "1",
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": traces,
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": metrics,
+            "OTEL_SERVICE_NAME": service,
+        }
+        run = subprocess.run(
+            [str(Path(sys.executable).parent / "abk"), "tick"],
+            cwd=planning,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+        missed = host.unrouted()
+    assert missed == [], (
+        f"the forge called routes the fake host does not serve: {missed}\n{run.stdout}{run.stderr}"
     )
     # A tick that failed to build the unit leaves no branch: that is `False`,
     # reported by the test's assertion with the tick's output, not a raise here.

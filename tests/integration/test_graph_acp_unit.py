@@ -2,10 +2,10 @@
 
 The runtime is a real agent on this host (`ABK_ACCEPTANCE_ACP_COMMAND`) and
 `abk tick` is the real CLI run as a process, against a scratch planning repo and
-a scratch code repo with a bare remote. Only the forge is faked, at the
-command's own boundary: a `gh` script on PATH that prints what `gh` prints, from
-a small state directory the test edits. The test posts the review comment and
-the merge by writing to that directory, as a reviewer would on the host.
+a scratch code repo with a bare remote. Only the host is faked: a fake GitHub
+server speaking the REST API, reached through `ABK_GITHUB_API_URL`, with `gh auth
+token` the one command left as a script. The test posts the review comment and
+the merge to the server, as a reviewer would on the host.
 
 What is asserted is what an operator sees: the unit's thread is in the
 checkpoint store, waiting in review, after the first tick; a comment resumes it
@@ -20,7 +20,6 @@ suite.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import shlex
 import shutil
@@ -38,6 +37,8 @@ from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo, scratch_app
+from tests.forges.github_server import FakeGitHub
+from tests.forges.process_host import process_env
 
 pytestmark = [
     pytest.mark.local_stack,
@@ -50,48 +51,6 @@ BRANCH = f"spec/{CHANGE}/1"
 UNIT_ID = f"{CHANGE}/1"
 AGENT_COMMAND = "ABK_ACCEPTANCE_ACP_COMMAND"
 COMMENT = "Please add a one-line docstring to `marker()` saying what it returns."
-
-# The forge, as `gh` prints it. `FORGE` is a directory: `created` exists once a
-# pull request has been opened, `merged` exists once the test has merged the
-# pull request. An inline review comment is one state in three wire shapes, each
-# a file the test writes: `review.json` (the submitted review as `gh pr list
-# --json reviews` prints it), and `rest_review.json` and `rest_comment.json`
-# (the same review and its comment as the REST API prints them).
-FAKE_GH = """#!/bin/sh
-echo "$@" >> "$GH_CALLS"
-cd "$FORGE" || exit 1
-case "$1 $2" in
-  "pr list")
-    if ! [ -e created ]; then echo '[]'; exit 0; fi
-    case "$*" in
-      *"--head "*) echo '[{"number": 7}]' ;;
-      *)
-        merged=null
-        [ -e merged ] && merged='"2026-01-02T00:00:00Z"'
-        state=OPEN
-        [ -e merged ] && state=MERGED
-        reviews='[]'
-        [ -e review.json ] && reviews="[$(cat review.json)]"
-        printf '[{"number": 7, "headRefName": "%s", "baseRefName": "main", "state": "%s", ' \
-          "$BRANCH" "$state"
-        printf '"isDraft": false, "mergedAt": %s, "labels": [], "comments": [], ' "$merged"
-        printf '"statusCheckRollup": [], "reviewDecision": "", "reviews": %s, ' "$reviews"
-        printf '"mergeable": "MERGEABLE"}]\\n'
-        ;;
-    esac ;;
-  "pr create") touch created; echo 'https://github.com/example/app/pull/7' ;;
-  "auth token") echo 'token' ;;
-  "api --paginate")
-    case "$3" in
-      */pulls/7/comments)
-        if [ -e rest_comment.json ]; then echo "[$(cat rest_comment.json)]"; else echo '[]'; fi ;;
-      */pulls/7/reviews)
-        if [ -e rest_review.json ]; then echo "[$(cat rest_review.json)]"; else echo '[]'; fi ;;
-      *) echo '[]' ;;
-    esac ;;
-  *) echo '{}' ;;
-esac
-"""
 
 TASKS = """# Tasks
 
@@ -110,15 +69,28 @@ class Ticked(Frozen):
 
 
 class Scratch(Frozen):
+    model_config = {"arbitrary_types_allowed": True}
+
     planning: Path
     remote: Path
     state: Path
-    forge: Path
+    host: FakeGitHub
     env: dict[str, str]
 
 
 @pytest.fixture(scope="module")
-def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
+def github_host() -> Iterator[FakeGitHub]:
+    """The fake host, numbering its first pull request 7."""
+    with FakeGitHub(first_number=7) as server:
+        yield server
+        # Checked for every test of the module: a route the fake does not serve
+        # fails here, naming it, even when no test looked.
+        missed = server.unrouted()
+        assert missed == [], f"the forge called routes the fake host does not serve: {missed}"
+
+
+@pytest.fixture(scope="module")
+def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Iterator[Scratch]:
     tmp_path = tmp_path_factory.mktemp("graph-acp")
     command = os.environ.get(AGENT_COMMAND, "")
     if not command:
@@ -152,19 +124,8 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
 
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    gh = bin_dir / "gh"
-    gh.write_text(FAKE_GH)
-    gh.chmod(0o755)
-    forge = tmp_path / "forge"
-    forge.mkdir()
     env = {
-        **os.environ,
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "GH_CALLS": str(tmp_path / "gh-calls.txt"),
-        "FORGE": str(forge),
-        "BRANCH": BRANCH,
+        **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
         "ABK_CONFIG": str(planning / "abk.yaml"),
         "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
         "ABK_RUNTIME": "acp",
@@ -173,7 +134,7 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
         planning=planning,
         remote=remote,
         state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
-        forge=forge,
+        host=github_host,
         env=env,
     )
 
@@ -218,7 +179,7 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     assert built.returncode == 0, built.output
     first = commits_on_branch(scratch)
     assert first, f"{BRANCH} never reached the remote\n{built.output}\n{run_log(scratch)}"
-    assert "pr create" in Path(scratch.env["GH_CALLS"]).read_text()
+    assert scratch.host.requests("POST", "/repos/example/app/pulls"), "no pull request was opened"
     # Waiting in review is a thread parked at its wait, not a finished one.
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
 
@@ -229,33 +190,7 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     assert commits_on_branch(scratch) == first
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,)
 
-    review = {
-        "id": "PRR_kwDOexample5001",
-        "state": "COMMENTED",
-        "author": {"login": "reviewer"},
-        "body": "",
-        "submittedAt": "2026-01-01T00:00:00Z",
-    }
-    rest_review = {
-        "id": 5001,
-        "node_id": "PRR_kwDOexample5001",
-        "state": "COMMENTED",
-        "user": {"login": "reviewer"},
-        "body": "",
-        "submitted_at": "2026-01-01T00:00:00Z",
-    }
-    rest_comment = {
-        "id": 9001,
-        "node_id": "PRRC_kwDOexample9001",
-        "pull_request_review_id": 5001,
-        "body": COMMENT,
-        "path": "src/app/marker.py",
-        "line": 1,
-        "user": {"login": "reviewer"},
-    }
-    (scratch.forge / "review.json").write_text(json.dumps(review))
-    (scratch.forge / "rest_review.json").write_text(json.dumps(rest_review))
-    (scratch.forge / "rest_comment.json").write_text(json.dumps(rest_comment))
+    comment = scratch.host.add_review(7, "COMMENTED", "", inline=("src/app/marker.py", 1, COMMENT))
     reworked = tick(scratch)
     assert reworked.returncode == 0, reworked.output
     second = commits_on_branch(scratch)
@@ -264,9 +199,14 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     # Only the comment asks for a docstring: the rework that read it wrote one.
     marker = git(scratch.remote, "show", f"{BRANCH}:src/app/marker.py")
     assert '"""' in marker, f"the rework did not act on the comment\n{marker}\n{run_log(scratch)}"
+    # The agent answered in the comment's own thread, not under the review.
+    thread = scratch.host.review_comments(7)
+    assert any(c.get("in_reply_to_id") == comment for c in thread), (
+        f"no reply in the comment's thread\n{thread}\n{run_log(scratch)}"
+    )
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
 
-    (scratch.forge / "merged").touch()
+    scratch.host.merge(7)
     merged = tick(scratch)
     assert merged.returncode == 0, merged.output
     assert thread_next(scratch) is None, "the thread outlived the merge"
