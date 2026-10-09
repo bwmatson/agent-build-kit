@@ -26,8 +26,9 @@ from pydantic import BaseModel, ConfigDict
 from agent_build_kit.config import active
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
-from agent_build_kit.pipeline.unit_store import ReworkKind
+from agent_build_kit.pipeline.unit_store import ReworkKind, StoredUnit
 from agent_build_kit.pipeline.units import CLOSED, MERGED
+from agent_build_kit.pipeline.vocabulary import ChecksOf
 
 # Raises on failure, which is what drives the backoff below.
 ListPrs = Callable[[], list[PullRequest]]
@@ -414,3 +415,22 @@ class Poller(BaseModel):
                 "rework", number, pull=pull, reason=CONFLICT_REASON, rework=ReworkKind.CONFLICT
             )
         return None
+
+
+def recorded_checks(state_dir: Path) -> ChecksOf:
+    """A lookup of a unit's pull request's checks as the last poll of its repo
+    recorded them, read from the snapshot when asked. Links are not kept there."""
+    loaded: dict[str, dict] = {}
+
+    def checks_of(unit: StoredUnit) -> Sequence[Check]:
+        if unit.repo not in loaded:
+            loaded[unit.repo] = PrState.load(state_path(state_dir, unit.repo))
+        seen = loaded[unit.repo].get(str(unit.pr)) or {}
+        recorded = seen.get("checks")
+        if not isinstance(recorded, dict):
+            return ()
+        return tuple(
+            Check(name=name, status=CheckStatus(status)) for name, status in recorded.items()
+        )
+
+    return checks_of

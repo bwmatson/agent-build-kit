@@ -696,7 +696,7 @@ class UnitStore:
         Separate from `set_state` because a push is not a state change: a unit
         is pushed several times — once per restack — while staying `open`.
         """
-        self._update(unit_id, pushed=sha)
+        self._update(unit_id, pushed=sha, pushed_at=spans.clock.now())
 
 
 def _record(unit: StoredUnit) -> dict:

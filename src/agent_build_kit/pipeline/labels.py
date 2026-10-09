@@ -95,4 +95,4 @@ class StateLabels:
         if opened:
             for member in unit.members():
                 self.tag_change(unit.repo, unit.pr, member.change)
-        self.set_state(unit.repo, unit.pr, effective_state(unit, units))
+        self.set_state(unit.repo, unit.pr, effective_state(unit, units, checks_of=checks_of))

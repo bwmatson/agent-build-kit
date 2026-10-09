@@ -78,6 +78,7 @@ from agent_build_kit.pipeline.pr_poller import (
     HOLD_LABEL,
     Poller,
     PrState,
+    recorded_checks,
     state_path,
     unmergeable,
 )
@@ -150,7 +151,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
-from agent_build_kit.pipeline.vocabulary import effective_state
+from agent_build_kit.pipeline.vocabulary import effective_state, state_label, state_label_names
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_resume_at,
@@ -351,10 +352,15 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if not units:
         log("no units planned")
         return 0
+    checks_of = recorded_checks(inst.state_dir)
 
     by_state: dict[str, int] = {}
     for unit in units:
-        shown = unit.state if unit.state != RUNNING else effective_state(unit, units)
+        shown = (
+            unit.state
+            if unit.state not in (RUNNING, IN_REVIEW)
+            else effective_state(unit, units, checks_of=checks_of)
+        )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
 
@@ -430,7 +436,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             if unit.repo not in conflicted:
                 conflicted[unit.repo] = unmergeable(state_path(inst.state_dir, unit.repo))
             mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
-            log(f"  awaiting review: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}")
+            waiting = (
+                "checking"
+                if effective_state(unit, units, checks_of=checks_of) == "checking"
+                else "awaiting review"
+            )
+            log(f"  {waiting}: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}")
     return 0
 
 
@@ -1983,6 +1994,28 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
             log=log,
         ).poll()
+        _refresh_check_labels(inst, store, repo, labels)
+
+
+def _refresh_check_labels(
+    inst: Installation, store: UnitStore, repo: str, labels: StateLabels
+) -> None:
+    """Bring the state label of each unit in review in line with what its checks
+    now make of it. A stored state change moves the label by itself; a poll of
+    checks does not, so it is done here, only where a state label is already
+    on the pull request."""
+    units = store.all()
+    checks_of = recorded_checks(inst.state_dir)
+    recorded = PrState.load(state_path(inst.state_dir, repo))
+    names = state_label_names()
+    for unit in units:
+        if unit.repo != repo or unit.state != IN_REVIEW or unit.pr is None:
+            continue
+        shown = effective_state(unit, units, checks_of=checks_of)
+        carried = names & set((recorded.get(str(unit.pr)) or {}).get("labels", []))
+        label = state_label(shown)
+        if carried and label is not None and carried != {label.name}:
+            labels.set_state(repo, unit.pr, shown)
 
 
 class _Run:

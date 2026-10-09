@@ -98,7 +98,7 @@ def render_mermaid(
     for repo in sorted({unit.repo for unit in units}):
         lines.append(f"    subgraph {repo}")
         for unit in [u for u in ordered if u.repo == repo]:
-            state = effective_state(unit, graph)
+            state = effective_state(unit, graph, checks_of=checks_of)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
@@ -126,7 +126,9 @@ def render_mermaid(
         lines.append(f"    classDef {state} {painted}")
 
     for unit in ordered:
-        lines.append(f"    class {_node_id(unit.id)} {effective_state(unit, graph)}")
+        lines.append(
+            f"    class {_node_id(unit.id)} {effective_state(unit, graph, checks_of=checks_of)}"
+        )
 
     return "\n".join(lines)
 
