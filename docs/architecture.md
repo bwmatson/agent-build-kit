@@ -673,6 +673,12 @@ credits past the plan limit cost money. No new unit starts once a window is
 at its threshold; the reading comes live from the usage endpoint with Claude
 Code's stored OAuth token (cached three minutes), falling back to Claude
 Code's own cache when it is under an hour old. **An unknown reading pauses.**
+**A pause never ends before it is written:** the grace after a reset is added
+once, in `pause.py`; a reset time already past is treated as unknown (retry
+after thirty minutes); and a reading too old to trust refuses starts for the
+stale-retry interval (`usage_stale_retry_minutes`, five by default) without
+borrowing its window. A reading served from the cache file has its own source,
+so it is not mistaken for a live one.
 **A step already running is never interrupted** — the guard only ever gates
 what starts next. The one place that reading is taken mid-unit rather than
 only at a boundary is judging a step that ends having written nothing: an

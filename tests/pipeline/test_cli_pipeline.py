@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -466,6 +467,39 @@ def test_a_usage_pause_takes_its_reason_and_time_from_its_fields(
     paused = json.loads((tmp_path / "paused.json").read_text())
     assert paused["reason"] == "weekly window at 92%"
     assert datetime.fromisoformat(paused["until"]) == resumes + RESUME_GRACE
+
+
+def test_a_usage_pause_from_a_unit_run_is_announced_in_local_time(
+    healthy,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    time.tzset()
+    try:
+        resumes = datetime.now(UTC) + timedelta(hours=5)
+
+        class PausingWithFields:
+            def run(self, unit, *, base, graph):
+                return RunOutcome(
+                    status="paused",
+                    detail="waiting",
+                    pause=PauseInfo(reason="weekly window at 92%", until=resumes),
+                )
+
+        monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: PausingWithFields())
+
+        cli.cmd_tick(argv_namespace(dry_run=False), inst)
+
+        deadline = (resumes + RESUME_GRACE).astimezone()
+        lines = [x for x in capsys.readouterr().out.splitlines() if "pausing until" in x]
+        assert lines
+        assert all(f"{deadline:%H:%M}" in x and "UTC" not in x for x in lines)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
 
 
 def test_the_tick_polls_before_it_plans(

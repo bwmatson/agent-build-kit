@@ -73,6 +73,7 @@ runtimes:                     # only for a runtime needing a fact abk cannot
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
+      usage_stale_retry_minutes: 5     # refusal length when the reading is too old
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor

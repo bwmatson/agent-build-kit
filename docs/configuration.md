@@ -102,6 +102,8 @@ runtimes:                       # one entry per runtime that needs a fact abk
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
+      usage_stale_retry_minutes: 5  # how long a start is refused when the only
+                                    # reading is too old to trust
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when

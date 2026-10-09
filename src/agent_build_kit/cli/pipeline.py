@@ -61,7 +61,7 @@ from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
-from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_until
+from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_line, pause_until
 from agent_build_kit.pipeline.planner import GroupTooLarge, in_flight_item, plan_round
 from agent_build_kit.pipeline.planning_repo import (
     default_branch_of,
@@ -310,7 +310,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
     if paused:
-        log(f"paused until {paused.until:%Y-%m-%d %H:%M UTC} — {paused.reason}")
+        log(pause_line(paused))
 
     try:
         runtime = runtimes.active()
@@ -689,7 +689,7 @@ def _may_build(
     _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
-        log(f"paused until {paused.until:%H:%M UTC} — {paused.reason}")
+        log(pause_line(paused))
         # A pause builds nothing, so a unit no run holds should read `planned`
         # for as long as it lasts. Not otherwise: a round that goes on resumes it.
         _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
@@ -705,10 +705,7 @@ def _may_build(
             state = pause_until(
                 decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
             )
-            log(
-                f"{'paused' if paused else 'pausing'} until {state.until:%H:%M UTC}"
-                f" — {decision.reason}"
-            )
+            log(pause_line(state, verb="paused" if paused else "pausing"))
             if not paused:
                 # A new pause; the rounds that find it still in force are not more of them.
                 telemetry.count("abk.usage.pauses", kind="usage")
@@ -720,7 +717,7 @@ def _may_build(
         reason = f"runtime {runtime.name} has no usage window; not checking one"
 
     if paused:
-        log(f"resuming a pause that was to last until {paused.until:%H:%M UTC}")
+        log(f"resuming a pause that was to last until {paused.until.astimezone():%H:%M}")
     clear_pause(_paused_marker(inst))
     if not quiet:
         log(reason)
@@ -2073,7 +2070,7 @@ def _build_unit(
             record_metric(
                 "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="rate_limit"
             )
-            end(f"rate limited — pausing until {state.until:%H:%M UTC}", UnitOutcome.RATE_LIMITED)
+            end(f"rate limited — {pause_line(state, verb='pausing')}", UnitOutcome.RATE_LIMITED)
             return False
         except BranchBusy as error:
             # Another tick is already on it. Not a failure — marking it one would
@@ -2125,7 +2122,7 @@ def _pause_for_usage(inst: Installation, pause: PauseInfo) -> None:
     """
     until = pause.until or build_resume_at(usage=current_usage, decide=may_start_unit)()
     state = pause_until(until, reason=pause.reason, marker=_paused_marker(inst))
-    log(f"pausing until {state.until:%H:%M UTC}")
+    log(pause_line(state, verb="pausing"))
 
 
 def _starting_step(inst: Installation, unit: StoredUnit) -> tuple[str, str]:

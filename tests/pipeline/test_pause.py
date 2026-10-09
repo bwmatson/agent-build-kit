@@ -11,6 +11,7 @@ why, and needs no resume of its own.
   model itself is never shortened.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -53,10 +54,13 @@ def test_nothing_is_paused_by_default(tmp_path: Path) -> None:
 
 def test_a_pause_expires_on_its_own(tmp_path: Path) -> None:
     """A deadline that has passed is not a pause, whatever the marker says."""
-    pause_until(
-        datetime.now(UTC) - timedelta(hours=1),
-        reason="already over",
-        marker=tmp_path / "paused.json",
+    (tmp_path / "paused.json").write_text(
+        json.dumps(
+            {
+                "until": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+                "reason": "already over",
+            }
+        )
     )
 
     assert is_paused(tmp_path / "paused.json") is None

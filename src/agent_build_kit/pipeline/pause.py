@@ -68,6 +68,18 @@ def is_paused(marker: Path) -> Pause | None:
     return Pause(until=until, reason=str(data.get("reason", "")), kind=kind)
 
 
+def resume_deadline(until: datetime | None, *, now: datetime | None = None) -> datetime:
+    """When a pause ends: the grace past `until`, added here and nowhere else.
+
+    A reset time that is not in the future is unknown, so a pause is never
+    written already over.
+    """
+    now = now or datetime.now(UTC)
+    if until is None or until <= now:
+        return now + UNKNOWN_RETRY
+    return until + RESUME_GRACE
+
+
 def pause_until(
     until: datetime | None, *, reason: str, marker: Path, kind: PauseKind = "usage"
 ) -> Pause:
@@ -78,7 +90,7 @@ def pause_until(
     rate-limit pause is never shortened — not by another, and not by a usage
     pause, since the usage endpoint can show room the model has just refused.
     """
-    deadline = (until + RESUME_GRACE) if until else (datetime.now(UTC) + UNKNOWN_RETRY)
+    deadline = resume_deadline(until)
 
     existing = is_paused(marker)
     if existing and existing.kind == "rate_limit" and existing.until > deadline:
@@ -98,6 +110,16 @@ def pause_until(
         + "\n"
     )
     return Pause(until=deadline, reason=reason, kind=kind)
+
+
+def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = None) -> str:
+    """The run-log line announcing a pause: its end in local time, and why.
+
+    The end is never shown earlier than `now`, the moment the line is printed.
+    """
+    now = now or datetime.now(UTC)
+    end = max(pause.until, now).astimezone()
+    return f"{verb} until {end:%H:%M} — {pause.reason}"
 
 
 def clear_pause(marker: Path) -> None:

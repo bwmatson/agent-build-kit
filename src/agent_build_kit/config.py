@@ -142,6 +142,8 @@ class ClaudeLimitsConfig(Frozen):
 
     session: UsageWindowConfig = UsageWindowConfig()
     weekly: UsageWindowConfig = UsageWindowConfig()
+    # How long a start is refused when the only reading is too old to trust.
+    usage_stale_retry_minutes: Annotated[int, Field(gt=0)] = 5
 
 
 class RuntimeConfig(Frozen):

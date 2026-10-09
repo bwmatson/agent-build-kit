@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A usage pause no longer ends before it was written. The grace after a reset is added once, a
+  reset time that has already passed counts as unknown (retry in thirty minutes), and a reading
+  too old to trust pauses for a short, new `usage_stale_retry_minutes` (five by default) and
+  says it is stale and where it came from. A reading served from the cache file now reports
+  its own source instead of passing for live. The pause line shows local time.
+
 - A pull request's checks are now one list, each with a name, a status (`passed`, `failed`,
   `cancelled` or `pending`) and a link where the host gives one, on both GitHub and Azure
   DevOps, instead of separate lists of failing and cancelled names. A check state the forge
