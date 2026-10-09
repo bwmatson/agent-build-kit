@@ -953,7 +953,7 @@ server's only writes: a unit's diff is `git diff` from where its branch left its
 one resolved commit, and its threads, replies, summary and one decision per round are kept
 in `reviews/` in the state directory, each thread anchored to the commit it was made at and
 placed at the branch tip when read. The approve action and `abk approve` are one function,
-`approve_unit`: it records an `approved` decision for the round with the pull request's head
+`approve_unit`: it records an approval decision (`approve`) for the round with the pull request's head
 and never merges, pushes or votes on the host. The pages are described under `abk serve` in
 [cli.md](cli.md).
 

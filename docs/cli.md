@@ -128,8 +128,10 @@ request, so the unit's thread, branch claim and depth rules are as for the label
 change the pipeline's record only, not the label on the host, so a hold says to set the
 label there too, and a release is refused while the last poll saw the label on the
 pull request (remove it on the host). A unit being built answers 409 for those, as the
-poller would defer. *Approve* is `abk approve`'s own function, `approve_unit`: it records an `approved` decision for the unit's current review round with the head of its pull request, and is refused for a unit with no pull request or no head and for a round that already has a decision. Each
-refusal carries the CLI's reason, and the unit page shows the buttons disabled with it.
+poller would defer. *Approve* is `abk approve`'s own function, `approve_unit`: it records
+an approval decision (`approve`) for the unit's current review round with the head of its
+pull request, and is refused for a unit with no pull request or no head and for a round
+that already has a decision. Each refusal carries the CLI's reason, and the unit page shows the buttons disabled with it.
 
 Any other path answers the built web UI, so `/units/<change>/<n>` loads on a direct visit;
 an unknown `/api/...` path stays a JSON 404. The UI is built from `web/` (see below) and

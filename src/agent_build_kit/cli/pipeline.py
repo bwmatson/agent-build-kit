@@ -2387,22 +2387,29 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     return requeue(inst, args.unit, mode, say=say)
 
 
-def approve_refusal(inst: Installation, unit: StoredUnit) -> str | None:
-    """Why `unit` cannot be approved as stored; None when it can."""
+def _approval(inst: Installation, unit: StoredUnit) -> str | tuple[int, str]:
+    """Why `unit` cannot be approved as stored, or the round and head to approve."""
     from agent_build_kit.serve.review import ReviewStore, branch_tip
-    from agent_build_kit.serve.server import _review_round
+    from agent_build_kit.serve.server import review_round
 
     if unit.pr is None:
         return f"{unit.id} has no pull request; nothing to approve"
     repo = inst.checkouts.get(unit.repo)
-    if repo is None or not repo.exists() or branch_tip(repo, unit.branch) is None:
+    head = branch_tip(repo, unit.branch) if repo is not None and repo.exists() else None
+    if head is None:
         return f"{unit.id}'s pull request has no head: its branch is not in the checkout"
-    round_ = _review_round(inst, unit.id) or 1
+    round_ = review_round(inst, unit.id) or 1
     if any(
         d.round == round_ for d in ReviewStore(inst.state_dir / "reviews").read(unit.id).decisions
     ):
         return f"{unit.id}: round {round_} already has a decision"
-    return None
+    return round_, head
+
+
+def approve_refusal(inst: Installation, unit: StoredUnit) -> str | None:
+    """Why `unit` cannot be approved as stored; None when it can."""
+    found = _approval(inst, unit)
+    return found if isinstance(found, str) else None
 
 
 def approve_unit(inst: Installation, unit_id: str, *, say: Callable[..., None]) -> int:
@@ -2412,19 +2419,18 @@ def approve_unit(inst: Installation, unit_id: str, *, say: Callable[..., None]) 
     Nothing is merged, pushed or voted on the host. Every message goes to `say`; the
     result is the command's exit code.
     """
-    from agent_build_kit.serve.review import ReviewStore, branch_tip
-    from agent_build_kit.serve.server import _review_round
+    from agent_build_kit.serve.review import ReviewStore
 
     known = {unit.id: unit for unit in store_for(inst).all()}
     unit = known.get(unit_id)
     if unit is None:
         say(f"abk approve: no unit {unit_id!r} (known: {', '.join(sorted(known)) or 'none'})")
         return 1
-    if (reason := approve_refusal(inst, unit)) is not None:
-        say(reason)
+    found = _approval(inst, unit)
+    if isinstance(found, str):
+        say(found)
         return 1
-    head = branch_tip(inst.checkouts[unit.repo], unit.branch) or ""
-    round_ = _review_round(inst, unit.id) or 1
+    round_, head = found
     summary = "approved from the command line or the web UI"
     verdict = ReviewStore(inst.state_dir / "reviews").decide(
         unit.id, round=round_, decision="approve", summary=summary, head=head
