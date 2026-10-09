@@ -37,6 +37,15 @@
   pull request is made a draft whenever its unit goes back to planned, then published when the
   unit is in review again. Nothing new is stored: the names are derived.
 
+- A review made in the web UI now reaches a unit like one made on the host: a new comment or
+  reply sends it back for rework, Request changes counts as a changes-requested review, and
+  Approve is recorded without merging, and a second Request changes in a later round sends it
+  back again. The rework is given each comment with its file, line and id, and the summary of
+  a Request changes. The agent's replies are written into the threads they answer, not posted
+  to the host, and are not read back as new comments. Every review note, from the host or the
+  UI, now carries the diff hunk for its line, and the rework prompt prints it under the
+  comment with that line marked; a line the diff no longer holds prints none.
+
 - `abk serve` now answers a unit's review diff, pinned to one commit and taken against the
   base the unit builds on (only its own work, for a stacked or restacked unit), and keeps a
   unit's review threads, replies, summary and decision in the state directory. A thread

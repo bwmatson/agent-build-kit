@@ -57,6 +57,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
+from agent_build_kit.pipeline.ui_review import attach_hunks
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     HeldBy,
@@ -750,22 +751,43 @@ def note_words(note: ReviewNote) -> str:
     if note.line is None and not note.path:
         return body
     tag = f"[comment {note.id}] " if note.id else ""
-    return f"{tag}{note.path or '?'}:{note.line} — {body}"
+    words = f"{tag}{note.path or '?'}:{note.line} — {body}"
+    return f"{words}\n{note.hunk}" if note.hunk else words
+
+
+def _notes_of(
+    forge: Forge,
+    repo_id: RepoId,
+    repo: str,
+    pr: int,
+    extra_notes: Callable[[str, int], list[ReviewNote]] | None,
+    patch_of: Callable[[str, int], str] | None,
+) -> list[ReviewNote]:
+    """The host's notes on a PR and `extra_notes` (a review made elsewhere), each carrying the
+    hunk of the unit's `patch_of` that holds its line."""
+    notes = [*forge.review_notes(repo_id, pr), *(extra_notes(repo, pr) if extra_notes else [])]
+    patch = patch_of(repo, pr) if patch_of else ""
+    return attach_hunks(notes, patch) if patch else notes
 
 
 def build_fetch_review(
-    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+    *,
+    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
+    extra_notes: Callable[[str, int], list[ReviewNote]] | None = None,
+    patch_of: Callable[[str, int], str] | None = None,
 ) -> Callable[..., Review]:
     """The reviewer's words on a PR, asked of whichever host it lives on.
 
     Fetched only when a rework is already being dispatched: asking during the
-    poll itself would cost one request per open PR per tick.
+    poll itself would cost one request per open PR per tick. `extra_notes` adds a review
+    made off the host (the web UI's), and `patch_of` is the unit's own diff, from which
+    every note takes the hunk holding its line.
     """
     for_repo = for_repo or forges.for_repo
 
     def fetch(repo: str, pr: int) -> Review:
         forge, repo_id = for_repo(repo)
-        notes = forge.review_notes(repo_id, pr)
+        notes = _notes_of(forge, repo_id, repo, pr, extra_notes, patch_of)
         return Review(lines=review_lines(notes), ids=tuple(n.id for n in notes))
 
     return fetch
@@ -775,20 +797,23 @@ def build_fetch_comments(
     *,
     for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
     own: Callable[[str, int], set[str]] = lambda repo, pr: set(),
+    extra_notes: Callable[[str, int], list[ReviewNote]] | None = None,
+    patch_of: Callable[[str, int], str] | None = None,
 ) -> Callable[[str, int, str], tuple[Comment, ...]]:
     """Every comment on a PR now, by id, for a rework to tell what is new.
 
     Liveness is not consulted: an outdated note is still the person's. `own` names
     the ids the pipeline posted (`pr_replies.own_posts`); a body carrying
     `pr_replies.MARKER` is the pipeline's too. The PR is looked up by its branch: a host
-    may do work for every PR a listing returns."""
+    may do work for every PR a listing returns. `extra_notes` and `patch_of` are as in
+    `build_fetch_review`: a comment made off the host is one a rework can be given too."""
     for_repo = for_repo or forges.for_repo
 
     def fetch(repo: str, pr: int, branch: str) -> tuple[Comment, ...]:
         forge, repo_id = for_repo(repo)
         mine = own(repo, pr)
         found: dict[str, Comment] = {}
-        for note in forge.review_notes(repo_id, pr):
+        for note in _notes_of(forge, repo_id, repo, pr, extra_notes, patch_of):
             found[note.id] = Comment(
                 id=note.id,
                 words=note_words(note) if note.body.strip() else "",

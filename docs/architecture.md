@@ -523,6 +523,25 @@ own summary as review. The ids of a person's comments a rework was given and
 addressed before its push are kept apart, in `runs/given-comments.json`: the
 poller skips them too, but they are never read back as the pipeline's own.
 
+A review made in the web UI is a second comment source for the same poller
+(`pipeline/ui_review.py`): each unit's threads and replies are added to its
+pull request's comments under `ui-` ids that cannot collide with a host's, and
+its latest decision becomes the review decision (`approved` merges nothing).
+Each Request changes also adds one `ui-decision-<round>` comment holding its
+summary, so a second request in a later round is news although the decision
+was already changes-requested. When a rework is dispatched, the review it is
+handed (`build_fetch_review`) is the host's notes, the UI's threads and replies
+as notes at their lines (`ui_review_notes`, placed at the branch tip), and the
+summaries of the requests for changes; `build_fetch_comments` reads the same
+set, so a UI comment made while a rework runs is not lost. Every note carries
+the diff hunk of the unit's own patch holding its line (`attach_hunks`), and
+the rework prompt prints it under the `[comment id] path:line — body` line with
+the commented line marked `<- comment`; a line the diff no longer holds has
+none. The rework's replies to a UI comment are not posted to the host:
+`build_post_replies` hands them to `ui_reply_writer`, which writes them into
+their thread, marked as the pipeline's and left out of the comments the poller
+sees, and they are never owed.
+
 **Git's own words** are read in one place, `pipeline/git_output.py`: a failed
 push and rerere's replay notice are decisions only git's text can give, and
 callers take its typed result. `push_with_lease` runs `git push --porcelain`

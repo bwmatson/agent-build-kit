@@ -61,7 +61,7 @@ def tick(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tick:
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
     monkeypatch.setattr(
-        cli, "build_fetch_review", lambda: lambda repo, pr: Review(lines=["rename the marker"])
+        cli, "build_fetch_review", lambda **_: lambda repo, pr: Review(lines=["rename the marker"])
     )
     monkeypatch.setattr(cli, "build_restack", lambda **kw: lambda **a: None)
     monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)

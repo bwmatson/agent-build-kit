@@ -29,7 +29,7 @@ post, and is recorded apart in `GIVEN_COMMENTS`; the poller skips those too
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from agent_build_kit import forges
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.forges.base import COMMENT_MARKER
+from agent_build_kit.serve.review import THREAD_PREFIX
 
 MARKER = COMMENT_MARKER
 
@@ -157,9 +158,14 @@ def build_post_replies(
     root: Path,
     for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
     log: Callable[[str], None] = print,
+    ui_replies: Callable[[str, int, Sequence[Reply]], list[str]] | None = None,
 ) -> Callable[..., str]:
     """Post a rework's answer to its PR, recording what was posted, and return the answer
-    text of what is still owed ("" when nothing is)."""
+    text of what is still owed ("" when nothing is).
+
+    A reply to a comment made in the web UI (its id starts with `THREAD_PREFIX`) is not the
+    host's to take: `ui_replies` writes those into the review threads they answer, and they are
+    never owed. Without it they are dropped, since no host can post to such an id."""
     for_repo = for_repo or forges.for_repo
 
     def post_replies(*, repo: str, pr: int, answer_text: str, sha: str) -> str:
@@ -173,12 +179,14 @@ def build_post_replies(
         owed = Answer()
         sha = answer.sha or sha
         try:
-            owed = _post_all(forge, repo_id, answer, pr, sha, posted)
+            owed = _post_all(forge, repo_id, answer, repo, pr, sha, posted)
         finally:
             # Whatever did go out is recorded even if a later post raised:
             # an unrecorded reply is one the poller would read as review.
             record_posts(root, forges.key(repo_id), pr, [p for p in posted if p])
-        done = len(answer.replies) - len(owed.replies)
+        done = len([r for r in answer.replies if not r.comment_id.startswith(THREAD_PREFIX)]) - len(
+            owed.replies
+        )
         log(
             f"posted {done} repl(ies)"
             + (" and a summary" if answer.summary.strip() and not owed.summary else "")
@@ -201,13 +209,21 @@ def build_post_replies(
         forge: Forge,
         repo_id: RepoId,
         answer: Answer,
+        repo: str,
         pr: int,
         sha: str,
         posted: list[str],
     ) -> Answer:
         """Post each reply and the summary; return what is still owed."""
         owed: list[Reply] = []
+        mine = [r for r in answer.replies if r.comment_id.startswith(THREAD_PREFIX)]
+        if mine:
+            written = ui_replies(repo, pr, mine) if ui_replies else []
+            posted += written
+            log(f"wrote {len(written)} of {len(mine)} repl(ies) into the review threads")
         for reply in answer.replies:
+            if reply.comment_id.startswith(THREAD_PREFIX):
+                continue
             body = _signed(reply.body, sha)
             found = _held(forge, repo_id, pr, body, reply.comment_id)
             if found:

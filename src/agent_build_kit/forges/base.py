@@ -20,7 +20,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable, Collection, Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from agent_build_kit.model import Frozen
 
@@ -188,6 +188,10 @@ class ReviewNote(Frozen):
     path: str = ""
     line: int | None = None
     live: bool = True
+    # Which side of the diff `line` numbers: a comment on a deleted line is on the old side.
+    side: Literal["old", "new"] = "new"
+    # The diff hunk holding `line`, from `@@` on; empty where the diff has none for it.
+    hunk: str = ""
 
 
 class Stack(Frozen):
