@@ -122,6 +122,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
@@ -171,7 +172,10 @@ from acp.schema import (
 )
 from pydantic import ValidationError
 
-SESSION = "sess_7Hq2Zk4PxYwVb9nR"
+# Fresh per test run and handed to the agent process through the environment: a session id on
+# a command line is seen by every server on the machine, so another checkout's run with the
+# same id would look like a process holding this session.
+SESSION = os.environ.setdefault("ABK_TEST_ACP_SESSION", f"sess_{uuid.uuid4().hex[:16]}")
 
 # What the agent offers for its `model` config option, and runs on unless the
 # client picks another.
