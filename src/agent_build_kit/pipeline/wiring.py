@@ -78,6 +78,7 @@ from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
+from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
@@ -2053,9 +2054,11 @@ def build_runner(
         close_pr=build_close_pr(),
         release_dependents=build_release_dependents(store, installation, log=log),
         remove_satisfied=build_remove_satisfied(store, installation, log=log),
-        reply=build_post_replies(root=root, log=log),
+        reply=build_post_replies(root=root, log=log, ui_replies=ui_reply_writer(root, store)),
         fetch_comments=build_fetch_comments(
-            own=lambda repo, pr: own_posts(root, forges.key(forges.for_repo(repo)[1]), pr)
+            own=lambda repo, pr: own_posts(root, forges.key(forges.for_repo(repo)[1]), pr),
+            extra_notes=ui_notes_of(installation, store),
+            patch_of=unit_patch_of(installation, store),
         ),
         record_given=lambda repo, pr, ids: record_given_comments(
             root, forges.key(forges.for_repo(repo)[1]), pr, ids

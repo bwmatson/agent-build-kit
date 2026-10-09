@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 from agent_build_kit import config, forges, profiles, runtimes, telemetry
+from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
@@ -88,6 +89,13 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.tier2 import stack_lock
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
+from agent_build_kit.pipeline.ui_review import (
+    ui_notes_of,
+    ui_reply_writer,
+    unit_of,
+    unit_patch_of,
+    with_ui_review,
+)
 from agent_build_kit.pipeline.unit_size import over_ceiling
 from agent_build_kit.pipeline.unit_store import (
     UNPLANNED,
@@ -155,6 +163,7 @@ from agent_build_kit.pipeline.workspaces import (
     worktree_path,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.serve.review import Review, ReviewStore
 
 if TYPE_CHECKING:
     from agent_build_kit.graph.unit import Position
@@ -296,7 +305,12 @@ def _retry_pending_replies(inst: Installation, store: UnitStore) -> None:
     retry_replies(
         inst,
         store,
-        reply=build_post_replies(root=inst.state_dir, for_repo=inst.forge_of, log=log),
+        reply=build_post_replies(
+            root=inst.state_dir,
+            for_repo=inst.forge_of,
+            log=log,
+            ui_replies=ui_reply_writer(inst.state_dir, store),
+        ),
     )
 
 
@@ -1815,7 +1829,9 @@ def _dispatch(
     return build_dispatch(
         store,
         **build_stack_moves(store, inst),
-        fetch_review=build_fetch_review(),
+        fetch_review=build_fetch_review(
+            extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)
+        ),
         fetch_checks=build_fetch_check_logs(),
         rerun_checks=build_rerun_checks(),
         # A pass polls between builds, so an event may name a unit still
@@ -1846,6 +1862,14 @@ def hold_label_on(inst: Installation, unit: StoredUnit) -> bool:
     """Whether the last poll saw the hold label on the unit's pull request."""
     recorded = PrState.load(state_path(inst.state_dir, unit.repo))
     return HOLD_LABEL in (recorded.get(str(unit.pr)) or {}).get("labels", [])
+
+
+def _ui_review_of(
+    inst: Installation, store: UnitStore, repo: str, pull: PullRequest
+) -> Review | None:
+    """The review made in the web UI of the unit whose pull request `pull` is."""
+    unit = unit_of(store, repo, pull.number)
+    return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
 
 
 def poll_all(inst: Installation, *, store: UnitStore) -> None:
@@ -1886,7 +1910,10 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
             dispatch=lambda event, number, repo=repo, **kwargs: dispatch(
                 event, number, repo=repo, **kwargs
             ),
-            list_prs=lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
+            list_prs=with_ui_review(
+                lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
+                review_of=lambda pull, repo=repo: _ui_review_of(inst, store, repo, pull),
+            ),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
             log=log,
