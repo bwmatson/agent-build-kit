@@ -68,6 +68,7 @@ export interface Conversation {
   error: string | null;
   ask: PermissionRequest | null;
   session: string | null;
+  continuedAsNew: boolean;
 }
 
 export const EMPTY: Conversation = {
@@ -76,6 +77,7 @@ export const EMPTY: Conversation = {
   error: null,
   ask: null,
   session: null,
+  continuedAsNew: false,
 };
 
 interface SnapshotMessage {
@@ -171,6 +173,7 @@ export function reduce(conversation: Conversation, event: AguiEvent): Conversati
       if (event.name === "session") {
         return { ...conversation, session: (event.value as { id: string }).id };
       }
+      if (event.name === "continued_as_new") return { ...conversation, continuedAsNew: true };
       return conversation;
     default:
       return conversation;

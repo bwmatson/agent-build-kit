@@ -321,10 +321,65 @@ def test_continuing_it_starts_a_new_session_seeded_with_the_history(
 
     turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Carry on."})
 
-    assert requests(record, "session/load") == [], "the agent was never asked to load it"
+    assert requests(record, "session/resume") == [], "the old session was never resumed"
     assert len(requests(record, "session/new")) == 1
     [prompted] = requests(record, "session/prompt")
     assert prompted["sessionId"] == SESSION != OLD_ACP
     said = " ".join(block.get("text", "") for block in prompted["prompt"])
     assert EARLIER_TURN in said, "the new session is seeded with the history"
     assert "Carry on." in said
+
+
+def test_an_acp_session_the_agent_does_not_list_is_read_only_though_it_can_resume(
+    pipeline: Installation, tmp_path: Path, api: httpx.Client
+) -> None:
+    unit_worktree(pipeline, "feature/2")
+    recorded_acp_session(pipeline, OLD_ACP)
+    use_agent(tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=())
+
+    opened = api.get(f"/api/sessions/acp/{OLD_ACP}").json()
+
+    assert opened["read_only"] is True
+    assert opened["actions"] == ["continue_as_new"]
+    assert "new session" in opened["reason"].lower()
+
+
+def test_continuing_a_session_the_agent_does_not_list_says_it_became_a_new_one(
+    pipeline: Installation, tmp_path: Path, api: httpx.Client
+) -> None:
+    unit_worktree(pipeline, "feature/2")
+    recorded_acp_session(pipeline, OLD_ACP)
+    use_agent(tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=())
+
+    events = turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Go on."})
+
+    assert any(e["type"] == "CUSTOM" and e["name"] == "continued_as_new" for e in events)
+
+
+def test_a_seeded_turns_question_is_kept_under_the_new_session_and_not_the_first(
+    pipeline: Installation, tmp_path: Path, api: httpx.Client
+) -> None:
+    unit_worktree(pipeline, "feature/2")
+    recorded_acp_session(pipeline, OLD_ACP)
+    use_agent(tmp_path / "agent.jsonl")
+
+    turn(api, f"/api/sessions/acp/{OLD_ACP}/continue", {"tab": "t1", "prompt": "Carry on."})
+
+    assert "Carry on." not in str(api.get(f"/api/sessions/acp/{OLD_ACP}").json()["events"])
+    new = api.get(f"/api/sessions/acp/{SESSION}").json()
+    assert "Carry on." in str(new["events"])
+
+
+def test_a_units_recorded_claude_session_continued_from_the_sessions_page_keeps_its_model(
+    pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = unit_worktree(pipeline, "feature/2")
+    assert settings.claude_home is not None
+    claude_session_file(settings.claude_home, "recorded-claude", tree)
+    record_session(pipeline, "feature/2", "recorded-claude", runtime="claude_code", model="opus")
+    fake = use_claude(monkeypatch, finished_build(tree, "Hi."))
+
+    turn(api, "/api/sessions/claude_code/recorded-claude/continue", {"tab": "t1", "prompt": "Hi."})
+
+    argv = fake.calls[0][0]
+    assert argv[argv.index("--model") + 1] == "opus"

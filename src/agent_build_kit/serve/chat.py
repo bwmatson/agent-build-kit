@@ -369,14 +369,13 @@ class Chat:
         def work() -> None:
             for made in encoder.start():
                 events.put(made)
-            if session:
-                keep_question(session)
             try:
                 try:
                     result = call(build)
                 except SessionUnavailable:
                     if fallback is None:
                         raise
+                    events.put({"type": "CUSTOM", "name": "continued_as_new", "value": {}})
                     result = call(fallback)
                 if finished:
                     tail = encoder.close()
@@ -668,6 +667,14 @@ def register(
             raise HTTPException(status_code=404, detail=f"no session {session}")
         return [e.model_dump() for e in known[1]], True
 
+    def resumable(session: str) -> bool:
+        """Whether the agent would resume this ACP session in place: it advertises resume and
+        list, and lists the id for the session's directory."""
+        unit = chat.acp_sessions()[session][0]
+        cwd = chat.worktree(unit) or installation.root
+        can = getattr(runtimes.get(ACP), "can_resume_session", None)
+        return bool(can is not None and can(session, cwd))
+
     @app.get("/api/sessions/{runtime}/{session}")
     def one_session(runtime: str, session: str) -> dict[str, Any]:
         events, recorded = history(runtime, session)
@@ -679,10 +686,7 @@ def register(
             read_only = True
             reason = f"Process {pids[0]} holds this session; it is read-only here."
             actions = ["fork"] if runtime == CLAUDE else ["continue_as_new"]
-        elif (
-            runtime == ACP
-            and not getattr(runtimes.get(ACP), "can_resume_sessions", lambda: False)()
-        ):
+        elif runtime == ACP and not resumable(session):
             read_only = True
             reason = (
                 "The agent cannot resume this session: it is shown read-only and can only be "
@@ -712,12 +716,20 @@ def register(
         # while a step runs, under the lease, and with the pipeline's tool policy.
         unit = chat.unit_at(cwd)
         prompt = with_attachments(body.prompt, body.attachments)
+        recorded = recorded_session(unit.id) if unit is not None else None
+        model = recorded.model if recorded and recorded.session_id == session else None
 
         def start() -> StreamingResponse:
             return chat.stream(
                 runtimes.get(CLAUDE),
                 lambda cb: chat.request(
-                    cb, prompt, cwd, resume=session, fork=fork, policed=unit is not None
+                    cb,
+                    prompt,
+                    cwd,
+                    model=model,
+                    resume=session,
+                    fork=fork,
+                    policed=unit is not None,
                 ),
                 tab=body.tab,
                 unit=unit,

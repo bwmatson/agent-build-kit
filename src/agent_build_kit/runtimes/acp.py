@@ -1238,7 +1238,7 @@ class AcpRuntime:
         # a tick runs through it.
         self._unoffered: set[str] = set()
         self._no_roots_told = False
-        self._resumable: dict[tuple[str, ...], bool] = {}
+        self._resumable: set[tuple[str, ...]] = set()
 
     def run(self, request: AgentRequest) -> AgentResult:
         return traced(NAME, request, lambda: self._call(request))
@@ -1556,19 +1556,21 @@ class AcpRuntime:
                 "running on its default"
             )
 
-    def can_resume_sessions(self) -> bool:
-        """Whether the agent advertises both `session/resume` and `session/list`, which a
-        session it was not running needs to be continued in place."""
+    def can_resume_session(self, session_id: str, cwd: Path) -> bool:
+        """Whether this session would be resumed in place: the agent advertises both
+        `session/resume` and `session/list`, and lists the id for `cwd`, as a run does."""
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)
         if not command:
             return False
-        # Asked once per command for the life of the runtime: it starts the agent.
-        key = tuple(command)
+        # A yes is kept for the life of the runtime, since the agent is started to ask.
+        key = (*command, session_id, str(cwd))
         if key not in self._resumable:
-            self._resumable[key] = asyncio.run(self._declares_loading(command))
-        return self._resumable[key]
+            if not asyncio.run(self._declares_loading(command, session_id, str(cwd))):
+                return False
+            self._resumable.add(key)
+        return True
 
-    async def _declares_loading(self, command: list[str]) -> bool:
+    async def _declares_loading(self, command: list[str], session_id: str, cwd: str) -> bool:
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -1594,7 +1596,7 @@ class AcpRuntime:
                     name="abk", title="agent-build-kit", version=__version__
                 ),
             )
-            return _resumes(initialized)
+            return _resumes(initialized) and await self._listed(conn, session_id, cwd)
         except Exception:  # noqa: BLE001 — an agent that will not answer cannot be loaded from
             return False
         finally:

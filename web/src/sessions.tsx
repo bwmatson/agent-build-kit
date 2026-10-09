@@ -82,6 +82,12 @@ function History({ events }: { events: SessionEvent[] }): ReactElement {
 function Reply({ conversation }: { conversation: Conversation }): ReactElement {
   return (
     <>
+      {conversation.continuedAsNew && (
+        <p role="status">
+          The agent could not resume this session, so it was continued as a new session seeded with
+          its history.
+        </p>
+      )}
       <ConversationView conversation={conversation} />
       {conversation.error && <p role="alert">{conversation.error}</p>}
       <Permission
