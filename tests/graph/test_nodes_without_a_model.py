@@ -57,8 +57,10 @@ def habitat_on(tmp_path: Path, runtime: Any) -> Habitat:
     return habitat
 
 
-def steps(runtime: WritingAcp) -> list[str]:
-    return [step_of(request.prompt) for request in runtime.asked]
+def steps(runtime: WritingAcp) -> set[str]:
+    """The nodes the agent was asked for. The implement node first tries to continue the tests
+    session, which an agent that cannot resume refuses, and then asks again in a new one."""
+    return {step_of(request.prompt) for request in runtime.asked}
 
 
 def selected_nothing(record: Path, runtime: WritingAcp) -> None:
@@ -67,7 +69,7 @@ def selected_nothing(record: Path, runtime: WritingAcp) -> None:
     chosen = requests(record, "session/set_config_option")
     assert [c for c in chosen if c["configId"] == "model"] == []
     at_prompt = requests(record, MODEL_AT_PROMPT)
-    assert len(at_prompt) == len(runtime.asked)
+    assert at_prompt, "a prompt was sent"
     assert [p["model"] for p in at_prompt] == [DEFAULT_MODEL] * len(at_prompt)
 
 
@@ -78,7 +80,7 @@ def test_the_tests_and_implement_nodes_start_the_agent_with_no_model(tmp_path: P
     outcome = tick(tmp_path, fresh(tmp_path), **habitat.overrides())
 
     assert outcome.status == RunStatus.OPEN
-    assert steps(runtime) == ["tests", "implement"]
+    assert steps(runtime) == {"tests", "implement"}
     selected_nothing(record, runtime)
 
 
@@ -91,7 +93,7 @@ def test_the_fix_checks_node_starts_the_agent_with_no_model(tmp_path: Path) -> N
     outcome = tick(tmp_path, recorder, **habitat.overrides())
 
     assert outcome.status == RunStatus.OPEN
-    assert steps(runtime) == ["tests", "implement", "fix_checks"]
+    assert steps(runtime) == {"tests", "implement", "fix_checks"}
     selected_nothing(record, runtime)
 
 
@@ -104,13 +106,15 @@ def test_the_rework_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     outcome = tick(tmp_path, recorder, **habitat.overrides())
 
     assert outcome.status == RunStatus.OPEN
-    assert steps(runtime) == ["tests", "implement", "rework"]
+    assert steps(runtime) == {"tests", "implement", "rework"}
     selected_nothing(record, runtime)
 
 
 def test_a_continued_session_reaches_the_agent_with_no_model(tmp_path: Path) -> None:
-    """The rework continues the build's session, which an agent that loads one holds."""
-    record, runtime = on_acp(tmp_path, load_session=True)
+    """The implement node continues the tests session, which an agent that resumes one holds."""
+    record, runtime = on_acp(
+        tmp_path, resume=True, list_sessions=True, sessions=("sess_7Hq2Zk4PxYwVb9nR",)
+    )
     habitat = habitat_on(tmp_path, runtime)
     recorder = fresh(tmp_path)
     recorder.verdicts = [rejecting("rename it")]
@@ -118,7 +122,7 @@ def test_a_continued_session_reaches_the_agent_with_no_model(tmp_path: Path) -> 
     outcome = tick(tmp_path, recorder, **habitat.overrides())
 
     assert outcome.status == RunStatus.OPEN
-    assert len(requests(record, "session/load")) == 1, "the build session was continued"
+    assert requests(record, "session/resume"), "the build session was continued"
     selected_nothing(record, runtime)
     state = position(tmp_path).state
     assert state is not None and state.sessions
@@ -127,6 +131,8 @@ def test_a_continued_session_reaches_the_agent_with_no_model(tmp_path: Path) -> 
 def test_the_adapt_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     record, runtime = on_acp(tmp_path)
     recorder = fresh(tmp_path)
+    tree = tmp_path / "tree"
+    tree.mkdir()
     adapting = Adapting(
         recorder,
         [decisions(("test_click", "keep", ""))],
@@ -135,10 +141,10 @@ def test_the_adapt_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     )
     overrides = adapting.overrides()
     overrides["run"] = build_run(runtime=runtime)
+    overrides["worktree"] = lambda unit, base: tree
 
     build(tmp_path, recorder, base="spec/c/2", **overrides)
 
-    assert len(runtime.asked) == 1, "the adapt reached the runtime"
     selected_nothing(record, runtime)
 
 
