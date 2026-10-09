@@ -149,14 +149,15 @@ def ui_review_notes(review: Review, *, repo: Path, tip: str | None) -> list[Revi
 def attach_hunks(notes: list[ReviewNote], patch: str) -> list[ReviewNote]:
     """`notes` with the hunk of `patch` holding each one's line on its side of the diff, that
     line marked and only `HUNK_CONTEXT` lines around it; a note whose line the patch does not
-    contain, or that has none, gets no hunk, nor does one on a line an earlier note has it for."""
+    contain, or that has none, gets no hunk; nor does one `review_lines` leaves out, or one on a
+    line a printed note already has it for."""
     hunks = _hunks(patch)
     shown: set[tuple[str, str, int]] = set()
     out = []
     for note in notes:
         found = ""
         key = (note.path, note.side, note.line or 0)
-        if note.line is not None and key not in shown:
+        if note.line is not None and note.printed and key not in shown:
             for old, new, lines in hunks.get(note.path, []):
                 first, count = old if note.side == "old" else new
                 if first <= note.line < first + count:

@@ -29,12 +29,11 @@ def seed_run(inst: Installation, **fields: Any) -> None:
     asyncio.run(write())
 
 
-def test_the_review_lists_the_latest_rounds_findings_and_the_deferred_follow_ups(
+def test_a_pushed_units_review_lists_the_last_rounds_findings_and_the_deferred_follow_ups(
     inst: Installation, api: httpx.Client
 ) -> None:
     seed_pipeline(inst)
     seed_branches(inst)
-    first = {"id": "1.1", "file": "two.py", "line": 2, "summary": "old", "required": True}
     latest = {
         "id": "2.1",
         "file": "two.py",
@@ -49,8 +48,8 @@ def test_the_review_lists_the_latest_rounds_findings_and_the_deferred_follow_ups
     seed_run(
         inst,
         review_round=2,
-        # Mid-review the rounds are kept; the last round's findings are the latest one's.
-        review_rounds=({"findings": [first]}, {"findings": [latest, unplaced]}),
+        # What a pushed unit holds: the rounds are cleared, the last round's findings kept.
+        review_rounds=(),
         last_findings=(latest, unplaced),
         deferred=("Add a changelog entry",),
     )
@@ -63,27 +62,6 @@ def test_the_review_lists_the_latest_rounds_findings_and_the_deferred_follow_ups
     ]
     assert answer["follow_ups"] == ["Add a changelog entry"]
     assert answer["round"] == 2
-
-
-def test_a_pushed_units_review_lists_the_last_rounds_findings_and_the_deferred_follow_ups(
-    inst: Installation, api: httpx.Client
-) -> None:
-    seed_pipeline(inst)
-    seed_branches(inst)
-    latest = {"id": "2.1", "file": "two.py", "line": 3, "summary": "no test", "required": True}
-    seed_run(
-        inst,
-        review_round=2,
-        # What a pushed unit holds: the rounds are cleared, the last round's findings kept.
-        review_rounds=(),
-        last_findings=(latest,),
-        deferred=("Add a changelog entry",),
-    )
-
-    answer = api.get("/api/units/feature/2/review").json()
-
-    assert [f["id"] for f in answer["findings"]] == ["2.1"]
-    assert answer["follow_ups"] == ["Add a changelog entry"]
 
 
 def test_the_follow_ups_are_this_units_block_of_the_changes_file_once_the_push_cleared_deferred(

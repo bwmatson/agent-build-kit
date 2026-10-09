@@ -733,14 +733,7 @@ def review_lines(notes: list[ReviewNote]) -> list[str]:
     rework respond to itself. Each inline note carries its id, which is how the
     rework says which thread each of its replies belongs in.
     """
-    out = []
-    for note in notes:
-        body = note.body.strip()
-        if not body or MARKER in body:
-            continue
-        if (note.line is None and not note.path) or note.live:
-            out.append(note_words(note))
-    return out
+    return [note_words(note) for note in notes if note.printed]
 
 
 def note_words(note: ReviewNote) -> str:

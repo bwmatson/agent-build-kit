@@ -108,7 +108,8 @@ def test_a_second_request_for_changes_in_a_later_round_is_a_rework_of_its_own(ri
 
     rig.store.decide(UNIT, round=2, decision="request_changes", summary="still wrong")
 
-    assert len(rig.poll()) == 1
+    assert kinds(rig.poll()) == [("rework", ReworkKind.COMMENT)]
+    assert "still wrong" in rig.listed().comment_bodies
     assert rig.poll() == []
 
 

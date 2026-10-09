@@ -178,3 +178,23 @@ def test_a_hunk_is_a_window_around_the_marked_line(tmp_path: Path) -> None:
     assert lines[0].startswith("@@")
     assert "+line 30  <- comment" in lines
     assert len(lines) <= 2 * HUNK_CONTEXT + 2
+
+
+def test_a_resolved_thread_does_not_take_the_hunk_of_an_open_one_on_its_line(
+    tmp_path: Path,
+) -> None:
+    repo, first = seeded(tmp_path)
+    store = store_in(tmp_path)
+    old = store.add_thread(
+        UNIT, path="a.py", side="new", line=30, start_line=None, commit=first, body="old one"
+    )
+    store.resolve(UNIT, old.id, True)
+    store.add_thread(
+        UNIT, path="a.py", side="new", line=30, start_line=None, commit=first, body="new one"
+    )
+
+    notes = ui_review_notes(store.read(UNIT), repo=repo, tip=first)
+    (printed,) = review_lines(attach_hunks(notes, patch_of(repo)))
+
+    assert "new one" in printed
+    assert "+changed 30  <- comment" in printed.splitlines()

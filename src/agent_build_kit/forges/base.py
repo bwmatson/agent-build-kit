@@ -193,6 +193,15 @@ class ReviewNote(Frozen):
     # The diff hunk holding `line`, from `@@` on; empty where the diff has none for it.
     hunk: str = ""
 
+    @property
+    def printed(self) -> bool:
+        """Whether a rework is given the note: it has words, is not the pipeline's own reply,
+        and is either anchored nowhere or still live."""
+        body = self.body.strip()
+        if not body or COMMENT_MARKER in body:
+            return False
+        return (self.line is None and not self.path) or self.live
+
 
 class Stack(Frozen):
     """A series of pull requests the host knows about, bottom first.
