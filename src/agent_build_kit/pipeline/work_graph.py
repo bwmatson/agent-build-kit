@@ -26,6 +26,7 @@ from pathlib import Path
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.units import Priority
 
 
 def known_repos() -> tuple[str, ...]:
@@ -97,6 +98,11 @@ SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 # group of its change. The reason is what review agrees to.
 INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 
+# "Priority: 2", inside a group: how urgent its unit is, 1 (most) to 5, 3 when
+# unsaid. Above the first group it is the default for the change's groups.
+PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
+PRIORITY_VALUE = re.compile(r"[1-5]")
+
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
 TASK_LINE = re.compile(r"^\s*-\s+\[[ xX]\]\s+\d+\.\d+\s+\S")
@@ -119,6 +125,8 @@ class TaskGroup(Frozen):
     # An `Independent: <reason>` line in the group: it depends on no earlier
     # group of its change.
     independent: bool = False
+    # 1 (most urgent) to 5, from a `Priority:` line in the group or above the first.
+    priority: int = Priority.NORMAL
 
 
 class ValidationError(Frozen):
@@ -150,6 +158,9 @@ def validate_tasks(
     separate: set[int] = set()
     independent: dict[int, int] = {}
     current: int | None = None
+    default_priority: int | None = None
+    priorities: dict[int, int] = {}
+    stray_priority: dict[int, int] = {}
 
     for index, text in enumerate(lines, start=1):
         if TASK_LINE.match(text):
@@ -159,6 +170,29 @@ def validate_tasks(
 
         heading = ANY_GROUP_HEADING.match(text)
         if heading is None:
+            if found := PRIORITY_LINE.match(text.strip()):
+                if not PRIORITY_VALUE.fullmatch(found["value"]):
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message=f'`Priority:` is "{found["value"]}", expected an integer '
+                            "from 1 (most urgent) to 5",
+                        )
+                    )
+                elif (default_priority if current is None else priorities.get(current)) is None:
+                    if current is None:
+                        default_priority = int(found["value"])
+                    else:
+                        priorities[current] = int(found["value"])
+                        stray_priority[current] = index
+                else:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="a second `Priority:` line in the same place — "
+                            "one sets the whole group, or the change above its groups",
+                        )
+                    )
             if (
                 current is not None
                 and (need := NEEDS_LINE.match(text.strip()))
@@ -273,9 +307,20 @@ def validate_tasks(
             flag=g.flag,
             separate=g.line in separate,
             independent=g.line in independent,
+            priority=priorities.get(
+                g.line, Priority.NORMAL if default_priority is None else default_priority
+            ),
         )
         for g in groups
     ]
+
+    for line in sorted(set(stray_priority) - {g.line for g in groups}):
+        errors.append(
+            ValidationError(
+                line=stray_priority[line],
+                message="`Priority:` is in a group that could not be read, so it sets nothing",
+            )
+        )
 
     for position, group in enumerate(groups):
         if group.line not in independent:

@@ -16,9 +16,11 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from enum import StrEnum
+from collections.abc import Collection, Sequence
+from enum import IntEnum, StrEnum
 from typing import Self
+
+from pydantic import Field
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
@@ -75,6 +77,17 @@ IN_FLIGHT = (RUNNING, IN_REVIEW)
 REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
 
 
+class Priority(IntEnum):
+    """How urgent a unit is: 1 the most, 5 the least. A value between the named
+    ones is still valid and sorts as its integer."""
+
+    FIX = 1
+    HIGH = 2
+    NORMAL = 3
+    LOW = 4
+    NICE_TO_HAVE = 5
+
+
 class Member(Frozen):
     """Task groups of one change that a unit builds."""
 
@@ -108,6 +121,7 @@ class Unit(Frozen):
     issue: int | None = None
     groups: tuple[int, ...] = ()
     joined: tuple[Member, ...] = ()
+    priority: int = Field(default=Priority.NORMAL, ge=Priority.FIX, le=Priority.NICE_TO_HAVE)
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
@@ -294,6 +308,46 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
         else:
             out.append(dep)
     return tuple(out)
+
+
+def waiting_on_me(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> list[Unit]:
+    """The units that wait on `unit`, directly or through a chain, in any repo.
+
+    The reverse of `depends_on`. A merged, closed or satisfied unit does not
+    wait, though a satisfied one is looked through: what depends on it waits on
+    what it was built on. Units in `excluded` (named away by `--only`, held by a
+    lease or in a backoff) are not counted, but are looked through like a satisfied
+    one: a unit in the round that waits through one still waits on `unit`.
+    """
+    dependents: dict[str, list[Unit]] = {}
+    for other in graph:
+        for dep in other.depends_on:
+            dependents.setdefault(dep, []).append(other)
+
+    found: dict[str, Unit] = {}
+    visited = {unit.id}
+    pending = [unit.id]
+    while pending:
+        for waiter in dependents.get(pending.pop(), ()):
+            if waiter.id in visited:
+                continue
+            visited.add(waiter.id)
+            if waiter.state == SATISFIED or waiter.id in excluded:
+                pending.append(waiter.id)
+            elif waiter.state not in (MERGED, CLOSED):
+                found[waiter.id] = waiter
+                pending.append(waiter.id)
+    return list(found.values())
+
+
+def effective_priority(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> int:
+    """The most urgent priority among `unit` and every unit waiting on it."""
+    waiters = [waiter.priority for waiter in waiting_on_me(unit, graph, excluded)]
+    return min([unit.priority, *waiters])
 
 
 def trunk_of(repo: str) -> str:

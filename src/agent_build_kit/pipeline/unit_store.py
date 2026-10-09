@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     Join,
     Member,
+    Priority,
     Unit,
     UnitState,
 )
@@ -364,7 +365,7 @@ class UnitStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # mode="json" so tuples land as JSON arrays and datetimes as strings,
         # which is what `model_validate` reads back on the next tick.
-        payload = {"units": [unit.model_dump(mode="json") for unit in stored.values()]}
+        payload = {"units": [_record(unit) for unit in stored.values()]}
         # Indented and one key per line: this file is committed, so it turns up
         # in diffs and reviews, where dense JSON is unreadable.
         # Written aside and renamed into place: reads are not locked, and a
@@ -422,6 +423,9 @@ class UnitStore:
                 held_base=existing.held_base if existing else "",
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
+            if existing and not existing.unstarted:
+                # A unit keeps the priority it started with.
+                fresh = fresh.model_copy(update={"priority": existing.priority})
             if existing and existing.joined and not fresh.joined:
                 # Groups of other changes it took in are not in the plan the
                 # planner re-derives for this change, and are not its to drop.
@@ -613,6 +617,11 @@ class UnitStore:
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
 
+    def set_priority(self, unit_id: str, priority: int) -> None:
+        """Set the priority of a unit that has not started; a started one keeps its own."""
+        if self.get(unit_id).unstarted:
+            self._update(unit_id, priority=priority)
+
     def set_actual_lines(self, unit_id: str, lines: int) -> None:
         """The changed lines of the unit's pull request as the host counts them;
         overwritten at each push. A unit the store does not hold is ignored."""
@@ -686,6 +695,15 @@ class UnitStore:
         is pushed several times — once per restack — while staying `open`.
         """
         self._update(unit_id, pushed=sha)
+
+
+def _record(unit: StoredUnit) -> dict:
+    """The unit as written. The default priority is left out, so a store with no
+    unit off it is the one a release before priorities wrote and reads."""
+    record = unit.model_dump(mode="json")
+    if unit.priority == Priority.NORMAL:
+        del record["priority"]
+    return record
 
 
 def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:

@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import Join, Unit
+from agent_build_kit.pipeline.units import Join, Priority, Unit
 from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -165,6 +165,18 @@ def parse_plan(
         except JoinRefused as error:
             raise PlannerError(str(error)) from error
     return Plan(units=tuple(units), joins=tuple(joins))
+
+
+def unit_priority(unit: Unit, catalog: Mapping[str, Sequence[TaskGroup]]) -> int:
+    """The most urgent priority among the groups `unit` builds, carried ones
+    included; normal when none is in the catalog. Set in code, never asked of the model."""
+    found = [
+        group.priority
+        for member in unit.members()
+        for group in catalog.get(member.change, ())
+        if group.number in member.groups
+    ]
+    return min(found, default=Priority.NORMAL)
 
 
 def _read_joins(raw_joins: object) -> list[Join]:

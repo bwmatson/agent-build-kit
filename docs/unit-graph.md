@@ -123,6 +123,15 @@ child, a review comment, a requeue: each is a `Command(resume=...)` on the
 unit's thread, which the graph routes like any other input. Nothing writes
 into a waiting unit's state from the side.
 
+## Priority
+
+A unit carries a priority from 1 (most urgent) to 5, 3 unless a `Priority:` line
+says otherwise. It is the most urgent of the groups the unit builds and is kept
+once the unit has started. A unit's effective priority is the most urgent among
+itself and every unit that waits on it, directly or through a chain, in any
+repo; merged, closed and satisfied units, and units the round leaves out, do not
+count.
+
 ## The graph
 
 ```mermaid
