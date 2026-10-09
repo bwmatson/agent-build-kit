@@ -239,6 +239,15 @@ class PythonUvProfile:
         failed = {m.group("id") for m in _HOOK_FAILED.finditer(output)}
         return "types" if failed & TYPE_HOOKS else "lint"
 
+    def failed_tests(self, output: str) -> list[str]:
+        """The identifiers of the tests that failed or errored, read from a failed tier 1
+        command's output; empty when it was not a test run."""
+        raise NotImplementedError
+
+    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+        """`command`, a failed test run, as one that runs only `tests`, serially."""
+        raise NotImplementedError
+
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.
         # No tests/ at all is intentional too — the satisfied verdict then

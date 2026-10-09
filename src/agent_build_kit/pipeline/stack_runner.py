@@ -1184,6 +1184,9 @@ class UnitRunner(BaseModel):
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
     run_tier1: Callable[..., tuple[bool, str]]
+    # Told the unit and each flake when tier 1 raises `FlakeFound`: records it and has the
+    # unit wait on its fix. See `flakes.wait_on_fix`.
+    on_flake: Callable[..., None] = lambda unit, flake: None
     run_tier2: Callable[..., tuple[bool, str]]
     push: Callable[..., str]
     open_pr: Callable[..., int]
