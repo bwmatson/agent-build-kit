@@ -472,6 +472,10 @@ your reply to that comment. Where you genuinely cannot tell what was intended,
 implement nothing for that point and ask in your reply, rather than guessing at
 a rewrite. A question gets an answer, whether or not it also gets a change.
 
+A comment that contradicts a requirement of this change is not acted on: flag it
+in your reply to that comment's thread, naming the requirement, and leave the code
+as it is until the reviewer confirms.
+
 The tests and implementation are already here and were green when this branch
 was pushed, so this is an edit to existing work, not a fresh start. Change a
 test only where the feedback is about the test itself.

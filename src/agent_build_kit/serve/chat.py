@@ -57,6 +57,7 @@ from agent_build_kit.serve.sessions import (
     claude_sessions,
     holding_pids,
 )
+from agent_build_kit.serve.spec_context import change_context
 
 SERVER = "server"
 CLAUDE = "claude_code"
@@ -489,10 +490,13 @@ class Chat:
         model: str | None = None,
         resume: str = "",
         fork: bool = False,
-        builder: bool = False,
+        builder: StoredUnit | None = None,
     ) -> AgentRequest:
-        """A turn's call. The unit's builder, resumed, is held to the pipeline's rules; any
-        other session is the person's own. Neither commits nor pushes."""
+        """A turn's call. The unit's builder, resumed, is held to the pipeline's rules and is
+        given its unit's change; any other session is the person's own. Neither commits nor
+        pushes."""
+        if builder is not None:
+            prompt = change_context(self.installation.changes_dir, builder.members()) + prompt
         return AgentRequest(
             prompt=prompt,
             cwd=cwd,
@@ -500,7 +504,7 @@ class Chat:
             resume_session=resume,
             fork_session=fork,
             policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
-            if builder
+            if builder is not None
             else ToolPolicy(scoped=False, no_commit=True),
             **callbacks,
         )
@@ -696,7 +700,7 @@ def register(
             lambda: chat.stream(
                 runtime,
                 lambda cb: chat.request(
-                    cb, prompt, cwd, model=recorded.model, resume=recorded.session_id, builder=True
+                    cb, prompt, cwd, model=recorded.model, resume=recorded.session_id, builder=unit
                 ),
                 tab=body.tab,
                 unit=unit,
@@ -795,7 +799,7 @@ def register(
                     cwd,
                     model=recorded.model if recorded and builder else None,
                     resume=session,
-                    builder=builder,
+                    builder=unit if builder else None,
                 )
             )
             return ""
@@ -926,7 +930,7 @@ def register(
         prompt = with_attachments(body.prompt, body.attachments)
         recorded = recorded_session(unit.id) if unit is not None else None
         model = recorded.model if recorded and recorded.session_id == session else None
-        builder = recorded is not None and recorded.session_id == session and not fork
+        builder = unit if recorded and recorded.session_id == session and not fork else None
 
         def start() -> StreamingResponse:
             return chat.stream(
@@ -957,7 +961,7 @@ def register(
         prompt = with_attachments(body.prompt, body.attachments)
         recorded = recorded_session(unit.id)
         model = recorded.model if recorded and recorded.session_id == session else None
-        builder = recorded is not None and recorded.session_id == session and not seeded
+        builder = unit if recorded and recorded.session_id == session and not seeded else None
         fresh = lambda cb: chat.request(cb, _seed(events, prompt), cwd, model=model)  # noqa: E731
         return chat.leased(
             unit,
@@ -1012,6 +1016,8 @@ def register(
             if tree is None:
                 raise _conflict("the unit has no worktree")
             cwd: Path = tree
+        elif body.repo == attach.PLANNING:
+            cwd = installation.root
         elif body.repo in installation.checkouts:
             cwd = installation.checkouts[body.repo]
         else:
