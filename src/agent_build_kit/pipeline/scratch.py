@@ -83,8 +83,16 @@ def ensure_scratch(worktree: Path) -> None:
     exclude.write_text(f"{text}{separator}{EXCLUDE_LINE}\n")
 
 
+def _marker(max_bytes: int) -> bytes:
+    return f"[truncated: only the last {max_bytes} bytes are kept]\n".encode()
+
+
 def cap_files(folder: Path, *, max_bytes: int) -> None:
     """Truncate each file in `folder` larger than `max_bytes` to its tail, led by a marker.
+
+    The marker and the tail together fit `max_bytes`, so a cut file is within the
+    limit and is left alone by the next pass; a file that already begins with the
+    marker and is within the limit is never rewritten.
 
     A file is rewritten in place, so a command still holding it open sees it
     shrink. A writer that opened it with a plain `>` keeps its old offset, and
@@ -92,16 +100,17 @@ def cap_files(folder: Path, *, max_bytes: int) -> None:
     those, so the agent reads the marker and the last lines written, and the
     hole costs no disk (it is sparse).
     """
+    marker = _marker(max_bytes)
+    keep = max(max_bytes - len(marker), 0)
     for path in folder.rglob("*"):
         try:
             if not path.is_file() or path.stat().st_size <= max_bytes:
                 continue
             with path.open("r+b") as file:
-                file.seek(-max_bytes, 2)
+                file.seek(-keep if keep else 0, 2)
                 tail = file.read().replace(b"\0", b"")
                 # Start on a whole line: the first one is cut anywhere.
                 _, newline, rest = tail.partition(b"\n")
-                marker = f"[truncated: only the last {max_bytes} bytes are kept]\n".encode()
                 file.seek(0)
                 file.write(marker + (rest if newline else tail))
                 file.truncate()
@@ -120,6 +129,28 @@ def remove_leftovers(worktree: Path) -> None:
             shutil.rmtree(entry, ignore_errors=True)
         else:
             entry.unlink(missing_ok=True)
+
+
+@contextmanager
+def watch_folder(folder: Path, *, max_bytes: int, interval: float) -> Iterator[threading.Event]:
+    """Run `cap_files` over `folder` every `interval` seconds until the block ends,
+    yielding an event set after each pass: a test clears it and waits on it instead of
+    polling the folder."""
+    done = threading.Event()
+    passed = threading.Event()
+
+    def enforce() -> None:
+        while not done.wait(interval):
+            cap_files(folder, max_bytes=max_bytes)
+            passed.set()
+
+    thread = threading.Thread(target=enforce, daemon=True)
+    thread.start()
+    try:
+        yield passed
+    finally:
+        done.set()
+        thread.join()
 
 
 @contextmanager
@@ -144,20 +175,11 @@ def run_folder(
     remove_leftovers(worktree)
     folder = scratch_folder(worktree) / uuid.uuid4().hex[:12]
     folder.mkdir()
-    done = threading.Event()
-
     cap = MAX_BYTES if max_bytes is None else max_bytes
     pause = CAP_INTERVAL if interval is None else interval
 
-    def enforce() -> None:
-        while not done.wait(pause):
-            cap_files(folder, max_bytes=cap)
-
-    watcher = threading.Thread(target=enforce, daemon=True)
-    watcher.start()
     try:
-        yield folder
+        with watch_folder(folder, max_bytes=cap, interval=pause):
+            yield folder
     finally:
-        done.set()
-        watcher.join()
         shutil.rmtree(folder, ignore_errors=True)

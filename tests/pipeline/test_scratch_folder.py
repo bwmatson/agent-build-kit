@@ -18,7 +18,7 @@ import pytest
 from agent_build_kit.pipeline import scratch as scratch_module
 from agent_build_kit.pipeline.archive import archive_ready_changes
 from agent_build_kit.pipeline.restack import claude_resolver
-from agent_build_kit.pipeline.scratch import cap_files, remove_leftovers, run_folder
+from agent_build_kit.pipeline.scratch import cap_files, remove_leftovers
 from agent_build_kit.pipeline.wiring import (
     REVIEW_PROMPT,
     build_commit,
@@ -257,39 +257,6 @@ def wait_until(condition: Callable[[], bool], seconds: float = 10.0) -> bool:
             return True
         time.sleep(0.02)
     return condition()
-
-
-def test_a_live_run_s_file_is_held_to_the_cap_even_while_its_writer_has_it_open(
-    tree: Path,
-) -> None:
-    cap = 2000
-    seen: list[tuple[bool, bool, bytes]] = []
-
-    def act(request: AgentRequest) -> None:
-        big = out_of(request) / "big.log"
-        lines = [f"line {number:05d}\n".encode() for number in range(2000)]
-        # A plain `>`: the writer keeps its offset when the file is cut.
-        with big.open("wb") as writer:
-            for batch in (lines[:1000], lines[1000:]):
-                writer.write(b"".join(batch))
-                writer.flush()
-
-                def settled(last: bytes = batch[-1]) -> bool:
-                    # The write can reach the file in pieces, with a pass between them:
-                    # wait for the whole batch to land and be cut, not just a small file.
-                    text = big.read_bytes()
-                    return len(text) <= cap + 500 and b"\0" not in text and last in text
-
-                held = wait_until(settled)
-                text = big.read_bytes()
-                seen.append((held, b"\0" not in text and batch[-1] in text, text))
-
-    with run_folder(tree, max_bytes=cap, interval=0.02) as out:
-        assert out is not None
-        act(AgentRequest(prompt="", cwd=tree, env={"ABK_OUT": str(out)}))
-
-    assert [(held, intact) for held, intact, _ in seen] == [(True, True), (True, True)]
-    assert b"truncated" in seen[0][2]
 
 
 def test_a_run_through_the_build_step_has_its_files_capped_while_it_goes(

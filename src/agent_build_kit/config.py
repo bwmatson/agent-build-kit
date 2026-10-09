@@ -217,6 +217,10 @@ class LimitsConfig(Frozen):
     transcript_result_chars: Annotated[int, Field(ge=1)] = 20000
     # How many runs of one unit keep their transcript.
     transcript_runs_kept: Annotated[int, Field(ge=1)] = 3
+    # Longest a tier 1 command may run before it is asked to abort, in seconds.
+    tier1_command_seconds: Annotated[float, Field(gt=0)] = 3600
+    # How long an aborted tier 1 command has to exit before it is ended, in seconds.
+    tier1_abort_grace_seconds: Annotated[float, Field(gt=0)] = 10
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

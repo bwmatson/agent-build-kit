@@ -169,6 +169,8 @@ limits:
   transcript_result_chars: 20000  # longest tool result a unit's transcript
                                   # keeps whole; longer ones are cut
   transcript_runs_kept: 3       # runs of one unit that keep their transcript
+  tier1_command_seconds: 3600       # longest a tier 1 command may run before it is aborted
+  tier1_abort_grace_seconds: 10    # how long an aborted command has to exit before it is killed
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under

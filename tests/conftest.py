@@ -31,6 +31,8 @@ from agent_build_kit.runtimes import claude_code
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
 
+pytest_plugins = ["tests.time_limit"]
+
 
 @pytest.fixture(autouse=True)
 def no_real_unit_directory(

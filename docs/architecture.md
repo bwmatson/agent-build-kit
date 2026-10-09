@@ -760,6 +760,27 @@ out is pushed too, but never past this gate: it is the commit the last round
 reviewed, not one exempted from review — it is just not the commit that round
 approved.
 
+### Tests that cannot hang or race
+
+- **A command limit.** Every command tier 1 runs has a time limit,
+  `limits.tier1_command_seconds` (an hour by default), far over what a suite takes. A
+  command past it is sent SIGABRT in its process group, so a runtime that can dump the
+  stacks of its threads does; one that ignores that is killed after
+  `limits.tier1_abort_grace_seconds`. Tier 1 fails with the command, the time
+  ("timed out after N seconds") and the end of its output, dump included. This catches a
+  run whose tests all pass and whose process then does not exit.
+- **A test time limit.** `tests/time_limit.py` fails a test that runs past
+  `--test-time-limit` (sixty seconds) from a timer thread, in setup, call and teardown alike, naming the limit; the run goes on.
+- **A guard.** `tests/timing_hazards.py` parses the test tree and fails on a bare sleep, a
+  function that makes a thread and neither joins nor signals it, or a fixed port, except in
+  the shared helpers and the files on its allowlist. The allowlist may only shrink: a file
+  whose uses are gone fails the guard until it is removed.
+- **A wait helper.** `tests/waiting.py` `wait_for(condition, what=, timeout=)` is the one way
+  to wait for a condition; it names what it waited for on timeout.
+- **A step to call.** The output cap's pass is `scratch.cap_files`, idempotent (a cut file is
+  within the limit and is not rewritten), and `scratch.watch_folder` yields an event set after
+  each pass, so a test calls the step or waits on the signal and never polls a file.
+
 ## Telemetry
 
 With `ABK_OTEL_ENABLED` set (docs/configuration.md) a tick that has work exports traces and

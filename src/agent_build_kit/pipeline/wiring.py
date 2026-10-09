@@ -45,6 +45,7 @@ from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, S
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
+from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.pr_replies import (
@@ -132,6 +133,17 @@ def _specs_dir(planning_repo: Path | None) -> Path:
     if root is None:
         raise RuntimeError("no planning repo: load an installation (abk.yaml) first")
     return root / active().planning.specs_dir
+
+
+def _run_limited(args: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """The default runner for tier 1: `_run` under the configured command time limit."""
+    limits = active().limits
+    return run_limited(
+        args,
+        limit=limits.tier1_command_seconds,
+        grace=limits.tier1_abort_grace_seconds,
+        **kwargs,
+    )
 
 
 def _run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -682,7 +694,7 @@ def build_tier1(
     testable member's tests (plus the root `tests/`) instead, so the checks
     that make a unit satisfied are the repo's real tier 1, not an empty scope.
     """
-    run = run or _run
+    run = run or _run_limited
     changed = changed or _changed_files
     profile = profile or profiles.get("python-uv")
 
