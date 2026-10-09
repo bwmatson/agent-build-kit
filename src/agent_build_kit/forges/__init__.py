@@ -121,10 +121,11 @@ _ORDER = ("azure_devops", "github")
 def _load_builtin() -> None:
     if _REGISTRY:
         return
-    from agent_build_kit.forges import azure_devops, github
+    from agent_build_kit.forges import azure_devops, github, local
 
     register(azure_devops.FORGE)
     register(github.FORGE)
+    register(local.FORGE)
 
 
 def _resilient(forge: Forge) -> Forge:

@@ -13,8 +13,25 @@ repos:
 ```
 
 `forges.get(name)` returns it; an unknown name fails when abk.yaml loads,
-naming the known ones. Two ship, both implemented: `github` and
-`azure_devops`. One workspace may hold repos on both.
+naming the known ones. Three ship, all implemented: `github`, `azure_devops`
+and `local`. One workspace may hold repos on several.
+
+## The local forge
+
+```yaml
+repos:
+  app:
+    forge: local           # needs no slug and no host
+```
+
+A repo that sets `forge: local` keeps its pull requests in
+`local-prs.json` in the state directory, so opening, finding, updating, closing
+and listing them make no network call. The setting is the only way to select it:
+no remote is ever taken for a local repo. Review comments, replies and the
+review decision are read from the review store the web UI writes (see
+`pipeline/ui_review.py`), so the poller treats a local pull request as any
+other. Labels, drafts, statuses, check reruns and stacks are accepted and do
+nothing, and `supports_stacks` is false, so units serialise per repo.
 
 The rule that shapes the package: **a forge returns typed values, not the
 host's JSON.** Every `mergedAt` and `CHANGES_REQUESTED` the pipeline used to

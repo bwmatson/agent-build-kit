@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.unit_store import ReworkKind, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from agent_build_kit.serve.review import ReviewStore
 from tests.conftest import make_installation
+from tests.factories import unit as make_unit
 
 REPO = RepoId(forge="local", account="local", name="app")
 UNIT = "feature/2"
@@ -58,6 +59,7 @@ def open_pr(forge: LocalForge, head: str = HEAD, base: str = "main") -> int:
 
 def unit_in_review(state: Path, number: int, unit: str = UNIT, head: str = HEAD) -> None:
     units = UnitStore(state / "units.json")
+    units.upsert([make_unit(unit)])
     units.set_state(unit, RUNNING, branch=head)
     units.set_state(unit, IN_REVIEW, pr=number)
 
