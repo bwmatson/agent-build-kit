@@ -129,6 +129,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
+from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_resume_at,
@@ -325,7 +326,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     by_state: dict[str, int] = {}
     for unit in units:
-        by_state[unit.state] = by_state.get(unit.state, 0) + 1
+        shown = unit.state if unit.state != RUNNING else effective_state(unit, units)
+        by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
 
     # What the last poll of each repo saw: an entry that cannot be merged is not

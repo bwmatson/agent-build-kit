@@ -503,9 +503,14 @@ refreshed on its own next transition, not when its parent's changes.
 `agent-rework` added to a held unit's pull request is ignored and removed all
 the same.
 
-A pull request is also a **draft** while its unit is `running` and published
-when it is `in_review`, written from the same state-change hook; other states
-leave it alone, and a refused write is logged without touching the unit.
+A pull request is also a **draft** while its unit is `running` or `planned` and
+published when it is `in_review`, written from the same state-change hook; other
+states leave it alone, and a refused write is logged without touching the unit.
+
+A stored `running` unit is shown as `rebasing` (its last event was a conflict or
+a moved base) or `reworking` (it is answering review or check feedback), else
+`running`. These are derived from the unit's record, never stored, and `abk
+status`, the graph and the state label show them.
 
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does

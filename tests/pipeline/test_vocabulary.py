@@ -23,6 +23,8 @@ EVERY_STATE = {
     "planned",
     "blocked",
     "running",
+    "rebasing",
+    "reworking",
     "paused_rework",
     "held",
     "in_review",

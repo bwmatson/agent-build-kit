@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.drafts import StateDrafts
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     FAILED,
@@ -116,7 +116,7 @@ def test_a_unit_with_no_pull_request_makes_no_call(store: UnitStore, forge: Stan
     assert forge.calls == []
 
 
-@pytest.mark.parametrize("state", [PLANNED, HELD, FAILED, MERGED, CLOSED, SATISFIED])
+@pytest.mark.parametrize("state", [HELD, FAILED, MERGED, CLOSED, SATISFIED])
 def test_the_other_states_make_no_call(
     state: UnitState, store: UnitStore, forge: StandInForge
 ) -> None:
@@ -167,3 +167,62 @@ def test_a_host_with_no_drafts_says_so_once_over_two_state_changes(
     assert len(logged) == 1, logged
     assert "no drafts" in logged[0]
     assert store.get(UID).state == IN_REVIEW
+
+
+def test_a_unit_set_back_to_planned_makes_its_pull_request_a_draft(
+    store: UnitStore, forge: StandInForge
+) -> None:
+    in_review(store)
+
+    store.set_state(UID, PLANNED, cause=Cause.UPSTREAM_WENT_BACK)
+
+    assert draft_calls(forge) == [("draft", PR)]
+    assert forge.is_draft[PR] is True
+
+
+def test_a_planned_unit_back_in_review_publishes_its_pull_request(
+    store: UnitStore, forge: StandInForge
+) -> None:
+    in_review(store)
+    store.set_state(UID, PLANNED, cause=Cause.UPSTREAM_WENT_BACK)
+
+    store.set_state(UID, IN_REVIEW)
+
+    assert draft_calls(forge) == [("draft", PR), ("ready", PR)]
+    assert forge.is_draft[PR] is False
+
+
+def test_a_planned_unit_with_no_pull_request_makes_no_call(
+    store: UnitStore, forge: StandInForge
+) -> None:
+    store.set_state(UID, PLANNED)
+
+    assert forge.calls == []
+
+
+def test_a_refused_draft_on_a_unit_set_back_to_planned_is_logged_and_the_state_stands(
+    tmp_path: Path, logged: list[str]
+) -> None:
+    store = wired(tmp_path, StandInForge(draft_error=RuntimeError), logged)
+    store.upsert([unit(UID)])
+    in_review(store)
+
+    store.set_state(UID, PLANNED, cause=Cause.UPSTREAM_WENT_BACK)
+
+    assert len(logged) == 1, logged
+    assert "refuses drafts" in logged[0]
+    assert store.get(UID).state == PLANNED
+
+
+def test_a_host_with_no_drafts_is_logged_when_a_unit_goes_back_to_planned(
+    tmp_path: Path, logged: list[str]
+) -> None:
+    store = wired(tmp_path, NoDraftsForge(), logged)
+    store.upsert([unit(UID)])
+    in_review(store)
+
+    store.set_state(UID, PLANNED, cause=Cause.UPSTREAM_WENT_BACK)
+
+    assert len(logged) == 1, logged
+    assert "no drafts" in logged[0]
+    assert store.get(UID).state == PLANNED

@@ -603,3 +603,11 @@ together; the checkpoint packages have moved a major version within a year.
 The framework brings `langchain-core`. Nothing else from LangChain is used:
 there are no LangChain models, prompts or tools, since agents are reached
 through `AgentRuntime`.
+
+## Display statuses of a running unit
+
+The store holds `running` for every unit an agent is working on. The graph, `abk status` and the
+pull request's state label derive a finer name: `rebasing` when the unit was sent back for a
+conflict, a moved base or a restack conflict or deferral, `reworking` when it is answering review
+or check feedback, and `running` otherwise. A pull request is a draft while its unit is `running`
+or `planned` and ready when it is `in_review`.
