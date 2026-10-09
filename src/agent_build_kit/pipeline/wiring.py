@@ -241,7 +241,7 @@ def build_run(
         prompt: str,
         *,
         cwd: Path,
-        model: str,
+        model: str = "",
         resume_session: str = "",
         follow_up: str = "",
         resume_runtime: str = "",

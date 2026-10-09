@@ -8,6 +8,11 @@
   says it is stale and where it came from. A reading served from the cache file now reports
   its own source instead of passing for live. The pause line shows local time.
 
+- A runtime that names no models, such as ACP, now builds units: the nodes that write tests,
+  implement, fix checks, rework and adapt, and a continued session, no longer fail at once with
+  a missing `model` argument before the agent starts. An empty model means the agent's own
+  default.
+
 - A pull request's checks are now one list, each with a name, a status (`passed`, `failed`,
   `cancelled` or `pending`) and a link where the host gives one, on both GitHub and Azure
   DevOps, instead of separate lists of failing and cancelled names. A check state the forge
