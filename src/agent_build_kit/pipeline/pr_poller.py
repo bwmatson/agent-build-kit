@@ -17,7 +17,7 @@ treating every open PR as new.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -117,15 +117,31 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         # the host cancelling a check is not a verdict on the commit, so it is
         # re-run, not reworked. Snapshots recorded before this held two name
         # lists instead and carry no `checks` key.
-        "checks": {check.name: str(check.status) for check in sorted(pull.checks, key=_name)},
+        "checks": _statuses_by_name(pull.checks),
         "head": pull.head,
         # True, False, or None while the host has not worked it out.
         "mergeable": pull.mergeable,
     }
 
 
-def _name(check: Check) -> str:
-    return check.name
+# Most severe first. Checks can share a name (two workflows each with a job
+# `build`), and a name stands for the worst of them: a failure must not be
+# hidden behind a pass that happens to be listed after it.
+_SEVERITY = (
+    CheckStatus.FAILED,
+    CheckStatus.CANCELLED,
+    CheckStatus.PENDING,
+    CheckStatus.PASSED,
+)
+
+
+def _statuses_by_name(checks: Sequence[Check]) -> dict[str, str]:
+    worst: dict[str, CheckStatus] = {}
+    for check in checks:
+        held = worst.get(check.name)
+        if held is None or _SEVERITY.index(check.status) < _SEVERITY.index(held):
+            worst[check.name] = check.status
+    return {name: str(worst[name]) for name in sorted(worst)}
 
 
 def _with_status(checks: dict[str, str], status: CheckStatus) -> set[str]:

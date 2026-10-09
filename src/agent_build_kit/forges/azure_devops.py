@@ -404,6 +404,7 @@ class AzureDevOpsForge:
                 Check(
                     name=_policy_name(item),
                     status=self._evaluation_status(repo, item, run=run),
+                    url=_build_url(repo, item.context.build_id if item.context else None),
                 )
             )
         return pull.model_copy(
@@ -794,12 +795,7 @@ class AzureDevOpsForge:
             build = item.context.build_id if item.context else None
             parts.append(
                 f"{_policy_name(item)} - build policy {item.status}"
-                + (
-                    f"\n{_HOST}/{quote(repo.account)}/{quote(repo.project)}"
-                    f"/_build/results?buildId={build}"
-                    if build
-                    else ""
-                )
+                + (f"\n{_build_url(repo, build)}" if build else "")
             )
         return "\n\n".join(parts)
 
@@ -1011,6 +1007,13 @@ def _notes(threads: list[ThreadDoc], *, live_only: bool = False) -> list[ReviewN
                 )
             )
     return notes
+
+
+def _build_url(repo: RepoId, build: int | None) -> str:
+    """The web link to a build, or "" where an evaluation names none."""
+    if not build:
+        return ""
+    return f"{_HOST}/{quote(repo.account)}/{quote(repo.project)}/_build/results?buildId={build}"
 
 
 def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:

@@ -150,3 +150,20 @@ def test_statuses_and_evaluations_are_merged_into_one_list() -> None:
     )
 
     assert statuses(pull) == {"ci/lint": CheckStatus.PASSED, "CI build": CheckStatus.PENDING}
+
+
+# --- the build's link ---------------------------------------------------------------
+
+RESULTS = "https://dev.azure.com/acme/Some%20Project/_build/results?buildId="
+
+
+def test_an_evaluation_with_a_build_carries_the_builds_link() -> None:
+    pull = one(policies={162: [evaluated("rejected", "CI build", 41)]}, builds={41: "failed"})
+
+    assert [check.url for check in pull.checks] == [RESULTS + "41"]
+
+
+def test_an_evaluation_with_no_build_has_no_link() -> None:
+    pull = one(policies={162: [evaluated("queued", "deploy", None)]})
+
+    assert [check.url for check in pull.checks] == [""]

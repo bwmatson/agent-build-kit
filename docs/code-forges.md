@@ -103,12 +103,14 @@ opaque comment ids, `comment_bodies` the words behind them, `labels` drives
 `"changes_requested"`.
 
 `checks` is the pull request's list of `Check(name, status, url)`, `status` being
-`passed`, `failed`, `cancelled` or `pending`; `url` is the host's link, `""` where it
-gives none. The failing and cancelled names are read from it with `failing_names` and
+`passed`, `failed`, `cancelled` or `pending`; `url` is the host's link (on Azure DevOps
+a status's target, or the build's results page for a build policy), `""` where it gives
+none. The failing and cancelled names are read from it with `failing_names` and
 `cancelled_names`, and `overall_result` is `failed` when any check failed, otherwise
 `pending` when any is pending (a list of cancelled checks only reads as pending),
 otherwise `passed`, and `none` for an empty list. A value a forge does not know maps to
-`pending`, never `failed`, so it cannot send a unit back.
+`pending`, never `failed`, so it cannot send a unit back. Checks may share a name; the
+poller's snapshot keeps the most severe status for a name.
 
 | Status | GitHub | Azure DevOps status | Azure DevOps build policy |
 |---|---|---|---|

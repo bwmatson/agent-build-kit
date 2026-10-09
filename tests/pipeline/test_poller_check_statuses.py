@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline.pr_poller import Poller
@@ -178,3 +180,56 @@ def test_after_being_recorded_afresh_a_later_failure_is_news(tmp_path: Path) -> 
     poller.poll()
 
     assert seen == [("rework", 4, "failing checks: CI")]
+
+
+# --- checks that share a name -------------------------------------------------------
+
+SAME_NAME = [
+    ("build", CheckStatus.FAILED),
+    ("build", CheckStatus.PASSED),
+]
+ORDERS = pytest.mark.parametrize(
+    "order", [SAME_NAME, SAME_NAME[::-1]], ids=["failed-first", "passed-first"]
+)
+
+
+@ORDERS
+def test_a_failed_check_is_not_hidden_by_a_passing_one_of_the_same_name(
+    tmp_path: Path, order: list[tuple[str, CheckStatus]]
+) -> None:
+    (tmp_path / "poll.json").write_text(json.dumps({}))
+    poller, seen = polling(tmp_path, [[pr(*order)]])
+
+    poller.poll()
+
+    assert seen == [("rework", 4, "failing checks: build")]
+
+
+@ORDERS
+def test_a_same_named_check_that_starts_failing_sends_the_unit_back(
+    tmp_path: Path, order: list[tuple[str, CheckStatus]]
+) -> None:
+    both_passing = [("build", CheckStatus.PASSED), ("build", CheckStatus.PASSED)]
+    poller, seen = polling(tmp_path, [[pr(*both_passing)], [pr(*order)]])
+    poller.poll()
+
+    poller.poll()
+
+    assert seen == [("rework", 4, "failing checks: build")]
+
+
+def test_the_snapshot_keeps_the_most_severe_status_for_a_name(tmp_path: Path) -> None:
+    listed = [
+        ("a", CheckStatus.PASSED),
+        ("a", CheckStatus.PENDING),
+        ("b", CheckStatus.PENDING),
+        ("b", CheckStatus.CANCELLED),
+        ("c", CheckStatus.CANCELLED),
+        ("c", CheckStatus.FAILED),
+    ]
+    poller, _ = polling(tmp_path, [[pr(*listed)]])
+
+    poller.poll()
+
+    recorded = json.loads((tmp_path / "poll.json").read_text())["4"]["checks"]
+    assert recorded == dict(a="pending", b="cancelled", c="failed")

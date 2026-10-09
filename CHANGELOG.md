@@ -5,9 +5,9 @@
 - A pull request's checks are now one list, each with a name, a status (`passed`, `failed`,
   `cancelled` or `pending`) and a link where the host gives one, on both GitHub and Azure
   DevOps, instead of separate lists of failing and cancelled names. A check state the forge
-  does not know counts as pending, so it can no longer send a unit back. The poller records
-  each check's status, so a check that finishes failing is noticed; snapshots recorded
-  before this are recorded afresh on the next poll without sending anything back.
+  does not know counts as pending, never failed. The poller records each check's status
+  (the most severe where several checks share a name); snapshots recorded before this are
+  recorded afresh on the next poll without sending anything back.
 
 - `abk serve` now answers a unit's review diff, pinned to one commit and taken against the
   base the unit builds on (only its own work, for a stacked or restacked unit), and keeps a

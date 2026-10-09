@@ -26,6 +26,7 @@ pytestmark = pytest.mark.usefixtures("rest_env")
 
 REPO = RepoId(forge="azure_devops", account="acme", project="Some Project", name="Some Repo")
 
+POLICY_BUILD = "https://dev.azure.com/acme/Some%20Project/_build/results?buildId="
 BUILD = "https://dev.azure.com/acme/_build/results?buildId=1"
 
 
@@ -92,9 +93,9 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
             checks=(
                 Check(name="continuous-integration/build", status=CheckStatus.FAILED, url=BUILD),
                 Check(name="continuous-integration/lint", status=CheckStatus.PASSED, url=BUILD),
-                Check(name="lint", status=CheckStatus.PASSED),
-                Check(name="CI build", status=CheckStatus.FAILED),
-                Check(name="slow build", status=CheckStatus.CANCELLED),
+                Check(name="lint", status=CheckStatus.PASSED, url=POLICY_BUILD + "41"),
+                Check(name="CI build", status=CheckStatus.FAILED, url=POLICY_BUILD + "41"),
+                Check(name="slow build", status=CheckStatus.CANCELLED, url=POLICY_BUILD + "42"),
             ),
         ),
         PullRequest(
