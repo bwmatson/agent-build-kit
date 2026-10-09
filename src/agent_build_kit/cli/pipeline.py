@@ -123,6 +123,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
     Join,
+    Priority,
     Unit,
     UnitState,
     base_of,
@@ -1539,11 +1540,11 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
             or (u.state == PLANNED and u.change != change)
         ]
-        catalog = {
-            path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
-            for path in inst.tasks_files()
-        }
         try:
+            catalog = {
+                path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
+                for path in inst.tasks_files()
+            }
             # The groups go in so the plan is checked against the tags, which
             # were validated on the change's own PR: a model handing one
             # repo's group to another repo's unit is a real failure mode.
@@ -1604,8 +1605,18 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         log(f"planned {change}: {len(units)} unit(s)")
         # After the joins, so a unit that took in more work is as urgent as its
         # most urgent group; a unit that has started keeps what it has.
-        for unit_id in dict.fromkeys([*(u.id for u in units), *(j.onto for j in plan.joins)]):
-            if unit_id in {j.unit for j in plan.joins if j.unit}:
+        # Units that carry this change's groups from an earlier round are
+        # visited too: an edited line reaches them without a join naming them.
+        removed = {j.unit for j in plan.joins if j.unit}
+        carrying = [
+            u.id
+            for u in store.all()
+            if u.unstarted and any(m.change == change for m in u.members())
+        ]
+        for unit_id in dict.fromkeys(
+            [*(u.id for u in units), *(j.onto for j in plan.joins), *carrying]
+        ):
+            if unit_id in removed:
                 continue
             store.set_priority(unit_id, unit_priority(store.get(unit_id), catalog))
         orphaned = _orphaned_changes(store, before)
@@ -2429,7 +2440,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             continue
         print(f"{change}: {len(groups)} task group(s), all tagged")
         for group in groups:
-            urgency = f" (priority {group.priority})" if group.priority != 3 else ""
+            urgency = f" (priority {group.priority})" if group.priority != Priority.NORMAL else ""
             print(f"  {group.number}. [{group.repo}] [{group.tier}] {group.title}{urgency}")
     return 1 if failed else 0
 

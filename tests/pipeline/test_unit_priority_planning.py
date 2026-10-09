@@ -17,7 +17,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.units import PLANNED, Member
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.runtimes.stand_in import StandInRuntime
@@ -168,3 +168,28 @@ def test_an_edited_line_reaches_the_units_that_have_not_started(
 
     assert run.priority("feature/1") == 3
     assert run.priority("feature/2") == 1
+
+
+@pytest.mark.parametrize(("carrier_has_branch", "expected"), [(False, 1), (True, 3)])
+def test_an_edited_line_reaches_an_unstarted_unit_carrying_the_changes_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carrier_has_branch: bool, expected: int
+) -> None:
+    run = Round(tmp_path, monkeypatch, {"base": tasks_md(3), "feature": tasks_md(3, 3)})
+    run.store.upsert(
+        [
+            stored_unit(
+                "base/1",
+                change="base",
+                groups=(1,),
+                joined=(Member(change="feature", groups=(1,)),),
+            )
+        ]
+    )
+    if carrier_has_branch:
+        run.store.set_state("base/1", PLANNED, branch="spec/base/1")
+    mark_planned(run, "base")
+    (run.inst.changes_dir / "feature" / "tasks.md").write_text(tasks_md(1, 3))
+
+    run.plan(answer(planned("feature/2", (2,))))
+
+    assert run.priority("base/1") == expected

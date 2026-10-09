@@ -269,3 +269,15 @@ def test_a_cycle_does_not_loop_when_working_out_the_priority() -> None:
     graph = [first, unit("b/1", depends_on=("a/1",), priority=2)]
 
     assert effective_priority(first, graph) == 2
+
+
+def test_a_unit_waiting_through_an_excluded_one_still_waits() -> None:
+    prerequisite = unit("a/1", priority=3)
+    graph = [
+        prerequisite,
+        unit("b/1", depends_on=("a/1",), priority=3),
+        unit("c/1", depends_on=("b/1",), priority=1),
+    ]
+
+    assert ids(waiting_on_me(prerequisite, graph, frozenset(["b/1"]))) == {"c/1"}
+    assert effective_priority(prerequisite, graph, frozenset(["b/1"])) == 1

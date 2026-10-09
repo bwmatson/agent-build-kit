@@ -26,6 +26,7 @@ from pathlib import Path
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.units import Priority
 
 
 def known_repos() -> tuple[str, ...]:
@@ -101,7 +102,6 @@ INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
 # unsaid. Above the first group it is the default for the change's groups.
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
 PRIORITY_VALUE = re.compile(r"[1-5]")
-DEFAULT_PRIORITY = 3
 
 # "- [ ] 1.1 Do the thing" / "- [x] 1.1 Done". Checked and unchecked both count:
 # this asks whether a group has tasks at all, not how far along it is.
@@ -126,7 +126,7 @@ class TaskGroup(Frozen):
     # group of its change.
     independent: bool = False
     # 1 (most urgent) to 5, from a `Priority:` line in the group or above the first.
-    priority: int = 3
+    priority: int = Priority.NORMAL
 
 
 class ValidationError(Frozen):
@@ -308,7 +308,7 @@ def validate_tasks(
             separate=g.line in separate,
             independent=g.line in independent,
             priority=priorities.get(
-                g.line, DEFAULT_PRIORITY if default_priority is None else default_priority
+                g.line, Priority.NORMAL if default_priority is None else default_priority
             ),
         )
         for g in groups

@@ -124,3 +124,15 @@ def test_an_unstarted_unit_planned_back_to_normal_loses_the_field(tmp_path) -> N
 
     assert store.get(UNIT_ID).priority == 3
     assert "priority" not in records(store)[0]
+
+
+@pytest.mark.parametrize("value", [0, 6, 9, -1])
+def test_a_record_with_a_priority_off_the_scale_is_refused(tmp_path, value) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(UNIT_ID)])
+    raw = json.loads(store.path.read_text())
+    raw["units"][0]["priority"] = value
+    store.path.write_text(json.dumps(raw))
+
+    with pytest.raises(ValueError):
+        UnitStore(store.path).all()

@@ -20,6 +20,8 @@ from collections.abc import Collection, Sequence
 from enum import IntEnum, StrEnum
 from typing import Self
 
+from pydantic import Field
+
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 
@@ -119,7 +121,7 @@ class Unit(Frozen):
     issue: int | None = None
     groups: tuple[int, ...] = ()
     joined: tuple[Member, ...] = ()
-    priority: int = Priority.NORMAL
+    priority: int = Field(default=Priority.NORMAL, ge=Priority.FIX, le=Priority.NICE_TO_HAVE)
 
     def members(self) -> tuple[Member, ...]:
         """Every change's groups this unit builds: its own first, then carried ones."""
@@ -316,7 +318,8 @@ def waiting_on_me(
     The reverse of `depends_on`. A merged, closed or satisfied unit does not
     wait, though a satisfied one is looked through: what depends on it waits on
     what it was built on. Units in `excluded` (named away by `--only`, held by a
-    lease or in a backoff) are neither counted nor passed through.
+    lease or in a backoff) are not counted, but are looked through like a satisfied
+    one: a unit in the round that waits through one still waits on `unit`.
     """
     dependents: dict[str, list[Unit]] = {}
     for other in graph:
@@ -328,10 +331,10 @@ def waiting_on_me(
     pending = [unit.id]
     while pending:
         for waiter in dependents.get(pending.pop(), ()):
-            if waiter.id in visited or waiter.id in excluded:
+            if waiter.id in visited:
                 continue
             visited.add(waiter.id)
-            if waiter.state == SATISFIED:
+            if waiter.state == SATISFIED or waiter.id in excluded:
                 pending.append(waiter.id)
             elif waiter.state not in (MERGED, CLOSED):
                 found[waiter.id] = waiter
