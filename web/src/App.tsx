@@ -5,8 +5,9 @@ import { MetricsPage } from "./metrics";
 import { SessionsPage } from "./sessions";
 import { Overview, UnitPage, UsagePage } from "./pages";
 
-/** The shell and its routes: the overview at `/`, a unit at `/units/<change>/<n>`,
- * the usage report at `/usage` and the sessions at `/sessions`. The caller supplies the router. */
+/** The shell and its routes: the overview at `/`, a unit at `/units/<change>/<n>`
+ * with its review at `/units/<change>/<n>/review`, the usage report at `/usage`
+ * and the sessions at `/sessions`. The caller supplies the router. */
 export function AppRoutes(): ReactElement {
   return (
     <div className="shell">
@@ -19,6 +20,7 @@ export function AppRoutes(): ReactElement {
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/units/:change/:number" element={<UnitPage />} />
+          <Route path="/units/:change/:number/review" element={<UnitPage review />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/metrics" element={<MetricsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />

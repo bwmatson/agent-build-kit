@@ -1002,6 +1002,37 @@ release, so it would need a `requestInit` override plus a second client, and rxj
 the bundle; no Node runtime is needed or used. Because every event is valid AG-UI,
 adopting the package later is a change to that one file.
 
+### The review tab
+
+The review tab is a tab of the unit page at `/units/<change>/<n>/review`
+(`web/src/review/tab.tsx`). It shows the diff the server pinned to one commit
+(`GET .../diff`, whose `commit` the tab keeps), a tree of the files, the threads beside
+their lines (outdated ones marked), and the latest review round's findings and deferred
+follow-ups, all read from `GET .../review`. Selecting a line or range highlights it and
+creates nothing; the **Comment** action on a selection opens a composer that posts the
+thread (`POST .../review/threads`, with the diff's commit), and each thread offers a reply
+box and a resolve toggle (`POST .../replies`, `PATCH .../threads/<id>`). The summary and the
+**Request changes** and **Approve** buttons record the round's decision
+(`PUT .../review/decision`); a round that already has one answers 409 and the tab shows the
+server's reason.
+
+The selection lives in the address, so a line can be linked to:
+`?file=<path>&lines=<n>` or `lines=<start>-<end>`, `side=old` for a line of the removed
+file (`new` otherwise), and `commit=<sha>` for a line as it was at an earlier commit. With
+`commit`, the tab asks `GET .../review/locate?file&line&side&commit` for where the line is
+at the branch tip and opens there, or says the line is no longer in the diff. Opening an
+address scrolls to it; an address the tab wrote itself is not opened again.
+
+`web/src/review/viewer.tsx` is the only module that knows the diff library
+(`@pierre/diffs`, used to parse the patch). Its contract is the DOM: a file is a region
+named by its path, a line carries `data-path` and `data-old-line` / `data-new-line`, a
+selected line `data-selected`, and a thread is an article that follows the line it ends on.
+Hovering a thread highlights its lines with the same `data-selected`, without selecting
+them or touching the address. A thread the server could not place at a line (marked
+outdated), or whose line the diff does not show, is drawn at the top of its file's region,
+collapsed or not; one on a file the patch no longer holds is listed in a separate region of
+threads on files no longer in the diff, so no thread is ever left out.
+
 ## Why it is shaped this way
 
 - **Worktrees live outside the planning repo.** Agents reach the specs through

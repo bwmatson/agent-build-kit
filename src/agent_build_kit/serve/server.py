@@ -26,11 +26,12 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import Field, model_validator
 
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
-from agent_build_kit.graph.state import AgentSession, SessionRole
+from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
+from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -47,6 +48,7 @@ from agent_build_kit.serve.review import (
     Thread,
     branch_tip,
     placed,
+    relocate,
     resolve_commit,
     unit_diff,
 )
@@ -108,20 +110,42 @@ async def _read_only_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]
         yield AsyncSqliteSaver(conn, serde=serde)
 
 
-def _review_round(installation: Installation, unit_id: str) -> int | None:
+def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
+    """The unit's run state as its thread last saved it, None when it has none to read."""
     path = unit_graphs_path(installation.state_dir)
     if not path.exists():
         return None
 
-    async def read() -> int | None:
+    async def read() -> UnitRun | None:
         async with _read_only_checkpointer(path) as saver:
             position = await thread_position(saver, unit_id)
-        return position.state.review_round if position.state else None
+        return position.state
 
     try:
         return asyncio.run(read())
     except (sqlite3.Error, aiosqlite.Error):
         return None
+
+
+def _review_round(installation: Installation, unit_id: str) -> int | None:
+    run = _unit_run(installation, unit_id)
+    return run.review_round if run else None
+
+
+def _reviewer_findings(run: UnitRun | None) -> list[dict[str, Any]]:
+    """The findings of the latest review round the run kept, as the tab lists them."""
+    if run is None or not run.review_rounds:
+        return []
+    return [
+        {
+            "id": str(f.get("id", "")),
+            "file": f.get("file", ""),
+            "line": f.get("line"),
+            "summary": f.get("summary", ""),
+            "required": bool(f.get("required")),
+        }
+        for f in run.review_rounds[-1].get("findings") or []
+    ]
 
 
 def _header(path: Path) -> tuple[dict[str, str], int]:
@@ -288,11 +312,46 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
         repo = installation.checkouts.get(unit.repo)
         tip = branch_tip(repo, unit.branch) if repo else None
         threads = [placed(repo, t, tip) for t in stored.threads] if repo else stored.threads
+        run = _unit_run(installation, unit.id)
         return {
-            "round": _review_round(installation, unit.id) or 1,
+            "round": (run.review_round if run else None) or 1,
             "threads": [t.model_dump() for t in threads],
             "decisions": [d.model_dump() for d in stored.decisions],
+            "findings": _reviewer_findings(run),
+            # What the push has not recorded yet comes after what the file holds.
+            "follow_ups": list(
+                dict.fromkeys(
+                    (
+                        *unit_follow_ups(installation.root, unit.change, unit.id),
+                        *(run.deferred if run else ()),
+                    )
+                )
+            ),
         }
+
+    @app.get("/api/units/{change}/{number}/review/locate")
+    def locate(
+        change: str,
+        number: str,
+        file: str,
+        line: int,
+        commit: str,
+        side: Literal["old", "new"] = "new",
+    ) -> dict[str, int | None]:
+        """Where a line addressed at an earlier `commit` is at the branch tip now."""
+        unit, _ = find(change, number)
+        repo = checkout(unit)
+        tip = branch_tip(repo, unit.branch)
+        then = resolve_commit(repo, commit)
+        if tip is None:
+            raise HTTPException(
+                status_code=409, detail=f"the branch {unit.branch} is not in the checkout"
+            )
+        if then is None:
+            raise HTTPException(status_code=409, detail=f"{commit} is not a commit to review")
+        if side == "old" or then == tip:
+            return {"line": line}
+        return {"line": relocate(repo, file, line, then, tip)}
 
     @app.post("/api/units/{change}/{number}/review/threads")
     def add_thread(change: str, number: str, body: ThreadIn) -> dict[str, Any]:

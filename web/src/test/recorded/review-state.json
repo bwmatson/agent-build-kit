@@ -1,0 +1,101 @@
+{
+  "round": 1,
+  "threads": [
+    {
+      "id": "ui-0001",
+      "path": "src/marker.py",
+      "side": "new",
+      "line": 12,
+      "start_line": null,
+      "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
+      "body": "Why was this renamed?",
+      "at": "2026-10-08T15:02:11+00:00",
+      "replies": [{ "body": "It matches the spec wording.", "at": "2026-10-08T15:09:40+00:00" }],
+      "resolved": false,
+      "outdated": false
+    },
+    {
+      "id": "ui-0002",
+      "path": "src/marker.py",
+      "side": "old",
+      "line": 12,
+      "start_line": null,
+      "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
+      "body": "The old name was clearer.",
+      "at": "2026-10-08T15:03:00+00:00",
+      "replies": [],
+      "resolved": false,
+      "outdated": false
+    },
+    {
+      "id": "ui-0003",
+      "path": "tests/test_marker.py",
+      "side": "new",
+      "line": 2,
+      "start_line": 1,
+      "commit": "1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6",
+      "body": "These two lines need a failing case.",
+      "at": "2026-10-08T14:40:00+00:00",
+      "replies": [],
+      "resolved": false,
+      "outdated": true
+    },
+    {
+      "id": "ui-0004",
+      "path": "src/new.py",
+      "side": "new",
+      "line": 2,
+      "start_line": null,
+      "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
+      "body": "Fine as it is.",
+      "at": "2026-10-08T15:04:00+00:00",
+      "replies": [],
+      "resolved": true,
+      "outdated": false
+    },
+    {
+      "id": "ui-0005",
+      "path": "src/marker.py",
+      "side": "new",
+      "line": null,
+      "start_line": null,
+      "commit": "1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6",
+      "body": "This line was rewritten after I commented.",
+      "at": "2026-10-08T14:41:00+00:00",
+      "replies": [],
+      "resolved": false,
+      "outdated": true
+    },
+    {
+      "id": "ui-0006",
+      "path": "src/removed.py",
+      "side": "new",
+      "line": null,
+      "start_line": null,
+      "commit": "1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6",
+      "body": "This file left the diff.",
+      "at": "2026-10-08T14:42:00+00:00",
+      "replies": [],
+      "resolved": false,
+      "outdated": true
+    }
+  ],
+  "decisions": [],
+  "findings": [
+    {
+      "id": "1.1",
+      "file": "src/marker.py",
+      "line": 15,
+      "summary": "The inserted line is not covered by a test",
+      "required": true
+    },
+    {
+      "id": "1.2",
+      "file": "tests/test_marker.py",
+      "line": null,
+      "summary": "The test file has no docstring",
+      "required": false
+    }
+  ],
+  "follow_ups": ["Add a changelog entry"]
+}
