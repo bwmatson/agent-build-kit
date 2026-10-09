@@ -6,9 +6,7 @@ how long remains."""
 from __future__ import annotations
 
 import argparse
-import json
 import time
-from datetime import UTC, datetime
 
 import pytest
 
@@ -25,7 +23,7 @@ from tests.cli.test_tick_scheduling import (  # noqa: F401
     warm_unit_graphs,
     workspace,
 )
-from tests.fake_clock import START, FakeClock, install
+from tests.fake_clock import FakeClock, install
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -39,21 +37,17 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
     return install(monkeypatch)
 
 
-def park(store: UnitStore, clock: FakeClock, *, attempts: int) -> None:
+def park(store: UnitStore, *, attempts: int) -> None:
     """The unit as a build leaves it after being parked `attempts` times in a row, now."""
     store.upsert([stored(UNIT)])
-    store.set_state(
-        UNIT,
-        PLANNED,
-        note="create_pr: host unavailable after 3 attempts",
-        cause=Cause.HOST_UNAVAILABLE,
-    )
-    raw = json.loads(store.path.read_text())
-    record = raw["units"][0]
-    record["parked_attempts"] = attempts
-    record["step"] = "open_pr"
-    record["history"][-1]["at"] = clock.now().isoformat()
-    store.path.write_text(json.dumps(raw))
+    for _ in range(attempts):
+        store.record_step(UNIT, "open_pr")
+        store.set_state(
+            UNIT,
+            PLANNED,
+            note="create_pr: host unavailable after 3 attempts",
+            cause=Cause.HOST_UNAVAILABLE,
+        )
 
 
 @pytest.mark.parametrize("attempts", range(1, len(BACKOFF_MINUTES) + 1))
@@ -65,7 +59,7 @@ def test_the_pass_skips_a_parked_unit_until_its_backoff_has_elapsed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     wait = BACKOFF_MINUTES[attempts - 1] * MINUTE
-    park(builder.store, clock, attempts=attempts)
+    park(builder.store, attempts=attempts)
     inst = workspace(tmp_path)
 
     clock.advance(wait - 1)
@@ -84,7 +78,7 @@ def test_a_build_that_succeeds_resets_the_count(
     builder: Builder,  # noqa: F811
     clock: FakeClock,
 ) -> None:
-    park(builder.store, clock, attempts=3)
+    park(builder.store, attempts=3)
     clock.advance(5 * MINUTE + 1)
 
     tick(workspace(tmp_path))
@@ -92,11 +86,6 @@ def test_a_build_that_succeeds_resets_the_count(
     unit = builder.store.get(UNIT)
     assert unit.state == IN_REVIEW
     assert unit.parked_attempts == 0
-
-
-def _in_the_present(clock: FakeClock) -> None:
-    """The fake clock at the real time, for a build that stamps its parking with it."""
-    clock.advance((datetime.now(UTC) - START).total_seconds())
 
 
 @pytest.mark.parametrize("backoff_over", [False, True])
@@ -107,7 +96,6 @@ def test_the_running_pass_readmits_a_unit_it_parked_only_after_its_backoff(
     monkeypatch: pytest.MonkeyPatch,
     backoff_over: bool,
 ) -> None:
-    _in_the_present(clock)
     inst = workspace(tmp_path, max_concurrent=2)
     builder.store.upsert([stored("sent/1"), stored("slow/1", repo="platform")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
@@ -151,12 +139,6 @@ def test_status_lists_a_failed_unit_and_a_unit_waiting_for_the_host(
     store.set_state(
         "waits/1", PLANNED, note="create_pr: host unavailable", cause=Cause.HOST_UNAVAILABLE
     )
-    raw = json.loads(store.path.read_text())
-    for record in raw["units"]:
-        if record["id"] == "waits/1":
-            record["parked_attempts"] = 1
-            record["history"][-1]["at"] = clock.now().isoformat()
-    store.path.write_text(json.dumps(raw))
 
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
 

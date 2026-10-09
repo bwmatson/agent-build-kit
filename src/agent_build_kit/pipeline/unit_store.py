@@ -24,7 +24,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -32,6 +32,7 @@ from typing import Any
 from pydantic import ValidationError, model_validator
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.units import (
     FAILED,
@@ -699,7 +700,8 @@ def _with_state(unit: StoredUnit, state: UnitState) -> StoredUnit:
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    # The clock `backoff_remaining` is read against, so a parking is stamped and measured alike.
+    return spans.clock.now().isoformat()
 
 
 # How long a unit parked for the host being unavailable waits, by consecutive parking.

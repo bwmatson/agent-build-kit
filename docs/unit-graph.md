@@ -452,7 +452,8 @@ Any other exception fails the unit and records its type, text and step.
 
 On a fresh start `prepare` notes whether the approved commit is the pushed head
 (`pushed_head`) and whether a pull request exists (`opened`). With the former, and no
-pull request or unposted replies, `after_prepare` routes straight to `open_pr`, before
+pull request or unposted replies (owed replies count only when no feedback is saved, so a
+requeue for rework still reworks), `after_prepare` routes straight to `open_pr`, before
 tier 2, review or rework from saved feedback. Known limitation: a unit started fresh this way
 has no tier 2 snapshot in its run state, so the pull request it opens lacks the tier 2 result
 section.

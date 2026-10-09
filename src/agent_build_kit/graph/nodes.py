@@ -1747,8 +1747,11 @@ def after_prepare(state: UnitRun) -> Node:
         return stop
     if state.conflict:
         return Node.ADAPT
-    if state.pushed_head and (not state.opened or state.pending_replies):
+    if state.pushed_head and (
+        not state.opened or (state.pending_replies and not state.had_feedback)
+    ):
         # The work is approved and on the remote: only the pull request step is left.
+        # Feedback saved after the pull request was opened is still to be reworked.
         return Node.OPEN_PR
     if state.had_feedback:
         return Node.REWORK
