@@ -138,11 +138,23 @@ def effective_state(unit: StoredUnit, units: list[StoredUnit]) -> str:
 _REBASING_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_CONFLICT, Cause.RESTACK_DEFERRED)
 
 
+def _latest_cause(unit: StoredUnit) -> str | None:
+    """The cause that applies to the unit's current run: the newest history entry
+    carrying one, looking back through `running` entries (the graph records its
+    events on them) and no further than the entry that put the unit into
+    running."""
+    for entry in reversed(unit.history):
+        if entry.get("cause"):
+            return entry["cause"]
+        if entry.get("state") != RUNNING:
+            return None
+    return None
+
+
 def _running_status(unit: StoredUnit) -> str:
     """What a running unit is doing, from why it was last sent back and the
     feedback it was given; derived, never stored."""
-    sent_back = next((e for e in reversed(unit.history) if e.get("state") != RUNNING), None)
-    cause = sent_back.get("cause") if sent_back else None
+    cause = _latest_cause(unit)
     if unit.feedback_source is FeedbackSource.CONFLICT or cause in _REBASING_CAUSES:
         return "rebasing"
     if unit.feedback_source in (FeedbackSource.REVIEW, FeedbackSource.CI):

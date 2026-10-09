@@ -16,7 +16,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, UnitState
 from agent_build_kit.pipeline.vocabulary import (
     STATES,
     effective_state,
@@ -27,6 +27,7 @@ from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.forges.stand_in import StandInForge, lookup
 
+NONE = FeedbackSource.NONE
 PR = 7
 UID = "add-marker/1"
 
@@ -184,3 +185,64 @@ def test_status_counts_units_by_the_derived_name(
     assert "1 rebasing" in units_line
     assert "1 reworking" in units_line
     assert "1 running" in units_line
+
+
+def as_the_graph_records(
+    store: UnitStore, uid: str, *, first: UnitState, cause: Cause, source: FeedbackSource = NONE
+) -> None:
+    """Move a unit as the graph's events do: the event's own `running` entry carries
+    the cause, and `prepare` then adds a `running` entry with none."""
+    store.upsert([stored_unit(uid)])
+    store.set_state(uid, first)
+    if source is not NONE:
+        store.set_feedback(uid, "words", source=source)
+    store.set_state(uid, RUNNING, cause=cause)
+    store.set_state(uid, RUNNING)
+
+
+def status_of(store: UnitStore, uid: str) -> str:
+    units = store.all()
+    return effective_state(next(unit for unit in units if unit.id == uid), units)
+
+
+def test_a_unit_in_review_whose_base_moved_in_the_graph_reads_rebasing(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+
+    as_the_graph_records(store, UID, first=IN_REVIEW, cause=Cause.BASE_CHANGED)
+
+    assert status_of(store, UID) == "rebasing"
+
+
+def test_a_review_comment_during_a_rebase_reads_reworking(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit(UID)])
+    store.set_state(UID, PLANNED, cause=Cause.BASE_CHANGED)
+    store.set_state(UID, RUNNING)
+    store.set_feedback(UID, "fix the name", source=FeedbackSource.REVIEW)
+
+    store.set_state(UID, RUNNING, cause=Cause.REWORK)
+
+    assert status_of(store, UID) == "reworking"
+
+
+def test_a_conflict_during_a_graph_rework_reads_rebasing(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+
+    as_the_graph_records(
+        store, UID, first=IN_REVIEW, cause=Cause.REWORK, source=FeedbackSource.CONFLICT
+    )
+
+    assert status_of(store, UID) == "rebasing"
+
+
+def test_a_cause_from_before_the_unit_last_started_running_is_not_read(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit(UID)])
+    store.set_state(UID, PLANNED, cause=Cause.BASE_CHANGED)
+    store.set_state(UID, RUNNING)
+    store.set_state(UID, IN_REVIEW)
+    store.set_state(UID, PLANNED)
+
+    store.set_state(UID, RUNNING)
+
+    assert status_of(store, UID) == "running"
