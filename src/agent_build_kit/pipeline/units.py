@@ -634,6 +634,7 @@ def ready_units(
     max_concurrent: int,
     depth_cap: int,
     max_units_in_progress: int | None = None,
+    excluded: Collection[str] = frozenset(),
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -653,7 +654,8 @@ def ready_units(
 
     Free slots go to units with an open pull request, then to those resuming
     a build, then to new ones; within each, the most urgent effective priority
-    first, then the order they were planned.
+    first, then the order they were planned. `excluded` names the units the
+    round leaves out, which lend no priority to what they wait on.
     """
     running = sum(1 for unit in graph if unit.state == RUNNING)
     slots = max(0, max_concurrent - running)
@@ -677,7 +679,8 @@ def ready_units(
 
     started: list[Unit] = []
     for unit in sorted(
-        ready, key=lambda unit: (_start_rank(unit), effective_priority(unit, graph))
+        ready,
+        key=lambda unit: (_start_rank(unit), effective_priority(unit, graph, excluded)),
     ):
         if len(started) == slots:
             break

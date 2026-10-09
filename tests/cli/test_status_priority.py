@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -98,3 +99,40 @@ def test_status_says_why_a_prerequisite_is_where_it_is(
     assert PRIORITY.search(queued[base])
     assert "fix/1" in queued[base], "an inherited priority names the unit it comes from"
     assert base < older
+
+
+def test_status_shows_the_priority_of_a_unit_that_is_not_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines = status_lines(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        [
+            stored_unit("base/1", change="base", repo="platform"),
+            stored_unit("fix/1", change="fix", priority=1, depends_on=("base/1",)),
+        ],
+    )
+
+    assert not any(re.search(r"\d\. fix/1", line) for line in queue_after_heading(lines))
+    assert any("fix/1" in line and PRIORITY.search(line) for line in lines)
+
+
+def test_a_unit_held_by_a_lease_gives_its_prerequisite_no_priority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    Leases(lease_dir(tmp_path)).take("fix/1", "tab:a")
+    lines = status_lines(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        [
+            stored_unit("older/1", change="older"),
+            stored_unit("base/1", change="base"),
+            stored_unit("fix/1", change="fix", priority=1, depends_on=("base/1",)),
+        ],
+    )
+
+    queued = queue_after_heading(lines)
+    assert queued[0].split("older/1")[0].endswith("1. ")
+    assert next(line for line in queued if "base/1" in line).endswith("planned order")

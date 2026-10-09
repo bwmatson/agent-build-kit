@@ -8,9 +8,9 @@
   priority that is not 3. A priority is written to the units store only when it is not 3, so an
   older release refuses a store holding one with its usual message for a newer field.
   Ready units start by effective priority within their class, a prerequisite taking the
-  priority of the most urgent unit waiting on it. `abk status` ends with the ready queue in
-  start order and the reason for each place, and the graph page marks a priority that is
-  not 3.
+  priority of the most urgent unit waiting on it. `abk status` lists every unit whose priority
+  is not 3 and the ready queue in start order with the reason for each place, and the graph
+  page marks a priority that is not 3.
 
 - A unit in review now reads `checking` while its pull request's checks are still running, or
   it was pushed moments ago and none has registered yet (`limits.checks_register_seconds`,
