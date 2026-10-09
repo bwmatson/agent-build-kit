@@ -269,3 +269,31 @@ ALLOWLIST_CEILING = frozenset(
 
 def test_the_allowlist_does_not_grow() -> None:
     assert ALLOWLIST <= ALLOWLIST_CEILING
+
+
+def test_a_fixed_port_given_to_a_server_class_is_found_and_a_free_one_is_not(
+    tmp_path: Path,
+) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_http.py": (
+                "import http.server\n\n\ndef test_x():\n"
+                "    http.server.ThreadingHTTPServer(('127.0.0.1', 8080), object)\n"
+            ),
+            "test_tcp.py": (
+                "import socketserver\n\n\ndef test_x():\n"
+                "    socketserver.TCPServer(('127.0.0.1', 8080), object)\n"
+            ),
+            "test_free.py": (
+                "from http.server import ThreadingHTTPServer\n\n\ndef test_x():\n"
+                "    ThreadingHTTPServer(('127.0.0.1', 0), object)\n"
+            ),
+        },
+    )
+
+    problems = check_tests(root, allowlist=NONE, shared=NONE)
+
+    assert len(problems) == 2
+    assert any("test_http.py:5" in p for p in problems)
+    assert any("test_tcp.py:5" in p for p in problems)

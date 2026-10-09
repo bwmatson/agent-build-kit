@@ -6,8 +6,8 @@ A hazard is, found by parsing a file (strings and comments never count):
     own) and neither joins it (`.join()` or `.join(<timeout>)`, never a `str.join`) nor
     calls `.set()` in the same function;
   - "port": a call that passes a non-zero integer literal as `port=`, or an address call
-    (`bind`, `connect`, `create_server`...) whose first argument is a
-    `(host, <non-zero integer literal>)` tuple.
+    (`bind`, `connect`, `create_server`, `sendto`, or any call named `...Server`) whose
+    first argument is a `(host, <non-zero integer literal>)` tuple.
 `check_tests` returns one message per problem: a hazard in a file that is neither shared
 nor allowlisted names `path:line`; an allowlisted file with no hazard (or none at all) is
 reported as a stale allowlist entry naming the file.
@@ -68,10 +68,16 @@ def _nonzero_int(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and type(node.value) is int and node.value != 0
 
 
-# Calls that take an address as `(host, port)` in their first argument.
+# Calls that take an address as `(host, port)` in their first argument: these socket
+# calls, and any server class (`HTTPServer`, `ThreadingHTTPServer`, `TCPServer`...).
 ADDRESS_CALLS = frozenset(
-    {"bind", "connect", "connect_ex", "create_connection", "create_server", "HTTPServer"}
+    {"bind", "connect", "connect_ex", "create_connection", "create_server", "sendto"}
 )
+
+
+def _takes_address(call: ast.Call) -> bool:
+    name = _dotted(call.func).rsplit(".", 1)[-1]
+    return name in ADDRESS_CALLS or name.endswith("Server")
 
 
 def _fixed_port(call: ast.Call) -> bool:
@@ -79,7 +85,7 @@ def _fixed_port(call: ast.Call) -> bool:
         return True
     first = call.args[0] if call.args else None
     return (
-        _dotted(call.func).rsplit(".", 1)[-1] in ADDRESS_CALLS
+        _takes_address(call)
         and isinstance(first, ast.Tuple)
         and len(first.elts) == 2
         and _nonzero_int(first.elts[1])
