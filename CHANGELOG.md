@@ -7,6 +7,7 @@
   merge nothing, push nothing and vote on nothing. They are refused, with a reason, for a unit
   with no pull request or head and for a round that already has a decision. Stored review
   decisions now carry the head they were made at; older ones read as before.
+
 - Tier 1 now ends a command that does not finish. A command past `limits.tier1_command_seconds`
   (an hour by default) is asked to abort so its runtime can dump its threads, killed after
   `limits.tier1_abort_grace_seconds`, and fails tier 1 naming the command and the time with the
