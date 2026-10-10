@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The time a usage reading is kept now adapts: each refusal from the usage endpoint doubles it
+  (up to the new `usage_cache_max_minutes`, an hour by default), a refusal's own retry time is
+  respected when longer, and each further stretch of that time without one halves it, never
+  below `usage_cache_minutes`. `abk status` says the time in use and what set it.
+
 - Every use of the usage endpoint, and every reading answered from its cache, is now recorded
   in `usage-calls.jsonl` in the state directory (gitignored, a week's worth, no token): when,
   who asked, the outcome, the status, the latency and any rate-limit or retry headers.

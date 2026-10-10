@@ -662,7 +662,7 @@ def status_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *calls: dict) 
 
 
 def test_the_status_command_says_the_interval_followed_a_refusal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: Host
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = status_lines(tmp_path, monkeypatch, line(since(minutes=5), "rate_limited", status=429))
 
@@ -672,7 +672,7 @@ def test_the_status_command_says_the_interval_followed_a_refusal(
 
 
 def test_the_status_command_says_the_interval_fell_after_a_quiet(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: Host
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = status_lines(tmp_path, monkeypatch, line(since(minutes=40), "rate_limited", status=429))
 
@@ -682,7 +682,7 @@ def test_the_status_command_says_the_interval_fell_after_a_quiet(
 
 
 def test_the_status_command_says_when_the_interval_is_the_configured_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: Host
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = status_lines(tmp_path, monkeypatch, line(since(minutes=10)))
 

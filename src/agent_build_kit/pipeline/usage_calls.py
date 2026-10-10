@@ -181,6 +181,65 @@ def derive_rate(calls: list[UsageCall], *, now: datetime) -> CallRate:
     )
 
 
+class CacheInterval(Frozen):
+    """How long a good reading is kept now, and what set it: `refusal`, `quiet` or `configured`."""
+
+    kept: timedelta
+    reason: str
+
+
+def cache_interval(
+    calls: list[UsageCall], *, now: datetime, base: timedelta, maximum: timedelta
+) -> CacheInterval:
+    """Replay the record: each refusal doubles the time up to `maximum`, each further
+    stretch of that time without one halves it, never below `base`. A retry time a
+    refusal names holds while it lasts, even past `maximum`."""
+    maximum = max(base, maximum)
+    kept = base
+    since: datetime | None = None
+    reason = "configured"
+
+    def settle(until: datetime) -> None:
+        nonlocal kept, since, reason
+        while since is not None and kept > base and until - since >= kept:
+            since += kept
+            kept = max(base, kept / 2)
+            reason = "quiet"
+
+    refusals = sorted(
+        (c for c in calls if c.outcome == REFUSED and c.at <= now), key=lambda c: c.at
+    )
+    for refusal in refusals:
+        settle(refusal.at)
+        kept = min(kept * 2, maximum)
+        since = refusal.at
+        reason = "refusal"
+    settle(now)
+    if refusals and now - refusals[-1].at < _retry_after(refusals[-1]):
+        kept = max(kept, _retry_after(refusals[-1]))
+    return CacheInterval(kept=kept, reason=reason)
+
+
+def _retry_after(call: UsageCall) -> timedelta:
+    for name, value in call.headers.items():
+        if name.lower() == "retry-after":
+            try:
+                return timedelta(seconds=max(0.0, float(value)))
+            except ValueError:
+                return timedelta(0)
+    return timedelta(0)
+
+
+def interval_line(interval: CacheInterval) -> str:
+    minutes = round(interval.kept.total_seconds() / 60)
+    why = {
+        "refusal": "set after a refusal",
+        "quiet": "lowered after a quiet",
+        "configured": "the configured time",
+    }[interval.reason]
+    return f"usage cache: kept {minutes} minutes, {why}"
+
+
 def rate_line(rate: CallRate) -> str:
     interval = rate.safe_interval_seconds
     shown = "none" if interval is None else f"{interval}s"

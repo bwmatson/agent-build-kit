@@ -72,8 +72,11 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
+    CacheInterval,
     UsageCall,
+    cache_interval,
     rate_limit_headers,
+    read_calls,
     record_call,
 )
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
@@ -454,6 +457,17 @@ def _limits() -> ClaudeLimitsConfig:
     return active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
 
 
+def current_cache_interval(calls_file: Path) -> CacheInterval:
+    """How long a good reading is kept now, from the record and the configured bounds."""
+    limits = _limits()
+    return cache_interval(
+        read_calls(calls_file),
+        now=datetime.now(UTC),
+        base=timedelta(minutes=limits.usage_cache_minutes),
+        maximum=timedelta(minutes=limits.usage_cache_max_minutes),
+    )
+
+
 def _cache_file() -> Path:
     root = active_root()
     state = (
@@ -520,7 +534,7 @@ def read_live_usage(
     caller = caller or _caller.get()
     limits = _limits()
     if ttl is None:
-        ttl = timedelta(minutes=limits.usage_cache_minutes)
+        ttl = current_cache_interval(calls_file).kept
     fallback_age = timedelta(minutes=limits.usage_fallback_minutes)
     now = datetime.now(UTC)
 
