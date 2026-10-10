@@ -646,6 +646,13 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
   demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
   test-local-stack`).
+- Every test runs under a time limit on each of its setup, call and teardown.
+  A test without the `local_stack` marker has `--test-time-limit` seconds
+  (default 60); a `local_stack` test has `--tier2-test-time-limit` seconds
+  (default 1800, thirty minutes). Zero turns a limit off, and each option leaves
+  the other alone. A failure names the limit passed: "test exceeded the time
+  limit of 60 seconds", or "test exceeded the tier-2 time limit of 1800
+  seconds".
 - The same build run (`tests/integration/test_acp_build_unit.py`) also checks
   the usage report: `abk report --unit` for the built unit has one agent record
   per agent call in its run log, and its tokens and agent time equal the sums of

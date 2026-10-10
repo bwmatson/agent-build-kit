@@ -824,7 +824,10 @@ approved.
   ("timed out after N seconds") and the end of its output, dump included. This catches a
   run whose tests all pass and whose process then does not exit.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
-  `--test-time-limit` (sixty seconds) from a timer thread, in setup, call and teardown alike, naming the limit; the run goes on.
+  its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
+  seconds) for a test without the `local_stack` marker, `--tier2-test-time-limit` (thirty
+  minutes) for one with it, zero turning either off. The failure names the limit and its kind;
+  the run goes on (see `docs/agent-runtimes.md`, Test markers).
 - **A guard.** `tests/timing_hazards.py` parses the test tree and fails on a bare sleep, a
   function that makes a thread and neither joins nor signals it, or a fixed port, except in
   the shared helpers and the files on its allowlist. The allowlist may only shrink: a file
