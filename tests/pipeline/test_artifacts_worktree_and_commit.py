@@ -300,3 +300,19 @@ def test_without_artifacts_discarding_removes_every_new_file(repo: Path, tmp_pat
 
     assert not (tree / "modules").exists()
     assert not (tree / "stray.txt").exists()
+
+
+def test_discarding_leaves_an_untracked_nested_repository_in_place(
+    repo: Path, tmp_path: Path
+) -> None:
+    config = configured(tmp_path)
+    tree = worktree_of(repo, tmp_path, config)
+    (tree / "sub").mkdir()
+    git(tree / "sub", "init", "-q")
+    (tree / "sub" / "inner.txt").write_text("kept\n")
+    (tree / "stray.txt").write_text("x\n")
+
+    discard_changes(tree)
+
+    assert not (tree / "stray.txt").exists()
+    assert (tree / "sub" / "inner.txt").read_text() == "kept\n"

@@ -162,7 +162,12 @@ def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
     `artifacts` pattern matches."""
     git_out(path, "reset", "-q", "--hard", "HEAD")
     untracked = git(path, "ls-files", "--others", "--exclude-standard", "-z").stdout.split("\0")
-    stray = [name for name in untracked if name and not matches_any(artifacts, name)]
+    # A nested repository is listed as one `name/` entry; it stays, as `git clean -fd` left it.
+    stray = [
+        name
+        for name in untracked
+        if name and not name.endswith("/") and not matches_any(artifacts, name)
+    ]
     for name in stray:
         (path / name).unlink(missing_ok=True)
         for folder in (path / name).parents:  # a folder the removal emptied goes too
