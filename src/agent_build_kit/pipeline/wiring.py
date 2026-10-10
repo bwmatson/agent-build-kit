@@ -163,7 +163,7 @@ def _run_limited(args: list[str], **kwargs) -> subprocess.CompletedProcess:
 def _run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """The default runner the factories below accept a replacement for.
 
-    Everything here is git, uv or docker; an agent is reached through its
+    Everything here is git, a toolchain command or docker; an agent is reached through its
     runtime. Talking to a code host goes
     through its forge, which is the only place that knows how - there is no
     second way to reach one from the pipeline.
@@ -721,7 +721,7 @@ def build_tier1(
     **Scoped to the project, not the checkout.** A repo's projects need not sit
     at its root - a Python service two directories down, a web app below that -
     and a toolchain command run at the root of such a repo finds no project at
-    all: `uv run pre-commit` there cannot even resolve pre-commit, so a unit
+    all: the profile's check command there cannot even resolve its hooks, so a unit
     dies on tooling rather than on its own work. Each project's checks run
     inside it, under its own profile, and a file belongs to the deepest project
     that holds it. A file under no project is judged by the declared projects'

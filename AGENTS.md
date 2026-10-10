@@ -34,6 +34,24 @@ The one rule specific to this repo, and the reason it can be public:
   merging.
 - **Commits carry no `Co-Authored-By` trailer** in this repo.
 
+## Framework code is language- and tool-independent
+
+The framework does not branch on a language, package manager, lock file name,
+test runner or version-control host. That knowledge lives only in toolchain
+profiles and the init detectors they provide, in the forge layer for hosts, or
+in `abk.yaml`.
+
+- New behaviour is specified as configured argv lists, path patterns and hooks,
+  with a test that uses a second ecosystem's shape (a node-shaped fixture)
+  beside the first.
+- Spec text names a package manager or lock file only as an example, never as
+  the rule.
+- `tests/test_ecosystem_names_guard.py` fails when source outside `profiles/`
+  and `init/` names a package manager, manifest or lock file from the token
+  list in `tests/ecosystem_names.py`. Today's offenders sit on an allowlist
+  that only shrinks; the framework's own tooling (the OpenSpec CLI, the web
+  build, starting a tick) is a separate fixed list, each entry with its reason.
+
 ## Code changes go through the spec process
 
 This repo is built by the pipeline it contains, so a change to its **code**
@@ -125,7 +143,8 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   removed outright is fine when no installation can be setting it yet, such
   as one added in the same unreleased version.
 - **Toolchain facts come from the profile** (`profiles/`): commands, exit
-  codes, what a test path is, what a stub may contain, prompt wording.
+  codes, what a test path is, what a stub may contain, prompt wording. See
+  "Framework code is language- and tool-independent".
 - **Types are pydantic models** (`model.Frozen`: frozen, `extra="forbid"`),
   not dataclasses. Env config is pydantic-settings (`settings.py`); no
   `os.environ` reads elsewhere.

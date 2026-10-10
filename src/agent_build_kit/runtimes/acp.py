@@ -1476,7 +1476,7 @@ class AcpRuntime:
             await self._select_model(conn, session, session_id, config_options, request.model)
         # `session.answer` is only the full text once every `session/update`
         # notification up to the answer has been handled: this library
-        # (pinned in pyproject.toml) awaits that before `prompt()` returns,
+        # (pinned in the project's dependencies) awaits that before `prompt()` returns,
         # and `conn.close()` cancels any still in flight, so a version bump
         # that changes the ordering could silently truncate it.
         response = await conn.prompt(session_id=session_id, prompt=[text_block(request.prompt)])
