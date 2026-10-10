@@ -1131,7 +1131,9 @@ class BuildPath:
             if fault is not None:
                 ok, output = False, fault.output
             else:
-                ok, output = r.run_tier1(cwd=tree, base=self.ref(state), whole_repo=False)
+                ok, output = r.run_tier1(
+                    cwd=tree, base=self.ref(state), whole_repo=False, **self.answering(state)
+                )
         except FlakeFound as found:
             if (parked := self.wait_for_fix(found)) is not None:
                 return parked
@@ -1164,6 +1166,14 @@ class BuildPath:
                 "head": head,
             }
         return {"checks_ok": False, "head": head}
+
+    def answering(self, state: UnitRun) -> dict[str, str]:
+        """The failed check a fix has just answered, for the run to select its tests by;
+        nothing for the first check, a unit that has not failed, or a rework."""
+        stored = self.runner.store.get(self.unit.id)
+        if state.fix_rounds and stored.feedback_source is FeedbackSource.TIER1:
+            return {"failed_output": stored.feedback}
+        return {}
 
     def wait_for_fix(self, found: FlakeFound) -> Update | None:
         """Tier 1 failed only on tests that passed alone: the unit is not failed for them.

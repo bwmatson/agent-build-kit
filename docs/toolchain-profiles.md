@@ -30,6 +30,7 @@ implemented.
 | `lint_command_all_files()` | tier 1 | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |
 | `test_commands(repo, changed, root_extras)` | tier 1 | the test runs a set of changed paths calls for |
 | `test_commands_all(repo, root_extras)` | tier 1 | every test run the repo has, regardless of a diff — used only for a unit with no commits of its own |
+| `affected_test_commands(repo, changed_files, failed_ids, *, seed)` | tier 1, fix rounds | optional: the commands that run the tests the change affects, `[]` for none, or `None` when the profile cannot say — which a profile without the method does too. `failed_ids` come from the profile's `failed_tests`; `seed` is a path it may keep selection data in. Only a fix round's check uses it, and the full suite always confirms (see `checks.affected` in `configuration.md`) |
 | `tier2_commands(repo, marker)` | tier 2 without a dev stack | every member's live-stack tests |
 | `acceptance_commands(checkout, paths, marker, exclude_marker, root_extras)` | post-merge verify | the live tests among a change's paths |
 | `clean_command()` | the push gate | lint and format at the tests commit, types skipped |

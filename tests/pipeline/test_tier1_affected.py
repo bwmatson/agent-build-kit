@@ -230,7 +230,7 @@ def test_nothing_affected_still_ends_with_the_full_suite(tmp_path: Path) -> None
 def test_a_selected_pass_and_a_full_failure_is_a_disagreement_returned_with_the_full_output(
     tmp_path: Path,
 ) -> None:
-    commands = Commands(**{"full-tests": (1, "FAILED tests/test_c.py::test_three")})
+    commands = Commands(**{"full-tests": (1, "1 test failed: test_three")})
 
     passed, output = fix_round(tmp_path, commands)
 
