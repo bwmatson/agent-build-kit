@@ -20,7 +20,7 @@ def is_generated(path: str, patterns: Iterable[str]) -> bool:
 
 def actual_lines(changes: Iterable[FileChange]) -> int:
     """Additions plus deletions over every file that is not generated."""
-    patterns = active().limits.generated_files
+    patterns = active().generated_file_patterns()
     return sum(
         change.additions + change.deletions
         for change in changes

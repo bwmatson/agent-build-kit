@@ -24,6 +24,7 @@ from agent_build_kit.init.scaffold import (
     rules_of,
     write_planning_repo,
 )
+from tests.factories import recognised_planning
 
 STOCK_CONFIG = (
     "schema: spec-driven\n\n# context: |\n#   ...\n# rules:\n#   proposal:\n#     - ...\n"
@@ -255,7 +256,7 @@ def test_stock_openspec_config_is_recognised(tmp_path: Path) -> None:
 
 
 def test_the_planning_repo_is_laid_out(tmp_path: Path) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     config = draft_config({"app": detection("app", tmp_path)}, planning_dir=planning)
 
     written = write_planning_repo(planning, config, run_openspec=fake_openspec)
@@ -281,7 +282,7 @@ def test_the_planning_repo_is_laid_out(tmp_path: Path) -> None:
 
 
 def test_a_second_run_writes_nothing_and_keeps_edits(tmp_path: Path) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     config = draft_config({"app": detection("app", tmp_path)}, planning_dir=planning)
     write_planning_repo(planning, config, run_openspec=fake_openspec)
     (planning / "abk.yaml").write_text("version: 1\nrepos: {}\n")
@@ -303,7 +304,7 @@ def test_a_second_run_writes_nothing_and_keeps_edits(tmp_path: Path) -> None:
 
 
 def test_force_rewrites_the_two_edited_files(tmp_path: Path) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     config = draft_config({"app": detection("app", tmp_path)}, planning_dir=planning)
     write_planning_repo(planning, config, run_openspec=fake_openspec)
     (planning / "abk.yaml").write_text("version: 1\nrepos: {}\n")

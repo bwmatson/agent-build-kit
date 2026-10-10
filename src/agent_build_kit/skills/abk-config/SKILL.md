@@ -105,7 +105,8 @@ limits:
   max_unit_lines: 750         # estimated lines one unit may carry; above
                               # min_unit_lines. Shapes plans; a unit landing
                               # over it is reported, never blocked
-  generated_files: [uv.lock, ...]  # patterns left out of a unit's actual size
+  generated_files: []         # patterns left out of a unit's actual size; the environments'
+                              # lock files are left out as well; init writes the detected ones
   max_review_rounds: 3        # review rounds before a unit fails
   max_check_rounds: 3         # fix rounds for failing checks, per review round; null = no limit; 0 = none (still checked)
   max_adapt_rounds: 2         # adapt-step accounting asks, first included,
@@ -116,6 +117,16 @@ limits:
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
   tier1_command_seconds: 3600       # longest a tier 1 command may run before it is aborted
   tier1_abort_grace_seconds: 10    # how long an aborted command has to exit before it is killed
+
+environment:                  # how the pipeline's own environment is kept current;
+                              # leave it out and nothing is managed (`abk doctor` warns)
+  sync: [uv, sync]            # required, not empty: brings the environment up to date
+  check: [uv, run, --no-sync, python, -c, "import agent_build_kit"]
+                              # required, not empty: exits 0 when it is healthy
+  inputs:                     # paths relative to the planning repo; may point outside it
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]           # matched by file name, and left out of a unit's size
+    other: []
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet               # Claude Code's alias, sent to any runtime as
@@ -153,6 +164,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       dev_stack_marker: dev_stack
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; tier 2 runs on it, not live
+    environment: null         # the same shape as the top-level `environment`, with paths
+                              # relative to the repo; run in a unit's worktree.
+                              # `abk doctor` warns for a repo without one
     changelog: CHANGELOG.md   # the repo's changelog; null = no convention, no check.
                               # Convention: AGENTS.md `## Changelog`, else CLAUDE.md,
                               # else the packaged text. Doctor warns if the file is absent

@@ -21,6 +21,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import yaml
+
 from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
 from agent_build_kit.config import CONFIG_FILENAME, ConfigError, WorkspaceConfig, dump
@@ -34,6 +36,7 @@ from agent_build_kit.init.scaffold import (
     ConventionResult,
     ScaffoldError,
     draft_config,
+    fill_missing_environment,
     update_rules,
     write_code_repo_conventions,
     write_planning_repo,
@@ -126,6 +129,14 @@ def kinds_for(detection: RepoDetection) -> list[Kind]:
 def _recommendations_doc(planning: Path, detection: RepoDetection) -> Path:
     language = LANGUAGE_ALIAS.get(detection.languages[0], detection.languages[0])
     return planning / "docs" / "recommendations" / f"{language}.md"
+
+
+def _read_yaml(path: Path) -> dict | None:
+    try:
+        loaded = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def _tree_clean(planning: Path) -> bool:
@@ -324,9 +335,30 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         return 2
 
     names = list(config.repos)
+    # An abk.yaml already there is kept and only filled, never given the empty section.
+    keeps = (planning / CONFIG_FILENAME).is_file() and not args.force
+    if config.environment is not None and not config.environment.sync:
+        if not keeps:
+            print(
+                "environment: nothing recognised in the planning repo; set `environment.sync` "
+                "and `environment.check` in abk.yaml by hand"
+            )
+        elif "environment" not in (_read_yaml(planning / CONFIG_FILENAME) or {}):
+            print(
+                "environment: nothing recognised in the planning repo; add an `environment` "
+                "section with `sync` and `check` to abk.yaml by hand"
+            )
     if args.dry_run:
-        print("# abk.yaml as it would be written:\n")
-        print(dump(config))
+        if keeps:
+            print("# abk.yaml is kept; what would be filled in it:\n")
+            fills = fill_missing_environment(planning / CONFIG_FILENAME, config, dry_run=True)
+            for what, block in fills.items():
+                print(f"would fill {what} in abk.yaml:\n{block}")
+            if not fills:
+                print("nothing to fill")
+        else:
+            print("# abk.yaml as it would be written:\n")
+            print(dump(config))
         print("# what would be generated:")
         print("\n".join(_planned_work(planning, detections, args)))
         workspace = _conventions_config(planning, config, args)
@@ -345,6 +377,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print(f"wrote {path.relative_to(planning)}")
     if (planning / "abk.yaml") not in written:
         print("kept abk.yaml (use --force to overwrite)")
+        for what in fill_missing_environment(planning / CONFIG_FILENAME, config):
+            print(f"filled {what} in abk.yaml")
 
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)

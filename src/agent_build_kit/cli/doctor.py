@@ -35,7 +35,12 @@ from agent_build_kit import (
     skills,
     timers,
 )
-from agent_build_kit.config import CommandProvider, ConfigError, WorkspaceConfig
+from agent_build_kit.config import (
+    CommandProvider,
+    ConfigError,
+    EnvironmentConfig,
+    WorkspaceConfig,
+)
 from agent_build_kit.forges.transport import (
     PAGE_EXCERPT,
     Transport,
@@ -423,6 +428,73 @@ def _verify_env(inst: Installation, run: Run) -> list[Check]:
             )
             continue
         checks.append(_ok(f"verify.env {name}", "resolves"))
+    return checks
+
+
+def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
+    listed = [
+        *environment.inputs.dependencies,
+        *environment.inputs.lock,
+        *environment.inputs.other,
+    ]
+    return [path for path in listed if not (root / path).exists()]
+
+
+def _environment(inst: Installation, run: Run) -> list[Check]:
+    """Whether each environment is managed, its inputs exist, and the planning
+    environment's `check` passes."""
+    checks = []
+    planning = inst.config.environment
+    if planning is None:
+        checks.append(
+            _warn(
+                "environment",
+                "none is managed: the pipeline syncs and checks nothing",
+                "run `abk init` to fill the `environment` section, or write it by hand",
+            )
+        )
+    else:
+        missing = _missing_inputs(planning, inst.root)
+        if missing:
+            checks.append(
+                _warn(
+                    "environment inputs",
+                    f"listed but not found: {', '.join(missing)}",
+                    "fix `environment.inputs` in abk.yaml",
+                )
+            )
+        command = f"`{' '.join(planning.check)}`"
+        fix = f"run `{' '.join(planning.sync)}`, or fix `environment.check`"
+        try:
+            result = run(planning.check, cwd=inst.root, capture_output=True, text=True, check=False)
+        except OSError as error:
+            checks.append(_fail("environment", f"{command} could not run: {error}", fix))
+        else:
+            if result.returncode:
+                output = f"{result.stdout or ''}{result.stderr or ''}".strip()
+                detail = f"{command} exited {result.returncode}: {output}"
+                checks.append(_fail("environment", detail, fix))
+            else:
+                checks.append(_ok("environment", f"{command} passes"))
+    for name, repo in inst.repos.items():
+        if repo.environment is None:
+            checks.append(
+                _warn(
+                    f"environment {name}",
+                    f"{name} has no environment section, so nothing is synced or checked for it",
+                    f"run `abk init` to fill repos.{name}.environment, or write it by hand",
+                )
+            )
+            continue
+        missing = _missing_inputs(repo.environment, inst.checkouts[name])
+        if missing:
+            checks.append(
+                _warn(
+                    f"environment {name} inputs",
+                    f"listed but not found: {', '.join(missing)}",
+                    f"fix repos.{name}.environment.inputs in abk.yaml",
+                )
+            )
     return checks
 
 
@@ -884,6 +956,7 @@ def run_doctor(
     checks += _runtime(inst, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
+    checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)
     checks += _python_tools(inst)

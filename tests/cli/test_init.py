@@ -14,7 +14,7 @@ from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, recognised_planning
 from tests.runtimes.selectable import SelectableRuntime, select
 
 STOCK_CONFIG = "schema: spec-driven\n"
@@ -93,7 +93,7 @@ def platform(tmp_path: Path) -> Path:
 def test_init_lays_out_researches_proposes_and_commits(
     tmp_path: Path, app: Path, platform: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
 
     code = main(["init", str(planning), "--repo", str(app), "--repo", str(platform), "--yes"])
 
@@ -158,22 +158,26 @@ def test_skips_and_a_dirty_tree_are_not_committed(tmp_path: Path, app: Path) -> 
 
 
 def test_a_second_run_keeps_the_edited_config(tmp_path: Path, app: Path) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     main(["init", str(planning), "--repo", str(app), "--yes", "--skip-research", "--skip-propose"])
-    (planning / "abk.yaml").write_text("version: 1\nrepos: {}\n")
+    edited = (
+        "version: 1\nrepos: {}\nlimits:\n  generated_files: [uv.lock]\n"
+        "environment:\n  sync: [env-sync]\n  check: [env-check]\n"
+    )
+    (planning / "abk.yaml").write_text(edited)
 
     code = main(
         ["init", str(planning), "--repo", str(app), "--yes", "--skip-research", "--skip-propose"]
     )
 
     assert code == 0
-    assert (planning / "abk.yaml").read_text() == "version: 1\nrepos: {}\n"
+    assert (planning / "abk.yaml").read_text() == edited
 
 
 def test_repos_are_prompted_for_without_yes(tmp_path: Path, app: Path, monkeypatch) -> None:
     answers = iter([str(app), ""])
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: next(answers))
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
 
     code = main(["init", str(planning), "--skip-research", "--skip-propose"])
 
@@ -188,7 +192,7 @@ def test_a_failed_proposal_is_reported_and_left(
         return "## Sources\n"  # research fine; propose writes nothing
 
     monkeypatch.setattr(init_cmd, "run_claude", bad_claude)
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
 
     code = main(["init", str(planning), "--repo", str(app), "--yes"])
 
@@ -214,7 +218,7 @@ def test_register_store_runs_the_openspec_command(
         return fake_openspec(argv, cwd=cwd, **kwargs)
 
     monkeypatch.setattr(init_cmd, "run_openspec", recording)
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
 
     main(
         [
@@ -295,7 +299,7 @@ def init_args(planning: Path, app: Path, *extra: str) -> list[str]:
 def loose(tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch) -> SelectableRuntime:
     """A laid-out planning repo whose abk.yaml selects a runtime that does not
     refuse a pull-request merge until the installation's fix has run."""
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     with (planning / "abk.yaml").open("a") as config:
         config.write(
@@ -314,7 +318,7 @@ def test_an_unenforced_class_is_reported_and_the_fix_run_only_once_confirmed(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     capsys.readouterr()
     prompts: list[str] = []
     fixes: list[tuple[list[str], Path]] = []
@@ -350,7 +354,7 @@ def test_declining_the_fix_changes_nothing_and_says_what_is_missing(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     before = (planning / "abk.yaml").read_text()
     capsys.readouterr()
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: loose.log.append("ask") or "n")
@@ -370,7 +374,7 @@ def test_without_prompts_the_fix_is_not_run_and_the_gap_is_reported(
 ) -> None:
     """`--yes` means no questions, and running an installation's command is
     never done unasked, so the fix is only offered."""
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     capsys.readouterr()
 
     main([*init_args(planning, app), "--yes"])
@@ -392,7 +396,7 @@ def test_without_a_configured_fix_the_runtime_s_advice_is_printed_and_nothing_ru
 ) -> None:
     """Nothing of the installation's to run, so nothing to ask about: the
     `stubs` fixture fails any prompt or fix."""
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     select_in(planning, "advised")
     advice = PolicyReport(
@@ -412,7 +416,7 @@ def test_without_a_configured_fix_the_runtime_s_advice_is_printed_and_nothing_ru
 def test_without_a_fix_or_advice_the_key_to_set_is_printed(
     tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     select_in(planning, "bare")
     runtime = select(monkeypatch, SelectableRuntime("bare", reports=(UNENFORCED,)))
@@ -435,7 +439,7 @@ class _Limited(SelectableRuntime):
 def test_a_policy_check_that_raises_is_reported_and_init_carries_on(
     tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     select_in(planning, "limited")
     runtime = select(monkeypatch, _Limited("limited"))
@@ -455,7 +459,7 @@ def test_update_rules_restamps_the_config_without_touching_the_rest(
 ) -> None:
     from agent_build_kit.init.scaffold import RULES_VERSION
 
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     (planning / "openspec").mkdir(parents=True)
     config = planning / "openspec" / "config.yaml"
     config.write_text(

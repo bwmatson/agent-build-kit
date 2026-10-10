@@ -20,11 +20,11 @@ Two ways to reach it:
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from agent_build_kit import forges, infra, runtimes
 from agent_build_kit.model import Frozen
@@ -35,6 +35,33 @@ CONFIG_ENV = "ABK_CONFIG"
 
 class ConfigError(Exception):
     """abk.yaml is missing, unreadable or does not match the schema."""
+
+
+# --- environment ---------------------------------------------------------------
+
+
+class EnvironmentInputs(Frozen):
+    """The files whose contents decide when `sync` must run again."""
+
+    dependencies: list[str] = []
+    lock: list[str] = []
+    other: list[str] = []
+
+
+class EnvironmentConfig(Frozen):
+    """How an environment is brought up to date and told healthy: argv lists
+    and path lists, never a tool the framework knows."""
+
+    sync: list[str]
+    check: list[str]
+    inputs: EnvironmentInputs = EnvironmentInputs()
+
+    @field_validator("sync", "check")
+    @classmethod
+    def _not_empty(cls, command: list[str]) -> list[str]:
+        if not command:
+            raise ValueError("the command must not be empty")
+        return command
 
 
 # --- planning repo -----------------------------------------------------------
@@ -189,19 +216,7 @@ class LimitsConfig(Frozen):
     max_unit_lines: int = 750
     # Path patterns (fnmatch, against the whole path or the file name) of
     # generated files, left out of a unit's actual size.
-    generated_files: tuple[str, ...] = (
-        "uv.lock",
-        "poetry.lock",
-        "Pipfile.lock",
-        "package-lock.json",
-        "npm-shrinkwrap.json",
-        "yarn.lock",
-        "pnpm-lock.yaml",
-        "Cargo.lock",
-        "go.sum",
-        "Gemfile.lock",
-        "composer.lock",
-    )
+    generated_files: tuple[str, ...] = ()
     # How many times a unit may be sent back by review before it fails.
     max_review_rounds: int = 3
     # How many times a branch that fails its checks (lint, types, tests) is sent
@@ -376,6 +391,8 @@ class RepoConfig(Frozen):
     # Where the repo keeps its changelog; None switches the changelog convention
     # and check off for this repo.
     changelog: str | None = "CHANGELOG.md"
+    # How this repo's environment is kept current in a unit's worktree.
+    environment: EnvironmentConfig | None = None
 
 
 # --- verify env providers -----------------------------------------------------
@@ -454,9 +471,22 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # How the pipeline's own environment is kept current; None manages none.
+    environment: EnvironmentConfig | None = None
     # Per agent role (`build`, `review`), whether its nodes continue the role's
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
+
+    def generated_file_patterns(self) -> tuple[str, ...]:
+        """The patterns left out of a unit's size: the configured ones and the
+        lock files the planning and repository environments name. A lock file
+        is matched by its file name, wherever it sits: its path is relative to
+        the environment's own root, which a diff path is not."""
+        environments = [self.environment] + [repo.environment for repo in self.repos.values()]
+        return (
+            *self.limits.generated_files,
+            *(PurePosixPath(path).name for env in environments if env for path in env.inputs.lock),
+        )
 
     def reuses_session(self, role: str) -> bool:
         """Whether `role`'s nodes continue the role's latest session. A role

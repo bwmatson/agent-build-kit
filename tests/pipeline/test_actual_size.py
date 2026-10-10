@@ -116,6 +116,13 @@ def test_planning_again_keeps_the_recorded_size(store: UnitStore, tmp_path: Path
 
 
 def test_lockfiles_are_not_counted(store: UnitStore, tmp_path: Path) -> None:
+    activate_with(
+        limits={
+            "min_unit_lines": 400,
+            "max_unit_lines": 750,
+            "generated_files": ["uv.lock", "package-lock.json"],
+        }
+    )
     forge = SizedForge(
         [
             change("src/app.py", 100, 20),

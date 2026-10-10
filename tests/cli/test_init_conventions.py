@@ -11,7 +11,7 @@ from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump
 from tests.cli.test_init import fake_claude, fake_openspec
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, recognised_planning
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +74,7 @@ def test_init_writes_each_repos_conventions_and_leaves_them_uncommitted(tmp_path
 
 def test_a_second_init_changes_nothing_in_the_repos(tmp_path: Path) -> None:
     app = make_repo(tmp_path, "app")
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     assert init(planning, app) == 0
     before = tree(app)
     assert {"AGENTS.md", "CHANGELOG.md", ".gitattributes"} <= set(before)
@@ -89,8 +89,7 @@ def test_a_repo_whose_abk_yaml_entry_turns_the_changelog_off_is_left_alone(
 ) -> None:
     app = make_repo(tmp_path, "app")
     platform = make_repo(tmp_path, "platform")
-    planning = tmp_path / "planning"
-    planning.mkdir()
+    planning = recognised_planning(tmp_path / "planning")
     config = WorkspaceConfig(
         repos={
             "app": RepoConfig(path=app, slug="example/app", changelog=None),
@@ -129,7 +128,7 @@ def test_dry_run_after_init_says_each_action_is_already_current(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     app = make_repo(tmp_path, "app")
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
     assert init(planning, app) == 0
     capsys.readouterr()
 

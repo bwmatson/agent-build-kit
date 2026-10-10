@@ -134,6 +134,21 @@ session_reuse:                  # per agent role, whether its nodes continue the
                                 # one. review can only be false: a review always
                                 # starts fresh. A role left out is off.
 
+environment:                    # how the pipeline's own environment is kept
+                                # current; absent = none is managed and
+                                # `abk doctor` warns
+  sync: [uv, sync]              # required, not empty: brings it up to date
+  check: [uv, run, --no-sync, python, -c, "import agent_build_kit"]
+                                # required, not empty: exits 0 when healthy
+  inputs:                       # paths relative to the planning repo; may lie
+                                # outside it
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]             # also left out of a unit's size, matched by
+                                # file name wherever the file sits
+    other: []
+# A repository entry under `repos` takes the same `environment` section, with
+# paths relative to the repository. `abk doctor` warns for one without it.
+
 limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a
                                 # new unit may extend
@@ -154,8 +169,9 @@ limits:
                                 # listed by `abk status`, never blocked
   generated_files: [uv.lock, package-lock.json, ...]
                                 # path patterns (whole path or file name) left
-                                # out of a unit's actual size; defaults to the
-                                # common lockfiles
+                                # out of a unit's actual size, together with the
+                                # lock files the environments name (above);
+                                # none by default
   max_review_rounds: 3          # review rounds before a unit fails
   max_check_rounds: 3           # times a branch failing its checks (lint, types,
                                 # tests) goes back to the builder before a

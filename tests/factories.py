@@ -110,3 +110,11 @@ def who_pushed(remote: Path, branch: str, pushes: list[str]) -> str:
         f"--- remote reflog of {branch} ---\n{reflog.strip()}\n"
         "--- every `git push` the run log records ---\n" + "\n".join(pushes)
     )
+
+
+def recognised_planning(path: Path) -> Path:
+    """A planning directory with a manifest, so `abk init` recognises its environment
+    and writes an abk.yaml that loads."""
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "pyproject.toml").write_text('[project]\nname = "planning"\n')
+    return path
