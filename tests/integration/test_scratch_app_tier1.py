@@ -39,3 +39,34 @@ def test_the_scratch_apps_tier1_commands_succeed_as_the_fixture_is_built(tmp_pat
     for command in commands:
         result = subprocess.run(command, cwd=app, capture_output=True, text=True)
         assert result.returncode == 0, f"{command}\n{result.stdout}\n{result.stderr}"
+
+
+def test_the_scratch_apps_tier1_commands_leave_nothing_for_git_to_report(tmp_path: Path) -> None:
+    """A file the commands create and the repo does not commit would hold a unit.
+
+    The first `uv run` writes `uv.lock`; the fixture ignores it because resolving
+    one needs the network, so git's view of the worktree stays clean.
+    """
+    app = scratch_app(tmp_path / "app")
+    (app / "tests" / "test_marker.py").write_text("def test_it():\n    assert True\n")
+    git(app, "add", "-A")
+    git(app, "commit", "-q", "-m", "a test")
+    profile = profiles.get("python-uv")
+
+    commands = [
+        profile.lint_command("HEAD~1"),
+        *profile.test_commands(app, ["tests/test_marker.py"], root_extras=[]),
+    ]
+    for command in commands:
+        result = subprocess.run(command, cwd=app, capture_output=True, text=True)
+        assert result.returncode == 0, f"{command}\n{result.stdout}\n{result.stderr}"
+
+    assert (app / "uv.lock").exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=app,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert status == ""
