@@ -9,6 +9,7 @@ allowlist or the own-tooling list with no name left is reported as a stale entry
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
@@ -65,4 +66,30 @@ def check_source(
     own_tooling: Collection[str],
     tokens: tuple[str, ...] = TOKENS,
 ) -> list[str]:
-    raise NotImplementedError
+    pattern = re.compile("|".join(rf"(?<![\w.-]){re.escape(token)}(?![\w-])" for token in tokens))
+    problems: list[str] = []
+    named: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        name = path.relative_to(root).as_posix()
+        if name.split("/")[0] in EXEMPT_FOLDERS:
+            continue
+        lines = [
+            number
+            for number, text in enumerate(path.read_text().splitlines(), start=1)
+            if pattern.search(text)
+        ]
+        if not lines:
+            continue
+        named.add(name)
+        if name in allowlist or name in own_tooling:
+            continue
+        problems.extend(f"{name}:{line}: names a package manager or lock file" for line in lines)
+    problems.extend(
+        f"{name}: on the allowlist but names no ecosystem; remove it"
+        for name in sorted(set(allowlist) - named)
+    )
+    problems.extend(
+        f"{name}: on the own-tooling list but names no ecosystem; remove it"
+        for name in sorted(set(own_tooling) - named)
+    )
+    return problems

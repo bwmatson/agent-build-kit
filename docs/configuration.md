@@ -175,7 +175,7 @@ limits:
                                 # must exceed min_unit_lines. Shapes plans;
                                 # a unit that lands over it is logged and
                                 # listed by `abk status`, never blocked
-  generated_files: [uv.lock, package-lock.json, ...]
+  generated_files: ["*.generated.ts", ...]
                                 # path patterns (whole path or file name) left
                                 # out of a unit's actual size, together with the
                                 # lock files the environments name (above);

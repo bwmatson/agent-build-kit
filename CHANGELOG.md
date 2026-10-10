@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The repository now states that framework code is language- and tool-independent, and a
+  test fails when source outside the toolchain profiles and `abk init` names a package
+  manager or lock file. The `limits.generated_files` example no longer suggests listing
+  lock files there.
+
 - A unit that waits on another unit no longer holds a place in the limit on units in
   progress, however much work it has. The unit it waits on starts into that place ahead of
   the usual order, so a full queue of waiting units cannot keep their prerequisite from
