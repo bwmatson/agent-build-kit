@@ -168,25 +168,63 @@ def test_how_this_was_built_is_one_line(tmp_path: Path) -> None:
     assert "lint" in built[0].lower()
 
 
+# Pairs as a reviewer records them: the optional finding as `file:line — summary` and the
+# same point again as a follow-up, in different words.
+BARE_DOCS = (
+    "docs/architecture.md: mention that a merge-time restack meeting a flake records it and "
+    "parks the child gated, not pushed, and that the fix change's own unit treats the flake "
+    "as a tier 1 failure."
+)
+LOCATED_DOCS = (
+    "docs/architecture.md:815 — The flake paragraph describes only the unit's node calling "
+    "`on_flake`. It does not mention the merge-time restack path."
+)
+BARE_UNRELATED = (
+    "Skip the flake rerun when the tier 1 command hit the group-1 time limit (TIMED_OUT_EXIT), "
+    "with a test, so a timeout can never be reported as a flake."
+)
+LOCATED_OTHER = (
+    "src/agent_build_kit/pipeline/wiring.py:737 — `isolate` also runs on a tier 1 command "
+    "that hit the command time limit."
+)
+
+
 def test_a_finding_recorded_twice_is_listed_once_in_its_located_form() -> None:
-    located = "src/agent_build_kit/pipeline/work_graph.py:210 — the parser drops a blank goal"
-    items = ["the parser drops a blank goal", located, "an unrelated point"]
+    body = body_of(None, follow_ups=[BARE_DOCS, BARE_UNRELATED, LOCATED_DOCS, LOCATED_OTHER])
 
-    body = body_of(None, follow_ups=items)
-
-    assert body.count("the parser drops a blank goal") == 1
-    assert f"- {located}" in body
-    assert "- an unrelated point" in body
+    assert f"- {LOCATED_DOCS}" in body
+    assert "mention that a merge-time restack" not in body
+    assert f"- {BARE_UNRELATED}" in body, "a bare point with no located twin is kept"
+    assert f"- {LOCATED_OTHER}" in body
 
 
 def test_the_located_form_wins_whichever_is_recorded_first() -> None:
-    items = ["src/a.py:3 — missing guard", "missing guard", "src/b.py:9 — another point"]
+    body = body_of(None, follow_ups=[LOCATED_DOCS, BARE_DOCS])
 
-    body = body_of(None, follow_ups=items)
+    assert f"- {LOCATED_DOCS}" in body
+    assert "mention that a merge-time restack" not in body
 
-    assert body.count("missing guard") == 1
-    assert "- src/a.py:3 — missing guard" in body
-    assert "- src/b.py:9 — another point" in body
+
+def test_a_bare_point_naming_a_file_no_finding_locates_is_kept() -> None:
+    other = "docs/code-forges.md: say that a host's limit is the lowest of all."
+
+    body = body_of(None, follow_ups=[LOCATED_DOCS, other])
+
+    assert f"- {other}" in body
+
+
+def test_a_joined_why_that_is_short_leaves_its_room_to_the_longer_one(tmp_path: Path) -> None:
+    write_change(tmp_path, "add-marker", why="Short.")
+    write_change(tmp_path, "other-change", why=paragraphs(6, 150), goals=("Done when it lands.",))
+    joined = (Member(change="other-change", groups=(1,)),)
+    full = body_of(tmp_path, joined=joined, why_ceiling=2_000)
+
+    cut = body_of(tmp_path, joined=joined, why_ceiling=2_000, limit=len(full) - 500)
+
+    shown = why_of(cut)
+    longer = shown[shown.index("**other-change**") :]
+    assert "Paragraph 5:" not in shown, "the Why was cut"
+    assert len(longer) > 0.75 * len(shown), "the short Why holds no room it does not need"
 
 
 def tier2_body(tmp_path: Path, *, why: str, limit: int, items: int = 40, **kw) -> str:

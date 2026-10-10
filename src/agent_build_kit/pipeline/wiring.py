@@ -464,7 +464,9 @@ Never kind it `"optional"` for a `correctness` problem, a `test_passes_regardles
 (a test whose fakes let it pass whatever the code does), a `missing_test` a task
 asked for, or anything the command `policy` forbids — those always block,
 whatever `approved` says. Deferral is for work that can wait, not for work
-that is merely inconvenient to fix now.
+that is merely inconvenient to fix now. A point you already give as an optional
+finding is not repeated as an `"optional"` follow-up: that list is for points
+with no file to name.
 
 **Escalate instead of spending another round when:**
 - you find another instance of a kind an earlier round of this same review

@@ -435,10 +435,13 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    pointer to the proposal) and what the pull request does (the "Done when"
    sentence of each of the unit's groups), then the stack position, scope,
    assumptions and verification, then what is held and left for later, each
-   follow-up once, in its located form. A body over the host's description
-   limit is fitted by weight: the reason and the goal are the last to shrink,
-   then the follow-ups to whole items with a line counting the rest, then the
-   tier 2 output (its tail kept) down to the pass or fail line. The `local/tier2` commit
+   follow-up once, in its located form (a bare point that names a file an
+   optional finding locates is dropped; the review prompt asks the reviewer not
+   to repeat an optional finding as a follow-up). A body over the host's
+   description limit is fitted by weight, not in sequence: the tier 2 output
+   (its tail kept, down to the pass or fail line) and the follow-ups (whole
+   items and a count of the rest) give up room first, the reason and the goal
+   last, and room a part does not use goes to the others. The `local/tier2` commit
    status is posted for the tested SHA (and, on a host that shows statuses on
    the pull request, on the open pull request for the branch too); the rework's replies to review threads
    are posted in those threads, signed with the commit. A reply the host does not take stays in the

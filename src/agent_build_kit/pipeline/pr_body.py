@@ -25,6 +25,7 @@ from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
+from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
@@ -80,19 +81,24 @@ def assumptions(unit: StoredUnit, graph: list[StoredUnit], trunk: str = "main") 
     return "\n".join(lines)
 
 
+def _change_path(change: str) -> str:
+    """Where a change's files are, under the planning repo."""
+    return f"{active().planning.specs_dir}/changes/{change}"
+
+
 def _scope_lines(unit: StoredUnit) -> str:
     """What the unit builds: each change with its groups, and where its spec is."""
     first, *carried = unit.members()
     groups = ", ".join(str(group) for group in first.groups) or "—"
     lines = [
         f"Unit `{unit.id}` of change **{first.change}**, task group(s) {groups}.",
-        f"Spec: `openspec/changes/{first.change}/` in the planning repo.",
+        f"Spec: `{_change_path(first.change)}/` in the planning repo.",
     ]
     for member in carried:
         numbers = ", ".join(str(group) for group in member.groups)
         lines.append(
             f"Also carries task group(s) {numbers} of change **{member.change}**. "
-            f"Spec: `openspec/changes/{member.change}/` in the planning repo."
+            f"Spec: `{_change_path(member.change)}/` in the planning repo."
         )
     return "\n".join(lines)
 
@@ -188,7 +194,8 @@ def _follow_ups_section(follow_ups: Sequence[str]) -> Section:
 _PURPOSE_WEIGHT = 8
 
 _WHY_SECTION = re.compile(r"^##[ \t]+Why[ \t]*\n(.*?)(?=^##[ \t]|\Z)", re.M | re.S)
-_LOCATED = re.compile(r"^[^\s—]*[./:][^\s—]* — (?P<summary>.+)$")
+_LOCATED = re.compile(r"^(?P<file>[\w./-]*[./][\w./-]*?)(?::\d+)? — ")
+_PATH = re.compile(r"[\w-]+(?:/[\w.-]+)+|[\w-]+\.\w+")
 
 
 def _why_text(changes_dir: Path, change: str) -> str:
@@ -208,11 +215,30 @@ def _groups_of(changes_dir: Path, change: str) -> list[TaskGroup]:
         return []
 
 
+def _why_block(label: str, text: str, marker: str) -> Section:
+    """One change's reason: its label and text, the text cut at a paragraph to the
+    room given, down to the pointer alone."""
+    full = "\n\n".join(part for part in (label, text) if part)
+    pointer = "\n\n".join(part for part in (label, marker) if part)
+
+    def render(size: int) -> str:
+        if size >= len(full):
+            return full
+        room = size - len(label) - 2 * bool(label)
+        return "\n\n".join(
+            part for part in (label, cut_head(text, room, "paragraph", marker=marker)) if part
+        )
+
+    return Section(
+        key="why-block", render=render, natural=len(full), smallest=len(pointer), weight=1
+    )
+
+
 def _why_section(changes_dir: Path, members: Sequence[Member], ceiling: int) -> Section | None:
     """The reason for each change the unit builds: its proposal's Why, cut at a
     paragraph to the ceiling with a pointer to the proposal; the smallest form is
-    the pointers alone."""
-    blocks: list[tuple[str, str, str]] = []
+    the pointers alone. Room one change's reason leaves unused goes to the others."""
+    blocks: list[Section] = []
     for member in members:
         text = _why_text(changes_dir, member.change)
         if not text:
@@ -226,34 +252,23 @@ def _why_section(changes_dir: Path, members: Sequence[Member], ceiling: int) -> 
             )
         elif len(members) > 1:
             label = f"_Change **{member.change}**:_"
-        marker = f"_… The full reason is in `openspec/changes/{member.change}/proposal.md`._"
-        blocks.append((label, cut_head(text, ceiling, "paragraph", marker=marker), marker))
+        marker = f"_… The full reason is in `{_change_path(member.change)}/proposal.md`._"
+        blocks.append(
+            _why_block(label, cut_head(text, ceiling, "paragraph", marker=marker), marker)
+        )
     if not blocks:
         return None
 
-    def build(texts: Sequence[str]) -> str:
-        parts = ["## Why"]
-        for (label, _, _), text in zip(blocks, texts, strict=True):
-            parts.append("\n\n".join(part for part in (label, text) if part))
-        return "\n\n".join(parts)
-
-    natural = build([text for _, text, _ in blocks])
-    smallest = len(build([marker for _, _, marker in blocks]))
-    overhead = len(build([""] * len(blocks))) + 2 * len(blocks)
+    parts = [_fixed("heading", "## Why"), *blocks]
 
     def render(size: int) -> str:
-        if size >= len(natural):
-            return natural
-        if size <= smallest:
-            return build([marker for _, _, marker in blocks])
-        share = (size - overhead) // len(blocks)
-        return build([cut_head(text, share, "paragraph", marker=m) for _, text, m in blocks])
+        return fit(parts, size)
 
     return Section(
         key="why",
         render=render,
-        natural=len(natural),
-        smallest=smallest,
+        natural=sum(part.natural for part in parts) + 2 * len(blocks),
+        smallest=sum(part.smallest for part in parts) + 2 * len(blocks),
         weight=_PURPOSE_WEIGHT,
         required=True,
     )
@@ -280,14 +295,20 @@ def _goal_section(changes_dir: Path, members: Sequence[Member]) -> Section | Non
     )
 
 
-def _once(follow_ups: Sequence[str]) -> list[str]:
-    """The follow-ups with a point also recorded in its located form left out of
-    its bare form, so each is listed one time."""
-    located = {
-        " ".join(found["summary"].split()) for item in follow_ups if (found := _LOCATED.match(item))
-    }
+def once_each(points: Sequence[str]) -> list[str]:
+    """The follow-ups with each point listed one time, in its located form.
+
+    The reviewer records a point twice when it gives it as an optional finding
+    (`file:line — summary`) and again as a free-text follow-up, in words of its own,
+    so the two are paired by the file they name: a bare point that names a file an
+    optional finding locates is that finding again. A bare point that names no such
+    file is kept."""
+    located = {found["file"] for point in points if (found := _LOCATED.match(point))}
     return [
-        item for item in follow_ups if _LOCATED.match(item) or " ".join(item.split()) not in located
+        point
+        for point in points
+        if _LOCATED.match(point)
+        or not any(path.rstrip(".:,;") in located for path in _PATH.findall(point))
     ]
 
 
@@ -386,7 +407,7 @@ merges every one, after checking {order}._
             )
         )
     if follow_ups:
-        sections.append(_follow_ups_section(_once(follow_ups)))
+        sections.append(_follow_ups_section(once_each(follow_ups)))
     sections.append(_fixed("footer", footer))
 
     if limit is None:
