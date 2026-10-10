@@ -37,30 +37,61 @@ function text(line: string | undefined): string {
   return (line ?? "").replace(/\r?\n$/, "");
 }
 
-function rows(file: FileDiffMetadata): Row[] {
+type Hunk = FileDiffMetadata["hunks"][number];
+
+function hunkRows(file: FileDiffMetadata, hunk: Hunk): Row[] {
   const out: Row[] = [];
-  for (const hunk of file.hunks) {
-    let oldLine = hunk.deletionStart;
-    let newLine = hunk.additionStart;
-    for (const block of hunk.hunkContent) {
-      if (block.type === "context") {
-        for (let i = 0; i < block.lines; i++) {
-          const content = text(file.additionLines[block.additionLineIndex + i]);
-          out.push({ old: oldLine++, new: newLine++, text: content, kind: "context" });
-        }
-        continue;
-      }
-      for (let i = 0; i < block.deletions; i++) {
-        const content = text(file.deletionLines[block.deletionLineIndex + i]);
-        out.push({ old: oldLine++, new: null, text: content, kind: "delete" });
-      }
-      for (let i = 0; i < block.additions; i++) {
+  let oldLine = hunk.deletionStart;
+  let newLine = hunk.additionStart;
+  for (const block of hunk.hunkContent) {
+    if (block.type === "context") {
+      for (let i = 0; i < block.lines; i++) {
         const content = text(file.additionLines[block.additionLineIndex + i]);
-        out.push({ old: null, new: newLine++, text: content, kind: "add" });
+        out.push({ old: oldLine++, new: newLine++, text: content, kind: "context" });
       }
+      continue;
+    }
+    for (let i = 0; i < block.deletions; i++) {
+      const content = text(file.deletionLines[block.deletionLineIndex + i]);
+      out.push({ old: oldLine++, new: null, text: content, kind: "delete" });
+    }
+    for (let i = 0; i < block.additions; i++) {
+      const content = text(file.additionLines[block.additionLineIndex + i]);
+      out.push({ old: null, new: newLine++, text: content, kind: "add" });
     }
   }
   return out;
+}
+
+function rows(file: FileDiffMetadata): Row[] {
+  return file.hunks.flatMap((hunk) => hunkRows(file, hunk));
+}
+
+const MARKS = { context: " ", add: "+", delete: "-" } as const;
+
+/** The hunks of `range.path` that hold lines of `range`, and the text of those lines, both from
+ * the same parse the viewer draws. Null where the patch shows none of them. */
+export function rangeContext(
+  patch: string,
+  range: LineRange,
+): { hunk: string; text: string } | null {
+  const file = files(patch).find((f) => f.name === range.path);
+  if (!file) return null;
+  const hunks: string[] = [];
+  const picked: string[] = [];
+  for (const hunk of file.hunks) {
+    const lines = hunkRows(file, hunk);
+    const inside = lines.filter((row) => {
+      const n = range.side === "new" ? row.new : row.old;
+      return n !== null && n >= range.start && n <= range.end;
+    });
+    if (inside.length === 0) continue;
+    picked.push(...inside.map((row) => row.text));
+    // The raw first line: it already holds any function context, and its line ending.
+    const head = (hunk.hunkSpecs ?? "").replace(/\r?\n$/, "");
+    hunks.push([head, ...lines.map((row) => MARKS[row.kind] + row.text)].join("\n"));
+  }
+  return picked.length === 0 ? null : { hunk: hunks.join("\n"), text: picked.join("\n") };
 }
 
 function inRange(selection: LineRange | null, path: string, side: "old" | "new", n: number | null) {

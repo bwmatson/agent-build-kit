@@ -1189,6 +1189,15 @@ outdated), or whose line the diff does not show, is drawn at the top of its file
 collapsed or not; one on a file the patch no longer holds is listed in a separate region of
 threads on files no longer in the diff, so no thread is ever left out.
 
+Changes a chat left uncommitted in the unit's worktree come from `GET .../review/working`
+(`commit`, `files`, `patch`; untracked files appear as additions). The tab draws them in a
+separate "Uncommitted changes" section, marked as not yet committed. Their lines take a
+highlight, but **Comment** is disabled with the reason, and the server refuses a thread
+posted with `uncommitted: true` (409), since a thread anchors to a commit. **Ask the agent**
+on any selection opens the unit's agent tab with one chip holding the file, lines, hunk and
+text (`uncommitted: true` for working changes); sending puts them in the turn's prompt, with
+uncommitted lines marked as such.
+
 ## How a process test fakes the host
 
 A test that runs `abk` as a process fakes GitHub at the host's API, not at the

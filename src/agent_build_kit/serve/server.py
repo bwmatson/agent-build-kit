@@ -51,6 +51,8 @@ from agent_build_kit.serve.review import (
     relocate,
     resolve_commit,
     unit_diff,
+    unit_worktree,
+    working_changes,
 )
 from agent_build_kit.settings import settings
 
@@ -70,6 +72,8 @@ class ThreadIn(Frozen):
     # The commit of the diff the reviewer was looking at; the branch tip when omitted.
     commit: str | None = None
     body: str
+    # The lines are uncommitted changes, which no commit holds for a thread to anchor to.
+    uncommitted: bool = False
 
     @model_validator(mode="after")
     def _range_runs_forward(self) -> Self:
@@ -306,6 +310,11 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
         except NoDiff as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
 
+    @app.get("/api/units/{change}/{number}/review/working")
+    def working(change: str, number: str) -> dict[str, Any]:
+        unit, _ = find(change, number)
+        return working_changes(unit_worktree(installation, unit)).model_dump()
+
     @app.get("/api/units/{change}/{number}/review")
     def review(change: str, number: str) -> dict[str, Any]:
         unit, _ = find(change, number)
@@ -357,6 +366,11 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     @app.post("/api/units/{change}/{number}/review/threads")
     def add_thread(change: str, number: str, body: ThreadIn) -> dict[str, Any]:
         unit, _ = find(change, number)
+        if body.uncommitted:
+            raise HTTPException(
+                status_code=409,
+                detail="uncommitted changes cannot be commented on: a thread anchors to a commit",
+            )
         repo = checkout(unit)
         tip = resolve_commit(repo, body.commit) if body.commit else branch_tip(repo, unit.branch)
         if tip is None:

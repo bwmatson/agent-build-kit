@@ -1,0 +1,5 @@
+{
+  "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
+  "files": ["src/funcs.py"],
+  "patch": "diff --git a/src/funcs.py b/src/funcs.py\nindex 1a2b3c4..5d6e7f8 100644\n--- a/src/funcs.py\n+++ b/src/funcs.py\n@@ -4,2 +4,3 @@ def foo():\n     a = 1\n+    b = 2\n     c = 3\n"
+}

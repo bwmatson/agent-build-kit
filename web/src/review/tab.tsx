@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { getJson, sendJson } from "../api";
+import type { Attachment } from "../composer";
 import { useApi } from "../useApi";
 import type { Decision, LineRange, ReviewThread } from "./types";
-import { DiffViewer, patchFiles } from "./viewer";
+import { DiffViewer, patchFiles, rangeContext } from "./viewer";
 
 interface DiffAnswer {
   commit: string;
   base: string;
   base_commit: string;
+  patch: string;
+}
+
+interface WorkingAnswer {
+  commit: string;
+  files: string[];
   patch: string;
 }
 
@@ -35,6 +42,7 @@ interface Focus {
   path: string;
   side: "old" | "new";
   line: number | null;
+  working?: boolean;
 }
 
 function parseLines(value: string | null): { start: number; end: number } | null {
@@ -52,20 +60,48 @@ function lineSelector(focus: Focus): string {
   return `[data-path="${quoted(focus.path)}"][data-${focus.side}-line="${focus.line}"]`;
 }
 
+/** The part of the page a focus is in: the uncommitted section, which is null until it is
+ * drawn, or the branch's diff, which comes first, so its first match is its own. */
+function sectionOf(focus: Focus): ParentNode | null {
+  return focus.working ? document.querySelector('[data-working="true"]') : document;
+}
+
+/** The file, lines, hunk and text of `range` in `patch`, or null where the patch shows none. */
+function attachmentOf(patch: string, range: LineRange): Attachment | null {
+  const found = rangeContext(patch, range);
+  if (found === null) return null;
+  return { file: range.path, lines: [range.start, range.end], ...found };
+}
+
 const DECISION_LABELS = { request_changes: "Request changes", approve: "Approve" } as const;
 
 /** The composer for a comment on the selected lines. */
 function Composer({
   selection,
+  refused,
   onPost,
 }: {
   selection: LineRange;
+  /** Why a comment cannot be made on the selection; absent when it can. */
+  refused?: string;
   onPost: (body: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  if (refused !== undefined) {
+    return (
+      <>
+        <button type="button" disabled>
+          Comment
+        </button>
+        <p role="status" aria-label="Comment note">
+          {refused}
+        </p>
+      </>
+    );
+  }
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}>
@@ -166,6 +202,8 @@ export function ReviewTab(): ReactElement {
 function UnitReview({ name }: { name: string }): ReactElement {
   const diff = useApi<DiffAnswer>(`/api/units/${name}/diff`);
   const review = useApi<ReviewAnswer>(`/api/units/${name}/review`);
+  const working = useApi<WorkingAnswer>(`/api/units/${name}/review/working`);
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [focus, setFocus] = useState<Focus | null>(null);
   const [located, setLocated] = useState<{ start: number; end: number } | null>(null);
@@ -177,13 +215,15 @@ function UnitReview({ name }: { name: string }): ReactElement {
   const written = useRef<string | null>(null);
 
   const patch = diff && "data" in diff ? diff.data.patch : null;
+  const workingPatch = working && "data" in working ? working.data.patch : "";
   const answer = review && "data" in review ? review.data : null;
   const file = params.get("file");
   const linesText = params.get("lines");
   const lines = useMemo(() => parseLines(linesText), [linesText]);
   const commit = params.get("commit");
   const side = params.get("side") === "old" ? "old" : "new";
-  const address = [file, linesText, side, commit].join("|");
+  const inWorking = params.get("working") === "1";
+  const address = [file, linesText, side, commit, inWorking].join("|");
   const threads = edited ?? answer?.threads ?? [];
   const decisions = decided ?? answer?.decisions ?? [];
 
@@ -193,7 +233,7 @@ function UnitReview({ name }: { name: string }): ReactElement {
     setGone(false);
     if (!file || !lines) return;
     if (!commit) {
-      setFocus({ path: file, side, line: lines.start });
+      setFocus({ path: file, side, line: lines.start, working: inWorking });
       return;
     }
     const query = new URLSearchParams({ file, line: String(lines.start), side, commit });
@@ -217,21 +257,24 @@ function UnitReview({ name }: { name: string }): ReactElement {
     return () => {
       current = false;
     };
-  }, [patch, address, file, lines, commit, side, name]);
+  }, [patch, address, file, lines, commit, side, name, inWorking]);
 
   useEffect(() => {
     if (focus === null || patch === null) return;
+    // An uncommitted focus waits for its section, which draws once the working answer is in.
+    const section = sectionOf(focus);
+    if (section === null) return;
     const target =
-      (focus.line !== null && document.querySelector(lineSelector(focus))) ||
-      document.querySelector(`[data-file="${quoted(focus.path)}"]`);
+      (focus.line !== null && section.querySelector(lineSelector(focus))) ||
+      section.querySelector(`[data-file="${quoted(focus.path)}"]`);
     target?.scrollIntoView({ block: "center" });
-  }, [focus, patch]);
+  }, [focus, patch, workingPatch]);
 
   const selection: LineRange | null = useMemo(() => {
     if (!file || !lines) return null;
     if (commit) return located ? { path: file, side, ...located } : null;
-    return { path: file, side, ...lines };
-  }, [file, lines, commit, side, located]);
+    return { path: file, side, ...lines, working: inWorking };
+  }, [file, lines, commit, side, located, inWorking]);
 
   function select(range: LineRange | null) {
     setLocated(null);
@@ -244,7 +287,8 @@ function UnitReview({ name }: { name: string }): ReactElement {
     const text = range.start === range.end ? String(range.start) : `${range.start}-${range.end}`;
     const next: Record<string, string> = { file: range.path, lines: text };
     if (range.side === "old") next.side = "old";
-    written.current = [range.path, text, range.side, null].join("|");
+    if (range.working) next.working = "1";
+    written.current = [range.path, text, range.side, null, !!range.working].join("|");
     setParams(next);
   }
 
@@ -252,6 +296,21 @@ function UnitReview({ name }: { name: string }): ReactElement {
     if (finding.line === null) return;
     select({ path: finding.file, side: "new", start: finding.line, end: finding.line });
     setFocus({ path: finding.file, side: "new", line: finding.line });
+  }
+
+  const workingFiles = useMemo(() => patchFiles(workingPatch), [workingPatch]);
+  const uncommitted = selection?.working === true;
+
+  const attachable = selection
+    ? attachmentOf(uncommitted ? workingPatch : (patch ?? ""), selection)
+    : null;
+
+  function ask() {
+    const found = attachable;
+    if (found === null) return;
+    navigate(`/units/${name}`, {
+      state: { attachment: uncommitted ? { ...found, uncommitted: true } : found },
+    });
   }
 
   const base = `/api/units/${name}/review`;
@@ -323,7 +382,23 @@ function UnitReview({ name }: { name: string }): ReactElement {
           <button type="button" onClick={() => select(null)}>
             Clear highlight
           </button>
-          <Composer selection={selection} onPost={(body) => comment(selection, body)} />
+          <Composer
+            selection={selection}
+            refused={
+              uncommitted
+                ? "These lines are uncommitted changes, and a comment anchors to a commit."
+                : undefined
+            }
+            onPost={(body) => comment(selection, body)}
+          />
+          <button type="button" disabled={attachable === null} onClick={ask}>
+            Ask the agent
+          </button>
+          {attachable === null && (
+            <p role="status" aria-label="Ask note">
+              The diff shows none of these lines, so there is nothing to send.
+            </p>
+          )}
         </>
       )}
       <ul aria-label="Findings">
@@ -352,12 +427,28 @@ function UnitReview({ name }: { name: string }): ReactElement {
       <DiffViewer
         patch={diff.data.patch}
         threads={threads}
-        selection={selection}
+        selection={uncommitted ? null : selection}
         onSelect={select}
         onReply={reply}
         onResolve={resolve}
-        reveal={focus?.path ?? null}
+        reveal={focus && !focus.working ? focus.path : null}
       />
+      {workingFiles.length > 0 && (
+        <section aria-label="Uncommitted changes" data-working="true">
+          <h2>Uncommitted changes</h2>
+          <p>
+            Not yet committed: these changes are in the unit&apos;s worktree and cannot be commented
+            on.
+          </p>
+          <DiffViewer
+            patch={workingPatch}
+            threads={[]}
+            selection={uncommitted ? selection : null}
+            onSelect={(range) => select(range && { ...range, working: true })}
+            reveal={focus?.working ? focus.path : null}
+          />
+        </section>
+      )}
     </section>
   );
 }

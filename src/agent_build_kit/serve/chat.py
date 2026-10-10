@@ -42,7 +42,7 @@ from agent_build_kit.pipeline.transcript import (
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.wiring import CommitRejected
-from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
+from agent_build_kit.pipeline.workspaces import changed_paths
 from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
@@ -51,6 +51,7 @@ from agent_build_kit.runtimes.base import (
     ToolPolicy,
 )
 from agent_build_kit.serve.bridge import AgUiEncoder, messages_snapshot
+from agent_build_kit.serve.review import unit_worktree
 from agent_build_kit.serve.sessions import (
     claude_events,
     claude_home,
@@ -71,6 +72,7 @@ class Attachment(BaseModel):
     lines: tuple[int, int]
     hunk: str = ""
     text: str = ""
+    uncommitted: bool = False
 
 
 class Turn(BaseModel):
@@ -110,7 +112,8 @@ def with_attachments(prompt: str, attachments: list[Attachment]) -> str:
     for item in attachments:
         parts += [
             "",
-            f"File: {item.file}, lines {item.lines[0]}-{item.lines[1]}",
+            f"File: {item.file}, lines {item.lines[0]}-{item.lines[1]}"
+            + (" (uncommitted: not in any commit yet)" if item.uncommitted else ""),
             "Diff hunk:",
             item.hunk,
             "Selected text:",
@@ -174,12 +177,7 @@ class Chat:
         return unit
 
     def worktree(self, unit: StoredUnit) -> Path | None:
-        if not unit.branch or unit.repo not in self.installation.checkouts:
-            return None
-        path = worktree_path(
-            self.installation.checkouts[unit.repo], unit.branch, self.installation.worktree_root
-        )
-        return path if path.is_dir() else None
+        return unit_worktree(self.installation, unit)
 
     def unit_at(self, cwd: str | Path) -> StoredUnit | None:
         """The unit whose worktree `cwd` is, or lies in."""

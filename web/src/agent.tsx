@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { EMPTY, asked, dismissed, readEvents, reduce } from "./agui";
 import type { AguiEvent, Conversation } from "./agui";
 import { Composer } from "./composer";
-import type { Turn } from "./composer";
+import type { Attachment, Turn } from "./composer";
 import { useApi } from "./useApi";
 
 interface AgentState {
@@ -156,7 +156,17 @@ export function usePresence(tab: string): void {
 }
 
 /** The agent tab of a unit: its running step streamed, and a chat once the step has ended. */
-export function AgentTab({ name }: { name: string }): ReactElement {
+export function AgentTab({
+  name,
+  attachments = [],
+  onSpent,
+}: {
+  name: string;
+  /** Pieces of the diff chosen as context for the next turn. */
+  attachments?: Attachment[];
+  /** Attachments that were sent or removed, which are not offered again. */
+  onSpent?: (spent: Attachment[]) => void;
+}): ReactElement {
   const [tab] = useState(newTab);
   const [version, setVersion] = useState(0);
   const [conversation, dispatch] = useReducer(step, EMPTY);
@@ -269,9 +279,13 @@ export function AgentTab({ name }: { name: string }): ReactElement {
       )}
       {agent && (
         <Composer
-          attachments={[]}
+          attachments={attachments}
           disabledReason={agent.composer.enabled ? undefined : agent.composer.reason}
-          onSend={(turn) => void send(turn)}
+          onRemove={(removed) => onSpent?.([removed])}
+          onSend={(turn) => {
+            onSpent?.(turn.attachments);
+            void send(turn);
+          }}
         />
       )}
     </section>

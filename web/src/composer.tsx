@@ -6,6 +6,8 @@ export interface Attachment {
   lines: [number, number];
   hunk: string;
   text: string;
+  /** The lines are changes no commit holds yet. */
+  uncommitted?: boolean;
 }
 
 export interface Turn {
@@ -18,10 +20,12 @@ interface ComposerProps {
   disabledReason?: string;
   attachments: Attachment[];
   onSend: (turn: Turn) => void;
+  /** A chip was removed by the user. */
+  onRemove?: (attachment: Attachment) => void;
 }
 
 /** The chat box of the agent tab: the attachments as removable chips, and a prompt. */
-export function Composer({ disabledReason, attachments, onSend }: ComposerProps) {
+export function Composer({ disabledReason, attachments, onSend, onRemove }: ComposerProps) {
   const [removed, setRemoved] = useState<Attachment[]>([]);
   const [prompt, setPrompt] = useState("");
   const kept = attachments.filter((a) => !removed.includes(a));
@@ -38,12 +42,15 @@ export function Composer({ disabledReason, attachments, onSend }: ComposerProps)
       {disabled && <p>{disabledReason}</p>}
       <ul>
         {kept.map((a) => (
-          <li key={`${a.file}:${a.lines[0]}-${a.lines[1]}`}>
+          <li key={`${a.uncommitted ? "working:" : ""}${a.file}:${a.lines[0]}-${a.lines[1]}`}>
             {a.file}:{a.lines[0]}-{a.lines[1]}
             <button
               type="button"
               aria-label={`Remove ${a.file}`}
-              onClick={() => setRemoved([...removed, a])}
+              onClick={() => {
+                setRemoved([...removed, a]);
+                onRemove?.(a);
+              }}
             >
               ×
             </button>
