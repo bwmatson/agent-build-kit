@@ -834,6 +834,9 @@ class AzureDevOpsForge:
         except NotFound:
             pass
 
+    def labels_on(self, repo: RepoId, pr: int, *, run: Run | None = None) -> list[str]:
+        return [item.name for item in self._labels(repo, pr, run)]
+
     def _labels(self, repo: RepoId, pr: int, run: Run | None) -> list[LabelDoc]:
         """The labels on a pull request, from the labels resource: the pull
         request document itself carries none."""

@@ -148,6 +148,18 @@ def test_an_exclusive_label_already_on_the_pull_request_stays() -> None:
     assert on_pull(h) == {"in-review", "bug"}
 
 
+def test_the_labels_on_a_pull_request_are_the_names_the_issue_carries() -> None:
+    h = host()
+
+    assert sorted(forge(h).labels_on(REPO, 7)) == ["bug", "in-review"]
+
+
+def test_a_pull_request_with_no_labels_reads_as_an_empty_list() -> None:
+    h = GitHubHost(pr_labels={7: []})
+
+    assert forge(h).labels_on(REPO, 7) == []
+
+
 def test_removing_a_label_takes_it_off_the_pull_request() -> None:
     h = GitHubHost(
         repo_labels=[("agent-rework", "b60205", "Rework")], pr_labels={7: ["agent-rework"]}

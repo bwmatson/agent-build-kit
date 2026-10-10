@@ -239,6 +239,17 @@ def test_a_label_in_another_case_is_kept_not_duplicated() -> None:
     assert host.label_names(162) == ["in-review"]
 
 
+def test_the_labels_on_a_pull_request_are_the_names_its_labels_resource_lists() -> None:
+    host = RestHost(azure_answers.OPEN, labels={162: ["in-review", "Unrelated"]})
+
+    assert sorted(forge(host).labels_on(REPO, 162)) == ["Unrelated", "in-review"]
+    assert [(c.method, c.route) for c in host.seen] == [("GET", "pullrequests/162/labels")]
+
+
+def test_a_pull_request_with_no_labels_reads_as_an_empty_list() -> None:
+    assert forge(RestHost(azure_answers.OPEN)).labels_on(REPO, 162) == []
+
+
 def test_removing_a_label_is_one_delete_by_name() -> None:
     host = RestHost(azure_answers.OPEN, labels={162: ["in-review"]})
 

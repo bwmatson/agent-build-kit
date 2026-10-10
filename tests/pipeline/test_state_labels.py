@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.labels import StateLabels
+from agent_build_kit.pipeline.labels import ClearOutcome, StateLabels
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member, UnitState
 from agent_build_kit.pipeline.vocabulary import STATES, change_label, state_label_names
@@ -214,7 +214,7 @@ def test_the_label_follows_a_unit_through_the_changes_the_pipeline_makes(tmp_pat
     assert state_labels_on(forge) == {"failed"}
 
     store.set_state(uid, UnitState.MERGED)
-    assert state_labels_on(forge) == {"failed"}, "merged adds none, and the host shows it"
+    assert state_labels_on(forge) == set(), "merged adds none and takes the last one off"
 
 
 def test_the_change_label_goes_on_when_the_pull_request_opens_and_stays(tmp_path: Path) -> None:
@@ -260,3 +260,166 @@ def test_a_state_change_reaches_the_forge_after_the_store_is_written(tmp_path: P
     store.set_state("add-marker/1", IN_REVIEW, pr=PR)
 
     assert seen == [IN_REVIEW]
+
+
+# --- a unit that finishes has its state label taken off -------------------------------
+
+FINISHED = (UnitState.MERGED, UnitState.CLOSED, UnitState.SATISFIED, UnitState.UNPLANNED)
+
+
+def follow(labels: StateLabels, state: UnitState, *, pr: int | None = PR) -> None:
+    one = unit("add-marker/1", state=state, pr=pr)
+    labels.follow(one, [one], opened=False)
+
+
+def test_a_unit_that_merges_loses_its_in_review_label(
+    forge: StandInForge, labels: StateLabels
+) -> None:
+    forge.on_pr[PR] = {"in-review"}
+
+    follow(labels, UnitState.MERGED)
+
+    assert state_labels_on(forge) == set()
+
+
+@pytest.mark.parametrize("carried", ["checking", "running", "held", "planned", "in-review"])
+def test_a_unit_that_is_closed_loses_whichever_state_label_it_carried(
+    carried: str, forge: StandInForge, labels: StateLabels
+) -> None:
+    forge.on_pr[PR] = {carried}
+
+    follow(labels, UnitState.CLOSED)
+
+    assert state_labels_on(forge) == set()
+
+
+@pytest.mark.parametrize("state", [UnitState.SATISFIED, UnitState.UNPLANNED])
+def test_a_satisfied_or_unplanned_unit_with_a_pull_request_is_cleared(
+    state: UnitState, forge: StandInForge, labels: StateLabels
+) -> None:
+    forge.on_pr[PR] = {"in-review"}
+
+    follow(labels, state)
+
+    assert state_labels_on(forge) == set()
+
+
+@pytest.mark.parametrize("state", FINISHED)
+def test_a_finished_unit_with_no_pull_request_makes_no_forge_call(
+    state: UnitState, forge: StandInForge, labels: StateLabels
+) -> None:
+    follow(labels, state, pr=None)
+
+    assert forge.label_reads == []
+    assert forge.label_removals == []
+
+
+def test_the_change_label_and_a_label_a_person_added_stay(
+    forge: StandInForge, labels: StateLabels
+) -> None:
+    forge.on_pr[PR] = {"in-review", "bug", change_label("add-marker").name}
+
+    follow(labels, UnitState.MERGED)
+
+    assert on_pr(forge) == {"bug", change_label("add-marker").name}
+
+
+def test_the_pull_request_is_read_once_and_only_the_state_labels_it_carries_are_removed(
+    forge: StandInForge, labels: StateLabels
+) -> None:
+    forge.on_pr[PR] = {"in-review", "checking", "bug"}
+
+    follow(labels, UnitState.CLOSED)
+
+    assert forge.label_reads == [PR]
+    assert sorted(forge.label_removals) == [(PR, "checking"), (PR, "in-review")]
+
+
+def test_clearing_reports_what_it_did(forge: StandInForge, labels: StateLabels) -> None:
+    forge.on_pr[PR] = {"in-review", "bug"}
+
+    assert labels.clear_state("app", PR) == ClearOutcome.CLEARED
+    assert labels.clear_state("app", PR) == ClearOutcome.NOTHING_TO_CLEAR
+
+
+def test_a_pull_request_with_no_state_label_is_nothing_to_clear_and_no_fault(
+    forge: StandInForge, labels: StateLabels, logged: list[str]
+) -> None:
+    forge.on_pr[PR] = {"bug"}
+
+    assert labels.clear_state("app", PR) == ClearOutcome.NOTHING_TO_CLEAR
+
+    assert forge.label_removals == []
+    assert logged == []
+
+
+class NoReadForge(StandInForge):
+    """A host whose labels cannot be read: `labels_on` is unimplemented."""
+
+    def labels_on(self, *args, **kwargs) -> list[str]:
+        raise NotImplementedError
+
+
+def test_a_host_that_cannot_read_labels_is_not_a_fault_and_is_said_once(
+    logged: list[str],
+) -> None:
+    labels = StateLabels(lookup(NoReadForge()), log=logged.append)
+
+    assert labels.clear_state("app", PR) == ClearOutcome.NOTHING_TO_CLEAR
+    assert labels.clear_state("app", 8) == ClearOutcome.NOTHING_TO_CLEAR
+
+    assert len(logged) == 1, logged
+    assert "no labels" in logged[0]
+    assert "failed" not in logged[0]
+
+
+@pytest.mark.parametrize("failing", ["read", "remove"])
+def test_a_failed_read_or_removal_is_logged_once_and_the_outcome_is_failed(
+    failing: str, logged: list[str]
+) -> None:
+    forge = StandInForge(label_errors=(failing,))
+    forge.on_pr[PR] = {"in-review"}
+    labels = StateLabels(lookup(forge), log=logged.append)
+
+    assert labels.clear_state("app", PR) == ClearOutcome.FAILED
+
+    assert len(logged) == 1, logged
+    assert "failed" in logged[0]
+
+
+def test_a_failed_clear_leaves_the_unit_finished(tmp_path: Path) -> None:
+    logged: list[str] = []
+    forge = StandInForge(label_errors=("read", "remove"))
+    store = wired(tmp_path, forge, logged)
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", IN_REVIEW, pr=PR, branch="spec/add-marker/1")
+
+    store.set_state("add-marker/1", UnitState.MERGED)
+
+    assert store.get("add-marker/1").state == UnitState.MERGED
+    assert len(logged) == 1, logged
+
+
+def test_a_merge_delivered_twice_removes_nothing_the_second_time(tmp_path: Path) -> None:
+    logged: list[str] = []
+    forge = StandInForge()
+    store = wired(tmp_path, forge, logged)
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", IN_REVIEW, pr=PR, branch="spec/add-marker/1")
+
+    store.set_state("add-marker/1", UnitState.MERGED)
+    store.set_state("add-marker/1", UnitState.MERGED)
+
+    assert forge.label_removals == [(PR, "in-review")]
+    assert logged == []
+
+
+def test_a_labelled_state_still_sets_its_label_and_reads_nothing(
+    forge: StandInForge, labels: StateLabels
+) -> None:
+    forge.on_pr[PR] = {"in-review", "bug"}
+
+    labels.set_state("app", PR, "held")
+
+    assert on_pr(forge) == {"held", "bug"}
+    assert forge.label_reads == []

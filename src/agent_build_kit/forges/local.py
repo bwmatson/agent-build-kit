@@ -331,6 +331,9 @@ class LocalForge:
     def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
         return None
 
+    def labels_on(self, repo: RepoId, pr: int) -> list[str]:
+        return []
+
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
         return None
 

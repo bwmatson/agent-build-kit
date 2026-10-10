@@ -12,6 +12,11 @@
   `{body}` and `{link}`, never through a shell. Off by default, and a provider that fails is
   logged and never fails a tick.
 
+- A pull request whose unit has merged, been closed, satisfied or unplanned now has its
+  state label taken off, so a merged pull request no longer keeps saying `in-review`.
+  Change labels and labels a person added stay. The code forges gain a `labels_on` read
+  to see what a pull request carries.
+
 - A unit in review that follows a changing predecessor back to `planned` now does so
   through an event to its thread, so the thread records the move and stays waiting for
   review instead of believing the unit is still in review; the release is unchanged. The web UI and API unit summary keep the stored

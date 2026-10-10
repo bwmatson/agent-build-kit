@@ -294,6 +294,13 @@ def test_labels_drafts_statuses_and_checks_change_nothing(forge: LocalForge) -> 
     assert before.labels == () and not before.draft and before.checks == ()
 
 
+def test_a_local_pull_request_has_no_labels_to_read(forge: LocalForge) -> None:
+    number = open_pr(forge)
+    forge.add_label(REPO, number, Label(name="needs-rework", color="ff0000"))
+
+    assert forge.labels_on(REPO, number) == []
+
+
 def test_stacks_do_nothing_and_the_forge_says_it_has_none(forge: LocalForge) -> None:
     first = open_pr(forge)
     second = open_pr(forge, head="spec/feature/3")
