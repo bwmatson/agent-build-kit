@@ -139,6 +139,13 @@ is logged with its groups, the unit and the combined estimate.
 the plan, state/branch/PR/feedback from what is already recorded. A unit the
 plan dropped becomes `unplanned` only if it never started.
 
+`abk replan` is the on-demand way to plan: it plans the changes it is given
+whatever the recorded hash says, then links the `Needs:` lines, and prints what
+changed. Linking only adds dependencies, so removing a stale one is the replan's
+work: the plan rebuilds each planned unit's dependencies. `runs/planned.json` is
+read, changed and written under a lock, and replaced atomically, so a command beside
+a running pass loses no update.
+
 ### 3. Building a unit
 
 Each unit has a priority, 1 (most urgent) to 5, 3 by default, set by the planner

@@ -10,6 +10,16 @@
   exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
   from the record when the metrics store is not available.
 
+- New `abk replan` plans changes again on demand: name changes (or a unit id), or use
+  `--all` or `--failed`, and each is planned now whatever its recorded plan says, with
+  the `Needs:` lines linked as a tick does. This is the way out of a stale dependency, a
+  change that gave up planning, or a plan made beside neighbours that have changed. Started
+  work is never touched, and the command prints only what differs. `--forget` clears the
+  records and leaves the planning to the next tick, and with no selector the command lists
+  each change's plan state. The give-up and failing-plan messages now name it, and the
+  recorded plans are written under a lock so a command beside a running pass loses nothing.
+  A change with a failed or held unit can now be planned again, where it was refused.
+
 - Text that has to fit a size is now cut and shared out by one module: cuts that keep the
   head, the tail or both on a character, line or paragraph boundary and close any open code
   fence or collapsible block, and a fitter that gives each section of a text its smallest

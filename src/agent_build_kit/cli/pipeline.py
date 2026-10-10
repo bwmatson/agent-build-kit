@@ -24,7 +24,7 @@ import json
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -1649,7 +1649,26 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
                         log(f"{unit.id}: now waits for {labels[target]} to merge")
 
 
-def plan_all(inst: Installation, *, store: UnitStore) -> None:
+# Units a plan is made around and never changes: their groups are built or being
+# built, a failed or held unit's too, which wait for a person and keep their branch.
+_STARTED = (*IN_FLIGHT, FAILED, HELD, MERGED, SATISFIED)
+
+
+class PlanResult(Frozen):
+    """What `plan_all` did for one change: `planned`, `failed`, `refused` (the
+    tags are wrong) or `skipped` (nothing asked for a plan)."""
+
+    status: Literal["planned", "failed", "refused", "skipped"]
+    dropped_joins: int = 0
+
+
+def plan_all(
+    inst: Installation,
+    *,
+    store: UnitStore,
+    only: Collection[str] | None = None,
+    force: bool = False,
+) -> dict[str, PlanResult]:
     """Turn each OpenSpec change into units, when it needs it.
 
     Planning is a model call, and a tick runs every few minutes — so a change
@@ -1657,21 +1676,27 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
     hash is machine-local and losing it is harmless: `upsert` merges by unit
     id and keeps state, branch and PR, so re-planning costs a model call and
     nothing else.
+
+    `only` limits it to those changes, and `force` plans them whatever the
+    recorded plan says, with their failed attempts counted from none: what
+    `abk replan` asks for. The result has an entry for each change visited.
     """
     planned = _planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
+    results: dict[str, PlanResult] = {}
 
     for tasks in inst.tasks_files():
         change = tasks.parent.name
+        if only is not None and change not in only:
+            continue
         digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
-        record = planned.get(change) or {}
+        record = {} if force else planned.get(change) or {}
 
         # Attempts are counted against the content, not the change, so editing
         # tasks.md — which is the actual fix — starts them over.
         if record.get("hash") == digest:
-            if record.get("ok"):
-                continue
-            if record.get("attempts", 0) >= max_attempts:
+            if record.get("ok") or record.get("attempts", 0) >= max_attempts:
+                results[change] = PlanResult(status="skipped")
                 continue
 
         # The tags are how a unit finds its repo and its tier. Planning
@@ -1680,6 +1705,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         task_groups, errors = validate_tasks(tasks, repos=tuple(inst.repos))
         if errors:
             log(f"not planning {change}: {len(errors)} task-group problem(s) — run `abk tags`")
+            results[change] = PlanResult(status="refused")
             continue
 
         # Merged units included, not just in-flight ones: a re-plan after some
@@ -1692,8 +1718,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         context = [
             in_flight_item(u)
             for u in store.all()
-            if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
-            or (u.state == PLANNED and u.change != change)
+            if u.state in _STARTED or (u.state == PLANNED and u.change != change)
         ]
         try:
             catalog = {
@@ -1704,7 +1729,8 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             # were validated on the change's own PR: a model handing one
             # repo's group to another repo's unit is a real failure mode.
             # Groups already accounted for by a unit nobody is going to
-            # re-plan — merged, or in flight right now — are passed as built:
+            # re-plan — merged, in flight, or failed or held and waiting for a
+            # person — are passed as built:
             # without them the check demands every group appear in the new
             # plan, which makes a change unplannable the moment any part of
             # it starts.
@@ -1712,8 +1738,7 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             built = {
                 number
                 for u in store.all()
-                if u.state in (*IN_FLIGHT, MERGED, SATISFIED)
-                or (u.state == PLANNED and u.change != change)
+                if u.state in _STARTED or (u.state == PLANNED and u.change != change)
                 for member in u.members()
                 if member.change == change
                 for number in member.groups
@@ -1738,19 +1763,23 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at
             # once, so the change waits for that edit instead of re-asking.
-            planned[change] = {"hash": digest, "attempts": max_attempts, "ok": False}
-            _write_planned(inst, planned)
+            record_plans(inst, {change: {"hash": digest, "attempts": max_attempts, "ok": False}})
             log(f"not planning {change}: {error}")
+            results[change] = PlanResult(status="failed")
             continue
         except Exception as error:  # noqa: BLE001
             attempts = (record.get("attempts", 0) if record.get("hash") == digest else 0) + 1
-            planned[change] = {"hash": digest, "attempts": attempts, "ok": False}
-            _write_planned(inst, planned)
-            giving_up = " — giving up until tasks.md changes" if attempts >= max_attempts else ""
+            record_plans(inst, {change: {"hash": digest, "attempts": attempts, "ok": False}})
+            giving_up = (
+                " — giving up until tasks.md changes or `abk replan` is run"
+                if attempts >= max_attempts
+                else " — `abk replan` plans it again now"
+            )
             log(
                 f"planning {change} failed ({attempts}/{max_attempts})"
                 f"{giving_up} — {type(error).__name__}: {error}"
             )
+            results[change] = PlanResult(status="failed")
             continue
 
         units = list(plan.units)
@@ -1782,15 +1811,19 @@ def plan_all(inst: Installation, *, store: UnitStore) -> None:
             log(f"{change}: {other} is planned again, the unit carrying its groups was dropped")
             planned.pop(other, None)
         if orphaned:
-            _write_planned(inst, planned)
+            record_plans(inst, {other: None for other in orphaned})
         if dropped:
             # A unit started while the plan was made. What was to be carried
             # is planned again next round, so this change is not recorded as
-            # planned.
+            # planned, and a record left by an earlier plan (a forced one
+            # ignored it) is removed so the next tick does not skip it.
+            record_plans(inst, {change: None})
             log(f"{change}: {len(dropped)} join(s) dropped, a unit started since the plan")
+            results[change] = PlanResult(status="planned", dropped_joins=len(dropped))
             continue
-        planned[change] = {"hash": digest, "attempts": 0, "ok": True}
-        _write_planned(inst, planned)
+        record_plans(inst, {change: {"hash": digest, "attempts": 0, "ok": True}})
+        results[change] = PlanResult(status="planned")
+    return results
 
 
 def _orphaned_changes(store: UnitStore, before: dict[str, StoredUnit]) -> set[str]:
@@ -1890,9 +1923,23 @@ def _planned_hashes(inst: Installation) -> dict[str, dict]:
     return {k: v for k, v in loaded.items() if isinstance(v, dict)}
 
 
-def _write_planned(inst: Installation, records: dict[str, dict]) -> None:
-    inst.state_dir.mkdir(parents=True, exist_ok=True)
-    (inst.state_dir / "planned.json").write_text(json.dumps(records, indent=2) + "\n")
+def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
+    """Set (or, for None, remove) recorded plans by change, under a lock, atomically.
+
+    Read, changed and written whole under one lock, and the file replaced in one
+    step, so a command beside a planning pass loses neither's update.
+    """
+    path = inst.state_dir / "planned.json"
+    with file_lock(inst.state_dir / "planned.lock"):
+        records = _planned_hashes(inst)
+        for change, record in updates.items():
+            if record is None:
+                records.pop(change, None)
+            else:
+                records[change] = record
+        scratch = path.with_name("planned.json.tmp")
+        scratch.write_text(json.dumps(records, indent=2) + "\n")
+        scratch.replace(path)
 
 
 def has_identity(inst: Installation, repo: str) -> bool:
@@ -2670,6 +2717,142 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     return requeue(inst, args.unit, mode, say=say)
 
 
+def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
+    """Plan the named, `--all` or `--failed` changes again, now.
+
+    What a tick does for a change, whatever its recorded plan says: the plan is
+    asked for and the `Needs:` lines linked, so the units stored are what the
+    next tick would have produced. Started work is left as it is (the store
+    keeps it), and only what differs from before is printed.
+    """
+    store = store_for(inst)
+    on_disk = (
+        sorted(
+            path.name
+            for path in inst.changes_dir.iterdir()
+            if path.is_dir() and path.name != "archive"
+        )
+        if inst.changes_dir.is_dir()
+        else []
+    )
+    records = _planned_hashes(inst)
+    max_attempts = inst.max_plan_attempts
+
+    if not (args.changes or args.all or args.failed):
+        for change in (path.parent.name for path in inst.tasks_files()):
+            print(f"{change}: {_plan_state(records.get(change), max_attempts)}")
+        print("usage: abk replan CHANGE|UNIT... | --all | --failed [--forget]")
+        return 2
+
+    selected: dict[str, None] = {}
+    refused = 0
+    units = {unit.id: unit for unit in store.all()}
+    for name in args.changes:
+        change = name
+        if name not in on_disk and name in units:
+            change = units[name].change
+            print(f"{name} is in change {change}: planning {change}")
+        elif name not in on_disk and name.split("/")[0] in on_disk and "/" in name:
+            change = name.split("/")[0]
+            print(f"{name} is in change {change}: planning {change}")
+        selected[change] = None
+    if args.all:
+        selected.update(dict.fromkeys(path.parent.name for path in inst.tasks_files()))
+    if args.failed:
+        selected.update(
+            dict.fromkeys(
+                path.parent.name
+                for path in inst.tasks_files()
+                if records.get(path.parent.name, {}).get("ok") is False
+            )
+        )
+
+    to_plan: list[str] = []
+    for change in selected:
+        tasks = inst.changes_dir / change / "tasks.md"
+        if change not in on_disk:
+            print(
+                f"abk replan: {change!r} is not a change (changes: {', '.join(on_disk) or 'none'})"
+            )
+        elif not tasks.is_file():
+            print(f"abk replan: {change} has no tasks.md")
+        elif not args.forget and validate_tasks(tasks, repos=tuple(inst.repos))[1]:
+            print(f"abk replan: {change} has task-group problems — run `abk tags`")
+        else:
+            to_plan.append(change)
+            continue
+        refused += 1
+
+    if args.forget:
+        record_plans(inst, dict.fromkeys(to_plan))
+        for change in to_plan:
+            print(f"forgot the plan of {change}; the next tick plans it")
+        return 1 if refused else 0
+    if not to_plan:
+        print("no change to plan")
+        return 1 if refused else 0
+
+    print(f"planning {', '.join(to_plan)}: {len(to_plan)} model call(s)")
+    before = {unit.id: unit for unit in store.all()}
+    results = plan_all(inst, store=store, only=set(to_plan), force=True)
+    link_needs(inst, store=store)
+    after = {unit.id: unit for unit in store.all()}
+
+    failed = [change for change in to_plan if results[change].status != "planned"]
+    for change in failed:
+        print(f"{change}: the plan failed — see above")
+    for change in to_plan:
+        if results[change].dropped_joins:
+            print(f"{change}: {results[change].dropped_joins} join(s) dropped, a unit started")
+    differences = _replan_differences(before, after)
+    for line in differences or ["nothing changed"]:
+        print(line)
+    for unit in after.values():
+        if unit.change in to_plan and unit.state not in (PLANNED, UNPLANNED):
+            print(f"kept: {unit.id}, {unit.state.value}")
+    return 1 if refused or failed else 0
+
+
+def _plan_state(record: dict | None, max_attempts: int) -> str:
+    """How a change's recorded plan reads in the listing `abk replan` gives."""
+    if not record:
+        return "never planned"
+    if record.get("ok"):
+        return "planned"
+    attempts = record.get("attempts", 0)
+    if attempts >= max_attempts:
+        return "given up"
+    return f"failing {attempts}/{max_attempts}"
+
+
+def _replan_differences(
+    before: Mapping[str, StoredUnit], after: Mapping[str, StoredUnit]
+) -> list[str]:
+    """What a replan changed in the store, a line for each difference and none for
+    a unit that is the same."""
+    lines: list[str] = []
+    for uid, unit in after.items():
+        old = before.get(uid)
+        if old is None:
+            lines.append(f"{uid}: planned, {unit.estimated_lines} lines, {unit.tier}")
+            continue
+        if unit.state == UNPLANNED and old.state != UNPLANNED:
+            lines.append(f"{uid}: now unplanned, the plan no longer has it")
+        for label, was, now in (
+            ("depends on", old.depends_on, unit.depends_on),
+            ("waits for", old.merge_before, unit.merge_before),
+        ):
+            if removed := [x for x in was if x not in now]:
+                lines.append(f"{uid}: no longer {label} {', '.join(removed)}")
+            if added := [x for x in now if x not in was]:
+                lines.append(f"{uid}: now {label} {', '.join(added)}")
+        if unit.estimated_lines != old.estimated_lines:
+            lines.append(f"{uid}: estimate {old.estimated_lines} -> {unit.estimated_lines} lines")
+        if unit.tier != old.tier:
+            lines.append(f"{uid}: tier {old.tier} -> {unit.tier}")
+    return lines
+
+
 def _approval(inst: Installation, unit: StoredUnit) -> str | tuple[int, str]:
     """Why `unit` cannot be approved as stored, or the round and head to approve."""
     from agent_build_kit.serve.review import ReviewStore, branch_tip
@@ -2900,6 +3083,17 @@ def register(sub: argparse._SubParsersAction) -> None:
         "(a failed check), instead of resuming into the same failure",
     )
     requeue.set_defaults(func=cmd_requeue)
+
+    replan = sub.add_parser("replan", help="plan changes again now, whatever their recorded plan")
+    replan.add_argument("changes", nargs="*", help="change names, or unit ids")
+    replan.add_argument("--all", action="store_true", help="every active change")
+    replan.add_argument(
+        "--failed", action="store_true", help="every change whose last plan failed or gave up"
+    )
+    replan.add_argument(
+        "--forget", action="store_true", help="only clear the recorded plans; make no model call"
+    )
+    replan.set_defaults(func=cmd_replan)
 
     approve = sub.add_parser(
         "approve", help="record your approval of a unit's current review round"

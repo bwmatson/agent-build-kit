@@ -322,6 +322,37 @@ or one the pass is holding: a run killed in a node resumes from its thread. Reco
 once, after a second, when the first read fails; if the second fails too, the
 unit is logged as stranded and the error is raised as before.
 
+### `abk replan [CHANGE|UNIT ...] [--all] [--failed] [--forget]`
+
+Plans changes again now, whatever their recorded plan says. A tick plans a change
+only when its `tasks.md` changes (or its last plan failed and attempts remain);
+this is the way to ask for a plan otherwise. For each selected change it drops the
+recorded plan, asks the planner, and links the `Needs:` lines, the two steps a tick
+performs, so the units stored are what the next tick would have produced. It first
+says how many model calls it will make.
+
+- **Selecting.** Names are the folders of the active changes. A unit id
+  (`feature/2`) is mapped to the change that carries it, and the command says so.
+  `--all` is every active change; `--failed` every change whose last plan failed
+  or gave up. With none, the command lists each change with the state of its plan
+  (`planned`, `failing 2/3`, `given up`, `never planned`), plans nothing and exits 2.
+- **`--forget`** clears the records and stops: no model call, and the next tick
+  plans them.
+- **Started work is left alone.** A unit that is running, in review, failed, held,
+  merged or satisfied keeps its state, branch, pull request and history. A planned
+  unit takes the new shape; an unstarted one the plan drops becomes `unplanned`.
+  Dependencies are rebuilt from the plan, so a stale one is removed, and the `Needs:`
+  lines are linked again on top.
+- **It prints what differs** from before: dependencies and merge gates added and
+  removed, estimate and tier changes, units that became `unplanned`, joins dropped,
+  and each started unit it left alone (`kept: feature/1, running`); nothing for a
+  unit that did not change, or "nothing changed".
+
+A name that is not a change, a change without a `tasks.md` and a change with
+task-group tag errors (run `abk tags`) are refused and nothing is planned for them.
+Exit 0 when every selected change planned, 1 when any failed or was refused, 2 for
+a usage error.
+
 ## Setting up
 
 ### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--register-store ID]`
