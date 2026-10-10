@@ -34,6 +34,7 @@ from agent_build_kit.init.scaffold import (
     ConventionResult,
     ScaffoldError,
     draft_config,
+    fill_missing_environment,
     update_rules,
     write_code_repo_conventions,
     write_planning_repo,
@@ -324,6 +325,11 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         return 2
 
     names = list(config.repos)
+    if config.environment is not None and not config.environment.sync:
+        print(
+            "environment: nothing recognised in the planning repo; set `environment.sync` "
+            "and `environment.check` in abk.yaml by hand"
+        )
     if args.dry_run:
         print("# abk.yaml as it would be written:\n")
         print(dump(config))
@@ -345,6 +351,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print(f"wrote {path.relative_to(planning)}")
     if (planning / "abk.yaml") not in written:
         print("kept abk.yaml (use --force to overwrite)")
+        for what in fill_missing_environment(planning / CONFIG_FILENAME, config):
+            print(f"filled {what} in abk.yaml")
 
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)

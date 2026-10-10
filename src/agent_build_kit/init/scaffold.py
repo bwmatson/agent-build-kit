@@ -33,6 +33,7 @@ from agent_build_kit.config import (
     DeployConfig,
     DeployRule,
     DevStackConfig,
+    LimitsConfig,
     NamesFrom,
     ProjectConfig,
     RepoConfig,
@@ -40,6 +41,7 @@ from agent_build_kit.config import (
     dump,
 )
 from agent_build_kit.init.detect import RepoDetection
+from agent_build_kit.init.environment import detect_environment, lock_patterns, unrecognised
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 
@@ -130,6 +132,7 @@ def draft_config(
         # is the forge's answer and differs per host.
         repos[name] = RepoConfig.model_validate(
             {
+                "environment": detect_environment(detection.path, framework=False),
                 "path": detection.path,
                 "forge": forge.name,
                 **named,
@@ -155,7 +158,44 @@ def draft_config(
                 ),
             }
         )
-    return WorkspaceConfig(repos=repos)
+    planning_environment = detect_environment(planning_dir, framework=True) or unrecognised()
+    patterns = lock_patterns(planning_environment, *(r.environment for r in repos.values()))
+    return WorkspaceConfig(
+        environment=planning_environment,
+        repos=repos,
+        limits=LimitsConfig(generated_files=tuple(patterns)),
+    )
+
+
+def fill_missing_environment(
+    path: Path, drafted: WorkspaceConfig, *, dry_run: bool = False
+) -> list[str]:
+    """Add what an existing abk.yaml lacks of the environment: the planning
+    section, each listed repo's section, and the generated-file patterns.
+    What the file already says is not touched. Returns what was (or would be)
+    filled."""
+    raw = yaml.safe_load(path.read_text()) or {}
+    drafted_raw = yaml.safe_load(dump(drafted)) or {}
+    filled: list[str] = []
+    # A planning section nothing was recognised for is not added to a file that
+    # loads without it: empty commands would stop it loading.
+    if "environment" not in raw and drafted_raw.get("environment", {}).get("sync"):
+        raw["environment"] = drafted_raw["environment"]
+        filled.append("environment")
+    repos = raw.get("repos") or {}
+    for name, entry in repos.items():
+        wanted = drafted_raw.get("repos", {}).get(name, {}).get("environment")
+        if isinstance(entry, dict) and "environment" not in entry and wanted:
+            entry["environment"] = wanted
+            filled.append(f"repos.{name}.environment")
+    patterns = drafted_raw.get("limits", {}).get("generated_files")
+    limits = raw.get("limits") or {}
+    if patterns and "generated_files" not in limits:
+        raw["limits"] = {**limits, "generated_files": patterns}
+        filled.append("limits.generated_files")
+    if filled and not dry_run:
+        path.write_text(yaml.safe_dump(raw, sort_keys=False, default_flow_style=False))
+    return filled
 
 
 # --- rendering ------------------------------------------------------------------

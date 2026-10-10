@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Configuration can now describe the environment the pipeline runs in: an `environment`
+  section with a required `sync` command, a required `check` command and the dependency,
+  lock and other files that decide when a sync is needed. A repository entry takes the same
+  section. `abk init` writes it where it recognises the layout (and says to set the commands
+  by hand where it does not), and fills it, and `limits.generated_files`, when an existing
+  file lacks them, leaving a section already there alone. `abk doctor` warns where none is
+  managed, reports a listed file that does not exist and runs `check`. The lock files named
+  in the environments are left out of a unit's size, and the built-in list of lock file
+  names is gone: an installation relying on it must run init's fill step, or list them.
+
 - A test that fails under load and passes alone no longer fails the unit that met it. When
   tier 1 fails on tests, the profile reads which ones from the output and they are run again,
   serially, twice (python-uv has the hooks; a profile without them behaves as before). If

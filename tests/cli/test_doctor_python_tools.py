@@ -9,7 +9,7 @@ import pytest
 
 from agent_build_kit import skills
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump
+from agent_build_kit.config import EnvironmentConfig, RepoConfig, WorkspaceConfig, dump
 from agent_build_kit.init.scaffold import render_openspec_config
 from tests.factories import init_repo
 
@@ -76,7 +76,11 @@ def planning(tmp_path: Path) -> Path:
     app = init_repo(tmp_path / "app")
     (app / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n")
     (app / ".gitattributes").write_text("CHANGELOG.md merge=union\n")
-    config = WorkspaceConfig(repos={"app": RepoConfig(path=app, slug="example/app")})
+    environment = EnvironmentConfig(sync=["env-sync"], check=["env-check"])
+    config = WorkspaceConfig(
+        environment=environment,
+        repos={"app": RepoConfig(path=app, slug="example/app", environment=environment)},
+    )
     (root / "abk.yaml").write_text(dump(config))
     (root / "openspec").mkdir()
     (root / "openspec" / "config.yaml").write_text(render_openspec_config(config))

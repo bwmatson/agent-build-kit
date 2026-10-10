@@ -105,7 +105,7 @@ limits:
   max_unit_lines: 750         # estimated lines one unit may carry; above
                               # min_unit_lines. Shapes plans; a unit landing
                               # over it is reported, never blocked
-  generated_files: [uv.lock, ...]  # patterns left out of a unit's actual size
+  generated_files: [uv.lock, ...]  # patterns left out of a unit's actual size (plus environment lock files)
   max_review_rounds: 3        # review rounds before a unit fails
   max_check_rounds: 3         # fix rounds for failing checks, per review round; null = no limit; 0 = none (still checked)
   max_adapt_rounds: 2         # adapt-step accounting asks, first included,

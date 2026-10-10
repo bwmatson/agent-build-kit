@@ -156,6 +156,22 @@ is, and the reason is printed. Finally the next steps: review `abk.yaml`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
 the timers with `abk install-timers`.
 
+## The environment section
+
+Init is the only place that guesses an `environment` section. It reads marker
+files in the planning repo and in each code repo (a manifest, its lock file,
+and the checkouts the manifest names as path sources) and writes a `sync`
+command, a `check`, and the manifests and lock files found. The lock files
+are also written into `limits.generated_files`. Where it recognises nothing
+it writes the planning section with empty commands and says to set them by
+hand; configuration refuses empty commands until then. A code repo it does
+not recognise gets no section, and `abk doctor` warns.
+
+Over an existing `abk.yaml` init fills what is missing and nothing else: the
+planning section, each listed repo's section and `limits.generated_files`.
+A section already present is never changed. The dry run shows the drafted
+file.
+
 ## Idempotence and `--force`
 
 Running init again over the same planning repo is safe: the layout writes
