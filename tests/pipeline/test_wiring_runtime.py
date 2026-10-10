@@ -213,6 +213,22 @@ def test_a_step_that_leaves_the_remote_alone_is_not_failed(tmp_path: Path) -> No
     assert build_run(runtime=StandInRuntime(answer="ok"))("Go.", cwd=tree, model=MODEL) == "ok"
 
 
+def test_an_agent_that_commits_with_no_origin_has_not_pushed(tmp_path: Path) -> None:
+    """With no remote the branch the guard would read is the worktree's own,
+    which any commit moves: there is no push to catch."""
+    make_installation(tmp_path / "planning")
+    tree = init_repo(tmp_path / "tree")
+    git(tree, "commit", "-q", "--allow-empty", "-m", "base")
+    git(tree, "checkout", "-q", "-b", "spec/add-marker/1")
+
+    def commit(request) -> None:
+        git(tree, "commit", "-q", "--allow-empty", "-m", "work")
+
+    runtime = StandInRuntime(answer="ok", act=commit)
+
+    assert build_run(runtime=runtime)("Implement it.", cwd=tree, model=MODEL) == "ok"
+
+
 def _noop(text: str) -> None:
     return None
 
