@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW
 from tests.conftest import make_installation, workspace_config
-from tests.environment_fakes import SYNC_FAILED_OUTPUT, FakeEnvironment
+from tests.environment_fakes import BROKEN_OUTPUT, SYNC_FAILED_OUTPUT, FakeEnvironment
 from tests.factories import git, init_repo
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import Recorder
@@ -115,13 +115,42 @@ def test_a_unit_that_edits_a_manifest_has_sync_run_before_its_next_tier_1(tmp_pa
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,))
     habitat = Habitat(tmp_path, env)
     recorder = fresh(tmp_path)
+    recorder.tier1_results = [(False, "E assert 1 == 2"), (True, "")]
 
     outcome = drive(tmp_path, habitat, recorder, agent_edits={"claude:impl": habitat.edit_manifest})
 
     assert outcome.status == "open"
-    assert sequence(env) == ["sync", "claude:tests", "claude:impl", "sync", "tier1"]
+    assert sequence(env)[:5] == ["sync", "claude:tests", "claude:impl", "sync", "tier1"]
     calls = env.calls()
     assert calls[calls.index("tier1") - 1] == "check", "the check came after sync, before tier 1"
+    assert sequence(env).count("tier1") == 2
+    assert sequence(env).count("sync") == 2, "the edit's hash was recorded: no third sync"
+
+
+def test_a_failing_check_after_the_units_own_manifest_change_goes_to_the_fix_round(
+    tmp_path: Path,
+) -> None:
+    env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,))
+    habitat = Habitat(tmp_path, env)
+    recorder = fresh(tmp_path)
+
+    def breaks_the_import() -> None:
+        habitat.edit_manifest()
+        env.break_it()
+
+    outcome = drive(
+        tmp_path,
+        habitat,
+        recorder,
+        agent_edits={"claude:impl": breaks_the_import, "claude:fix_checks": env.mend},
+    )
+
+    assert outcome.status == "open"
+    stored = recorder.store.get(UNIT)
+    assert (stored.state, stored.cause) != (FAILED, Cause.ENVIRONMENT)
+    assert "claude:fix_checks" in env.calls()
+    fix_prompt = next(prompt for prompt in recorder.prompts if "checks (lint" in prompt)
+    assert BROKEN_OUTPUT in fix_prompt
 
 
 def test_unchanged_inputs_run_no_sync_before_a_later_tier_1(tmp_path: Path) -> None:

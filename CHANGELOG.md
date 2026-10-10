@@ -28,8 +28,8 @@
   now kept current in each unit's worktree: before the tests and before every tier 1, `sync`
   runs there when its inputs changed since the worktree was last synced, then `check`. A
   failure with inputs equal to the base branch's is the environment's (the same cause); a
-  failing `sync` after the unit changed its own manifest goes to the fix round with the
-  sync output.
+  failing `sync` or `check` after the unit changed its own manifest goes to the fix round
+  with the output.
 
 - Cost in the ledger is now each call's own spend. A Claude Code call's reported cost is the
   session's running total, so every report, summary, the web UI and the `abk.agent.cost`

@@ -151,8 +151,8 @@ environment:                    # how the pipeline's own environment is kept
 # It runs in the unit's worktree: before the tests and every tier 1, `sync` runs
 # when the inputs' hash differs from the one recorded for that worktree, then
 # `check`. With inputs equal to the base branch's a failure is the environment's
-# (cause `environment`); a failing `sync` after the unit changed an input is the
-# unit's, and its output is the fix round's feedback.
+# (cause `environment`); a failing `sync` or `check` after the unit changed an
+# input is the unit's, and its output is the fix round's feedback.
 
 limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a

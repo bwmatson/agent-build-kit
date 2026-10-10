@@ -89,7 +89,7 @@ def problem(root: Path) -> str | None:
 class WorktreeFault(Frozen):
     """A repository's environment failing in a unit's worktree: what it printed, and
     whether it is the environment's (the unit left the inputs as the base has them) or
-    the unit's own."""
+    the unit's own (its branch changed them, so a failing `sync` or `check` is its to fix)."""
 
     output: str
     environment: bool
@@ -99,17 +99,20 @@ WORKTREE_RECORD = "abk-environment-hash"
 
 
 def _changed_from_base(environment: EnvironmentConfig, tree: Path, base: str) -> bool:
-    """Whether the worktree's inputs differ from the base branch's."""
+    """Whether the unit changed the inputs: the worktree's copies against the base's at the
+    point the branch left it. Compared as git's own object ids, so line endings and
+    encodings are never decoded."""
     inputs = environment.inputs
+    fork = git(tree, "merge-base", base, "HEAD", check=False)
+    point = fork.stdout.strip() if fork.returncode == 0 and fork.stdout.strip() else base
     for name in (*inputs.dependencies, *inputs.lock, *inputs.other):
-        shown = git(tree, "show", f"{base}:{name}", check=False)
-        path = tree / name
-        here = path.read_bytes() if path.is_file() else None
-        there = shown.stdout.encode() if shown.returncode == 0 else None
-        if here is None or there is None:
-            if here is not there:
+        there = git(tree, "rev-parse", "--verify", "-q", f"{point}:{name}", check=False)
+        here = (tree / name).is_file()
+        if not here or there.returncode != 0:
+            if here or there.returncode == 0:
                 return True
-        elif here.strip() != there.strip():
+            continue
+        if git_out(tree, "hash-object", "--", name) != there.stdout.strip():
             return True
     return False
 
@@ -124,21 +127,21 @@ def prepare_worktree(repo: RepoConfig | None, tree: Path, base: str) -> Worktree
     record = Path(git_out(tree, "rev-parse", "--absolute-git-dir")) / WORKTREE_RECORD
     digest = inputs_hash(environment, tree)
     failure = ""
-    syncing = False
     if not record.is_file() or record.read_text() != digest:
         ok, output = _run(environment.sync, tree)
         if ok:
             record.write_text(digest)
         else:
-            failure, syncing = output or f"{' '.join(environment.sync)} failed", True
+            failure = output or f"{' '.join(environment.sync)} failed"
     if not failure:
         ok, output = _run(environment.check, tree)
         if not ok:
             failure = output or f"{' '.join(environment.check)} failed"
     if not failure:
         return None
-    own = syncing and _changed_from_base(environment, tree, base)
-    return WorktreeFault(output=failure, environment=not own)
+    return WorktreeFault(
+        output=failure, environment=not _changed_from_base(environment, tree, base)
+    )
 
 
 def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
