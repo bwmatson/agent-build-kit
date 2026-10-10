@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
 
@@ -497,6 +498,26 @@ class VerifyConfig(Frozen):
     env: dict[str, Provider] = {}
 
 
+class NotificationProvider(StrEnum):
+    """Which provider shows the cards; `OFF` builds none."""
+
+    OFF = "off"
+    COMMAND = "command"
+    WINDOWS = "windows"
+
+
+class CommandTemplates(Frozen):
+    show: str = ""
+    clear: str = ""
+
+
+class NotificationsConfig(Frozen):
+    provider: NotificationProvider = NotificationProvider.OFF
+    remind_after_minutes: int = 30
+    delay_minutes: int = 10
+    command: CommandTemplates = CommandTemplates()
+
+
 def stack_versions_for(verify: VerifyConfig, profile: infra.InfraProfile) -> list[str] | None:
     """The command that records the live stack: the config's when set, else the
     repo's infrastructure profile's."""
@@ -529,6 +550,8 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # The cards that tell a person a unit waits on them; off by default.
+    notifications: NotificationsConfig = NotificationsConfig()
     # How the pipeline's own environment is kept current; None manages none.
     environment: EnvironmentConfig | None = None
     # Per agent role (`build`, `review`), whether its nodes continue the role's
