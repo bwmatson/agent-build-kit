@@ -141,7 +141,7 @@ class GitHubState:
         self.pulls = [deepcopy(p) for p in pulls]
         self.made: dict[int, Pull] = {}
         self.page_size = page_size
-        self.next_number = first_number
+        self.next_number = max(first_number, max((p["number"] for p in pulls), default=0) + 1)
         self.ids = 0
         self.statuses: list[tuple[str, str, str]] = []
         self.repo_labels: dict[str, dict] = {
@@ -307,7 +307,12 @@ def _list_pulls(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.R
 def _create_pull(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
     body = seen.body or {}
     head = str(body.get("head", ""))
-    if any(p.head == head and not p.merged for p in state.made.values()):
+    held = any(p.head == head and not p.merged for p in state.made.values()) or any(
+        n["headRefName"] == head and n["state"] == "OPEN"
+        for n in state.nodes()
+        if n["number"] not in state.made
+    )
+    if held:
         problem = {
             "resource": "PullRequest",
             "code": "custom",

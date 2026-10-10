@@ -182,3 +182,22 @@ def test_a_scripted_route_overrides_the_table_on_the_server_for_its_test_only() 
 def test_a_host_built_over_a_state_refuses_what_the_state_decides() -> None:
     with FakeGitHub() as server, pytest.raises(ValueError):
         GitHubHost(state=server.state, page_size=5)
+
+
+def test_a_pull_request_made_on_a_seeded_host_gets_the_next_number_and_a_seeded_head_is_taken() -> (
+    None
+):
+    host = GitHubHost(gh.pull(1, head="spec/a/1"))
+    other = {**OPEN, "head": "spec/b/1"}
+
+    made = through_host(host, ("c", "POST", f"{BASE}/pulls", {}, other))
+    listed = through_host(host, BY_ID["pull-list"])
+    again = through_host(host, ("c", "POST", f"{BASE}/pulls", {}, {**OPEN, "head": "spec/a/1"}))
+
+    assert made[0] == 201
+    assert made[1]["number"] == 2
+    assert [(p["number"], p["head"]["ref"]) for p in listed[1]] == [
+        (1, "spec/a/1"),
+        (2, "spec/b/1"),
+    ]
+    assert again[0] == 422
