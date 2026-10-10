@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import select
 import signal
 import threading
 import time
@@ -40,6 +41,7 @@ from tests.runtimes.acp_agent import (
     STDERR_LINE,
     THOUGHT,
     TOOL_TITLE,
+    orphan_life_fifo,
     orphan_pid_file,
     requests,
     use_agent,
@@ -380,29 +382,28 @@ def test_an_agent_abk_had_to_kill_is_a_failed_result_not_an_interruption(
     assert result.raw != ""
 
 
-def _gone(pid: int) -> bool:
-    """Whether `pid` has exited. A zombie counts: once its parent is gone it
-    waits on whatever adopted it to reap it, which need not be prompt."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        # It existed a moment ago and its entry is gone now: it exited and was
-        # reaped in between. Read as "still running", this made a process that
-        # died on time look like one that outlived the run.
-        return True
-    # The state follows the command name, which is in parentheses.
-    return stat.rpartition(")")[2].split()[0] == "Z"
+def _watch_child(record: Path) -> int:
+    """Open the end of the child's life pipe the test reads, before the run."""
+    fifo = orphan_life_fifo(record)
+    os.mkfifo(fifo)
+    return os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
 
 
-def _gone_soon(pid: int) -> bool:
-    deadline = time.monotonic() + 5
-    while not _gone(pid) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    return _gone(pid)
+def _read_to_end(watch: int) -> bool:
+    """Whether the child's pipe closed: it is up once it has written, and
+    gone once its write end closes, which waits on that event, not a clock.
+    The bound is only so a child that never dies fails the test."""
+    try:
+        up = False
+        while select.select([watch], [], [], 30)[0]:
+            chunk = os.read(watch, 1)
+            if chunk:
+                up = True
+            elif up:
+                return True
+        return False
+    finally:
+        os.close(watch)
 
 
 def _kill_if_left(pid: int) -> None:
@@ -437,10 +438,11 @@ def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
     monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
     record = tmp_path / "agent.jsonl"
     use_agent(record, fail="orphan")
+    watch = _watch_child(record)
 
     result, elapsed = _run_bounded(_request(worktree, specs))
     orphan = int(orphan_pid_file(record).read_text())
-    left = not _gone_soon(orphan)
+    left = not _read_to_end(watch)
     if left:
         _kill_if_left(orphan)
 
@@ -487,10 +489,11 @@ def test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_kill
     monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
     record = tmp_path / "agent.jsonl"
     use_agent(record, linger=True)
+    watch = _watch_child(record)
 
     result, elapsed = _run_bounded(_request(worktree, specs))
     child = int(orphan_pid_file(record).read_text())
-    left = not _gone_soon(child)
+    left = not _read_to_end(watch)
     if left:
         _kill_if_left(child)
 

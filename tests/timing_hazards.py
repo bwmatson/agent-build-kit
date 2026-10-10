@@ -47,7 +47,6 @@ ALLOWLIST: frozenset[str] = frozenset(
         "integration/test_telemetry_stack.py",
         "pipeline/test_scratch_folder.py",
         "pipeline/test_tier2.py",
-        "runtimes/test_acp_outcome.py",
         "serve/test_chat_guards.py",
         "serve/test_serve_binding.py",
         "serve/test_serve_metrics.py",
