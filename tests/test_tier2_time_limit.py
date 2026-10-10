@@ -156,10 +156,13 @@ def test_a_tier2_test_past_its_limit_fails_naming_the_tier2_limit(tmp_path: Path
 def test_a_test_without_the_marker_still_fails_at_the_fast_limit_with_the_old_message(
     tmp_path: Path,
 ) -> None:
-    code, output = run_child(tmp_path, HANGING, "--test-time-limit=1", "--tier2-test-time-limit=20")
+    code, output = run_child(
+        tmp_path, SLOW_BOTH, "--test-time-limit=1", "--tier2-test-time-limit=20"
+    )
 
-    assert "1 failed" in output, output
-    assert "FAILED test_child.py::test_fast_hangs" in output, output
+    assert code == 1, output
+    assert "1 failed, 1 passed" in output, output
+    assert "FAILED test_child.py::test_fast_is_slow" in output, output
     assert "test exceeded the time limit of 1 seconds" in output, output
     assert "tier-2" not in output, output
 
