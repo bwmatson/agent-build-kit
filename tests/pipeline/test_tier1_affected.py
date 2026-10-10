@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from agent_build_kit.config import AffectedConfig, ProjectConfig, RepoConfig
@@ -21,7 +22,6 @@ from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
-from tests.factories import git, init_repo
 
 FAILED_OUTPUT = "FAILED tests/test_a.py::test_one - assert 1 == 2\nFAILED tests/test_b.py::test_two"
 CHANGED = ["src/a b.py", "src/c.py"]
@@ -430,18 +430,26 @@ def test_a_placeholder_inside_a_longer_word_is_refused_at_load(template: str) ->
         AffectedConfig(mode="command", command=template)
 
 
-def test_the_check_cache_is_never_written_by_a_fix_round(tmp_path: Path) -> None:
-    work = init_repo(tmp_path / "repo")
-    (work / "f.txt").write_text("x\n")
-    git(work, "add", "-A")
-    git(work, "commit", "-qm", "work")
-    cache = CheckCache(tmp_path / "state" / "cache.json")
+def test_no_cache_records_a_result_of_a_fix_round_selected_or_full(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded: list[tuple[object, ...]] = []
+    monkeypatch.setattr(CheckCache, "record", lambda *args, **kw: recorded.append(args))
     disagreeing = Commands(**{"full-tests": (1, "1 test failed")})
 
-    passed, _ = fix_round(work, disagreeing)
+    passed, _ = fix_round(tmp_path, disagreeing)
     assert not passed
-    passed, _ = fix_round(work, Commands())
+    passed, _ = fix_round(tmp_path, Commands())
 
     assert passed
-    assert cache.lookup(work, git(work, "rev-parse", "HEAD")) is None
-    assert not cache.path.exists(), "a selected result never stands in for the full one"
+    assert recorded == [], "a selected result never stands in for the full one"
+
+
+def test_the_documented_unquoted_off_loads_from_yaml() -> None:
+    repo = RepoConfig.model_validate(
+        yaml.safe_load("path: x\nchecks:\n  affected:\n    mode: off\n")
+    )
+
+    assert repo.checks.affected == AffectedConfig(mode="off")
+    with pytest.raises(ValidationError):
+        AffectedConfig.model_validate(yaml.safe_load("mode: true"))

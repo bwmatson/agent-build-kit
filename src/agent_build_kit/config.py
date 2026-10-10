@@ -385,6 +385,12 @@ class AffectedConfig(Frozen):
     # each replaced by separate quoted arguments.
     command: str | None = None
 
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _unquoted_off(cls, value: object) -> object:
+        # YAML 1.1 reads an unquoted `off`, the documented default, as the boolean False.
+        return "off" if value is False else value
+
     @model_validator(mode="after")
     def _command_mode_needs_its_template(self) -> AffectedConfig:
         if self.mode == "command" and not self.command:
