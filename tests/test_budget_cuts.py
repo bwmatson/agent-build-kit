@@ -87,10 +87,56 @@ def test_a_head_cut_inside_a_code_fence_closes_it() -> None:
     assert "after" not in got
 
 
-def test_a_tail_cut_that_starts_inside_a_fence_leaves_it_balanced() -> None:
+def assert_code_fenced_and_prose_not(got: str) -> None:
+    """Every kept code line sits inside a fence, and 'after' outside any."""
+    inside = False
+    code_lines = 0
+    for line in got.splitlines():
+        if line.startswith("```"):
+            inside = not inside
+        elif line.startswith("line "):
+            code_lines += 1
+            assert inside, line
+        elif line == "after":
+            assert not inside
+    assert code_lines
+    assert "after" in got
+    assert not inside
+
+
+def test_a_tail_cut_that_starts_inside_a_fence_reopens_it() -> None:
+    text = "intro\n\n```\n" + lined(100) + "\n```\n\nafter"
+    got = cut_tail(text, 300, "line", marker="[cut]")
+    assert len(got) <= 300
+    assert got.startswith("[cut]")
+    assert got.split("\n\n")[1].startswith("```")
+    assert_code_fenced_and_prose_not(got)
+
+
+def test_a_tail_cut_without_a_marker_starts_with_the_fence() -> None:
     text = "intro\n\n```\n" + lined(100) + "\n```\n\nafter"
     got = cut_tail(text, 300, "line")
     assert len(got) <= 300
+    assert got.startswith("```\n")
+    assert_code_fenced_and_prose_not(got)
+
+
+def test_a_middle_cut_whose_tail_is_inside_a_fence_reopens_it() -> None:
+    text = "intro\n\n```\n" + lined(100) + "\n```\n\nafter"
+    got = cut_middle(text, 500, "line", marker="[cut]")
+    assert len(got) <= 500
+    head, tail = got.split("[cut]")
+    assert head.startswith("intro")
+    assert tail.strip().startswith("```")
+    assert_code_fenced_and_prose_not(tail)
+
+
+def test_a_tail_cut_inside_a_fence_in_a_details_block_reopens_both() -> None:
+    text = "<details>\n<summary>Full</summary>\n\n```\n" + lined(100) + "\n```\n\n</details>\n"
+    got = cut_tail(text, 300, "line")
+    assert len(got) <= 300
+    assert got.startswith("<details>\n```\n")
+    assert got.count("<details") == got.count("</details>")
     assert got.count("```") % 2 == 0
 
 

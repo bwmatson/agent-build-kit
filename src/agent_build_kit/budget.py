@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Literal
 
+from pydantic import Field
+
 from agent_build_kit.model import Frozen
 
 Boundary = Literal["char", "line", "paragraph"]
@@ -25,21 +27,26 @@ def _pieces(text: str, boundary: Boundary) -> list[str]:
     return list(text) if boundary == "char" else text.split(_JOINERS[boundary])
 
 
-def _closers(kept: str) -> list[str]:
-    """What closes the code fence and details block `kept` leaves open."""
-    lines = kept.split("\n")
+def _open_state(text: str) -> tuple[bool, int]:
+    """Whether `text` leaves a code fence open, and how many details blocks."""
+    lines = text.split("\n")
     fenced = sum(line.lstrip().startswith("```") for line in lines) % 2 == 1
     depth = sum(line.strip().startswith("<details") for line in lines) - sum(
         "</details>" in line for line in lines
     )
-    return (["```"] if fenced else []) + ["</details>"] * max(depth, 0)
+    return fenced, max(depth, 0)
 
 
-def _assemble(kept: str, marker: str, marker_first: bool) -> str:
-    closers = _closers(kept)
-    body = "\n".join([kept, *closers]) if closers else kept
-    parts = [marker, body] if marker_first else [body, marker]
-    return "\n\n".join(part for part in parts if part)
+def _closers(kept: str) -> list[str]:
+    """What closes the code fence and details block `kept` leaves open."""
+    fenced, depth = _open_state(kept)
+    return (["```"] if fenced else []) + ["</details>"] * depth
+
+
+def _openers(dropped: str) -> list[str]:
+    """What reopens the fence and details blocks the dropped head left open."""
+    fenced, depth = _open_state(dropped)
+    return ["<details>"] * depth + (["```"] if fenced else [])
 
 
 def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool) -> str:
@@ -49,8 +56,16 @@ def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool)
     joiner = _JOINERS[boundary]
 
     def build(count: int) -> str:
-        chosen = pieces[:count] if head else pieces[len(pieces) - count :]
-        return _assemble(joiner.join(chosen), marker, marker_first=not head)
+        if head:
+            kept = joiner.join(pieces[:count])
+            body = "\n".join([kept, *_closers(kept)])
+            parts = [body if _closers(kept) else kept, marker]
+        else:
+            split = len(pieces) - count
+            kept = joiner.join(pieces[split:])
+            openers = _openers(joiner.join(pieces[:split])) if kept else []
+            parts = [marker, "\n".join([*openers, kept]) if openers else kept]
+        return "\n\n".join(part for part in parts if part)
 
     if len(build(0)) > size:
         return marker[:size]
@@ -65,12 +80,19 @@ def _cut_side(text: str, size: int, boundary: Boundary, marker: str, head: bool)
 
 
 def cut_head(text: str, size: int, boundary: Boundary = "line", marker: str = "") -> str:
-    """The head of `text`, at most `size` characters, open fence and block closed."""
+    """The head of `text`, at most `size` characters, open fence and block closed.
+
+    On the `char` boundary the cut is not guaranteed to be the longest that fits,
+    because completing a closing fence can shorten what must be appended."""
     return _cut_side(text, size, boundary, marker, head=True)
 
 
 def cut_tail(text: str, size: int, boundary: Boundary = "line", marker: str = "") -> str:
-    """The tail of `text`, at most `size` characters, open fence and block closed."""
+    """The tail of `text`, at most `size` characters.
+
+    A fence or details block the dropped head left open is opened again before the
+    tail, so the tail's own closing lines close it. On the `char` boundary the cut is
+    not guaranteed to be the longest that fits."""
     return _cut_side(text, size, boundary, marker, head=False)
 
 
@@ -95,7 +117,7 @@ class Section(Frozen):
     render: Callable[[int], str]
     natural: int
     smallest: int
-    weight: int = 1
+    weight: int = Field(default=1, ge=1)
     ceiling: int | None = None
     required: bool = False
 
@@ -117,6 +139,8 @@ def _allocate(sections: Sequence[Section], budget: int, separator: str) -> dict[
 
     if sum(natural[i] for i in kept) + gaps() <= budget:
         return {i: natural[i] for i in kept}
+    if sum(smallest[i] for i in kept) + gaps() > budget:
+        return {i: smallest[i] for i in kept}
 
     allocation = {i: smallest[i] for i in kept}
     open_ = list(kept)

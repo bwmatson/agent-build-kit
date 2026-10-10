@@ -183,3 +183,17 @@ def test_a_marker_added_by_a_render_is_still_within_the_budget() -> None:
         section("b", 500),
     ]
     assert len(fit(sections, 200, separator="")) <= 200
+
+
+def test_required_sections_over_the_budget_are_rendered_at_their_smallest_and_cut() -> None:
+    sizes: dict[str, int] = {}
+    sections = [
+        section("a", 500, smallest=30, required=True, sizes=sizes),
+        section("b", 500, smallest=30, required=True, sizes=sizes),
+    ]
+    for budget in (10, 0):
+        sizes.clear()
+        got = fit(sections, budget)
+        assert sizes["a"] >= 30
+        assert sizes["b"] >= 30
+        assert len(got) <= budget
