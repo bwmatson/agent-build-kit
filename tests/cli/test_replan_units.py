@@ -16,7 +16,9 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
     UnitState,
+    branch_name,
 )
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.replan_driver import Replan, answer, planned, tasks_md
 from tests.factories import unit
 
@@ -35,22 +37,26 @@ def seed(run: Replan, uid: str, state: UnitState = PLANNED, **fields) -> None:
 def test_started_and_finished_units_keep_state_and_branch_and_are_reported_kept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_md(len(STARTED)))
+    last = len(STARTED) + 1
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(last))
     for number, state in enumerate(STARTED, start=1):
         seed(run, f"feature/{number}", state)
+    seed(run, f"feature/{last}")
     run.record("feature")
     before = {u.id: u for u in run.store.all()}
-    reply = answer(*(planned(f"feature/{n}", (n,), lines=300) for n in range(1, len(STARTED) + 1)))
+    # The planner is told which units have started and plans only the rest.
+    reply = answer(planned(f"feature/{last}", (last,), lines=300))
 
     code, out = run.run(capsys, "feature", reply=reply)
 
-    assert code == 0
+    assert code == 0, out
     for number, state in enumerate(STARTED, start=1):
         uid = f"feature/{number}"
         after = run.store.get(uid)
         assert (after.state, after.branch) == (state, f"spec/{uid}")
         assert after.estimated_lines == before[uid].estimated_lines
         assert f"kept: {uid}, {state.value}" in out
+    assert run.store.get(f"feature/{last}").estimated_lines == 300
 
 
 def test_a_planned_unit_takes_the_new_shape_and_it_is_reported(
@@ -85,17 +91,19 @@ def test_an_unstarted_unit_the_plan_drops_becomes_unplanned_and_is_reported(
 def test_a_join_dropped_because_a_unit_started_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(1))
-    seed(run, "feature/1", RUNNING)
-    run.store.upsert([unit("other/1", change="other", groups=(1,))])
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(2))
+    seed(run, "feature/1")
     run.record("feature")
-    join = {"onto": "feature/1", "change": "other", "groups": [1], "unit": "other/1"}
+    join = {"onto": "feature/1", "change": "other", "groups": [1], "estimated_lines": 40}
 
-    _, out = run.run(capsys, "other", reply=answer(planned("other/1", (1,)), joins=[join]))
+    # The unit is unstarted when the plan is checked and held by a live build
+    # when the join is written: its branch is locked.
+    with branch_lock(branch_name(run.store.get("feature/1")), root=run.inst.state_dir / "locks"):
+        _, out = run.run(capsys, "other", reply=answer(planned("other/2", (2,)), joins=[join]))
 
     assert "join" in out
     assert "dropped" in out
-    assert run.store.get("feature/1").state == RUNNING
+    assert run.store.get("feature/1").estimated_lines == 140
 
 
 def test_a_stale_dependency_is_removed_and_a_needs_dependency_is_kept(

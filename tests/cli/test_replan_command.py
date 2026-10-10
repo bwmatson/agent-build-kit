@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.runtimes import AgentRequest
 from tests.cli.replan_driver import Replan, answer, planned, tasks_md
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -52,7 +53,14 @@ def test_all_plans_every_active_change(
 ) -> None:
     run = two_changes(tmp_path, monkeypatch)
 
-    code, _ = run.run(capsys, "--all", reply=ONE)
+    def reply_for_the_change_asked_about(request: AgentRequest) -> None:
+        run.runtime.answer = (
+            ONE if "Group 2" in request.prompt else answer(planned("other/1", (1,)))
+        )
+
+    run.runtime.act = reply_for_the_change_asked_about
+
+    code, _ = run.run(capsys, "--all")
 
     assert code == 0
     assert run.calls == 2
