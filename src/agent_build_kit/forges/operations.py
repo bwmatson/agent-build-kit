@@ -40,6 +40,7 @@ _BEST_EFFORT = OperationSpec(kind="idempotent_write", contained=True)
 
 OPERATIONS: Mapping[str, OperationSpec] = {
     "parse_remote": _READ,
+    "api_url": _READ,
     "identity": _READ,
     "config_entry": _READ,
     "web_url": _READ,

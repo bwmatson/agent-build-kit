@@ -72,7 +72,7 @@ from agent_build_kit.forges.transport import (
     credential_for,
 )
 from agent_build_kit.pipeline import units
-from agent_build_kit.settings import settings
+from agent_build_kit.settings import Settings, settings
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
@@ -173,6 +173,9 @@ class GitHubForge:
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"
     description_limit: int = 65_536
+
+    def api_url(self, machine: Settings) -> str | None:
+        return machine.github_api_url
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every API call goes through; None is the network.

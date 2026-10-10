@@ -26,6 +26,7 @@ from agent_build_kit.forges import (
     StackRefused,
 )
 from agent_build_kit.forges.base import FileChange, Run
+from agent_build_kit.settings import Settings
 
 
 class StandInForge:
@@ -39,6 +40,9 @@ class StandInForge:
     requires: tuple[str, ...] = ()
     ci_name: str = "the stand-in CI"
     description_limit: int = 65_536
+
+    def api_url(self, machine: Settings) -> str | None:
+        return None
 
     def __init__(
         self,

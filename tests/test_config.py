@@ -280,3 +280,19 @@ def test_abk_yaml_with_review_reuse_on_fails_to_load(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as error:
         load(path)
     assert "session_reuse" in str(error.value)
+
+
+def _app_tests(tests: dict) -> WorkspaceConfig:
+    return WorkspaceConfig.model_validate({"repos": {"app": {"path": "/work/app", "tests": tests}}})
+
+
+def test_a_misspelled_replay_key_is_refused() -> None:
+    with pytest.raises(ValidationError) as refused:
+        _app_tests({"replay": {"max_age_day": 7}})
+    assert "max_age_day" in str(refused.value)
+
+
+def test_a_repository_has_no_replay_unless_its_section_is_there() -> None:
+    assert _app_tests({}).repos["app"].tests.replay is None
+    replay = _app_tests({"replay": {"max_age_days": 7}}).repos["app"].tests.replay
+    assert replay is not None and replay.max_age_days == 7

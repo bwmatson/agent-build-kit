@@ -671,10 +671,53 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   run uses a service name of its own, so earlier runs in the stores do not
   answer for it. Run with `uv run pytest -m local_stack
   tests/integration/test_telemetry_stack.py`.
+- `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
+  below) puts a reverse proxy in front of a tier-2 test's calls to the model
+  provider and package index, so a rerun of an unchanged call is answered from a
+  recording. It is off unless `ABK_REPLAY_MODE` says otherwise.
 - `serial` marks a test that cannot share a process with others. `poe test`
   runs the suite in parallel workers (pytest-xdist, capped at 8) without these
   tests, then runs them alone in a serial pass. A plain `pytest <file>` runs
   without workers.
+
+## Record and replay of external calls
+
+A tier-2 test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
+reverse proxy with one loopback listener per upstream in its `ReplayConfig`,
+which a test gives by overriding the `replay_config` fixture. The `repos.<name>.tests.replay`
+section holds the same fields and is accepted by the schema, but nothing reads it yet: the
+default fixture returns an empty `ReplayConfig`, which has no upstream. The code under test is pointed at
+the listener through the variables the upstream names in `env`; `fixture.addresses`
+and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
+
+- A cassette is keyed by the upstream's name, method, path, sorted query, the request
+  headers the upstream lists in `keyed_headers` and the body (JSON canonicalised) after
+  the rules a test declares. Credentials are in no key and no file; a configured secret in
+  a response body, a path or a query fails the recording.
+- A call's cassette is written to a staging directory and promoted only when the test's
+  setup, call and teardown have all passed. A call still in flight when the test ends, a
+  response over `max_body_bytes` and a directory past `max_directory_mb` are not
+  promoted, and the proxy lists them (`incomplete`, `too_large`, `over_size`).
+- An upstream whose host is part of the stack (`verify.env` URL values, the repositories'
+  code hosts, the stack settings, loopback, private ranges and single-label names) is
+  refused at startup, naming the key.
+- Normalisation is declared per test (`replay_rules`) and stored in the cassette; the
+  default is none.
+
+### How each upstream is pointed at the proxy
+
+Settled by running the tool where it could be run here, and otherwise left marked:
+
+| Upstream | How it is pointed | State |
+|---|---|---|
+| `uv` package index | `UV_DEFAULT_INDEX` (`UV_INDEX_URL` is deprecated), and `UV_FIND_LINKS` for files outside the index | confirmed from `uv pip install --help`; whether it reaches a tool run inside an agent's subprocess depends on that agent passing its environment on |
+| `npm` registry | the `registry` setting, by `NPM_CONFIG_REGISTRY` or `.npmrc` | UNVERIFIED here: the run was refused in this session |
+| Package files on a second host | an index names the host of its files in its own responses, so a proxy for the index would need a second upstream of its own with the links rewritten when served and never in the stored body | UNVERIFIED: no index was run against a proxy |
+| Claude Code agent (`claude_code` runtime) | `ANTHROPIC_BASE_URL`, added to the agent's environment by the runtime's `request.env` | UNVERIFIED: no agent was started, since one bills on demand; whether its credentials work against a forwarding proxy is also open |
+| ACP agent (`runtimes.acp.command`) | no endpoint override is known: the command is the agent's own, and the framework sets none | UNVERIFIED; left out of replay until an override is shown to work |
+| Model provider streaming | the proxy stores a body as the sequence of chunks received and replays it in order, so the format matters only to the secret scan | the proxy is tested with chunked responses; the provider's event format is UNVERIFIED |
+
+An upstream that cannot be pointed at the proxy is left out, and a replay report says so.
 
 ## Open questions
 

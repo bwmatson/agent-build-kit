@@ -28,6 +28,7 @@ from agent_build_kit.model import Frozen
 if TYPE_CHECKING:
     # config imports this package to check a repo's forge at load.
     from agent_build_kit.config import RepoConfig
+    from agent_build_kit.settings import Settings
 
 # Injected so a check can be tested against recorded answers, the way
 # `tier2.post_status` and the `wiring.build_*` factories already take one.
@@ -268,6 +269,10 @@ class Forge(RegistersStacks, Protocol):
     # forge does not cut: the pipeline fits a description once, to the lowest
     # of these across the registered forges (`forges.description_limit`).
     description_limit: int
+
+    def api_url(self, machine: Settings) -> str | None:
+        """The address this host's API is called at, or None for a host with none."""
+        ...
 
     def parse_remote(self, url: str) -> RepoId | None: ...
 

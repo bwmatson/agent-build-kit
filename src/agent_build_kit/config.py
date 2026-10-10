@@ -29,6 +29,7 @@ from pydantic import Field, ValidationError, ValidationInfo, field_validator, mo
 
 from agent_build_kit import forges, infra, path_patterns, runtimes
 from agent_build_kit.model import Frozen
+from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 
 CONFIG_FILENAME = "abk.yaml"
 CONFIG_ENV = "ABK_CONFIG"
@@ -315,6 +316,27 @@ class TracksConfig(Frozen):
 # --- repos -------------------------------------------------------------------
 
 
+class ReplayUpstream(Frozen):
+    name: str
+    # The upstream's real base URL.
+    url: str
+    kind: UpstreamKind
+    # The environment variables that point the code under test at the proxy's listener.
+    env: list[str] = []
+    # The request headers that change this upstream's answer, and so are part of a key.
+    keyed_headers: list[str] = list(DEFAULT_KEYED_HEADERS)
+
+
+class ReplayConfig(Frozen):
+    upstreams: list[ReplayUpstream] = []
+    directory: Path = Path("tests/cassettes")
+    max_age_days: int = 30
+    llm_max_age_days: int = 14
+    max_body_bytes: int = 2 * 1024 * 1024
+    max_directory_mb: int = 100
+    review_after_runs: int = 5
+
+
 class TestsConfig(Frozen):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -322,6 +344,8 @@ class TestsConfig(Frozen):
     tier2_marker: str = "local_stack"
     # The marker on tier-2 tests only the dev stack can run (left out of live checks).
     dev_stack_marker: str = "dev_stack"
+    # Record and replay of the calls tier-2 tests make outside the stack; None: none.
+    replay: ReplayConfig | None = None
 
 
 class DevStackConfig(Frozen):
