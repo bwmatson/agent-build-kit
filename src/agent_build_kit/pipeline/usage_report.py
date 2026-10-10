@@ -680,6 +680,19 @@ def _breakdown(group: list[_Entry]) -> list[dict]:
     ]
 
 
+def _summary_bases(lines: list[str]) -> dict[str, str]:
+    """The `cost_basis` mark of each unit's summary lines that carry one."""
+    found: dict[str, str] = {}
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            if raw.get("kind") == "summary" and isinstance(raw.get("cost_basis"), str):
+                found[str(raw["unit"])] = raw["cost_basis"]
+        except (ValueError, AttributeError, KeyError):
+            continue
+    return found
+
+
 def roll_up_change(ledger: Path, change: str) -> None:
     """Replace the change's detail lines with one `summary` line per unit.
 
@@ -689,6 +702,7 @@ def roll_up_change(ledger: Path, change: str) -> None:
         return
     with ledger_lock(ledger):
         lines = read_lines(ledger)
+        marked = _summary_bases(lines)
         by_unit: dict[str, list[_Entry]] = {}
         for entry in _entries_in(lines, {}):
             if entry.change == change:
@@ -708,6 +722,8 @@ def roll_up_change(ledger: Path, change: str) -> None:
                     "unit": unit,
                     "change": change,
                     "repo": next((e.repo for e in group if e.repo), ""),
+                    # Summed from incremental figures, unless it carries an older summary's mark.
+                    "cost_basis": marked.get(unit, str(CostBasis.REPORTED)),
                     **total.model_dump(exclude={"key"}),
                     "breakdown": breakdown,
                     **(dict(legacy=legacy.model_dump()) if legacy.count else {}),
