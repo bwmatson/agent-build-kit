@@ -14,7 +14,15 @@ import pytest
 from agent_build_kit import __version__, forges, skills
 from agent_build_kit.cli import doctor, main
 from agent_build_kit.cli.doctor import Check, run_doctor
-from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig, WorkspaceConfig, dump, load
+from agent_build_kit.config import (
+    DeployConfig,
+    DeployRule,
+    EnvironmentConfig,
+    RepoConfig,
+    WorkspaceConfig,
+    dump,
+    load,
+)
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
@@ -85,16 +93,19 @@ def workspace(tmp_path: Path) -> Path:
     for repo in (app, platform):
         (repo / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n")
         (repo / ".gitattributes").write_text("CHANGELOG.md merge=union\n")
+    environment = EnvironmentConfig(sync=["env-sync"], check=["env-check"])
     config = WorkspaceConfig(
+        environment=environment,
         repos={
-            "platform": RepoConfig(path=platform, slug="example/platform"),
+            "platform": RepoConfig(path=platform, slug="example/platform", environment=environment),
             "app": RepoConfig(
                 path=app,
                 slug="example/app",
                 consumes=["platform"],
                 deploy={"rules": [DeployRule(prefix="api/")]},
+                environment=environment,
             ),
-        }
+        },
     )
     (planning / "abk.yaml").write_text(dump(config))
     (planning / "openspec").mkdir()

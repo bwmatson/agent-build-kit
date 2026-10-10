@@ -37,6 +37,26 @@ class ConfigError(Exception):
     """abk.yaml is missing, unreadable or does not match the schema."""
 
 
+# --- environment ---------------------------------------------------------------
+
+
+class EnvironmentInputs(Frozen):
+    """The files whose contents decide when `sync` must run again."""
+
+    dependencies: list[str] = []
+    lock: list[str] = []
+    other: list[str] = []
+
+
+class EnvironmentConfig(Frozen):
+    """How an environment is brought up to date and told healthy: argv lists
+    and path lists, never a tool the framework knows."""
+
+    sync: list[str] = []
+    check: list[str] = []
+    inputs: EnvironmentInputs = EnvironmentInputs()
+
+
 # --- planning repo -----------------------------------------------------------
 
 
@@ -376,6 +396,8 @@ class RepoConfig(Frozen):
     # Where the repo keeps its changelog; None switches the changelog convention
     # and check off for this repo.
     changelog: str | None = "CHANGELOG.md"
+    # How this repo's environment is kept current in a unit's worktree.
+    environment: EnvironmentConfig | None = None
 
 
 # --- verify env providers -----------------------------------------------------
@@ -454,6 +476,8 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # How the pipeline's own environment is kept current; None manages none.
+    environment: EnvironmentConfig | None = None
     # Per agent role (`build`, `review`), whether its nodes continue the role's
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}

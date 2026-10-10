@@ -160,14 +160,18 @@ def test_skips_and_a_dirty_tree_are_not_committed(tmp_path: Path, app: Path) -> 
 def test_a_second_run_keeps_the_edited_config(tmp_path: Path, app: Path) -> None:
     planning = tmp_path / "planning"
     main(["init", str(planning), "--repo", str(app), "--yes", "--skip-research", "--skip-propose"])
-    (planning / "abk.yaml").write_text("version: 1\nrepos: {}\n")
+    edited = (
+        "version: 1\nrepos: {}\nlimits:\n  generated_files: [uv.lock]\n"
+        "environment:\n  sync: [env-sync]\n  check: [env-check]\n"
+    )
+    (planning / "abk.yaml").write_text(edited)
 
     code = main(
         ["init", str(planning), "--repo", str(app), "--yes", "--skip-research", "--skip-propose"]
     )
 
     assert code == 0
-    assert (planning / "abk.yaml").read_text() == "version: 1\nrepos: {}\n"
+    assert (planning / "abk.yaml").read_text() == edited
 
 
 def test_repos_are_prompted_for_without_yes(tmp_path: Path, app: Path, monkeypatch) -> None:
