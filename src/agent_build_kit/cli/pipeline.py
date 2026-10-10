@@ -58,6 +58,7 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -157,6 +158,7 @@ from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_c
 from agent_build_kit.pipeline.vocabulary import effective_state, state_label, state_label_names
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
+    build_on_flake,
     build_resume_at,
     build_runner,
     build_tier1,
@@ -366,6 +368,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
+
+    for flaky in flake_record(inst).counts():
+        times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
+        log(f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}")
 
     # What the last poll of each repo saw: an entry that cannot be merged is not
     # actionable, so it should not read like the others.
@@ -1035,6 +1041,31 @@ def deliver_committed(inst: Installation, store: UnitStore) -> None:
         log(f"{unit.id}: commit {done.commit[:9]} {'delivered' if done.delivered else 'deferred'}")
 
 
+def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> list[str]:
+    """The `Needs: … merged` lines of the unit's groups whose target is an open change
+    with no planned unit yet, as `change group N`: nothing exists to wait on, so a gate
+    that looked only at units would find it clear. A target that is no longer an open
+    change has been archived, which is merged."""
+    planned = {
+        (member.change, group)
+        for other in units
+        if other.state != UNPLANNED
+        for member in other.members()
+        for group in member.groups
+    }
+    waiting: list[str] = []
+    for member in unit.members():
+        tasks = inst.changes_dir / member.change / "tasks.md"
+        if not tasks.is_file():
+            continue
+        for group in member.groups:
+            for need in group_needs(tasks).get(group, []):
+                target = inst.changes_dir / need.change / "tasks.md"
+                if need.merged and (need.change, need.group) not in planned and target.is_file():
+                    waiting.append(f"{need.change} group {need.group}")
+    return waiting
+
+
 def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()) -> None:
     """Deliver the requeue a gated unit was waiting to receive, once nothing it
     waits for is left, in the mode it was requeued with."""
@@ -1046,6 +1077,7 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             or unit.gated_requeue is None
             or unit.id in in_flight
             or waiting_on(unit, units)
+            or awaiting_planning(inst, unit, units)
         ):
             continue
         why = unit.gated_requeue
@@ -1950,6 +1982,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
             posts_root=installation.state_dir,
             move=at_path(in_repo(resolved_move)),
             tier1=tier1_of,
+            on_flake=build_on_flake(store, installation, log=log),
             push=at_path(push_with_lease),
         ),
         "remove_worktree": named(build_remove_worktree(checkouts, root=installation.worktree_root)),

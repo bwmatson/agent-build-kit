@@ -1,0 +1,59 @@
+# tool: pytest 9.1.1
+$ uv run pytest -q (exit 1)
+.FF.FEF                                                                  [100%]
+==================================== ERRORS ====================================
+______________________ ERROR at setup of test_setup_error ______________________
+
+    @pytest.fixture
+    def broken():
+>       raise RuntimeError('no database')
+E       RuntimeError: no database
+
+test_one.py:6: RuntimeError
+=================================== FAILURES ===================================
+__________________________________ test_plain __________________________________
+
+    def test_plain():
+>       assert 1 == 2
+E       assert 1 == 2
+
+test_one.py:14: AssertionError
+____________________________ TestGroup.test_method _____________________________
+
+self = <test_one.TestGroup object at 0x779aea6f0690>
+
+    def test_method(self):
+>       assert 'a' == 'b'
+E       AssertionError: assert 'a' == 'b'
+E
+E         - b
+E         + a
+
+test_one.py:19: AssertionError
+________________________________ test_cases[2] _________________________________
+
+n = 2
+
+    @pytest.mark.parametrize('n', [1, 2])
+    def test_cases(n):
+>       assert n == 1
+E       assert 2 == 1
+
+test_one.py:24: AssertionError
+__________________________________ test_other __________________________________
+
+    def test_other():
+>       assert [] == [1]
+E       assert [] == [1]
+E
+E         Right contains one more item: 1
+E         Use -v to get more diff
+
+test_two.py:2: AssertionError
+=========================== short test summary info ============================
+FAILED test_one.py::test_plain - assert 1 == 2
+FAILED test_one.py::TestGroup::test_method - AssertionError: assert 'a' == 'b'
+FAILED test_one.py::test_cases[2] - assert 2 == 1
+FAILED test_two.py::test_other - assert [] == [1]
+ERROR test_one.py::test_setup_error - RuntimeError: no database
+4 failed, 2 passed, 1 error in 0.01s

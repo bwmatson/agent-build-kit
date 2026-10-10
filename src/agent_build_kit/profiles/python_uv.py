@@ -35,6 +35,8 @@ WORKERS = ["-n", "auto", "--maxprocesses=8"]
 # The pre-commit hooks that are the type checker, by id.
 TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
 _PYTEST = re.compile(r"\bpytest\b")
+# pytest's short summary: `FAILED path::test - why` and `ERROR path::test - why`.
+_FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
 # pre-commit prints `<hook name>....Passed|Failed|(no files to check)Skipped` for every
 # hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
 # change, the id is what a hook is called in the config, so the id decides.
@@ -238,6 +240,28 @@ class PythonUvProfile:
             return "test"
         failed = {m.group("id") for m in _HOOK_FAILED.finditer(output)}
         return "types" if failed & TYPE_HOOKS else "lint"
+
+    def failed_tests(self, output: str) -> list[str]:
+        """The identifiers of the tests that failed or errored, read from a failed tier 1
+        command's output; empty when it was not a test run."""
+        found = _FAILED_TEST.findall(output)
+        return list(dict.fromkeys(found))
+
+    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+        """`command`, a failed test run, as one that runs only `tests`, serially."""
+        # The program, not the `--with pytest` that adds it to an environment.
+        program = next(
+            (
+                i
+                for i, word in enumerate(command)
+                if word == "pytest" and command[i - 1] != "--with"
+            ),
+            None,
+        )
+        if program is None:
+            return [*command, *tests]
+        # What follows is the run's selection, workers and markers: all dropped.
+        return [*command[: program + 1], *tests, "-q"]
 
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.

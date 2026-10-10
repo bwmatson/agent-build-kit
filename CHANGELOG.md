@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A test that fails under load and passes alone no longer fails the unit that met it. When
+  tier 1 fails on tests, the profile reads which ones from the output and they are run again,
+  serially, twice (python-uv has the hooks; a profile without them behaves as before). If
+  they pass both times the flake is recorded in `flakes.jsonl` in the state directory and
+  `abk status` lists each flaky test with its count and fix change. The pipeline writes one
+  change that makes the test deterministic, with no model, and every unit that met the
+  flake gets a `Needs: ... merged` line on it and is parked gated until it merges, then
+  runs tier 1 again. A flake on a moved base no longer sends the unit back as a moved base.
+
 - A task group can now say how urgent it is with a `Priority:` line, 1 (most urgent) to 5,
   3 when unsaid; a line above the first group sets the default for the change. A unit takes
   the most urgent priority of its groups and keeps it once started, and `abk tags` shows a
