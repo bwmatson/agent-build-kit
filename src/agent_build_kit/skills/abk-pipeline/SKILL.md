@@ -28,7 +28,7 @@ what the pipeline is doing, watch the pass, not a single unit.
 
 | Command | What it does |
 |---|---|
-| `abk status` | Whether the pipeline is paused, the usage reading, the environment's state (healthy, or unhealthy with the check's output), units by state, which PRs are waiting for a human, any `held` or in-flight `planned` unit with `no recorded cause`, and the ready queue in start order with the reason for each place (priority, or planned order). Never changes anything. |
+| `abk status` | Whether the pipeline is paused, the usage reading, the environment's state (healthy, or unhealthy with the check's output), units by state, which PRs are waiting for a human, any `held` or in-flight `planned` unit with `no recorded cause`, and the ready queue in start order with the reason for each place (priority, `stack age, from <unit>` when the oldest unit waiting on it was planned earlier, or planned order), and any failed unit that others wait on, with how many and a requeue hint. Never changes anything. |
 | `abk graph` | Regenerate the unit graph page (`docs/unit_graph.md`) from `runs/units.json`. |
 | `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything; it does not sync the environment or resume units waiting for it. |
 | `abk tick` | A real pass, the same one the timer runs. Safe at any time. `--only <unit>` builds just that unit if it is ready. |

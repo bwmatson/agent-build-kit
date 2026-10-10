@@ -1060,6 +1060,51 @@ def test_an_idle_pipeline_still_says_nothing_is_ready(
     assert "units in progress, limit" not in out
 
 
+def test_the_reason_nothing_started_names_a_failed_prerequisite_with_units_waiting(
+    builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = limit_workspace(tmp_path, 9)
+    builder.store.upsert([stored("base/1"), stored("one/1", depends_on=("base/1",))])
+    builder.store.set_state("base/1", UnitState.FAILED)
+
+    assert tick(inst) == 0
+
+    out = capsys.readouterr().out
+    assert builder.started == []
+    reason = next(line for line in out.splitlines() if "base/1" in line and "requeue" in line)
+    assert "1 unit waiting" in reason
+    assert "nothing ready to build" not in out
+
+
+def test_the_start_log_names_the_waiter_whose_age_put_a_unit_first(
+    builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = limit_workspace(tmp_path, 9)
+    builder.store.upsert(
+        [stored("old/1", depends_on=("base/1",)), stored("newer/1"), stored("base/1")]
+    )
+
+    assert tick(inst) == 0
+
+    out = capsys.readouterr().out
+    assert "base/1 starts ahead of newer/1: old/1 waits on it" in out
+
+
+def test_the_start_log_names_the_waiter_when_the_limit_leaves_one_place(
+    builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = limit_workspace(tmp_path, 1)
+    builder.store.upsert(
+        [stored("old/1", depends_on=("base/1",)), stored("newer/1"), stored("base/1")]
+    )
+
+    assert tick(inst) == 0
+
+    out = capsys.readouterr().out
+    assert builder.started == ["base/1"]
+    assert "base/1 starts ahead of newer/1: old/1 waits on it" in out
+
+
 def test_a_rework_runs_and_reaches_review_at_the_limit(builder: Builder, tmp_path: Path) -> None:
     inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
@@ -1093,17 +1138,20 @@ def test_the_limit_is_handed_to_the_readiness_rules(
 ) -> None:
     inst = limit_workspace(tmp_path, 3)
     builder.store.upsert([stored("new/1")])
-    seen: list[object] = []
+    seen: list[tuple[object, list[str]]] = []
 
     def evaluate(graph, **kwargs):
-        seen.append(kwargs.get("max_units_in_progress"))
-        return ready_units(graph, **kwargs)
+        chosen = ready_units(graph, **kwargs)
+        seen.append((kwargs.get("max_units_in_progress"), [unit.id for unit in chosen]))
+        return chosen
 
     monkeypatch.setattr(cli, "ready_units", evaluate)
 
     assert tick(inst) == 0
 
-    assert seen and set(seen) == {3}
+    # The call that decides what starts carries the limit; reports may not.
+    assert (3, ["new/1"]) in seen
+    assert builder.started == ["new/1"]
 
 
 # --- a runtime with no usage window is not held by one ----------------------------

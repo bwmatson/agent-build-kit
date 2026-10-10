@@ -14,9 +14,9 @@ from typing import Any
 
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.units import Unit, ready_units
 
-__all__ = ["git", "init_repo", "stored_unit", "unit"]
+__all__ = ["git", "init_repo", "new_unit", "started_ids", "stored_unit", "unit"]
 
 _DEFAULTS: dict[str, Any] = {
     "change": "add-marker",
@@ -37,6 +37,16 @@ def unit(uid: str = "add-marker/1", **overrides) -> Unit:
 def stored_unit(uid: str = "add-marker/1", **overrides) -> StoredUnit:
     fields: dict[str, Any] = {**_DEFAULTS, "id": uid, **overrides}
     return StoredUnit(**fields)
+
+
+def new_unit(uid: str, **overrides) -> StoredUnit:
+    """A unit of the change named by the id's prefix, so each id is its own change."""
+    return stored_unit(uid, change=uid.split("/")[0], **overrides)
+
+
+def started_ids(graph, *, slots: int = 1, **kw) -> list[str]:
+    """The ids `ready_units` starts from the graph, in the order it starts them."""
+    return [u.id for u in ready_units(graph, max_concurrent=slots, depth_cap=9, **kw)]
 
 
 def init_repo(path: Path) -> Path:

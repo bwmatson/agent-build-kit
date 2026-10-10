@@ -136,6 +136,7 @@ from agent_build_kit.pipeline.units import (
     local_ref,
     merge_wait,
     ready_units,
+    stack_age_source,
     start_room,
     trunk_of,
     unmet_gates,
@@ -454,6 +455,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  waiting for the environment: {unit.id} ({unit.repo}) at {step} — {unit.note}")
         elif unit.state == FAILED:
             log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+            if blocked := _blocked_by(unit, units):
+                log(f"  {blocked}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
             log(
                 f"  waiting for the code host: {unit.id} ({unit.repo}) at {step}, "
@@ -748,7 +751,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         tick.outcome = "idle"
         return 0
 
-    log(f"ready: {', '.join(unit.id for unit in ready)}")
+    _log_ready(inst, store, ready, only=only)
     if args.dry_run:
         log("dry run — stopping before any unit is built")
         tick.outcome = "dry_run"
@@ -1292,10 +1295,65 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
             why = f"priority {urgency}, from {source.id}"
         elif unit.priority != Priority.NORMAL:
             why = f"priority {unit.priority}"
+        elif source := stack_age_source(unit, view, excluded):
+            why = f"stack age, from {source.id}"
         else:
             why = "planned order"
         lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}")
     return lines
+
+
+def _log_ready(
+    inst: Installation, store: UnitStore, ready: list[Unit], *, only: frozenset[str]
+) -> None:
+    """Log the units about to start, and why one goes ahead of an older ready unit.
+
+    A unit that takes the age of an older unit waiting on it starts before ready
+    units planned earlier than itself; the line names the unit it passed and the
+    waiter whose age it took. The comparison ignores the limit on units in
+    progress: a unit that fits under it is passed by one that took the place.
+    """
+    log(f"ready: {', '.join(unit.id for unit in ready)}")
+    units = store.all()
+    queue, view, excluded = _evaluate_round(
+        inst,
+        units,
+        started=set(),
+        building=set(),
+        only=only,
+        enforce_limit=False,
+        max_concurrent=len(units),
+    )
+    place = {unit.id: index for index, unit in enumerate(view)}
+    order = [unit.id for unit in queue]
+    for unit in ready:
+        source = stack_age_source(unit, view, excluded)
+        if source is None or unit.id not in order:
+            continue
+        passed = next(
+            (
+                other
+                for other in queue[order.index(unit.id) + 1 :]
+                if place[other.id] < place[unit.id]
+                and effective_priority(other, view, excluded)
+                == effective_priority(unit, view, excluded)
+            ),
+            None,
+        )
+        if passed is not None:
+            log(f"{unit.id} starts ahead of {passed.id}: {source.id} waits on it")
+
+
+def _blocked_by(unit: StoredUnit, units: list[StoredUnit]) -> str:
+    """What a failed unit holds up, with the way to free it; empty when nothing waits."""
+    waiting = len(waiting_on_me(unit, units))
+    if not waiting:
+        return ""
+    noun = "unit" if waiting == 1 else "units"
+    return (
+        f"{unit.id} ({unit.repo}) has {waiting} {noun} waiting on it — "
+        "requeue it with `abk requeue`"
+    )
 
 
 def _nothing_started_reason(
@@ -1314,6 +1372,9 @@ def _nothing_started_reason(
         idle=_idle_units(inst, units, ()),
     ):
         return f"{full}; no new unit starts until one finishes or is closed"
+    failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
+    if failed:
+        return "nothing can start: " + "; ".join(failed)
     return "nothing ready to build"
 
 
@@ -1507,7 +1568,7 @@ def _schedule(
             units = store.all()
             note_queued(units, ready, in_flight)
             if ready:
-                log(f"ready: {', '.join(unit.id for unit in ready)}")
+                _log_ready(inst, store, ready, only=only)
                 if _refuse_unconfigured(inst, ready):
                     refused = True
                     continue
