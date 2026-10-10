@@ -9,16 +9,18 @@ does that a canned answer cannot:
   next page starts in `pageInfo`, and finding the page by the cursor the request
   carries, whether as a variable or written into the query; one pull request by
   number; and the two draft mutations, which change what the next read says;
-- keeps repository labels and each pull request's labels, matches names without
-  regard to case as GitHub does, and answers adding an unknown label to a pull
-  request by creating it in the default colour, as GitHub does;
+- answers the REST routes for pull requests, reviews, inline comments, issue
+  comments, commit statuses and labels from the table in `github_routes.py`, over a
+  `GitHubState` that `FakeGitHub` shares through `state=`: a route is added there, once,
+  for both hosts, and a pull request is derived from that state when it is read;
 - pages the lists it is given (`paged`) by `page` and `per_page`, never more than
   `page_size` a page, with the `Link` header GitHub sends;
 - lists a run's jobs, and answers a job's log with the redirect to storage that
   GitHub sends, the storage host answering the text;
 - keeps every request, and every request it had no answer for.
 
-Everything else is scripted, by `(method, path)`: a response, a list of them
+A scripted route comes first and overrides the table for its test only. Everything
+else is scripted, by `(method, path)`: a response, a list of them
 answered in turn (the last repeats), an exception, or a function of the request.
 A route nobody scripted is answered 404 and recorded in `unrouted`, which the
 tests' fixture asserts is empty: a forge reaching for a resource nobody expected
@@ -30,61 +32,26 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from copy import deepcopy
 from typing import Any
 
 import httpx
 
 from tests.forges import github_answers
+from tests.forges.github_routes import (
+    GitHubState,
+    Seen,
+    answer,
+    page,
+    refusal,
+    serve,
+)
 
-API = "https://api.github.com"
 STORAGE = "https://productionresultssa0.blob.core.windows.net"
-JSON = {"content-type": "application/json; charset=utf-8"}
-DEFAULT_COLOUR = "ededed"
 
 # Every host built in a test, so its fixture can say what nothing answered.
 HOSTS: list[GitHubHost] = []
 
 Scripted = httpx.Response | Exception | Callable[[httpx.Request], httpx.Response]
-
-
-def answer(
-    body: object, status: int = 200, headers: dict[str, str] | None = None
-) -> httpx.Response:
-    return httpx.Response(status, content=json.dumps(body), headers={**JSON, **(headers or {})})
-
-
-def refusal(status: int, message: str, errors: list[dict] | None = None) -> httpx.Response:
-    """An error as the REST API sends one."""
-    body: dict[str, Any] = {
-        "message": message,
-        "documentation_url": "https://docs.example.test/rest",
-        "status": str(status),
-    }
-    if errors is not None:
-        body["errors"] = errors
-    return answer(body, status)
-
-
-class Seen:
-    """One request that reached the host, normalised for assertions."""
-
-    def __init__(self, request: httpx.Request) -> None:
-        self.request = request
-        self.method = request.method
-        self.path = request.url.path
-        self.host = request.url.host
-        self.params = dict(request.url.params)
-        self.headers = request.headers
-        self.body: Any = json.loads(request.content) if request.content else None
-
-    @property
-    def query(self) -> str:
-        """The GraphQL document of a `/graphql` call."""
-        return str((self.body or {}).get("query", ""))
-
-    def __repr__(self) -> str:
-        return f"{self.method} {self.path} {self.params} {self.body}"
 
 
 class GitHubHost(httpx.MockTransport):
@@ -97,19 +64,27 @@ class GitHubHost(httpx.MockTransport):
         pr_labels: dict[int, list[str]] | None = None,
         jobs: dict[int, list[dict]] | None = None,
         job_logs: dict[int, str] | None = None,
-        page_size: int = 100,
+        page_size: int | None = None,
         draft_refusal: str = "",
+        state: GitHubState | None = None,
     ) -> None:
-        self.pulls = [deepcopy(p) for p in pulls]
+        if state is None:
+            state = GitHubState(
+                *pulls, page_size=page_size or 100, repo_labels=repo_labels, pr_labels=pr_labels
+            )
+        elif pulls or repo_labels or pr_labels or page_size:
+            raise ValueError(
+                "a host built over a state takes its pull requests, labels and page size from it"
+            )
+        self.state = state
+        self.pulls = state.pulls
+        self.repo_labels = state.repo_labels
+        self.pr_labels = state.pr_labels
         self.routes = {k: v if isinstance(v, list) else [v] for k, v in (routes or {}).items()}
         self.paged = paged or {}
-        self.repo_labels: dict[str, dict] = {}
-        for name, colour, description in repo_labels or []:
-            self.repo_labels[name] = self._label(name, colour, description)
-        self.pr_labels: dict[int, list[str]] = {n: list(v) for n, v in (pr_labels or {}).items()}
         self.jobs = jobs or {}
         self.job_logs = job_logs or {}
-        self.page_size = page_size
+        self.page_size = state.page_size
         self.draft_refusal = draft_refusal
         self.seen: list[Seen] = []
         self.unrouted: list[Seen] = []
@@ -130,7 +105,7 @@ class GitHubHost(httpx.MockTransport):
         return [s for s in self.seen if s.path == "/graphql" and containing in s.query]
 
     def pull(self, number: int) -> dict:
-        return next(p for p in self.pulls if p["number"] == number)
+        return self.state.pull(number)
 
     # --- routing ------------------------------------------------------------------
 
@@ -143,9 +118,8 @@ class GitHubHost(httpx.MockTransport):
         if key in self.routes:
             return self._scripted(key, request)
         if seen.method == "GET" and seen.path in self.paged:
-            return self._page(seen, self.paged[seen.path])
-        for handler in (self._graphql, self._labels, self._actions, self._pulls):
-            found = handler(seen)
+            return page(seen, self.paged[seen.path], self.page_size)
+        for found in (self._graphql(seen), serve(self.state, seen), self._actions(seen)):
             if found is not None:
                 return found
         self.unrouted.append(seen)
@@ -159,17 +133,6 @@ class GitHubHost(httpx.MockTransport):
         if isinstance(reply, Exception):
             raise reply
         return reply(request) if callable(reply) else reply
-
-    def _page(self, seen: Seen, items: list) -> httpx.Response:
-        size = min(int(seen.params.get("per_page", 30)), self.page_size)
-        page = int(seen.params.get("page", 1))
-        chunk = items[(page - 1) * size : page * size]
-        headers = {}
-        if page * size < len(items):
-            query = {**seen.params, "page": str(page + 1)}
-            link = httpx.URL(f"{API}{seen.path}", params=query)
-            headers["link"] = f'<{link}>; rel="next"'
-        return answer(chunk, headers=headers)
 
     # --- GraphQL ------------------------------------------------------------------
 
@@ -190,22 +153,22 @@ class GitHubHost(httpx.MockTransport):
         return None
 
     def _listing(self, text: str) -> httpx.Response:
+        nodes = self.state.nodes()
         start = 0
-        for index in range(0, len(self.pulls), self.page_size):
+        for index in range(0, len(nodes), self.page_size):
             if re.search(rf"cursor:{index}(?!\d)", text):
                 start = index
         end = start + self.page_size
-        nodes = self.pulls[start:end]
-        more = end < len(self.pulls)
+        more = end < len(nodes)
         connection = {
-            "totalCount": len(self.pulls),
+            "totalCount": len(nodes),
             "pageInfo": {
                 "hasNextPage": more,
                 "hasPreviousPage": start > 0,
                 "startCursor": f"cursor:{start}",
                 "endCursor": f"cursor:{end}" if more else f"cursor:{start}-end",
             },
-            "nodes": nodes,
+            "nodes": nodes[start:end],
         }
         return answer({"data": {"repository": {"pullRequests": connection}}})
 
@@ -213,7 +176,7 @@ class GitHubHost(httpx.MockTransport):
         variables = (seen.body or {}).get("variables") or {}
         numbers = [v for v in variables.values() if isinstance(v, int)]
         numbers += [int(n) for n in re.findall(r"number:\s*(\d+)", seen.query)]
-        node = next((p for p in self.pulls if p["number"] in numbers), None)
+        node = next((p for p in self.state.nodes() if p["number"] in numbers), None)
         return answer({"data": {"repository": {"pullRequest": node}}})
 
     def _mutate(self, mutation: str, draft: bool, text: str) -> httpx.Response:
@@ -226,102 +189,6 @@ class GitHubHost(httpx.MockTransport):
         node["isDraft"] = draft
         payload = {"pullRequest": {"id": node["id"], "isDraft": draft}}
         return answer({"data": {mutation: payload}})
-
-    # --- pull requests by REST ----------------------------------------------------
-
-    def _pulls(self, seen: Seen) -> httpx.Response | None:
-        found = re.fullmatch(r"/repos/[^/]+/[^/]+/pulls/(\d+)", seen.path)
-        if not found or seen.method != "GET":
-            return None
-        number = int(found[1])
-        node = next((p for p in self.pulls if p["number"] == number), None)
-        if node is None:
-            return refusal(404, "Not Found")
-        return answer({"number": number, "node_id": node["id"], "draft": node["isDraft"]})
-
-    # --- labels -------------------------------------------------------------------
-
-    @staticmethod
-    def _label(name: str, colour: str, description: str | None) -> dict:
-        return {
-            "id": abs(hash(name)) % 10**9,
-            "node_id": "LA_kwDOAAAAAc8AAAABAAAAAQ",
-            "name": name,
-            "color": colour,
-            "default": False,
-            "description": description,
-        }
-
-    def _repo_label(self, name: str) -> str | None:
-        return next((n for n in self.repo_labels if n.casefold() == name.casefold()), None)
-
-    def _labels(self, seen: Seen) -> httpx.Response | None:
-        repo = re.fullmatch(r"/repos/[^/]+/[^/]+/labels(?:/(?P<name>.+))?", seen.path)
-        issue = re.fullmatch(
-            r"/repos/[^/]+/[^/]+/issues/(?P<n>\d+)/labels(?:/(?P<name>.+))?", seen.path
-        )
-        if repo:
-            return self._repo_labels(seen, repo["name"])
-        if issue:
-            return self._issue_labels(seen, int(issue["n"]), issue["name"])
-        return None
-
-    def _repo_labels(self, seen: Seen, name: str | None) -> httpx.Response:
-        body = seen.body or {}
-        if name is None and seen.method == "GET":
-            return self._page(seen, list(self.repo_labels.values()))
-        if name is None and seen.method == "POST":
-            if self._repo_label(body["name"]):
-                error = [{"resource": "Label", "code": "already_exists", "field": "name"}]
-                return refusal(422, "Validation Failed", error)
-            made = self._label(
-                body["name"], body.get("color", DEFAULT_COLOUR), body.get("description")
-            )
-            self.repo_labels[body["name"]] = made
-            return answer(made, 201)
-        if name is None:
-            return refusal(405, "Method Not Allowed")
-        held = self._repo_label(name)
-        if held is None:
-            return refusal(404, "Not Found")
-        if seen.method == "GET":
-            return answer(self.repo_labels[held])
-        if seen.method == "PATCH":
-            label = self.repo_labels.pop(held)
-            label.update({k: v for k, v in body.items() if k in ("color", "description")})
-            label["name"] = body.get("new_name", held)
-            self.repo_labels[label["name"]] = label
-            return answer(label)
-        return refusal(405, "Method Not Allowed")
-
-    def _issue_labels(self, seen: Seen, number: int, name: str | None) -> httpx.Response:
-        names = self.pr_labels.setdefault(number, [])
-        body = seen.body
-        if seen.method == "GET" and name is None:
-            return answer([self.repo_labels[n] for n in names if n in self.repo_labels])
-        if seen.method in ("POST", "PUT") and name is None:
-            asked = body.get("labels", []) if isinstance(body, dict) else body
-            asked = [a["name"] if isinstance(a, dict) else a for a in asked]
-            if seen.method == "PUT":
-                names.clear()
-            for label in asked:
-                held = self._repo_label(label)
-                if held is None:  # GitHub creates it, in its own colour
-                    self.repo_labels[label] = self._label(label, DEFAULT_COLOUR, None)
-                    held = label
-                if held not in names:
-                    names.append(held)
-            return answer([self.repo_labels[n] for n in names])
-        if seen.method == "DELETE" and name is None:
-            names.clear()
-            return answer([])
-        if seen.method == "DELETE" and name:
-            held = next((n for n in names if n.casefold() == name.casefold()), None)
-            if held is None:
-                return refusal(404, "Label does not exist")
-            names.remove(held)
-            return answer([self.repo_labels[n] for n in names if n in self.repo_labels])
-        return refusal(405, "Method Not Allowed")
 
     # --- Actions ------------------------------------------------------------------
 

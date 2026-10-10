@@ -7,6 +7,12 @@
   manager or lock file. The `limits.generated_files` example no longer suggests listing
   lock files there.
 
+- The fake GitHub hosts the tests use now answer the pull, review, comment, status and
+  label routes from one table over one state, so the in-process host and the HTTP server
+  give the same answer and a review written through the server is what the other reads.
+  A route a test scripts still overrides the table for that test only. This is test
+  support: nothing changes in what `abk` does.
+
 - A pause the model's refusal records while a tick is deciding whether to go on is no
   longer cleared by that tick, so no further build starts until the pause's deadline.
   Pauses are also changed one at a time and written in one step, so a tick reading one can

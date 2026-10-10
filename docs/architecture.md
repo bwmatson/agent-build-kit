@@ -1348,6 +1348,14 @@ and creates the empty review GitHub makes for it. Each process-test module
 checks `unrouted()` at teardown, so a route the fake does not serve fails the
 module naming it, whichever test made the call.
 
+The routes are defined once, in `tests/forges/github_routes.py`: a table of method,
+path pattern and handler over one `GitHubState` (pull requests, reviews, inline
+comments, labels, statuses and the counters that give ids). The in-process host
+(`GitHubHost`) and `FakeGitHub` both look a request up in a route the test
+scripted first and then in that table; a miss is a 404 recorded as unrouted. The
+pull request node a listing returns is derived from the state when read, so a
+review written through the server is what the in-process host sees.
+
 ## Why it is shaped this way
 
 - **Worktrees live outside the planning repo.** Agents reach the specs through
