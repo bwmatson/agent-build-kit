@@ -13,12 +13,7 @@
   never committed or discarded and is left out of the hash, even when the repository does
   not ignore it. A tracked file under an artifact pattern is ordinary work, and `abk
   doctor` warns about the pattern.
-- Tier-2 tests can record the calls their code makes outside the stack (a model provider, a
-  package index) and replay them on a rerun: a reverse proxy in front of each configured
-  upstream stores a passing test's calls as cassettes keyed by the request, answers an
-  identical request from them and sends any difference live. Set `ABK_REPLAY_MODE` to
-  `off` (the default), `record`, `replay` or `live`, and declare upstreams under
-  `repos.<name>.tests.replay`. Credentials are in no key or file, a response holding a
+
 - The framework's own tier-2 tests can record the calls their code makes outside the stack
   (a model provider, a package index) and replay them on a rerun: a reverse proxy in front of
   each configured upstream stores a passing test's calls as cassettes keyed by the request,
@@ -26,8 +21,8 @@
   `off` (the default), `record`, `replay` or `live`. A `repos.<name>.tests.replay` section is
   accepted and documented, but nothing reads it yet: a test gives its upstreams by
   overriding the plugin's `replay_config` fixture, and nothing in a repository's own run
-  changes. Credentials are in no key or file, a response holding a
-  configured secret is not stored, and nothing is stored from a failing test.
+  changes. Credentials are in no key or file, a response holding a configured secret is
+  not stored, and nothing is stored from a failing test.
 
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package
