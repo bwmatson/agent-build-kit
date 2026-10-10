@@ -11,6 +11,7 @@
   managed, reports a listed file that does not exist and runs `check`. The lock files named
   in the environments are left out of a unit's size, and the built-in list of lock file
   names is gone: an installation relying on it must run init's fill step, or list them.
+
 - Cost in the ledger is now each call's own spend. A Claude Code call's reported cost is the
   session's running total, so every report, summary, the web UI and the `abk.agent.cost`
   counter counted a session's earlier calls again in each resumed call. Each agent row now
