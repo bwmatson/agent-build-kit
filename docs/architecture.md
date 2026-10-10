@@ -435,8 +435,8 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    pointer to the proposal) and what the pull request does (the "Done when"
    sentence of each of the unit's groups), then the stack position, scope,
    assumptions and verification, then what is held and left for later, each
-   follow-up once, in its located form (a bare point that names a file an
-   optional finding locates is dropped; the review prompt asks the reviewer not
+   follow-up once, in its located form (in the body only, the follow-ups file keeps every point; a bare point that names a file an
+   optional finding locates is left out of the body; the review prompt asks the reviewer not
    to repeat an optional finding as a follow-up). A body over the host's
    description limit is fitted by weight, not in sequence: the tier 2 output
    (its tail kept, down to the pass or fail line) and the follow-ups (whole

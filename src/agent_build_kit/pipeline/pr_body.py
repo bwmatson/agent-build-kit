@@ -295,7 +295,7 @@ def _goal_section(changes_dir: Path, members: Sequence[Member]) -> Section | Non
     )
 
 
-def once_each(points: Sequence[str]) -> list[str]:
+def _once_each(points: Sequence[str]) -> list[str]:
     """The follow-ups with each point listed one time, in its located form.
 
     The reviewer records a point twice when it gives it as an optional finding
@@ -407,7 +407,7 @@ merges every one, after checking {order}._
             )
         )
     if follow_ups:
-        sections.append(_follow_ups_section(once_each(follow_ups)))
+        sections.append(_follow_ups_section(_once_each(follow_ups)))
     sections.append(_fixed("footer", footer))
 
     if limit is None:

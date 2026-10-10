@@ -39,7 +39,6 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.lease import Leases
-from agent_build_kit.pipeline.pr_body import once_each
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
@@ -1351,20 +1350,16 @@ class UnitRunner(BaseModel):
             # point back as the one item it was. Optional findings ride
             # with the deferred follow-ups rather than vanishing.
             points = tuple(
-                once_each(
-                    [
-                        p
-                        for p in (
-                            *(" ".join(f.point.split()) for f in verdict.deferrable),
-                            *(
-                                " ".join(f"{_where(f)} — {f.summary}".split())
-                                for f in shown
-                                if not f.required
-                            ),
-                        )
-                        if p
-                    ]
+                p
+                for p in (
+                    *(" ".join(f.point.split()) for f in verdict.deferrable),
+                    *(
+                        " ".join(f"{_where(f)} — {f.summary}".split())
+                        for f in shown
+                        if not f.required
+                    ),
                 )
+                if p
             )
             self.store.record_approval(unit.id, judged)
             self.log(f"review approved {judged[:9]}")

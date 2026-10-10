@@ -45,8 +45,11 @@ def test_the_pull_request_opened_for_a_unit_opens_with_its_why_and_goal(tmp_path
         assert GOAL in opened[opened.index("## What this pull request does") :]
 
 
-def test_an_approval_records_a_point_given_twice_once_in_its_located_form(tmp_path: Path) -> None:
+def test_a_point_given_twice_is_recorded_whole_and_listed_once_in_the_description(
+    tmp_path: Path,
+) -> None:
     recorder = fresh(tmp_path)
+    bodies: list[dict[str, str]] = []
     located = "docs/architecture.md:815 — The flake paragraph does not mention the restack path."
     bare = (
         "docs/architecture.md: mention that a merge-time restack meeting a flake parks the child."
@@ -75,9 +78,12 @@ def test_an_approval_records_a_point_given_twice_once_in_its_located_form(tmp_pa
         )
     ]
 
-    build(tmp_path, recorder)
+    build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
 
     recorded = (tmp_path / "meta" / FOLLOW_UPS).read_text()
-    assert f"- {located}" in recorded
-    assert bare not in recorded
-    assert f"- {other}" in recorded
+    for point in (located, bare, other):
+        assert f"- {point}" in recorded, "the file keeps every point"
+    body = bodies[0]["body"]
+    assert f"- {located}" in body
+    assert bare not in body
+    assert f"- {other}" in body
