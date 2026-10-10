@@ -862,6 +862,12 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
     )
 
 
+def decide_start() -> Decision:
+    """Whether a unit may start now, asking the endpoint only when a fresh reading
+    could change the answer and the minimum interval allows a call."""
+    raise NotImplementedError
+
+
 def _stale_retry() -> timedelta:
     claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
     return timedelta(minutes=claude.usage_stale_retry_minutes)

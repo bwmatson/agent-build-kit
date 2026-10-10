@@ -11,6 +11,7 @@ it is shown by the status command and exported as metrics.
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -36,6 +37,8 @@ class UsageCall(Frozen):
     latency_ms: int = 0
     headers: dict[str, str] = {}
     age_seconds: int | None = None  # a cached reading's age
+    session_pct: int | None = None  # the percentages an answered call read
+    weekly_pct: int | None = None
 
 
 class Refusal(Frozen):
@@ -228,6 +231,19 @@ def _retry_after(call: UsageCall) -> timedelta:
             except ValueError:
                 return timedelta(0)
     return timedelta(0)
+
+
+def most_added(
+    calls: list[UsageCall],
+    window: Literal["session", "weekly"],
+    *,
+    minutes: float,
+    floor: float,
+    margin: int,
+) -> float:
+    """The most percentage points `window` could have gained in `minutes`: the fastest climb
+    between consecutive answered calls in the record, no slower than `floor`, plus `margin`."""
+    raise NotImplementedError
 
 
 def interval_line(interval: CacheInterval) -> str:

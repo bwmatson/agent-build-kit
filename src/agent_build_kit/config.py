@@ -177,6 +177,10 @@ class ClaudeLimitsConfig(Frozen):
     usage_cache_max_minutes: Annotated[int, Field(gt=0)] = 60
     # How old the last good live reading may be and still stand in for a failed call.
     usage_fallback_minutes: Annotated[int, Field(gt=0)] = 30
+    # The slowest climb, in percentage points a minute, a window is assumed to make.
+    usage_climb_floor: Annotated[float, Field(ge=0)] = 0.2
+    # Percentage points added to the usage a reading could have gained since it was taken.
+    usage_climb_margin_pct: Annotated[int, Field(ge=0)] = 2
 
 
 class RuntimeConfig(Frozen):

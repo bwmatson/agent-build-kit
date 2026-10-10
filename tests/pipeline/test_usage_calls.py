@@ -10,13 +10,11 @@ with the answers the endpoint really gives, headers included.
 """
 
 import argparse
-import io
 import json
 import subprocess
 import urllib.error
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from email.message import Message
 from importlib import resources
 from pathlib import Path
 
@@ -42,96 +40,9 @@ from agent_build_kit.tracks import runner as tracks_runner
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.otlp import Collector, enabled
+from tests.usage_host import SECRET, Host, payload, refusal, server_error
 
-SECRET = "sk-ant-oat01-the-secret"
 NOW = datetime(2030, 1, 2, 12, 0, tzinfo=UTC)
-
-
-def payload() -> dict:
-    now = datetime.now(UTC)
-    return {
-        "five_hour": {"utilization": 14.0, "resets_at": (now + timedelta(hours=2)).isoformat()},
-        "seven_day": {"utilization": 6.0, "resets_at": (now + timedelta(days=3)).isoformat()},
-        "extra_usage": {
-            "is_enabled": True,
-            "monthly_limit": 10000,
-            "used_credits": 1324.0,
-            "spend_limit_reached": False,
-        },
-    }
-
-
-class Response:
-    def __init__(self, body: object) -> None:
-        self._raw = io.BytesIO(json.dumps(body).encode())
-
-    def __enter__(self) -> "Response":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        return None
-
-    def read(self, *args: int) -> bytes:
-        return self._raw.read(*args)
-
-
-def refusal(**headers: str) -> urllib.error.HTTPError:
-    message = Message()
-    for name, value in headers.items():
-        message[name.replace("_", "-")] = value
-    return urllib.error.HTTPError(
-        usage_guard.USAGE_URL, 429, "Too Many Requests", message, io.BytesIO(b"")
-    )
-
-
-def server_error() -> urllib.error.HTTPError:
-    message = Message()
-    message["Content-Type"] = "application/json"
-    return urllib.error.HTTPError(
-        usage_guard.USAGE_URL, 500, "Internal Server Error", message, io.BytesIO(b"")
-    )
-
-
-class Host:
-    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        self.answers: list[object] = []
-        self.home = tmp_path / "home"
-        self.home.mkdir()
-        self.cache = self.home / ".cache" / "agent-build-kit" / "usage-cache.json"
-        self.calls_file = self.cache.parent / CALLS_NAME
-        monkeypatch.setenv("HOME", str(self.home))
-        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", SECRET)
-        monkeypatch.setattr(usage_guard, "CREDENTIALS_PATH", self.home / "no-credentials.json")
-        monkeypatch.setattr(usage_guard, "DEFAULT_ANCHOR_PATH", self.home / ".claude.json")
-        monkeypatch.setattr("urllib.request.urlopen", self.urlopen)
-        monkeypatch.setattr("time.sleep", lambda _: None)
-        config_module.activate(WorkspaceConfig(), None)
-        usage_guard.forget_logged_failures()
-
-    def urlopen(self, request: object, timeout: float | None = None) -> Response:
-        answer = self.answers.pop(0) if self.answers else TimeoutError("timed out")
-        if isinstance(answer, BaseException):
-            raise answer
-        return Response(answer)
-
-    def keep_reading(self, age: timedelta) -> None:
-        self.cache.parent.mkdir(parents=True, exist_ok=True)
-        fetched = datetime.now(UTC) - age
-        self.cache.write_text(json.dumps({**payload(), "fetched_at": fetched.isoformat()}))
-
-    def lines(self) -> list[dict]:
-        if not self.calls_file.exists():
-            return []
-        return [json.loads(line) for line in self.calls_file.read_text().splitlines() if line]
-
-    def seed(self, *lines: dict) -> None:
-        self.calls_file.parent.mkdir(parents=True, exist_ok=True)
-        self.calls_file.write_text("".join(json.dumps(each) + "\n" for each in lines))
-
-
-@pytest.fixture
-def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Host:
-    return Host(tmp_path, monkeypatch)
 
 
 def line(
