@@ -182,6 +182,14 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # keyed_headers}], directory (tests/cassettes),
                               # max_age_days 30, llm_max_age_days 14, max_body_bytes 2 MiB,
                               # max_directory_mb 100, review_after_runs 5
+    checks:
+      affected:
+        mode: off             # off | profile | command: the tests the check after a failed
+                              # check and a fix runs first; the full suite always confirms
+                              # a pass, and every other check is full
+        command: null         # `command` mode needs a template whose words
+                              # `{changed_files}` and `{failed_ids}` each expand to
+                              # separate arguments (a word of its own, not `--f={...}`)
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; tier 2 runs on it, not live
     environment: null         # the same shape as the top-level `environment`, with paths

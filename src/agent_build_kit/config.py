@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
@@ -372,6 +373,41 @@ class TestsConfig(Frozen):
     replay: ReplayConfig | None = None
 
 
+# The words of a `command` template that stand for a list of arguments.
+TEMPLATE_PLACEHOLDERS = ("{changed_files}", "{failed_ids}")
+
+
+class AffectedConfig(Frozen):
+    # How a fix round picks the tests it runs: `off` runs the full tests, `profile`
+    # asks the toolchain profile, `command` runs `command`.
+    mode: Literal["off", "profile", "command"] = "off"
+    # In `command` mode: a template whose `{changed_files}` and `{failed_ids}` are
+    # each replaced by separate quoted arguments.
+    command: str | None = None
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _unquoted_off(cls, value: object) -> object:
+        # YAML 1.1 reads an unquoted `off`, the documented default, as the boolean False.
+        return "off" if value is False else value
+
+    @model_validator(mode="after")
+    def _command_mode_needs_its_template(self) -> AffectedConfig:
+        if self.mode == "command" and not self.command:
+            raise ValueError("checks.affected.mode `command` needs a `command` template")
+        for word in shlex.split(self.command or ""):
+            if word not in TEMPLATE_PLACEHOLDERS and any(p in word for p in TEMPLATE_PLACEHOLDERS):
+                raise ValueError(
+                    f"checks.affected.command: a placeholder must be a word of its own, "
+                    f"not part of `{word}`"
+                )
+        return self
+
+
+class ChecksConfig(Frozen):
+    affected: AffectedConfig = AffectedConfig()
+
+
 class DevStackConfig(Frozen):
     # A script with `up`, `test` and `down` subcommands. Tier 2 runs a unit's
     # branch on it instead of the live stack.
@@ -468,6 +504,7 @@ class RepoConfig(Frozen):
     # Prose the planner is given about how this repo relates to the others.
     relationships: str = ""
     tests: TestsConfig = TestsConfig()
+    checks: ChecksConfig = ChecksConfig()
     dev_stack: DevStackConfig | None = None
     deploy: DeployConfig = DeployConfig()
     # Where the repo keeps its changelog; None switches the changelog convention
