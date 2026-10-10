@@ -114,6 +114,26 @@ class Host:
             json.dumps({**(body or payload()), "fetched_at": fetched.isoformat()})
         )
 
+    def keep_editor_reading(
+        self, age: timedelta, *, session: int = 20, resets_in: timedelta = timedelta(hours=2)
+    ) -> None:
+        """The editor's own reading in `~/.claude.json`, taken `age` ago, as it writes it."""
+        fetched = datetime.now(UTC) - age
+        resets = (datetime.now(UTC) + resets_in).isoformat()
+        (self.home / ".claude.json").write_text(
+            json.dumps(
+                {
+                    "cachedUsageUtilization": {
+                        "fetchedAtMs": int(fetched.timestamp() * 1000),
+                        "utilization": {
+                            "five_hour": {"utilization": session, "resets_at": resets},
+                            "seven_day": {"utilization": 5, "resets_at": resets},
+                        },
+                    }
+                }
+            )
+        )
+
     def lines(self) -> list[dict]:
         if not self.calls_file.exists():
             return []
