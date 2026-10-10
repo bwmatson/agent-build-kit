@@ -6,9 +6,7 @@
   test fails when source outside the toolchain profiles and `abk init` names a package
   manager or lock file. The `limits.generated_files` example no longer suggests listing
   lock files there.
-- A pause is now written to its marker in one step, so a tick reading it while a build
-  records the model's refusal can no longer see half a file, take it for "not paused" and
-  start another build during the pause.
+
 - A pause the model's refusal records while a tick is deciding whether to go on is no
   longer cleared by that tick, so no further build starts until the pause's deadline.
   Pauses are also changed one at a time and written in one step, so a tick reading one can
