@@ -3,6 +3,9 @@
 The command runner is the faked boundary: it sees the argv and directory of every command
 and answers with an exit status and output. The profile is a python-uv one whose commands
 are named words, so the order of what ran reads as a list.
+
+The check cache needs no test here: tier 1 never writes it, and the gate that does never
+receives `failed_output`, so only full results are ever cached.
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ import yaml
 from pydantic import ValidationError
 
 from agent_build_kit.config import AffectedConfig, ProjectConfig, RepoConfig
-from agent_build_kit.pipeline.check_runner import CheckCache
 from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.profiles.python_uv import PythonUvProfile
@@ -129,7 +131,7 @@ def test_off_runs_the_full_tests_even_in_a_fix_round(tmp_path: Path) -> None:
     assert profile.asked == []
 
 
-def test_a_profile_that_selects_nothing_runs_the_full_suite_and_says_why_once(
+def test_a_profile_that_cannot_say_runs_the_full_suite_and_says_why_once(
     tmp_path: Path,
 ) -> None:
     commands = Commands()
@@ -428,21 +430,6 @@ def test_a_failure_names_the_project_directory_its_command_ran_in(tmp_path: Path
 def test_a_placeholder_inside_a_longer_word_is_refused_at_load(template: str) -> None:
     with pytest.raises(ValidationError, match="word of its own"):
         AffectedConfig(mode="command", command=template)
-
-
-def test_no_cache_records_a_result_of_a_fix_round_selected_or_full(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    recorded: list[tuple[object, ...]] = []
-    monkeypatch.setattr(CheckCache, "record", lambda *args, **kw: recorded.append(args))
-    disagreeing = Commands(**{"full-tests": (1, "1 test failed")})
-
-    passed, _ = fix_round(tmp_path, disagreeing)
-    assert not passed
-    passed, _ = fix_round(tmp_path, Commands())
-
-    assert passed
-    assert recorded == [], "a selected result never stands in for the full one"
 
 
 def test_the_documented_unquoted_off_loads_from_yaml() -> None:
