@@ -7,6 +7,11 @@
   manager or lock file. The `limits.generated_files` example no longer suggests listing
   lock files there.
 
+- A pause the model's refusal records while a tick is deciding whether to go on is no
+  longer cleared by that tick, so no further build starts until the pause's deadline.
+  Pauses are also changed one at a time and written in one step, so a tick reading one can
+  never see half a file.
+
 - An agent step in a repo with no `origin` no longer fails with "the agent pushed" when
   the agent commits to the unit's branch. With no remote there is nothing to push to, so
   the check is skipped; with an `origin` it is unchanged.

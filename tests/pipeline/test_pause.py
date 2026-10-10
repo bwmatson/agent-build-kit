@@ -15,6 +15,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.pipeline.pause import (
     RESUME_GRACE,
     Pause,
@@ -115,3 +117,78 @@ def test_a_rate_limit_pause_is_never_shortened(tmp_path: Path) -> None:
     assert state is not None
     assert state.kind == "rate_limit"
     assert state.until == later + RESUME_GRACE
+
+
+def test_a_pause_being_rewritten_is_never_read_as_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tick reads the marker while a build records a pause, so a reader
+    looking half way through a write must see a whole pause, not a torn file
+    it would take for "not paused"."""
+    marker = tmp_path / "paused.json"
+    pause_until(
+        datetime.now(UTC) + timedelta(hours=1), reason="the guard", marker=marker, kind="rate_limit"
+    )
+    seen: list[Pause | None] = []
+    real_write_text = Path.write_text
+
+    def interrupted(self: Path, data: str, *args: object, **kwargs: object) -> int:
+        """Writes the first half, lets a reader look, then writes the rest."""
+        real_write_text(self, data[: len(data) // 2])
+        seen.append(is_paused(marker))
+        return real_write_text(self, data, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "write_text", interrupted)
+
+    pause_until(
+        datetime.now(UTC) + timedelta(hours=3), reason="the model", marker=marker, kind="rate_limit"
+    )
+
+    assert seen
+    assert all(state is not None and state.kind == "rate_limit" for state in seen)
+
+
+def test_a_failed_write_leaves_the_marker_and_nothing_beside_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "paused.json"
+    pause_until(datetime.now(UTC) + timedelta(hours=1), reason="the guard", marker=marker)
+
+    def full_disk(self: Path, data: str, *args: object, **kwargs: object) -> int:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(Path, "write_text", full_disk)
+
+    with pytest.raises(OSError):
+        pause_until(datetime.now(UTC) + timedelta(hours=3), reason="the model", marker=marker)
+
+    monkeypatch.undo()
+    state = is_paused(marker)
+    assert state is not None
+    assert state.reason == "the guard"
+    assert {path.name for path in tmp_path.iterdir()} == {"paused.json", "paused.json.lock"}
+
+
+def test_clearing_leaves_a_rate_limit_pause_in_force(tmp_path: Path) -> None:
+    """A round clears a pause once the guard finds room; a build may have
+    recorded the model's refusal since that round last looked."""
+    marker = tmp_path / "paused.json"
+    pause_until(
+        datetime.now(UTC) + timedelta(hours=1), reason="the model", marker=marker, kind="rate_limit"
+    )
+
+    left = clear_pause(marker)
+
+    state = is_paused(marker)
+    assert state is not None
+    assert state.kind == "rate_limit"
+    assert left == state
+
+
+def test_clearing_ends_a_usage_pause(tmp_path: Path) -> None:
+    marker = tmp_path / "paused.json"
+    pause_until(datetime.now(UTC) + timedelta(hours=1), reason="the guard", marker=marker)
+
+    assert clear_pause(marker) is None
+
+    assert is_paused(marker) is None

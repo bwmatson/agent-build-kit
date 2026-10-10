@@ -62,7 +62,7 @@ from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
-from agent_build_kit.pipeline.pause import clear_pause, is_paused, pause_line, pause_until
+from agent_build_kit.pipeline.pause import Pause, clear_pause, is_paused, pause_line, pause_until
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     in_flight_item,
@@ -854,6 +854,17 @@ def _no_unit_can_start(
     return left_out
 
 
+def _held_by_the_model(
+    inst: Installation, store: UnitStore, paused: Pause, *, spared: Collection[str]
+) -> Literal["rate_limit"]:
+    """A round held by the model's own pause: say so, and read stranded units as planned."""
+    log(pause_line(paused))
+    # A pause builds nothing, so a unit no run holds should read `planned`
+    # for as long as it lasts. Not otherwise: a round that goes on resumes it.
+    _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+    return "rate_limit"
+
+
 def _may_build(
     inst: Installation,
     store: UnitStore,
@@ -877,11 +888,7 @@ def _may_build(
     _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
-        log(pause_line(paused))
-        # A pause builds nothing, so a unit no run holds should read `planned`
-        # for as long as it lasts. Not otherwise: a round that goes on resumes it.
-        _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
-        return "rate_limit"
+        return _held_by_the_model(inst, store, paused, spared=spared)
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
     # the account's window says nothing about an on-demand agent. Its own
@@ -908,7 +915,10 @@ def _may_build(
 
     if paused:
         log(f"resuming a pause that was to last until {paused.until.astimezone():%H:%M}")
-    clear_pause(_paused_marker(inst))
+    # A refusal recorded while this round was deciding is kept, and holds the round too.
+    refused = clear_pause(_paused_marker(inst))
+    if refused:
+        return _held_by_the_model(inst, store, refused, spared=spared)
     if not quiet:
         log(reason)
     return "yes"

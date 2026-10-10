@@ -23,11 +23,14 @@ rather than "idle since lunchtime for reasons unknown".
 from __future__ import annotations
 
 import json
+import os
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import file_lock
 
 # Just after the reset, never exactly on it: a resume racing the window
 # boundary finds it still full and pauses again.
@@ -46,6 +49,11 @@ class Pause(Frozen):
     until: datetime
     reason: str
     kind: PauseKind = "usage"
+
+
+def _locked(marker: Path) -> AbstractContextManager[None]:
+    """The lock every change to a marker is made under; reading takes none."""
+    return file_lock(marker.with_name(f"{marker.name}.lock"))
 
 
 def is_paused(marker: Path) -> Pause | None:
@@ -92,23 +100,33 @@ def pause_until(
     """
     deadline = resume_deadline(until)
 
-    existing = is_paused(marker)
-    if existing and existing.kind == "rate_limit" and existing.until > deadline:
-        return existing
+    # Read, compared and written under one lock: builds record pauses from
+    # threads, and a round clearing one must not interleave with them.
+    with _locked(marker):
+        existing = is_paused(marker)
+        if existing and existing.kind == "rate_limit" and existing.until > deadline:
+            return existing
 
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(
-        json.dumps(
-            {
-                "until": deadline.isoformat(),
-                "reason": reason,
-                "kind": kind,
-                "at": datetime.now(UTC).isoformat(),
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+        # Written aside and renamed into place, as `is_paused` reads without
+        # the lock and a torn file would read as "not paused".
+        partial = marker.with_name(f"{marker.name}.tmp")
+        try:
+            partial.write_text(
+                json.dumps(
+                    {
+                        "until": deadline.isoformat(),
+                        "reason": reason,
+                        "kind": kind,
+                        "at": datetime.now(UTC).isoformat(),
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+            os.replace(partial, marker)
+        except BaseException:
+            partial.unlink(missing_ok=True)
+            raise
     return Pause(until=deadline, reason=reason, kind=kind)
 
 
@@ -122,5 +140,18 @@ def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = Non
     return f"{verb} until {end:%H:%M} — {pause.reason}"
 
 
-def clear_pause(marker: Path) -> None:
-    marker.unlink(missing_ok=True)
+def clear_pause(marker: Path) -> Pause | None:
+    """End a pause the guard has found room under.
+
+    A rate-limit pause in force is left alone and returned: it is the model's
+    refusal, kept to its deadline, and the caller's own reading said none held,
+    so a build has recorded it since. Clearing it would let the pass start
+    builds the model has just refused. None means the marker was cleared, or
+    there was nothing to clear.
+    """
+    with _locked(marker):
+        held = is_paused(marker)
+        if held and held.kind == "rate_limit":
+            return held
+        marker.unlink(missing_ok=True)
+    return None
