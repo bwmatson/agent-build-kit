@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A new `notifications` section of `abk.yaml` tells a person when a unit waits on them. After
+  each round the pipeline works out the cards the units call for (a unit in review with no
+  rework pending, a failed unit, a unit held for a person), shows the new ones and clears the
+  ones whose reason has ended, so a card goes when its unit is requeued, merged or sent back.
+  A card is held back for `delay_minutes` (default 10), sounded again after
+  `remind_after_minutes` (default 30), and kept in `notifications.json` so a restart repeats
+  none. The `command` provider runs a configured argv template with `{id}`, `{title}`,
+  `{body}` and `{link}`, never through a shell. Off by default, and a provider that fails is
+  logged and never fails a tick.
+
 - A unit in review that follows a changing predecessor back to `planned` now does so
   through an event to its thread, so the thread records the move and stays waiting for
   review instead of believing the unit is still in review; the release is unchanged. The web UI and API unit summary keep the stored

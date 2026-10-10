@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
 
@@ -519,6 +521,53 @@ class VerifyConfig(Frozen):
     env: dict[str, Provider] = {}
 
 
+class NotificationProvider(StrEnum):
+    """Which provider shows the cards; `OFF` builds none."""
+
+    OFF = "off"
+    COMMAND = "command"
+    WINDOWS = "windows"
+
+
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+_SHOW_PLACEHOLDERS = frozenset({"id", "title", "body", "link"})
+_CLEAR_PLACEHOLDERS = frozenset({"id"})
+
+
+def fill_template(template: str, values: dict[str, str]) -> str:
+    """`template` with each `{name}` replaced by its value, in one pass: a value that holds
+    a placeholder is left as it is."""
+    return _PLACEHOLDER.sub(lambda found: values[found.group(1)], template)
+
+
+class CommandTemplates(Frozen):
+    show: str = ""
+    clear: str = ""
+
+
+class NotificationsConfig(Frozen):
+    provider: NotificationProvider = NotificationProvider.OFF
+    remind_after_minutes: int = Field(default=30, ge=0)
+    delay_minutes: int = Field(default=10, ge=0)
+    command: CommandTemplates = CommandTemplates()
+
+    @model_validator(mode="after")
+    def _command_templates(self) -> NotificationsConfig:
+        if self.provider is NotificationProvider.COMMAND and not self.command.show:
+            raise ValueError("notifications.command.show: the command provider needs a template")
+        for key, template, known in (
+            ("show", self.command.show, _SHOW_PLACEHOLDERS),
+            ("clear", self.command.clear, _CLEAR_PLACEHOLDERS),
+        ):
+            unknown = sorted(set(_PLACEHOLDER.findall(template)) - known)
+            if unknown:
+                raise ValueError(
+                    f"notifications.command.{key}: unknown placeholder {', '.join(unknown)}; "
+                    f"use {', '.join(sorted(known))}"
+                )
+        return self
+
+
 def stack_versions_for(verify: VerifyConfig, profile: infra.InfraProfile) -> list[str] | None:
     """The command that records the live stack: the config's when set, else the
     repo's infrastructure profile's."""
@@ -551,6 +600,8 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # The cards that tell a person a unit waits on them; off by default.
+    notifications: NotificationsConfig = NotificationsConfig()
     # How the pipeline's own environment is kept current; None manages none.
     environment: EnvironmentConfig | None = None
     # Per agent role (`build`, `review`), whether its nodes continue the role's

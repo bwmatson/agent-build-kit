@@ -13,6 +13,8 @@ from agent_build_kit.config import (
     SESSION_REUSE_ROLES,
     ConfigError,
     LimitsConfig,
+    NotificationProvider,
+    NotificationsConfig,
     WorkspaceConfig,
     load,
 )
@@ -296,3 +298,95 @@ def test_a_repository_has_no_replay_unless_its_section_is_there() -> None:
     assert _app_tests({}).repos["app"].tests.replay is None
     replay = _app_tests({"replay": {"max_age_days": 7}}).repos["app"].tests.replay
     assert replay is not None and replay.max_age_days == 7
+
+
+# --- notifications -------------------------------------------------------------------------
+
+
+def test_notifications_default_to_off_with_a_30_minute_reminder_and_a_10_minute_delay() -> None:
+    notifications = WorkspaceConfig().notifications
+
+    assert notifications.provider is NotificationProvider.OFF
+    assert (notifications.remind_after_minutes, notifications.delay_minutes) == (30, 10)
+
+
+def test_the_providers_are_a_closed_set() -> None:
+    assert {provider.value for provider in NotificationProvider} == {"off", "command", "windows"}
+    with pytest.raises(ValidationError) as refused:
+        NotificationsConfig.model_validate({"provider": "carrier-pigeon"})
+
+    assert "provider" in str(refused.value)
+
+
+@pytest.mark.parametrize("key", ["delay_minutes", "remind_after_minutes"])
+def test_a_negative_minute_count_is_refused_naming_its_key(key: str) -> None:
+    with pytest.raises(ValidationError) as refused:
+        NotificationsConfig.model_validate({key: -1})
+
+    assert key in str(refused.value)
+
+
+def test_zero_minutes_is_allowed() -> None:
+    config = NotificationsConfig(delay_minutes=0, remind_after_minutes=0)
+
+    assert (config.delay_minutes, config.remind_after_minutes) == (0, 0)
+
+
+def test_the_command_provider_without_a_show_template_is_refused_naming_the_key() -> None:
+    with pytest.raises(ValidationError) as refused:
+        NotificationsConfig(provider=NotificationProvider.COMMAND)
+
+    assert "notifications.command.show" in str(refused.value)
+
+
+def test_a_show_template_with_an_unknown_placeholder_is_refused_naming_the_key() -> None:
+    with pytest.raises(ValidationError) as refused:
+        NotificationsConfig.model_validate(
+            {"provider": "command", "command": {"show": "notify-send {colour}"}}
+        )
+
+    message = str(refused.value)
+    assert "notifications.command.show" in message and "colour" in message
+
+
+def test_a_clear_template_may_use_only_the_id() -> None:
+    with pytest.raises(ValidationError) as refused:
+        NotificationsConfig.model_validate(
+            {"provider": "command", "command": {"show": "n {id}", "clear": "d {title}"}}
+        )
+
+    assert "notifications.command.clear" in str(refused.value)
+
+
+def test_every_placeholder_of_show_and_the_id_of_clear_is_accepted() -> None:
+    config = NotificationsConfig.model_validate(
+        {
+            "provider": "command",
+            "command": {"show": "n {id} {title} {body} {link}", "clear": "d {id}"},
+        }
+    )
+
+    assert config.command.clear == "d {id}"
+
+
+def test_abk_yaml_with_a_notifications_section_loads(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text(
+        "notifications:\n  provider: command\n  delay_minutes: 2\n"
+        "  command:\n    show: notify-send {title}\n"
+    )
+
+    notifications = load(path).notifications
+
+    assert notifications.provider is NotificationProvider.COMMAND
+    assert (notifications.delay_minutes, notifications.remind_after_minutes) == (2, 30)
+
+
+def test_abk_yaml_whose_command_has_no_show_fails_to_load_naming_the_key(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("notifications:\n  provider: command\n")
+
+    with pytest.raises(ConfigError) as refused:
+        load(path)
+
+    assert "notifications.command.show" in str(refused.value)
