@@ -36,6 +36,7 @@ from agent_build_kit import forges, infra, profiles, runtimes
 from agent_build_kit.config import (
     CONFIG_ENV,
     CONFIG_FILENAME,
+    TEMPLATE_PLACEHOLDERS,
     ProjectConfig,
     RepoConfig,
     active,
@@ -797,7 +798,7 @@ def build_tier1(
                 result = ran(command, where, toolchain)
                 if not toolchain.tolerates_exit(command, result.returncode):
                     isolate(command, result, where, toolchain)
-                    return False, _failure(command, result)
+                    return False, _failure(command, result, where)
         # Once per checkout, in its root: these look at the repo, not at a project.
         for command in extra:
             result = ran(command, cwd, profile)
@@ -815,7 +816,12 @@ def build_tier1(
         assert affected is not None
         plan = []
         for where, toolchain, files in work:
-            failed_ids = _failed_ids(toolchain, failed_output)
+            # The identifiers are relative to the project whose command failed.
+            failed_ids = (
+                _failed_ids(toolchain, failed_output)
+                if len(work) == 1 or _failed_in(where) in failed_output
+                else []
+            )
             if affected.mode == "command":
                 tests = [expand_template(affected.command or "", files, failed_ids)]
             else:
@@ -850,7 +856,9 @@ def build_tier1(
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
-                    return False, _failure(command, result)
+                    if index > 0:
+                        isolate(command, result, where, toolchain)
+                    return False, _failure(command, result, where)
         return True, ""
 
     def isolate(
@@ -862,12 +870,11 @@ def build_tier1(
         """Run the failed tests again, alone and serially, twice. Raises `FlakeFound` when
         they pass both times; returns when any fails again, or the profile cannot say
         which tests failed, so the failure stands."""
-        failed_tests = getattr(toolchain, "failed_tests", None)
         rerun_command = getattr(toolchain, "serial_rerun_command", None)
-        if failed_tests is None or rerun_command is None:
+        if rerun_command is None:
             return
         output = f"{result.stdout}\n{result.stderr}".strip()
-        tests = failed_tests(output)
+        tests = _failed_ids(toolchain, output)
         if not tests:
             return
         rerun = rerun_command(command, tests)
@@ -951,15 +958,26 @@ def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
 def expand_template(template: str, changed_files: list[str], failed_ids: list[str]) -> list[str]:
     """The argv a `command`-mode template stands for: each placeholder, a word of its
     own, becomes one argument per file or identifier, whatever characters they hold."""
-    words = {"{changed_files}": changed_files, "{failed_ids}": failed_ids}
+    words = dict(zip(TEMPLATE_PLACEHOLDERS, (changed_files, failed_ids), strict=True))
     return [arg for word in shlex.split(template) for arg in words.get(word, [word])]
 
 
-def _failure(command: list[str], result: subprocess.CompletedProcess) -> str:
-    """The command that failed, then the tail of what it printed: a bare
-    "tier 1 failed" says nothing about which check or why."""
+def _failed_in(where: Path) -> str:
+    """The line of a failure that names the project directory its command ran in."""
+    return f"(in {where})"
+
+
+def _failure(
+    command: list[str], result: subprocess.CompletedProcess, where: Path | None = None
+) -> str:
+    """The command that failed, then where it ran, then the tail of what it printed: a
+    bare "tier 1 failed" says nothing about which check or why, and the next fix round's
+    selection needs to know which project's tests the identifiers belong to."""
     printed = f"{result.stdout}\n{result.stderr}".strip()[-4000:]
-    return f"$ {shlex.join(command)} (exit {result.returncode})\n{printed}".strip()
+    header = f"$ {shlex.join(command)} (exit {result.returncode})"
+    if where is not None:
+        header += f"\n{_failed_in(where)}"
+    return f"{header}\n{printed}".strip()
 
 
 def _work(

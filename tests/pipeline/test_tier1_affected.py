@@ -16,9 +16,12 @@ import pytest
 from pydantic import ValidationError
 
 from agent_build_kit.config import AffectedConfig, ProjectConfig, RepoConfig
+from agent_build_kit.pipeline.check_runner import CheckCache
+from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
+from tests.factories import git, init_repo
 
 FAILED_OUTPUT = "FAILED tests/test_a.py::test_one - assert 1 == 2\nFAILED tests/test_b.py::test_two"
 CHANGED = ["src/a b.py", "src/c.py"]
@@ -49,6 +52,9 @@ class Profile(PythonUvProfile):
     ) -> list[list[str]] | None:
         self.asked.append((changed_files, failed_ids))
         return self.selected
+
+    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+        return ["rerun", *tests]
 
     def failed_tests(self, output: str) -> list[str]:
         return [line.split()[1] for line in output.splitlines() if line.startswith("FAILED ")]
@@ -187,7 +193,7 @@ def test_a_template_command_runs_under_the_tier_1_command_time_limit(tmp_path: P
 
 
 def test_a_failed_selected_run_goes_back_without_the_full_suite(tmp_path: Path) -> None:
-    commands = Commands(selected=(1, "FAILED tests/test_a.py::test_one"))
+    commands = Commands(selected=(1, "1 test failed: test_one"))
 
     passed, output = fix_round(tmp_path, commands)
 
@@ -298,7 +304,9 @@ class TwoProjectsNoSelector(Commands):
         return super().__call__(command, cwd=cwd)
 
 
-def two_projects(tmp_path: Path, commands: Commands) -> tuple[bool, str]:
+def two_projects(
+    tmp_path: Path, commands: Commands, failed_output: str = FAILED_OUTPUT
+) -> tuple[bool, str]:
     for name in ("a", "b"):
         (tmp_path / name).mkdir()
     return fix_round(
@@ -308,6 +316,7 @@ def two_projects(tmp_path: Path, commands: Commands) -> tuple[bool, str]:
         command=TEMPLATE,
         projects=[ProjectConfig(path="a"), ProjectConfig(path="b")],
         changed=["a/x.py", "b/y.py"],
+        failed_output=failed_output,
     )
 
 
@@ -358,3 +367,81 @@ def test_a_disagreement_is_logged(tmp_path: Path) -> None:
     fix_round(tmp_path, commands, log=log)
 
     assert sum("full suite failed" in line for line in log) == 1
+
+
+def test_a_selected_test_that_passes_alone_twice_is_a_flake_not_a_failure(
+    tmp_path: Path,
+) -> None:
+    commands = Commands(selected=(1, "FAILED tests/test_a.py::test_one - assert 1 == 2"))
+
+    with pytest.raises(FlakeFound) as found:
+        fix_round(tmp_path, commands)
+
+    assert [flake.test for flake in found.value.flakes] == ["tests/test_a.py::test_one"]
+    assert commands.words() == ["lint", "selected", "rerun", "rerun"]
+
+
+def test_a_selected_test_that_fails_alone_again_is_a_failure_for_the_fixer(
+    tmp_path: Path,
+) -> None:
+    commands = Commands(selected=(1, "FAILED tests/test_a.py::test_one"), rerun=(1, "FAILED again"))
+
+    passed, output = fix_round(tmp_path, commands)
+
+    assert not passed
+    assert "test_one" in output
+    assert commands.words() == ["lint", "selected", "rerun"]
+
+
+def test_a_project_is_given_only_the_failed_identifiers_its_own_command_produced(
+    tmp_path: Path,
+) -> None:
+    commands = Commands()
+    failed_in_a = f"$ full-tests (exit 1)\n(in {tmp_path / 'a'})\n{FAILED_OUTPUT}"
+
+    two_projects(tmp_path, commands, failed_output=failed_in_a)
+
+    selects = {
+        d.name: c
+        for c, d in zip(commands.ran, commands.directories, strict=True)
+        if c[0] == "select"
+    }
+    assert selects["a"] == ["select", "--files", "x.py", "--failed", *IDS, "-q"]
+    assert selects["b"] == ["select", "--files", "y.py", "--failed", "-q"]
+
+
+def test_a_failure_names_the_project_directory_its_command_ran_in(tmp_path: Path) -> None:
+    class LintFails(Commands):
+        def __call__(self, command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+            if command == PythonUvProfile().lint_command("main") and cwd.name == "b":
+                return subprocess.CompletedProcess(command, 1, "E501", "")
+            return super().__call__(command, cwd=cwd)
+
+    _, output = two_projects(tmp_path, LintFails())
+
+    header, where = output.splitlines()[:2]
+    assert header.startswith("$ ") and "(exit 1)" in header
+    assert where == f"(in {tmp_path / 'b'})"
+
+
+@pytest.mark.parametrize("template", ["select --files={changed_files}", "select x{failed_ids}"])
+def test_a_placeholder_inside_a_longer_word_is_refused_at_load(template: str) -> None:
+    with pytest.raises(ValidationError, match="word of its own"):
+        AffectedConfig(mode="command", command=template)
+
+
+def test_the_check_cache_is_never_written_by_a_fix_round(tmp_path: Path) -> None:
+    work = init_repo(tmp_path / "repo")
+    (work / "f.txt").write_text("x\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "work")
+    cache = CheckCache(tmp_path / "state" / "cache.json")
+    disagreeing = Commands(**{"full-tests": (1, "1 test failed")})
+
+    passed, _ = fix_round(work, disagreeing)
+    assert not passed
+    passed, _ = fix_round(work, Commands())
+
+    assert passed
+    assert cache.lookup(work, git(work, "rev-parse", "HEAD")) is None
+    assert not cache.path.exists(), "a selected result never stands in for the full one"

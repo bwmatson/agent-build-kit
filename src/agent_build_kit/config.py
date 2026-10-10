@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
@@ -372,6 +373,10 @@ class TestsConfig(Frozen):
     replay: ReplayConfig | None = None
 
 
+# The words of a `command` template that stand for a list of arguments.
+TEMPLATE_PLACEHOLDERS = ("{changed_files}", "{failed_ids}")
+
+
 class AffectedConfig(Frozen):
     # How a fix round picks the tests it runs: `off` runs the full tests, `profile`
     # asks the toolchain profile, `command` runs `command`.
@@ -384,6 +389,12 @@ class AffectedConfig(Frozen):
     def _command_mode_needs_its_template(self) -> AffectedConfig:
         if self.mode == "command" and not self.command:
             raise ValueError("checks.affected.mode `command` needs a `command` template")
+        for word in shlex.split(self.command or ""):
+            if word not in TEMPLATE_PLACEHOLDERS and any(p in word for p in TEMPLATE_PLACEHOLDERS):
+                raise ValueError(
+                    f"checks.affected.command: a placeholder must be a word of its own, "
+                    f"not part of `{word}`"
+                )
         return self
 
 
