@@ -126,10 +126,13 @@ environment:                  # how the pipeline's own environment is kept curre
   sync: [uv, sync]            # required, not empty: brings the environment up to date
   check: [uv, run, --no-sync, python, -c, "import agent_build_kit"]
                               # required, not empty: exits 0 when it is healthy
-  inputs:                     # paths relative to the planning repo; may point outside it
+  inputs:                     # path patterns relative to the repo (`**` spans folders;
+                              # absolute or `..` is refused); a literal path matches itself
     dependencies: [pyproject.toml]
     lock: [uv.lock]           # matched by file name, and left out of a unit's size
     other: []
+  artifacts: [.venv]          # what sync and check produce: never an input, a leftover or
+                              # a commit; a tracked file under it is ordinary work
 
 tracks:                       # the scheduled health/improve/recommend tracks
   model: sonnet               # Claude Code's alias, sent to any runtime as

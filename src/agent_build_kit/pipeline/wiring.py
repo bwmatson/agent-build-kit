@@ -49,8 +49,10 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.environment import (
+    artifact_patterns,
     lock_paths,
     restore_unchanged_locks,
+    unstage_artifacts,
     unstage_untracked_locks,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -634,6 +636,7 @@ def build_commit(
             restore_unchanged_locks(repo, cwd, base or default_base)
             run(["git", "add", "-A"], cwd=cwd)
             unstage_untracked_locks(repo, cwd)
+            unstage_artifacts(repo, cwd)
             if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
                 return None  # Nothing staged: an empty commit would be a lie.
             if gate is not None and (rejected := gate(cwd)):
@@ -1341,6 +1344,8 @@ def build_worktree(
         options: dict[str, Any] = {"allow_dirty": True} if allow_dirty else {}
         if locks := lock_paths(repo):
             options["locks"] = locks
+        if artifacts := artifact_patterns(repo):
+            options["artifacts"] = artifacts
         return prepare(repos[unit.repo], branch_name(unit), base, root, **options)
 
     return worktree

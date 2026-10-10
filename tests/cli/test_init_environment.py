@@ -78,8 +78,8 @@ def test_a_recognised_layout_gets_commands_and_the_files_found_including_a_check
     assert environment["check"]
     deps = environment["inputs"]["dependencies"]
     lock = environment["inputs"]["lock"]
-    assert {"pyproject.toml", "../framework/pyproject.toml"} <= set(deps)
-    assert {"uv.lock", "../framework/uv.lock"} <= set(lock)
+    assert deps == ["pyproject.toml"], "a checkout beside the repository cannot be a pattern"
+    assert lock == ["uv.lock"]
 
 
 def test_the_dry_run_shows_the_section_and_writes_nothing(

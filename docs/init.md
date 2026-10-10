@@ -160,7 +160,8 @@ the timers with `abk install-timers`.
 
 Init is the only place that guesses an `environment` section. It reads marker
 files in the planning repo and in each code repo (a manifest, its lock file,
-and the checkouts the manifest names as path sources) and writes a `sync`
+and the checkouts inside the repo the manifest names as path sources; a
+checkout beside it cannot be listed, since patterns stay in the repo) and writes a `sync`
 command, a `check`, and the manifests and lock files found. The lock files
 are also written into `limits.generated_files`. Where it recognises nothing
 it writes the planning section with empty commands and says to set them by

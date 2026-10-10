@@ -48,7 +48,10 @@ def detect_environment(root: Path, *, framework: bool) -> EnvironmentConfig | No
         lock.append(LOCK)
     for checkout in _path_sources(root):
         for name, files in ((MANIFEST, dependencies), (LOCK, lock)):
-            if (checkout / name).is_file():
+            # A pattern cannot leave the repository, so a checkout beside it is not listed.
+            if (checkout / name).is_file() and not _relative(checkout / name, root).startswith(
+                ".."
+            ):
                 files.append(_relative(checkout / name, root))
     check = (
         ["uv", "run", "--no-sync", "python", "-c", "import agent_build_kit"]

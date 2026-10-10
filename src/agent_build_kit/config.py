@@ -26,7 +26,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, ValidationError, field_validator, model_validator
 
-from agent_build_kit import forges, infra, runtimes
+from agent_build_kit import forges, infra, path_patterns, runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
@@ -41,11 +41,17 @@ class ConfigError(Exception):
 
 
 class EnvironmentInputs(Frozen):
-    """The files whose contents decide when `sync` must run again."""
+    """The files whose contents decide when `sync` must run again, as path patterns
+    relative to the repository (`path_patterns.py`); a literal path matches itself."""
 
     dependencies: list[str] = []
     lock: list[str] = []
     other: list[str] = []
+
+    @field_validator("dependencies", "lock", "other")
+    @classmethod
+    def _patterns(cls, patterns: list[str]) -> list[str]:
+        return path_patterns.validate(patterns)
 
 
 class EnvironmentConfig(Frozen):
@@ -55,7 +61,14 @@ class EnvironmentConfig(Frozen):
     sync: list[str]
     check: list[str]
     inputs: EnvironmentInputs = EnvironmentInputs()
+    # Path patterns of what `sync` and `check` produce: the pipeline's own, never an input,
+    # never committed and never counted as a leftover.
     artifacts: list[str] = []
+
+    @field_validator("artifacts")
+    @classmethod
+    def _artifact_patterns(cls, patterns: list[str]) -> list[str]:
+        return path_patterns.validate(patterns)
 
     @field_validator("sync", "check")
     @classmethod

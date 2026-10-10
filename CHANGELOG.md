@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- An environment's `inputs` are now path patterns, `**` included, so a repository with
+  many nested manifests and locks can list them and a new module is no longer missed. A
+  pattern matching nothing is reported by `abk doctor`, and an absolute or `..` pattern is
+  refused at load. A new `environment.artifacts` list names what `sync` and `check`
+  produce, such as a dependency folder: it never holds a unit, is never committed and is
+  left out of the hash, even when the repository does not ignore it. A tracked file under
+  an artifact pattern is ordinary work, and `abk doctor` warns about the pattern.
+
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package
   manager or lock file. The `limits.generated_files` example no longer suggests listing

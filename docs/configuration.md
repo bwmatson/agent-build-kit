@@ -143,12 +143,21 @@ environment:                    # how the pipeline's own environment is kept
   sync: [uv, sync]              # required, not empty: brings it up to date
   check: [uv, run, --no-sync, python, -c, "import agent_build_kit"]
                                 # required, not empty: exits 0 when healthy
-  inputs:                       # paths relative to the planning repo; may lie
-                                # outside it
-    dependencies: [pyproject.toml]
-    lock: [uv.lock]             # also left out of a unit's size, matched by
-                                # file name wherever the file sits
-    other: []
+  inputs:                       # path patterns relative to the repository: `*`
+                                # within one folder, `?`, `[...]`, `**` for any
+                                # number of folders, a folder for every file
+                                # under it. Absolute or `..` patterns are refused
+    dependencies: [pyproject.toml]   # e.g. "**/manifest.json" for nested modules
+    lock: [uv.lock]             # also left out of a unit's size, matched by the
+                                # pattern's file name wherever the file sits
+    other: []                   # a pattern matching nothing is hashed as missing
+                                # and `abk doctor` reports it
+  artifacts: [.venv]            # what `sync` and `check` produce, as patterns.
+                                # Never an input or part of the hash, never
+                                # counted as a leftover in a unit's worktree,
+                                # never committed or discarded. A tracked file
+                                # under one is ordinary work, and `abk doctor`
+                                # warns. Default: none
 # A repository entry under `repos` takes the same `environment` section, with
 # paths relative to the repository. `abk doctor` warns for one without it.
 # It runs in the unit's worktree: before the tests and every tier 1, `sync` runs
