@@ -11,6 +11,7 @@ it is shown by the status command and exported as metrics.
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -36,6 +37,8 @@ class UsageCall(Frozen):
     latency_ms: int = 0
     headers: dict[str, str] = {}
     age_seconds: int | None = None  # a cached reading's age
+    session_pct: int | None = None  # the percentages an answered call read
+    weekly_pct: int | None = None
 
 
 class Refusal(Frozen):
@@ -228,6 +231,37 @@ def _retry_after(call: UsageCall) -> timedelta:
             except ValueError:
                 return timedelta(0)
     return timedelta(0)
+
+
+def most_added(
+    calls: list[UsageCall],
+    window: Literal["session", "weekly"],
+    *,
+    minutes: float,
+    floor: float,
+    margin: int,
+    min_gap: timedelta = timedelta(0),
+) -> float:
+    """The most percentage points `window` could have gained in `minutes`: the fastest climb
+    between answered calls in the record, no slower than `floor`, plus `margin`. Each reading
+    is paired with the next one at least `min_gap` after it, so two answers taken together,
+    whose whole points differ by one, are not a fast climb. A fall is a window resetting,
+    not a climb."""
+    readings = sorted(
+        (c.at, pct)
+        for c in calls
+        if c.outcome == "ok"
+        and (pct := c.session_pct if window == "session" else c.weekly_pct) is not None
+    )
+    fastest = floor
+    for index, (before, low) in enumerate(readings):
+        for after, high in readings[index + 1 :]:
+            gap = after - before
+            if gap > timedelta(0) and gap >= min_gap:
+                if high > low:
+                    fastest = max(fastest, (high - low) / (gap.total_seconds() / 60))
+                break
+    return fastest * minutes + margin
 
 
 def interval_line(interval: CacheInterval) -> str:

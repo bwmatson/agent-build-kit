@@ -106,6 +106,7 @@ from agent_build_kit.pipeline.usage_guard import (
     Decision,
     UsageReading,
     current_usage,
+    decide_start,
     may_start_unit,
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
@@ -1341,13 +1342,56 @@ def build_worktree(
     return worktree
 
 
-def build_may_start(*, usage: Callable[[], object] | None = None) -> Callable[[], tuple[bool, str]]:
+Reading = Callable[[], UsageReading | None]
+Decide = Callable[[UsageReading | None], Decision]
+
+
+def _guard_decision(
+    usage: Reading | None, decide: Decide | None, start: Callable[[], Decision] | None
+) -> Callable[[], tuple[Decision, datetime | None]]:
+    """One decision of the usage guard, and the reset time to fall back on when a refusal
+    names no time of its own.
+
+    By default the decision is `decide_start`'s, which asks the endpoint only when a fresh
+    reading could change it; the reset is the one the decision carries. A caller with its
+    own `start`, or its own `usage` and `decide`, is asked as it says.
+    """
+    if start is None and usage is None and decide is None:
+        start = decide_start
+    if start is not None:
+        decide_now = start
+
+        def decided() -> tuple[Decision, datetime | None]:
+            decision = decide_now()
+            return decision, decision.resets_at
+
+        return decided
+
+    read = usage or current_usage
+    judge = decide or may_start_unit
+
+    def judged() -> tuple[Decision, datetime | None]:
+        reading = read()
+        return judge(reading), reading.resets_at if reading else None
+
+    return judged
+
+
+def _when(decision: Decision, reset: datetime | None) -> datetime | None:
+    if not decision.may_start and decision.resume_at:
+        return decision.resume_at
+    return reset
+
+
+def build_may_start(
+    *, usage: Reading | None = None, start: Callable[[], Decision] | None = None
+) -> Callable[[], tuple[bool, str]]:
     """The usage guard, in the shape the runner asks for.
 
     Checked again per unit rather than once per tick: a tick can start several
     units, and the window moves while they run.
     """
-    usage = usage or current_usage
+    decided = _guard_decision(usage, None, start)
 
     def may_start() -> tuple[bool, str]:
         # No window to read for a runtime that has none; its own rate-limit
@@ -1355,7 +1399,7 @@ def build_may_start(*, usage: Callable[[], object] | None = None) -> Callable[[]
         runtime = runtimes.active()
         if not runtime.supports_usage_tracking:
             return True, f"runtime {runtime.name} has no usage window"
-        decision = may_start_unit(usage())  # pyrefly: ignore[bad-argument-type]
+        decision, _ = decided()
         return decision.may_start, decision.reason
 
     return may_start
@@ -1363,57 +1407,46 @@ def build_may_start(*, usage: Callable[[], object] | None = None) -> Callable[[]
 
 def build_resume_at(
     *,
-    usage: Callable[[], UsageReading | None] | None = None,
-    decide: Callable[[UsageReading | None], Decision] | None = None,
+    usage: Reading | None = None,
+    decide: Decide | None = None,
+    start: Callable[[], Decision] | None = None,
 ) -> Callable[[], datetime | None]:
     """When the usage guard expects to allow a start again, in the shape the
     runner asks for: the guard's own answer, which counts the ramp towards the
     window's reset, and the reset itself when it has none."""
-    usage = usage or current_usage
-    decide = decide or may_start_unit
+    decided = _guard_decision(usage, decide, start)
 
     def resume_at() -> datetime | None:
-        reading = usage()
-        decision = decide(reading)
-        if not decision.may_start and decision.resume_at:
-            return decision.resume_at
-        return reading.resets_at if reading else None
+        return _when(*decided())
 
     return resume_at
 
 
 def build_usage_gate(
     *,
-    usage: Callable[[], UsageReading | None] | None = None,
-    decide: Callable[[UsageReading | None], Decision] | None = None,
+    usage: Reading | None = None,
+    decide: Decide | None = None,
+    start: Callable[[], Decision] | None = None,
 ) -> tuple[Callable[[], tuple[bool, str]], Callable[[], datetime | None]]:
-    """`may_start` and `resume_at` for one gate, taking one reading between them.
+    """`may_start` and `resume_at` for one gate, taking one decision between them.
 
     A gate asks whether a start is allowed and, when it is not, when to look
-    again. Both answers come from the reading the first took, so a refusal is
-    one read of usage and its reason and its deadline describe the same moment.
+    again. Both answers come from the decision the first took, so a refusal is
+    one decision of the guard and its reason and its deadline describe the same moment.
     """
-    usage = usage or current_usage
-    decide = decide or may_start_unit
-    held: list[tuple[UsageReading | None, Decision]] = []
+    decided = _guard_decision(usage, decide, start)
+    held: list[tuple[Decision, datetime | None]] = []
 
     def may_start() -> tuple[bool, str]:
         runtime = runtimes.active()
         if not runtime.supports_usage_tracking:
             held.clear()
             return True, f"runtime {runtime.name} has no usage window"
-        reading = usage()
-        decision = decide(reading)
-        held[:] = [(reading, decision)]
-        return decision.may_start, decision.reason
+        held[:] = [decided()]
+        return held[0][0].may_start, held[0][0].reason
 
     def resume_at() -> datetime | None:
-        if not held:
-            return build_resume_at(usage=usage, decide=decide)()
-        reading, decision = held[0]
-        if not decision.may_start and decision.resume_at:
-            return decision.resume_at
-        return reading.resets_at if reading else None
+        return _when(*(held[0] if held else decided()))
 
     return may_start, resume_at
 

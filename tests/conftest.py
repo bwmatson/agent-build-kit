@@ -33,6 +33,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
+from tests.usage_host import Host
 
 pytest_plugins = ["tests.time_limit"]
 
@@ -254,3 +255,9 @@ def installation(tmp_path: Path) -> Installation:
     """A workspace rooted at the test's own tmp_path (state, specs and graph
     page under it), for tests that write planning-repo files."""
     return make_installation(tmp_path)
+
+
+@pytest.fixture
+def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Host:
+    """The usage endpoint faked at the HTTP boundary, on a home of its own."""
+    return Host(tmp_path, monkeypatch)

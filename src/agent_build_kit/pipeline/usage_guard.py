@@ -71,10 +71,12 @@ from agent_build_kit.config import (
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_calls import (
+    CACHE,
     CALLS_NAME,
     CacheInterval,
     UsageCall,
     cache_interval,
+    most_added,
     rate_limit_headers,
     read_calls,
     record_call,
@@ -184,6 +186,9 @@ class Decision(Frozen):
     may_start: bool
     reason: str
     resume_at: datetime | None = None
+    # When the session window of the reading behind an allowance resets: where a caller
+    # that wants a time to look again at falls back to when the decision names none.
+    resets_at: datetime | None = None
 
     @property
     def resume_after_seconds(self) -> float:
@@ -578,11 +583,14 @@ def read_live_usage(
         status: int | None = 200
         headers: object = None
         outcome = "ok"
+        read: UsageReading | None = None
         try:
-            return fetch(
+            answer = fetch(
                 USAGE_URL,
                 {"Authorization": f"Bearer {bearer}", "anthropic-beta": OAUTH_BETA_HEADER},
             )
+            read = _reading_from_payload(answer, observed_at=asked, source="live")
+            return answer
         except Exception as error:
             if isinstance(error, urllib.error.HTTPError):
                 status, headers = error.code, error.headers
@@ -602,6 +610,8 @@ def read_live_usage(
                     status=status,
                     latency_ms=int((time.monotonic() - started) * 1000),
                     headers=rate_limit_headers(headers),
+                    session_pct=read.session_pct if read else None,
+                    weekly_pct=read.weekly_pct if read else None,
                 ),
             )
 
@@ -722,18 +732,40 @@ def reading_as(caller: str) -> Iterator[None]:
         _caller.reset(token)
 
 
-def current_usage() -> UsageReading | None:
-    """The best reading available: live if possible, else the local cache.
-
-    While the endpoint is rate limited, a reading that is not live says so in
-    its source, so the reason a start was refused names the rate limit and
-    when the next call will be made.
-    """
-    reading = read_live_usage() or read_cached_usage()
+def _noted(reading: UsageReading | None) -> UsageReading | None:
+    """A reading that is not live, labelled with the rate limit in force, so the reason a start
+    was refused names it and when the next call will be made."""
     note = rate_limit_note()
     if reading is not None and note is not None and not reading.is_live:
         return reading.model_copy(update={"source": f"{reading.source} ({note})"})
     return reading
+
+
+def current_usage() -> UsageReading | None:
+    """The best reading available: live if possible, else the local cache."""
+    return _noted(read_live_usage() or read_cached_usage())
+
+
+def held_usage() -> UsageReading | None:
+    """The reading held now, from the cache file or Claude Code's own: no call is made."""
+    return _noted(_kept_reading(_load_cache(_cache_file())) or read_cached_usage())
+
+
+def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:
+    """When the endpoint may next be asked, or None when it may be asked now: no sooner than
+    the cache interval after the last call."""
+    asked = [c.at for c in read_calls(calls_file) if c.outcome != CACHE]
+    if not asked:
+        return None
+    allowed = max(asked) + current_cache_interval(calls_file).kept
+    return allowed if allowed > now else None
+
+
+def refreshed_usage() -> UsageReading | None:
+    """A fresh reading when the interval allows a call, else the one held."""
+    if next_call_at(_cache_file().parent / CALLS_NAME, now=datetime.now(UTC)) is None:
+        return current_usage()
+    return held_usage()
 
 
 # The shapes a refusal has been seen to arrive in. Not a contract — Claude
@@ -781,7 +813,7 @@ def rate_limit_reset(text: str) -> datetime | None | Literal[False]:
     return datetime.fromtimestamp(int(match.group(1)), UTC) if match else None
 
 
-def may_start_unit(reading: UsageReading | None) -> Decision:
+def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> Decision:
     """Decide whether a new unit may start now.
 
     Units already running are not affected: this gates starting work, so
@@ -795,6 +827,9 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
     gone wrong; they can only ever stop work earlier, never permit more of it.
     Available credits are the user's reserve, not headroom for the pipeline,
     so a healthy credit balance does not raise a ceiling.
+
+    A reading from a cache is refused as stale past `MAX_ANCHOR_AGE`, unless `trust_age`
+    says the caller has shown the reading's age cannot change the answer.
     """
     now = datetime.now(UTC)
 
@@ -831,7 +866,7 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
         )
 
     # A live reading was just taken, so only a reading from a cache can be stale.
-    if not reading.is_live and reading.age > MAX_ANCHOR_AGE:
+    if not trust_age and not reading.is_live and reading.age > MAX_ANCHOR_AGE:
         return Decision(
             may_start=False,
             reason=(
@@ -860,6 +895,92 @@ def may_start_unit(reading: UsageReading | None) -> Decision:
             f"({_thresholds_note(reading, now=now, limits=limits)}, {reading.source})"
         ),
     )
+
+
+def _headroom_holds(held: UsageReading, calls_file: Path, now: datetime) -> bool:
+    """Whether no window could have climbed to its threshold since the reading was taken."""
+    limits = Limits.configured()
+    climb = _limits()
+    calls = read_calls(calls_file)
+    minutes = (now - held.observed_at).total_seconds() / 60
+    return all(
+        window.used_pct
+        + most_added(
+            calls,
+            window.name,
+            minutes=minutes,
+            floor=climb.usage_climb_floor,
+            margin=climb.usage_climb_margin_pct,
+            min_gap=timedelta(minutes=climb.usage_cache_minutes),
+        )
+        < threshold_at(window, now=now, limits=limits)
+        for window in held.windows
+    )
+
+
+def _too_soon(allowed: datetime, now: datetime) -> Decision:
+    return Decision(
+        may_start=False,
+        reason=(
+            "usage must be read again but the endpoint was asked too recently: "
+            f"the minimum interval allows the next call at {_hhmm(allowed)} "
+            f"({int((allowed - now).total_seconds() // 60) + 1}m)"
+        ),
+        resume_at=allowed,
+    )
+
+
+def decide_start(
+    *,
+    read: Callable[[], UsageReading | None] | None = None,
+    decide: Callable[..., Decision] | None = None,
+) -> Decision:
+    """Whether a unit may start now, asking the endpoint only when a fresh reading
+    could change the answer and the minimum interval allows a call.
+
+    Usage only rises within a window, so a refusal on a reading of a window that has not
+    reset stands, and an allowance stands while the most the usage could have added since
+    the reading (`most_added`) leaves it under the threshold. A reading of a window that
+    has reset, or none, needs a fresh one; so does anything closer to the threshold.
+    `read` and `decide` stand for `current_usage` and `may_start_unit` where a fresh
+    reading is taken, for a caller that has its own.
+    """
+    read = read or current_usage
+    judge = decide or may_start_unit
+
+    def carrying(decision: Decision, reading: UsageReading | None) -> Decision:
+        if decision.resets_at is None and reading is not None:
+            return decision.model_copy(update={"resets_at": reading.resets_at})
+        return decision
+
+    def fresh() -> Decision:
+        reading = read()
+        return carrying(judge(reading), reading)
+
+    now = datetime.now(UTC)
+    cache_path = _cache_file()
+    calls_file = cache_path.parent / CALLS_NAME
+    held = _kept_reading(_load_cache(cache_path))
+    if held is not None and not _past_reset(held, now):
+        decision = carrying(judge(held, trust_age=True), held)
+        if not decision.may_start or _headroom_holds(held, calls_file, now):
+            # Answered from the reading held, as a cache hit is, so the record's share is true.
+            record_call(
+                calls_file,
+                UsageCall(
+                    at=now,
+                    caller=_caller.get(),
+                    outcome=CACHE,
+                    age_seconds=int((now - held.observed_at).total_seconds()),
+                ),
+            )
+            return decision
+        if now - held.observed_at < current_cache_interval(calls_file).kept:
+            return fresh()
+    allowed = next_call_at(calls_file, now=now)
+    if allowed is not None:
+        return _too_soon(allowed, now)
+    return fresh()
 
 
 def _stale_retry() -> timedelta:

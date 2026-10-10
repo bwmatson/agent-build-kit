@@ -77,6 +77,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
       usage_cache_max_minutes: 60      # the most refusals can stretch that to
       usage_fallback_minutes: 30       # age of the last good reading that covers a failed call
+      usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make
+      usage_climb_margin_pct: 2  # points added to what a reading could have gained since
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor

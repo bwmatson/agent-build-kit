@@ -107,6 +107,8 @@ runtimes:                       # one entry per runtime that needs a fact abk
       usage_cache_minutes: 15  # how long a good usage reading answers every reader (the shortest)
       usage_cache_max_minutes: 60  # the most refusals can stretch that to
       usage_fallback_minutes: 30  # how old the last good reading may be to cover a failed call
+      usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make
+      usage_climb_margin_pct: 2  # points added to what a reading could have gained since
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when

@@ -61,7 +61,12 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.planning_repo import default_branch_of, is_repo
 from agent_build_kit.pipeline.planning_repo import restore_default_branch as _restore
-from agent_build_kit.pipeline.usage_guard import current_usage, may_start_unit, reading_as
+from agent_build_kit.pipeline.usage_guard import (
+    current_usage,
+    decide_start,
+    may_start_unit,
+    reading_as,
+)
 from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, build_argv
@@ -674,8 +679,7 @@ def has_headroom() -> bool:
     track does not need a scheduled resume the way a five-minute tick does.
     """
     with reading_as("tracks"):
-        reading = current_usage()
-    decision = may_start_unit(reading)
+        decision = decide_start(read=current_usage, decide=may_start_unit)
     log(decision.reason if decision.may_start else f"not starting — {decision.reason}")
     return decision.may_start
 

@@ -216,7 +216,7 @@ are the reference for each condition. The nodes:
 |---|---|---|
 | `prepare` | Worktree, fetch, move the branch onto its base; picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
 | `tests` | The tests-first commit | `run`, `commit` |
-| `implement` | The implementation commit; nothing new against an exhausted window is a pause, not a failure | `run`, `commit`, `may_start` |
+| `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window | `run`, `commit`, `may_start` |
 | `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
