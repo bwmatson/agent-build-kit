@@ -8,6 +8,11 @@
   change together one function, delete what the change makes dead and stay within the
   change. A session that is continued is not told again, and rework now also looks for the
   others of the kind when feedback names one duplicate.
+- Tests carrying the tier-2 marker now run under their own time limit, thirty minutes
+  by default and set by `--tier2-test-time-limit` (zero turns it off), instead of the
+  sixty seconds every test had, which failed live acceptance runs that take minutes.
+  Every other test keeps `--test-time-limit`, and a failure says which kind of limit
+  it passed.
 
 - Configuration can now describe the environment the pipeline runs in: an `environment`
   section with a required `sync` command, a required `check` command and the dependency,
