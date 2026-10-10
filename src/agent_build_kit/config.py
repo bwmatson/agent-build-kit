@@ -55,6 +55,7 @@ class EnvironmentConfig(Frozen):
     sync: list[str]
     check: list[str]
     inputs: EnvironmentInputs = EnvironmentInputs()
+    artifacts: list[str] = []
 
     @field_validator("sync", "check")
     @classmethod
