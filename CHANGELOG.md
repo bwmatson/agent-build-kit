@@ -6,6 +6,7 @@
   test fails when source outside the toolchain profiles and `abk init` names a package
   manager or lock file. The `limits.generated_files` example no longer suggests listing
   lock files there.
+
 - The fake GitHub hosts the tests use now answer the pull, review, comment, status and
   label routes from one table over one state, so the in-process host and the HTTP server
   give the same answer and a review written through the server is what the other reads.
