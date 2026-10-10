@@ -43,7 +43,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="plenty")
+    )
     real = cli.build_runner
 
     def runner(unit, **kwargs):

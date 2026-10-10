@@ -139,6 +139,7 @@ from agent_build_kit.pipeline.units import (
     stack_age_source,
     start_room,
     trunk_of,
+    uncounted,
     unmet_gates,
     waiting_on,
     waiting_on_me,
@@ -416,6 +417,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
+    for line in _blocked_lines(units):
+        log(line)
 
     urgency = [
         f"{unit.id} {unit.priority}"
@@ -1331,7 +1334,7 @@ def _evaluate_round(
 
 
 def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
-    held = [unit for unit in units if in_progress(unit)]
+    held = [unit for unit in units if in_progress(unit, units)]
     if start_room(units, inst.max_units_in_progress):
         return None
     by_label: dict[str, int] = {}
@@ -1339,10 +1342,23 @@ def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
         label = in_progress_label(unit)
         by_label[label] = by_label.get(label, 0) + 1
     states = ", ".join(f"{count} {label}" for label, count in sorted(by_label.items()))
-    return (
+    line = (
         f"queue is full: {len(held)} units in progress, limit {inst.max_units_in_progress} "
         f"({states})"
     )
+    waiting = _blocked_lines(units)
+    if waiting:
+        line += f"; {len(waiting)} blocked not counted"
+    return line
+
+
+def _blocked_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each blocked unit that has work and so is not counted, with what it waits on."""
+    lines = []
+    for unit in uncounted(units):
+        waits = [parent.id for parent in waiting_on(unit, units)]
+        lines.append(f"  blocked: {unit.id} ({unit.repo}) waits on {', '.join(waits)}")
+    return lines
 
 
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
@@ -1443,7 +1459,9 @@ def _nothing_started_reason(
         enforce_limit=False,
         idle=_idle_units(inst, units, ()),
     ):
-        return f"{full}; no new unit starts until one finishes or is closed"
+        return "\n".join(
+            [f"{full}; no new unit starts until one finishes or is closed", *_blocked_lines(units)]
+        )
     failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
     if failed:
         return "nothing can start: " + "; ".join(failed)

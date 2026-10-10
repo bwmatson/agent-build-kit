@@ -176,10 +176,20 @@ built. `limits.max_units_in_progress` bounds the units started and not finished
 across repos: running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
-never started, do not count. Only a unit that
-has never started is stopped by it, and no more of them start than leave room;
-a rework, resume, restack, review round or push still runs, so the count can
-pass it. Free slots go to
+never started, do not count. A blocked planned unit does not count either, however
+much work it has: it waits on another unit (`waiting_on`: a dependency or predecessor
+not yet reviewed or merged, being reworked, failed or held, which covers a gate not yet
+merged and an upstream that went back), and counts again when it no longer does. A
+backoff, a lease, a limited tick and a usage pause do not make a unit blocked. Only a
+unit that has never started is stopped by the limit, and no more of them start than
+leave room; so is a planned unit that was blocked and no longer is (its record carries
+the cause of the wait, or a unit it depends on was outside review and merge since it last
+changed state), which stays planned until the other units in progress are below the limit. A rework, resume, restack, review
+round, push and a unit paused by a usage pause or interrupted still run, so the count can
+pass it. A blocked unit that had work gives its place to a ready, never-run prerequisite
+it waits on: before the classes below, one prerequisite starts for each blocked unit's
+place (one unit for each place; several by effective priority, then effective age),
+within the limit and `max_concurrent_stacks`. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then by
 effective age (the earliest planned position among the unit and every unit waiting on it, in

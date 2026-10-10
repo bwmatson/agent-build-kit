@@ -89,6 +89,7 @@ line falls where a unit ends:
 | Moves into the unit graph | Stays abk code |
 |---|---|
 | Step order and branching (`UnitRunner.run`) | Choosing what starts: `ready_units`, the depth caps, `max_units_in_progress`, slot order, `max_concurrent_stacks` |
+|  | Blocked units: a planned unit that `waiting_on` another unit is *blocked* (the graph's `blocked` label) and holds no place in `max_units_in_progress`; its ready, never-run prerequisite starts into that place ahead of the usual order, and a unit no longer blocked waits for room (`blocked`, `uncounted`, `ready_units`) |
 |  | Merge-gated dependencies (`merge_before`, from `Needs: … merged`), applied by `waiting_on`/`ready_units`: the dependent waits for the merge even in one repo and starts on the trunk; a merge gate is never a base, and a unit that had already started is told once when one is added, not disturbed. A failed or held unit requeued while the gate is unmet waits as `planned` with the cause `gated`, and the pass delivers the requeue in its mode once the dependency has merged |
 | Where a run got to: the thread's position replaces `checkpoint()`, `record_step` and `resume_from` | The driver: the tick timer, `cmd_tick`, a pass's refresh loop |
 | In-run state: review rounds, deferred follow-ups, pending replies and the comments they answer | Polling the forge (`pr_poller.py`): the source of events |
