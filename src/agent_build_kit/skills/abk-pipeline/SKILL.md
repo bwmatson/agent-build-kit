@@ -8,7 +8,13 @@ generatedBy: agent-build-kit
 # Reading and driving the abk pipeline
 
 The pipeline runs unattended: a timer calls `abk tick` every few minutes in
-the planning repo. A tick is one pass — check the usage window, poll GitHub,
+the planning repo. Once a tick has work, and before its round, it keeps the
+pipeline's environment current: it runs `environment.sync` when the listed
+inputs changed, then `environment.check`, and syncs once more if the check
+fails. If the check still fails the tick starts nothing and exits 1 with the
+check's output, with no unit failed; fix the environment (`abk doctor` runs the
+check) and the next tick resumes the units waiting for it. A tick is one pass —
+check the usage window, poll GitHub,
 plan what is new, verify and archive what has merged, build what is ready —
 and every step is idempotent, so running one by hand changes nothing a timer
 would not have done.
@@ -22,9 +28,9 @@ what the pipeline is doing, watch the pass, not a single unit.
 
 | Command | What it does |
 |---|---|
-| `abk status` | Whether the pipeline is paused, the usage reading, units by state, which PRs are waiting for a human, any `held` or in-flight `planned` unit with `no recorded cause`, and the ready queue in start order with the reason for each place (priority, or planned order). Never changes anything. |
+| `abk status` | Whether the pipeline is paused, the usage reading, the environment's state (healthy, or unhealthy with the check's output), units by state, which PRs are waiting for a human, any `held` or in-flight `planned` unit with `no recorded cause`, and the ready queue in start order with the reason for each place (priority, or planned order). Never changes anything. |
 | `abk graph` | Regenerate the unit graph page (`docs/unit_graph.md`) from `runs/units.json`. |
-| `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything. |
+| `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything; it does not sync the environment or resume units waiting for it. |
 | `abk tick` | A real pass, the same one the timer runs. Safe at any time. `--only <unit>` builds just that unit if it is ready. |
 | `abk verify <change>` | Deploy a fully merged change and run its live (tier 2) tests, then archive it; exits 1 if it fails or passes without the change being archived. The tick does this on its own once every unit of a change has merged. |
 | `abk check` | `openspec validate --all --strict --json` on the planning repo. |
@@ -62,7 +68,7 @@ more task groups of a change.
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
 | `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). | See below. |
-| `failed` | The build raised. | See below. |
+| `failed` | The build raised. With the cause `environment`, the pipeline's own environment failed its `environment.check` before tier 1; the unit keeps its slot, `abk status` says it is waiting for the environment, and the tick resumes it once the environment is healthy. | See below; for the environment cause, fix the environment (`abk doctor` runs the check). |
 | `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge: a pull request stacked on it is moved onto its predecessor's branch or the trunk and retargeted before the satisfied unit's own is closed. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`

@@ -463,6 +463,18 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   closed or is satisfied. An unfinished unit is exactly a thread that still
   exists.
 
+## The environment cause
+
+Before a unit's tier 1 runs (the `checks` node, or `tier1` for a unit that produced
+nothing), and again when a command the pipeline runs for tier 1 fails, the pipeline runs
+the planning environment's `check`. When it fails, the unit is `failed` with the cause
+`environment`: no feedback is saved and no fix round runs. A unit's own failure while
+`check` passes is an ordinary tier 1 failure. The unit still counts toward the units in
+progress, `abk status` and the full-queue line name it as waiting for the environment,
+and a store whose only unit needing attention is failed this way still counts as work for
+a tick. Each tick, once the environment is healthy, such units are resumed as `abk requeue`
+resumes a unit, within the concurrency limits.
+
 ## Host outages
 
 A step that gives up because the code host is unavailable (`HostUnavailable`) is not

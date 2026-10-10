@@ -20,6 +20,14 @@ holds, verify and archive what has fully merged, and work out what is ready;
 then it builds that. Every step is idempotent, and a tick with
 nothing to do exits silently before reading usage or calling any host.
 
+Once a tick has found work, and before its first round, it keeps the pipeline's
+environment current (`pipeline/environment.py`). When `environment` is configured it
+hashes the listed inputs and compares them with the hash recorded in the state directory,
+runs `sync` when they differ, then runs `check`; a failing `check` runs `sync` once more
+and checks again. If it still fails, the tick records the environment as unhealthy with
+the output, starts nothing and exits non-zero. `abk status` prints the recorded state.
+Units failed with the cause `environment` are resumed in the pass once it is healthy.
+
 ### 1. An OpenSpec change
 
 A change lives in `openspec/changes/<change>/` in the planning repo:

@@ -103,6 +103,7 @@ class UnitRun(Frozen):
     commits: tuple[str, ...] = ()
     verdict: Verdict | None = None
     stopped: str = ""
+    blocked_by_environment: bool = False  # the stop is the environment's, not the unit's
     event: ResumeEvent | None = None
     session_id: str = ""  # the agent session the running node reported, until the node completes
     running_node: str = ""  # the agent node whose run started, until that node completes

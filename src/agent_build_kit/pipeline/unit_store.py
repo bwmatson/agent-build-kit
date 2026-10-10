@@ -90,6 +90,7 @@ class Cause(StrEnum):
     CLOSED = "closed"
     FAILED = "failed"
     HOST_UNAVAILABLE = "host_unavailable"
+    ENVIRONMENT = "environment"
 
 
 class RequeueReason(StrEnum):

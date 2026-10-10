@@ -38,7 +38,7 @@ from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline import diagram, spans, usage_report
+from agent_build_kit.pipeline import diagram, environment, spans, usage_report
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -357,6 +357,14 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if not units:
         log("no units planned")
         return 0
+    recorded = environment.read_state(inst.state_dir)
+    if recorded is not None:
+        if recorded.healthy:
+            log("environment: healthy")
+        else:
+            log("environment: unhealthy")
+            for line in recorded.output.splitlines():
+                log(f"  {line}")
     checks_of = recorded_checks(inst.state_dir)
 
     by_state: dict[str, int] = {}
@@ -427,7 +435,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({unit.repo}) — {unit.note}")
         step = unit.step or "an unknown step"
-        if unit.state == FAILED:
+        if unit.state == FAILED and unit.cause is Cause.ENVIRONMENT:
+            log(f"  waiting for the environment: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+        elif unit.state == FAILED:
             log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
             log(
@@ -699,6 +709,14 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     """What a tick does once there is work: a round, then the builds."""
     store = store_for(inst)
 
+    if args.dry_run:
+        log("dry run — the environment is not synced and waiting units are not resumed")
+    else:
+        if not environment.ensure(inst, say=log):
+            tick.outcome = "environment"
+            return 1
+        _resume_environment_waiters(inst, store)
+
     # Everything else still happens in the round — polling, planning, archiving
     # — so the store stays current; only building is narrowed by `--only`. For
     # pushing one unit through when usage is tight, without a second competing
@@ -729,6 +747,20 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         return 1
 
     return _schedule(inst, ready, store=store, only=only)
+
+
+def _resume_environment_waiters(inst: Installation, store: UnitStore) -> None:
+    """Units failed because the environment could not run them go on from where they
+    stopped, now that the environment is healthy; the concurrency limits apply as
+    they do to any resumed unit."""
+    waiting = [
+        unit.id for unit in store.all() if unit.state == FAILED and unit.cause is Cause.ENVIRONMENT
+    ]
+    if not waiting:
+        return
+    log(f"environment restored: resuming {', '.join(waiting)}")
+    for unit_id in waiting:
+        requeue(inst, unit_id, "resume", say=lambda text, error=False: log(text))
 
 
 def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
@@ -1817,7 +1849,12 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     ticks busy.
     """
     units = store.all()
-    if any(unit.state in NEEDS_TICKS or unit.close_pending for unit in units):
+    if any(
+        unit.state in NEEDS_TICKS
+        or unit.close_pending
+        or (unit.state == FAILED and unit.cause is Cause.ENVIRONMENT)
+        for unit in units
+    ):
         return True
     satisfied = [u for u in units if u.state == SATISFIED]
     if satisfied:
