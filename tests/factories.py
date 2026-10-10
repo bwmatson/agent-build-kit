@@ -72,10 +72,11 @@ def init_repo(path: Path) -> Path:
 def scratch_app(path: Path) -> Path:
     """A python-uv app whose tier 1 can run: pytest and pre-commit in the dev
     group, and a pre-commit config that needs no network. One initial commit
-    on `main`, which ignores bytecode and the virtualenv so a unit's commits
-    hold only the unit's work."""
+    on `main`, which ignores bytecode, the virtualenv and `uv.lock` so a unit's
+    commits hold only the unit's work. The lock is ignored, not committed,
+    because resolving it needs the network."""
     init_repo(path)
-    (path / ".gitignore").write_text("__pycache__/\n*.pyc\n.venv/\n")
+    (path / ".gitignore").write_text("__pycache__/\n*.pyc\n.venv/\nuv.lock\n")
     (path / "pyproject.toml").write_text(
         '[project]\nname = "app"\nversion = "0"\nrequires-python = ">=3.12"\n'
         '[dependency-groups]\ndev = ["pytest", "pre-commit"]\n'
