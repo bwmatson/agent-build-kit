@@ -16,49 +16,19 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import config as config_module
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.pipeline.usage_guard import decide_start
 from tests.conftest import make_installation
-from tests.usage_host import Host, payload
+from tests.usage_host import Host, called, configure, pause_at, payload
 
 MINUTES = timedelta(minutes=1)
-
-
-def configure(**limits: object) -> None:
-    """The Claude limits an installation sets, over the defaults."""
-    config_module.activate(
-        WorkspaceConfig.model_validate({"runtimes": {"claude_code": {"limits": limits}}}), None
-    )
-
-
-def pause_at(percent: int, **window: object) -> dict:
-    return {
-        "session": {"usage_pause_pct": percent, **window},
-        "weekly": {"usage_pause_pct": percent, **window},
-    }
 
 
 @pytest.fixture(autouse=True)
 def ninety_two(host: Host) -> None:
     """A threshold of ninety-two on both windows, which does not ramp."""
     configure(**pause_at(92))
-
-
-def called(host: Host, ago: timedelta, outcome: str = "ok") -> None:
-    """The record shows a call to the endpoint `ago` ago."""
-    host.seed(
-        {
-            "at": (datetime.now(UTC) - ago).isoformat(),
-            "caller": "guard",
-            "outcome": outcome,
-            "status": 200 if outcome == "ok" else None,
-            "latency_ms": 100,
-            "headers": {},
-        }
-    )
 
 
 # --- 1.1 what settles a decision ------------------------------------------------------

@@ -798,10 +798,10 @@ not reset stands without a call (the pause ends at the reset, or when the rising
 worked out to reach the reading), and an allowance stands, however old the reading, while the
 most usage could have been added since it (the fastest climb per window in points a minute seen in
 `usage-calls.jsonl`, no less than `usage_climb_floor`, times the minutes, plus
-`usage_climb_margin_pct`) leaves it under the threshold. A reading with less headroom than that,
+`usage_climb_margin_pct`; readings closer together than the cache time are not paired) leaves it under the threshold. A reading with less headroom than that,
 one of a window that has reset, or none, needs a fresh one, and the endpoint is not asked more often
 than the cache time: inside it the start is refused for the time left, with a reason that says so.
-A round asks for no reading on behalf of units left out of it by `--only`, a lease or a backoff.
+The per-unit gates, the resume time, the tracks' start check and the round all decide this way, so a held reading that settles the decision keeps working while the endpoint is down. A round asks for no reading on behalf of units left out of it by `--only`, a lease or a backoff, unless a change is still to be planned.
 `abk status` prints the held reading with its age and source and calls nothing unless given
 `--refresh`, which is still held to the interval.
 

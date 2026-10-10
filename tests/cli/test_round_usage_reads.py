@@ -14,6 +14,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pause import is_paused
+from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
 from tests.conftest import make_installation
@@ -99,3 +100,36 @@ def test_a_round_with_a_candidate_that_is_not_excluded_asks_for_a_reading(
 
     assert host.asked == 1
     assert started == ["other/1"]
+
+
+TASKS = """# Tasks
+
+Acceptance: none — a fixture about rounds, not about the acceptance group
+
+## 1. [app] [tier1] Register the marker
+
+- [ ] 1.1 Test: it selects only marked tests.
+- [ ] 1.2 Register it.
+"""
+
+
+def test_a_round_with_a_change_to_plan_plans_it_though_every_planned_unit_is_left_out(
+    inst: Installation, host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = stored(inst, "feature/1")
+    change = inst.root / "openspec" / "changes" / "add-marker"
+    change.mkdir(parents=True)
+    (change / "tasks.md").write_text(TASKS)
+    planned: list[tuple[str, ...]] = []
+
+    def plan(**kwargs) -> Plan:
+        planned.append(tuple(kwargs["changes"]))
+        return Plan(units=(stored_unit("add-marker/1", change="add-marker"),))
+
+    monkeypatch.setattr(cli, "plan_round", plan)
+    host.answers = [payload(session=10.0)]
+
+    started = round_of(inst, store, only=frozenset({"add-marker/1"}))
+
+    assert planned == [("add-marker",)]
+    assert started == ["add-marker/1"]

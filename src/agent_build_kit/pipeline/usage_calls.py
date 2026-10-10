@@ -240,24 +240,27 @@ def most_added(
     minutes: float,
     floor: float,
     margin: int,
+    min_gap: timedelta = timedelta(0),
 ) -> float:
     """The most percentage points `window` could have gained in `minutes`: the fastest climb
-    between consecutive answered calls in the record, no slower than `floor`, plus `margin`.
-    A fall is a window resetting, not a climb."""
-    answered = sorted(
-        (
-            (c.at, c.session_pct if window == "session" else c.weekly_pct)
-            for c in calls
-            if c.outcome == "ok"
-        ),
-        key=lambda seen: seen[0],
+    between answered calls in the record, no slower than `floor`, plus `margin`. Each reading
+    is paired with the next one at least `min_gap` after it, so two answers taken together,
+    whose whole points differ by one, are not a fast climb. A fall is a window resetting,
+    not a climb."""
+    readings = sorted(
+        (c.at, pct)
+        for c in calls
+        if c.outcome == "ok"
+        and (pct := c.session_pct if window == "session" else c.weekly_pct) is not None
     )
-    readings = [(at, pct) for at, pct in answered if pct is not None]
     fastest = floor
-    for (before, low), (after, high) in zip(readings, readings[1:], strict=False):
-        gap = (after - before).total_seconds() / 60
-        if gap > 0 and high > low:
-            fastest = max(fastest, (high - low) / gap)
+    for index, (before, low) in enumerate(readings):
+        for after, high in readings[index + 1 :]:
+            gap = after - before
+            if gap > timedelta(0) and gap >= min_gap:
+                if high > low:
+                    fastest = max(fastest, (high - low) / (gap.total_seconds() / 60))
+                break
     return fastest * minutes + margin
 
 

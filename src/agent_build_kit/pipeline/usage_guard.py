@@ -186,6 +186,9 @@ class Decision(Frozen):
     may_start: bool
     reason: str
     resume_at: datetime | None = None
+    # When the session window of the reading behind an allowance resets: where a caller
+    # that wants a time to look again at falls back to when the decision names none.
+    resets_at: datetime | None = None
 
     @property
     def resume_after_seconds(self) -> float:
@@ -908,6 +911,7 @@ def _headroom_holds(held: UsageReading, calls_file: Path, now: datetime) -> bool
             minutes=minutes,
             floor=climb.usage_climb_floor,
             margin=climb.usage_climb_margin_pct,
+            min_gap=timedelta(minutes=climb.usage_cache_minutes),
         )
         < threshold_at(window, now=now, limits=limits)
         for window in held.windows
@@ -929,7 +933,7 @@ def _too_soon(allowed: datetime, now: datetime) -> Decision:
 def decide_start(
     *,
     read: Callable[[], UsageReading | None] | None = None,
-    decide: Callable[[UsageReading | None], Decision] | None = None,
+    decide: Callable[..., Decision] | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.
@@ -942,21 +946,41 @@ def decide_start(
     reading is taken, for a caller that has its own.
     """
     read = read or current_usage
-    decide = decide or may_start_unit
+    judge = decide or may_start_unit
+
+    def carrying(decision: Decision, reading: UsageReading | None) -> Decision:
+        if decision.resets_at is None and reading is not None:
+            return decision.model_copy(update={"resets_at": reading.resets_at})
+        return decision
+
+    def fresh() -> Decision:
+        reading = read()
+        return carrying(judge(reading), reading)
+
     now = datetime.now(UTC)
     cache_path = _cache_file()
     calls_file = cache_path.parent / CALLS_NAME
     held = _kept_reading(_load_cache(cache_path))
     if held is not None and not _past_reset(held, now):
-        decision = may_start_unit(held, trust_age=True)
+        decision = carrying(judge(held, trust_age=True), held)
         if not decision.may_start or _headroom_holds(held, calls_file, now):
+            # Answered from the reading held, as a cache hit is, so the record's share is true.
+            record_call(
+                calls_file,
+                UsageCall(
+                    at=now,
+                    caller=_caller.get(),
+                    outcome=CACHE,
+                    age_seconds=int((now - held.observed_at).total_seconds()),
+                ),
+            )
             return decision
         if now - held.observed_at < current_cache_interval(calls_file).kept:
-            return decide(read())
+            return fresh()
     allowed = next_call_at(calls_file, now=now)
     if allowed is not None:
         return _too_soon(allowed, now)
-    return decide(read())
+    return fresh()
 
 
 def _stale_retry() -> timedelta:

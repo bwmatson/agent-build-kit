@@ -150,6 +150,7 @@ from agent_build_kit.pipeline.usage_calls import (
     read_calls,
 )
 from agent_build_kit.pipeline.usage_guard import (
+    Decision,
     Interrupted,
     Limits,
     RateLimited,
@@ -798,6 +799,33 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
+    """Whether a change's recorded plan stands: its `tasks.md` is as planned and the plan
+    either worked or has used its attempts."""
+    return record.get("hash") == digest and bool(
+        record.get("ok") or record.get("attempts", 0) >= max_attempts
+    )
+
+
+def _needs_planning(inst: Installation) -> bool:
+    """Whether some change would be planned now: planning is a model call, so a round that
+    has some to do is one the usage guard has to be asked about."""
+    planned = _planned_hashes(inst)
+    for tasks in inst.tasks_files():
+        digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
+        record = planned.get(tasks.parent.name) or {}
+        if _plan_is_current(record, digest, inst.max_plan_attempts):
+            continue
+        if not validate_tasks(tasks, repos=tuple(inst.repos))[1]:
+            return True
+    return False
+
+
+def _start_decision() -> Decision:
+    """The guard's decision to start, under this module's names for reading and judging."""
+    return decide_start(read=current_usage, decide=may_start_unit)
+
+
 def _no_unit_can_start(
     inst: Installation, store: UnitStore, *, only: frozenset[str], spared: Collection[str]
 ) -> bool:
@@ -854,9 +882,9 @@ def _may_build(
     # rate-limit refusal still pauses, above and in `_run_unit`.
     runtime = runtimes.active()
     if runtime.supports_usage_tracking:
-        if _no_unit_can_start(inst, store, only=only, spared=spared):
+        if _no_unit_can_start(inst, store, only=only, spared=spared) and not _needs_planning(inst):
             return "idle"
-        decision = decide_start(read=current_usage, decide=may_start_unit)
+        decision = _start_decision()
         if not decision.may_start:
             state = pause_until(
                 decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
@@ -1747,10 +1775,9 @@ def plan_all(
 
         # Attempts are counted against the content, not the change, so editing
         # tasks.md — which is the actual fix — starts them over.
-        if record.get("hash") == digest:
-            if record.get("ok") or record.get("attempts", 0) >= max_attempts:
-                results[change] = PlanResult(status="skipped")
-                continue
+        if _plan_is_current(record, digest, max_attempts):
+            results[change] = PlanResult(status="skipped")
+            continue
 
         # The tags are how a unit finds its repo and its tier. Planning
         # against a broken one spends a model call to produce a graph that
@@ -2449,7 +2476,7 @@ def _build_unit(
             # next unit would spend a call to be told the same thing.
             when = error.resets_at
             if when is None and runtimes.active().supports_usage_tracking:
-                reading = current_usage()
+                reading = held_usage()
                 when = reading.resets_at if reading else None
 
             state = pause_until(
@@ -2511,7 +2538,7 @@ def _pause_for_usage(inst: Installation, pause: PauseInfo) -> None:
     to when, which counts the ramp towards the reset — not the reset itself,
     which it can be well before. A pause that names its own time keeps it.
     """
-    until = pause.until or build_resume_at(usage=current_usage, decide=may_start_unit)()
+    until = pause.until or build_resume_at(start=_start_decision)()
     state = pause_until(until, reason=pause.reason, marker=_paused_marker(inst))
     log(pause_line(state, verb="pausing"))
 

@@ -122,3 +122,31 @@ class Host:
     def seed(self, *lines: dict) -> None:
         self.calls_file.parent.mkdir(parents=True, exist_ok=True)
         self.calls_file.write_text("".join(json.dumps(each) + "\n" for each in lines))
+
+
+def configure(**limits: object) -> None:
+    """The Claude limits an installation sets, over the defaults."""
+    config_module.activate(
+        WorkspaceConfig.model_validate({"runtimes": {"claude_code": {"limits": limits}}}), None
+    )
+
+
+def pause_at(percent: int, **window: object) -> dict:
+    return {
+        "session": {"usage_pause_pct": percent, **window},
+        "weekly": {"usage_pause_pct": percent, **window},
+    }
+
+
+def called(host: Host, ago: timedelta, outcome: str = "ok") -> None:
+    """The record shows a call to the endpoint `ago` ago."""
+    host.seed(
+        {
+            "at": (datetime.now(UTC) - ago).isoformat(),
+            "caller": "guard",
+            "outcome": outcome,
+            "status": 200 if outcome == "ok" else None,
+            "latency_ms": 100,
+            "headers": {},
+        }
+    )

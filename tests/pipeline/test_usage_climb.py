@@ -9,11 +9,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agent_build_kit import config as config_module
-from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.pipeline.usage_calls import UsageCall, most_added
-from agent_build_kit.pipeline.usage_guard import decide_start
-from tests.usage_host import Host, payload
+from agent_build_kit.pipeline.usage_guard import decide_start, read_live_usage
+from tests.usage_host import Host, configure, payload
 
 START = datetime(2030, 1, 2, 12, 0, tzinfo=UTC)
 
@@ -89,25 +87,19 @@ def test_a_fall_when_a_window_resets_is_not_a_climb_and_a_failed_call_is_not_a_r
 # --- 2.3 the settings are used in the rule ----------------------------------------------
 
 
-def configure(**limits: object) -> None:
-    config_module.activate(
-        WorkspaceConfig.model_validate({"runtimes": {"claude_code": {"limits": limits}}}), None
-    )
-
-
 def record_session_climb(host: Host, *, per_minute: float) -> None:
-    """Two answered calls, an hour ago, between which the session climbed `per_minute`."""
+    """Two answered calls an hour ago, twenty minutes apart, the session climbing `per_minute`."""
     first = datetime.now(UTC) - timedelta(minutes=70)
     host.seed(
         *[
             {
-                "at": (first + timedelta(minutes=10 * step)).isoformat(),
+                "at": (first + timedelta(minutes=20 * step)).isoformat(),
                 "caller": "guard",
                 "outcome": "ok",
                 "status": 200,
                 "latency_ms": 100,
                 "headers": {},
-                "session_pct": 10 + int(per_minute * 10 * step),
+                "session_pct": 10 + int(per_minute * 20 * step),
                 "weekly_pct": 5,
             }
             for step in range(2)
@@ -162,3 +154,52 @@ def test_with_no_record_the_configured_floor_decides(host: Host) -> None:
     host.answers = [payload(session=61.0)]
     decide_start()
     assert host.asked == 1
+
+
+# --- the record the climb is derived from ----------------------------------------------
+
+
+def test_two_answers_from_the_endpoint_record_what_they_read_and_make_the_climb(
+    host: Host,
+) -> None:
+    configure(
+        session={"usage_pause_pct": 92},
+        weekly={"usage_pause_pct": 92},
+        usage_climb_floor=0.2,
+        usage_climb_margin_pct=2,
+    )
+    host.answers = [payload(session=10.0, weekly=5.0), payload(session=60.0, weekly=6.0)]
+    read_live_usage()
+    host.cache.unlink()
+    read_live_usage()
+    # The two calls were made fifty and thirty minutes ago.
+    now = datetime.now(UTC)
+    aged = [
+        {**line, "at": (now - timedelta(minutes=minutes)).isoformat()}
+        for line, minutes in zip(host.lines(), (50, 30), strict=True)
+    ]
+    host.seed(*aged)
+
+    assert [(each["session_pct"], each["weekly_pct"]) for each in host.lines()] == [
+        (10, 5),
+        (60, 6),
+    ]
+    host.keep_reading(timedelta(minutes=20), payload(session=60.0, weekly=6.0))
+    host.answers = [payload(session=61.0)]
+    asked = host.asked
+
+    decide_start()
+
+    # The floor alone leaves sixty and six under ninety-two; the climb of two and a half
+    # points a minute does not.
+    assert host.asked == asked + 1
+
+
+def test_two_answers_taken_together_are_not_a_fast_climb() -> None:
+    run = [answered(0, 10, 50), answered(0.1, 11, 50)]
+
+    added = most_added(
+        run, "session", minutes=10, floor=0.2, margin=0, min_gap=timedelta(minutes=15)
+    )
+
+    assert added == pytest.approx(2.0)
