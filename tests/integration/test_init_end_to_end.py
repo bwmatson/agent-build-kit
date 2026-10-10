@@ -16,7 +16,7 @@ from agent_build_kit import openspec
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, recognised_planning
 
 pytestmark = [
     pytest.mark.integration,
@@ -71,7 +71,7 @@ def test_init_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     (app / "src" / "app.py").write_text("x = 1\n")
     git(app, "add", "-A")
     git(app, "commit", "-q", "-m", "code")
-    planning = tmp_path / "planning"
+    planning = recognised_planning(tmp_path / "planning")
 
     code = main(["init", str(planning), "--repo", str(app), "--yes"])
 
