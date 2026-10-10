@@ -829,6 +829,18 @@ after thirty minutes); and a reading too old to trust refuses starts for the
 stale-retry interval (`usage_stale_retry_minutes`, five by default) without
 borrowing its window. A reading served from the cache file has its own source,
 so it is not mistaken for a live one.
+**The usage module is the only authority.** Every run (tick, pass round, gate, tracks, status)
+asks it, and it alone decides whether to call the endpoint. At the expiry of the cached reading
+one process refreshes, reading the cache, calling and writing under a non-blocking lock on
+`usage-cache.json.lock` (the cool-down is read under it too); any other asker finds the lock
+held, is served the last good reading (source `cache`, whatever its age, while its window has not
+reset) and does not call. The cache file is written whole, so a reader never sees half of it. A
+reading is never used past the reset of a window it describes, from the cache file or the editor.
+The pause marker is a record: a usage marker refuses nothing, the guard is asked every round and
+clears it when it allows, and only a `rate_limit` marker (the model's own refusal) stops a pass or
+makes a tick report "paused", until its deadline, worked out again each round. A step that began
+under the threshold finishes; the next gate refuses. The cache is counted as `abk.usage.cache`
+with an `event` of `hit`, `miss`, `expiry` or `wait`.
 **Every use of the endpoint is recorded** (`usage_calls.py`) in `usage-calls.jsonl`, beside the
 cache in the state directory and gitignored: one line per call or cache answer with the time, the
 caller (`guard`, `status` for the runtime's usage status, `cli-status` for the status command, `tracks`), the outcome (`ok`,
@@ -1025,6 +1037,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below). Gitignored. | the spend history, not the work. |
+| `usage-cache.json.lock` | the lock one process holds while it refreshes the reading. | never needed. |
 | `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |

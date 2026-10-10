@@ -17,10 +17,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import telemetry
-from agent_build_kit.pipeline.usage_guard import (
-    current_usage,
-    read_live_usage,
-)
+from agent_build_kit.pipeline.file_lock import try_file_lock
+from agent_build_kit.pipeline.usage_guard import current_usage, held_usage, read_live_usage
 from agent_build_kit.pipeline.wiring import build_usage_gate
 from tests.otlp import Collector, enabled
 from tests.usage_host import Host, Response, configure, pause_at, payload
@@ -70,16 +68,36 @@ def test_several_threads_at_expiry_make_one_call_and_the_rest_are_served_the_las
         thread.join()
 
     assert calls_made(calls) == 1
-    served = sorted((r.source, r.session_pct) for r in answers if r is not None)
+    served = [(r.source, r.session_pct) for r in answers if r is not None]
     assert len(served) == ASKERS
-    assert served[-1] == ("live", 33)
-    assert served[:-1] == [("cache", 14)] * (ASKERS - 1)
+    assert served.count(("live", 33)) == 1
+    # A loser that came after the winner had written the file reads the fresh reading.
+    assert {source for source, _ in served if source != "live"} <= {"cache"}
+    assert {session for _, session in served} <= {14, 33}
 
 
 def asking_in_a_process(asks: int, results: "multiprocessing.Queue") -> None:
     for _ in range(asks):
         reading = read_live_usage()
         results.put(None if reading is None else (reading.source, reading.session_pct))
+
+
+def test_an_asker_that_finds_the_lock_held_is_served_a_kept_reading_older_than_the_fallback_age(
+    host: Host, exported: Collector
+) -> None:
+    """The cache time has stretched past the fallback age, so the reading kept at expiry
+    can be older than it; the holder is calling, so the waiter is served it all the same."""
+    configure(usage_cache_minutes=40)
+    host.keep_reading(timedelta(minutes=35), payload(session=14.0))
+
+    with try_file_lock(host.cache.with_name(host.cache.name + ".lock")) as taken:
+        assert taken
+        reading = read_live_usage(ttl=timedelta(minutes=30))
+
+    assert reading is not None
+    assert (reading.source, reading.session_pct) == ("cache", 14)
+    assert host.asked == 0
+    assert cache_events(exported).get("wait") == 1
 
 
 def test_twenty_asks_from_several_processes_make_one_call(
@@ -119,6 +137,19 @@ def test_neither_the_kept_reading_nor_the_editors_is_used_past_the_reset_of_its_
     host.keep_editor_reading(timedelta(minutes=20), session=90, resets_in=reset)
 
     assert current_usage() is None
+
+
+def test_the_held_reading_is_not_the_cache_files_past_the_reset_of_its_window(host: Host) -> None:
+    host.keep_reading(
+        timedelta(minutes=20), payload(session=90.0, session_resets_in=timedelta(minutes=-10))
+    )
+    assert held_usage() is None
+
+    host.keep_editor_reading(timedelta(minutes=5), session=20)
+
+    reading = held_usage()
+    assert reading is not None
+    assert (reading.source, reading.session_pct) == ("claude.json", 20)
 
 
 # --- a running step is not judged by the threshold ---------------------------------------

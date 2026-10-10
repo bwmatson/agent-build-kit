@@ -700,7 +700,9 @@ def read_live_usage(
     with try_file_lock(cache_path.with_name(cache_path.name + ".lock")) as taken:
         if not taken:
             telemetry.count("abk.usage.cache", 1, event="wait")
-            return last_good()
+            # The call is being made by the holder, so the fallback age, which covers a
+            # failed call, does not apply: serve the kept reading while its window stands.
+            return kept if kept is not None and not _past_reset(kept, now) else None
         # Another process may have refreshed while this one waited to ask.
         cached = _load_cache(cache_path)
         kept = _kept_reading(cached)
@@ -790,7 +792,9 @@ def current_usage() -> UsageReading | None:
 
 def held_usage() -> UsageReading | None:
     """The reading held now, from the cache file or Claude Code's own: no call is made."""
-    return _noted(_kept_reading(_load_cache(_cache_file())) or _unspent(read_cached_usage()))
+    return _noted(
+        _unspent(_kept_reading(_load_cache(_cache_file()))) or _unspent(read_cached_usage())
+    )
 
 
 def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:

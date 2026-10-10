@@ -1837,13 +1837,16 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
     marker = tmp_path / "paused.json"
 
+    ends: list[datetime] = []
+
     def refused_by_the_model() -> None:
         # Written whole, as a pause is, but ending in a moment: the grace a recorded
         # pause adds would outlast the test.
+        ends.append(datetime.now(UTC) + timedelta(seconds=0.5))
         marker.write_text(
             json.dumps(
                 {
-                    "until": (datetime.now(UTC) + timedelta(seconds=0.5)).isoformat(),
+                    "until": ends[0].isoformat(),
                     "reason": "the model refused",
                     "kind": "rate_limit",
                     "at": datetime.now(UTC).isoformat(),
@@ -1852,6 +1855,8 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
         )
 
     builder.scripts["mid/1"] = refused_by_the_model
+    submitted: list[datetime] = []
+    builder.scripts["later/1"] = lambda: submitted.append(datetime.now(UTC))
     builder.scripts["slow/1"] = lambda: (
         None if eventually(lambda: "later/1" in builder.finished) else "failed"
     )
@@ -1859,4 +1864,5 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
     assert tick(inst) == 0
 
     assert "later/1" in builder.started, "the pass stayed stopped after the deadline"
+    assert submitted and submitted[0] >= ends[0], "the pass started it while the pause held"
     assert builder.store.get("later/1").state == IN_REVIEW
