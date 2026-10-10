@@ -7,6 +7,7 @@
   review instead of believing the unit is still in review; the release is unchanged. The web UI and API unit summary keep the stored
   state in `state` and carry the display name (`reworking`, `rebasing`, `blocked`) in a new
   `status`, and the `abk.units` gauge counts by stored state.
+
 - A plan's unit estimates are now corrected by what units of the same kind (repo, tier and
   group flag) actually landed at: the median of the last merged units' actual over estimated
   lines, pulled toward 1 when there are few samples and never below 1. A unit over the
