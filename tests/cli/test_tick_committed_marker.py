@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import usage_guard
+from agent_build_kit.pipeline import usage_guard, wiring
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
@@ -47,6 +47,8 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="plenty")
     )
+    # The delivery's real runner asks the guard through `wiring`, not through `cli`.
+    monkeypatch.setattr(wiring, "decide_start", lambda: Decision(may_start=True, reason="plenty"))
     real = cli.build_runner
 
     def runner(unit, **kwargs):
