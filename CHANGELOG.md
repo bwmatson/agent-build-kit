@@ -6,6 +6,9 @@
   test fails when source outside the toolchain profiles and `abk init` names a package
   manager or lock file. The `limits.generated_files` example no longer suggests listing
   lock files there.
+- An agent step in a repo with no `origin` no longer fails with "the agent pushed" when
+  the agent commits to the unit's branch. With no remote there is nothing to push to, so
+  the check is skipped; with an `origin` it is unchanged.
 
 - A unit that waits on another unit no longer holds a place in the limit on units in
   progress, however much work it has. The unit it waits on starts into that place ahead of
