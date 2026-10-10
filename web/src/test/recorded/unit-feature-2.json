@@ -33,9 +33,10 @@
   "depends_on": [
     {
       "id": "feature/1",
-      "state": "merged"
+      "status": "merged"
     }
   ],
   "merge_gates": [],
-  "review_round": 2
+  "review_round": 2,
+  "status": "in_review"
 }

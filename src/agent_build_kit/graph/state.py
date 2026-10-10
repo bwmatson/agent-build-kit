@@ -62,6 +62,7 @@ class EventKind(StrEnum):
     CLOSED = "closed"
     REQUEUE = "requeue"
     ADOPTED = "adopted"
+    UPSTREAM_CHANGED = "upstream_changed"
 
 
 class ResumeEvent(Frozen):

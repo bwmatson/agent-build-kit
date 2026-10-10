@@ -10,7 +10,12 @@
       "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
       "body": "Why was this renamed?",
       "at": "2026-10-08T15:02:11+00:00",
-      "replies": [{ "body": "It matches the spec wording.", "at": "2026-10-08T15:09:40+00:00" }],
+      "replies": [
+        {
+          "body": "It matches the spec wording.",
+          "at": "2026-10-08T15:09:40+00:00"
+        }
+      ],
       "resolved": false,
       "outdated": false
     },
@@ -97,5 +102,7 @@
       "required": false
     }
   ],
-  "follow_ups": ["Add a changelog entry"]
+  "follow_ups": [
+    "Add a changelog entry"
+  ]
 }

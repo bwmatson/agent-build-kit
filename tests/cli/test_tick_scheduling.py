@@ -1510,25 +1510,40 @@ def test_a_base_that_moved_is_reported_with_the_base_changed_cause(tmp_path: Pat
 # --- dependents follow a predecessor whose branch is changing ----------------------
 
 
-def test_each_refresh_follows_predecessors_after_fetching_and_polling(
+def test_a_refresh_fetches_and_polls_and_the_round_follows_predecessors_beside_the_gates(
     builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A poll can send a predecessor back for rework, so the units in review on
-    it are tested against what the poll found, not what the pass began with."""
+    it are tested against what the poll found, not what the pass began with. The
+    pass is a step of the round, after the refresh and beside the steps that
+    gate and release units, not a part of the refresh."""
     inst = workspace(tmp_path)
     steps: list[str] = []
-    monkeypatch.setattr(cli, "fetch_all", lambda inst: steps.append("fetch"))
-    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: steps.append("poll"))
-    monkeypatch.setattr(
-        cli, "follow_predecessors", lambda *args, **kwargs: steps.append("follow") or []
-    )
+
+    def record(name: str) -> Callable[..., list[str]]:
+        return lambda *args, **kwargs: steps.append(name) or []
+
+    for attribute, name in (
+        ("fetch_all", "fetch"),
+        ("poll_all", "poll"),
+        ("deliver_committed", "commits"),
+        ("reclaim_stranded", "reclaim"),
+        ("follow_predecessors", "follow"),
+        ("gate_sent_back", "gate"),
+        ("release_gated", "release"),
+    ):
+        monkeypatch.setattr(cli, attribute, record(name))
     builder.store.upsert([stored("chain/1"), stored("chain/2", depends_on=("chain/1",))])
 
-    assert tick(inst) == 0
+    cli.run_round(
+        inst, builder.store, building=set(), started=set(), only=frozenset(), submit=False
+    )
 
-    refreshes = [i for i, step in enumerate(steps) if step == "fetch"]
-    assert refreshes
-    assert all(steps[i : i + 3] == ["fetch", "poll", "follow"] for i in refreshes)
+    assert steps[:2] == ["fetch", "poll"], "the refresh is the fetch and the poll"
+    assert steps.count("follow") == 1
+    assert steps.index("follow") > steps.index("reclaim")
+    assert set(steps[-3:]) == {"follow", "gate", "release"}
+    assert steps.index("gate") < steps.index("release")
 
 
 def app_checkout(inst: Installation, *branches: str) -> dict[str, str]:

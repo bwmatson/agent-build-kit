@@ -1010,6 +1010,7 @@ def run_round(
         _step("planning", plan_all, inst, store=store)
     _step("linking needs", link_needs, inst, store=store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+    _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
     _step("releasing gated units", release_gated, inst, store, in_flight=spared)
     units = store.all()
@@ -1694,15 +1695,25 @@ def _refresh(inst: Installation, *, store: UnitStore) -> None:
         # GitHub being unreachable is a reason to skip the update, not to stop
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
-    try:
-        follow_predecessors(
-            store,
-            head=partial(branch_head, inst),
-            claim=build_claim(inst.state_dir / "locks"),
-            log=log,
+
+
+def park_dependents(inst: Installation, store: UnitStore) -> None:
+    """Park the units in review whose predecessor's branch is changing, each by an
+    event to its thread."""
+
+    def deliver(unit: StoredUnit, note: str) -> bool:
+        resumed = resume_thread(
+            inst, unit, EventKind.UPSTREAM_CHANGED.value, store=store, reason=note
         )
-    except Exception as error:  # noqa: BLE001
-        log(f"following predecessors skipped — {type(error).__name__}: {error}")
+        return resumed is not None and not resumed.raised
+
+    follow_predecessors(
+        store,
+        head=partial(branch_head, inst),
+        claim=build_claim(inst.state_dir / "locks"),
+        deliver=deliver,
+        log=log,
+    )
 
 
 def branch_head(inst: Installation, unit: StoredUnit) -> str:

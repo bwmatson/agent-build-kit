@@ -94,8 +94,9 @@ def follow(
     logged: list[str],
     *,
     claim: Callable[[StoredUnit], AbstractContextManager[object]] = lambda stored: nullcontext(),
+    deliver: Callable[[StoredUnit, str], bool] | None = None,
 ) -> list[str]:
-    return follow_predecessors(store, head=heads, claim=claim, log=logged.append)
+    return follow_predecessors(store, head=heads, claim=claim, deliver=deliver, log=logged.append)
 
 
 @pytest.fixture
@@ -147,6 +148,38 @@ def test_the_pass_returns_the_units_it_moved(
 
     assert follow(store, heads, logged) == [CHILD]
     assert follow(store, heads, logged) == []
+
+
+def test_a_move_is_handed_to_the_delivery_and_the_pass_does_not_write_the_store(
+    store: UnitStore, heads: Heads, logged: list[str], reworked_parent: StoredUnit
+) -> None:
+    heads.by_unit[PARENT] = MOVED
+    delivered: list[tuple[str, str]] = []
+
+    def deliver(stored: StoredUnit, note: str) -> bool:
+        delivered.append((stored.id, note))
+        return True
+
+    moved = follow(store, heads, logged, deliver=deliver)
+
+    assert moved == [CHILD]
+    ((uid, note),) = delivered
+    assert uid == CHILD
+    assert PARENT in note
+    assert store.get(CHILD).state == IN_REVIEW, "the thread's handler writes the move, not the pass"
+
+
+def test_a_unit_with_nothing_to_deliver_to_is_set_back_in_the_store(
+    store: UnitStore, heads: Heads, logged: list[str], reworked_parent: StoredUnit
+) -> None:
+    heads.by_unit[PARENT] = MOVED
+
+    moved = follow(store, heads, logged, deliver=lambda stored, note: False)
+
+    assert moved == [CHILD]
+    child = store.get(CHILD)
+    assert child.state == PLANNED
+    assert child.history[-1]["cause"] == Cause.UPSTREAM_WENT_BACK.value
 
 
 def test_a_predecessor_that_is_rebasing_sends_the_dependent_back_before_a_new_head_exists(

@@ -16,7 +16,7 @@ from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.graph.unit import resume_unit
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import RUNNING, branch_name
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 from tests.factories import unit
 from tests.graph_driver import FakeTracer, fresh, position, tick
@@ -299,3 +299,64 @@ def test_a_build_held_before_a_step_waits_in_held_and_a_requeue_runs_it_again(
 
     assert outcome.status == RunStatus.OPEN
     assert position(tmp_path).next == (Node.AWAIT_REVIEW,)
+
+
+def test_parking_a_unit_in_review_keeps_what_it_had_and_leaves_the_thread_waiting(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    before = recorder.store.get(unit().id)
+    assert before.state == IN_REVIEW
+    assert before.approved
+    built = len(recorder.prompts)
+    tracer = FakeTracer()
+
+    tick(
+        tmp_path,
+        recorder,
+        event=ResumeEvent(kind=EventKind.UPSTREAM_CHANGED, reason="feature/0 is rebasing"),
+        tracer=tracer,
+    )
+
+    parked = recorder.store.get(unit().id)
+    assert parked.state == PLANNED
+    assert parked.cause is Cause.UPSTREAM_WENT_BACK
+    assert "feature/0 is rebasing" in parked.note
+    assert (parked.approved, parked.branch, parked.pr) == (
+        before.approved,
+        before.branch,
+        before.pr,
+    )
+    assert set(tracer.names) <= WAIT_SPANS
+    assert len(recorder.prompts) == built, "the delivery ran no agent"
+    assert position(tmp_path).next == (Node.AWAIT_REVIEW,), "the thread still waits for review"
+
+
+@pytest.mark.parametrize("kind", [k for k in EventKind if k is not EventKind.UPSTREAM_CHANGED])
+def test_no_other_event_kind_sets_a_unit_in_review_to_planned(
+    tmp_path: Path, kind: EventKind
+) -> None:
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+
+    tick(tmp_path, recorder, event=ResumeEvent(kind=kind, reason="x", feedback="x"))
+
+    assert recorder.store.get(unit().id).state != PLANNED
+
+
+def test_a_unit_a_person_holds_is_not_parked_by_an_upstream_change(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    assert tick(tmp_path, recorder, event=ResumeEvent(kind=EventKind.HOLD)).status == RunStatus.HELD
+    held = recorder.store.get(unit().id)
+    assert held.state == HELD
+
+    tick(
+        tmp_path,
+        recorder,
+        event=ResumeEvent(kind=EventKind.UPSTREAM_CHANGED, reason="feature/0 is rebasing"),
+    )
+
+    assert recorder.store.get(unit().id).state == HELD
+    assert position(tmp_path).next == (Node.HELD,)

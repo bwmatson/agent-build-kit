@@ -649,12 +649,14 @@ or `planned` and ready when it is `in_review`.
 
 ## A unit in review follows its predecessor
 
-After each fetch and poll, a unit in review whose same-repo predecessor's branch is changing is
+In each round, after the fetch and poll, a unit in review whose same-repo predecessor's branch is changing is
 set back to `planned` with the cause `upstream_went_back`, keeping its approval, branch and pull
 request. A branch is changing when the predecessor is not in review, merged or satisfied and it
 holds a commit beyond its last pushed head, is rebasing, or is itself planned for a changing
-upstream or a moved base. A chain moves in one pass; a unit with a deferred restack, or whose
-branch is busy, is left for a later pass. When the predecessor is back in review the unit is
+upstream or a moved base. A chain moves in one pass; a unit with a deferred restack or a restack
+conflict is skipped while that cause stands, and one whose branch is busy is left for the next
+pass. The move is delivered to the unit's thread as an `upstream_changed` event, the only event
+kind that sets `planned`; the thread keeps waiting at `await_review`. When the predecessor is back in review the unit is
 released and restacks onto its new head; an unchanged head restacks nothing.
 
 ## The checking status

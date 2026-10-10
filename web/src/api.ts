@@ -2,6 +2,7 @@ export interface UnitSummary {
   id: string;
   title: string;
   state: string;
+  status: string;
   cause: string | null;
   held_by: string;
   note: string;
@@ -12,7 +13,7 @@ export interface UnitSummary {
 
 export interface Related {
   id: string;
-  state: string;
+  status: string;
 }
 
 export interface HistoryEntry {

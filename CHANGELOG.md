@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A unit in review that follows a changing predecessor back to `planned` now does so
+  through an event to its thread, so the thread records the move and stays waiting for
+  review instead of believing the unit is still in review; the release is unchanged. The web UI and API unit summary keep the stored
+  state in `state` and carry the display name (`reworking`, `rebasing`, `blocked`) in a new
+  `status`, and the `abk.units` gauge counts by stored state.
+
 - An environment's `inputs` are now path patterns, `**` included, so a repository with
   many nested manifests and locks can list them and a new module is no longer missed. A
   pattern matching nothing is reported by `abk doctor`, and an absolute pattern, or one

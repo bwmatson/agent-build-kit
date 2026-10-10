@@ -1979,7 +1979,7 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
     return upstream_incomplete
 
 
-def branch_is_changing(
+def why_branch_is_changing(
     parent: StoredUnit, graph: list[StoredUnit], head: Callable[[StoredUnit], str]
 ) -> str:
     """Why a predecessor's branch is changing, or an empty string when it isn't.
@@ -2008,16 +2008,20 @@ def follow_predecessors(
     *,
     head: Callable[[StoredUnit], str],
     claim: Callable[[StoredUnit], AbstractContextManager[object]],
+    deliver: Callable[[StoredUnit, str], bool] | None = None,
     log: Callable[[str], None] = print,
 ) -> list[str]:
     """Set each unit in review back to planned while a same-repo predecessor's
     branch is changing; returns the ids moved.
 
-    `head` reads a unit's branch head ("" when it has none). `branch_is_changing`
-    says when a branch is changing. Repeats until
+    `head` reads a unit's branch head ("" when it has none).
+    `why_branch_is_changing` says when a branch is changing. `deliver` hands the
+    move to the unit's thread as an event, under its own branch claim, and says
+    whether there was a thread to take it; without a thread, or without
+    `deliver`, the move is written to the store under `claim`. Repeats until
     nothing moves, so a chain of dependents goes back in one pass. A unit with a
-    deferred restack is skipped, and one whose branch is busy is left for the
-    next pass.
+    deferred restack or a restack conflict is skipped while that cause stands,
+    and one whose branch is busy is left for the next pass.
     """
     moved: list[str] = []
     progressed = True
@@ -2026,9 +2030,12 @@ def follow_predecessors(
         graph = list(store.all())
         index = {u.id: u for u in graph}
         for unit in graph:
-            if unit.state != IN_REVIEW or unit.cause in (
-                Cause.RESTACK_DEFERRED,
-                Cause.RESTACK_CONFLICT,
+            # A unit is moved once a pass: a delivery that leaves it in review (its thread
+            # declined) must not be asked again, or the pass would never settle.
+            if (
+                unit.id in moved
+                or unit.state != IN_REVIEW
+                or unit.cause in (Cause.RESTACK_DEFERRED, Cause.RESTACK_CONFLICT)
             ):
                 continue
             found = None
@@ -2036,7 +2043,7 @@ def follow_predecessors(
                 parent = index.get(dep)
                 if not parent or parent.repo != unit.repo:
                     continue
-                if why := branch_is_changing(parent, graph, head):
+                if why := why_branch_is_changing(parent, graph, head):
                     found = (parent, why)
                     break
             if found is None:
@@ -2044,11 +2051,12 @@ def follow_predecessors(
             parent, why = found
             note = f"{parent.id} is changing: {why}"
             try:
-                with claim(unit):
-                    # A build may have taken the unit while the claim was waited for.
-                    if store.get(unit.id).state != IN_REVIEW:
-                        continue
-                    store.set_state(unit.id, PLANNED, note=note, cause=Cause.UPSTREAM_WENT_BACK)
+                if deliver is None or not deliver(unit, note):
+                    with claim(unit):
+                        # A build may have taken the unit while the claim was waited for.
+                        if store.get(unit.id).state != IN_REVIEW:
+                            continue
+                        store.set_state(unit.id, PLANNED, note=note, cause=Cause.UPSTREAM_WENT_BACK)
             except BranchBusy:
                 continue
             log(f"{unit.id}: set back to planned — {note}")
