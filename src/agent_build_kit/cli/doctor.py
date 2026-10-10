@@ -486,7 +486,7 @@ def _environment(inst: Installation, run: Run) -> list[Check]:
                 )
             )
             continue
-        missing = _missing_inputs(repo.environment, repo.path.expanduser())
+        missing = _missing_inputs(repo.environment, inst.checkouts[name])
         if missing:
             checks.append(
                 _warn(

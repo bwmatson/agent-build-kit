@@ -256,6 +256,19 @@ def test_the_dry_run_over_an_existing_file_lists_what_it_would_fill_and_changes_
     assert (planning / "abk.yaml").read_text() == original
 
 
+def test_a_kept_file_without_a_section_and_nothing_recognised_is_told_to_add_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = code_repo(tmp_path, "app")
+    planning = planning_with(tmp_path)
+    (planning / "abk.yaml").write_text("version: 1\n")
+
+    assert run_init(planning, app) == 0
+
+    assert "add an `environment` section" in capsys.readouterr().out
+    assert (planning / "abk.yaml").read_text().startswith("version: 1\n")
+
+
 def test_no_set_by_hand_message_over_a_kept_file_with_its_own_section(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

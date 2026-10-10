@@ -138,7 +138,7 @@ environment:                    # how the pipeline's own environment is kept
                                 # current; absent = none is managed and
                                 # `abk doctor` warns
   sync: [uv, sync]              # required, not empty: brings it up to date
-  check: [uv, run, python, -c, "import agent_build_kit"]
+  check: [uv, run, --no-sync, python, -c, "import agent_build_kit"]
                                 # required, not empty: exits 0 when healthy
   inputs:                       # paths relative to the planning repo; may lie
                                 # outside it
@@ -170,7 +170,7 @@ limits:
   generated_files: [uv.lock, package-lock.json, ...]
                                 # path patterns (whole path or file name) left
                                 # out of a unit's actual size, together with the
-                                # lock files the environments name (below);
+                                # lock files the environments name (above);
                                 # none by default
   max_review_rounds: 3          # review rounds before a unit fails
   max_check_rounds: 3           # times a branch failing its checks (lint, types,

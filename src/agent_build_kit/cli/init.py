@@ -21,6 +21,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import yaml
+
 from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
 from agent_build_kit.config import CONFIG_FILENAME, ConfigError, WorkspaceConfig, dump
@@ -127,6 +129,14 @@ def kinds_for(detection: RepoDetection) -> list[Kind]:
 def _recommendations_doc(planning: Path, detection: RepoDetection) -> Path:
     language = LANGUAGE_ALIAS.get(detection.languages[0], detection.languages[0])
     return planning / "docs" / "recommendations" / f"{language}.md"
+
+
+def _read_yaml(path: Path) -> dict | None:
+    try:
+        loaded = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def _tree_clean(planning: Path) -> bool:
@@ -327,11 +337,17 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     names = list(config.repos)
     # An abk.yaml already there is kept and only filled, never given the empty section.
     keeps = (planning / CONFIG_FILENAME).is_file() and not args.force
-    if not keeps and config.environment is not None and not config.environment.sync:
-        print(
-            "environment: nothing recognised in the planning repo; set `environment.sync` "
-            "and `environment.check` in abk.yaml by hand"
-        )
+    if config.environment is not None and not config.environment.sync:
+        if not keeps:
+            print(
+                "environment: nothing recognised in the planning repo; set `environment.sync` "
+                "and `environment.check` in abk.yaml by hand"
+            )
+        elif "environment" not in (_read_yaml(planning / CONFIG_FILENAME) or {}):
+            print(
+                "environment: nothing recognised in the planning repo; add an `environment` "
+                "section with `sync` and `check` to abk.yaml by hand"
+            )
     if args.dry_run:
         if keeps:
             print("# abk.yaml is kept; what would be filled in it:\n")

@@ -51,9 +51,9 @@ def detect_environment(root: Path, *, framework: bool) -> EnvironmentConfig | No
             if (checkout / name).is_file():
                 files.append(_relative(checkout / name, root))
     check = (
-        ["uv", "run", "python", "-c", "import agent_build_kit"]
+        ["uv", "run", "--no-sync", "python", "-c", "import agent_build_kit"]
         if framework
-        else ["uv", "run", "--frozen", "python", "-c", "pass"]
+        else ["uv", "run", "--no-sync", "python", "-c", "pass"]
     )
     return EnvironmentConfig(
         sync=["uv", "sync"],
