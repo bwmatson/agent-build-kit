@@ -136,6 +136,7 @@ from agent_build_kit.pipeline.units import (
     local_ref,
     merge_wait,
     ready_units,
+    stack_age_source,
     start_room,
     trunk_of,
     unmet_gates,
@@ -750,7 +751,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         tick.outcome = "idle"
         return 0
 
-    log(f"ready: {', '.join(unit.id for unit in ready)}")
+    _log_ready(inst, store, ready, only=only)
     if args.dry_run:
         log("dry run — stopping before any unit is built")
         tick.outcome = "dry_run"
@@ -1294,10 +1295,51 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
             why = f"priority {urgency}, from {source.id}"
         elif unit.priority != Priority.NORMAL:
             why = f"priority {unit.priority}"
+        elif source := stack_age_source(unit, view, excluded):
+            why = f"stack age, from {source.id}"
         else:
             why = "planned order"
         lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}")
     return lines
+
+
+def _log_ready(
+    inst: Installation, store: UnitStore, ready: list[Unit], *, only: frozenset[str]
+) -> None:
+    """Log the units about to start, and why one goes ahead of an older ready unit.
+
+    A unit that takes the age of an older unit waiting on it starts before ready
+    units planned earlier than itself; the line names the unit it passed and the
+    waiter whose age it took.
+    """
+    log(f"ready: {', '.join(unit.id for unit in ready)}")
+    units = store.all()
+    queue, view, excluded = _evaluate_round(
+        inst,
+        units,
+        started=set(),
+        building=set(),
+        only=only,
+        max_concurrent=len(units),
+    )
+    place = {unit.id: index for index, unit in enumerate(view)}
+    order = [unit.id for unit in queue]
+    for unit in ready:
+        source = stack_age_source(unit, view, excluded)
+        if source is None or unit.id not in order:
+            continue
+        passed = next(
+            (
+                other
+                for other in queue[order.index(unit.id) + 1 :]
+                if place[other.id] < place[unit.id]
+                and effective_priority(other, view, excluded)
+                == effective_priority(unit, view, excluded)
+            ),
+            None,
+        )
+        if passed is not None:
+            log(f"{unit.id} starts ahead of {passed.id}: {source.id} waits on it")
 
 
 def _blocked_by(unit: StoredUnit, units: list[StoredUnit]) -> str:
@@ -1524,7 +1566,7 @@ def _schedule(
             units = store.all()
             note_queued(units, ready, in_flight)
             if ready:
-                log(f"ready: {', '.join(unit.id for unit in ready)}")
+                _log_ready(inst, store, ready, only=only)
                 if _refuse_unconfigured(inst, ready):
                     refused = True
                     continue

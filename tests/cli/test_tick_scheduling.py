@@ -1076,6 +1076,20 @@ def test_the_reason_nothing_started_names_a_failed_prerequisite_with_units_waiti
     assert "nothing ready to build" not in out
 
 
+def test_the_start_log_names_the_waiter_whose_age_put_a_unit_first(
+    builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = limit_workspace(tmp_path, 9)
+    builder.store.upsert(
+        [stored("old/1", depends_on=("base/1",)), stored("newer/1"), stored("base/1")]
+    )
+
+    assert tick(inst) == 0
+
+    out = capsys.readouterr().out
+    assert "base/1 starts ahead of newer/1: old/1 waits on it" in out
+
+
 def test_a_rework_runs_and_reaches_review_at_the_limit(builder: Builder, tmp_path: Path) -> None:
     inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)

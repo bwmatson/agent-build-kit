@@ -122,3 +122,25 @@ def test_a_unit_held_by_a_lease_gives_its_prerequisite_no_priority(
     queued = queue_after_heading(lines)
     assert queued[0].split("older/1")[0].endswith("1. ")
     assert next(line for line in queued if "base/1" in line).endswith("planned order")
+
+
+def test_status_gives_stack_age_as_the_reason_for_an_older_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines = status_lines(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        [
+            stored_unit("old/1", change="old", depends_on=("base/1",)),
+            stored_unit("newer/1", change="newer"),
+            stored_unit("base/1", change="base"),
+        ],
+    )
+
+    queued = queue_after_heading(lines)
+    base = next(line for line in queued if "base/1" in line)
+    newer = next(line for line in queued if "newer/1" in line)
+    assert "old/1" in base
+    assert "planned order" not in base
+    assert newer.endswith("planned order")

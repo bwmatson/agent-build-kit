@@ -366,6 +366,23 @@ def effective_priority(
     return min([unit.priority, *waiters])
 
 
+def stack_age_source(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> Unit | None:
+    """The oldest unit waiting on `unit`, when it was planned before `unit` itself.
+
+    That unit is why `unit` starts at an older place than its own; None when
+    nothing waiting on it is older.
+    """
+    position = {other.id: place for place, other in enumerate(graph)}
+    oldest = min(
+        waiting_on_me(unit, graph, excluded), key=lambda waiter: position[waiter.id], default=None
+    )
+    if oldest is not None and position[oldest.id] < position[unit.id]:
+        return oldest
+    return None
+
+
 def effective_age(
     unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
 ) -> int:
@@ -374,9 +391,8 @@ def effective_age(
     The planned position is the place in `graph`. Depth and the number of
     waiters do not count: only how long ago the oldest of them was planned.
     """
-    position = {other.id: place for place, other in enumerate(graph)}
-    waiters = [position[waiter.id] for waiter in waiting_on_me(unit, graph, excluded)]
-    return min([position[unit.id], *waiters])
+    source = stack_age_source(unit, graph, excluded) or unit
+    return next(place for place, other in enumerate(graph) if other.id == source.id)
 
 
 def trunk_of(repo: str) -> str:
