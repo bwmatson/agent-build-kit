@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
-from agent_build_kit.pipeline.units import HELD
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, HeldBy, UnitStore
+from agent_build_kit.pipeline.units import HELD, RUNNING
 from tests.serving import EXPECTED, seed_pipeline, seed_review_round
 
 
@@ -22,8 +22,23 @@ def test_the_pipeline_lists_every_unit_with_its_effective_state(pipeline: httpx.
     answer = pipeline.get("/api/pipeline")
 
     assert answer.status_code == 200
-    listed = {item["id"]: item["state"] for item in answer.json()["units"]}
+    listed = {item["id"]: item["status"] for item in answer.json()["units"]}
     assert listed == {uid: expected[0] for uid, expected in EXPECTED.items()}
+
+
+def test_the_pipeline_keeps_the_stored_state_in_state_beside_the_derived_name(
+    inst: Installation, pipeline: httpx.Client
+) -> None:
+    store = UnitStore(inst.state_dir / "units.json")
+    store.set_feedback("feature/7", "rename it", source=FeedbackSource.REVIEW)
+    store.set_state("feature/7", RUNNING, note="rework requested", cause=Cause.REWORK)
+
+    listed = {item["id"]: item for item in pipeline.get("/api/pipeline").json()["units"]}
+
+    assert (listed["feature/7"]["state"], listed["feature/7"]["status"]) == ("running", "reworking")
+    assert (listed["feature/3"]["state"], listed["feature/3"]["status"]) == ("planned", "blocked")
+    unit = pipeline.get("/api/units/feature/7").json()
+    assert (unit["state"], unit["status"]) == ("running", "reworking")
 
 
 @pytest.mark.parametrize("uid", sorted(EXPECTED))
@@ -37,7 +52,7 @@ def test_a_unit_answers_at_its_own_name_with_its_state_cause_and_note(
     assert answer.status_code == 200
     body = answer.json()
     assert body["id"] == uid
-    assert (body["state"], body["cause"], body["held_by"], body["note"]) == (
+    assert (body["status"], body["cause"], body["held_by"], body["note"]) == (
         state,
         cause,
         held_by,
