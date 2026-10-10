@@ -87,8 +87,8 @@ export function rangeContext(
     });
     if (inside.length === 0) continue;
     picked.push(...inside.map((row) => row.text));
-    const header = hunk.hunkSpecs ?? "";
-    const head = hunk.hunkContext ? `${header} ${hunk.hunkContext}` : header;
+    // The raw first line: it already holds any function context, and its line ending.
+    const head = (hunk.hunkSpecs ?? "").replace(/\r?\n$/, "");
     hunks.push([head, ...lines.map((row) => MARKS[row.kind] + row.text)].join("\n"));
   }
   return picked.length === 0 ? null : { hunk: hunks.join("\n"), text: picked.join("\n") };

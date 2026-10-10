@@ -8,6 +8,7 @@ import { AppRoutes } from "../App";
 import agentPaused from "../test/recorded/agent-feature-2.json";
 import diff from "../test/recorded/review-diff.json";
 import state from "../test/recorded/review-state.json";
+import context from "../test/recorded/review-working-context.json";
 import overlap from "../test/recorded/review-working-overlap.json";
 import working from "../test/recorded/review-working.json";
 import { CHAT, recordedApi, stream, type Api } from "../test/api";
@@ -266,6 +267,32 @@ describe("a file changed on the branch and in the worktree", () => {
     expect(attached.text).toBe("line 13\nline 14 edited\nline 15\nline 40\nline 41 edited");
     expect(attached.hunk).toContain("@@ -13,3 +13,3 @@");
     expect(attached.hunk).toContain("@@ -40,3 +40,3 @@");
+  });
+});
+
+describe("the hunk an attachment carries", () => {
+  async function attached(fixture: unknown, path: string, from: number, to: number) {
+    const api = open(`${ROOT}/review`, fixture);
+    await screen.findByRole("region", { name: path });
+    const user = await selectRange(path, from, to);
+    await user.click(screen.getByRole("button", { name: /ask the agent/i }));
+    await user.type(await screen.findByRole("textbox", { name: "Message" }), "Why?");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await waitFor(() => expect(sentChat(api)).toHaveLength(1));
+    return (sentChat(api)[0].body as { attachments: Sent[] }).attachments[0];
+  }
+
+  it("is the header once and its lines, for a header with function context", async () => {
+    const found = await attached(context, "src/funcs.py", 4, 6);
+
+    expect(found.hunk).toBe("@@ -4,2 +4,3 @@ def foo():\n     a = 1\n+    b = 2\n     c = 3");
+    expect(found.text).toBe("    a = 1\n    b = 2\n    c = 3");
+  });
+
+  it("is the header and its lines with no blank line, for a header without context", async () => {
+    const found = await attached(working, NOTES, 1, 3);
+
+    expect(found.hunk).toBe("@@ -0,0 +1,3 @@\n+one\n+two\n+three");
   });
 });
 
