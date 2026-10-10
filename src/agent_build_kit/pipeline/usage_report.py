@@ -32,9 +32,10 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.usage_ledger import (
     CostBasis,
     UsageRecord,
+    combine_records,
+    grouped_records,
     ledger_lock,
     read_lines,
-    records_in,
 )
 
 GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "day")
@@ -142,6 +143,7 @@ class _Entry(Frozen):
     at: datetime | None = None
     row: ReportRow
     call: UsageRecord | None = None  # the ledger record, for what is read off the call itself
+    parts: tuple[UsageRecord, ...] = ()  # the ledger lines `call` combines, counted one by one
     legacy: Legacy = Legacy()  # a summary's legacy rows, which its cost figures leave out
 
 
@@ -303,6 +305,7 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
     entries = [
         _Entry(
             **meta(r.unit, r.change, r.repo),
+            parts=tuple(parts),
             node=r.node,
             role=r.role or NONE,
             model=r.model or NONE,
@@ -312,7 +315,8 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
             row=_call_row(r),
             call=r,
         )
-        for r in records_in(lines)
+        for parts in grouped_records(lines)
+        for r in [combine_records(parts)]
     ]
     for line in lines:
         try:
@@ -440,7 +444,10 @@ def _report_of(
         sessions=_sessions(whole),
         legacy=_legacy(entries),
         unknown_calls=sum(
-            1 for c in calls if c.cost is not None and c.cost.basis == CostBasis.UNKNOWN
+            1
+            for e in entries
+            for p in e.parts
+            if p.cost is not None and p.cost.basis == CostBasis.UNKNOWN
         ),
     )
 
@@ -482,9 +489,10 @@ def _legacy(entries: list[_Entry]) -> Legacy:
     """The older flat figures: those of calls still in the ledger, whatever basis a later call
     folded into their record gave it, and those a summary kept when it replaced the calls."""
     rows = [
-        LegacyRow(unit=e.call.unit, node=e.call.node, legacy_usd=e.call.cost.legacy_usd)
+        LegacyRow(unit=p.unit, node=p.node, legacy_usd=p.cost.legacy_usd)
         for e in entries
-        if e.call is not None and e.call.cost is not None and e.call.cost.legacy_usd is not None
+        for p in e.parts
+        if p.cost is not None and p.cost.legacy_usd is not None
     ]
     rows += [row for e in entries for row in e.legacy.rows]
     rows.sort(key=lambda r: (r.unit, r.node, r.legacy_usd))

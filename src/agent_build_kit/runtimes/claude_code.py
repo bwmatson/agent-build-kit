@@ -331,8 +331,8 @@ def _spent(ended: ResultEvent | None) -> dict:
     )
     return {
         "usage": ended.usage,
-        "cost_usd": ended.total_cost_usd,
-        # The result's total is the session's running one, not the call's own spend.
+        # The result's total is the session's running one, not the call's own spend, so it is
+        # reported as the cumulative figure and `cost_usd` stays absent.
         "cumulative_cost_usd": ended.total_cost_usd,
         "duration_ms": ended.duration_ms,
         "session_id": ended.session_id,

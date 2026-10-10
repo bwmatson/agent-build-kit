@@ -73,10 +73,18 @@ class Cumulative(StandInRuntime):
     passes_env = True
 
     def __init__(
-        self, totals: Sequence[float], gateway: FakeGateway | None = None, *, die_on: int = 0
+        self,
+        totals: Sequence[float],
+        gateway: FakeGateway | None = None,
+        *,
+        die_on: int = 0,
+        own: Sequence[float] = (),
     ) -> None:
         super().__init__(answer="done")
         self.totals = list(totals)
+        # What the runtime worked out as each call's own spend, as the ACP runtime does against
+        # the total its agent replayed when the session was loaded; none when not given.
+        self.own = list(own)
         self.gateway = gateway
         self.die_on = die_on
 
@@ -95,6 +103,7 @@ class Cumulative(StandInRuntime):
             ok=True,
             text="done",
             session_id=session,
+            cost_usd=self.own[n - 1] if self.own else None,
             cumulative_cost_usd=self.totals[n - 1],
             usage_source="reported",
         )

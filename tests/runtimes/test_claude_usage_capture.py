@@ -45,7 +45,8 @@ def test_a_successful_call_reports_its_usage_as_the_agent_s_own(tmp_path: Path) 
     assert seen == [result]
     assert result.ok
     assert result.usage == SPENT
-    assert result.cost_usd == 0.4127
+    assert result.cumulative_cost_usd == 0.4127
+    assert result.cost_usd is None, "the total is the session's, not the call's own spend"
     assert result.turns == 3
     assert result.duration_ms == 81234
     assert result.session_id == SESSION
@@ -68,7 +69,7 @@ def test_a_failed_call_reports_its_figures_too(tmp_path: Path) -> None:
     assert seen == [result]
     assert not result.ok
     assert result.usage == SPENT
-    assert result.cost_usd == 0.4127
+    assert result.cumulative_cost_usd == 0.4127
     assert result.session_id == SESSION
     assert result.usage_source == "reported"
 
@@ -84,6 +85,7 @@ def test_a_run_whose_output_carries_no_result_event_reports_nothing_rather_than_
     assert seen == [result]
     assert result.usage is None
     assert result.cost_usd is None
+    assert result.cumulative_cost_usd is None
     assert result.duration_ms is None
     assert result.usage_source == "none"
 
@@ -102,6 +104,7 @@ def test_an_event_carrying_only_a_session_id_is_recorded_as_none(tmp_path: Path)
     assert result.session_id == SESSION
     assert result.usage is None
     assert result.cost_usd is None
+    assert result.cumulative_cost_usd is None
     assert result.usage_source == "none"
 
 
@@ -119,6 +122,6 @@ def test_a_call_ended_by_the_usage_limit_still_reports_what_it_spent(tmp_path: P
     assert len(seen) == 1
     assert not seen[0].ok
     assert "usage limit reached" in seen[0].error
-    assert seen[0].cost_usd == 0.4127
+    assert seen[0].cumulative_cost_usd == 0.4127
     assert seen[0].usage == SPENT
     assert seen[0].usage_source == "reported"

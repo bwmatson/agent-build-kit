@@ -28,6 +28,7 @@ from tests.graph.test_session_continuation import reuse
 from tests.graph_driver import fresh, position, tick
 from tests.ledger_lines import costed_line, write_ledger
 from tests.runner_fakes import Killed, approving
+from tests.runtimes.acp_agent import COST_AMOUNT
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 
 
@@ -314,3 +315,22 @@ def test_a_gateway_sessions_resume_derives_the_runtimes_increase_from_the_runtim
     assert cost_of(implement)["incremental_usd"] == pytest.approx(1.5), "the gateway's figure"
     assert cost_of(implement)["reported_usd"] == pytest.approx(0.7), "the runtime's own increase"
     assert cost_of(implement)["cumulative_usd"] == pytest.approx(2.0)
+
+
+def test_a_resume_with_no_baseline_keeps_the_spend_the_runtime_worked_out_against_its_own(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    """An ACP agent that replays its total on loading the session lets the runtime derive the
+    call's spend, so the recorder takes it where it has no baseline of its own."""
+    recorder = fresh(tmp_path)
+    runtime = Cumulative([0.0, 0.5 + COST_AMOUNT, 2.0], own=[0.0, COST_AMOUNT, 1.19], die_on=1)
+    run = build_run(runtime=runtime)
+    with pytest.raises(Killed):
+        tick(tmp_path, recorder, run=run)
+
+    tick(tmp_path, recorder, run=run)
+
+    (resumed,) = [x for x in lines(workspace, "tests") if x.get("resumed")]
+    assert cost_of(resumed)["incremental_usd"] == pytest.approx(COST_AMOUNT)
+    assert cost_of(resumed)["cumulative_usd"] == pytest.approx(0.5 + COST_AMOUNT)
+    assert cost_of(resumed)["basis"] == CostBasis.DERIVED

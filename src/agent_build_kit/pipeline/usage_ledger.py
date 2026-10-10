@@ -202,7 +202,7 @@ _FIGURES = (
 )
 
 
-def _combine(parts: list[UsageRecord]) -> UsageRecord:
+def combine_records(parts: list[UsageRecord]) -> UsageRecord:
     """The last part, carrying each figure summed over the parts that report it."""
     if len(parts) == 1:
         return parts[0]
@@ -257,7 +257,13 @@ def read_ledger(path: Path) -> list[UsageRecord]:
 
 
 def records_in(lines: list[str]) -> list[UsageRecord]:
-    """The ledger's records, one per unit, node and round.
+    """The ledger's records, one per unit, node and round; see `grouped_records`."""
+    return [combine_records(parts) for parts in grouped_records(lines)]
+
+
+def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
+    """The ledger's lines grouped by call, each group the lines `records_in` combines into one
+    record, so what is counted per line (a legacy row, a call of unknown cost) can be.
 
     The session id is an attribute of a record, not part of its key: a call
     that continues a session another node started is its own node's spend, and
@@ -284,7 +290,7 @@ def records_in(lines: list[str]) -> list[UsageRecord]:
             calls[key].append(record)
         else:
             calls[key] = [record]
-    return [_combine(parts) for parts in calls.values()]
+    return list(calls.values())
 
 
 def session_cumulative(session_id: str) -> float | None:

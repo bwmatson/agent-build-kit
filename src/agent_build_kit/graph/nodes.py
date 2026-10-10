@@ -743,6 +743,10 @@ class BuildPath:
                 reported, basis = runtime_total, CostBasis.FIRST
             elif not resumed:
                 reported, basis = runtime_total, CostBasis.FIRST
+            elif result.cost_usd is not None:
+                # No baseline here, but the runtime worked out the call's own spend against
+                # the total its agent replayed when the session was loaded.
+                reported, basis = result.cost_usd, CostBasis.DERIVED
             cumulative: float | None = runtime_total
         elif result.cost_usd is not None:
             reported, basis = result.cost_usd, CostBasis.REPORTED

@@ -305,3 +305,67 @@ def test_the_reports_json_keeps_the_names_a_consumer_reads(worked: Path) -> None
 
     assert body["total"]["measured"]["cost_usd"] == pytest.approx(TRUTH)
     assert body["rows"][0]["measured"]["cost_usd"] == pytest.approx(TRUTH)
+
+
+def test_legacy_lines_are_counted_and_listed_one_by_one_even_when_they_share_a_call(
+    tmp_path: Path,
+) -> None:
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl",
+        legacy_line(5.49, node="implement", session_id="s", at="2026-01-01T09:00:00+00:00"),
+        legacy_line(
+            7.69, node="implement", session_id="s", resumed=True, at="2026-01-01T09:30:00+00:00"
+        ),
+    )
+
+    report = build_report(ledger, UNITS, group_by="unit")
+
+    assert report.legacy.count == 2
+    assert sorted(r.legacy_usd for r in report.legacy.rows) == [5.49, 7.69]
+    assert report.legacy.total_usd == pytest.approx(13.18)
+
+
+def test_a_summary_keeps_one_listed_row_for_each_legacy_line(tmp_path: Path) -> None:
+    ledger = write_ledger(
+        tmp_path / "state" / "usage-ledger.jsonl",
+        legacy_line(5.49, node="implement", session_id="s", at="2026-01-01T09:00:00+00:00"),
+        legacy_line(
+            7.69, node="implement", session_id="s", resumed=True, at="2026-01-01T09:30:00+00:00"
+        ),
+    )
+
+    roll_up_change(ledger, "add-marker")
+
+    report = build_report(ledger, UNITS, group_by="unit")
+    assert report.legacy.count == 2
+    assert report.legacy.total_usd == pytest.approx(13.18)
+
+
+def test_an_unknown_call_followed_by_a_derived_one_in_the_same_call_is_still_counted(
+    tmp_path: Path,
+) -> None:
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl",
+        costed_line(
+            None,
+            5.0,
+            basis="unknown",
+            node="implement",
+            session_id="s",
+            at="2026-01-01T09:00:00+00:00",
+        ),
+        costed_line(
+            1.0,
+            6.0,
+            basis="derived",
+            node="implement",
+            session_id="s",
+            resumed=True,
+            at="2026-01-01T09:30:00+00:00",
+        ),
+    )
+
+    report = build_report(ledger, UNITS, group_by="unit")
+
+    assert report.unknown_calls == 1
+    assert report.total.measured.cost_usd == pytest.approx(1.0)
