@@ -206,10 +206,21 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
 
 
 @pytest.fixture(autouse=True)
-def scratch_workspace(workspace: object, scratch: Scratch) -> None:
+def scratch_workspace(workspace: object, scratch: Scratch) -> Iterator[None]:
     """The scratch installation is the active one for each test, after the suite's default
-    workspace: the server thread reads its runtime command and repos from it."""
+    workspace: the server thread reads its runtime command and repos from it. Whatever a
+    failed test left behind, a lease held by this process and uncommitted files, is cleared
+    after it, so the one failure is not followed by a conflict in every later test."""
     scratch.installation.activate()
+    yield
+    Leases(lease_dir(scratch.installation.state_dir)).drop(UNIT_ID)
+    try:
+        tree = scratch.tree
+    except Exception:  # the unit was never built: nothing to clean
+        return
+    if tree.is_dir():
+        git(tree, "reset", "-q", "--hard", "HEAD")
+        git(tree, "clean", "-qfd")
 
 
 @pytest.fixture(scope="module")
@@ -285,7 +296,7 @@ def converse(api: httpx.Client, url: str, body: dict[str, Any]) -> list[dict[str
             events.append(event)
             if event.get("type") == "CUSTOM" and event.get("name") == "permission_request":
                 options = event["value"]["options"]
-                allow = next(o["id"] for o in options if o["kind"] == "allow_once")
+                allow = next(o["id"] for o in options if str(o["kind"]).startswith("allow"))
                 api.post(f"/api/permissions/{event['value']['id']}", json={"option": allow})
     return events
 
