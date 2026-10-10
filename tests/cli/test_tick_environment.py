@@ -108,6 +108,30 @@ def test_an_input_changed_since_the_last_sync_runs_sync_again(
     assert env.calls() == ["sync", "check"]
 
 
+def test_a_failed_sync_does_not_record_the_hash_so_the_next_tick_syncs_again(
+    tmp_path: Path,
+    builder: Builder,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    inst, env = settled(tmp_path, builder)
+    (tmp_path / "manifest.toml").write_text("version 2\n")
+    env.fail_sync()
+    builder.store.upsert([stored("feature/1")])
+    capsys.readouterr()
+
+    assert tick(inst) == 0
+
+    assert env.calls() == ["sync", "check"]
+    assert "sync failed" in capsys.readouterr().out
+    env.fail_sync(failing=False)
+    env.clear()
+    builder.store.upsert([stored("feature/2")])
+
+    assert tick(inst) == 0
+
+    assert env.calls()[0] == "sync", "the inputs were never synced, so they are synced now"
+
+
 def test_an_idle_tick_runs_neither_sync_nor_check(
     tmp_path: Path,
     builder: Builder,  # noqa: F811

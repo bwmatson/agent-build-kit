@@ -19,6 +19,7 @@ from agent_build_kit.config import EnvironmentConfig, active
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_limit import run_limited
+from agent_build_kit.pipeline.file_lock import file_lock
 
 RECORD = "environment.json"
 
@@ -53,7 +54,9 @@ def read_state(state_dir: Path) -> EnvironmentState | None:
 
 def _write_state(state_dir: Path, state: EnvironmentState) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / RECORD).write_text(state.model_dump_json())
+    temporary = state_dir / f"{RECORD}.tmp"
+    temporary.write_text(state.model_dump_json())
+    temporary.replace(state_dir / RECORD)
 
 
 def _run(command: list[str], root: Path) -> tuple[bool, str]:
@@ -84,37 +87,45 @@ def problem(root: Path) -> str | None:
 
 def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
     """Bring the environment up to date before a pass starts work. True when the
-    pass may go on: healthy, or none managed. A failure is recorded and printed."""
+    pass may go on: healthy, or none managed. A failure is recorded and printed.
+    The new inputs hash is kept only by a sync that exited 0, so a failed sync is
+    tried again on the next tick."""
     environment = inst.config.environment
     if environment is None:
         return True
-    previous = read_state(inst.state_dir) or EnvironmentState()
-    digest = inputs_hash(environment, inst.root)
-    hash_ = previous.hash
-    if digest != previous.hash:
-        say("environment inputs changed: syncing")
-        _, output = _run(environment.sync, inst.root)
-        hash_ = digest
-        synced = output
-    else:
+    with file_lock(inst.state_dir / "environment.lock"):
+        previous = read_state(inst.state_dir) or EnvironmentState()
+        digest = inputs_hash(environment, inst.root)
+        hash_ = previous.hash
         synced = ""
-    ok, output = _run(environment.check, inst.root)
-    if not ok:
-        say("environment check failed: syncing and checking again")
-        _, synced = _run(environment.sync, inst.root)
-        hash_ = digest
+
+        def sync() -> None:
+            nonlocal hash_, synced
+            ok, synced = _run(environment.sync, inst.root)
+            if ok:
+                hash_ = digest
+            else:
+                say(f"environment sync failed: {synced}")
+
+        if digest != previous.hash:
+            say("environment inputs changed: syncing")
+            sync()
         ok, output = _run(environment.check, inst.root)
-    now = datetime.now(UTC).isoformat()
-    if ok:
-        _write_state(inst.state_dir, EnvironmentState(hash=hash_, healthy=True, since=now))
-        return True
-    shown = output or synced or "the check failed with no output"
-    since = previous.since if not previous.healthy else now
-    _write_state(
-        inst.state_dir, EnvironmentState(hash=hash_, healthy=False, output=shown, since=since)
-    )
-    say(f"environment unhealthy, starting nothing: {shown}")
-    return False
+        if not ok:
+            say("environment check failed: syncing and checking again")
+            sync()
+            ok, output = _run(environment.check, inst.root)
+        now = datetime.now(UTC).isoformat()
+        if ok:
+            _write_state(inst.state_dir, EnvironmentState(hash=hash_, healthy=True, since=now))
+            return True
+        shown = output or synced or "the check failed with no output"
+        since = previous.since if not previous.healthy else now
+        _write_state(
+            inst.state_dir, EnvironmentState(hash=hash_, healthy=False, output=shown, since=since)
+        )
+        say(f"environment unhealthy, starting nothing: {shown}")
+        return False
 
 
 __all__ = ["EnvironmentState", "ensure", "inputs_hash", "problem", "read_state"]

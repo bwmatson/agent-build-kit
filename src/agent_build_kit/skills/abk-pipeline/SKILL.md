@@ -8,7 +8,13 @@ generatedBy: agent-build-kit
 # Reading and driving the abk pipeline
 
 The pipeline runs unattended: a timer calls `abk tick` every few minutes in
-the planning repo. A tick is one pass — check the usage window, poll GitHub,
+the planning repo. Once a tick has work, and before its round, it keeps the
+pipeline's environment current: it runs `environment.sync` when the listed
+inputs changed, then `environment.check`, and syncs once more if the check
+fails. If the check still fails the tick starts nothing and exits 1 with the
+check's output, with no unit failed; fix the environment (`abk doctor` runs the
+check) and the next tick resumes the units waiting for it. A tick is one pass —
+check the usage window, poll GitHub,
 plan what is new, verify and archive what has merged, build what is ready —
 and every step is idempotent, so running one by hand changes nothing a timer
 would not have done.
@@ -22,9 +28,9 @@ what the pipeline is doing, watch the pass, not a single unit.
 
 | Command | What it does |
 |---|---|
-| `abk status` | Whether the pipeline is paused, the usage reading, units by state, which PRs are waiting for a human, any `held` or in-flight `planned` unit with `no recorded cause`, and the ready queue in start order with the reason for each place (priority, or planned order). Never changes anything. |
+| `abk status` | Whether the pipeline is paused, the usage reading, the environment's state (healthy, or unhealthy with the check's output), units by state, which PRs are waiting for a human, any `held` or in-flight `planned` unit with `no recorded cause`, and the ready queue in start order with the reason for each place (priority, or planned order). Never changes anything. |
 | `abk graph` | Regenerate the unit graph page (`docs/unit_graph.md`) from `runs/units.json`. |
-| `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything. |
+| `abk tick --dry-run` | Run a tick's reasoning — poll, plan, work out what is ready — and report it without building anything; it does not sync the environment or resume units waiting for it. |
 | `abk tick` | A real pass, the same one the timer runs. Safe at any time. `--only <unit>` builds just that unit if it is ready. |
 | `abk verify <change>` | Deploy a fully merged change and run its live (tier 2) tests, then archive it; exits 1 if it fails or passes without the change being archived. The tick does this on its own once every unit of a change has merged. |
 | `abk check` | `openspec validate --all --strict --json` on the planning repo. |

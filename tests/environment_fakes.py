@@ -13,8 +13,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.pipeline.unit_store import Cause
-
 BROKEN_OUTPUT = "ModuleNotFoundError: No module named 'widget'"
 
 _CHECK = f"""\
@@ -34,6 +32,8 @@ import pathlib, sys
 control = pathlib.Path(sys.argv[1])
 with (control / "calls.log").open("a") as log:
     log.write("sync" + chr(10))
+if (control / "sync-fails").exists():
+    sys.exit(1)
 if (control / "sync-repairs").exists():
     (control / "broken").unlink(missing_ok=True)
 """
@@ -67,10 +67,11 @@ class FakeEnvironment:
         if sync_repairs:
             (self.control / "sync-repairs").write_text("")
 
+    def fail_sync(self, *, failing: bool = True) -> None:
+        if failing:
+            (self.control / "sync-fails").write_text("")
+        else:
+            (self.control / "sync-fails").unlink(missing_ok=True)
+
     def mend(self) -> None:
         (self.control / "broken").unlink(missing_ok=True)
-
-
-def environment_cause() -> Cause:
-    """The cause of a unit the environment blocked, looked up by its stored value."""
-    return Cause("environment")

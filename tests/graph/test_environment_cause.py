@@ -13,10 +13,10 @@ import pytest
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.unit_store import RequeueReason
+from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW
 from tests.conftest import make_installation
-from tests.environment_fakes import FakeEnvironment, environment_cause
+from tests.environment_fakes import FakeEnvironment
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import Recorder
 
@@ -49,7 +49,7 @@ def test_a_failing_check_fails_the_unit_with_the_environment_cause_before_tier_1
 
     assert outcome.status == RunStatus.FAILED
     stored = recorder.store.get(UNIT)
-    assert (stored.state, stored.cause) == (FAILED, environment_cause())
+    assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert stored.feedback == "", "nothing for an agent to fix is saved"
     assert tier1_events(recorder) == [], "tier 1 was not run on a broken environment"
     assert "claude:fix_checks" not in recorder.events
@@ -72,7 +72,7 @@ def test_a_failing_pipeline_command_with_a_check_that_fails_then_spends_no_fix_r
 
     assert outcome.status == RunStatus.FAILED
     stored = recorder.store.get(UNIT)
-    assert (stored.state, stored.cause) == (FAILED, environment_cause())
+    assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert stored.feedback == ""
     assert "claude:fix_checks" not in recorder.events
     assert recorder.events.count("tier1") == 1
@@ -95,7 +95,7 @@ def test_a_units_own_import_error_with_a_passing_check_goes_to_the_fix_round(
     assert any("cannot import name 'widget'" in prompt for prompt in recorder.prompts)
     assert outcome.status == "open"
     stored = recorder.store.get(UNIT)
-    assert (stored.state, stored.cause) != (FAILED, environment_cause())
+    assert (stored.state, stored.cause) != (FAILED, Cause.ENVIRONMENT)
 
 
 def test_a_resumed_unit_that_meets_a_failing_check_again_returns_to_the_cause_without_an_agent(
@@ -111,7 +111,7 @@ def test_a_resumed_unit_that_meets_a_failing_check_again_returns_to_the_cause_wi
     tick(tmp_path, recorder)
 
     stored = recorder.store.get(UNIT)
-    assert (stored.state, stored.cause) == (FAILED, environment_cause())
+    assert (stored.state, stored.cause) == (FAILED, Cause.ENVIRONMENT)
     assert len(recorder.prompts) == prompts, "no agent ran for the second failure"
     assert tier1_events(recorder) == []
 

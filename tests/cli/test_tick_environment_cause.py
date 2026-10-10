@@ -24,7 +24,7 @@ from tests.cli.test_tick_scheduling import (  # noqa: F401
     warm_unit_graphs,
 )
 from tests.conftest import make_installation
-from tests.environment_fakes import FakeEnvironment, environment_cause
+from tests.environment_fakes import FakeEnvironment
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -51,7 +51,7 @@ def managed(
 def waiting_for_environment(store: UnitStore, *unit_ids: str) -> None:
     store.upsert([stored(unit_id) for unit_id in unit_ids])
     for unit_id in unit_ids:
-        store.set_state(unit_id, FAILED, note=NOTE, cause=environment_cause())
+        store.set_state(unit_id, FAILED, note=NOTE, cause=Cause.ENVIRONMENT)
 
 
 def status_lines(inst: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -138,7 +138,7 @@ def test_units_still_waiting_are_not_resumed_while_the_environment_stays_broken(
 
     assert builder.started == []
     stored_unit = builder.store.get("feature/1")
-    assert (stored_unit.state, stored_unit.cause) == (FAILED, environment_cause())
+    assert (stored_unit.state, stored_unit.cause) == (FAILED, Cause.ENVIRONMENT)
 
 
 def test_the_resumed_units_run_within_the_concurrency_limit(
@@ -186,6 +186,6 @@ def test_only_a_unit_waiting_for_the_environment_makes_a_store_with_nothing_else
         "a unit failed for another cause waits for a person"
     )
 
-    builder.store.set_state("feature/1", FAILED, note=NOTE, cause=environment_cause())
+    builder.store.set_state("feature/1", FAILED, note=NOTE, cause=Cause.ENVIRONMENT)
 
     assert cli.has_work(inst, builder.store)

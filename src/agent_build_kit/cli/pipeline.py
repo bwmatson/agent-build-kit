@@ -709,10 +709,13 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     """What a tick does once there is work: a round, then the builds."""
     store = store_for(inst)
 
-    if not environment.ensure(inst, say=log):
-        tick.outcome = "environment"
-        return 1
-    _resume_environment_waiters(inst, store)
+    if args.dry_run:
+        log("dry run — the environment is not synced and waiting units are not resumed")
+    else:
+        if not environment.ensure(inst, say=log):
+            tick.outcome = "environment"
+            return 1
+        _resume_environment_waiters(inst, store)
 
     # Everything else still happens in the round — polling, planning, archiving
     # — so the store stays current; only building is narrowed by `--only`. For
