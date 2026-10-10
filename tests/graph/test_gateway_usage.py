@@ -116,11 +116,11 @@ def test_a_run_gets_a_key_named_for_its_place_and_records_the_gateways_totals(
     assert records["tests"]["usage_source"] == "gateway"
     assert records["tests"]["input_tokens"] == 1000
     assert records["tests"]["output_tokens"] == 100
-    assert records["tests"]["cost_usd"] == 0.5
+    assert records["tests"]["cost"]["incremental_usd"] == 0.5
     assert records["implement"]["usage_source"] == "gateway"
     assert records["implement"]["input_tokens"] == 2000
     assert records["implement"]["output_tokens"] == 200
-    assert records["implement"]["cost_usd"] == 1.0
+    assert records["implement"]["cost"]["incremental_usd"] == 1.0
     assert gateway.revoked == [first["key"], second["key"]]
 
 
@@ -160,10 +160,14 @@ def test_what_the_agent_reports_is_kept_beside_the_gateways_figures(
 
     record = ledger(workspace)["tests"]
     assert record["usage_source"] == "gateway"
-    assert (record["input_tokens"], record["output_tokens"], record["cost_usd"]) == (1000, 100, 0.5)
+    assert (record["input_tokens"], record["output_tokens"], record["cost"]["incremental_usd"]) == (
+        1000,
+        100,
+        0.5,
+    )
     assert record["reported"]["input_tokens"] == 900
     assert record["reported"]["output_tokens"] == 90
-    assert record["reported_cost_usd"] == 0.4
+    assert record["cost"]["reported_usd"] == 0.4
 
 
 def test_an_agent_that_reports_nothing_leaves_nothing_beside_the_gateways_figures(
@@ -174,7 +178,7 @@ def test_an_agent_that_reports_nothing_leaves_nothing_beside_the_gateways_figure
     record = ledger(workspace)["tests"]
     assert record["usage_source"] == "gateway"
     assert record["reported"] is None
-    assert record["reported_cost_usd"] is None
+    assert record["cost"]["reported_usd"] is None
 
 
 def test_an_agent_that_never_spends_through_its_key_keeps_its_own_figures(

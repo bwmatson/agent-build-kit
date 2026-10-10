@@ -34,7 +34,7 @@ def test_the_usage_view_keeps_legacy_rows_out_of_the_cost(
     seed_pipeline(inst)
     write_ledger(
         inst.state_dir / "usage-ledger.jsonl",
-        legacy_line(13.18, session_id="old"),
+        legacy_line(13.18, node="tests", session_id="old"),
         costed_line(2.0, 2.0, basis="first", node="implement", session_id="new"),
     )
 

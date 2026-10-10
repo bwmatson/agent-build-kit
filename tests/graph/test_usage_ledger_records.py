@@ -29,6 +29,7 @@ from tests.runtimes.claude_cli import SESSION, FakeClaude, finished_build
 from tests.runtimes.stand_in import StandInRuntime
 
 REVIEW_MODEL = "review-model"
+REVIEW_SESSION = "5d2f7a18-c4e6-4b93-8e01-a7f3d9b60c52"
 
 
 class Silent(StandInRuntime):
@@ -74,7 +75,10 @@ class KilledInImplement(StandInRuntime):
 def agents(tmp_path: Path, *, build=None, review=None) -> dict:
     """The tick's agent callables over a faked `claude` for each."""
     build = build or FakeClaude(stdout=finished_build(tmp_path, "done"))
-    review = review or FakeClaude(stdout=finished_build(tmp_path, approving()))
+    # Its own session, as a real review's is: the build's cost is not its baseline.
+    review = review or FakeClaude(
+        stdout=finished_build(tmp_path, approving()).replace(SESSION, REVIEW_SESSION)
+    )
     return dict(
         run=build_run(runtime=ClaudeCodeRuntime(execute=build)),
         run_review=build_run_review(runtime=ClaudeCodeRuntime(execute=review), model=REVIEW_MODEL),
@@ -130,10 +134,10 @@ def test_a_record_carries_what_the_runtime_reported_and_says_it_was_reported(
     assert review["output_tokens"] == 212
     assert review["cache_read_input_tokens"] == 14671
     assert review["cache_creation_input_tokens"] == 1822
-    assert review["cost_usd"] == 0.4127
+    assert review["cost"]["incremental_usd"] == 0.4127
     assert review["turns"] == 3
     assert review["duration_ms"] == 81234
-    assert review["session_id"] == SESSION
+    assert review["session_id"] == REVIEW_SESSION
 
 
 def test_a_failed_call_is_recorded_with_its_figures(
@@ -154,7 +158,7 @@ def test_a_failed_call_is_recorded_with_its_figures(
     (record,) = ledger_lines(workspace)
     assert record["node"] == "tests"
     assert record["usage_source"] == "reported"
-    assert record["cost_usd"] == 0.4127
+    assert record["cost"]["incremental_usd"] == 0.4127
     assert record["outcome"] == "failed"
 
 
@@ -192,7 +196,7 @@ def test_a_runtime_that_reports_nothing_leaves_a_record_of_none_with_the_figures
             "output_tokens",
             "cache_read_input_tokens",
             "cache_creation_input_tokens",
-            "cost_usd",
+            "cost",
             "duration_ms",
         ):
             assert absent(record, figure), f"{figure} must be absent, not zero"

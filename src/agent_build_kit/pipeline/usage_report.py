@@ -30,6 +30,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.usage_ledger import (
+    CostBasis,
     UsageRecord,
     ledger_lock,
     read_lines,
@@ -38,6 +39,8 @@ from agent_build_kit.pipeline.usage_ledger import (
 
 GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "day")
 
+# A session's increments this far from its final cumulative figure still add up.
+SESSION_TOLERANCE = 1e-6
 NONE = "(none)"
 NO_BREAKDOWN = "(archived, no breakdown)"
 TOP_UNITS = 10
@@ -138,6 +141,7 @@ class _Entry(Frozen):
     usage_source: str = ""
     at: datetime | None = None
     row: ReportRow
+    call: UsageRecord | None = None  # the ledger record, for what is read off the call itself
 
 
 def _add(a: float | None, b: float | None) -> float | None:
@@ -191,7 +195,10 @@ def _difference(record: UsageRecord) -> Difference | None:
     pairs = {
         "input_tokens": (record.input_tokens, reported.input_tokens if reported else None),
         "output_tokens": (record.output_tokens, reported.output_tokens if reported else None),
-        "cost_usd": (record.cost_usd, record.reported_cost_usd),
+        "cost_usd": (
+            record.cost.incremental_usd if record.cost else None,
+            record.cost.reported_usd if record.cost else None,
+        ),
     }
     fields: dict[str, float | int] = {}
     for name, (ours, theirs) in pairs.items():
@@ -208,7 +215,7 @@ def _call_row(record: UsageRecord) -> ReportRow:
         output_tokens=record.output_tokens,
         cache_read_input_tokens=record.cache_read_input_tokens,
         cache_creation_input_tokens=record.cache_creation_input_tokens,
-        cost_usd=record.cost_usd,
+        cost_usd=record.cost.incremental_usd if record.cost else None,
     )
     estimated = record.usage_source == "estimated"
     return ReportRow(
@@ -302,6 +309,7 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
             usage_source=r.usage_source,
             at=_when(r.at),
             row=_call_row(r),
+            call=r,
         )
         for r in records_in(lines)
     ]
@@ -416,7 +424,54 @@ def _report_of(
         groups.setdefault(_group_key(entry, group_by), []).append(entry.row)
     rows = tuple(_finish(_combine(key, groups[key]), include_estimates) for key in sorted(groups))
     total = _finish(_combine("total", (e.row for e in entries)), include_estimates)
-    return Report(group_by=group_by, rows=rows, total=total)
+    calls = [e.call for e in entries if e.call is not None]
+    return Report(
+        group_by=group_by,
+        rows=rows,
+        total=total,
+        sessions=_sessions(calls),
+        legacy=_legacy(calls),
+        unknown_calls=sum(
+            1 for c in calls if c.cost is not None and c.cost.basis == CostBasis.UNKNOWN
+        ),
+    )
+
+
+def _sessions(calls: list[UsageRecord]) -> tuple[SessionRow, ...]:
+    """Each session's increments summed beside its final cumulative figure, flagged when
+    they do not agree."""
+    by_session: dict[str, list[UsageRecord]] = {}
+    for call in calls:
+        if call.session_id and call.cost is not None and call.cost.basis != CostBasis.LEGACY:
+            by_session.setdefault(call.session_id, []).append(call)
+    rows = []
+    for session_id, parts in sorted(by_session.items()):
+        increments = [p.cost.incremental_usd for p in parts if p.cost and p.cost.incremental_usd]
+        finals = [(p.at, p.cost.cumulative_usd) for p in parts if p.cost and p.cost.cumulative_usd]
+        incremental = sum(increments) if increments else None
+        cumulative = max(finals)[1] if finals else None
+        flagged = (
+            cumulative is not None and abs((incremental or 0.0) - cumulative) > SESSION_TOLERANCE
+        )
+        rows.append(
+            SessionRow(
+                session_id=session_id,
+                incremental_usd=None if incremental is None else round(incremental, 10),
+                cumulative_usd=cumulative,
+                flagged=flagged,
+            )
+        )
+    return tuple(rows)
+
+
+def _legacy(calls: list[UsageRecord]) -> Legacy:
+    rows = tuple(
+        LegacyRow(unit=c.unit, node=c.node, legacy_usd=c.cost.legacy_usd)
+        for c in calls
+        if c.cost is not None and c.cost.basis == CostBasis.LEGACY and c.cost.legacy_usd is not None
+    )
+    total = round(sum(r.legacy_usd for r in rows), 10) if rows else None
+    return Legacy(count=len(rows), total_usd=total, rows=rows)
 
 
 _HEADINGS = (
@@ -484,13 +539,38 @@ def _cells(row: ReportRow) -> list[str]:
     ]
 
 
-def render_table(report: Report) -> str:
-    table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
+def _aligned(table: list[list[str]]) -> list[str]:
     widths = [max(len(line[i]) for line in table) for i in range(len(table[0]))]
-    return "\n".join(
+    return [
         "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip()
         for line in table
-    )
+    ]
+
+
+def render_table(report: Report) -> str:
+    table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
+    lines = _aligned(table)
+    if report.sessions:
+        sessions = [["session", "increments", "cumulative", ""]] + [
+            [
+                s.session_id,
+                _cost(s.incremental_usd),
+                _cost(s.cumulative_usd),
+                "FLAGGED: increments do not add up" if s.flagged else "",
+            ]
+            for s in report.sessions
+        ]
+        lines += ["", *_aligned(sessions)]
+    if report.legacy.count:
+        lines += [
+            "",
+            f"legacy rows: {report.legacy.count}, {_cost(report.legacy.total_usd)} USD "
+            "(older flat figures, not in the cost above)",
+            *(f"  {r.unit} {r.node} {_cost(r.legacy_usd)}" for r in report.legacy.rows),
+        ]
+    if report.unknown_calls:
+        lines += ["", f"calls with an unknown cost: {report.unknown_calls} (not in the cost above)"]
+    return "\n".join(lines)
 
 
 def render_json(report: Report) -> str:

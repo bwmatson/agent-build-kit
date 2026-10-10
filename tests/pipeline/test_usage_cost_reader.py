@@ -129,7 +129,6 @@ def test_a_legacy_line_read_back_with_unknown_fields_still_loads(tmp_path: Path)
 
 def test_a_line_whose_cost_is_the_wrong_type_reads_as_absent(tmp_path: Path) -> None:
     line = agent_line() | {"cost": {"incremental_usd": "a lot", "basis": "derived"}}
-    del line["cost_usd"]
     ledger = write_ledger(tmp_path / "ledger.jsonl", line)
 
     records = read_ledger(ledger)

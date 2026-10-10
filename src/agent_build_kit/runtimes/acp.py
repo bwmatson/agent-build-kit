@@ -1198,6 +1198,10 @@ def _spent(raw: Any, session: _Session) -> dict:
     """
     spent: dict = {"session_id": session.session_id}
     cost = session.cost_usd
+    if cost is not None:
+        # The agent's own running total, from which the recorder derives the call's spend
+        # against the baseline it keeps.
+        spent["cumulative_cost_usd"] = cost
     if session.resumed:
         # `usage_update.cost` is cumulative for the session, so a resumed call's own
         # spend is the increase; without a baseline it cannot be told from the total.

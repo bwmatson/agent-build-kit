@@ -525,7 +525,9 @@ def test_the_reports_totals_for_an_archived_change_are_unchanged(tmp_path: Path)
 
     for by, report in before.items():
         after = build_report(ledger, reporting, group_by=by, include_estimates=True)
-        assert after.model_dump() == report.model_dump(), by
+        # The per-session cross-check reads detail rows, which the roll-up replaces.
+        assert after.rows == report.rows, by
+        assert after.total == report.total, by
     assert before["change"].total.measured.calls == 5
 
 

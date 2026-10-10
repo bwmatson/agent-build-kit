@@ -143,7 +143,7 @@ def test_the_recorded_session_carries_its_cumulative_figure_to_the_next_call(
     assert state.sessions[SessionRole.BUILD].cumulative_usd == pytest.approx(5.49)
 
 
-def test_a_session_dropped_with_a_killed_call_leaves_the_ledgers_last_record_as_the_baseline(
+def test_a_call_killed_and_resumed_derives_its_spend_from_the_session_recorded_before_it(
     tmp_path: Path, workspace: Installation
 ) -> None:
     reuse(build=True)
@@ -151,9 +151,6 @@ def test_a_session_dropped_with_a_killed_call_leaves_the_ledgers_last_record_as_
     run = agents(tmp_path, Metered([2.63, 5.49], die_on=2))
     with pytest.raises(Killed):
         tick(tmp_path, recorder, **run)
-    state = position(tmp_path).state
-    assert state is not None
-    assert SessionRole.BUILD not in state.sessions, "the killed call left no session to carry on"
 
     tick(tmp_path, recorder, **run)
 
@@ -169,15 +166,15 @@ def test_a_resume_with_no_recorded_baseline_reads_the_last_ledger_record_of_the_
 ) -> None:
     recorder = fresh(tmp_path)
     with pytest.raises(Killed):
-        tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0], die_on=1)))
+        tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0, 6.0], die_on=1)))
     write_ledger(
         workspace.state_dir / "usage-ledger.jsonl",
         costed_line(3.0, 3.0, basis="first", session_id=BUILD_SESSION, node="tests"),
     )
 
-    tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0])))
+    tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0, 6.0])))
 
-    resumed = [x for x in lines(workspace, "tests") if x["resumed"]]
+    resumed = [x for x in lines(workspace, "tests") if x.get("resumed")]
     assert len(resumed) == 1
     assert cost_of(resumed[0])["incremental_usd"] == pytest.approx(2.0)
     assert cost_of(resumed[0])["cumulative_usd"] == pytest.approx(5.0)
@@ -189,9 +186,9 @@ def test_a_resume_with_no_baseline_anywhere_is_unknown_and_never_the_total(
 ) -> None:
     recorder = fresh(tmp_path)
     with pytest.raises(Killed):
-        tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0], die_on=1)))
+        tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0, 6.0], die_on=1)))
 
-    tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0])))
+    tick(tmp_path, recorder, **agents(tmp_path, Metered([5.0, 6.0])))
 
     resumed = [x for x in lines(workspace, "tests") if x["resumed"]]
     assert len(resumed) == 1
