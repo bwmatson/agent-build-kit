@@ -320,7 +320,9 @@ repos:                          # ordered: deploy order is derived from
         command: null           # required for `command`: a template whose words
                                 # `{changed_files}` and `{failed_ids}` each become
                                 # one argument per file or test identifier, run in
-                                # the project directory under the tier 1 time limit
+                                # the project directory under the tier 1 time limit;
+                                # the profile's "no tests collected" exit counts as
+                                # a pass, and the full run still confirms it
     dev_stack: null             # {script: scripts/dev-stack.sh}: a script with
                                 # `up`, `test` and `down`. Tier 2 runs the
                                 # unit's branch on it instead of the live

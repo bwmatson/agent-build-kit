@@ -255,7 +255,7 @@ def test_a_template_that_cannot_start_runs_the_full_suite_and_records_why(
     passed, _ = fix_round(tmp_path, commands, mode="command", command=TEMPLATE, log=log)
 
     assert passed
-    assert commands.words() == ["lint", "select", "full-tests"]
+    assert commands.words() == ["lint", "select", "lint", "full-tests"]
     assert any("select" in line and "full" in line.lower() for line in log), log
 
 
@@ -285,3 +285,76 @@ def test_the_whole_repo_run_is_never_selected(tmp_path: Path) -> None:
 
     assert "selected" not in commands.words()
     assert profile.asked == []
+
+
+class TwoProjectsNoSelector(Commands):
+    """A template whose program is missing: the first project's `select` cannot start."""
+
+    def __call__(self, command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+        if command[0] == "select":
+            self.ran.append(command)
+            self.directories.append(cwd)
+            raise FileNotFoundError(command[0])
+        return super().__call__(command, cwd=cwd)
+
+
+def two_projects(tmp_path: Path, commands: Commands) -> tuple[bool, str]:
+    for name in ("a", "b"):
+        (tmp_path / name).mkdir()
+    return fix_round(
+        tmp_path,
+        commands,
+        mode="command",
+        command=TEMPLATE,
+        projects=[ProjectConfig(path="a"), ProjectConfig(path="b")],
+        changed=["a/x.py", "b/y.py"],
+    )
+
+
+def test_a_selector_that_cannot_start_leaves_no_project_unlinted(tmp_path: Path) -> None:
+    commands = TwoProjectsNoSelector()
+
+    passed, _ = two_projects(tmp_path, commands)
+
+    assert passed
+    lint = PythonUvProfile().lint_command("main")
+    linted = {d.name for c, d in zip(commands.ran, commands.directories, strict=True) if c == lint}
+    assert linted == {"a", "b"}
+
+
+def test_a_lint_failure_in_a_project_the_selection_never_reached_still_fails(
+    tmp_path: Path,
+) -> None:
+    class LintFailsInB(TwoProjectsNoSelector):
+        def __call__(self, command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+            if command == PythonUvProfile().lint_command("main") and cwd.name == "b":
+                self.ran.append(command)
+                self.directories.append(cwd)
+                return subprocess.CompletedProcess(command, 1, "E501 in b", "")
+            return super().__call__(command, cwd=cwd)
+
+    passed, output = two_projects(tmp_path, LintFailsInB())
+
+    assert not passed
+    assert "E501 in b" in output
+
+
+def test_a_selector_that_picks_nothing_is_a_selected_pass_the_full_suite_confirms(
+    tmp_path: Path,
+) -> None:
+    nothing = Profile().no_tests_collected_exit
+    commands = Commands(selected=(nothing, "no tests ran"))
+
+    passed, _ = fix_round(tmp_path, commands)
+
+    assert passed
+    assert commands.words() == ["lint", "selected", "full-tests"]
+
+
+def test_a_disagreement_is_logged(tmp_path: Path) -> None:
+    commands = Commands(**{"full-tests": (1, "1 test failed")})
+    log: list[str] = []
+
+    fix_round(tmp_path, commands, log=log)
+
+    assert sum("full suite failed" in line for line in log) == 1

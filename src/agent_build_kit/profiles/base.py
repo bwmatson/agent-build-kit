@@ -9,7 +9,7 @@ asks the profile. A repo names its profile in abk.yaml (`profile:`).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
@@ -89,6 +89,20 @@ class ToolchainProfile(Protocol):
     def member_of(self, repo: Path, path: str) -> str | None: ...
 
     def dependents(self, repo: Path, member: str) -> list[str]: ...
+
+
+@runtime_checkable
+class SelectsAffectedTests(Protocol):
+    """The optional hook a profile adds to name the tests a change affects. A profile
+    without it behaves as one that returns None."""
+
+    def affected_test_commands(
+        self, repo: Path, changed_files: list[str], failed_ids: list[str], *, seed: Path
+    ) -> list[list[str]] | None:
+        """The commands that run the tests the change affects: an empty list when none
+        is affected, None when the profile cannot say. `failed_ids` are the tests the
+        failed check named; `seed` is a path the profile may keep selection data in."""
+        ...
 
 
 # Paths that are documentation. Never deploy anything, whatever the profile.

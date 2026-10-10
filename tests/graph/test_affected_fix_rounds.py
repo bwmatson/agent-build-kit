@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.graph.test_build_path import FAILING, build
+from tests.graph.test_fresh_base_builds import CLEAN, Moving
 from tests.graph_driver import fresh
 from tests.runner_fakes import rejecting
 
@@ -63,3 +64,19 @@ def test_a_rework_after_review_is_checked_in_full(tmp_path: Path) -> None:
 
     assert outcome.status == "open"
     assert recorder.tier1_failed_outputs == ["", ""]
+
+
+def test_the_tier1_node_of_a_unit_moved_onto_a_new_base_after_fix_rounds_is_checked_in_full(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.tier1_results = [(False, FAILING), (True, ""), (True, "")]
+    moving = Moving(recorder, CLEAN)
+
+    outcome = build(tmp_path, recorder, **moving.overrides())
+
+    assert outcome.status == "open"
+    assert recorder.events.count("moved") == 1
+    first, selected, moved = recorder.tier1_failed_outputs
+    assert first == "" and FAILING in selected
+    assert moved == "", "the check after a move is the gate, never a selection"
