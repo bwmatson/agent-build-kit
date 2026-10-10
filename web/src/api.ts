@@ -2,6 +2,7 @@ export interface UnitSummary {
   id: string;
   title: string;
   state: string;
+  status: string;
   cause: string | null;
   held_by: string;
   note: string;

@@ -14,7 +14,7 @@ import { useApi } from "./useApi";
 
 /** The state, then the cause and who holds the unit, each from the record. */
 function stateLine(unit: UnitSummary): ReactElement {
-  const parts = [unit.state];
+  const parts = [unit.status];
   if (unit.cause) parts.push(unit.cause.replaceAll("_", " "));
   const text = parts.join(" — ");
   return (

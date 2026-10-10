@@ -1,5 +1,7 @@
 {
   "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
-  "files": ["src/marker.py"],
+  "files": [
+    "src/marker.py"
+  ],
   "patch": "diff --git a/src/marker.py b/src/marker.py\nindex 7b3f5a6..0c1d2e3 100644\n--- a/src/marker.py\n+++ b/src/marker.py\n@@ -13,3 +13,3 @@ line 12\n line 13\n-line 14\n+line 14 edited\n line 15\n@@ -40,3 +40,3 @@ line 39\n line 40\n-line 41\n+line 41 edited\n line 42\n"
 }

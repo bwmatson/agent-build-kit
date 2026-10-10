@@ -10,7 +10,8 @@
       "held_by": "",
       "note": "merged",
       "branch": "spec/feature/1",
-      "pr": 11
+      "pr": 11,
+      "status": "merged"
     },
     {
       "id": "feature/2",
@@ -22,7 +23,8 @@
       "held_by": "",
       "note": "",
       "branch": "spec/feature/2",
-      "pr": 12
+      "pr": 12,
+      "status": "in_review"
     },
     {
       "id": "feature/3",
@@ -34,7 +36,8 @@
       "held_by": "",
       "note": "",
       "branch": "",
-      "pr": null
+      "pr": null,
+      "status": "blocked"
     },
     {
       "id": "feature/4",
@@ -46,7 +49,8 @@
       "held_by": "",
       "note": "",
       "branch": "",
-      "pr": null
+      "pr": null,
+      "status": "planned"
     },
     {
       "id": "feature/5",
@@ -58,7 +62,8 @@
       "held_by": "review",
       "note": "escalated: a class of bug",
       "branch": "",
-      "pr": null
+      "pr": null,
+      "status": "held"
     },
     {
       "id": "feature/6",
@@ -70,7 +75,8 @@
       "held_by": "",
       "note": "tier 1 failed",
       "branch": "",
-      "pr": null
+      "pr": null,
+      "status": "failed"
     },
     {
       "id": "feature/7",
@@ -82,7 +88,8 @@
       "held_by": "",
       "note": "",
       "branch": "spec/feature/7",
-      "pr": null
+      "pr": null,
+      "status": "running"
     },
     {
       "id": "feature/8",
@@ -94,7 +101,8 @@
       "held_by": "",
       "note": "",
       "branch": "",
-      "pr": null
+      "pr": null,
+      "status": "satisfied"
     },
     {
       "id": "feature/9",
@@ -106,7 +114,8 @@
       "held_by": "",
       "note": "closed unmerged",
       "branch": "",
-      "pr": null
+      "pr": null,
+      "status": "closed"
     }
   ]
 }

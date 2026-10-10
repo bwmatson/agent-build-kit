@@ -1798,6 +1798,10 @@ class BuildPath:
                     # A CI log or a conflict text gives the agent no comment, so none of
                     # those on the pull request was given; they were answered before.
                     update["seen_comments"] = self.covered(pr)
+        elif event.kind is EventKind.UPSTREAM_CHANGED:
+            # Parked, not sent back to work: the approval, branch and pull request stay, and
+            # the thread keeps waiting here for the release to resume it.
+            r.store.set_state(unit.id, PLANNED, note=event.reason, cause=Cause.UPSTREAM_WENT_BACK)
         elif event.kind is EventKind.ADOPTED:
             # A chat's commit is on the branch: nothing earlier is approved, and the checks
             # start with a fix budget of their own. The recorded node start is the chat's now.

@@ -30,5 +30,6 @@
       "state": "in_review"
     }
   ],
-  "review_round": null
+  "review_round": null,
+  "status": "blocked"
 }

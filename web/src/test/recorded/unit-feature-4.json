@@ -25,5 +25,6 @@
     }
   ],
   "merge_gates": [],
-  "review_round": null
+  "review_round": null,
+  "status": "planned"
 }
