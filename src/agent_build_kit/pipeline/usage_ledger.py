@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, mo
 from agent_build_kit import config, telemetry
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.usage import Usage, UsageSource
+from agent_build_kit.usage import Context, Usage, UsageSource
 
 LEDGER_NAME = "usage-ledger.jsonl"
 
@@ -89,6 +89,7 @@ class UsageRecord(BaseModel):
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
     cost: Cost | None = None
+    context: Context | None = None
     turns: int | None = None
     duration_ms: int | None = None
     usage_source: UsageSource = "none"

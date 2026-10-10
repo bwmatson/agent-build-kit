@@ -14,7 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.conftest import make_installation
 from tests.factories import unit
-from tests.ledger_lines import agent_line, fixture_ledger, write_ledger
+from tests.ledger_lines import agent_line, context_line, fixture_ledger, write_ledger
 
 
 @pytest.fixture
@@ -99,3 +99,20 @@ def test_an_empty_ledger_reports_no_rows_and_succeeds(
 ) -> None:
     assert run_json(capsys)["rows"] == []
     assert main(["report"]) == 0
+
+
+def test_context_shows_the_end_fill_and_the_growth_of_a_session_instead_of_the_cost(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_ledger(
+        inst.state_dir / "usage-ledger.jsonl",
+        context_line(100_000, 142_000, node="implement", session_id="sess-1"),
+        agent_line(node="review", session_id="sess-0"),
+    )
+
+    assert main(["report", "--context"]) == 0
+
+    out = capsys.readouterr().out
+    assert "142k / 200k" in out
+    assert "1 unknown" in out
+    assert "sess-1" in out

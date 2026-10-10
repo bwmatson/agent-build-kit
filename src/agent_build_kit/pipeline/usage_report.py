@@ -128,6 +128,44 @@ class Report(Frozen):
     unknown_calls: int = 0  # calls whose incremental cost could not be known
 
 
+class StepContext(Frozen):
+    """One step kind's context use over the calls that report it: the mean and 90th
+    percentile of what a call added, the compactions, and the end fill as tokens used
+    over the window; `peak` only where it differs from the end fill."""
+
+    node: str
+    calls: int
+    mean_added: float
+    p90_added: float
+    compactions: int
+    used_end: int
+    max: int | None = None
+    peak: int | None = None
+
+
+class SessionContext(Frozen):
+    """One session's fill after each of its steps, in order."""
+
+    session_id: str
+    fills: tuple[int, ...]
+
+
+class Adder(Frozen):
+    """A step and what it added to the context."""
+
+    unit: str
+    node: str
+    round: int
+    added: int
+
+
+class ContextReport(Frozen):
+    steps: tuple[StepContext, ...] = ()
+    sessions: tuple[SessionContext, ...] = ()
+    biggest: tuple[Adder, ...] = ()  # largest first
+    unknown_calls: int = 0  # calls with no context figures, left out of the means
+
+
 class _Entry(Frozen):
     """One contribution to the report — a call, a span, a summary or a review
     wait — with what it can be grouped by."""
@@ -406,6 +444,23 @@ def build_report(
         unit=unit,
         include_estimates=include_estimates,
     )
+
+
+def build_context_report(
+    ledger: Path,
+    units: list[StoredUnit],
+    *,
+    since: datetime | None = None,
+    change: str | None = None,
+    unit: str | None = None,
+) -> ContextReport:
+    """How full the context window was, per step kind and per session."""
+    raise NotImplementedError
+
+
+def render_context(report: ContextReport) -> str:
+    """The context report as the table `abk report --context` prints."""
+    raise NotImplementedError
 
 
 def _report_of(

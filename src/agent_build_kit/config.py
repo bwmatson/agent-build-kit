@@ -224,9 +224,21 @@ class RuntimeConfig(Frozen):
     # asked to, and never interprets it.
     policy_fix: list[str] | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
+    # The context window, in tokens, of each model, for when the agent does not say.
+    context_windows: dict[str, int] = {}
 
     # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
     limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+
+
+class ContextConfig(Frozen):
+    """How a call's context window use is read (`context`)."""
+
+    # A fall in the fill between two requests larger than this share of the window
+    # is a compaction, for a runtime with no marker of its own.
+    compaction_drop_share: float = 0.3
+    # A step ending above this share of the window logs a warning.
+    warn_share: float = 0.8
 
 
 class LimitsConfig(Frozen):
@@ -596,6 +608,7 @@ class WorkspaceConfig(Frozen):
     runtimes: dict[str, RuntimeConfig] = {}
     models: ModelsConfig = ModelsConfig()
     limits: LimitsConfig = LimitsConfig()
+    context: ContextConfig = ContextConfig()
     tracks: TracksConfig = TracksConfig()
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}

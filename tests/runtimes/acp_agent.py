@@ -62,6 +62,9 @@ carries none.
 `--prior-cost X` makes a resumed session carry X of cumulative cost: `session/resume` reports it
 in a `usage_update`, and the cost `--cost` reports before the answer adds to it, as the
 protocol's cumulative cost does.
+`--fills A,B,C` has the agent send a `usage_update` per figure before the answer, each saying
+that many tokens are in the context of a 200000-token window; `--prior-fill N` makes a resumed
+session replay one when it is loaded, as an agent that remembers the session does.
 `--cost USD|EUR` has the agent send a `usage_update` before the answer, with
 the session's cumulative cost in that currency, as the protocol's own update
 carries it.
@@ -228,6 +231,9 @@ USAGE_PAYLOADS: dict[str, dict[str, Any]] = {
     "negative": {"inputTokens": -1, "outputTokens": 1500},
 }
 
+# The window `--fills` and `--prior-fill` report their figures against.
+CONTEXT_SIZE = 200000
+
 # What `--cost` reports: the session's cumulative spend so far.
 COST_AMOUNT = 0.31
 
@@ -284,8 +290,12 @@ class FakeAgent:
         sessions: tuple[str, ...] = (),
         page_size: int = 100,
         prior_cost: float = 0.0,
+        fills: tuple[int, ...] = (),
+        prior_fill: int = 0,
     ) -> None:
         self._prior_cost = prior_cost
+        self._fills = fills
+        self._prior_fill = prior_fill
         self._load_session = load_session
         self._resume = resume
         self._list = list_sessions
@@ -422,6 +432,13 @@ class FakeAgent:
                     cost=Cost(amount=self._prior_cost, currency=self._cost or "USD"),
                 ),
             )
+        if self._prior_fill and self._client is not None:
+            await self._client.session_update(
+                session_id=session_id,
+                update=UsageUpdate(
+                    session_update="usage_update", used=self._prior_fill, size=CONTEXT_SIZE
+                ),
+            )
         # Held or not, the answer is the same and names no session.
         return ResumeSessionResponse(config_options=[_model_option(self._model)])
 
@@ -455,6 +472,8 @@ class FakeAgent:
             )
         )
         await send(update_agent_thought_text(THOUGHT))
+        for fill in self._fills:
+            await send(UsageUpdate(session_update="usage_update", used=fill, size=CONTEXT_SIZE))
         if self._cost is not None:
             await send(
                 UsageUpdate(
@@ -915,6 +934,8 @@ def command(
     sessions: tuple[str, ...] = (),
     page_size: int | None = None,
     prior_cost: float | None = None,
+    fills: tuple[int, ...] = (),
+    prior_fill: int | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -957,6 +978,10 @@ def command(
         argv += ["--page-size", str(page_size)]
     if prior_cost is not None:
         argv += ["--prior-cost", str(prior_cost)]
+    if fills:
+        argv += ["--fills", ",".join(map(str, fills))]
+    if prior_fill is not None:
+        argv += ["--prior-fill", str(prior_fill)]
     return argv
 
 
@@ -982,6 +1007,8 @@ def use_agent(
     sessions: tuple[str, ...] = (),
     page_size: int | None = None,
     prior_cost: float | None = None,
+    fills: tuple[int, ...] = (),
+    prior_fill: int | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -1007,6 +1034,8 @@ def use_agent(
             sessions=sessions,
             page_size=page_size,
             prior_cost=prior_cost,
+            fills=fills,
+            prior_fill=prior_fill,
         )
     )
 
@@ -1053,6 +1082,8 @@ def main() -> None:
     parser.add_argument("--sessions", default="")
     parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--prior-cost", type=float, default=0.0)
+    parser.add_argument("--fills", default="")
+    parser.add_argument("--prior-fill", type=int, default=0)
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -1075,6 +1106,8 @@ def main() -> None:
         sessions=tuple(filter(None, args.sessions.split(","))),
         page_size=args.page_size,
         prior_cost=args.prior_cost,
+        fills=tuple(int(x) for x in args.fills.split(",") if x),
+        prior_fill=args.prior_fill,
     )
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
     # Only the methods these tests drive: the rest answer "method not found".

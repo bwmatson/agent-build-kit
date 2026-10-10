@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.transcript import TranscriptEvent
-from agent_build_kit.usage import Usage, UsageSource
+from agent_build_kit.usage import Context, Usage, UsageSource
 
 if TYPE_CHECKING:
     # config imports this package to check a selection at load.
@@ -143,6 +143,7 @@ class AgentResult(Frozen):
     duration_ms: int | None = None
     session_id: str | None = None
     usage_source: UsageSource = "none"
+    context: Context | None = None  # the context window's use over the call, when it says
 
     @property
     def succeeded(self) -> bool:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, WrapValidator
@@ -39,3 +40,26 @@ class Usage(BaseModel):
     output_tokens: Annotated[int | None, Field(ge=0), Salvaged] = None
     cache_read_input_tokens: Annotated[int | None, Field(ge=0), Salvaged] = None
     cache_creation_input_tokens: Annotated[int | None, Field(ge=0), Salvaged] = None
+
+
+class ContextBasis(StrEnum):
+    """How a record's context figures were obtained."""
+
+    REPORTED = "reported"
+    ESTIMATED = "estimated"
+    UNKNOWN = "unknown"
+
+
+class Context(BaseModel):
+    """How full the model's context window was across one call, in tokens; a figure the
+    runtime did not give is absent (None), never zero."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    used_start: Annotated[int | None, Salvaged] = None
+    used_end: Annotated[int | None, Salvaged] = None
+    added: Annotated[int | None, Salvaged] = None
+    peak: Annotated[int | None, Salvaged] = None
+    compactions: Annotated[int, Salvaged] = 0
+    max: Annotated[int | None, Salvaged] = None
+    basis: ContextBasis = ContextBasis.UNKNOWN

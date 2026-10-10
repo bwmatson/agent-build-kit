@@ -43,4 +43,5 @@ def register(sub: argparse._SubParsersAction) -> None:
     parser.add_argument("--unit", default=None)
     parser.add_argument("--include-estimates", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--context", action="store_true", help="context window use, not cost")
     parser.set_defaults(func=cmd_report)
