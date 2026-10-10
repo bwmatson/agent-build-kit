@@ -713,6 +713,11 @@ class BuildPath:
             return None
         if session_id in self._totals:
             return self._totals[session_id]
+        if state.session_id == session_id:
+            # A call cut off before its node finished has already written its figure to the
+            # ledger, which the recorded session predates.
+            if (written := session_cumulative(session_id)) is not None:
+                return written
         for held in state.sessions.values():
             if held.session_id == session_id and held.cumulative_usd is not None:
                 return held.cumulative_usd

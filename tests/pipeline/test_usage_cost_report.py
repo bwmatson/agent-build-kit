@@ -10,6 +10,7 @@ they were written before.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -199,12 +200,12 @@ def test_an_archived_unit_reports_the_same_cost_as_its_detail_did(worked: Path) 
     assert after.total.measured.cost_usd == pytest.approx(before)
 
 
-def test_legacy_rows_are_left_out_of_a_summarys_cost_and_a_summary_with_no_breakdown_loads(
+def test_a_summary_keeps_legacy_figures_apart_from_its_cost_and_a_summary_with_no_breakdown_loads(
     tmp_path: Path,
 ) -> None:
     ledger = write_ledger(
         tmp_path / "state" / "usage-ledger.jsonl",
-        legacy_line(13.18, session_id="old"),
+        legacy_line(13.18, node="tests", session_id="old"),
         costed_line(2.0, 2.0, basis="first", node="implement", session_id="new"),
         {
             "kind": "summary",
@@ -217,15 +218,86 @@ def test_legacy_rows_are_left_out_of_a_summarys_cost_and_a_summary_with_no_break
         },
     )
 
+    units = [*UNITS, stored_unit("feature/1", change="feature")]
+    before = build_report(ledger, units, group_by="unit")
+
     roll_up_change(ledger, "add-marker")
 
     kinds = [json.loads(x) for x in ledger.read_text().splitlines()]
     (ours,) = [x for x in kinds if x["unit"] == "add-marker/1"]
     assert ours["measured"]["cost_usd"] == pytest.approx(2.0)
-    report = build_report(
-        ledger, [*UNITS, stored_unit("feature/1", change="feature")], group_by="unit"
-    )
+    report = build_report(ledger, units, group_by="unit")
     assert row_of(report, "feature/1").measured.cost_usd == 4.5
+    assert before.legacy.total_usd == pytest.approx(13.18)
+    assert report.legacy.total_usd == pytest.approx(13.18)
+    assert report.legacy.count == before.legacy.count == 1
+    assert [(r.unit, r.node) for r in report.legacy.rows] == [("add-marker/1", "tests")]
+    assert row_of(report, "add-marker/1").measured.cost_usd == pytest.approx(2.0)
+    assert report.total.measured.cost_usd == pytest.approx(2.0 + 4.5)
+
+
+def test_rolling_up_again_keeps_the_legacy_figures_of_the_earlier_summary(
+    tmp_path: Path,
+) -> None:
+    ledger = write_ledger(
+        tmp_path / "state" / "usage-ledger.jsonl",
+        legacy_line(13.18, node="tests", session_id="old"),
+    )
+    roll_up_change(ledger, "add-marker")
+    with ledger.open("a") as file:
+        file.write(
+            json.dumps(costed_line(2.0, 2.0, basis="first", node="review", session_id="new")) + "\n"
+        )
+
+    roll_up_change(ledger, "add-marker")
+
+    report = build_report(ledger, UNITS, group_by="unit")
+    assert report.legacy.total_usd == pytest.approx(13.18)
+    assert report.total.measured.cost_usd == pytest.approx(2.0)
+
+
+def test_a_date_that_cuts_a_session_does_not_flag_it(worked: Path) -> None:
+    cut = datetime(2026, 1, 1, 10, 3, tzinfo=UTC)
+
+    report = build_report(worked, UNITS, group_by="unit", since=cut)
+
+    (session,) = report.sessions
+    assert report.total.measured.cost_usd == pytest.approx(TRUTH - 2.63 - 2.86)
+    assert session.flagged is False
+    assert session.incremental_usd == pytest.approx(TRUTH)
+
+
+def test_a_legacy_call_folded_into_a_later_one_stays_in_the_legacy_count(tmp_path: Path) -> None:
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl",
+        legacy_line(5.49, node="implement", session_id="s", at="2026-01-01T09:00:00+00:00"),
+        costed_line(
+            1.5,
+            7.0,
+            basis="derived",
+            node="implement",
+            session_id="s",
+            resumed=True,
+            at="2026-01-01T10:00:00+00:00",
+        ),
+    )
+
+    report = build_report(ledger, UNITS, group_by="unit")
+
+    assert report.legacy.count == 1
+    assert report.legacy.total_usd == pytest.approx(5.49)
+    assert report.total.measured.cost_usd == pytest.approx(1.5)
+
+
+def test_a_zero_cumulative_figure_is_shown_as_zero(tmp_path: Path) -> None:
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl", costed_line(0.0, 0.0, basis="first", session_id="free")
+    )
+
+    (session,) = build_report(ledger, UNITS, group_by="unit").sessions
+
+    assert session.cumulative_usd == 0.0
+    assert session.incremental_usd == 0.0
 
 
 def test_the_reports_json_keeps_the_names_a_consumer_reads(worked: Path) -> None:

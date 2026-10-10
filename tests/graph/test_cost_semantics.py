@@ -271,3 +271,21 @@ def test_a_gateway_attributed_call_records_the_gateways_figure_and_keeps_the_run
     assert cost_of(implement)["basis"] == CostBasis.REPORTED
     assert cost_of(implement)["reported_usd"] == pytest.approx(0.7), "the runtime's own increase"
     assert "reported_cost_usd" not in implement
+
+
+def test_a_call_cut_off_by_the_usage_limit_leaves_its_total_as_the_baseline_of_the_one_resuming_it(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    reuse(build=True)
+    recorder = fresh(tmp_path)
+    with contextlib.suppress(Exception):
+        tick(tmp_path, recorder, **agents(tmp_path, Metered([2.63, 5.49], limited_on=2)))
+
+    tick(tmp_path, recorder, **agents(tmp_path, Metered([6.00, 7.00])))
+
+    implement = lines(workspace, "implement")
+    assert [cost_of(x)["cumulative_usd"] for x in implement] == pytest.approx([5.49, 6.00])
+    assert [cost_of(x)["incremental_usd"] for x in implement] == pytest.approx([2.86, 0.51])
+    assert cost_of(implement[-1])["basis"] == CostBasis.DERIVED
+    session = [x for x in lines(workspace) if x["session_id"] == BUILD_SESSION]
+    assert sum(cost_of(x)["incremental_usd"] for x in session) == pytest.approx(6.00)

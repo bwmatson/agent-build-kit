@@ -27,12 +27,14 @@ BUILD_SESSION = "7e1c5a30-2b4d-4f86-a3c9-d0e8b6f21a47"
 class Metered(FakeClaude):
     """A `claude` whose build calls all run in one session and report the next running
     total of `totals`. The call numbered `die_on` (from 1) announces its session and then
-    dies, as a power loss does, and reports nothing."""
+    dies, as a power loss does, and reports nothing. The call numbered `limited_on` reports its
+    total and then exits on the usage limit."""
 
-    def __init__(self, totals: Sequence[float], *, die_on: int = 0) -> None:
+    def __init__(self, totals: Sequence[float], *, die_on: int = 0, limited_on: int = 0) -> None:
         super().__init__()
         self.totals = list(totals)
         self.die_on = die_on
+        self.limited_on = limited_on
         self.count = 0
         self.reported = 0
 
@@ -54,6 +56,9 @@ class Metered(FakeClaude):
             raise Killed("power loss")
         ended = json.loads(closing) | {"total_cost_usd": self.totals[self.reported]}
         self.reported += 1
+        limited = self.count == self.limited_on
+        self.returncode = 1 if limited else 0
+        self.stderr = "Claude AI usage limit reached|1900000000" if limited else ""
         self.stdout = "\n".join([*events, json.dumps(ended)]) + "\n"
         return super().__call__(argv, cwd=cwd, on_event=on_event, env=env)
 
