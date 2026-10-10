@@ -27,9 +27,9 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import ValidationError, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -45,6 +45,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     UnitState,
 )
+from agent_build_kit.pipeline.work_graph import FLAGS
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
@@ -156,6 +157,12 @@ class StoredUnit(Unit):
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
+    # The flag of the first flagged group the unit carries, empty when none, and its
+    # estimate times its kind's calibration ratio when it was planned (see
+    # `unit_size.calibration`); None for a record from before they were kept, or with
+    # calibration off.
+    flag: str = ""
+    calibrated_lines: Annotated[int, Field(strict=True, gt=0)] | None = None
     # The SHA this runner last published for `branch`. The next push leases
     # against exactly this, so it has to outlive the process that pushed it.
     pushed: str | None = None
@@ -207,6 +214,13 @@ class StoredUnit(Unit):
     step: str = ""
     parked_attempts: int = 0
     history: tuple[dict, ...] = ()
+
+    @field_validator("flag")
+    @classmethod
+    def _known_flag(cls, flag: str) -> str:
+        if flag and flag not in FLAGS:
+            raise ValueError(f"flag must be one of {', '.join(FLAGS)} or empty, not {flag!r}")
+        return flag
 
     @property
     def unstarted(self) -> bool:
@@ -411,6 +425,8 @@ class UnitStore:
                 pushed=existing.pushed if existing else None,
                 pushed_at=existing.pushed_at if existing else None,
                 actual_lines=existing.actual_lines if existing else None,
+                flag=existing.flag if existing else "",
+                calibrated_lines=existing.calibrated_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,
                 # Work in progress, not shape: a re-plan must not drop what
@@ -625,6 +641,12 @@ class UnitStore:
         """Set the priority of a unit that has not started; a started one keeps its own."""
         if self.get(unit_id).unstarted:
             self._update(unit_id, priority=priority)
+
+    def set_calibration(self, unit_id: str, flag: str, calibrated_lines: int | None) -> None:
+        """The kind's flag and the calibrated figure of a unit that has not started; a
+        started unit keeps the figure it was planned with."""
+        if self.get(unit_id).unstarted:
+            self._update(unit_id, flag=flag, calibrated_lines=calibrated_lines)
 
     def set_actual_lines(self, unit_id: str, lines: int) -> None:
         """The changed lines of the unit's pull request as the host counts them;

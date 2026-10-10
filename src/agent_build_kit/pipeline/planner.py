@@ -28,6 +28,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.unit_size import Calibration, Kind, applied, calibrated
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
 from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
@@ -84,6 +85,7 @@ def parse_plan(
     known: set[str] | None = None,
     change: str | None = None,
     context: JoinContext | None = None,
+    calibrations: Mapping[Kind, Calibration] | None = None,
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
@@ -148,7 +150,7 @@ def parse_plan(
         _check_groups(units, groups, built or set(), carried)
         _check_acceptance(units, groups)
         _check_independent(units, groups)
-    _check_ceiling(units)
+    _check_ceiling(units, groups, calibrations)
     if joins:
         if context is None:
             raise PlannerError("the planner proposed a join, and none is expected here")
@@ -161,6 +163,7 @@ def parse_plan(
                 groups=groups or [],
                 built=built or set(),
                 ceiling=active().limits.max_unit_lines,
+                calibrations=calibrations,
             )
         except JoinRefused as error:
             raise PlannerError(str(error)) from error
@@ -207,29 +210,60 @@ def _read_joins(raw_joins: object) -> list[Join]:
     return joins
 
 
-def _check_ceiling(units: list[Unit]) -> None:
-    """No unit is estimated over the ceiling.
+def plan_kind(unit: Unit, groups: Sequence[TaskGroup] | None) -> Kind:
+    """The kind a planned unit is calibrated as: its flag is the first flagged group it carries."""
+    by_number = {group.number: group for group in groups or ()}
+    flag = next(
+        (by_number[n].flag for n in unit.groups if n in by_number and by_number[n].flag), ""
+    )
+    return Kind(repo=unit.repo, tier=unit.tier, flag=flag)
+
+
+def _check_ceiling(
+    units: list[Unit],
+    groups: Sequence[TaskGroup] | None = None,
+    found: Mapping[Kind, Calibration] | None = None,
+) -> None:
+    """No unit is estimated over the ceiling, after its kind's calibration ratio.
 
     A single group over it is reported as `GroupTooLarge` before any combined
     unit is: that one is fixed in tasks.md, and re-asking would only spend
     attempts on it.
     """
     ceiling = active().limits.max_unit_lines
-    oversized = [unit for unit in units if unit.estimated_lines > ceiling]
+    applying = {unit.id: applied(found, plan_kind(unit, groups)) for unit in units}
+    oversized = [
+        unit
+        for unit in units
+        if calibrated(unit.estimated_lines, applying[unit.id].ratio) > ceiling
+    ]
 
     for unit in oversized:
         if len(unit.groups) == 1:
             raise GroupTooLarge(
                 f"group {unit.groups[0]} of {unit.change} is estimated at "
-                f"{unit.estimated_lines} changed lines, over the ceiling of {ceiling} — "
+                f"{unit.estimated_lines} changed lines"
+                f"{_calibration_note(unit, applying[unit.id])}, "
+                f"over the ceiling of {ceiling} — "
                 "no unit can hold it, so its tasks must be split in tasks.md"
             )
     if oversized:
         unit = oversized[0]
         raise PlannerError(
-            f"unit {unit.id} is estimated at {unit.estimated_lines} changed lines, over "
+            f"unit {unit.id} is estimated at {unit.estimated_lines} changed lines"
+            f"{_calibration_note(unit, applying[unit.id])}, over "
             f"the ceiling of {ceiling} — its groups must go in more than one unit"
         )
+
+
+def _calibration_note(unit: Unit, found: Calibration) -> str:
+    """What the estimate comes to once its kind's ratio is applied; nothing when there is none."""
+    if found.ratio == 1.0:
+        return ""
+    return (
+        f" (calibrated {calibrated(unit.estimated_lines, found.ratio)}: ratio "
+        f"{found.ratio:.2f} from {found.samples} samples)"
+    )
 
 
 def _check_groups(
@@ -458,7 +492,7 @@ Rules the graph must satisfy:
 How the repos relate:
 {relationships}
 
-Changes ready to plan (their tasks.md):
+{calibration}Changes ready to plan (their tasks.md):
 {changes}
 
 Units already in flight:
@@ -526,7 +560,34 @@ def _in_flight_line(item: dict) -> str:
     return line
 
 
-def build_prompt(changes: dict[str, str], in_flight: list[dict]) -> str:
+def _calibration_section(found: Mapping[Kind, Calibration] | None) -> str:
+    """The ratios the plan check multiplies estimates by, for the kinds above 1; empty when
+    calibration is off or there are none."""
+    if not active().limits.calibrate_estimates or not found:
+        return ""
+    lines = [
+        f"- {kind.repo} {kind.tier}"
+        + (f" [{kind.flag}]" if kind.flag else "")
+        + f": {found[kind].ratio:.2f} from {found[kind].samples} samples"
+        for kind in sorted(found, key=lambda k: (k.repo, k.tier, k.flag))
+        if found[kind].ratio > 1.0
+    ]
+    if not lines:
+        return ""
+    return (
+        "Estimates are your raw figures. Units of these kinds have landed above their\n"
+        "estimates, and the check multiplies a unit's estimate by its kind's ratio before\n"
+        "comparing it with the ceiling, so estimate and group with that in mind:\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
+def build_prompt(
+    changes: dict[str, str],
+    in_flight: list[dict],
+    calibrations: Mapping[Kind, Calibration] | None = None,
+) -> str:
     changes_text = (
         "\n\n".join(f"### {name}\n{tasks}" for name, tasks in changes.items()) or "(none)"
     )
@@ -549,6 +610,7 @@ def build_prompt(changes: dict[str, str], in_flight: list[dict]) -> str:
         min_lines=workspace.limits.min_unit_lines,
         max_lines=workspace.limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",
+        calibration=_calibration_section(calibrations),
         changes=changes_text,
         in_flight=in_flight_text,
     )
@@ -574,6 +636,7 @@ def plan_round(
     built: set[int] | None = None,
     known: set[str] | None = None,
     context: JoinContext | None = None,
+    calibrations: Mapping[Kind, Calibration] | None = None,
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
 ) -> Plan:
@@ -583,7 +646,7 @@ def plan_round(
     Joins the planner proposes are checked against `context` and returned with
     the units; a caller that passes no `context` accepts none.
     """
-    prompt = build_prompt(changes, in_flight)
+    prompt = build_prompt(changes, in_flight, calibrations)
     answer = run_claude(prompt) if run_claude else _ask(prompt, runtime)
     return parse_plan(
         answer,
@@ -592,4 +655,5 @@ def plan_round(
         known=known,
         change=next(iter(changes), None),
         context=context,
+        calibrations=calibrations,
     )

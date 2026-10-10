@@ -8,6 +8,15 @@
   state in `state` and carry the display name (`reworking`, `rebasing`, `blocked`) in a new
   `status`, and the `abk.units` gauge counts by stored state.
 
+- A plan's unit estimates are now corrected by what units of the same kind (repo, tier and
+  group flag) actually landed at: the median of the last merged units' actual over estimated
+  lines, pulled toward 1 when there are few samples and never below 1. A unit over the
+  ceiling after that correction is rejected at planning, with the ratio and the sample count
+  in the message, so it is split before it is built, and a group joined onto a unit is held
+  to the same figure. The planner is told the ratios, a unit keeps both its own estimate and
+  the calibrated figure (listed by `abk status`), and `limits.calibrate_estimates: false`
+  turns it off; the other `limits.calibration_*` keys tune it.
+
 - An environment's `inputs` are now path patterns, `**` included, so a repository with
   many nested manifests and locks can list them and a new module is no longer missed. A
   pattern matching nothing is reported by `abk doctor`, and an absolute pattern, or one

@@ -123,6 +123,14 @@ Unit size is bounded from both sides. Groups are combined until the estimate
 reaches `limits.min_unit_lines`, and never past `limits.max_unit_lines`: the
 planner's prompt states the ceiling, and a plan with a unit estimated over it
 is rejected and re-asked.
+The estimate is checked after being multiplied by a calibration ratio for the unit's kind
+(repo, tier and the flag of its first flagged group): the median of what the last
+`limits.calibration_window` merged units of that kind landed at over their estimates, each
+sample clamped, moved toward 1 when there are few, 1 under `calibration_min` samples, and
+never below 1 or above `calibration_max`. The planner's prompt lists the ratios above 1, a join
+is held to the same figure, and a unit records both its own estimate and the calibrated figure
+when it is planned, which `abk status` lists; a sample always uses the raw estimate, so the
+correction does not compound. `limits.calibrate_estimates: false` turns it off.
 A single group estimated over the ceiling cannot be fixed by grouping, so the
 change is left unplanned with a message naming the group and saying its tasks
 must be split, and no further attempts are spent on that version of the file.
