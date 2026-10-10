@@ -529,8 +529,17 @@ class FakeAgent:
 
     def _leave_child(self, *, new_session: bool) -> None:
         """Start a child that holds this agent's stderr for `HANG_SECONDS`."""
+        life = orphan_life_fifo(self._record)
         child = subprocess.Popen(
-            [sys.executable, "-c", f"import time; time.sleep({HANG_SECONDS})"],
+            [
+                sys.executable,
+                "-c",
+                "import os, sys, time\n"
+                "if os.path.exists(sys.argv[1]):\n"
+                "    os.write(os.open(sys.argv[1], os.O_WRONLY), b'x')\n"
+                f"time.sleep({HANG_SECONDS})",
+                str(life),
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             start_new_session=new_session,
@@ -863,6 +872,13 @@ class FakeAgent:
 
     async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
         return None
+
+
+def orphan_life_fifo(record: Path) -> Path:
+    """A named pipe a test may create before the run: the child `--linger`
+    leaves behind opens it for writing, writes a byte once it is up and holds
+    it until it dies, so a reader sees its start and its end as events."""
+    return record.with_suffix(".life")
 
 
 def orphan_pid_file(record: Path) -> Path:

@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import select
 import signal
 import threading
 import time
@@ -40,6 +41,7 @@ from tests.runtimes.acp_agent import (
     STDERR_LINE,
     THOUGHT,
     TOOL_TITLE,
+    orphan_life_fifo,
     orphan_pid_file,
     requests,
     use_agent,
@@ -405,6 +407,30 @@ def _gone_soon(pid: int) -> bool:
     return _gone(pid)
 
 
+def _watch_child(record: Path) -> int:
+    """Open the end of the child's life pipe the test reads, before the run."""
+    fifo = orphan_life_fifo(record)
+    os.mkfifo(fifo)
+    return os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+
+
+def _read_to_end(watch: int) -> bool:
+    """Whether the child's pipe closed: it is up once it has written, and
+    gone once its write end closes, which waits on that event, not a clock.
+    The bound is only so a child that never dies fails the test."""
+    try:
+        up = False
+        while select.select([watch], [], [], 30)[0]:
+            chunk = os.read(watch, 1)
+            if chunk:
+                up = True
+            elif up:
+                return True
+        return False
+    finally:
+        os.close(watch)
+
+
 def _kill_if_left(pid: int) -> None:
     """Clean up a process the run should have killed, if it is still there.
 
@@ -487,10 +513,11 @@ def test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_kill
     monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
     record = tmp_path / "agent.jsonl"
     use_agent(record, linger=True)
+    watch = _watch_child(record)
 
     result, elapsed = _run_bounded(_request(worktree, specs))
     child = int(orphan_pid_file(record).read_text())
-    left = not _gone_soon(child)
+    left = not _read_to_end(watch)
     if left:
         _kill_if_left(child)
 
