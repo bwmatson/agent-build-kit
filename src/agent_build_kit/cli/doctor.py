@@ -39,6 +39,7 @@ from agent_build_kit.config import (
     CommandProvider,
     ConfigError,
     EnvironmentConfig,
+    NotificationProvider,
     WorkspaceConfig,
 )
 from agent_build_kit.forges.transport import (
@@ -56,6 +57,7 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
+from agent_build_kit.notify.windows import INSTALL_COMMAND, MODULE_CHECK_COMMAND
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.shell import git_out
@@ -396,6 +398,41 @@ def _toolchain(inst: Installation, run: Run, which: Which) -> list[Check]:
     else:
         checks.append(_ok("openspec", result.stdout.strip() or "runs"))
     return checks
+
+
+def _notifications(inst: Installation, run: Run, which: Which) -> list[Check]:
+    """The prerequisites of the chosen notification provider; nothing while it is off."""
+    notifications = inst.config.notifications
+    match notifications.provider:
+        case NotificationProvider.OFF:
+            return []
+        case NotificationProvider.WINDOWS:
+            fix = " ".join(INSTALL_COMMAND)
+            try:
+                result = run(MODULE_CHECK_COMMAND, capture_output=True, text=True, check=False)
+            except OSError as error:
+                return [_fail("notifications", f"powershell.exe did not run: {error}", fix)]
+            if result.returncode or "BurntToast" not in result.stdout:
+                return [_fail("notifications", "the BurntToast module is not installed", fix)]
+            return [_ok("notifications", "BurntToast module installed")]
+        case NotificationProvider.COMMAND:
+            try:
+                program = shlex.split(notifications.command.show)[0]
+            except (ValueError, IndexError):
+                return [
+                    _fail(
+                        "notifications", "no usable show template", "fix notifications.command.show"
+                    )
+                ]
+            if which(program) is None:
+                return [
+                    _fail(
+                        "notifications",
+                        f"{program} is not on PATH",
+                        f"install {program}, or change notifications.command.show",
+                    )
+                ]
+            return [_ok("notifications", f"{program} on PATH")]
 
 
 def _ssh_keys(inst: Installation) -> list[Check]:
@@ -981,6 +1018,7 @@ def run_doctor(
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _runtime(inst, which)
+    checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
     checks += _environment(inst, run)

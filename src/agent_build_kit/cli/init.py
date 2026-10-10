@@ -25,7 +25,14 @@ import yaml
 
 from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
-from agent_build_kit.config import CONFIG_FILENAME, ConfigError, WorkspaceConfig, dump
+from agent_build_kit.config import (
+    CONFIG_FILENAME,
+    ConfigError,
+    NotificationProvider,
+    NotificationsConfig,
+    WorkspaceConfig,
+    dump,
+)
 from agent_build_kit.init.claude_call import RunClaude
 from agent_build_kit.init.detect import (
     Host,
@@ -48,6 +55,7 @@ from agent_build_kit.init.scaffold import (
     write_planning_repo,
 )
 from agent_build_kit.installation import Installation, load_config
+from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
@@ -326,6 +334,24 @@ def _update_rules(planning: Path) -> int:
     return 0
 
 
+def _notification_provider() -> NotificationProvider:
+    """Ask whether to enable toasts, and install their module on a yes, on a host that has them."""
+    if host() is Host.OTHER:
+        return NotificationProvider.OFF
+    answer = ask("raise desktop notifications when a unit needs you? [y/N] ")
+    if answer.strip().lower() not in ("y", "yes"):
+        return NotificationProvider.OFF
+    command = " ".join(INSTALL_COMMAND)
+    print(f"notifications need the BurntToast module: {command}")
+    if ask("install it now? [y/N] ").strip().lower() in ("y", "yes"):
+        result = (run_fix or subprocess.run)(
+            INSTALL_COMMAND, capture_output=True, text=True, check=False
+        )
+        if result.returncode:
+            print(f"abk init: `{command}` exited {result.returncode}", file=sys.stderr)
+    return NotificationProvider.WINDOWS
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     if args.update_rules:
@@ -374,6 +400,11 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("code repos:")
         print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
+
+    if not args.yes:
+        config = config.model_copy(
+            update={"notifications": NotificationsConfig(provider=_notification_provider())}
+        )
 
     clean_before = _tree_clean(planning)
     try:
