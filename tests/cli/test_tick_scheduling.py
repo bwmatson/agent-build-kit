@@ -94,7 +94,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="plenty")
+    )
 
 
 def workspace(tmp_path: Path, *, max_concurrent: int = 4, depth_cap: int = 3) -> Installation:
@@ -1172,7 +1174,7 @@ def refusing_usage(monkeypatch: pytest.MonkeyPatch, asked: list[str]) -> None:
     """A reading and a guard that would refuse, noting that they were asked."""
     monkeypatch.setattr(cli, "current_usage", lambda: asked.append("usage"))
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session at 88%")
+        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
     )
 
 
