@@ -87,6 +87,8 @@ class Cassette(Frozen):
     request: RequestSummary
     response: StoredResponse
     needs_review: bool = False
+    # Why it waits for review; empty when it does not.
+    review_reason: str = ""
 
 
 def _rewritten(text: str, rules: Sequence[Rule]) -> str:

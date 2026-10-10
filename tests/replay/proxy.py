@@ -33,6 +33,7 @@ from agent_build_kit.replay.models import (
     request_key,
     summarise,
 )
+from agent_build_kit.replay.report import RunReport
 from agent_build_kit.replay.store import (
     find_cassette,
     load_cassette,
@@ -177,6 +178,10 @@ class ReplayProxy:
                 shutil.move(path, target / path.name)
         finally:
             shutil.rmtree(staged, ignore_errors=True)
+
+    def report(self) -> RunReport:
+        """What the tests finished so far replayed and what went live."""
+        raise NotImplementedError
 
     def _leaks(self, cassette: Cassette) -> bool:
         """Whether a configured secret is in the response body or in the request's address."""
