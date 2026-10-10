@@ -574,7 +574,8 @@ def read_live_usage(
                 outcome = "rate_limited" if error.code == 429 else "error"
             else:
                 status = None
-                outcome = "timeout" if isinstance(error, OSError) else "error"
+                reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                outcome = "timeout" if isinstance(reason, TimeoutError) else "error"
             raise
         finally:
             record_call(

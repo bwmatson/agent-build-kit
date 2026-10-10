@@ -157,11 +157,9 @@ def _safe_interval(endpoint: list[UsageCall]) -> int | None:
             if c.outcome == REFUSED:
                 previous = None
             continue
-        following = endpoint[index + 1] if index + 1 < len(endpoint) else None
-        refused_after = (
-            following is not None
-            and following.outcome == REFUSED
-            and following.at - c.at <= SAFE_MARGIN
+        refused_after = any(
+            later.outcome == REFUSED and later.at - c.at <= SAFE_MARGIN
+            for later in endpoint[index + 1 :]
         )
         if previous is not None and not refused_after:
             gap = int((c.at - previous.at).total_seconds())

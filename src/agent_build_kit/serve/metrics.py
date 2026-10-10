@@ -25,7 +25,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.metric_records import MetricRecord
 from agent_build_kit.pipeline.spans import Span
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.usage_calls import derive_rate, read_calls
+from agent_build_kit.pipeline.usage_calls import CALLS_NAME, derive_rate, read_calls
 from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, records_in
 from agent_build_kit.pipeline.vocabulary import effective_state
 
@@ -435,7 +435,7 @@ def metrics_page(
     """The catalogue with a chart's series for each metric, which source drew them,
     and the recent traces with the source that listed them."""
     instruments = catalogue()
-    local = LocalSource(ledger, units)
+    local = LocalSource(ledger, units, calls=ledger.parent / CALLS_NAME)
     source: MetricSource = PrometheusSource(prometheus_url) if prometheus_url else local
     try:
         drawn = {i.name: source.series(i) for i in instruments}

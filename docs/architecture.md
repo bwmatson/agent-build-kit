@@ -746,7 +746,7 @@ borrowing its window. A reading served from the cache file has its own source,
 so it is not mistaken for a live one.
 **Every use of the endpoint is recorded** (`usage_calls.py`) in `usage-calls.jsonl`, beside the
 cache in the state directory and gitignored: one line per call or cache answer with the time, the
-caller (`guard`, `status` for the runtime's usage status, `tracks`), the outcome (`ok`,
+caller (`guard`, `status` for the runtime's usage status, `cli-status` for the status command, `tracks`), the outcome (`ok`,
 `rate_limited`, `timeout`, `error` or `cache`), the status, the latency, the rate-limit and retry
 headers of the answer and, for the cache, the reading's age. It holds no token, keeps a week, and
 archiving a change leaves it. From it `abk status` prints one line (calls in the hour, refusals,

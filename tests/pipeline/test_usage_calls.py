@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.usage_calls import (
 from agent_build_kit.pipeline.usage_guard import current_usage, read_live_usage
 from agent_build_kit.runtimes import claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
-from agent_build_kit.serve.metrics import LocalSource, catalogue
+from agent_build_kit.serve.metrics import LocalSource, catalogue, metrics_page
 from agent_build_kit.tracks import runner as tracks_runner
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -500,3 +500,57 @@ def test_the_figures_are_shown_from_the_record_when_the_metrics_store_is_not_ava
     }
     assert totals == {("ok", "guard"): 2, ("rate_limited", "guard"): 1}
     assert [v for s in interval for _, v in s.points] == [600]
+
+
+def test_the_metrics_page_draws_the_call_record_when_the_store_is_down(tmp_path: Path) -> None:
+    day = datetime.now(UTC) - timedelta(hours=3)
+    (tmp_path / CALLS_NAME).write_text(
+        "".join(
+            json.dumps(each) + "\n"
+            for each in (
+                line(day),
+                line(day + timedelta(minutes=10)),
+                line(day + timedelta(minutes=12), "rate_limited", status=429),
+            )
+        )
+    )
+
+    page = metrics_page("", "", tmp_path / "usage-ledger.jsonl", [], None, "abk")
+
+    by_name = {each["name"]: each for each in page["metrics"]}
+    totals = {
+        (s["labels"]["outcome"], s["labels"]["caller"]): sum(p[1] for p in s["points"])
+        for s in by_name["abk.usage.calls"]["series"]
+    }
+    assert page["source"] == "local"
+    assert totals == {("ok", "guard"): 2, ("rate_limited", "guard"): 1}
+    assert by_name["abk.usage.safe_interval"]["series"]
+
+
+def test_a_refused_connection_is_an_error_not_a_timeout(host: Host) -> None:
+    host.answers = [urllib.error.URLError(ConnectionRefusedError())] * 2
+
+    read_live_usage()
+
+    assert {each["outcome"] for each in host.lines()} == {"error"}
+
+
+def test_a_url_error_caused_by_a_timeout_is_a_timeout(host: Host) -> None:
+    host.answers = [urllib.error.URLError(TimeoutError("timed out"))] * 2
+
+    read_live_usage()
+
+    assert {each["outcome"] for each in host.lines()} == {"timeout"}
+
+
+def test_a_refusal_after_a_failed_call_still_makes_the_interval_unsafe() -> None:
+    calls = calls_of(
+        line(ago(hours=3)),
+        line(ago(hours=2, minutes=50)),
+        line(ago(hours=2, minutes=50, seconds=-20), "timeout"),
+        line(ago(hours=2, minutes=50, seconds=-40), "rate_limited", status=429),
+        line(ago(hours=1, minutes=30)),
+        line(ago(minutes=10)),
+    )
+
+    assert derive_rate(calls, now=NOW).safe_interval_seconds == 80 * 60
