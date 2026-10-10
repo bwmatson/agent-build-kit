@@ -432,6 +432,20 @@ the agent node; the first tick the usage guard allows resumes it from there.
 A run that is killed is resumed the same way, at the node it was in: nothing
 requeues it and nothing commits what it left.
 
+**Builders are told to reuse before they write.** One packaged, language-neutral part
+(`reuse_guidance.reuse_guidance`, `templates/reuse-guidance.md`) is appended to the full
+prompts for writing tests, implementing, fixing checks and reworking after review or
+feedback: search for an existing helper, constant, pattern or fixture first, write shared
+logic once, give calls that change together one function, use the shared test support,
+delete what the change makes dead and stay within the change. It says how to look (what
+neighbouring code imports, shared-code modules, the test runner's support places, the
+language's or common conventions, search by behaviour as well as name) and reads nothing
+from the repository. A continuation prompt does not repeat it, so in a reused session it
+appears once, in the prompt that writes the tests; a node that starts a new session gets it
+in its full prompt. The adapt prompt keeps its own instruction not to re-implement what the
+predecessor provides. The rework prompt also tells the agent to look for the others of the
+kind, and the tests prompt points to the shared fixtures.
+
 **Long command output goes to an ignored file.** Every worktree carries
 `.abk/out/`, named once in the repository's local `info/exclude` (never a tracked
 ignore file), so `git status`, `git add -A` and the leftover commit never see it.

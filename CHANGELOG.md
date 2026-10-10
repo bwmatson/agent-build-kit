@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The agents that write tests, implement, fix checks and rework are now told to look for
+  existing code before adding any: search by behaviour as well as name, use or extend a
+  helper, constant or fixture that exists, write shared logic once, give calls that must
+  change together one function, delete what the change makes dead and stay within the
+  change. A session that is continued is not told again, and rework now also looks for the
+  others of the kind when feedback names one duplicate.
+
 - Configuration can now describe the environment the pipeline runs in: an `environment`
   section with a required `sync` command, a required `check` command and the dependency,
   lock and other files that decide when a sync is needed. A repository entry takes the same
