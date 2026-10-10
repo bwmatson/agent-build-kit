@@ -16,7 +16,7 @@ from agent_build_kit.replay.models import ReplayMode, UpstreamKind
 from agent_build_kit.replay.store import read_cassettes
 from tests.replay.fake_upstream import Answer, FakeUpstream, Seen
 from tests.replay.proxy import ReplayProxy, SecretInRecording
-from tests.replay.support import UPSTREAM, config_for, files, send
+from tests.replay.support import UPSTREAM, config_for, files, refused_url, send
 from tests.waiting import wait_for
 
 TEST = "tests/test_unit.py::test_build"
@@ -233,13 +233,12 @@ def test_the_query_reaches_the_upstream_exactly_as_the_client_sent_it(
 def test_an_upstream_that_cannot_be_reached_is_answered_502_and_nothing_is_recorded(
     tmp_path: Path,
 ) -> None:
-    with FakeUpstream() as gone:
-        url = gone.url  # nothing listens here once it is closed
-    config = config_for(url, tmp_path / "cassettes")
-    with proxy_for(config, tmp_path, ReplayMode.record) as proxy:
-        proxy.begin(TEST)
-        reply = send(proxy)
-        proxy.finish(passed=True)
+    with refused_url() as url:
+        config = config_for(url, tmp_path / "cassettes")
+        with proxy_for(config, tmp_path, ReplayMode.record) as proxy:
+            proxy.begin(TEST)
+            reply = send(proxy)
+            proxy.finish(passed=True)
 
     assert reply.status == 502
     assert UPSTREAM in reply.raw.decode()

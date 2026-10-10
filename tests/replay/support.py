@@ -4,7 +4,9 @@ proxy that returns the bytes as they came off the wire, and a reader of the file
 from __future__ import annotations
 
 import gzip
-from collections.abc import Mapping
+import socket
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -52,6 +54,16 @@ def send(
     with httpx.stream(method, url, content=body, headers=dict(headers or {})) as response:
         raw = b"".join(response.iter_raw())
         return Reply(status=response.status_code, headers=dict(response.headers), raw=raw)
+
+
+@contextmanager
+def refused_url() -> Iterator[str]:
+    """The base URL of a loopback port that refuses every connection and that nothing else
+    can take for as long as the block runs: a closed port may be handed to another test."""
+    # Bound and never listening: connections are refused, and the port stays ours.
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        yield f"http://127.0.0.1:{held.getsockname()[1]}"
 
 
 def files(directory: Path) -> list[Path]:
