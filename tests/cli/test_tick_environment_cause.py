@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -90,7 +89,7 @@ def test_the_queue_line_names_units_waiting_for_the_environment(
 
     lines = status_lines(inst, capsys)
 
-    full = next(line for line in lines if line.startswith("queue is full"))
+    full = next(line for line in lines if "] queue is full" in line)
     assert "1 waiting for the environment" in full
 
 
@@ -151,12 +150,16 @@ def test_the_resumed_units_run_within_the_concurrency_limit(
     lock = threading.Lock()
     active = [0]
     peak = [0]
+    overlapped = threading.Event()
 
     def build() -> None:
         with lock:
             active[0] += 1
             peak[0] = max(peak[0], active[0])
-        time.sleep(0.2)
+            if active[0] > 1:
+                overlapped.set()
+        # Held open until another build overlaps, which a limit of one never lets happen.
+        overlapped.wait(0.3)
         with lock:
             active[0] -= 1
 

@@ -58,7 +58,7 @@ def status(inst: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
 
 
 def environment_line(lines: list[str]) -> str:
-    return next(line for line in lines if line.strip().lower().startswith("environment"))
+    return next(line for line in lines if line.split("] ", 1)[-1].lower().startswith("environment"))
 
 
 # --- 2.1 a changed input -------------------------------------------------------------

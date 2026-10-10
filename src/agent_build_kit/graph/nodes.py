@@ -32,7 +32,7 @@ from agent_build_kit.graph.state import (
     UnitRun,
     Verdict,
 )
-from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline import environment, spans
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.events import (
@@ -719,6 +719,19 @@ class BuildPath:
         self.say(f"stopping: {reason}")
         return {"stopped": reason}
 
+    def environment_problem(self) -> str | None:
+        """The output of the pipeline's failing `check`, None when it passes."""
+        return environment.problem(self.runner.planning_repo)
+
+    def blocked(self, output: str) -> Update:
+        """A unit the environment cannot run: failed with its own cause, nothing saved
+        for an agent to fix."""
+        self.say(output)
+        return {
+            **self.stop("the environment is unhealthy, so tier 1 cannot run"),
+            "blocked_by_environment": True,
+        }
+
     def tree(self) -> Path:
         if self._tree is None:
             base = local_ref(self.base, repo=self.unit.repo)
@@ -1021,12 +1034,16 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree = self.tree()
         self.say("checks before review")
+        if (broken := self.environment_problem()) is not None:
+            return {**self.blocked(broken), "checks_ok": False}
         try:
             ok, output = r.run_tier1(cwd=tree, base=self.ref(state), whole_repo=False)
         except FlakeFound as found:
             if (parked := self.wait_for_fix(found)) is not None:
                 return parked
             ok, output = False, found.flakes[0].output
+        if not ok and (broken := self.environment_problem()) is not None:
+            return {**self.blocked(broken), "checks_ok": False}
         self.say(f"checks {'passed' if ok else 'failed'}")
         head = r.head(tree)
         if ok:
@@ -1362,6 +1379,8 @@ class BuildPath:
         r, unit = self.runner, self.unit
         base = state.base or self.base
         self.say("tier 1")
+        if (broken := self.environment_problem()) is not None:
+            return self.blocked(broken)
         try:
             ok, output = r.run_tier1(
                 cwd=self.tree(), base=self.ref(state), whole_repo=state.produced_nothing
@@ -1370,6 +1389,8 @@ class BuildPath:
             if (parked := self.wait_for_fix(found)) is not None:
                 return parked
             ok, output = False, found.flakes[0].output
+        if not ok and (broken := self.environment_problem()) is not None:
+            return self.blocked(broken)
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)
@@ -1769,6 +1790,7 @@ class BuildPath:
                         "hold_state": "",
                         "hold_note": "",
                         "stopped": "",
+                        "blocked_by_environment": False,
                     }
                 )
             else:
@@ -1787,6 +1809,7 @@ class BuildPath:
         return {
             "verdict": None,
             "stopped": "",
+            "blocked_by_environment": False,
             "status": None,
             "detail": "",
             "review_round": 0,
@@ -1809,7 +1832,11 @@ class BuildPath:
         }
 
     def failed(self, state: UnitRun) -> Update:
-        outcome = self.runner.fail(self.unit, state.stopped)
+        outcome = self.runner.fail(
+            self.unit,
+            state.stopped,
+            cause=Cause.ENVIRONMENT if state.blocked_by_environment else Cause.FAILED,
+        )
         return {"status": outcome.status, "detail": outcome.detail}
 
 

@@ -613,6 +613,8 @@ def in_progress_label(unit: Unit) -> str:
     """
     if unit.state in (PLANNED, UnitState.UNPLANNED):
         return "reworking" if getattr(unit, "pr", None) is not None else "paused"
+    if unit.state == FAILED and getattr(unit, "cause", None) == "environment":
+        return "waiting for the environment"
     return unit.state.replace("_", " ")
 
 

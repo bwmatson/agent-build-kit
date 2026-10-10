@@ -62,7 +62,7 @@ more task groups of a change.
 | `merged` | Landed. | Nothing; the change archives once every unit is merged and verified. |
 | `closed` | The PR was closed without merging. | Units stacked on it are left as they are; re-plan if the work is still wanted. |
 | `held` | A reviewer took the unit over, the toolchain cannot build it, the review loop held it itself, a merge left it beyond `limits.stack_depth_rebase_cap` — a change only a human can make, an escalated class or disagreement, or rounds spent with a pushed branch and PR. The pipeline will not touch it (a depth hold is released by a later merge). | See below. |
-| `failed` | The build raised. | See below. |
+| `failed` | The build raised. With the cause `environment`, the pipeline's own environment failed its `environment.check` before tier 1; the unit keeps its slot, `abk status` says it is waiting for the environment, and the tick resumes it once the environment is healthy. | See below; for the environment cause, fix the environment (`abk doctor` runs the check). |
 | `satisfied` | The unit's groups were already implemented — by an earlier unit that worked ahead of its own plan — so it added no commits of its own, and what was already at the tip passed tier 1. | Nothing; its groups are ticked and its dependents released, the same as a merge: a pull request stacked on it is moved onto its predecessor's branch or the trunk and retargeted before the satisfied unit's own is closed. No PR was opened — or, if a rework found this after one was already open, the reason (the groups, that they were implemented elsewhere, and where when the graph can say) was posted on it and it was closed. |
 
 ### `held`

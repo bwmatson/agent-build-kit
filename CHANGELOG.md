@@ -11,6 +11,13 @@
   managed, reports a listed file that does not exist and runs `check`. The lock files named
   in the environments are left out of a unit's size, and the built-in list of lock file
   names is gone: an installation relying on it must run init's fill step, or list them.
+  The tick now keeps that environment current: when work is found it syncs on a changed
+  input, checks, syncs once more if the check fails, and stops with a non-zero exit and the
+  output when the environment stays unhealthy; `abk status` shows its state. A unit whose
+  tier 1 cannot run because the check fails is failed with the new cause `environment`
+  before any agent round is spent, keeps its slot, is named as waiting for the environment,
+  and is resumed by the tick once the environment is healthy again. A unit's own failure
+  while the check passes is handled as before.
 
 - A test that fails under load and passes alone no longer fails the unit that met it. When
   tier 1 fails on tests, the profile reads which ones from the output and they are run again,

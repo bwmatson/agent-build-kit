@@ -1456,10 +1456,10 @@ class UnitRunner(BaseModel):
         except Exception as error:  # noqa: BLE001
             self.log(f"fetch failed, going on with the refs it has: {error}")
 
-    def fail(self, unit: Unit, detail: str) -> RunOutcome:
+    def fail(self, unit: Unit, detail: str, *, cause: Cause = Cause.FAILED) -> RunOutcome:
         # Recorded rather than left at "planned": the next round would
         # otherwise pick it up and repeat the same failing work.
         self.log(f"failed: {detail}")
-        self.store.set_state(unit.id, UnitState.FAILED, note=detail, cause=Cause.FAILED)
+        self.store.set_state(unit.id, UnitState.FAILED, note=detail, cause=cause)
         self.mark_tasks(unit, done=False)
         return RunOutcome(status=RunStatus.FAILED, detail=detail)
