@@ -1356,9 +1356,7 @@ def _blocked_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each blocked unit that has work and so is not counted, with what it waits on."""
     lines = []
     for unit in uncounted(units):
-        waits = [parent.id for parent in waiting_on(unit, units)] or [
-            str(getattr(unit, "cause", None))
-        ]
+        waits = [parent.id for parent in waiting_on(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit.repo}) waits on {', '.join(waits)}")
     return lines
 

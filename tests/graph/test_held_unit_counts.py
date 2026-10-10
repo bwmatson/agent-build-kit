@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import PLANNED, in_progress, ready_units
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, in_progress, ready_units
 from tests.factories import stored_unit, unit
 from tests.graph_driver import fresh, tick
 
@@ -31,13 +31,23 @@ def held_before_a_step(tmp_path: Path):
     return recorder.store.get(unit().id)
 
 
-def test_a_unit_held_before_a_step_for_its_upstream_is_blocked_and_does_not_count(
+def test_a_unit_held_before_a_step_for_its_upstream_does_not_count_while_it_waits(
     tmp_path: Path,
 ) -> None:
-    held = held_before_a_step(tmp_path)
+    held = held_before_a_step(tmp_path).model_copy(update={"depends_on": ("add-marker/0",)})
+    upstream = stored_unit("add-marker/0", state=RUNNING)
 
     assert held.state == PLANNED and held.pr is None
-    assert not in_progress(held)
+    assert not in_progress(held, [upstream, held])
+
+
+def test_a_unit_held_before_a_step_counts_once_its_upstream_is_back_in_review(
+    tmp_path: Path,
+) -> None:
+    held = held_before_a_step(tmp_path).model_copy(update={"depends_on": ("add-marker/0",)})
+    upstream = stored_unit("add-marker/0", state=IN_REVIEW, pr=3)
+
+    assert in_progress(held, [upstream, held])
 
 
 def test_a_unit_held_before_a_step_takes_a_place_in_the_limit(tmp_path: Path) -> None:

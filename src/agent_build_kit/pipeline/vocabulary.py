@@ -25,7 +25,6 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
-    blocked,
     waiting_on,
 )
 
@@ -147,7 +146,7 @@ def effective_state(
     if waiting_on(unit, units):
         paused = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
         return "paused_rework" if paused else "blocked"
-    return "blocked" if blocked(unit, units) else PLANNED
+    return PLANNED
 
 
 def _checking(unit: StoredUnit, checks_of: ChecksOf) -> bool:

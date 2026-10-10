@@ -536,20 +536,22 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     return waiting
 
 
-_BLOCKING_CAUSES = ("gated", "upstream_went_back")
+# The causes a unit carries from a wait on another unit; they stay on its record
+# after the wait ends, which is how a unit that was blocked is told from one that
+# was merely interrupted.
+_WAIT_CAUSES = ("gated", "upstream_went_back")
 
 
 def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     """Whether a planned unit waits on another unit, so it holds no place.
 
     It waits on a dependency or a predecessor that has not been reviewed or
-    merged (`waiting_on`), or its cause says it was gated or its upstream went
-    back. A backoff, a lease, a limited tick and a usage pause are not waits on
-    another unit, and derive from the units each time, as `waiting_on` does.
+    merged, or that is being reworked, failed or held (`waiting_on`): a gate not
+    yet merged and an upstream that went back are both waits of that kind, and
+    end with them. A backoff, a lease, a limited tick and a usage pause are not
+    waits on another unit. Derived from the units each time, as `waiting_on` is.
     """
-    if unit.state != PLANNED:
-        return False
-    return bool(waiting_on(unit, graph)) or getattr(unit, "cause", None) in _BLOCKING_CAUSES
+    return unit.state == PLANNED and bool(waiting_on(unit, graph))
 
 
 def unmet_gates(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
@@ -648,14 +650,14 @@ def uncounted(graph: Sequence[Unit]) -> list[Unit]:
 
 def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
     """Whether a planned unit that was blocked, and no longer is, must wait for
-    room: it has work and dependencies but no pull request, and was not paused
-    by a usage pause. Its own place is not one it already holds."""
+    room: it has work and no pull request, and its record still carries the
+    cause of the wait it left. A build interrupted by a usage pause, a backoff or
+    a lease carries another cause, and resumes at the limit."""
     return (
         unit.state == PLANNED
         and in_progress(unit, graph)
         and getattr(unit, "pr", None) is None
-        and bool(unit.depends_on)
-        and getattr(unit, "cause", None) != "usage"
+        and getattr(unit, "cause", None) in _WAIT_CAUSES
     )
 
 

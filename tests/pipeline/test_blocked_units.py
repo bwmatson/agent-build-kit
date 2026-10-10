@@ -80,10 +80,32 @@ def test_a_unit_waiting_on_a_cross_repo_prerequisite_that_has_not_merged_is_bloc
 
 
 @pytest.mark.parametrize("cause", [Cause.GATED, Cause.UPSTREAM_WENT_BACK])
-def test_the_causes_gated_and_upstream_went_back_make_a_unit_blocked(cause: Cause) -> None:
-    unit = worked("one/1", **caused(cause))
+def test_a_unit_is_blocked_by_gated_or_upstream_went_back_while_the_wait_holds(
+    cause: Cause,
+) -> None:
+    graph = [
+        new("base/1", state=RUNNING),
+        worked("one/1", depends_on=("base/1",), merge_before=("base/1",), **caused(cause)),
+    ]
 
-    assert blocked(unit, [unit])
+    assert blocked(graph[1], graph)
+
+
+def test_a_unit_whose_predecessor_is_back_in_review_is_not_blocked_by_the_old_cause() -> None:
+    graph = [review("p/1"), worked("u/1", depends_on=("p/1",), **caused(Cause.UPSTREAM_WENT_BACK))]
+
+    assert not blocked(graph[1], graph)
+    assert start_room(graph, 2) == 0
+
+
+def test_a_gated_unit_whose_gate_has_merged_is_not_blocked() -> None:
+    graph = [
+        new("gate/1", state=MERGED),
+        worked("one/1", depends_on=("gate/1",), merge_before=("gate/1",), **caused(Cause.GATED)),
+    ]
+
+    assert not blocked(graph[1], graph)
+    assert effective_state(graph[1], graph) != "blocked"
 
 
 def test_a_unit_whose_prerequisite_is_in_review_or_merged_is_not_blocked() -> None:
@@ -237,7 +259,7 @@ def unblocked_graph(*, busy: int):
     return [
         *(review(f"busy{n}/1", pr=n + 1) for n in range(busy)),
         new("base/1", state=MERGED, repo="platform"),
-        worked("back/1", depends_on=("base/1",)),
+        worked("back/1", depends_on=("base/1",), **caused(Cause.UPSTREAM_WENT_BACK)),
     ]
 
 
@@ -247,6 +269,29 @@ def test_a_unit_no_longer_blocked_stays_planned_while_the_others_fill_the_limit(
 
 def test_a_unit_no_longer_blocked_starts_when_one_finishes() -> None:
     assert chosen(unblocked_graph(busy=1), limit=2) == ["back/1"]
+
+
+@pytest.mark.parametrize("cause", [None, Cause.HOST_UNAVAILABLE, Cause.RELEASED])
+def test_an_interrupted_build_whose_dependencies_had_merged_resumes_at_the_limit(
+    cause: Cause | None,
+) -> None:
+    graph = [
+        review("busy/1"),
+        review("busy/2", pr=2),
+        new("base/1", state=MERGED, repo="platform"),
+        worked("paused/1", depends_on=("base/1",), **({} if cause is None else caused(cause))),
+    ]
+
+    assert chosen(graph, limit=2) == ["paused/1"]
+
+
+def test_a_unit_with_an_open_pull_request_and_an_old_wait_cause_proceeds_at_the_limit() -> None:
+    graph = [
+        review("p/1"),
+        new("u/1", state=PLANNED, pr=2, depends_on=("p/1",), **caused(Cause.UPSTREAM_WENT_BACK)),
+    ]
+
+    assert chosen(graph, limit=1) == ["u/1"]
 
 
 def test_a_unit_paused_by_a_usage_pause_resumes_at_the_limit() -> None:
@@ -267,7 +312,10 @@ def test_a_rework_proceeds_at_the_limit() -> None:
 # --- 1.4 the graph ------------------------------------------------------------------
 
 
-def test_the_graph_labels_a_gated_unit_as_blocked() -> None:
-    unit = worked("one/1", **caused(Cause.GATED))
+def test_the_graph_labels_a_gated_unit_that_waits_as_blocked() -> None:
+    graph = [
+        new("gate/1", state=IN_REVIEW, pr=2),
+        worked("one/1", depends_on=("gate/1",), merge_before=("gate/1",), **caused(Cause.GATED)),
+    ]
 
-    assert effective_state(unit, [unit]) == "blocked"
+    assert effective_state(graph[1], graph) == "blocked"
