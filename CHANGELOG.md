@@ -26,6 +26,7 @@
   to the same figure. The planner is told the ratios, a unit keeps both its own estimate and
   the calibrated figure (listed by `abk status`), and `limits.calibrate_estimates: false`
   turns it off; the other `limits.calibration_*` keys tune it.
+
 - A repo can now set `checks.affected` so the check after a failed check and a fix runs
   only the tests the change affects, instead of the whole suite again. `profile` asks
   the toolchain profile, through a new optional `affected_test_commands`; `command` runs
