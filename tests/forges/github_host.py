@@ -36,6 +36,7 @@ from typing import Any
 import httpx
 
 from tests.forges import github_answers
+from tests.forges.github_routes import GitHubState
 
 API = "https://api.github.com"
 STORAGE = "https://productionresultssa0.blob.core.windows.net"
@@ -99,6 +100,7 @@ class GitHubHost(httpx.MockTransport):
         job_logs: dict[int, str] | None = None,
         page_size: int = 100,
         draft_refusal: str = "",
+        state: GitHubState | None = None,
     ) -> None:
         self.pulls = [deepcopy(p) for p in pulls]
         self.routes = {k: v if isinstance(v, list) else [v] for k, v in (routes or {}).items()}

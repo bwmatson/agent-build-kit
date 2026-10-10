@@ -19,6 +19,7 @@ import httpx
 
 from tests.forges import github_answers
 from tests.forges.github_host import GitHubHost, answer, refusal
+from tests.forges.github_routes import GitHubState
 from tests.forges.mock_host import recorded
 
 _PULLS = re.compile(r"/repos/(?P<owner>[^/]+)/[^/]+/pulls")
@@ -69,6 +70,8 @@ class FakeGitHub:
     token: str
     # `http://127.0.0.1:<port>`, once started.
     url: str
+    # The state the routes answer from; a host built over it answers the same.
+    state: GitHubState
 
     def __init__(self, token: str = "fake-github-token", *, first_number: int = 1) -> None:
         self.token = token
