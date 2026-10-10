@@ -356,6 +356,12 @@ class AffectedConfig(Frozen):
     # each replaced by separate quoted arguments.
     command: str | None = None
 
+    @model_validator(mode="after")
+    def _command_mode_needs_its_template(self) -> AffectedConfig:
+        if self.mode == "command" and not self.command:
+            raise ValueError("checks.affected.mode `command` needs a `command` template")
+        return self
+
 
 class ChecksConfig(Frozen):
     affected: AffectedConfig = AffectedConfig()

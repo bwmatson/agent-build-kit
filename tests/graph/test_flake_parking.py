@@ -40,12 +40,16 @@ class Flaking:
         self.nth = nth
         self.runs = 0
 
-    def __call__(self, *, cwd: Path, base: str = "main", whole_repo: bool = False):
+    def __call__(
+        self, *, cwd: Path, base: str = "main", whole_repo: bool = False, failed_output: str = ""
+    ):
         self.runs += 1
         if self.runs == self.nth:
             self.recorder.events.append("tier1")
             raise FlakeFound((FLAKE,))
-        return self.recorder.tier1(cwd=cwd, base=base, whole_repo=whole_repo)
+        return self.recorder.tier1(
+            cwd=cwd, base=base, whole_repo=whole_repo, failed_output=failed_output
+        )
 
 
 class Told:
