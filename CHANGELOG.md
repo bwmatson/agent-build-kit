@@ -9,6 +9,7 @@
   shortest interval between successful calls not followed by a refusal), and the figures are
   exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
   from the record when the metrics store is not available.
+
 - New `abk replan` plans changes again on demand: name changes (or a unit id), or use
   `--all` or `--failed`, and each is planned now whatever its recorded plan says, with
   the `Needs:` lines linked as a tick does. This is the way out of a stale dependency, a
