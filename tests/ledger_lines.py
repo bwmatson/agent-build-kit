@@ -34,6 +34,59 @@ def agent_line(**fields) -> dict:
     }
 
 
+def costed_line(
+    incremental: float | None,
+    cumulative: float | None = None,
+    *,
+    basis: str = "derived",
+    **fields,
+) -> dict:
+    """An agent line as it is written now: the `cost` object and no flat figure."""
+    line = agent_line(**fields)
+    del line["cost_usd"]
+    return line | {
+        "cost": {"incremental_usd": incremental, "cumulative_usd": cumulative, "basis": basis}
+    }
+
+
+def legacy_line(cost_usd: float, **fields) -> dict:
+    """An agent line as it was written before the `cost` object: one flat figure."""
+    return agent_line(cost_usd=cost_usd, **fields)
+
+
+# The session of nine calls whose recorded totals summed to 147.80 and whose own spends
+# summed to its final cumulative: (node, round, own spend, running total).
+WORKED_SESSION = [
+    ("tests", 0, 2.63, 2.63),
+    ("implement", 0, 2.86, 5.49),
+    ("rework", 1, 7.69, 13.18),
+    ("rework", 2, 2.22, 15.40),
+    ("rework", 0, 4.38, 19.77),
+    ("fix_checks", 1, 0.84, 20.62),
+    ("rework", 1, 0.78, 21.40),
+    ("rework", 0, 2.52, 23.92),
+    ("rework", 1, 1.47, 25.39),
+]
+
+
+def worked_session(**fields) -> list[dict]:
+    """The worked session as ledger lines, in time order, each call after the first resumed."""
+    return [
+        costed_line(
+            own,
+            total,
+            basis="first" if n == 0 else "derived",
+            at=f"2026-01-01T10:{n:02d}:00+00:00",
+            node=node,
+            round=round_number,
+            resumed=n > 0,
+            session_id="sess-worked",
+            **fields,
+        )
+        for n, (node, round_number, own, total) in enumerate(WORKED_SESSION)
+    ]
+
+
 def span_line(**fields) -> dict:
     return {
         "kind": "span",

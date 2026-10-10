@@ -12,6 +12,7 @@ import json
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -27,6 +28,30 @@ LEDGER_NAME = "usage-ledger.jsonl"
 # say it once; guarded because units run on threads.
 _told: set[str] = set()
 _told_lock = threading.Lock()
+
+
+class CostBasis(StrEnum):
+    """How a record's incremental cost was obtained."""
+
+    REPORTED = "reported"
+    DERIVED = "derived"
+    FIRST = "first"
+    UNKNOWN = "unknown"
+    BACKFILLED = "backfilled"
+    LEGACY = "legacy"
+    CUMULATIVE_SUMMED = "cumulative_summed"
+
+
+class Cost(BaseModel):
+    """A call's own spend and its session's running total."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    incremental_usd: float | None = None
+    cumulative_usd: float | None = None
+    basis: CostBasis = CostBasis.UNKNOWN
+    reported_usd: float | None = None
+    legacy_usd: float | None = None
 
 
 class UsageRecord(BaseModel):
@@ -54,6 +79,7 @@ class UsageRecord(BaseModel):
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
     cost_usd: float | None = None
+    cost: Cost | None = None
     turns: int | None = None
     duration_ms: int | None = None
     usage_source: UsageSource = "none"

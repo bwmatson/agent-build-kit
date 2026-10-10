@@ -92,10 +92,36 @@ class ReportRow(Frozen):
     difference: Difference | None = None
 
 
+class SessionRow(Frozen):
+    """One session: the sum of its calls' increments beside its final cumulative cost."""
+
+    session_id: str
+    incremental_usd: float | None = None
+    cumulative_usd: float | None = None
+    flagged: bool = False
+
+
+class LegacyRow(Frozen):
+    unit: str
+    node: str
+    legacy_usd: float
+
+
+class Legacy(Frozen):
+    """The rows written before costs were incremental, kept apart from every sum."""
+
+    count: int = 0
+    total_usd: float | None = None
+    rows: tuple[LegacyRow, ...] = ()
+
+
 class Report(Frozen):
     group_by: str
     rows: tuple[ReportRow, ...]
     total: ReportRow
+    sessions: tuple[SessionRow, ...] = ()
+    legacy: Legacy = Legacy()
+    unknown_calls: int = 0  # calls whose incremental cost could not be known
 
 
 class _Entry(Frozen):

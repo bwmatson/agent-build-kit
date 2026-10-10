@@ -139,6 +139,7 @@ class AgentResult(Frozen):
     turns: int | None = None  # how many turns the run took, when the runtime counts them
     usage: Usage | None = None
     cost_usd: float | None = None
+    cumulative_cost_usd: float | None = None  # a running total the runtime reports for its session
     duration_ms: int | None = None
     session_id: str | None = None
     usage_source: UsageSource = "none"

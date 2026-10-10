@@ -63,6 +63,8 @@ def populated(annotation: Any) -> Any:
         return True
     if annotation is int:
         return 3
+    if annotation is float:
+        return 1.5
     if annotation is datetime:
         return datetime(2026, 1, 1)
     return "x"
