@@ -234,7 +234,7 @@ def interval_line(interval: CacheInterval) -> str:
     minutes = round(interval.kept.total_seconds() / 60)
     why = {
         "refusal": "set after a refusal",
-        "quiet": "lowered after a quiet",
+        "quiet": "lowered after a quiet spell",
         "configured": "the configured time",
     }[interval.reason]
     return f"usage cache: kept {minutes} minutes, {why}"

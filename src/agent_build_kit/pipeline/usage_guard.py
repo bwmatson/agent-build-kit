@@ -521,7 +521,8 @@ def read_live_usage(
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.
 
-    A good answer is kept in `cache_path` for `ttl` (the configured cache time),
+    A good answer is kept in `cache_path` for `ttl` (by default the adaptive cache
+    time of `current_cache_interval`),
     so every reader in every process shares it, and never past the reset of a
     window it describes. A rate-limit answer starts a cool-down, kept in the same
     file, during which no call is made; a timeout or connection error is retried

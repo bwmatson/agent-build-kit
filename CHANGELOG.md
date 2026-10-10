@@ -2,18 +2,17 @@
 
 ## Unreleased
 
-- The time a usage reading is kept now adapts: each refusal from the usage endpoint doubles it
-  (up to the new `usage_cache_max_minutes`, an hour by default), a refusal's own retry time is
-  respected when longer, and each further stretch of that time without one halves it, never
-  below `usage_cache_minutes`. `abk status` says the time in use and what set it.
-
 - Every use of the usage endpoint, and every reading answered from its cache, is now recorded
   in `usage-calls.jsonl` in the state directory (gitignored, a week's worth, no token): when,
   who asked, the outcome, the status, the latency and any rate-limit or retry headers.
   `abk status` prints one line from it (calls in the hour, refusals, the cache's share and the
   shortest interval between successful calls not followed by a refusal), and the figures are
   exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
-  from the record when the metrics store is not available.
+  from the record when the metrics store is not available. The time a usage reading is kept
+  now adapts to what the record shows: each refusal doubles it (up to the new
+  `usage_cache_max_minutes`, an hour by default), a refusal's own retry time is respected when
+  longer, and each further stretch of that time without one halves it, never below
+  `usage_cache_minutes`. `abk status` says the time in use and what set it.
 
 - Text that has to fit a size is now cut and shared out by one module: cuts that keep the
   head, the tail or both on a character, line or paragraph boundary and close any open code
