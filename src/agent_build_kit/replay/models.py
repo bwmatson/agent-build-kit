@@ -15,9 +15,9 @@ from pydantic import ConfigDict
 
 from agent_build_kit.model import Frozen
 
-# The request headers that change an answer; every other header, credentials included, is
-# neither keyed nor stored.
-KEYED_HEADERS = frozenset({"content-type", "accept", "anthropic-version", "anthropic-beta"})
+# The request headers that change an answer unless an upstream names others; every other
+# header, credentials included, is neither keyed nor stored.
+DEFAULT_KEYED_HEADERS = ("content-type", "accept")
 # The response headers a cassette keeps.
 STORED_HEADERS = frozenset({"content-type", "content-encoding"})
 
@@ -101,9 +101,15 @@ def applied_rules(request: Request, rules: Sequence[Rule]) -> list[Rule]:
     return [rule for rule in rules if re.search(rule.pattern, text)]
 
 
-def request_key(request: Request, rules: Sequence[Rule] = ()) -> str:
-    """The hash of what the upstream sees: method, path, sorted query, the allowlisted
-    headers and the body after `rules`. Credentials are never part of it."""
+def request_key(
+    request: Request,
+    rules: Sequence[Rule] = (),
+    *,
+    upstream: str = "",
+    keyed_headers: Sequence[str] = DEFAULT_KEYED_HEADERS,
+) -> str:
+    """The hash of what the upstream sees: its name, method, path, sorted query, the
+    `keyed_headers` and the body after `rules`. Credentials are never part of it."""
     text = _rewritten(request.body.decode(errors="replace"), rules)
     try:
         body: object = json.dumps(json.loads(text), sort_keys=True, separators=(",", ":"))
@@ -112,11 +118,11 @@ def request_key(request: Request, rules: Sequence[Rule] = ()) -> str:
     headers = {
         name: value.strip()
         for name, value in sorted((k.lower(), v) for k, v in request.headers.items())
-        if name in KEYED_HEADERS
+        if name in {header.lower() for header in keyed_headers}
     }
     query = sorted(parse_qsl(_rewritten(request.query, rules), keep_blank_values=True))
     canonical = json.dumps(
-        [request.method.upper(), _rewritten(request.path, rules), query, headers, body]
+        [upstream, request.method.upper(), _rewritten(request.path, rules), query, headers, body]
     )
     return hashlib.sha256(canonical.encode()).hexdigest()
 

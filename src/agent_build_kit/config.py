@@ -29,7 +29,7 @@ from pydantic import Field, ValidationError, ValidationInfo, field_validator, mo
 
 from agent_build_kit import forges, infra, path_patterns, runtimes
 from agent_build_kit.model import Frozen
-from agent_build_kit.replay.models import UpstreamKind
+from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 
 CONFIG_FILENAME = "abk.yaml"
 CONFIG_ENV = "ABK_CONFIG"
@@ -323,6 +323,8 @@ class ReplayUpstream(Frozen):
     kind: UpstreamKind
     # The environment variables that point the code under test at the proxy's listener.
     env: list[str] = []
+    # The request headers that change this upstream's answer, and so are part of a key.
+    keyed_headers: list[str] = list(DEFAULT_KEYED_HEADERS)
 
 
 class ReplayConfig(Frozen):

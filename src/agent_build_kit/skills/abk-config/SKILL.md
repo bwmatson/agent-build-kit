@@ -18,7 +18,8 @@ overrides, `ABK_RUNTIME`, the gateway pair `ABK_GATEWAY_URL` and
 key of its own and its usage is read from the gateway's records), the
 code-host call bounds `ABK_FORGE_TIMEOUT_SECONDS`, `ABK_FORGE_RETRIES` and
 `ABK_FORGE_DEADLINE_SECONDS`, the GitHub address `ABK_GITHUB_API_URL` (an
-Enterprise host needs `GH_TOKEN` too), the telemetry switch `ABK_OTEL_ENABLED` and its
+Enterprise host needs `GH_TOKEN` too), `ABK_REPLAY_MODE` (`off`, `record`, `replay` or `live`: what tier-2 tests do with calls
+outside the stack), the telemetry switch `ABK_OTEL_ENABLED` and its
 `OTEL_*` endpoints, and `ABK_GRAFANA_URL`/`ABK_GRAFANA_TOKEN`/`ABK_GRAFANA_FOLDER`
 for `abk telemetry push-dashboard`, whose token is optional: without it the push is
 anonymous) go in the planning repo's `.env`, which is not
@@ -169,6 +170,11 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                                  # with no path, so the member's pytest config,
                                  # `testpaths` included, decides what is collected
       dev_stack_marker: dev_stack
+      replay: null            # record/replay of tier-2 calls outside the stack:
+                              # upstreams [{name, url, kind: deterministic|llm, env,
+                              # keyed_headers}], directory (tests/cassettes),
+                              # max_age_days 30, llm_max_age_days 14, max_body_bytes 2 MiB,
+                              # max_directory_mb 100, review_after_runs 5
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; tier 2 runs on it, not live
     environment: null         # the same shape as the top-level `environment`, with paths

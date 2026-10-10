@@ -46,8 +46,9 @@ def send(
     query: str = "",
     headers: Mapping[str, str] | None = None,
     method: str = "POST",
+    upstream: str = UPSTREAM,
 ) -> Reply:
-    url = proxy.addresses[UPSTREAM] + path + (f"?{query}" if query else "")
+    url = proxy.addresses[upstream] + path + (f"?{query}" if query else "")
     with httpx.stream(method, url, content=body, headers=dict(headers or {})) as response:
         raw = b"".join(response.iter_raw())
         return Reply(status=response.status_code, headers=dict(response.headers), raw=raw)

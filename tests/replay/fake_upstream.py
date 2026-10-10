@@ -40,13 +40,22 @@ class FakeUpstream:
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
+            def _read(self) -> bytes:
+                if "chunked" not in self.headers.get("Transfer-Encoding", "").lower():
+                    return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                body = b""
+                while size := int(self.rfile.readline().split(b";")[0].strip() or b"0", 16):
+                    body += self.rfile.read(size)
+                    self.rfile.readline()
+                self.rfile.readline()
+                return body
+
             def _serve(self) -> None:
-                size = int(self.headers.get("Content-Length") or 0)
                 request = Seen(
                     method=self.command,
                     path=self.path,
                     headers={k.lower(): v for k, v in self.headers.items()},
-                    body=self.rfile.read(size),
+                    body=self._read(),
                 )
                 outer.seen.append(request)
                 reply = answer(request)
@@ -64,9 +73,10 @@ class FakeUpstream:
                     body = reply.chunks[0] if reply.chunks else b""
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
-                    self.wfile.write(body)
+                    if self.command != "HEAD":
+                        self.wfile.write(body)
 
-            do_GET = do_POST = _serve
+            do_GET = do_HEAD = do_POST = _serve
 
             def log_message(self, format: str, *args: object) -> None:
                 pass

@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import TracebackType
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 
@@ -70,14 +70,20 @@ class ReplayProxy:
         in_stack: InStackHosts | None = None,
         secrets: Sequence[str] = (),
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        settle_seconds: float = 30,
     ) -> None:
         self.config = config
         self.mode = mode
         # The calls so far that were not recorded because their body was too large.
         self.too_large: list[str] = []
+        # The tests whose calls were not promoted: the directory would pass `max_directory_mb`,
+        # or a call was still in flight at the end of the test.
+        self.over_size: list[str] = []
+        self.incomplete: list[str] = []
         # The declared rules that applied to a call, in the tests run so far.
         self.rules_used: list[Rule] = []
         self._staging = staging
+        self._settle = settle_seconds
         self._in_stack = in_stack
         self._secrets = [secret.encode() for secret in secrets]
         self._clock = clock
@@ -146,14 +152,25 @@ class ReplayProxy:
         """Promote the staged calls of the test to the cassette directory, or discard them."""
         with self._lock:
             # A client has its answer before the proxy has staged the call.
-            self._lock.wait_for(lambda: self._active == 0, timeout=30)
+            settled = self._lock.wait_for(lambda: self._active == 0, timeout=self._settle)
         staged = test_directory(self._staging, self._test_id)
         try:
-            if not passed or not staged.exists():
+            if not passed:
+                return
+            if not settled:
+                self.incomplete.append(self._test_id)
+                return
+            if not staged.exists():
                 return
             files = sorted(staged.glob("*.json.gz"))
             if any(self._leaks(load_cassette(path)) for path in files):
-                raise SecretInRecording(f"{self._test_id}: a response holds a configured secret")
+                raise SecretInRecording(f"{self._test_id}: a call holds a configured secret")
+            held = sum(path.stat().st_size for path in self.config.directory.rglob("*.json.gz"))
+            if held + sum(path.stat().st_size for path in files) > (
+                self.config.max_directory_mb * 1024 * 1024
+            ):
+                self.over_size.append(self._test_id)
+                return
             target = test_directory(self.config.directory, self._test_id)
             target.mkdir(parents=True, exist_ok=True)
             for path in files:
@@ -162,12 +179,15 @@ class ReplayProxy:
             shutil.rmtree(staged, ignore_errors=True)
 
     def _leaks(self, cassette: Cassette) -> bool:
+        """Whether a configured secret is in the response body or in the request's address."""
         body = b"".join(cassette.response.chunks)
         try:
-            bodies = [body, gzip.decompress(body)]
+            found = [body, gzip.decompress(body)]
         except (OSError, EOFError):
-            bodies = [body]
-        return any(secret in found for secret in self._secrets for found in bodies)
+            found = [body]
+        address = f"{cassette.request.path}?{cassette.request.query}"
+        found += [address.encode(), unquote(address).encode()]
+        return any(secret in held for secret in self._secrets for held in found)
 
     def _handler(self, upstream: ReplayUpstream) -> type[BaseHTTPRequestHandler]:
         answer = self._answer
@@ -176,18 +196,28 @@ class ReplayProxy:
             protocol_version = "HTTP/1.1"
 
             def _serve(self) -> None:
-                size = int(self.headers.get("Content-Length") or 0)
                 parts = urlsplit(self.path)
                 request = Request(
                     method=self.command,
                     path=parts.path,
                     query=parts.query,
                     headers={name.lower(): value for name, value in self.headers.items()},
-                    body=self.rfile.read(size),
+                    body=self._body(),
                 )
                 answer(upstream, request, self)
 
-            do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _serve
+            def _body(self) -> bytes:
+                if "chunked" not in self.headers.get("Transfer-Encoding", "").lower():
+                    return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                body = b""
+                while size := int(self.rfile.readline().split(b";")[0].strip() or b"0", 16):
+                    body += self.rfile.read(size)
+                    self.rfile.readline()
+                while self.rfile.readline().strip():
+                    pass  # trailers
+                return body
+
+            do_GET = do_HEAD = do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = _serve
 
             def log_message(self, format: str, *args: object) -> None:
                 pass
@@ -213,19 +243,28 @@ class ReplayProxy:
             test_id, rules, index = self._test_id, self._rules, self._calls
             self._calls += 1
         applied = applied_rules(request, rules)
-        key = request_key(request, rules)
+        key = request_key(
+            request, rules, upstream=upstream.name, keyed_headers=upstream.keyed_headers
+        )
         with self._lock:
             self.rules_used.extend(rule for rule in applied if rule not in self.rules_used)
         if self.mode is ReplayMode.replay:
             held = find_cassette(self.config.directory, test_id, key)
             if held is not None and not self._aged(upstream, held):
-                _send(out, held.response.status, held.response.headers, held.response.chunks)
+                _send(
+                    out,
+                    request.method,
+                    held.response.status,
+                    held.response.headers,
+                    held.response.chunks,
+                )
                 return
         received = self._forward(upstream, request, out)
         if sum(len(chunk) for chunk in received.chunks) > self.config.max_body_bytes:
             self.too_large.append(key)
             return
-        stored = {n: v for n, v in received.headers.items() if n in STORED_HEADERS}
+        keep = STORED_HEADERS | ({"content-length"} if request.method == "HEAD" else set())
+        stored = {n: v for n, v in received.headers.items() if n in keep}
         cassette = Cassette(
             key=key,
             upstream=upstream.name,
@@ -254,6 +293,8 @@ class ReplayProxy:
         """Ask the upstream, answering `out` as the answer arrives."""
         url = upstream.url.rstrip("/") + request.path
         headers = {n: v for n, v in request.headers.items() if n not in _NOT_FORWARDED}
+        # The client's own, so the answer is what it asked for; the HTTP library would add its own.
+        headers.setdefault("accept-encoding", "identity")
         with self._client.stream(
             request.method,
             url,
@@ -261,8 +302,11 @@ class ReplayProxy:
             headers=headers,
             content=request.body,
         ) as response:
+            head = request.method == "HEAD"
             sent = {
-                n.lower(): v for n, v in response.headers.items() if n.lower() not in _HOP_BY_HOP
+                n.lower(): v
+                for n, v in response.headers.items()
+                if n.lower() not in _HOP_BY_HOP or (head and n.lower() == "content-length")
             }
             chunks: list[bytes] = []
             if "chunked" in response.headers.get("transfer-encoding", "").lower():
@@ -273,7 +317,7 @@ class ReplayProxy:
                 out.wfile.write(b"0\r\n\r\n")
             else:
                 chunks = list(response.iter_raw())
-                _send(out, response.status_code, sent, chunks)
+                _send(out, request.method, response.status_code, sent, chunks)
             return _Answer(status=response.status_code, headers=sent, chunks=chunks)
 
 
@@ -296,9 +340,20 @@ def _write_chunk(out: BaseHTTPRequestHandler, chunk: bytes) -> None:
 
 
 def _send(
-    out: BaseHTTPRequestHandler, status: int, headers: dict[str, str], chunks: list[bytes]
+    out: BaseHTTPRequestHandler,
+    method: str,
+    status: int,
+    headers: dict[str, str],
+    chunks: list[bytes],
 ) -> None:
-    """Answer from chunks held: streamed when there was more than one, else in one piece."""
+    """Answer from chunks held: streamed when there was more than one, else in one piece.
+    An answer to HEAD is its headers alone, with the length the upstream gave."""
+    if method == "HEAD":
+        out.send_response(status)
+        for name, value in headers.items():
+            out.send_header(name, value)
+        out.end_headers()
+        return
     if len(chunks) > 1:
         _start(out, status, headers, None)
         for chunk in chunks:

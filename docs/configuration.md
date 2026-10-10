@@ -292,6 +292,19 @@ repos:                          # ordered: deploy order is derived from
       dev_stack_marker: dev_stack
                                 # the marker on tier-2 tests only the dev stack
                                 # can run; left out of post-merge verify
+      replay: null              # record and replay of the calls tier-2 tests make outside
+                                # the stack; absent = none. Set, it holds:
+                                #   upstreams: [{name, url, kind, env, keyed_headers}]
+                                #     kind: deterministic | llm; env: the variables that
+                                #     point the code under test at the proxy; keyed_headers:
+                                #     the request headers that are part of a key
+                                #     (default content-type, accept)
+                                #   directory: tests/cassettes
+                                #   max_age_days: 30          # deterministic upstreams
+                                #   llm_max_age_days: 14      # llm upstreams
+                                #   max_body_bytes: 2097152   # a larger response is not recorded
+                                #   max_directory_mb: 100     # past it nothing more is promoted
+                                #   review_after_runs: 5      # read by the review work to come
     dev_stack: null             # {script: scripts/dev-stack.sh}: a script with
                                 # `up`, `test` and `down`. Tier 2 runs the
                                 # unit's branch on it instead of the live
@@ -403,6 +416,7 @@ loaded (`abk init` writes `.env.example` to copy).
 | `ABK_GATEWAY_QUIET_SECONDS` | how long a call's gateway spend rows must have stopped growing before they are taken as complete; set it to at least the gateway's flush interval. Rows still arriving at the settle bound are used and the log says the totals may be incomplete | `10` |
 | `GH_TOKEN` (or `ABK_GH_TOKEN`) | one GitHub token for every GitHub call, instead of the per-owner lookup `gh auth token --user <owner>`. Read from `.env`, since pydantic-settings does not export to the environment. | unset: per-owner lookup |
 | `ABK_GITHUB_API_URL` | the address GitHub calls go to, for GitHub Enterprise or a stand-in host. On an Enterprise host set `GH_TOKEN`: the `gh auth token` lookup asks github.com | `https://api.github.com` |
+| `ABK_REPLAY_MODE` | what tier-2 tests do with the calls they make outside the stack: `off` (no listener, nothing changed), `record` (all live, a passing test's calls are written), `replay` (an exact, fresh match answers from its cassette; anything else goes live and is recorded) or `live` (cassettes ignored, recordings written as in `record`). Any other value is refused | `off` |
 | `ABK_FORGE_TIMEOUT_SECONDS` | the timeout on every call to a code host | `30` |
 | `ABK_FORGE_RETRIES` | how many times a failed code-host call is retried after the first attempt | `3` |
 | `ABK_FORGE_DEADLINE_SECONDS` | the most time, from a code-host call's first attempt, that retries and their waits may take | `120` |
