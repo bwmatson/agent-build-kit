@@ -1729,7 +1729,8 @@ def plan_all(
             # were validated on the change's own PR: a model handing one
             # repo's group to another repo's unit is a real failure mode.
             # Groups already accounted for by a unit nobody is going to
-            # re-plan — merged, or in flight right now — are passed as built:
+            # re-plan — merged, in flight, or failed or held and waiting for a
+            # person — are passed as built:
             # without them the check demands every group appear in the new
             # plan, which makes a change unplannable the moment any part of
             # it starts.
@@ -1814,7 +1815,9 @@ def plan_all(
         if dropped:
             # A unit started while the plan was made. What was to be carried
             # is planned again next round, so this change is not recorded as
-            # planned.
+            # planned, and a record left by an earlier plan (a forced one
+            # ignored it) is removed so the next tick does not skip it.
+            record_plans(inst, {change: None})
             log(f"{change}: {len(dropped)} join(s) dropped, a unit started since the plan")
             results[change] = PlanResult(status="planned", dropped_joins=len(dropped))
             continue

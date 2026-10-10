@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import UNPLANNED
 from agent_build_kit.pipeline.units import (
     FAILED,
@@ -94,6 +95,7 @@ def test_a_join_dropped_because_a_unit_started_is_reported(
     run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(2))
     seed(run, "feature/1")
     run.record("feature")
+    run.record("other")
     join = {"onto": "feature/1", "change": "other", "groups": [1], "estimated_lines": 40}
 
     # The unit is unstarted when the plan is checked and held by a live build
@@ -104,6 +106,12 @@ def test_a_join_dropped_because_a_unit_started_is_reported(
     assert "join" in out
     assert "dropped" in out
     assert run.store.get("feature/1").estimated_lines == 140
+    # The dropped group is built by no unit, so the next tick must plan it again.
+    assert "other" not in run.records
+    calls = run.calls
+    run.runtime.answer = answer(planned("other/1", (1,)), planned("other/2", (2,)))
+    cli.plan_all(run.inst, store=run.store)
+    assert run.calls == calls + 1
 
 
 def test_a_stale_dependency_is_removed_and_a_needs_dependency_is_kept(

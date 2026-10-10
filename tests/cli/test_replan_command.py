@@ -9,6 +9,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.runtimes import AgentRequest
 from tests.cli.replan_driver import Replan, answer, planned, tasks_md
+from tests.factories import unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -38,13 +39,13 @@ def test_a_unit_id_plans_its_change_and_says_which(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = two_changes(tmp_path, monkeypatch)
+    run.store.upsert([unit("feature/2", change="feature", groups=(2,))])
 
     code, out = run.run(capsys, "feature/2", reply=ONE)
 
     assert code == 0
     assert run.calls == 1
-    assert "feature/2" in out
-    assert "feature" in out.replace("feature/", "")
+    assert "feature/2 is in change feature: planning feature" in out.splitlines()
     assert {u.change for u in run.store.all()} == {"feature"}
 
 
@@ -69,14 +70,31 @@ def test_all_plans_every_active_change(
 def test_failed_plans_only_changes_that_failed_or_gave_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = Replan(tmp_path, monkeypatch, feature=tasks_md(), other=tasks_md(1), third=tasks_md(1))
+    run = Replan(
+        tmp_path,
+        monkeypatch,
+        feature=tasks_md(),
+        other=tasks_md(1),
+        third=tasks_md(1),
+        fourth=tasks_md(1),
+    )
     run.record("feature")
     run.record("other", ok=False, attempts=3)
     run.record("third", ok=False, attempts=1)
+    # Changes are planned in name order: other, then third.
+    replies = iter([answer(planned("other/1", (1,))), answer(planned("third/1", (1,)))])
 
-    run.run(capsys, "--failed", reply=answer(planned("other/1", (1,))))
+    def next_reply(request: AgentRequest) -> None:
+        run.runtime.answer = next(replies)
 
+    run.runtime.act = next_reply
+
+    code, _ = run.run(capsys, "--failed")
+
+    assert code == 0
     assert run.calls == 2
+    assert {u.change for u in run.store.all()} == {"other", "third"}
+    assert "fourth" not in run.records
 
 
 def test_the_count_of_model_calls_is_printed(
@@ -129,7 +147,8 @@ def test_an_unknown_name_is_refused_and_nothing_is_planned_for_it(
 
     assert code == 1
     assert "nope" in out
-    assert run.calls <= 1
+    assert run.calls == 1
+    assert {u.id for u in run.store.all()} == {"feature/1", "feature/2"}
 
 
 def test_a_change_without_a_tasks_file_is_refused(

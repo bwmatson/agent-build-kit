@@ -150,7 +150,7 @@ sends the next run past the agent to a check on the same branch.
 A plan is made when a change's `tasks.md` changes, not on every tick. Run
 `abk replan <change>` (or a unit id, `--all`, `--failed`) to plan again now when a
 unit waits on a dependency it no longer needs (a `Needs:` line changed in another
-change), when a change gave up planning (`abk status` and the tick say so), or when
+change), when a change gave up planning (the tick logs it, and `abk replan` with no selector lists each change's plan state), or when
 neighbouring changes' units changed since it was planned. Started work is never
 touched; `--forget` only clears the record and leaves the planning to the next tick.
 
