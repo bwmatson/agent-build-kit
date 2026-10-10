@@ -495,6 +495,7 @@ def read_live_usage(
     ttl: timedelta | None = None,
     expired: Callable[[], bool] | None = None,
     refresh: Callable[[], None] | None = None,
+    caller: str = "guard",
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.
 
@@ -647,14 +648,14 @@ def rate_limit_note(cache_path: Path | None = None) -> str | None:
     return f"rate limited until {_hhmm(until)}"
 
 
-def current_usage() -> UsageReading | None:
+def current_usage(caller: str = "guard") -> UsageReading | None:
     """The best reading available: live if possible, else the local cache.
 
     While the endpoint is rate limited, a reading that is not live says so in
     its source, so the reason a start was refused names the rate limit and
     when the next call will be made.
     """
-    reading = read_live_usage() or read_cached_usage()
+    reading = read_live_usage(caller=caller) or read_cached_usage()
     note = rate_limit_note()
     if reading is not None and note is not None and not reading.is_live:
         return reading.model_copy(update={"source": f"{reading.source} ({note})"})

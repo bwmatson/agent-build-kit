@@ -338,6 +338,7 @@ class LocalSource:
         ledger: Path,
         units: list[StoredUnit] | None = None,
         *,
+        calls: Path | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         lines = read_lines(ledger)
