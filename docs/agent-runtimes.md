@@ -704,6 +704,26 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 - Normalisation is declared per test (`replay_rules`) and stored in the cassette; the
   default is none.
 
+### The report, review and the live refresh
+
+- After a test the plugin keeps what it replayed and what went live. A test that replayed
+  anything gets a `replay` entry in its `user_properties` and a line in the terminal summary,
+  `replayed: N of M external calls replayed, K live`, followed by each live call with where its
+  request differs from the nearest earlier cassette for the same test and call index ("path
+  differs", "differs at system"), the cassettes that matched but were too old, the unused ones
+  and the declared rules that applied. The outcome is unchanged. Billed calls avoided are
+  totalled from the usage figures recorded responses carry; a response without any adds nothing.
+- A passing run marks `needs_review`, with a reason, each cassette of the test that no call
+  asked for or that a live call at the same index superseded. Nothing is deleted.
+  `abk replay review` lists them and `--keep` or `--delete` decides each. `abk status` counts the
+  waiting ones and `abk doctor` notes them, warning when one has waited through more than
+  `review_after_runs` runs; the next run prints the same warning and fails nothing.
+- When each cassette was last used and for how many runs it has waited are kept in
+  `state.json` in the cassette directory, which ignores itself, so a run changes no committed
+  file for them.
+- Run in `live` mode whenever the prompt text or the code under test changed, and at least
+  weekly otherwise, so a replayed pass does not stand in for the provider's behaviour that day.
+
 ### How each upstream is pointed at the proxy
 
 Settled by running the tool where it could be run here, and otherwise left marked:

@@ -18,8 +18,15 @@ class ReplayState(Frozen):
 
 
 def read_state(directory: Path) -> ReplayState:
-    raise NotImplementedError
+    """The state kept in `directory`; none yet is an empty one."""
+    path = directory / STATE_FILE
+    if not path.is_file():
+        return ReplayState()
+    return ReplayState.model_validate_json(path.read_text())
 
 
 def write_state(directory: Path, state: ReplayState) -> None:
-    raise NotImplementedError
+    directory.mkdir(parents=True, exist_ok=True)
+    # The directory ignores its own state file, so a repository needs no rule for it.
+    (directory / ".gitignore").write_text(f"{STATE_FILE}\n")
+    (directory / STATE_FILE).write_text(state.model_dump_json())

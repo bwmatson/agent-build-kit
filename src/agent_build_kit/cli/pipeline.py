@@ -203,6 +203,8 @@ from agent_build_kit.pipeline.workspaces import (
     worktree_path,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.replay.review import directories as replay_directories
+from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.serve.review import Review, ReviewStore
 
 if TYPE_CHECKING:
@@ -417,6 +419,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
+    for name, (directory, _) in replay_directories(inst.repos).items():
+        if held := len(replay_waiting(directory)):
+            log(f"cassettes: {held} waiting for review in {name} (`abk replay review`)")
 
     for flaky in flake_record(inst).counts():
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"

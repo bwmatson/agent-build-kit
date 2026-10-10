@@ -8,7 +8,9 @@ but not read here yet, so the default fixture has no upstream.
 
 The calls a test makes are promoted to cassettes only once its setup, call and teardown
 have all passed, which is known only after its teardown report is made, so the proxy is
-finished and closed from `pytest_runtest_makereport`, not from the fixture.
+finished and closed from `pytest_runtest_makereport`, not from the fixture. A test that
+replayed anything is labelled `replayed` in its `user_properties`; the terminal summary lists
+what replayed and what went live, and warns of recordings left waiting for review too long.
 """
 
 from __future__ import annotations
@@ -23,11 +25,16 @@ from agent_build_kit.config import ReplayConfig, WorkspaceConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.replay.hosts import InStackHosts, in_stack_hosts
 from agent_build_kit.replay.models import Rule
+from agent_build_kit.replay.report import RunReport, combine, render, replay_label
+from agent_build_kit.replay.review import count_run, overdue
 from agent_build_kit.settings import Settings
 from tests.replay.proxy import ReplayProxy, SecretInRecording
 
 _PROXY = pytest.StashKey[ReplayProxy]()
 _PASSED = pytest.StashKey[dict[str, bool]]()
+# The report of each test's proxy, with the configuration it ran under.
+_REPORTS = pytest.StashKey[list[tuple[ReplayConfig, RunReport]]]()
+_OVERDUE = pytest.StashKey[list[str]]()
 
 
 @pytest.fixture
@@ -110,6 +117,46 @@ def pytest_runtest_makereport(
             # The test's own result stands; the recording is what failed, and says so.
             report.outcome = "failed"
             report.longrepr = str(error)
+        else:
+            _note(item, report, proxy)
         finally:
             proxy.__exit__(None, None, None)
     return report
+
+
+def _note(item: pytest.Item, report: pytest.TestReport, proxy: ReplayProxy) -> None:
+    """Keep the proxy's report for the summary, and label the test when it replayed."""
+    finished = proxy.report()
+    item.config.stash.setdefault(_REPORTS, []).append((proxy.config, finished))
+    if finished.tests and (label := replay_label(finished.tests[-1])):
+        item.user_properties.append(("replay", label))
+        report.user_properties = list(item.user_properties)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Count this run against each cassette waiting for review, and note the overdue ones."""
+    late: list[str] = []
+    configs = {
+        str(config.directory): config for config, _ in session.config.stash.get(_REPORTS, [])
+    }
+    for config in configs.values():
+        count_run(config.directory)
+        late += overdue(config.directory, config.review_after_runs)
+    session.config.stash[_OVERDUE] = late
+
+
+def pytest_terminal_summary(
+    terminalreporter: pytest.TerminalReporter, config: pytest.Config
+) -> None:
+    reports = config.stash.get(_REPORTS, [])
+    lines = render(combine(report for _, report in reports))
+    if lines:
+        terminalreporter.section("replay")
+        for line in lines:
+            terminalreporter.write_line(line)
+    if late := config.stash.get(_OVERDUE, []):
+        terminalreporter.write_line(
+            f"WARNING: {len(late)} recorded call(s) have waited for review through more runs "
+            "than review_after_runs allows; run `abk replay review`",
+            yellow=True,
+        )

@@ -64,7 +64,12 @@
   accepted and documented, but nothing reads it yet: a test gives its upstreams by
   overriding the plugin's `replay_config` fixture, and nothing in a repository's own run
   changes. Credentials are in no key or file, a response holding a configured secret is
-  not stored, and nothing is stored from a failing test.
+  not stored, and nothing is stored from a failing test. A run reports what replayed and
+  what went live, with where each live request differs from the nearest earlier recording; a
+  test that replayed is labelled with its counts. A recording no run asked for, or one a live
+  call superseded, is held for review rather than deleted: `abk replay review` lists them and
+  keeps or deletes each, `abk status` and `abk doctor` count them, and a run warns when one
+  has waited through more than `review_after_runs` runs.
 
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package
