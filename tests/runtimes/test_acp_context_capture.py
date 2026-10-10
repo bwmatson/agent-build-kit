@@ -93,3 +93,30 @@ def test_an_agent_that_sends_no_usage_update_leaves_the_context_absent_and_the_r
 
     assert result.ok
     assert result.context is None
+
+
+def test_an_update_carrying_only_a_cost_leaves_the_context_absent_and_the_run_unaffected(
+    tmp_path: Path, worktree: Path
+) -> None:
+    use_agent(tmp_path / "agent.jsonl", fills=(None, None))
+
+    result = AcpRuntime().run(_request(worktree))
+
+    assert result.ok
+    assert result.context is None
+
+
+def test_a_cost_only_update_between_real_fills_is_neither_a_fill_nor_a_compaction(
+    tmp_path: Path, worktree: Path
+) -> None:
+    use_agent(tmp_path / "agent.jsonl", fills=(150 * K, None, 170 * K))
+
+    result = AcpRuntime().run(_request(worktree))
+
+    context = result.context
+    assert context is not None
+    assert context.compactions == 0
+    assert context.used_start == 150 * K
+    assert context.used_end == 170 * K
+    assert context.added == 20 * K
+    assert context.max == CONTEXT_SIZE

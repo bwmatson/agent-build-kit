@@ -102,7 +102,7 @@ session_reuse:                # per agent role: continue the role's latest sessi
 context:
   compaction_drop_share: 0.3  # fall in the fill larger than this share of the window = a compaction
   warn_share: 0.8             # a step ending above this share of the window logs a warning
-# runtimes.<name>.context_windows: {model: tokens}, when the agent does not say its window
+# runtimes.claude_code.context_windows: {model: tokens}, when the result does not name the window
 
 limits:
   stack_depth_build_cap: 3    # longest chain of in-review PRs from main

@@ -65,24 +65,30 @@ class ResultEvent(BaseModel):
         default=None, alias="modelUsage"
     )
 
-    def context_window(self, model: str | None) -> int | None:
-        """The window `model` ran in, as the event names it; the only model's when `model` is
-        not among them. A figure that is not a whole number is absent."""
+    def context_window(self, *models: str | None) -> int | None:
+        """The window the first of `models` that the event lists ran in; the only model's
+        when none is listed. The event keys its entries by the model's full id, which is
+        neither a configured alias nor always the one model: background requests add others.
+        A figure that is not a positive whole number is absent."""
         entries = self.model_usage or {}
-        entry = entries.get(model or "") or (
-            next(iter(entries.values())) if len(entries) == 1 else {}
-        )
+        entry = next((entries[m] for m in models if m and m in entries), None)
+        if entry is None and len(entries) == 1:
+            entry = next(iter(entries.values()))
         window = entry.get("contextWindow") if isinstance(entry, dict) else None
-        return window if isinstance(window, int) and not isinstance(window, bool) else None
+        if isinstance(window, int) and not isinstance(window, bool) and window > 0:
+            return window
+        return None
 
 
-def request_fills(stdout: str) -> tuple[list[int], int]:
+def request_fills(stdout: str) -> tuple[list[int], int, str | None]:
     """The main conversation's context fill at each model request of a streamed run, in
-    order, and how many times the run said it compacted. An assistant event repeats its
-    request's message once per content block, which counts once; a sub-agent's requests
-    (those naming the tool call that started them) are not the main context."""
+    order, how many times the run said it compacted, and the model id it ran on. An assistant
+    event repeats its request's message once per content block, which counts once; a
+    sub-agent's requests (those naming the tool call that started them) are not the main
+    context."""
     fills: list[int] = []
     markers = 0
+    model: str | None = None
     seen: str | None = None
     for line in stdout.splitlines():
         event = _parse(line)
@@ -105,8 +111,9 @@ def request_fills(stdout: str) -> tuple[list[int], int]:
             if message.get("id") == seen or len(whole) != len(counts):
                 continue
             seen = message.get("id")
+            model = model or message.get("model")
             fills.append(sum(whole))
-    return fills, markers
+    return fills, markers, model
 
 
 def stream_run(

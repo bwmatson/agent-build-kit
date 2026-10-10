@@ -49,7 +49,7 @@ from agent_build_kit.runtimes.base import (
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.traced import traced
-from agent_build_kit.usage import Context, context_of
+from agent_build_kit.usage import Context, ContextBasis, context_of
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
 # shape. `on_event` is called with each JSON event as it is printed, and is
@@ -328,15 +328,20 @@ class ClaudeCodeRuntime:
 
 
 def _context(stdout: str, ended: ResultEvent | None, model: str | None) -> Context | None:
-    """How full the window was over the run: the window the result names, else the
-    configured table's for the model."""
-    fills, markers = request_fills(stdout)
-    window = ended.context_window(model) if ended is not None else None
-    if window is None and model:
-        window = config.runtime_entry(name=NAME).context_windows.get(model)
+    """How full the window was over the run: the window the result names for the model the
+    conversation ran on (else the requested one), else the configured table's, which is an
+    estimate."""
+    fills, markers, ran = request_fills(stdout)
+    window = ended.context_window(ran, model) if ended is not None else None
+    basis = ContextBasis.REPORTED
+    if window is None:
+        windows = config.runtime_entry(name=NAME).context_windows
+        window = next((windows[m] for m in (ran, model) if m and m in windows), None)
+        basis = ContextBasis.ESTIMATED
     return context_of(
         fills,
         window=window,
+        basis=basis,
         drop_share=config.active().context.compaction_drop_share,
         markers=markers,
     )

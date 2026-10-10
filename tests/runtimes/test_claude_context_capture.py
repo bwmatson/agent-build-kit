@@ -6,8 +6,10 @@ The `claude` process is faked at its boundary with the stream-json a real run pr
 confirmed against recorded streams: each assistant event carries its request's usage, repeated
 by every content block of the request; a compaction prints a `system` event with subtype
 `compact_boundary` and a `compactMetadata` naming the tokens before and after; a result's
-`modelUsage` entry carries token counts and cost, and a `contextWindow` only on some versions
-(the recorded one has none, so the configured table is what names the window there).
+`modelUsage` entry is keyed by the full model id (`claude-haiku-4-5-20251001`, not the alias the
+run was asked for) and carries token counts, cost and `contextWindow` (see
+`tests/fixtures/external/claude/result_success.txt`). The configured table is for a result that
+omits the window.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from tests.runtimes.claude_cli import (
 )
 
 K = 1000
+RECORDED = Path(__file__).resolve().parents[1] / "fixtures/external/claude/result_success.txt"
 
 
 def run(tmp_path: Path, stdout: str) -> AgentResult:
@@ -93,6 +96,41 @@ def test_a_result_without_a_window_takes_the_configured_tables_figure(tmp_path: 
 
     assert result.context is not None
     assert result.context.max == 200 * K
+    assert result.context.basis == ContextBasis.ESTIMATED
+
+
+def test_the_window_is_found_under_the_model_the_conversation_ran_on_not_the_alias_asked_for(
+    tmp_path: Path,
+) -> None:
+    full = "claude-sonnet-5-5-20260101"
+    usage = {
+        full: {"inputTokens": 4, "contextWindow": 1000 * K},
+        "claude-haiku-4-5-20251001": {"inputTokens": 2, "contextWindow": 200 * K},
+    }
+    request = AgentRequest(
+        prompt="Implement group 1.", role="implement", cwd=tmp_path, model="sonnet"
+    )
+    stdout = requests_filling(tmp_path, 150 * K, model=full, model_usage=usage)
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=stdout)).run(request)
+
+    assert result.context is not None
+    assert result.context.max == 1000 * K
+    assert result.context.basis == ContextBasis.REPORTED
+
+
+def test_the_window_in_a_recorded_result_is_read(tmp_path: Path) -> None:
+    _, _, rest = RECORDED.read_text().partition("--- stdout\n")
+    recorded = rest.partition("--- stderr\n")[0]
+    ran = requests_filling(tmp_path, 30 * K, model="claude-haiku-4-5-20251001")
+    stdout = "".join(ran.splitlines(keepends=True)[:-1]) + recorded
+    request = AgentRequest(prompt="say ok", role="implement", cwd=tmp_path, model="haiku")
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=stdout)).run(request)
+
+    assert result.context is not None
+    assert result.context.max == 200 * K
+    assert result.context.basis == ContextBasis.REPORTED
 
 
 def test_a_window_of_the_wrong_type_reads_as_absent_and_the_call_still_succeeds(

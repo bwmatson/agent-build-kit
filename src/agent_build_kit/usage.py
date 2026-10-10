@@ -70,12 +70,13 @@ def context_of(
     *,
     window: int | None,
     drop_share: float,
+    basis: ContextBasis,
     markers: int = 0,
 ) -> Context | None:
     """The context use of a call whose requests left `fills` tokens in the window, in order;
     None when there is no request. A compaction is each of the runtime's own `markers`, and with
     none, each fall between consecutive requests larger than `drop_share` of the window (of
-    the peak, where the window is not known)."""
+    the peak, where the window is not known). `basis` says where the window came from."""
     if not fills:
         return None
     reference = window or max(fills)
@@ -87,5 +88,5 @@ def context_of(
         peak=max(fills),
         compactions=markers or drops,
         max=window,
-        basis=ContextBasis.REPORTED if window else ContextBasis.UNKNOWN,
+        basis=basis if window else ContextBasis.UNKNOWN,
     )

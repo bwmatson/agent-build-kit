@@ -63,7 +63,8 @@ carries none.
 in a `usage_update`, and the cost `--cost` reports before the answer adds to it, as the
 protocol's cumulative cost does.
 `--fills A,B,C` has the agent send a `usage_update` per figure before the answer, each saying
-that many tokens are in the context of a 200000-token window; `--prior-fill N` makes a resumed
+that many tokens are in the context of a 200000-token window (`none` is an update carrying only
+a cost, its `used` and `size` both 0); `--prior-fill N` makes a resumed
 session replay one when it is loaded, as an agent that remembers the session does.
 `--cost USD|EUR` has the agent send a `usage_update` before the answer, with
 the session's cumulative cost in that currency, as the protocol's own update
@@ -290,7 +291,7 @@ class FakeAgent:
         sessions: tuple[str, ...] = (),
         page_size: int = 100,
         prior_cost: float = 0.0,
-        fills: tuple[int, ...] = (),
+        fills: tuple[int | None, ...] = (),
         prior_fill: int = 0,
     ) -> None:
         self._prior_cost = prior_cost
@@ -473,7 +474,17 @@ class FakeAgent:
         )
         await send(update_agent_thought_text(THOUGHT))
         for fill in self._fills:
-            await send(UsageUpdate(session_update="usage_update", used=fill, size=CONTEXT_SIZE))
+            if fill is None:
+                # An agent that reports only its cost: the schema requires both figures.
+                update = UsageUpdate(
+                    session_update="usage_update",
+                    used=0,
+                    size=0,
+                    cost=Cost(amount=COST_AMOUNT, currency="USD"),
+                )
+            else:
+                update = UsageUpdate(session_update="usage_update", used=fill, size=CONTEXT_SIZE)
+            await send(update)
         if self._cost is not None:
             await send(
                 UsageUpdate(
@@ -934,7 +945,7 @@ def command(
     sessions: tuple[str, ...] = (),
     page_size: int | None = None,
     prior_cost: float | None = None,
-    fills: tuple[int, ...] = (),
+    fills: tuple[int | None, ...] = (),
     prior_fill: int | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
@@ -979,7 +990,7 @@ def command(
     if prior_cost is not None:
         argv += ["--prior-cost", str(prior_cost)]
     if fills:
-        argv += ["--fills", ",".join(map(str, fills))]
+        argv += ["--fills", ",".join("none" if f is None else str(f) for f in fills)]
     if prior_fill is not None:
         argv += ["--prior-fill", str(prior_fill)]
     return argv
@@ -1007,7 +1018,7 @@ def use_agent(
     sessions: tuple[str, ...] = (),
     page_size: int | None = None,
     prior_cost: float | None = None,
-    fills: tuple[int, ...] = (),
+    fills: tuple[int | None, ...] = (),
     prior_fill: int | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
@@ -1106,7 +1117,7 @@ def main() -> None:
         sessions=tuple(filter(None, args.sessions.split(","))),
         page_size=args.page_size,
         prior_cost=args.prior_cost,
-        fills=tuple(int(x) for x in args.fills.split(",") if x),
+        fills=tuple(None if x == "none" else int(x) for x in args.fills.split(",") if x),
         prior_fill=args.prior_fill,
     )
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})

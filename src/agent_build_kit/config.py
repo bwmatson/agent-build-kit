@@ -224,7 +224,8 @@ class RuntimeConfig(Frozen):
     # asked to, and never interprets it.
     policy_fix: list[str] | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
-    # The context window, in tokens, of each model, for when the agent does not say.
+    # The context window, in tokens, of each model, for when the agent does not say
+    # (read by the Claude Code runtime only).
     context_windows: dict[str, int] = {}
 
     # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.

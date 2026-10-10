@@ -84,8 +84,10 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # fails at load; only the selected runtime's
                                 # entry is checked.
   claude_code:                  # the Claude subscription: a five-hour session
-    context_windows: {}         # model name -> window in tokens, for when the agent's
-                                # result does not name it (any runtime)
+    context_windows: {}         # model id or alias -> window in tokens, for when the
+                                # result does not name it (read by this runtime only;
+                                # an acp agent says its own window); recorded as an
+                                # estimate
     limits:                     # and a seven-day week fill independently, so
       session:                  # each has its own section, with the same names
         usage_pause_pct: 70     # % of the window at which no new unit starts,

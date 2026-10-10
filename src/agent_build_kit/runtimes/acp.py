@@ -112,7 +112,7 @@ from agent_build_kit.runtimes.base import (
     ToolPolicy,
 )
 from agent_build_kit.runtimes.traced import traced
-from agent_build_kit.usage import Usage, context_of
+from agent_build_kit.usage import ContextBasis, Usage, context_of
 
 NAME = "acp"
 
@@ -661,8 +661,11 @@ class _Session:
             )
             self._flush_unrecorded(keep=streaming)
         if isinstance(update, UsageUpdate):
-            self.fills.append(update.used)
-            self.window = update.size
+            # `used` and `size` are required by the schema, so an update that carries only
+            # a cost arrives as zeros, which are no figure.
+            if update.used or update.size:
+                self.fills.append(update.used)
+            self.window = update.size or self.window
             if update.cost is not None:
                 self.cost_usd = update.cost.amount if update.cost.currency == "USD" else None
         elif isinstance(update, AgentThoughtChunk):
@@ -1207,6 +1210,7 @@ def _spent(raw: Any, session: _Session) -> dict:
             session.fills,
             window=session.window,
             drop_share=config.active().context.compaction_drop_share,
+            basis=ContextBasis.REPORTED,
         ),
     }
     cost = session.cost_usd

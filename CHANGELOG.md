@@ -73,7 +73,7 @@
   `abk report --context` shows it per step kind and per session, with the steps that add the
   most; a step ending above `context.warn_share` of the window (0.8) logs a warning, and
   `context.compaction_drop_share` (0.3) sets what counts as a compaction where the runtime
-  has no marker. The window comes from the agent or from `runtimes.<name>.context_windows`.
+  has no marker. The window comes from the agent or, for Claude Code, from `runtimes.claude_code.context_windows`.
   Telemetry gains the gauges `abk.agent.context_used` and `abk.agent.context_max` and the
   counter `abk.agent.compactions`. Rows written before this have no context and it cannot be
   rebuilt from retained transcripts.

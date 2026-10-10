@@ -1090,9 +1090,13 @@ at the call's first request), `used_end` (at its last: input plus cache read plu
 `compactions`, `max` (the window) and `basis` (`reported`, `estimated` or `unknown`). Claude Code's
 fill comes from each `assistant` event's usage (a request repeated by its content blocks counts
 once; a sub-agent's requests, which name the tool call that started them, are not the main
-context); the window is the result's `modelUsage[model].contextWindow` when it has one, else
-`runtimes.<name>.context_windows`. An ACP agent's fill is its `usage_update`s' `used` and `size`;
-a resumed session starts from the figure the agent replays on loading it. A compaction is the
+context); the window is the result's `modelUsage[model].contextWindow` for the model the
+conversation ran on (read off its `assistant` events; the result keys its entries by full model
+id and may list background models too), else `runtimes.claude_code.context_windows`, whose
+figure is recorded with `basis` `estimated`. An ACP agent's fill is its `usage_update`s' `used` and `size`;
+an update carrying neither figure (zeros) is no figure. A resumed session starts from the figure
+the agent replays on loading it; that replay is assumed, so an agent that replays none starts the
+step at its first update. A compaction is the
 runtime's own marker (Claude Code's `compact_boundary` event) where the stream has one, else a
 fall in the fill between requests larger than `context.compaction_drop_share` of the window. A
 figure the runtime does not give is absent with `basis` `unknown`, never zero, and never fails a
