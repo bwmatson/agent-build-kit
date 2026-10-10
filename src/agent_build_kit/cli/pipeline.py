@@ -24,7 +24,7 @@ import json
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -1895,6 +1895,11 @@ def _write_planned(inst: Installation, records: dict[str, dict]) -> None:
     (inst.state_dir / "planned.json").write_text(json.dumps(records, indent=2) + "\n")
 
 
+def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
+    """Set (or, for None, remove) recorded plans by change, under a lock, atomically."""
+    raise NotImplementedError
+
+
 def has_identity(inst: Installation, repo: str) -> bool:
     """Whether git in `repo` knows who its commits belong to.
 
@@ -2670,6 +2675,11 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     return requeue(inst, args.unit, mode, say=say)
 
 
+def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
+    """Plan the named, `--all` or `--failed` changes again, now."""
+    raise NotImplementedError
+
+
 def _approval(inst: Installation, unit: StoredUnit) -> str | tuple[int, str]:
     """Why `unit` cannot be approved as stored, or the round and head to approve."""
     from agent_build_kit.serve.review import ReviewStore, branch_tip
@@ -2900,6 +2910,17 @@ def register(sub: argparse._SubParsersAction) -> None:
         "(a failed check), instead of resuming into the same failure",
     )
     requeue.set_defaults(func=cmd_requeue)
+
+    replan = sub.add_parser("replan", help="plan changes again now, whatever their recorded plan")
+    replan.add_argument("changes", nargs="*", help="change names, or unit ids")
+    replan.add_argument("--all", action="store_true", help="every active change")
+    replan.add_argument(
+        "--failed", action="store_true", help="every change whose last plan failed or gave up"
+    )
+    replan.add_argument(
+        "--forget", action="store_true", help="only clear the recorded plans; make no model call"
+    )
+    replan.set_defaults(func=cmd_replan)
 
     approve = sub.add_parser(
         "approve", help="record your approval of a unit's current review round"
