@@ -473,6 +473,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | skills `<target>` | | an installed abk skill is older than the framework |
 | `<repo> <tool> version` | | a tool in `pyproject.toml`'s dependency groups is also run from a hook repository with its own `rev` in `.pre-commit-config.yaml`, so two versions can disagree. Only checked for repos with both files |
 | `<repo> <tool> hook` | | a `repo: local`, `language: system` hook runs `uv run <tool>` for a tool absent from the dependency groups, so it fails. Only checked for repos with both files |
+| notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command `abk init` offers), or is `command` and the `show` program is not on PATH. Not listed while the provider is `off` | |
 | telemetry traces / telemetry metrics | | `ABK_OTEL_ENABLED` is set and the signal has no endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal one), or the endpoint does not answer. Only checked when enabled |
 
 ### `abk config [--show | --path]`

@@ -493,9 +493,9 @@ INSTALL = [
     "powershell.exe",
     "-NoProfile",
     "-Command",
-    "Install-Module BurntToast -Scope CurrentUser",
+    "Install-Module BurntToast -RequiredVersion 0.8.5 -Scope CurrentUser -Force",
 ]
-INSTALL_TEXT = "powershell.exe -NoProfile -Command Install-Module BurntToast -Scope CurrentUser"
+INSTALL_TEXT = " ".join(INSTALL)
 
 
 class Conversation:
@@ -611,6 +611,23 @@ def test_another_host_is_asked_nothing_about_notifications(
 ) -> None:
     planning = recognised_planning(tmp_path / "planning")
     talk = converse(monkeypatch, capsys, Host.OTHER)
+
+    assert main(init_args(planning, app)) == 0
+
+    assert not any("notification" in prompt.lower() for prompt in talk.prompts)
+    assert talk.ran == []
+    assert provider_written(planning) is NotificationProvider.OFF
+
+
+def test_a_kept_abk_yaml_is_asked_nothing_about_notifications(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    assert main([*init_args(planning, app), "--yes"]) == 0
+    talk = converse(monkeypatch, capsys, Host.WSL, "y", "y")
 
     assert main(init_args(planning, app)) == 0
 

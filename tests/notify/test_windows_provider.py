@@ -6,6 +6,7 @@ The cmdlet names are not pinned here: they are settled by the hand-run acceptanc
 
 from __future__ import annotations
 
+import base64
 import subprocess
 
 import pytest
@@ -13,9 +14,10 @@ import pytest
 from agent_build_kit.config import NotificationProvider, NotificationsConfig
 from agent_build_kit.notify.build import build_notifier
 from agent_build_kit.notify.provider import ProviderError
-from agent_build_kit.notify.windows import WindowsNotifier
+from agent_build_kit.notify.windows import BURNTTOAST_VERSION, WindowsNotifier
 
 AWKWARD_TITLE = 'It\'s "ready" for $(review); `now`'
+NON_ASCII_TITLE = "Prêt à relire ✓ 日本語"
 
 
 class Runner:
@@ -32,8 +34,9 @@ class Runner:
 
 
 def script_of(argv: list[str]) -> str:
-    """Everything after the program and its flags: the script PowerShell is asked to run."""
-    return " ".join(argv[2:])
+    """The script powershell.exe runs: `-EncodedCommand` is base64 of its UTF-16LE text."""
+    assert argv[:3] == ["powershell.exe", "-NoProfile", "-EncodedCommand"]
+    return base64.b64decode(argv[-1]).decode("utf-16-le")
 
 
 def literal(text: str) -> str:
@@ -49,7 +52,7 @@ def test_show_runs_powershell_without_a_profile_with_no_shell() -> None:
     )
 
     ((argv, kwargs),) = runner.calls
-    assert argv[:2] == ["powershell.exe", "-NoProfile"]
+    assert argv[:3] == ["powershell.exe", "-NoProfile", "-EncodedCommand"]
     assert not kwargs.get("shell")
 
 
@@ -80,13 +83,42 @@ def test_quotes_and_shell_metacharacters_in_a_value_cannot_break_out_of_its_stri
     assert literal(AWKWARD_TITLE) in script_of(argv)
 
 
+def test_a_non_ascii_title_reaches_powershell_intact() -> None:
+    runner = Runner()
+
+    WindowsNotifier(run=runner).show("id", NON_ASCII_TITLE, "b", "https://x.test")
+
+    ((argv, _),) = runner.calls
+    assert literal(NON_ASCII_TITLE) in script_of(argv)
+
+
+def test_scripts_import_the_pinned_module_version_first() -> None:
+    runner = Runner()
+    notifier = WindowsNotifier(run=runner)
+
+    notifier.show("id", "t", "b", "https://x.test")
+    notifier.clear("id")
+
+    import_line = f"Import-Module BurntToast -RequiredVersion {BURNTTOAST_VERSION};"
+    for argv, _ in runner.calls:
+        assert script_of(argv).startswith(import_line)
+
+
+def test_a_card_without_a_link_has_no_button() -> None:
+    runner = Runner()
+
+    WindowsNotifier(run=runner).show("id", "t", "b", "")
+
+    ((argv, _),) = runner.calls
+    assert "New-BTButton" not in script_of(argv)
+
+
 def test_clear_names_the_id_and_nothing_of_the_card() -> None:
     runner = Runner()
 
     WindowsNotifier(run=runner).clear("unit:review:feature/1")
 
     ((argv, _),) = runner.calls
-    assert argv[:2] == ["powershell.exe", "-NoProfile"]
     assert literal("unit:review:feature/1") in script_of(argv)
 
 

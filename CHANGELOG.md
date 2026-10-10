@@ -11,8 +11,9 @@
   none. The `command` provider runs a configured argv template with `{id}`, `{title}`,
   `{body}` and `{link}`, never through a shell. Off by default, and a provider that fails is
   logged and never fails a tick. A `windows` provider raises toasts through the BurntToast
-  module from WSL or Windows; `abk init` offers it on those hosts, showing the install command
-  before running it only on a yes, and `abk doctor` checks the chosen provider's prerequisites.
+  module (pinned to the release its scripts are written for) from WSL or Windows; `abk init`
+  offers it on those hosts when it writes a new `abk.yaml`, showing the install command before
+  running it only on a yes, and `abk doctor` checks the chosen provider's prerequisites.
 
 - A unit in review that follows a changing predecessor back to `planned` now does so
   through an event to its thread, so the thread records the move and stays waiting for

@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import base64
 import subprocess
 from collections.abc import Callable
 
 from agent_build_kit.notify.provider import ProviderError
 
+# The module release whose cmdlets the scripts below call; the cmdlet names and parameters
+# changed between releases, so the install, the import and `abk doctor` all pin it.
+BURNTTOAST_VERSION = "0.8.5"
 # The one command that installs the module; `abk init` offers it and `abk doctor` names it
-# as the fix.
+# as the fix. `-Force` keeps it from stopping at the NuGet and untrusted-repository prompts.
 INSTALL_COMMAND = [
     "powershell.exe",
     "-NoProfile",
     "-Command",
-    "Install-Module BurntToast -Scope CurrentUser",
+    f"Install-Module BurntToast -RequiredVersion {BURNTTOAST_VERSION} -Scope CurrentUser -Force",
 ]
 # Lists the module when it is installed and prints nothing when it is not.
 MODULE_CHECK_COMMAND = [
@@ -22,6 +26,9 @@ MODULE_CHECK_COMMAND = [
     "-Command",
     "Get-Module -ListAvailable BurntToast",
 ]
+
+
+_IMPORT = f"Import-Module BurntToast -RequiredVersion {BURNTTOAST_VERSION};"
 
 
 class WindowsNotifier:
@@ -36,17 +43,22 @@ class WindowsNotifier:
 
     def show(self, id: str, title: str, body: str, link: str) -> None:
         script = (
+            f"{_IMPORT} "
             f"New-BurntToastNotification -Text {_literal(title)}, {_literal(body)} "
-            f"-UniqueIdentifier {_literal(id)} "
-            f"-Button (New-BTButton -Content 'Open' -Arguments {_literal(link)})"
+            f"-UniqueIdentifier {_literal(id)}"
         )
+        if link:
+            script += f" -Button (New-BTButton -Content 'Open' -Arguments {_literal(link)})"
         self._execute(script)
 
     def clear(self, id: str) -> None:
-        self._execute(f"Remove-BTNotification -Tag {_literal(id)}")
+        self._execute(f"{_IMPORT} Remove-BTNotification -Tag {_literal(id)}")
 
     def _execute(self, script: str) -> None:
-        argv = ["powershell.exe", "-NoProfile", "-Command", script]
+        # The script travels as base64 UTF-16LE, so the Windows command line never re-parses
+        # its quotes, backticks or non-ASCII text.
+        encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+        argv = ["powershell.exe", "-NoProfile", "-EncodedCommand", encoded]
         run = self._run or subprocess.run
         try:
             done = run(argv, capture_output=True, timeout=self._timeout, check=False)

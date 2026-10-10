@@ -156,6 +156,17 @@ is, and the reason is printed. Finally the next steps: review `abk.yaml`
 in for every owner, copy `.env.example` to `.env`, run `abk doctor`, install
 the timers with `abk install-timers`.
 
+### Notifications
+
+On WSL or Windows (and not with `--yes`), init asks `raise desktop notifications when a unit
+needs you?`. A yes sets `notifications.provider: windows`, prints the install command for the
+BurntToast module, and asks `install it now?` before running it. The command is pinned to the
+module release the toast scripts are written for (`BURNTTOAST_VERSION`, 0.8.5) and passes
+`-Force` so PowerShell does not stop at its NuGet and untrusted-repository prompts, which the
+captured output would hide; a failure prints the command's exit code and stderr. Other hosts
+are asked nothing. An `abk.yaml` that is kept is asked nothing either, since init only fills
+it; set `notifications` by hand there.
+
 ## The environment section
 
 Init is the only place that guesses an `environment` section. It reads marker

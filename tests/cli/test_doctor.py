@@ -957,22 +957,27 @@ def test_doctor_reports_a_failing_account_call_as_a_failure_naming_the_source(
     assert "gh auth token --user example" in checks["forge app"].detail
 
 
-INSTALL_FIX = "powershell.exe -NoProfile -Command Install-Module BurntToast -Scope CurrentUser"
+INSTALL_FIX = (
+    "powershell.exe -NoProfile -Command "
+    "Install-Module BurntToast -RequiredVersion 0.8.5 -Scope CurrentUser -Force"
+)
 
 
 class PowerShell(Answers):
     """`Answers`, plus what `powershell.exe` lists: nothing when the module is missing."""
 
-    def __init__(self, *, module: bool) -> None:
+    def __init__(self, *, module: bool, version: str = "0.8.5") -> None:
         super().__init__()
         self.module = module
+        self.version = version
 
     def __call__(self, argv, **kwargs):
         if argv[0] != "powershell.exe":
             return super().__call__(argv, **kwargs)
         self.commands.append(list(argv))
         listing = (
-            "ModuleType Version Name\n---------- ------- ----\nScript     1.0     BurntToast\n"
+            "ModuleType Version Name\n---------- ------- ----\n"
+            f"Script     {self.version}     BurntToast\n"
         )
         return subprocess.CompletedProcess(argv, 0, listing if self.module else "", "")
 
@@ -999,6 +1004,20 @@ def test_a_missing_toast_module_fails_with_the_install_command_as_the_fix(worksp
     notifications(workspace, "  provider: windows\n")
 
     checks = run_doctor(workspace / "abk.yaml", run=PowerShell(module=False), which=which_all)
+
+    (check,) = notification_checks(checks)
+    assert check.status == "FAIL"
+    assert check.fix == INSTALL_FIX
+
+
+def test_another_version_of_the_toast_module_fails_with_the_install_command(
+    workspace: Path,
+) -> None:
+    notifications(workspace, "  provider: windows\n")
+
+    checks = run_doctor(
+        workspace / "abk.yaml", run=PowerShell(module=True, version="1.2.0"), which=which_all
+    )
 
     (check,) = notification_checks(checks)
     assert check.status == "FAIL"

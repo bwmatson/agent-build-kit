@@ -57,7 +57,11 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
-from agent_build_kit.notify.windows import INSTALL_COMMAND, MODULE_CHECK_COMMAND
+from agent_build_kit.notify.windows import (
+    BURNTTOAST_VERSION,
+    INSTALL_COMMAND,
+    MODULE_CHECK_COMMAND,
+)
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.shell import git_out
@@ -412,9 +416,18 @@ def _notifications(inst: Installation, run: Run, which: Which) -> list[Check]:
                 result = run(MODULE_CHECK_COMMAND, capture_output=True, text=True, check=False)
             except OSError as error:
                 return [_fail("notifications", f"powershell.exe did not run: {error}", fix)]
-            if result.returncode or "BurntToast" not in result.stdout:
-                return [_fail("notifications", "the BurntToast module is not installed", fix)]
-            return [_ok("notifications", "BurntToast module installed")]
+            listed = re.search(
+                rf"(?<![\w.]){re.escape(BURNTTOAST_VERSION)}(?![\w.])", result.stdout
+            )
+            if result.returncode or "BurntToast" not in result.stdout or not listed:
+                return [
+                    _fail(
+                        "notifications",
+                        f"the BurntToast module {BURNTTOAST_VERSION} is not installed",
+                        fix,
+                    )
+                ]
+            return [_ok("notifications", f"BurntToast module {BURNTTOAST_VERSION} installed")]
         case NotificationProvider.COMMAND:
             try:
                 program = shlex.split(notifications.command.show)[0]

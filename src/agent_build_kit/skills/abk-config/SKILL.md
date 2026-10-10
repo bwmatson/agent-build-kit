@@ -218,6 +218,16 @@ verify:
     # VAR: {from: yaml, file: /path/f.yaml, path: a.b.c, take: last-word,
     #       strip_prefix: ""}
     # VAR: {from: command, argv: [cmd, arg]}
+
+notifications:                # tell a person when a unit waits on them
+  provider: off               # off | command | windows
+  delay_minutes: 10           # a card waits this long before it is shown
+  remind_after_minutes: 30    # shown again this often while it stands; 0 never
+  command:                    # provider `command`: argv templates, never a shell
+    show: ""                  # {id} {title} {body} {link}; required for `command`
+    clear: ""                 # {id} only
+  # provider `windows`: toasts through the BurntToast module, pinned to 0.8.5
+  # (the cmdlet names changed between releases); `abk init` offers to install it.
 ```
 
 ## What `abk doctor` checks
@@ -241,6 +251,7 @@ is 1 when anything failed.
 | rules (info/warn) | Read from the `# abk-rules: vN` stamp at the top of `openspec/config.yaml`, never from the wording: reword the rules freely. `info` = no stamp, so nothing can be concluded; `warn` = the framework has added rules since that version (it lists them) or the stamp is newer than the framework. `abk init --update-rules` adds what they added to the end of the `context:` and restamps the file, changing nothing else. |
 | abk.yaml gaps (warn) | A service directory with no deploy rule, a rule whose prefix no longer exists, a dev-stack script without `dev_stack`, or a `live_written` path that is not a directory. |
 | changelog (warn) | A repo's `changelog` path names a file its checkout does not have. Not checked when `changelog: null`. |
+| notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command), or is `command` and the `show` program is not on PATH. Nothing is checked while the provider is `off`. |
 | skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
 
 ## Changing the config

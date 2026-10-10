@@ -348,7 +348,10 @@ def _notification_provider() -> NotificationProvider:
             INSTALL_COMMAND, capture_output=True, text=True, check=False
         )
         if result.returncode:
-            print(f"abk init: `{command}` exited {result.returncode}", file=sys.stderr)
+            print(
+                f"abk init: `{command}` exited {result.returncode}: {result.stderr.strip()}",
+                file=sys.stderr,
+            )
     return NotificationProvider.WINDOWS
 
 
@@ -401,7 +404,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
 
-    if not args.yes:
+    # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
+    if not args.yes and not keeps:
         config = config.model_copy(
             update={"notifications": NotificationsConfig(provider=_notification_provider())}
         )
