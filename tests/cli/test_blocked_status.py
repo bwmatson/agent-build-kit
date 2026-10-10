@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.units import FAILED
+from agent_build_kit.pipeline.units import FAILED, PLANNED
 from tests.cli.test_tick_scheduling import (  # noqa: F401
     Builder,
     builder,
@@ -27,8 +27,9 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 def full_queue_with_a_blocked_unit(builder: Builder) -> None:  # noqa: F811
     """Two places held: a failed prerequisite and a unit in review, and a
     started unit that waits on the failed one."""
-    builder.store.upsert([stored("base/1"), stored("wait/1", depends_on=("base/1",), branch="x")])
+    builder.store.upsert([stored("base/1"), stored("wait/1", depends_on=("base/1",))])
     builder.store.set_state("base/1", FAILED)
+    builder.store.set_state("wait/1", PLANNED, branch="spec/wait/1")
     open_pr(builder, "rev/1", 11)
 
 

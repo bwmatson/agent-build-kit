@@ -536,9 +536,20 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     return waiting
 
 
+_BLOCKING_CAUSES = ("gated", "upstream_went_back")
+
+
 def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
-    """Whether a planned unit waits on another unit, so it holds no place."""
-    raise NotImplementedError
+    """Whether a planned unit waits on another unit, so it holds no place.
+
+    It waits on a dependency or a predecessor that has not been reviewed or
+    merged (`waiting_on`), or its cause says it was gated or its upstream went
+    back. A backoff, a lease, a limited tick and a usage pause are not waits on
+    another unit, and derive from the units each time, as `waiting_on` does.
+    """
+    if unit.state != PLANNED:
+        return False
+    return bool(waiting_on(unit, graph)) or getattr(unit, "cause", None) in _BLOCKING_CAUSES
 
 
 def unmet_gates(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
@@ -605,7 +616,7 @@ def later_groups_by_change(unit: Unit, graph: Sequence[Unit]) -> dict[str, tuple
     return later
 
 
-def in_progress(unit: Unit) -> bool:
+def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     """Whether the unit has been started and not finished (docs/architecture.md).
 
     Running, in review and failed units are; so is a planned or unplanned one
@@ -619,12 +630,33 @@ def in_progress(unit: Unit) -> bool:
     person releases it, whether a reviewer, the review loop or the operator
     held it, and a unit set aside that way should not keep new work from
     starting. Requeued, it counts again from its next start.
+
+    A blocked planned unit (`blocked`, judged against `graph`) does not count
+    however much work it has, and counts again when it is no longer blocked.
     """
     if unit.state in (MERGED, CLOSED, SATISFIED, HELD):
         return False
     if unit.state in (RUNNING, IN_REVIEW, FAILED):
         return True
-    return _worked_on(unit)
+    return _worked_on(unit) and not blocked(unit, graph)
+
+
+def uncounted(graph: Sequence[Unit]) -> list[Unit]:
+    """The blocked units that have work, so would count were they not blocked."""
+    return [unit for unit in graph if blocked(unit, graph) and _worked_on(unit)]
+
+
+def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
+    """Whether a planned unit that was blocked, and no longer is, must wait for
+    room: it has work and dependencies but no pull request, and was not paused
+    by a usage pause. Its own place is not one it already holds."""
+    return (
+        unit.state == PLANNED
+        and in_progress(unit, graph)
+        and getattr(unit, "pr", None) is None
+        and bool(unit.depends_on)
+        and getattr(unit, "cause", None) != "usage"
+    )
 
 
 def _worked_on(unit: Unit) -> bool:
@@ -654,7 +686,7 @@ def in_progress_label(unit: Unit) -> str:
 
 def start_room(graph: Sequence[Unit], limit: int) -> int:
     """How many never-started units may begin before `limit` is reached."""
-    return max(0, limit - sum(1 for unit in graph if in_progress(unit)))
+    return max(0, limit - sum(1 for unit in graph if in_progress(unit, graph)))
 
 
 def _start_rank(unit: Unit) -> int:
@@ -671,6 +703,27 @@ def _start_key(unit: Unit, graph: Sequence[Unit], excluded: Collection[str]) -> 
     if rank < 2:
         return (rank, urgency)
     return (rank, urgency, effective_age(unit, graph, excluded))
+
+
+def _handoff(ready: Sequence[Unit], graph: Sequence[Unit], excluded: Collection[str]) -> list[Unit]:
+    """The ready units that take the places of blocked units, in the order to start them.
+
+    Each blocked unit that has work and would otherwise count frees one place,
+    and each place goes to one ready unit that has never run and that the blocked
+    unit waits on; one that several blocked units wait on takes one place. Several
+    are ordered by effective priority, then effective age.
+    """
+    freed = {unit.id for unit in uncounted(graph)}
+    chosen: list[Unit] = []
+    for unit in sorted(
+        (unit for unit in ready if _start_rank(unit) == 2),
+        key=lambda unit: _start_key(unit, graph, excluded),
+    ):
+        waiters = [w.id for w in waiting_on_me(unit, graph, excluded) if w.id in freed]
+        if waiters:
+            freed.discard(waiters[0])
+            chosen.append(unit)
+    return chosen
 
 
 def ready_units(
@@ -710,7 +763,18 @@ def ready_units(
     if not slots:
         return []
 
-    room = None if max_units_in_progress is None else start_room(graph, max_units_in_progress)
+    # A unit that was blocked and no longer is draws on the room like a new one.
+    room = (
+        None
+        if max_units_in_progress is None
+        else max(
+            0,
+            max_units_in_progress
+            - sum(
+                1 for unit in graph if in_progress(unit, graph) and not _waits_for_room(unit, graph)
+            ),
+        )
+    )
 
     ready: list[Unit] = []
     for unit in graph:
@@ -725,11 +789,18 @@ def ready_units(
 
         ready.append(unit)
 
+    handoff = _handoff(ready, graph, excluded)
+    chosen = {unit.id for unit in handoff}
+    rest = sorted(
+        (unit for unit in ready if unit.id not in chosen),
+        key=lambda unit: _start_key(unit, graph, excluded),
+    )
+
     started: list[Unit] = []
-    for unit in sorted(ready, key=lambda unit: _start_key(unit, graph, excluded)):
+    for unit in [*handoff, *rest]:
         if len(started) == slots:
             break
-        if room is not None and not in_progress(unit):
+        if room is not None and (not in_progress(unit, graph) or _waits_for_room(unit, graph)):
             if not room:
                 continue
             room -= 1

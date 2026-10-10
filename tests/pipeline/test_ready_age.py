@@ -144,14 +144,14 @@ def test_with_one_place_free_an_unblocker_does_not_take_it_before_an_older_unit(
     assert started(graph, slots=2, max_units_in_progress=2) == ["older/1"]
 
 
-def test_no_place_held_by_a_waiting_unit_is_lent_to_its_prerequisite() -> None:
+def test_the_place_of_a_waiting_unit_that_has_work_goes_to_its_prerequisite() -> None:
     graph = [
         new("review/1", state=IN_REVIEW, pr=3),
         new("old/1", depends_on=("base/1",), branch="spec/old/1"),
         new("base/1"),
     ]
 
-    assert started(graph, slots=2, max_units_in_progress=2) == []
+    assert started(graph, slots=2, max_units_in_progress=2) == ["base/1"]
 
 
 @pytest.mark.parametrize("finished", [MERGED, CLOSED])

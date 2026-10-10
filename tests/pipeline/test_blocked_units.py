@@ -219,10 +219,11 @@ def test_the_handoff_does_not_pass_the_cap_on_units_running_at_once() -> None:
 
 
 def test_the_handoff_skips_a_prerequisite_the_round_leaves_out() -> None:
+    """A round shows the units it leaves out (a lease, a backoff, `--only`) as held."""
     graph = [
         review("busy/1"),
         worked("blocked/1", depends_on=("base/1",)),
-        new("base/1"),
+        new("base/1", state=HELD),
         new("next/1"),
     ]
 
