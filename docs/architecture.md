@@ -466,8 +466,8 @@ In each round, after the fetch and poll, a unit in review is likewise set back t
 while a same-repo predecessor's branch is changing (a commit beyond its pushed head, rebasing, or
 itself planned for a changing upstream or a moved base). It keeps its approval, branch and pull
 request, and restacks onto the predecessor's new head when it is released. The move is an
-`upstream_changed` event delivered to the unit's thread, which keeps waiting at `await_review`
-for the release; a unit with no thread is written to the store directly. The server's unit
+`upstream_changed` event delivered to the unit's thread, which records it and stays waiting at
+`await_review`; the release is unchanged. A unit with no thread is written to the store directly. The server's unit
 summary and the `abk.units` gauge read the stored state; `status` carries the derived name.
 Every change that stops a unit, holds it or sends it back (and a merge, a close, a
 release, a failure) records a `cause`, a fixed set of values, on its history entry; the

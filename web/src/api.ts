@@ -13,7 +13,7 @@ export interface UnitSummary {
 
 export interface Related {
   id: string;
-  state: string;
+  status: string;
 }
 
 export interface HistoryEntry {

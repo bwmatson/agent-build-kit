@@ -104,9 +104,9 @@ def test_a_unit_lists_its_dependencies_and_merge_gates_with_their_states(
     gated = pipeline.get("/api/units/feature/3").json()
     stacked = pipeline.get("/api/units/feature/4").json()
 
-    assert gated["depends_on"] == [{"id": "feature/2", "state": "in_review"}]
-    assert gated["merge_gates"] == [{"id": "feature/2", "state": "in_review"}]
-    assert stacked["depends_on"] == [{"id": "feature/2", "state": "in_review"}]
+    assert gated["depends_on"] == [{"id": "feature/2", "status": "in_review"}]
+    assert gated["merge_gates"] == [{"id": "feature/2", "status": "in_review"}]
+    assert stacked["depends_on"] == [{"id": "feature/2", "status": "in_review"}]
     assert stacked["merge_gates"] == []
 
 

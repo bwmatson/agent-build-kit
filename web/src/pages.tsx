@@ -54,7 +54,7 @@ function RelatedList({ label, items, link }: { label: string; items: Related[]; 
     <ul aria-label={label}>
       {items.map((item) => (
         <li key={item.id}>
-          {link ? <Link to={unitPath(item.id)}>{item.id}</Link> : item.id} {item.state}
+          {link ? <Link to={unitPath(item.id)}>{item.id}</Link> : item.id} {item.status}
         </li>
       ))}
     </ul>

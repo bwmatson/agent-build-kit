@@ -1010,7 +1010,7 @@ def run_round(
         _step("planning", plan_all, inst, store=store)
     _step("linking needs", link_needs, inst, store=store)
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
-    _step("following predecessors", _follow_predecessors, inst, store)
+    _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
     _step("releasing gated units", release_gated, inst, store, in_flight=spared)
     units = store.all()
@@ -1697,15 +1697,15 @@ def _refresh(inst: Installation, *, store: UnitStore) -> None:
         log(f"poll skipped — {type(error).__name__}: {error}")
 
 
-def _follow_predecessors(inst: Installation, store: UnitStore) -> None:
+def park_dependents(inst: Installation, store: UnitStore) -> None:
     """Park the units in review whose predecessor's branch is changing, each by an
     event to its thread."""
 
     def deliver(unit: StoredUnit, note: str) -> bool:
-        return (
-            resume_thread(inst, unit, EventKind.UPSTREAM_CHANGED.value, store=store, reason=note)
-            is not None
+        resumed = resume_thread(
+            inst, unit, EventKind.UPSTREAM_CHANGED.value, store=store, reason=note
         )
+        return resumed is not None and not resumed.raised
 
     follow_predecessors(
         store,

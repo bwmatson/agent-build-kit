@@ -3,8 +3,8 @@
 ## Unreleased
 
 - A unit in review that follows a changing predecessor back to `planned` now does so
-  through an event to its thread, so the thread keeps waiting for review and resumes when
-  released instead of starting a fresh run. The web UI and API unit summary keep the stored
+  through an event to its thread, so the thread records the move and stays waiting for
+  review instead of believing the unit is still in review; the release is unchanged. The web UI and API unit summary keep the stored
   state in `state` and carry the display name (`reworking`, `rebasing`, `blocked`) in a new
   `status`, and the `abk.units` gauge counts by stored state.
 

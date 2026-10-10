@@ -251,7 +251,7 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     def related(ids: tuple[str, ...], units: list[StoredUnit]) -> list[dict[str, str]]:
         index = {u.id: u for u in units}
         return [
-            {"id": uid, "state": effective_state(index[uid], units) if uid in index else "unknown"}
+            {"id": uid, "status": effective_state(index[uid], units) if uid in index else "unknown"}
             for uid in ids
         ]
 

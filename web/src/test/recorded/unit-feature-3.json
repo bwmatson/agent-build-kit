@@ -21,13 +21,13 @@
   "depends_on": [
     {
       "id": "feature/2",
-      "state": "in_review"
+      "status": "in_review"
     }
   ],
   "merge_gates": [
     {
       "id": "feature/2",
-      "state": "in_review"
+      "status": "in_review"
     }
   ],
   "review_round": null,

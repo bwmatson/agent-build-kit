@@ -2030,9 +2030,12 @@ def follow_predecessors(
         graph = list(store.all())
         index = {u.id: u for u in graph}
         for unit in graph:
-            if unit.state != IN_REVIEW or unit.cause in (
-                Cause.RESTACK_DEFERRED,
-                Cause.RESTACK_CONFLICT,
+            # A unit is moved once a pass: a delivery that leaves it in review (its thread
+            # declined) must not be asked again, or the pass would never settle.
+            if (
+                unit.id in moved
+                or unit.state != IN_REVIEW
+                or unit.cause in (Cause.RESTACK_DEFERRED, Cause.RESTACK_CONFLICT)
             ):
                 continue
             found = None

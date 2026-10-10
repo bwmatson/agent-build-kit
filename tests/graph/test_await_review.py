@@ -16,7 +16,7 @@ from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.graph.unit import resume_unit
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, branch_name
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 from tests.factories import unit
 from tests.graph_driver import FakeTracer, fresh, position, tick
@@ -343,3 +343,20 @@ def test_no_other_event_kind_sets_a_unit_in_review_to_planned(
     tick(tmp_path, recorder, event=ResumeEvent(kind=kind, reason="x", feedback="x"))
 
     assert recorder.store.get(unit().id).state != PLANNED
+
+
+def test_a_unit_a_person_holds_is_not_parked_by_an_upstream_change(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    assert tick(tmp_path, recorder, event=ResumeEvent(kind=EventKind.HOLD)).status == RunStatus.HELD
+    held = recorder.store.get(unit().id)
+    assert held.state == HELD
+
+    tick(
+        tmp_path,
+        recorder,
+        event=ResumeEvent(kind=EventKind.UPSTREAM_CHANGED, reason="feature/0 is rebasing"),
+    )
+
+    assert recorder.store.get(unit().id).state == HELD
+    assert position(tmp_path).next == (Node.HELD,)
