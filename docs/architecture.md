@@ -181,7 +181,9 @@ has never started is stopped by it, and no more of them start than leave room;
 a rework, resume, restack, review round or push still runs, so the count can
 pass it. Free slots go to
 units with an open pull request, then to those resuming a build, then to new
-ones, each in planned order. Ready units build in parallel threads, each
+ones. The first two go in planned order; new ones go by effective priority, then by
+effective age (the earliest planned position among the unit and every unit waiting on it, in
+any repo), then by planned position. Ready units build in parallel threads, each
 under a branch lock (`runs/locks/`) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 

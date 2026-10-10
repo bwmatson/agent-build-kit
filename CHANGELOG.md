@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Units that have never run now start in order of their stack's age: after priority, a
+  ready unit takes the age of the oldest unit that waits on it, directly or through a chain,
+  so a prerequisite of old work no longer sits idle behind newer, unrelated units. A failed
+  unit with others waiting on it is named in `abk status` and in the reason nothing started,
+  with the number waiting and a hint to requeue it.
+
 - A lock file named in a repository's environment lock inputs no longer holds a unit for
   "uncommitted changes" when the environment's sync creates or rewrites it. It is never
   listed as a leftover or discarded. A unit that changed a dependency input commits the

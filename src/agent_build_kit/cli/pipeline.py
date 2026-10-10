@@ -454,6 +454,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  waiting for the environment: {unit.id} ({unit.repo}) at {step} — {unit.note}")
         elif unit.state == FAILED:
             log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+            if blocked := _blocked_by(unit, units):
+                log(f"  {blocked}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
             log(
                 f"  waiting for the code host: {unit.id} ({unit.repo}) at {step}, "
@@ -1298,6 +1300,18 @@ def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]
     return lines
 
 
+def _blocked_by(unit: StoredUnit, units: list[StoredUnit]) -> str:
+    """What a failed unit holds up, with the way to free it; empty when nothing waits."""
+    waiting = len(waiting_on_me(unit, units))
+    if not waiting:
+        return ""
+    noun = "unit" if waiting == 1 else "units"
+    return (
+        f"{unit.id} ({unit.repo}) has {waiting} {noun} waiting on it — "
+        "requeue it with `abk requeue`"
+    )
+
+
 def _nothing_started_reason(
     inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
 ) -> str:
@@ -1314,6 +1328,9 @@ def _nothing_started_reason(
         idle=_idle_units(inst, units, ()),
     ):
         return f"{full}; no new unit starts until one finishes or is closed"
+    failed = [line for unit in units if unit.state == FAILED and (line := _blocked_by(unit, units))]
+    if failed:
+        return "nothing can start: " + "; ".join(failed)
     return "nothing ready to build"
 
 

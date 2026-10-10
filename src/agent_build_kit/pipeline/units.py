@@ -366,6 +366,19 @@ def effective_priority(
     return min([unit.priority, *waiters])
 
 
+def effective_age(
+    unit: Unit, graph: Sequence[Unit], excluded: Collection[str] = frozenset()
+) -> int:
+    """The earliest planned position among `unit` and every unit waiting on it.
+
+    The planned position is the place in `graph`. Depth and the number of
+    waiters do not count: only how long ago the oldest of them was planned.
+    """
+    position = {other.id: place for place, other in enumerate(graph)}
+    waiters = [position[waiter.id] for waiter in waiting_on_me(unit, graph, excluded)]
+    return min([position[unit.id], *waiters])
+
+
 def trunk_of(repo: str) -> str:
     """The branch a repo's work lands on: what abk.yaml says, else `main`.
 
@@ -630,6 +643,15 @@ def _start_rank(unit: Unit) -> int:
     return 1 if _worked_on(unit) else 2
 
 
+def _start_key(unit: Unit, graph: Sequence[Unit], excluded: Collection[str]) -> tuple[int, ...]:
+    """The sort key of a ready unit; the sort is stable, so ties keep planned order."""
+    rank = _start_rank(unit)
+    urgency = effective_priority(unit, graph, excluded)
+    if rank < 2:
+        return (rank, urgency)
+    return (rank, urgency, effective_age(unit, graph, excluded))
+
+
 def ready_units(
     graph: Sequence[Unit],
     *,
@@ -656,7 +678,10 @@ def ready_units(
 
     Free slots go to units with an open pull request, then to those resuming
     a build, then to new ones; within each, the most urgent effective priority
-    first, then the order they were planned. `excluded` names the units the
+    first, then the order they were planned. New ones, between equal priorities,
+    go by effective age (the earliest planned
+    position among the unit and every unit waiting on it), then their own
+    planned position. `excluded` names the units the
     round leaves out, which lend no priority to what they wait on.
     """
     running = sum(1 for unit in graph if unit.state == RUNNING)
@@ -680,10 +705,7 @@ def ready_units(
         ready.append(unit)
 
     started: list[Unit] = []
-    for unit in sorted(
-        ready,
-        key=lambda unit: (_start_rank(unit), effective_priority(unit, graph, excluded)),
-    ):
+    for unit in sorted(ready, key=lambda unit: _start_key(unit, graph, excluded)):
         if len(started) == slots:
             break
         if room is not None and not in_progress(unit):
