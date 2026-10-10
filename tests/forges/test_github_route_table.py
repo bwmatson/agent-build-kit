@@ -11,7 +11,8 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.forges.github_host import API, GitHubHost, Scripted, answer
+from tests.forges.github_host import GitHubHost, Scripted, answer
+from tests.forges.github_routes import API
 from tests.forges.github_server import FakeGitHub
 
 BASE = "/repos/example/app"

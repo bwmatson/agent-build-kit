@@ -13,7 +13,8 @@ import pytest
 from agent_build_kit.forges.base import Label, RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import NotFound
-from tests.forges.github_host import DEFAULT_COLOUR, GitHubHost, refusal
+from tests.forges.github_host import GitHubHost, refusal
+from tests.forges.github_routes import DEFAULT_COLOUR
 
 pytestmark = pytest.mark.usefixtures("github_env")
 
