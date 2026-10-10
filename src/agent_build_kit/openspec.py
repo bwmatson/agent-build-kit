@@ -52,6 +52,13 @@ def validate(cwd: Path, *, run: Run | None = None) -> subprocess.CompletedProces
     return globals()["run"](["validate", "--all", "--strict", "--json"], cwd=cwd, run=run)
 
 
+def check(cwd: Path, *, run: Run | None = None) -> tuple[bool, str]:
+    """What `abk check` runs: whether the planning repo validates, and what it printed."""
+    result = validate(cwd, run=run)
+    output = result.stdout if not result.returncode else f"{result.stdout}{result.stderr}"
+    return not result.returncode, output
+
+
 def archive(change: str, *, cwd: Path, run: Run | None = None) -> str:
     # --yes because there is nobody to answer a prompt in an unattended run;
     # a conflict still fails rather than being auto-resolved.

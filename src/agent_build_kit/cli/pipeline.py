@@ -21,7 +21,6 @@ import asyncio
 import contextvars
 import hashlib
 import json
-import re
 import subprocess
 import sys
 import time
@@ -165,8 +164,9 @@ from agent_build_kit.pipeline.wiring import (
     follow_predecessors,
 )
 from agent_build_kit.pipeline.work_graph import (
-    NEEDS_LINE,
+    check_tags,
     group_needs,
+    specification_text,
     validate_tasks,
 )
 from agent_build_kit.pipeline.workspaces import (
@@ -1795,25 +1795,9 @@ def _write_join(inst: Installation, store: UnitStore, join: Join) -> bool:
 
 # "- [x] 1.1 ..." and "- [ ] 1.1 ..." are the same specification at different
 # stages of being carried out.
-CHECKBOX = re.compile(r"^(\s*-\s*\[)[ xX](\])", re.MULTILINE)
-
-
 def specification(tasks: Path) -> str:
-    """A change's tasks with progress stripped out.
-
-    What a re-plan should key on is what the change *asks for*, not how much
-    of it is done. The pipeline ticks these boxes as units land, and hashing
-    the raw file would re-plan on every tick — with the planner then seeing
-    the work marked done and proposing a graph that built no groups at all.
-    """
-    # `Needs:` lines too: they only add dependencies, which `link_needs`
-    # applies on its own. Re-planning a change for one would be a model call
-    # that can reshuffle units already built. Blank lines go with them: a
-    # `Needs:` line comes with the blank line that sets it off.
-    text = CHECKBOX.sub(r"\1 \2", tasks.read_text())
-    return "\n".join(
-        line for line in text.splitlines() if line.strip() and not NEEDS_LINE.match(line.strip())
-    )
+    """A change's tasks with progress and `Needs:` lines stripped out: what a re-plan keys on."""
+    return specification_text(tasks.read_text())
 
 
 # Units that still need a tick: being built, waiting to be, or open for review
@@ -2569,8 +2553,6 @@ def resume_thread(
 
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's)."""
-    from agent_build_kit.pipeline.work_graph import tasks_path
-
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
     if not changes:
         # Silence reads as a failure; an empty store is a normal state.
@@ -2578,14 +2560,9 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         return 0
     failed = 0
     for change in changes:
-        path = tasks_path(change, inst.changes_dir)
-        if not path.exists():
-            print(f"no tasks.md for change {change!r} at {path}")
-            failed += 1
-            continue
-        groups, errors = validate_tasks(path, repos=tuple(inst.repos))
+        groups, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
         for error in errors:
-            print(f"{path}:{error}")
+            print(error)
         if errors:
             print(f"{len(errors)} problem(s) in {change}")
             failed += 1
@@ -2601,11 +2578,9 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
     """`openspec validate --all --strict --json` on the planning repo."""
     from agent_build_kit import openspec
 
-    result = openspec.validate(inst.root)
-    print(result.stdout, end="")
-    if result.returncode:
-        print(result.stderr, end="")
-    return result.returncode
+    ok, output = openspec.check(inst.root)
+    print(output, end="")
+    return 0 if ok else 1
 
 
 def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:

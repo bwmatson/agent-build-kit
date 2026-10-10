@@ -579,6 +579,7 @@ def build_commit(
     run: Run | None = None,
     fix: Callable[..., str] | None = None,
     adopted_from: str = "",
+    gate: Callable[[Path], str] | None = None,
 ) -> Callable[..., int]:
     """Commit whatever is staged or unstaged, reporting how many commits resulted.
 
@@ -600,6 +601,10 @@ def build_commit(
 
     `adopted_from` names the chat session a commit made from a chat comes from, in a
     trailer beside the unit's.
+
+    `gate` is a check run on the staged tree before the commit, for a checkout with no
+    hooks of its own: it returns what it rejected, or nothing. Its output is handled as
+    a rejected commit's is.
     """
     run = run or _run
 
@@ -615,6 +620,8 @@ def build_commit(
             run(["git", "add", "-A"], cwd=cwd)
             if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
                 return None  # Nothing staged: an empty commit would be a lie.
+            if gate is not None and (rejected := gate(cwd)):
+                return subprocess.CompletedProcess(["gate"], 1, stdout=rejected, stderr="")
             return run(["git", "commit", "-q", "-m", body], cwd=cwd)
 
         def head() -> str:

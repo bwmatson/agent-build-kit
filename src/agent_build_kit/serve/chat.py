@@ -323,11 +323,23 @@ class Chat:
         tree = self.worktree(unit)
         if tree is None:
             return
+        held = self.leases.attachment(unit.id)
+        recorded = self._recorded(unit.id)
+        # The unit's builder may not edit the planning checkout: a free session may, and the
+        # files it leaves there are part of what its attachment holds.
+        free = held is not None and not (recorded and held.session == recorded.session_id)
         try:
             files = len(changed_paths(tree))
         except Exception:  # noqa: BLE001 — a turn's end must not hang on a git failure
             return
-        self.leases.mark_changes(unit.id, f"tab:{tab}", files)
+        planned = 0
+        if free:
+            try:
+                planned = len(changed_paths(self.installation.root))
+            except Exception:  # noqa: BLE001 — the planning checkout may not be a repository
+                pass
+        covered = ("worktree", "planning") if planned else ("worktree",)
+        self.leases.mark_changes(unit.id, f"tab:{tab}", files + planned, checkouts=covered)
 
     def shutdown(self) -> None:
         """The server is stopping: every open permission request is denied, so no turn is left
@@ -759,6 +771,12 @@ def register(
     def commit(change: str, number: str, body: Commit) -> dict[str, Any]:
         """Commit the chat's changes through the hooks, release the lease and deliver the
         adopted event in one request."""
+        if body.checkouts not in ([], ["worktree"], [attach.PLANNING]):
+            raise HTTPException(
+                status_code=422,
+                detail='checkouts is [], ["worktree"] or ["planning"]: commit one checkout '
+                "at a time",
+            )
         unit = chat.unit(change, number)
         held = chat.leases.attachment(unit.id)
         if held is None:
@@ -808,9 +826,10 @@ def register(
             if body.checkouts == [attach.PLANNING]:
                 made = attach.commit_planning(installation, unit, body.message, fix=fix)
                 return {
-                    "commit": made,
+                    "commit": made.commit,
                     "state": attach.state_of(installation, unit),
                     "delivered": False,
+                    "consequences": [c.model_dump() for c in made.consequences],
                 }
             return attach.adopt(
                 installation, unit, body.message, session=session, fix=fix

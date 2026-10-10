@@ -20,12 +20,15 @@ from pathlib import Path
 import httpx
 import pytest
 
+from agent_build_kit import config as config_module
 from agent_build_kit import runtimes
+from agent_build_kit.config import OpenSpecConfig
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.outside_commits import outside_commits
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.wiring import COMMIT_FIX_ROUNDS
@@ -135,6 +138,27 @@ def test_one_request_commits_releases_and_hands_the_unit_to_its_checks(
     assert message.splitlines()[0] == "Add a note"
     assert f"Unit: {UNIT}" in message
     assert f"Adopted-From: {BUILD_SESSION}" in message
+
+
+def test_a_free_sessions_commit_carries_its_own_session_and_is_outside_the_builders(
+    inst: Installation, tree: Path, api: httpx.Client
+) -> None:
+    free = "6d2a8f14-3e5b-4c7a-9f0e-1b8d3c6a2e41"
+    leases = Leases(lease_dir(inst.state_dir))
+    assert leases.take(
+        UNIT, "tab:t1", checkouts=("worktree",), session=free, runtime="claude_code", head="abc"
+    )
+    (tree / "notes.txt").write_text("by a free session\n")
+    before = head(tree)
+
+    answer = commit(api, checkouts=["worktree"])
+
+    assert answer.status_code == 200
+    message = git(tree, "log", "-1", "--format=%B")
+    assert f"Adopted-From: {free}" in message
+    assert BUILD_SESSION not in message
+    [outside] = outside_commits(tree, before, BUILD_SESSION)
+    assert (outside.commit, outside.session) == (head(tree), free)
 
 
 # --- the hooks ----------------------------------------------------------------------------------
@@ -280,6 +304,22 @@ def test_repeating_the_request_with_the_same_commit_delivers_nothing_again(
 def test_a_commit_of_the_planning_checkout_releases_its_part_and_sends_the_unit_nothing(
     inst: Installation, tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The planning gate passes: OpenSpec, faked at its process boundary, finds nothing wrong,
+    # and the change's tasks are tagged.
+    openspec = inst.root.parent / "fake-openspec"
+    openspec.write_text("#!/bin/sh\necho '[]'\n")
+    openspec.chmod(0o755)
+    current = config_module.active()
+    config_module.activate(
+        current.model_copy(update={"openspec": OpenSpecConfig(command=[str(openspec)])}),
+        config_module.active_root(),
+    )
+    tasks = inst.changes_dir / "feature" / "tasks.md"
+    tasks.parent.mkdir(parents=True)
+    tasks.write_text(
+        "# Tasks\n\n## 1. [app] [tier1] A group\n\nAcceptance: none — nothing to drive\n\n"
+        "- [ ] 1.1 Test: it works\n"
+    )
     planning = init_repo(inst.root)
     (planning / ".gitignore").write_text("runs/\n")  # the pipeline's state is not a plan
     (planning / "notes.md").write_text("start\n")
