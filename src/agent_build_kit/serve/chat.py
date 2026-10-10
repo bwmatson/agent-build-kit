@@ -437,6 +437,8 @@ class Chat:
                 self._busy.add(session_id)
                 owned.add(session_id)
             keep_question(session_id)
+            if unit is not None:
+                self.leases.record_session(unit.id, f"tab:{tab}", session_id)
             events.put({"type": "CUSTOM", "name": "session", "value": {"id": session_id}})
 
         callbacks = {

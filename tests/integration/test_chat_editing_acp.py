@@ -24,6 +24,7 @@ minutes, so it is marked tier 2 and excluded from the default suite.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -41,6 +42,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.serve.server import start_server
 from tests.attach_driver import leave_lease
@@ -105,6 +107,10 @@ if git diff --cached | grep -q '^+.*{HOOK_MARKER}'; then
   exit 1
 fi
 """
+
+
+# The session the build-session chat commit named, kept for the free session's test to differ from.
+BUILD_COMMIT_SESSION: dict[str, str] = {}
 
 
 class Ticked(Frozen):
@@ -199,6 +205,13 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
     )
 
 
+@pytest.fixture(autouse=True)
+def scratch_workspace(workspace: object, scratch: Scratch) -> None:
+    """The scratch installation is the active one for each test, after the suite's default
+    workspace: the server thread reads its runtime command and repos from it."""
+    scratch.installation.activate()
+
+
 @pytest.fixture(scope="module")
 def api(scratch: Scratch) -> Iterator[httpx.Client]:
     with (
@@ -223,6 +236,25 @@ def abk(scratch: Scratch, *args: str) -> Ticked:
 def run_log(scratch: Scratch) -> str:
     logs = sorted((scratch.installation.state_dir / "unit-logs").glob(f"{CHANGE}-01-*.log"))
     return "\n".join(path.read_text() for path in logs)
+
+
+def log_names(scratch: Scratch) -> set[str]:
+    return {
+        path.name
+        for path in (scratch.installation.state_dir / "unit-logs").glob(f"{CHANGE}-01-*.log")
+    }
+
+
+def logs_since(scratch: Scratch, before: set[str]) -> str:
+    """The run logs a tick wrote: those that were not there before it."""
+    directory = scratch.installation.state_dir / "unit-logs"
+    return "\n".join((directory / name).read_text() for name in sorted(log_names(scratch) - before))
+
+
+def adopted_from(tree: Path, commit: str) -> str:
+    return git(
+        tree, "log", "-1", "--format=%(trailers:key=Adopted-From,valueonly,separator=)", commit
+    ).strip()
 
 
 def prompts_told(scratch: Scratch) -> str:
@@ -307,7 +339,6 @@ def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_roun
     hook.write_text(HOOK)
     hook.chmod(0o755)
     before = head(tree)
-    rounds_before = run_log(scratch).count("review round")
 
     edited = converse(
         api,
@@ -343,15 +374,21 @@ def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_roun
     assert HOOK_MARKER not in git(tree, "show", "--format=", result["commit"])
     runs = (hooks / "hook-runs").read_text().split()
     assert len(runs) >= 2, "the hook rejected nothing, so the agent fixed nothing"
-    assert "Adopted-From" in git(tree, "log", "-1", "--format=%B", result["commit"])
+    build_commit_session = adopted_from(tree, result["commit"])
+    assert build_commit_session, "the commit names no session"
+    BUILD_COMMIT_SESSION["id"] = build_commit_session
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
+    logs_before = log_names(scratch)
     ticked = abk(scratch, "tick")
     assert ticked.returncode == 0, ticked.output
-    log = run_log(scratch)
+    log = logs_since(scratch, logs_before)
     assert CHAT_COMMIT_REVIEW in log, log
-    assert log.count("review round") == rounds_before, "the chat's commit took a review round"
-    assert status_of(scratch).cause is None or status_of(scratch).cause.value != "review_spent"
+    assert not re.search(r"(?<!address )review round \d+ \(", log), (
+        f"the chat's commit was reviewed as a counted round\n{log}"
+    )
+    assert "rounds spent" not in log, "the chat's commit held the unit for spent rounds"
+    assert status_of(scratch).state != HELD, log
     assert OUTSIDE_NOTE not in prompts_told(scratch), "the build session's own commit is outside"
     assert git(scratch.remote, "rev-parse", BRANCH).strip() == head(tree)
 
@@ -400,7 +437,9 @@ def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_commit
     )
     assert code.status_code == 200, code.text
     assert code.json()["delivered"] is True
-    assert "Adopted-From" in git(tree, "log", "-1", "--format=%B", code.json()["commit"])
+    free_session = adopted_from(tree, code.json()["commit"])
+    assert free_session, "the free session's commit names no session"
+    assert free_session != BUILD_COMMIT_SESSION["id"], "it was taken for the build session's"
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
     ticked = abk(scratch, "tick")
@@ -414,13 +453,16 @@ def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Sc
     assert outside, "the free session's commit is not on the branch"
     scratch.host.add_review(7, "COMMENTED", "", inline=("src/app/marker.py", 1, COMMENT))
 
+    told_before, logs_before = len(prompts_told(scratch)), log_names(scratch)
+
     reworked = abk(scratch, "tick")
 
     assert reworked.returncode == 0, reworked.output
-    told = prompts_told(scratch)
-    assert OUTSIDE_NOTE in told, (
-        f"the rework was not told of the outside commit\n{run_log(scratch)}"
-    )
+    told = prompts_told(scratch)[told_before:]
+    log = logs_since(scratch, logs_before)
+    assert "address review round" in log or "rework from feedback" in log, log
+    assert COMMENT in told, f"the rework was not handed the review comment\n{log}"
+    assert OUTSIDE_NOTE in told, f"the rework was not told of the outside commit\n{log}"
     assert outside[:9] in told
     assert "Add a version" in told
     assert "VERSION = 1" in git(scratch.remote, "show", f"{BRANCH}:src/app/marker.py"), (

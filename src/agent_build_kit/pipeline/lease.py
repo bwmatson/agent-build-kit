@@ -190,6 +190,19 @@ class Leases:
         else:
             self._update(unit_id, holder, changed=files, checkouts=list(checkouts))
 
+    def record_session(self, unit_id: str, holder: str, session: str) -> None:
+        """Record the session `holder`'s turn runs on, when the lease names none yet: a session
+        started under the lease learns its id only once the agent reports it."""
+        with self._guard():
+            record = self._load(self._path(unit_id))
+            if (
+                record
+                and self._alive(record)
+                and record["holder"] == holder
+                and not record.get("session")
+            ):
+                self._write(unit_id, {**record, "session": session})
+
     def mark_committed(self, unit_id: str, holder: str, commit: str) -> None:
         """Record a commit made and not yet delivered, whether or not its process is alive."""
         self._update(unit_id, holder, alive=False, committed=commit, changed=0)

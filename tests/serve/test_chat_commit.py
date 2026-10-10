@@ -161,6 +161,38 @@ def test_a_free_sessions_commit_carries_its_own_session_and_is_outside_the_build
     assert (outside.commit, outside.session) == (head(tree), free)
 
 
+def test_a_free_session_opened_through_the_endpoint_commits_under_its_own_session(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.runtimes.claude_cli import SESSION
+
+    assert SESSION != BUILD_SESSION
+    scripted(monkeypatch, tree, {"notes.txt": "by a free session\n"})
+    before = head(tree)
+    turn(
+        api,
+        "/api/sessions",
+        {
+            "tab": "t1",
+            "runtime": "claude_code",
+            "model": "sonnet",
+            "unit": UNIT,
+            "prompt": "Add a note.",
+        },
+    )
+    held = attachment(inst)
+    assert held is not None and held.session == SESSION, "the lease learned the session's id"
+
+    answer = commit(api, checkouts=["worktree"])
+
+    assert answer.status_code == 200, answer.text
+    message = git(tree, "log", "-1", "--format=%B")
+    assert f"Adopted-From: {SESSION}" in message
+    assert BUILD_SESSION not in message
+    [outside] = outside_commits(tree, before, BUILD_SESSION)
+    assert (outside.commit, outside.session) == (head(tree), SESSION)
+
+
 # --- the hooks ----------------------------------------------------------------------------------
 
 
