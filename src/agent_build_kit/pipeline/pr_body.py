@@ -19,14 +19,16 @@ Three things it must always say:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
 from agent_build_kit import forges
-from agent_build_kit.budget import Section, cut_tail, fit
+from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED, through_satisfied, trunk_of
+from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
+from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 
 
 def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
@@ -182,6 +184,113 @@ def _follow_ups_section(follow_ups: Sequence[str]) -> Section:
     )
 
 
+# The new sections outweigh the process text, so they are the last to be reduced.
+_PURPOSE_WEIGHT = 8
+
+_WHY_SECTION = re.compile(r"^##[ \t]+Why[ \t]*\n(.*?)(?=^##[ \t]|\Z)", re.M | re.S)
+_LOCATED = re.compile(r"^[^\s—]*[./:][^\s—]* — (?P<summary>.+)$")
+
+
+def _why_text(changes_dir: Path, change: str) -> str:
+    """The proposal's `Why` text, empty when it cannot be read or has none."""
+    try:
+        proposal = (changes_dir / change / "proposal.md").read_text()
+    except OSError:
+        return ""
+    found = _WHY_SECTION.search(proposal)
+    return found[1].strip() if found else ""
+
+
+def _groups_of(changes_dir: Path, change: str) -> list[TaskGroup]:
+    try:
+        return validate_tasks(changes_dir / change / "tasks.md")[0]
+    except OSError:
+        return []
+
+
+def _why_section(changes_dir: Path, members: Sequence[Member], ceiling: int) -> Section | None:
+    """The reason for each change the unit builds: its proposal's Why, cut at a
+    paragraph to the ceiling with a pointer to the proposal; the smallest form is
+    the pointers alone."""
+    blocks: list[tuple[str, str, str]] = []
+    for member in members:
+        text = _why_text(changes_dir, member.change)
+        if not text:
+            continue
+        numbers = {group.number for group in _groups_of(changes_dir, member.change)}
+        label = ""
+        if numbers - set(member.groups):
+            label = (
+                f"_This pull request builds part of change **{member.change}**; "
+                "this is the change's reason._"
+            )
+        elif len(members) > 1:
+            label = f"_Change **{member.change}**:_"
+        marker = f"_… The full reason is in `openspec/changes/{member.change}/proposal.md`._"
+        blocks.append((label, cut_head(text, ceiling, "paragraph", marker=marker), marker))
+    if not blocks:
+        return None
+
+    def build(texts: Sequence[str]) -> str:
+        parts = ["## Why"]
+        for (label, _, _), text in zip(blocks, texts, strict=True):
+            parts.append("\n\n".join(part for part in (label, text) if part))
+        return "\n\n".join(parts)
+
+    natural = build([text for _, text, _ in blocks])
+    smallest = len(build([marker for _, _, marker in blocks]))
+    overhead = len(build([""] * len(blocks))) + 2 * len(blocks)
+
+    def render(size: int) -> str:
+        if size >= len(natural):
+            return natural
+        if size <= smallest:
+            return build([marker for _, _, marker in blocks])
+        share = (size - overhead) // len(blocks)
+        return build([cut_head(text, share, "paragraph", marker=m) for _, text, m in blocks])
+
+    return Section(
+        key="why",
+        render=render,
+        natural=len(natural),
+        smallest=smallest,
+        weight=_PURPOSE_WEIGHT,
+        required=True,
+    )
+
+
+def _goal_section(changes_dir: Path, members: Sequence[Member]) -> Section | None:
+    """What the pull request does: the goal of each group the unit builds."""
+    goals = [
+        group.goal
+        for member in members
+        for group in _groups_of(changes_dir, member.change)
+        if group.number in member.groups and group.goal
+    ]
+    if not goals:
+        return None
+    text = "## What this pull request does\n\n" + "\n\n".join(goals)
+    return Section(
+        key="goal",
+        render=lambda size: text,
+        natural=len(text),
+        smallest=len(text),
+        weight=_PURPOSE_WEIGHT,
+        required=True,
+    )
+
+
+def _once(follow_ups: Sequence[str]) -> list[str]:
+    """The follow-ups with a point also recorded in its located form left out of
+    its bare form, so each is listed one time."""
+    located = {
+        " ".join(found["summary"].split()) for item in follow_ups if (found := _LOCATED.match(item))
+    }
+    return [
+        item for item in follow_ups if _LOCATED.match(item) or " ".join(item.split()) not in located
+    ]
+
+
 def build_pr_body(
     unit: StoredUnit,
     *,
@@ -235,19 +344,32 @@ def build_pr_body(
         position += " It merges after everything beneath it in the stack has merged."
     order = "the stack order the host shows" if stacks else "the stack order above"
 
+    built = (
+        "Tests were committed first and seen to fail before any implementation existed; "
+        "the commit order is checked mechanically; lint, formatting and types pass at the tip."
+    )
     footer = f"""\
 ## How this was built
 
-Tests were committed first and seen to fail before any implementation
-existed; the commit order is checked mechanically before the push. Lint,
-formatting and types pass at the tip.
+{built}
 
 ---
 
 _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
-    sections = [
+    members = unit.members()
+    sections = []
+    if changes_dir is not None:
+        sections += [
+            section
+            for section in (
+                _why_section(changes_dir, members, why_ceiling),
+                _goal_section(changes_dir, members),
+            )
+            if section is not None
+        ]
+    sections += [
         _fixed("position", position),
         _fixed("scope", _scope_lines(unit)),
         _fixed("assumptions", f"## Assumptions\n\n{assumptions(unit, graph, trunk_of(unit.repo))}"),
@@ -264,7 +386,7 @@ merges every one, after checking {order}._
             )
         )
     if follow_ups:
-        sections.append(_follow_ups_section(follow_ups))
+        sections.append(_follow_ups_section(_once(follow_ups)))
     sections.append(_fixed("footer", footer))
 
     if limit is None:

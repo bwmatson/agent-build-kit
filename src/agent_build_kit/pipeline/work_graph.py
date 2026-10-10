@@ -330,6 +330,7 @@ def validate_tasks(
             line=g.line,
             task_count=counts[g.line],
             flag=g.flag,
+            goal=_goal(lines, g.line),
             separate=g.line in separate,
             independent=g.line in independent,
             priority=priorities.get(
@@ -413,6 +414,22 @@ def validate_tasks(
         )
 
     return groups, errors
+
+
+def _goal(lines: list[str], heading: int) -> str:
+    """The paragraph beginning "Done when" between a group's heading and its first
+    task, on one line; empty when the group has none."""
+    paragraph: list[str] = []
+    for text in lines[heading:]:
+        if TASK_LINE.match(text) or ANY_GROUP_HEADING.match(text):
+            break
+        if text.strip():
+            paragraph.append(text.strip())
+        elif paragraph and paragraph[0].startswith("Done when"):
+            break
+        else:
+            paragraph = []
+    return " ".join(paragraph) if paragraph and paragraph[0].startswith("Done when") else ""
 
 
 def _acceptance_errors(groups: list[TaskGroup], lines: list[str]) -> list[ValidationError]:

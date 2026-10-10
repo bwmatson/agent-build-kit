@@ -1684,6 +1684,7 @@ class BuildPath:
             follow_ups=r.follow_ups_for(unit) or None,
             linear=r.linear(tree, local_ref(base, repo=unit.repo)),
             limit=forges.description_limit(),
+            changes_dir=Path(r.planning_repo) / "openspec" / "changes",
         )
         try:
             pr = r.open_pr(

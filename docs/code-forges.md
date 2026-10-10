@@ -211,7 +211,8 @@ flags.
    the host takes in a pull request description. The pipeline fits the body
    once, to the lowest of these across the registered forges
    (`forges.description_limit()`), so a description reads the same on every
-   host and a host added with a lower limit lowers it. The forge's `create_pr`
+   host and a host added with a lower limit lowers it. The reason and the goal
+   that open the description are the last of it to shrink. The forge's `create_pr`
    and `update_pr` send the body as given and never cut it.
 8. **Record real fixtures.** From a real pull request, keeping the fields your
    code does *not* read. That is what makes a host's traps catchable by a test

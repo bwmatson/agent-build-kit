@@ -430,11 +430,15 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    recorded on the unit (`stack_refusal`), logged once, and changes nothing
    else — except that a PR the host did not stack keeps the order in its
    body, as on a host without stacks, which is never asked. Either way the
-   body says when the branch no longer sits on its base. A body over the host's
-   description limit shrinks in order: the start of the tier 2 output (its tail
-   kept), then the follow-ups to whole items with a line counting the rest, then
-   the output altogether, keeping the headings and the pass or fail line; the
-   forge cuts whatever is still over. The `local/tier2` commit
+   body says when the branch no longer sits on its base. The body opens with the
+   change's reason (the proposal's `Why`, cut at a paragraph to a ceiling with a
+   pointer to the proposal) and what the pull request does (the "Done when"
+   sentence of each of the unit's groups), then the stack position, scope,
+   assumptions and verification, then what is held and left for later, each
+   follow-up once, in its located form. A body over the host's description
+   limit is fitted by weight: the reason and the goal are the last to shrink,
+   then the follow-ups to whole items with a line counting the rest, then the
+   tier 2 output (its tail kept) down to the pass or fail line. The `local/tier2` commit
    status is posted for the tested SHA (and, on a host that shows statuses on
    the pull request, on the open pull request for the branch too); the rework's replies to review threads
    are posted in those threads, signed with the commit. A reply the host does not take stays in the
@@ -733,10 +737,12 @@ description note as its marker; it is the last guard of the description builder.
 The description is fitted once, to `forges.description_limit()`, the lowest description
 limit across the registered forges, where the open-pull-request step builds the body; no
 forge cuts a description it sends. `build_pr_body` makes the body from `Section`s and
-shares the limit with `fit`: the position, scope, assumptions, restack note, held points,
-footer and the tier 2 results are required (the results shrink to their pass or fail line
-and a note that the output was trimmed, the output keeping its tail), and the follow-ups,
-whole items followed by a count, weigh twice what the output does.
+shares the limit with `fit`: the Why and the goal weigh eight, with their smallest forms
+(the Why's pointer to its proposal, the goal whole) reserved first, the Why capped by its
+ceiling; the position, scope, assumptions, restack note, held points, footer and the tier 2
+results are required (the results shrink to their pass or fail line and a note that the
+output was trimmed, the output keeping its tail), and the follow-ups, whole items followed
+by a count, weigh twice what the output does.
 
 `fit` shares a budget between `Section`s (a render function, a natural size, a smallest
 honest form, a weight, an optional ceiling and whether it is required). Everything is
