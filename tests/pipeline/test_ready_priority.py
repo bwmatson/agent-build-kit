@@ -1,15 +1,8 @@
 """Priority orders the ready units inside their class and nothing else."""
 
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, ready_units
-from tests.factories import stored_unit
-
-
-def new(uid: str, **kw):
-    return stored_unit(uid, change=uid.split("/")[0], **kw)
-
-
-def started(graph, *, slots: int = 1, **kw) -> list[str]:
-    return [u.id for u in ready_units(graph, max_concurrent=slots, depth_cap=9, **kw)]
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
+from tests.factories import new_unit as new
+from tests.factories import started_ids as started
 
 
 def test_priority_does_not_move_a_new_unit_ahead_of_an_open_pull_request() -> None:

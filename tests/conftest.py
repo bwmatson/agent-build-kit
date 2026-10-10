@@ -13,6 +13,7 @@ build their own `Installation` and activate it.
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -22,11 +23,13 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit import forges
 from agent_build_kit.cli import doctor
+from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
 from agent_build_kit.forges import github
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
@@ -187,6 +190,21 @@ def make_installation(root: Path, **overrides) -> Installation:
     installation = Installation(workspace_config(root, **overrides), root)
     installation.activate()
     return installation
+
+
+def status_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    units: list[StoredUnit],
+) -> list[str]:
+    workspace = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    UnitStore(tmp_path / "units.json").upsert(units)
+    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    assert pipeline_cli.cmd_status(argparse.Namespace(), workspace) == 0
+    return capsys.readouterr().out.splitlines()
 
 
 @pytest.fixture(autouse=True)

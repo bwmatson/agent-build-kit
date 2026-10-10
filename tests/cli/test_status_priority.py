@@ -2,35 +2,17 @@
 
 from __future__ import annotations
 
-import argparse
 import re
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
-from tests.conftest import make_installation
+from tests.conftest import status_lines
 from tests.factories import stored_unit
 
 PRIORITY = re.compile(r"priority 1|P1")
-
-
-def status_lines(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    units: list[StoredUnit],
-) -> list[str]:
-    workspace = make_installation(
-        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
-    )
-    UnitStore(tmp_path / "units.json").upsert(units)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    assert cli.cmd_status(argparse.Namespace(), workspace) == 0
-    return capsys.readouterr().out.splitlines()
 
 
 def queue_after_heading(lines: list[str]) -> list[str]:
