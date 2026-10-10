@@ -15,11 +15,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_build_kit.config import EnvironmentConfig, active
+from agent_build_kit.config import EnvironmentConfig, RepoConfig, active
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.shell import git, git_out
 
 RECORD = "environment.json"
 
@@ -85,6 +86,64 @@ def problem(root: Path) -> str | None:
     return None if ok else output or f"{' '.join(environment.check)} failed"
 
 
+class WorktreeFault(Frozen):
+    """A repository's environment failing in a unit's worktree: what it printed, and
+    whether it is the environment's (the unit left the inputs as the base has them) or
+    the unit's own (its branch changed them, so a failing `sync` or `check` is its to fix)."""
+
+    output: str
+    environment: bool
+
+
+WORKTREE_RECORD = "abk-environment-hash"
+
+
+def _changed_from_base(environment: EnvironmentConfig, tree: Path, base: str) -> bool:
+    """Whether the unit changed the inputs: the worktree's copies against the base's at the
+    point the branch left it. Compared as git's own object ids, so line endings and
+    encodings are never decoded."""
+    inputs = environment.inputs
+    fork = git(tree, "merge-base", base, "HEAD", check=False)
+    point = fork.stdout.strip() if fork.returncode == 0 and fork.stdout.strip() else base
+    for name in (*inputs.dependencies, *inputs.lock, *inputs.other):
+        there = git(tree, "rev-parse", "--verify", "-q", f"{point}:{name}", check=False)
+        here = (tree / name).is_file()
+        if not here or there.returncode != 0:
+            if here or there.returncode == 0:
+                return True
+            continue
+        if git_out(tree, "hash-object", "--", name) != there.stdout.strip():
+            return True
+    return False
+
+
+def prepare_worktree(repo: RepoConfig | None, tree: Path, base: str) -> WorktreeFault | None:
+    """Bring a repository's environment up to date in a unit's worktree: `sync` when the
+    inputs' hash differs from the one recorded for this worktree, then `check`. None when
+    healthy, or when the repository declares no environment."""
+    environment = repo.environment if repo else None
+    if environment is None:
+        return None
+    record = Path(git_out(tree, "rev-parse", "--absolute-git-dir")) / WORKTREE_RECORD
+    digest = inputs_hash(environment, tree)
+    failure = ""
+    if not record.is_file() or record.read_text() != digest:
+        ok, output = _run(environment.sync, tree)
+        if ok:
+            record.write_text(digest)
+        else:
+            failure = output or f"{' '.join(environment.sync)} failed"
+    if not failure:
+        ok, output = _run(environment.check, tree)
+        if not ok:
+            failure = output or f"{' '.join(environment.check)} failed"
+    if not failure:
+        return None
+    return WorktreeFault(
+        output=failure, environment=not _changed_from_base(environment, tree, base)
+    )
+
+
 def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
     """Bring the environment up to date before a pass starts work. True when the
     pass may go on: healthy, or none managed. A failure is recorded and printed.
@@ -128,4 +187,12 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
         return False
 
 
-__all__ = ["EnvironmentState", "ensure", "inputs_hash", "problem", "read_state"]
+__all__ = [
+    "EnvironmentState",
+    "WorktreeFault",
+    "ensure",
+    "inputs_hash",
+    "prepare_worktree",
+    "problem",
+    "read_state",
+]

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 BROKEN_OUTPUT = "ModuleNotFoundError: No module named 'widget'"
+SYNC_FAILED_OUTPUT = "error: no solution found for widget>=9"
 
 _CHECK = f"""\
 import pathlib, sys
@@ -26,13 +27,14 @@ if (control / "broken").exists():
     sys.exit(1)
 """
 
-_SYNC = """\
+_SYNC = f"""\
 import pathlib, sys
 
 control = pathlib.Path(sys.argv[1])
 with (control / "calls.log").open("a") as log:
     log.write("sync" + chr(10))
 if (control / "sync-fails").exists():
+    print({SYNC_FAILED_OUTPUT!r})
     sys.exit(1)
 if (control / "sync-repairs").exists():
     (control / "broken").unlink(missing_ok=True)
@@ -58,6 +60,11 @@ class FakeEnvironment:
     def calls(self) -> list[str]:
         log = self.control / "calls.log"
         return log.read_text().split() if log.exists() else []
+
+    def note(self, name: str) -> None:
+        """Put something else that happened into the call log, to order it among the commands."""
+        with (self.control / "calls.log").open("a") as log:
+            log.write(f"{name}\n")
 
     def clear(self) -> None:
         (self.control / "calls.log").unlink(missing_ok=True)

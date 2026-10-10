@@ -28,6 +28,13 @@ and checks again. If it still fails, the tick records the environment as unhealt
 the output, starts nothing and exits non-zero. `abk status` prints the recorded state.
 Units failed with the cause `environment` are resumed in the pass once it is healthy.
 
+A repository's own `environment` runs in the unit's worktree (`prepare_worktree`): in the
+tests node and before every tier 1 it hashes the inputs there, runs `sync` when the hash
+differs from the one recorded in the worktree's git directory, then `check`. A failure with
+inputs equal to the base branch's (at the point the branch left it) fails the unit with the
+cause `environment`; a failing `sync` or `check` after the unit changed the inputs is an
+ordinary tier 1 failure carrying that output.
+
 ### 1. An OpenSpec change
 
 A change lives in `openspec/changes/<change>/` in the planning repo:

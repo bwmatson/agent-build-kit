@@ -803,6 +803,10 @@ class BuildPath:
         """The output of the pipeline's failing `check`, None when it passes."""
         return environment.problem(self.runner.planning_repo)
 
+    def worktree_fault(self, state: UnitRun) -> environment.WorktreeFault | None:
+        """The repository's environment failing in this unit's worktree, None when healthy."""
+        return environment.prepare_worktree(self.runner.repo_config, self.tree(), self.ref(state))
+
     def blocked(self, output: str) -> Update:
         """A unit the environment cannot run: failed with its own cause, nothing saved
         for an agent to fix."""
@@ -1060,6 +1064,9 @@ class BuildPath:
     def tests(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree = self.tree()
+        fault = self.worktree_fault(state)
+        if fault is not None and fault.environment:
+            return self.blocked(fault.output)
         if r.head(tree) != state.head:
             self.say("the tests commit is already on the branch")
         else:
@@ -1117,8 +1124,14 @@ class BuildPath:
         self.say("checks before review")
         if (broken := self.environment_problem()) is not None:
             return {**self.blocked(broken), "checks_ok": False}
+        fault = self.worktree_fault(state)
+        if fault is not None and fault.environment:
+            return {**self.blocked(fault.output), "checks_ok": False}
         try:
-            ok, output = r.run_tier1(cwd=tree, base=self.ref(state), whole_repo=False)
+            if fault is not None:
+                ok, output = False, fault.output
+            else:
+                ok, output = r.run_tier1(cwd=tree, base=self.ref(state), whole_repo=False)
         except FlakeFound as found:
             if (parked := self.wait_for_fix(found)) is not None:
                 return parked
@@ -1462,10 +1475,16 @@ class BuildPath:
         self.say("tier 1")
         if (broken := self.environment_problem()) is not None:
             return self.blocked(broken)
+        fault = self.worktree_fault(state)
+        if fault is not None and fault.environment:
+            return self.blocked(fault.output)
         try:
-            ok, output = r.run_tier1(
-                cwd=self.tree(), base=self.ref(state), whole_repo=state.produced_nothing
-            )
+            if fault is not None:
+                ok, output = False, fault.output
+            else:
+                ok, output = r.run_tier1(
+                    cwd=self.tree(), base=self.ref(state), whole_repo=state.produced_nothing
+                )
         except FlakeFound as found:
             if (parked := self.wait_for_fix(found)) is not None:
                 return parked
@@ -1969,6 +1988,10 @@ def after_prepare(state: UnitRun) -> Node:
     return Node.CHECKS
 
 
+def after_tests(state: UnitRun) -> Node:
+    return halted(state) or Node.IMPLEMENT
+
+
 def after_implement(state: UnitRun) -> Node:
     return halted(state) or (Node.TIER1 if state.produced_nothing else Node.CHECKS)
 
@@ -2097,6 +2120,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_prepare,
         PREPARED,
     ),
+    Node.TESTS: (after_tests, (Node.HELD, Node.FAILED, Node.IMPLEMENT)),
     Node.IMPLEMENT: (after_implement, (Node.HELD, Node.TIER1, Node.CHECKS)),
     Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
     Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),
