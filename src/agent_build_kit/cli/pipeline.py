@@ -782,7 +782,8 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
     ready = run_round(inst, store, building=(), started=(), only=only, submit=True)
     if not ready:
-        if is_paused(_paused_marker(inst)):
+        held = is_paused(_paused_marker(inst))
+        if held and held.kind == "rate_limit":
             tick.outcome = "paused"
             return 0
         log(_nothing_started_reason(inst, store.all(), only=only))
@@ -1636,7 +1637,7 @@ def _schedule(
     building: dict[Future[bool], Unit] = {}
     # Units that could build but for the slots, from when they were first seen so.
     queued: dict[str, spans.Mark] = {}
-    stopping = False
+    failed = False
     refused = False
     with ThreadPoolExecutor(
         max_workers=inst.max_concurrent_stacks, thread_name_prefix="unit"
@@ -1687,12 +1688,12 @@ def _schedule(
             for future in done:
                 building.pop(future)
                 if not future.result():
-                    stopping = True
+                    failed = True
             # A build still in flight — or another tick — may already have
             # recorded the model's refusal; its report is not needed to stop
             # here. A usage pause is not one: the round asks the guard again.
             held = is_paused(_paused_marker(inst))
-            stopping = stopping or bool(held and held.kind == "rate_limit")
+            stopping = failed or bool(held and held.kind == "rate_limit")
             if stopping or refused:
                 continue
 
