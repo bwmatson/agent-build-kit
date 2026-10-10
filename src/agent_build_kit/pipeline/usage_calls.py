@@ -242,8 +242,23 @@ def most_added(
     margin: int,
 ) -> float:
     """The most percentage points `window` could have gained in `minutes`: the fastest climb
-    between consecutive answered calls in the record, no slower than `floor`, plus `margin`."""
-    raise NotImplementedError
+    between consecutive answered calls in the record, no slower than `floor`, plus `margin`.
+    A fall is a window resetting, not a climb."""
+    answered = sorted(
+        (
+            (c.at, c.session_pct if window == "session" else c.weekly_pct)
+            for c in calls
+            if c.outcome == "ok"
+        ),
+        key=lambda seen: seen[0],
+    )
+    readings = [(at, pct) for at, pct in answered if pct is not None]
+    fastest = floor
+    for (before, low), (after, high) in zip(readings, readings[1:], strict=False):
+        gap = (after - before).total_seconds() / 60
+        if gap > 0 and high > low:
+            fastest = max(fastest, (high - low) / gap)
+    return fastest * minutes + margin
 
 
 def interval_line(interval: CacheInterval) -> str:

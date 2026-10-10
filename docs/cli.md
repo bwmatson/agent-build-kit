@@ -79,8 +79,9 @@ is recorded `failed`, not an exit status.
 
 ### `abk status`
 
-Prints whether the pipeline is paused (until when, why), the usage reading
-(session %, weekly %, source), the count of units by state, and each
+Prints whether the pipeline is paused (until when, why), the usage reading held
+(session %, weekly %, source and age; no call is made, and `--refresh` asks the endpoint for a
+fresh one, no more often than the cache time allows), the count of units by state, and each
 `in_review` unit with its PR. A `no recorded cause:` line lists the units that are `held`
 or `planned` with work on them and no cause on their last history entry. Changes nothing. Exit 0.
 

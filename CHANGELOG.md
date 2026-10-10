@@ -20,6 +20,17 @@
   longer, and each further stretch of that time without one halves it, never below
   `usage_cache_minutes`. `abk status` says the time in use and what set it.
 
+- The usage endpoint is now asked only when a fresh reading could change a decision. A
+  refusal on a reading of a window that has not reset stands without a call, and an allowance
+  stands while the usage could not have climbed to the threshold since the reading, judged by
+  the fastest climb seen in the record (`usage_climb_floor` and `usage_climb_margin_pct` set
+  the lower bound and the margin). A reading of a window that has reset, or none, is asked for,
+  never more often than the cache time: inside it a start is refused for the time left and the
+  reason says so. A round asks for no reading for units that `--only`, a lease or a backoff
+  leave out. `abk status` shows the held reading with its age and calls the endpoint only with
+  the new `--refresh`. The docs no longer claim that a step ending with nothing written is
+  judged against the usage window.
+
 - New `abk replan` plans changes again on demand: name changes (or a unit id), or use
   `--all` or `--failed`, and each is planned now whatever its recorded plan says, with
   the `Needs:` lines linked as a tick does. This is the way out of a stale dependency, a

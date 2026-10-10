@@ -268,9 +268,7 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    own pull request, and pulling its work forward makes this one bigger than
    the plan intended.
 4. **Implementation, commit.** A second run makes those tests pass and may
-   not weaken them; commit `feat: <title>`. A step that ends having added
-   nothing against an exhausted usage window reads as a quiet refusal rather
-   than nothing to do, and pauses (see the usage guard, below). A branch left
+   not weaken them; commit `feat: <title>`. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after tier 1, below.
 5. **Checks, then review rounds.** Before each review round the branch has to
@@ -791,13 +789,21 @@ within a minute), and the figures are exported as `abk.usage.calls` by outcome a
 gauge `abk.usage.safe_interval` in whole seconds, drawn from the record when the metrics store is
 down.
 **A step already running is never interrupted** — the guard only ever gates
-what starts next. The one place that reading is taken mid-unit rather than
-only at a boundary is judging a step that ends having written nothing: an
-agent told it is out of usage can finish cleanly having said so in prose, and
-against an exhausted window that empty result is a pause, not a failure — one
-more read of the same guard, never a poll, and the same shape (a `running` unit,
-interrupted before its next agent node) as a stop between steps. Empty for any other reason still
-fails.
+what starts next, and a step that ends having written nothing is not judged against the window.
+
+**The endpoint is asked only when a fresh reading could change the decision** (`decide_start`).
+Every tick, round and gate asks the guard, and the guard decides whether to call. Usage only
+rises within a window and falls when it resets, so a refusal on a reading of a window that has
+not reset stands without a call (the pause ends at the reset, or when the rising threshold is
+worked out to reach the reading), and an allowance stands, however old the reading, while the
+most usage could have been added since it (the fastest climb per window in points a minute seen in
+`usage-calls.jsonl`, no less than `usage_climb_floor`, times the minutes, plus
+`usage_climb_margin_pct`) leaves it under the threshold. A reading with less headroom than that,
+one of a window that has reset, or none, needs a fresh one, and the endpoint is not asked more often
+than the cache time: inside it the start is refused for the time left, with a reason that says so.
+A round asks for no reading on behalf of units left out of it by `--only`, a lease or a backoff.
+`abk status` prints the held reading with its age and source and calls nothing unless given
+`--refresh`, which is still held to the interval.
 
 The two windows do not share a threshold, and a threshold need not be flat:
 quota unused when a window resets is lost, so a window with a ceiling above its

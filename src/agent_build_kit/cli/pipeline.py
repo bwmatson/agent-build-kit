@@ -156,9 +156,12 @@ from agent_build_kit.pipeline.usage_guard import (
     UsageReading,
     current_cache_interval,
     current_usage,
+    decide_start,
     forget_logged_failures,
+    held_usage,
     may_start_unit,
     reading_as,
+    refreshed_usage,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -343,6 +346,13 @@ def _retry_pending_closes(inst: Installation, store: UnitStore) -> None:
     retry_closes(store, close_pr=close_pr)
 
 
+def _status_reading(args: argparse.Namespace) -> UsageReading | None:
+    """The reading held, or a fresh one when asked, which the interval may still refuse."""
+    if getattr(args, "refresh", False):
+        return refreshed_usage()
+    return held_usage()
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
@@ -355,11 +365,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
         with reading_as("cli-status"):
-            reading = current_usage() if runtime.supports_usage_tracking else None
+            reading = _status_reading(args) if runtime.supports_usage_tracking else None
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
         elif reading:
-            log(f"usage: {_usage_line(reading)} ({reading.source})")
+            age = int(reading.age.total_seconds() // 60)
+            log(f"usage: {_usage_line(reading)} ({reading.source}, {age}m old)")
         else:
             log("usage: unknown")
         calls = read_calls(inst.state_dir / CALLS_NAME)
@@ -787,11 +798,40 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def _no_unit_can_start(
+    inst: Installation, store: UnitStore, *, only: frozenset[str], spared: Collection[str]
+) -> bool:
+    """Whether the round has planned units and every one that could start is left out of
+    it by `--only`, a lease or a backoff, so a decision about usage would decide nothing."""
+    leases = Leases(lease_dir(inst.state_dir))
+    now = spans.clock.now()
+    left_out = False
+    for unit in store.all():
+        if unit.state not in (PLANNED, RUNNING):
+            continue
+        excluded = (
+            (only and unit.id not in only)
+            or leases.holder(unit.id) is not None
+            or backoff_remaining(unit, now) is not None
+        )
+        if not excluded or unit.id in spared:
+            return False
+        left_out = left_out or unit.state == PLANNED
+    return left_out
+
+
 def _may_build(
-    inst: Installation, store: UnitStore, *, spared: Collection[str], quiet: bool
-) -> Literal["yes", "usage", "rate_limit"]:
+    inst: Installation,
+    store: UnitStore,
+    *,
+    spared: Collection[str],
+    quiet: bool,
+    only: frozenset[str] = frozenset(),
+) -> Literal["yes", "usage", "rate_limit", "idle"]:
     """The pause checks: whether this round may start builds. "usage" means the
-    guard refused; "rate_limit" means the model's own pause is in force.
+    guard refused; "rate_limit" means the model's own pause is in force; "idle" means
+    every unit that could start is left out of the round, so no reading was asked for and
+    no pause was written or cleared.
 
     A pause is not a lock: the guard is asked again on every round, so a
     threshold raised by hand, or the ramp offering room before the reset,
@@ -814,7 +854,9 @@ def _may_build(
     # rate-limit refusal still pauses, above and in `_run_unit`.
     runtime = runtimes.active()
     if runtime.supports_usage_tracking:
-        decision = may_start_unit(current_usage())
+        if _no_unit_can_start(inst, store, only=only, spared=spared):
+            return "idle"
+        decision = decide_start(read=current_usage, decide=may_start_unit)
         if not decision.may_start:
             state = pause_until(
                 decision.resume_at, reason=decision.reason, marker=_paused_marker(inst)
@@ -904,7 +946,7 @@ def run_round(
             raise ValueError("pass `started` or `readmit`, not both")
         started = readmit.started
     spared = {*building, *started}
-    may = _may_build(inst, store, spared=spared, quiet=quiet)
+    may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         return []
     # A usage refusal only withholds builds: the round still fetches and polls,
@@ -955,7 +997,7 @@ def run_round(
     _step("archiving", archive)
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
-    if not submit or not admitted:
+    if not submit or not (admitted or may == "idle"):
         return []
 
     units = store.all()
@@ -965,6 +1007,8 @@ def run_round(
                 f"{unit.id}: waiting for the code host, parked at {unit.step or 'a step'}; "
                 f"{int(left.total_seconds())}s remain"
             )
+    if not admitted:
+        return []
     in_flight = set(building)
     if readmit:
         readmit.admit(units, in_flight)
@@ -3058,6 +3102,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     tick.set_defaults(func=cmd_tick)
 
     status = sub.add_parser("status", help="what the pipeline thinks is going on")
+    status.add_argument(
+        "--refresh",
+        action="store_true",
+        help="ask the usage endpoint for a fresh reading, within the minimum interval",
+    )
     status.set_defaults(func=cmd_status)
 
     graph = sub.add_parser("graph", help="regenerate the unit graph page")
