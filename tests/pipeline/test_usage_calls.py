@@ -332,7 +332,7 @@ def test_the_reading_counts_calls_by_outcome_and_caller_over_the_hour_and_the_da
     assert rate.hour.by_caller == {"guard": 4, "status": 1, "tracks": 1}
     assert rate.hour.cache_share == pytest.approx(1 / 6)
     assert rate.day.calls == 8
-    assert rate.day.by_outcome == {"ok": 4, "cache": 1, "rate_limited": 1, "timeout": 1}
+    assert rate.day.by_outcome == {"ok": 5, "cache": 1, "rate_limited": 1, "timeout": 1}
     assert rate.day.by_caller == {"guard": 5, "status": 2, "tracks": 1}
     assert rate.day.cache_share == pytest.approx(1 / 8)
 

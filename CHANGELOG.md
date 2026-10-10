@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Every use of the usage endpoint, and every reading answered from its cache, is now recorded
+  in `usage-calls.jsonl` in the state directory (gitignored, a week's worth, no token): when,
+  who asked, the outcome, the status, the latency and any rate-limit or retry headers.
+  `abk status` prints one line from it (calls in the hour, refusals, the cache's share and the
+  shortest interval between successful calls not followed by a refusal), and the figures are
+  exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
+  from the record when the metrics store is not available.
+
 - The agents that write tests, implement, fix checks and rework are now told to look for
   existing code before adding any: search by behaviour as well as name, use or extend a
   helper, constant or fixture that exists, write shared logic once, give calls that must

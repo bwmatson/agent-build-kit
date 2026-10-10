@@ -16,6 +16,8 @@ runs/policy-check.json
 # One line per agent call: the usage ledger (same note: move this line if
 # planning.state_dir is changed).
 runs/usage-ledger.jsonl
+# One line per use of the usage endpoint, kept a week (same note).
+runs/usage-calls.jsonl
 
 # Local tooling.
 __pycache__/

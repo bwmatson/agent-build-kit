@@ -25,6 +25,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.metric_records import MetricRecord
 from agent_build_kit.pipeline.spans import Span
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.usage_calls import derive_rate, read_calls
 from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, records_in
 from agent_build_kit.pipeline.vocabulary import effective_state
 
@@ -347,6 +348,20 @@ class LocalSource:
         self._metrics = _metric_records_in(lines)
         self._units = units or []
         self._now = now
+        self._usage_calls = read_calls(calls) if calls is not None else []
+
+    def _call_samples(self, instrument: Instrument) -> list[tuple[str, dict[str, str], float]]:
+        """The usage endpoint's call record: one count per call, and the safe interval now."""
+        if instrument.name == "abk.usage.calls":
+            return [
+                (c.at.isoformat(), {"outcome": c.outcome, "caller": c.caller}, 1.0)
+                for c in self._usage_calls
+            ]
+        if instrument.name == "abk.usage.safe_interval" and self._usage_calls:
+            now = self._now()
+            interval = derive_rate(self._usage_calls, now=now).safe_interval_seconds
+            return [] if interval is None else [(now.isoformat(), {}, float(interval))]
+        return []
 
     def _samples(self, instrument: Instrument) -> list[tuple[str, dict[str, str], float]]:
         """(when, labels, value) for every local record that counts in the metric."""
@@ -359,6 +374,7 @@ class LocalSource:
                         continue
                     labels = {a: LABELS[a](record) for a in instrument.attributes if a in LABELS}
                     samples.append((record.at, {**labels, **extra}, float(value)))
+        samples += self._call_samples(instrument)
         for span in self.spans:
             labels = _span_measure(instrument.name, span)
             if labels is not None:
