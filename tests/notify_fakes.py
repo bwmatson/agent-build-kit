@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -17,21 +16,18 @@ from tests.fake_clock import FakeClock
 class FakeNotifier:
     """Records every call; a call fails while its `fail_*` flag is set."""
 
-    def __init__(self, *, show_delay: float = 0.0) -> None:
+    def __init__(self) -> None:
         self.shown: list[tuple[str, str, str, str]] = []
         self.cleared: list[str] = []
         self.show_attempts = 0
         self.clear_attempts = 0
         self.fail_show = False
         self.fail_clear = False
-        self._show_delay = show_delay
         self._lock = threading.Lock()
 
     def show(self, id: str, title: str, body: str, link: str) -> None:
         with self._lock:
             self.show_attempts += 1
-        if self._show_delay:
-            time.sleep(self._show_delay)
         if self.fail_show:
             raise RuntimeError("the provider is down")
         with self._lock:

@@ -38,6 +38,9 @@ from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.notify.build import build_notifier
+from agent_build_kit.notify.reconcile import reconcile as reconcile_notifications
+from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.pipeline import diagram, environment, spans, usage_report
 from agent_build_kit.pipeline.archive import (
     _already_archived,
@@ -805,6 +808,21 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
+    """Show the cards the stored units call for and clear the ones they no longer do."""
+    config = inst.config.notifications
+    notifier = build_notifier(config)
+    if notifier is None:
+        return
+    reconcile_notifications(
+        store.all(),
+        store=NotificationStore(inst.state_dir / "notifications.json"),
+        notifier=notifier,
+        config=config,
+        log=log,
+    )
+
+
 def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
     """Whether a change's recorded plan stands: its `tasks.md` is as planned and the plan
     either worked or has used its attempts."""
@@ -992,6 +1010,7 @@ def run_round(
     spared = {*building, *started}
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
+        _step("reconciling notifications", _reconcile_notifications, inst, store)
         return []
     # A usage refusal only withholds builds: the round still fetches and polls,
     # so merges and comments are recorded while it lasts. Planning spends a
@@ -1013,6 +1032,7 @@ def run_round(
     _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
     _step("releasing gated units", release_gated, inst, store, in_flight=spared)
+    _step("reconciling notifications", _reconcile_notifications, inst, store)
     units = store.all()
 
     def never(change: str) -> bool:

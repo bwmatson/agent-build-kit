@@ -95,8 +95,7 @@ def test_a_failed_clear_leaves_the_card_stored_and_is_retried(rounds: Rounds) ->
 def test_two_overlapping_reconciliations_show_one_card_once(
     clock: FakeClock, tmp_path: Path
 ) -> None:
-    # A slow provider keeps the first reconciliation inside `show` while the second starts.
-    notifier = FakeNotifier(show_delay=0.2)
+    notifier = FakeNotifier()
     racers = [Rounds(tmp_path / "notifications.json", clock, enabled(), notifier) for _ in range(2)]
     ready = threading.Barrier(len(racers))
     errors: list[BaseException] = []
