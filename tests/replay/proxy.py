@@ -6,14 +6,43 @@ listener's address through the environment variables the upstream names.
 
 from __future__ import annotations
 
+import gzip
+import shutil
+import threading
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import TracebackType
+from urllib.parse import urlsplit
 
-from agent_build_kit.config import ReplayConfig
+import httpx
+
+from agent_build_kit.config import ReplayConfig, ReplayUpstream
+from agent_build_kit.model import Frozen
 from agent_build_kit.replay.hosts import InStackHosts
-from agent_build_kit.replay.models import ReplayMode, Rule
+from agent_build_kit.replay.models import (
+    STORED_HEADERS,
+    Cassette,
+    ReplayMode,
+    Request,
+    Rule,
+    StoredResponse,
+    UpstreamKind,
+    applied_rules,
+    request_key,
+    summarise,
+)
+from agent_build_kit.replay.store import (
+    find_cassette,
+    load_cassette,
+    test_directory,
+    write_cassette,
+)
+
+# Per connection, not part of an answer: the proxy sets its own framing.
+_HOP_BY_HOP = frozenset({"transfer-encoding", "connection", "content-length", "keep-alive"})
+_NOT_FORWARDED = _HOP_BY_HOP | {"host"}
 
 
 class InStackUpstream(Exception):
@@ -22,6 +51,13 @@ class InStackUpstream(Exception):
 
 class SecretInRecording(Exception):
     """A response body held a configured secret; the test's calls were not stored."""
+
+
+class _Answer(Frozen):
+    status: int
+    headers: dict[str, str]
+    # In the order received; one chunk when the answer was not streamed.
+    chunks: list[bytes]
 
 
 class ReplayProxy:
@@ -37,13 +73,36 @@ class ReplayProxy:
     ) -> None:
         self.config = config
         self.mode = mode
-        # The test's calls so far that were not recorded because their body was too large.
+        # The calls so far that were not recorded because their body was too large.
         self.too_large: list[str] = []
         # The declared rules that applied to a call, in the tests run so far.
         self.rules_used: list[Rule] = []
+        self._staging = staging
+        self._in_stack = in_stack
+        self._secrets = [secret.encode() for secret in secrets]
+        self._clock = clock
+        self._lock = threading.Condition()
+        self._active = 0
+        self._test_id = ""
+        self._rules: Sequence[Rule] = ()
+        self._calls = 0
+        self._servers: dict[str, ThreadingHTTPServer] = {}
+        self._client = httpx.Client(timeout=600)
 
     def __enter__(self) -> ReplayProxy:
-        raise NotImplementedError
+        if self.mode is ReplayMode.off:
+            return self
+        for upstream in self.config.upstreams:
+            host = urlsplit(upstream.url).hostname or ""
+            if self._in_stack and (key := self._in_stack.why(host)):
+                raise InStackUpstream(
+                    f"upstream {upstream.name!r}: host {host} is in the stack ({key})"
+                )
+        for upstream in self.config.upstreams:
+            server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler(upstream))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self._servers[upstream.name] = server
+        return self
 
     def __exit__(
         self,
@@ -51,21 +110,201 @@ class ReplayProxy:
         error: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
-        raise NotImplementedError
+        for server in self._servers.values():
+            server.shutdown()
+            server.server_close()
+        self._servers = {}
+        self._client.close()
 
     @property
     def addresses(self) -> dict[str, str]:
         """Each upstream's name to its listener's base URL; empty when the mode is `off`."""
-        raise NotImplementedError
+        return {
+            name: f"http://127.0.0.1:{server.server_address[1]}"
+            for name, server in self._servers.items()
+        }
 
     def environment(self) -> dict[str, str]:
         """The environment variables, each set to its upstream's listener; empty when `off`."""
-        raise NotImplementedError
+        addresses = self.addresses
+        return {
+            variable: addresses[upstream.name]
+            for upstream in self.config.upstreams
+            if upstream.name in addresses
+            for variable in upstream.env
+        }
 
     def begin(self, test_id: str, rules: Sequence[Rule] = ()) -> None:
         """Calls from here on belong to `test_id`, and `rules` are declared for them."""
-        raise NotImplementedError
+        with self._lock:
+            self._test_id = test_id
+            self._rules = rules
+            self._calls = 0
+        shutil.rmtree(test_directory(self._staging, test_id), ignore_errors=True)
 
     def finish(self, *, passed: bool) -> None:
         """Promote the staged calls of the test to the cassette directory, or discard them."""
-        raise NotImplementedError
+        with self._lock:
+            # A client has its answer before the proxy has staged the call.
+            self._lock.wait_for(lambda: self._active == 0, timeout=30)
+        staged = test_directory(self._staging, self._test_id)
+        try:
+            if not passed or not staged.exists():
+                return
+            files = sorted(staged.glob("*.json.gz"))
+            if any(self._leaks(load_cassette(path)) for path in files):
+                raise SecretInRecording(f"{self._test_id}: a response holds a configured secret")
+            target = test_directory(self.config.directory, self._test_id)
+            target.mkdir(parents=True, exist_ok=True)
+            for path in files:
+                shutil.move(path, target / path.name)
+        finally:
+            shutil.rmtree(staged, ignore_errors=True)
+
+    def _leaks(self, cassette: Cassette) -> bool:
+        body = b"".join(cassette.response.chunks)
+        try:
+            bodies = [body, gzip.decompress(body)]
+        except (OSError, EOFError):
+            bodies = [body]
+        return any(secret in found for secret in self._secrets for found in bodies)
+
+    def _handler(self, upstream: ReplayUpstream) -> type[BaseHTTPRequestHandler]:
+        answer = self._answer
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def _serve(self) -> None:
+                size = int(self.headers.get("Content-Length") or 0)
+                parts = urlsplit(self.path)
+                request = Request(
+                    method=self.command,
+                    path=parts.path,
+                    query=parts.query,
+                    headers={name.lower(): value for name, value in self.headers.items()},
+                    body=self.rfile.read(size),
+                )
+                answer(upstream, request, self)
+
+            do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _serve
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        return Handler
+
+    def _answer(
+        self, upstream: ReplayUpstream, request: Request, out: BaseHTTPRequestHandler
+    ) -> None:
+        with self._lock:
+            self._active += 1
+        try:
+            self._answer_call(upstream, request, out)
+        finally:
+            with self._lock:
+                self._active -= 1
+                self._lock.notify_all()
+
+    def _answer_call(
+        self, upstream: ReplayUpstream, request: Request, out: BaseHTTPRequestHandler
+    ) -> None:
+        with self._lock:
+            test_id, rules, index = self._test_id, self._rules, self._calls
+            self._calls += 1
+        applied = applied_rules(request, rules)
+        key = request_key(request, rules)
+        with self._lock:
+            self.rules_used.extend(rule for rule in applied if rule not in self.rules_used)
+        if self.mode is ReplayMode.replay:
+            held = find_cassette(self.config.directory, test_id, key)
+            if held is not None and not self._aged(upstream, held):
+                _send(out, held.response.status, held.response.headers, held.response.chunks)
+                return
+        received = self._forward(upstream, request, out)
+        if sum(len(chunk) for chunk in received.chunks) > self.config.max_body_bytes:
+            self.too_large.append(key)
+            return
+        stored = {n: v for n, v in received.headers.items() if n in STORED_HEADERS}
+        cassette = Cassette(
+            key=key,
+            upstream=upstream.name,
+            kind=upstream.kind,
+            recorded_at=self._clock(),
+            test_id=test_id,
+            call_index=index,
+            rules=applied,
+            request=summarise(request),
+            response=StoredResponse(status=received.status, headers=stored, chunks=received.chunks),
+        )
+        with self._lock:
+            write_cassette(self._staging, cassette)
+
+    def _aged(self, upstream: ReplayUpstream, held: Cassette) -> bool:
+        days = (
+            self.config.llm_max_age_days
+            if upstream.kind is UpstreamKind.llm
+            else self.config.max_age_days
+        )
+        return self._clock() - held.recorded_at > timedelta(days=days)
+
+    def _forward(
+        self, upstream: ReplayUpstream, request: Request, out: BaseHTTPRequestHandler
+    ) -> _Answer:
+        """Ask the upstream, answering `out` as the answer arrives."""
+        url = upstream.url.rstrip("/") + request.path
+        headers = {n: v for n, v in request.headers.items() if n not in _NOT_FORWARDED}
+        with self._client.stream(
+            request.method,
+            url,
+            params=request.query or None,
+            headers=headers,
+            content=request.body,
+        ) as response:
+            sent = {
+                n.lower(): v for n, v in response.headers.items() if n.lower() not in _HOP_BY_HOP
+            }
+            chunks: list[bytes] = []
+            if "chunked" in response.headers.get("transfer-encoding", "").lower():
+                _start(out, response.status_code, sent, None)
+                for chunk in response.iter_raw():
+                    chunks.append(chunk)
+                    _write_chunk(out, chunk)
+                out.wfile.write(b"0\r\n\r\n")
+            else:
+                chunks = list(response.iter_raw())
+                _send(out, response.status_code, sent, chunks)
+            return _Answer(status=response.status_code, headers=sent, chunks=chunks)
+
+
+def _start(
+    out: BaseHTTPRequestHandler, status: int, headers: dict[str, str], length: int | None
+) -> None:
+    out.send_response(status)
+    for name, value in headers.items():
+        out.send_header(name, value)
+    if length is None:
+        out.send_header("Transfer-Encoding", "chunked")
+    else:
+        out.send_header("Content-Length", str(length))
+    out.end_headers()
+
+
+def _write_chunk(out: BaseHTTPRequestHandler, chunk: bytes) -> None:
+    out.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+    out.wfile.flush()
+
+
+def _send(
+    out: BaseHTTPRequestHandler, status: int, headers: dict[str, str], chunks: list[bytes]
+) -> None:
+    """Answer from chunks held: streamed when there was more than one, else in one piece."""
+    if len(chunks) > 1:
+        _start(out, status, headers, None)
+        for chunk in chunks:
+            _write_chunk(out, chunk)
+        out.wfile.write(b"0\r\n\r\n")
+        return
+    body = b"".join(chunks)
+    _start(out, status, headers, len(body))
+    out.wfile.write(body)

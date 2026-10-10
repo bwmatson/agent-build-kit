@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
     from agent_build_kit.pipeline.unit_store import StoredUnit
     from agent_build_kit.serve.review import Review
+    from agent_build_kit.settings import Settings
 
 FILE = "local-prs.json"
 
@@ -49,6 +50,9 @@ class LocalForge:
     requires: tuple[str, ...] = ()
     ci_name: str = "no CI"
     description_limit: int = 65_536
+
+    def api_url(self, machine: Settings) -> str | None:
+        return None
 
     def __init__(self, state_dir: Path | None = None) -> None:
         # None is the active workspace's state directory.

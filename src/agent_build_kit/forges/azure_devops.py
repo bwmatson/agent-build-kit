@@ -76,6 +76,7 @@ from agent_build_kit.pipeline import units
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RepoConfig
+    from agent_build_kit.settings import Settings
 
 _HOST = "https://dev.azure.com"
 # The REST version every call is made against, and the one policy evaluations
@@ -197,6 +198,9 @@ class AzureDevOpsForge:
     requires: tuple[str, ...] = ("azure_devops.org", "azure_devops.project", "azure_devops.repo")
     ci_name: str = "Azure Pipelines"
     description_limit: int = 4_000
+
+    def api_url(self, machine: Settings) -> str | None:
+        return _HOST
 
     def __init__(self, http: httpx.BaseTransport | None = None) -> None:
         # The transport every REST call goes through; None is the network.

@@ -31,6 +31,8 @@ SHARED_HELPERS: frozenset[str] = frozenset(
         "forges/azure_rest_host.py",
         "forges/github_server.py",
         "otlp.py",
+        "replay/fake_upstream.py",
+        "replay/proxy.py",
         "runtimes/acp_agent.py",
     }
 )
