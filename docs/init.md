@@ -169,8 +169,10 @@ not recognise gets no section, and `abk doctor` warns.
 
 Over an existing `abk.yaml` init fills what is missing and nothing else: the
 planning section, each listed repo's section and `limits.generated_files`.
-A section already present is never changed. The dry run shows the drafted
-file.
+Every existing line stays as it is, comments included: the missing parts are
+added as text. A section already present is never changed. The dry run over
+an existing file lists each part it would fill, with its YAML, instead of a
+whole file.
 
 ## Idempotence and `--force`
 

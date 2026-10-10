@@ -463,18 +463,19 @@ def _environment(inst: Installation, run: Run) -> list[Check]:
                     "fix `environment.inputs` in abk.yaml",
                 )
             )
-        result = run(planning.check, cwd=inst.root, capture_output=True, text=True, check=False)
-        if result.returncode:
-            output = f"{result.stdout or ''}{result.stderr or ''}".strip()
-            checks.append(
-                _fail(
-                    "environment",
-                    f"`{' '.join(planning.check)}` exited {result.returncode}: {output}",
-                    f"run `{' '.join(planning.sync)}`, or fix `environment.check`",
-                )
-            )
+        command = f"`{' '.join(planning.check)}`"
+        fix = f"run `{' '.join(planning.sync)}`, or fix `environment.check`"
+        try:
+            result = run(planning.check, cwd=inst.root, capture_output=True, text=True, check=False)
+        except OSError as error:
+            checks.append(_fail("environment", f"{command} could not run: {error}", fix))
         else:
-            checks.append(_ok("environment", f"`{' '.join(planning.check)}` passes"))
+            if result.returncode:
+                output = f"{result.stdout or ''}{result.stderr or ''}".strip()
+                detail = f"{command} exited {result.returncode}: {output}"
+                checks.append(_fail("environment", detail, fix))
+            else:
+                checks.append(_ok("environment", f"{command} passes"))
     for name, repo in inst.repos.items():
         if repo.environment is None:
             checks.append(

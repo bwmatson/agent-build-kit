@@ -167,34 +167,98 @@ def draft_config(
     )
 
 
+def _block(key: str, value: object, indent: str) -> list[str]:
+    """`key: value` dumped as block YAML, every line indented."""
+    text = yaml.safe_dump({key: value}, sort_keys=False, default_flow_style=False)
+    return [f"{indent}{line}\n" for line in text.splitlines()]
+
+
+def _child_indent(lines: list[str], at: int, parent: int) -> str:
+    """The indent of the first entry under `lines[at]`, else two more than its parent's."""
+    for line in lines[at + 1 :]:
+        body = line.strip()
+        if not body or body.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        return " " * indent if indent > parent else " " * (parent + 2)
+    return " " * (parent + 2)
+
+
+def _key_line(
+    lines: list[str], key: str, *, start: int = 0, stop: int | None = None, top: bool = False
+) -> int | None:
+    """The index of the first line that is `key:` alone (a comment may follow);
+    with `top`, one that is not indented."""
+    margin = "" if top else r"\s*"
+    pattern = re.compile(rf"^{margin}['\"]?{re.escape(key)}['\"]?:\s*(#.*)?$")
+    for index in range(start, len(lines) if stop is None else stop):
+        if pattern.match(lines[index].rstrip("\n")):
+            return index
+    return None
+
+
+def _top_level_end(lines: list[str], start: int) -> int:
+    """The index of the next top-level key after `lines[start]`, or the end."""
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and not line.startswith((" ", "#", "\t")):
+            return index
+    return len(lines)
+
+
 def fill_missing_environment(
     path: Path, drafted: WorkspaceConfig, *, dry_run: bool = False
-) -> list[str]:
+) -> dict[str, str]:
     """Add what an existing abk.yaml lacks of the environment: the planning
     section, each listed repo's section, and the generated-file patterns.
-    What the file already says is not touched. Returns what was (or would be)
-    filled."""
-    raw = yaml.safe_load(path.read_text()) or {}
+    Every line the file already has stays as it is; what is missing is added
+    as text, a block at a time. A part whose place in the file cannot be found
+    as a block (a flow-style `limits: {}`) is left for a person. Returns, for
+    each part filled (or that would be), its drafted YAML."""
+    text = path.read_text()
+    raw = yaml.safe_load(text) or {}
     drafted_raw = yaml.safe_load(dump(drafted)) or {}
-    filled: list[str] = []
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    filled: dict[str, str] = {}
+
     # A planning section nothing was recognised for is not added to a file that
     # loads without it: empty commands would stop it loading.
     if "environment" not in raw and drafted_raw.get("environment", {}).get("sync"):
-        raw["environment"] = drafted_raw["environment"]
-        filled.append("environment")
-    repos = raw.get("repos") or {}
-    for name, entry in repos.items():
+        lines += _block("environment", drafted_raw["environment"], "")
+        filled["environment"] = "".join(_block("environment", drafted_raw["environment"], ""))
+
+    for name, entry in (raw.get("repos") or {}).items():
         wanted = drafted_raw.get("repos", {}).get(name, {}).get("environment")
-        if isinstance(entry, dict) and "environment" not in entry and wanted:
-            entry["environment"] = wanted
-            filled.append(f"repos.{name}.environment")
+        if not (isinstance(entry, dict) and "environment" not in entry and wanted):
+            continue
+        section = _key_line(lines, "repos", top=True)
+        if section is None:
+            continue
+        at = _key_line(lines, str(name), start=section + 1, stop=_top_level_end(lines, section))
+        if at is None:
+            continue
+        parent = len(lines[at]) - len(lines[at].lstrip())
+        indent = _child_indent(lines, at, parent)
+        lines[at + 1 : at + 1] = _block("environment", wanted, indent)
+        filled[f"repos.{name}.environment"] = "".join(_block("environment", wanted, ""))
+
     patterns = drafted_raw.get("limits", {}).get("generated_files")
-    limits = raw.get("limits") or {}
-    if patterns and "generated_files" not in limits:
-        raw["limits"] = {**limits, "generated_files": patterns}
-        filled.append("limits.generated_files")
+    limits = raw.get("limits")
+    if patterns and "generated_files" not in (limits or {}):
+        at = _key_line(lines, "limits", top=True)
+        if at is not None:
+            lines[at + 1 : at + 1] = _block(
+                "generated_files", patterns, _child_indent(lines, at, 0)
+            )
+        elif "limits" not in raw:
+            lines += _block("limits", {"generated_files": patterns}, "")
+        if at is not None or "limits" not in raw:
+            filled["limits.generated_files"] = "".join(_block("generated_files", patterns, ""))
+
     if filled and not dry_run:
-        path.write_text(yaml.safe_dump(raw, sort_keys=False, default_flow_style=False))
+        path.write_text("".join(lines))
     return filled
 
 

@@ -11,6 +11,7 @@ import yaml
 
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
+from agent_build_kit.config import load
 from tests.cli.test_init import fake_claude, fake_openspec
 from tests.factories import git, init_repo
 
@@ -189,3 +190,79 @@ def test_the_dry_run_shows_a_repository_s_section(
     shown = capsys.readouterr().out.split("# what would be generated:")[0]
     config = yaml.safe_load(shown)
     assert config["repos"]["app"]["environment"]["inputs"]["lock"] == ["uv.lock"]
+
+
+ANNOTATED = """\
+# Hand-written: the installation's own notes.
+version: 1  # the schema
+repos:
+  app:
+    path: '{app}'   # quoted by hand
+    slug: "example/app"
+limits:
+  max_unit_lines: 900  # raised on purpose
+"""
+
+
+def annotated_installation(tmp_path: Path) -> tuple[Path, Path, str]:
+    app = code_repo(tmp_path, "app", **{"uv.lock": ""})
+    planning = planning_with(tmp_path, **{"pyproject.toml": SOURCES, "uv.lock": ""})
+    original = ANNOTATED.format(app=app)
+    (planning / "abk.yaml").write_text(original)
+    return planning, app, original
+
+
+def test_a_fill_keeps_every_line_and_comment_of_the_file_it_adds_to(tmp_path: Path) -> None:
+    planning, app, original = annotated_installation(tmp_path)
+
+    assert run_init(planning, app) == 0
+
+    after = (planning / "abk.yaml").read_text().splitlines()
+    remaining = iter(after)
+    for line in original.splitlines():
+        assert line in remaining, f"{line!r} is gone or out of order"
+    assert "# Hand-written: the installation's own notes." in after
+    assert any(line.endswith("# raised on purpose") for line in after)
+    config = load(planning / "abk.yaml")
+    assert config.environment is not None
+    assert config.repos["app"].environment is not None
+    assert config.limits.generated_files == ("uv.lock",)
+    assert config.limits.max_unit_lines == 900
+
+
+def test_a_fill_adds_a_limits_block_when_there_is_none(tmp_path: Path) -> None:
+    planning, app, original = annotated_installation(tmp_path)
+    without = original.replace("limits:\n  max_unit_lines: 900  # raised on purpose\n", "")
+    (planning / "abk.yaml").write_text(without)
+
+    assert run_init(planning, app) == 0
+
+    assert load(planning / "abk.yaml").limits.generated_files == ("uv.lock",)
+    assert "limits:\n" in (planning / "abk.yaml").read_text()
+
+
+def test_the_dry_run_over_an_existing_file_lists_what_it_would_fill_and_changes_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    planning, app, original = annotated_installation(tmp_path)
+
+    assert run_init(planning, app, "--dry-run") == 0
+
+    out = capsys.readouterr().out
+    assert "would fill environment in abk.yaml" in out
+    assert "would fill repos.app.environment in abk.yaml" in out
+    assert "would fill limits.generated_files in abk.yaml" in out
+    assert "as it would be written" not in out
+    assert (planning / "abk.yaml").read_text() == original
+
+
+def test_no_set_by_hand_message_over_a_kept_file_with_its_own_section(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = code_repo(tmp_path, "app")
+    planning = planning_with(tmp_path)
+    (planning / "abk.yaml").write_text("environment:\n  sync: [my-sync]\n  check: [my-check]\n")
+
+    assert run_init(planning, app) == 0
+
+    assert "nothing recognised" not in capsys.readouterr().out

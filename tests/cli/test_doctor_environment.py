@@ -144,3 +144,23 @@ def test_doctor_reports_a_failing_check_with_its_output(tmp_path: Path) -> None:
     found = [c for c in about_environment(checks) if c.status in ("warn", "FAIL")]
     assert len(found) == 1
     assert "ModuleNotFoundError" in found[0].detail
+
+
+def test_a_check_whose_executable_is_missing_is_a_failure_not_a_crash(tmp_path: Path) -> None:
+    class Missing(CheckAnswers):
+        def __call__(self, argv, **kwargs):
+            if list(argv) == CHECK:
+                raise FileNotFoundError(2, "No such file or directory", argv[0])
+            return super().__call__(argv, **kwargs)
+
+    checks = doctor(
+        tmp_path,
+        planning_environment=environment(),
+        repo_environment=environment(),
+        run=Missing(),
+    )
+
+    failed = [c for c in about_environment(checks) if c.status == "FAIL"]
+    assert len(failed) == 1
+    assert " ".join(CHECK) in failed[0].detail
+    assert any("rules" in c.name for c in checks), "the checks after it still ran"

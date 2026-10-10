@@ -20,7 +20,7 @@ Two ways to reach it:
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
 
 import yaml
@@ -479,11 +479,13 @@ class WorkspaceConfig(Frozen):
 
     def generated_file_patterns(self) -> tuple[str, ...]:
         """The patterns left out of a unit's size: the configured ones and the
-        lock files the planning and repository environments name."""
-        locks = [self.environment] + [repo.environment for repo in self.repos.values()]
+        lock files the planning and repository environments name. A lock file
+        is matched by its file name, wherever it sits: its path is relative to
+        the environment's own root, which a diff path is not."""
+        environments = [self.environment] + [repo.environment for repo in self.repos.values()]
         return (
             *self.limits.generated_files,
-            *(path for env in locks if env for path in env.inputs.lock),
+            *(PurePosixPath(path).name for env in environments if env for path in env.inputs.lock),
         )
 
     def reuses_session(self, role: str) -> bool:

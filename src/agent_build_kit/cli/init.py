@@ -325,14 +325,24 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         return 2
 
     names = list(config.repos)
-    if config.environment is not None and not config.environment.sync:
+    # An abk.yaml already there is kept and only filled, never given the empty section.
+    keeps = (planning / CONFIG_FILENAME).is_file() and not args.force
+    if not keeps and config.environment is not None and not config.environment.sync:
         print(
             "environment: nothing recognised in the planning repo; set `environment.sync` "
             "and `environment.check` in abk.yaml by hand"
         )
     if args.dry_run:
-        print("# abk.yaml as it would be written:\n")
-        print(dump(config))
+        if keeps:
+            print("# abk.yaml is kept; what would be filled in it:\n")
+            fills = fill_missing_environment(planning / CONFIG_FILENAME, config, dry_run=True)
+            for what, block in fills.items():
+                print(f"would fill {what} in abk.yaml:\n{block}")
+            if not fills:
+                print("nothing to fill")
+        else:
+            print("# abk.yaml as it would be written:\n")
+            print(dump(config))
         print("# what would be generated:")
         print("\n".join(_planned_work(planning, detections, args)))
         workspace = _conventions_config(planning, config, args)

@@ -143,7 +143,8 @@ environment:                    # how the pipeline's own environment is kept
   inputs:                       # paths relative to the planning repo; may lie
                                 # outside it
     dependencies: [pyproject.toml]
-    lock: [uv.lock]             # also left out of a unit's size
+    lock: [uv.lock]             # also left out of a unit's size, matched by
+                                # file name wherever the file sits
     other: []
 # A repository entry under `repos` takes the same `environment` section, with
 # paths relative to the repository. `abk doctor` warns for one without it.
