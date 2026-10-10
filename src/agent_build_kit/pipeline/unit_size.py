@@ -4,12 +4,14 @@ landed, and it is compared with the ceiling without ever blocking a unit."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from fnmatch import fnmatchcase
 from pathlib import PurePosixPath
 
 from agent_build_kit.config import active
 from agent_build_kit.forges import FileChange
+from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.unit_store import StoredUnit
 
 
 def is_generated(path: str, patterns: Iterable[str]) -> bool:
@@ -30,3 +32,35 @@ def actual_lines(changes: Iterable[FileChange]) -> int:
 
 def over_ceiling(lines: int | None) -> bool:
     return lines is not None and lines > active().limits.max_unit_lines
+
+
+class Kind(Frozen):
+    """What units are calibrated by: the repository, the tier and the flag of
+    the first flagged group a unit carries (empty when none)."""
+
+    repo: str
+    tier: str
+    flag: str = ""
+
+
+class Calibration(Frozen):
+    """A kind's ratio and the number of samples behind it."""
+
+    ratio: float
+    samples: int
+
+
+def kind_of(unit: StoredUnit) -> Kind:
+    raise NotImplementedError
+
+
+def sample_count(units: Sequence[StoredUnit], kind: Kind) -> int:
+    raise NotImplementedError
+
+
+def calibration(units: Sequence[StoredUnit], kind: Kind) -> float:
+    raise NotImplementedError
+
+
+def calibrations(units: Sequence[StoredUnit]) -> dict[Kind, Calibration]:
+    raise NotImplementedError

@@ -28,6 +28,7 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
+from agent_build_kit.pipeline.unit_size import Calibration, Kind
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
 from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
@@ -84,6 +85,7 @@ def parse_plan(
     known: set[str] | None = None,
     change: str | None = None,
     context: JoinContext | None = None,
+    calibrations: Mapping[Kind, Calibration] | None = None,
 ) -> Plan:
     """Read and verify a proposed graph and its joins, or raise `PlannerError`.
 
@@ -574,6 +576,7 @@ def plan_round(
     built: set[int] | None = None,
     known: set[str] | None = None,
     context: JoinContext | None = None,
+    calibrations: Mapping[Kind, Calibration] | None = None,
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
 ) -> Plan:

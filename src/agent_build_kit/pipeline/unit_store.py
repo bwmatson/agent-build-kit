@@ -156,6 +156,10 @@ class StoredUnit(Unit):
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
+    # The first flagged group's flag when the unit was first stored, and its
+    # estimate times its kind's calibration ratio then; see `unit_size.calibration`.
+    flag: str = ""
+    calibrated_lines: int | None = None
     # The SHA this runner last published for `branch`. The next push leases
     # against exactly this, so it has to outlive the process that pushed it.
     pushed: str | None = None

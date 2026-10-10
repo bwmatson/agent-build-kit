@@ -249,6 +249,12 @@ class LimitsConfig(Frozen):
     # pull request lands over it is logged and listed by `abk status`, never
     # blocked.
     max_unit_lines: int = 750
+    calibrate_estimates: bool = True
+    calibration_window: int = 20
+    calibration_min: int = 3
+    calibration_shrink: float = 5
+    calibration_sample_clamp: tuple[float, float] = (0.5, 4.0)
+    calibration_max: float = 3.0
     # Path patterns (fnmatch, against the whole path or the file name) of
     # generated files, left out of a unit's actual size.
     generated_files: tuple[str, ...] = ()
