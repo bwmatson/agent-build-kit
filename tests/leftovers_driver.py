@@ -12,8 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline.shell import git_out
-from agent_build_kit.pipeline.units import branch_name
+from agent_build_kit.pipeline.units import branch_name, local_ref
 from agent_build_kit.pipeline.wiring import (
     branch_commits,
     build_commit,
@@ -104,12 +105,24 @@ class Hands(StandInRuntime):
 
 
 class Habitat:
-    """A repository on `main`, its worktrees, and the callables over them."""
+    """A repository on `main`, its worktrees, and the callables over them. `tracked`
+    names more files its first commit holds; `config` is the repository's configuration,
+    given to the worktree, the commit and the runner."""
 
-    def __init__(self, tmp_path: Path, runtime: Hands) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        runtime: Hands,
+        *,
+        tracked: dict[str, str] | None = None,
+        config: RepoConfig | None = None,
+    ) -> None:
         self.runtime = runtime
+        self.config = config
         self.repo = init_repo(tmp_path / "app")
         (self.repo / "README.md").write_text("app\n")
+        for name, text in (tracked or {}).items():
+            (self.repo / name).write_text(text)
         git_out(self.repo, "add", "-A")
         git_out(self.repo, "commit", "-q", "-m", "start")
         # The trunk is built on from the remote's ref, which a fixture has no remote for.
@@ -119,8 +132,9 @@ class Habitat:
     def overrides(self) -> dict[str, Any]:
         agent = build_run(runtime=self.runtime)
         return dict(
-            worktree=build_worktree({"app": self.repo}, root=self.trees),
-            commit=build_commit(unit_id=unit().id),
+            worktree=build_worktree({"app": self.repo}, root=self.trees, repo=self.config),
+            commit=build_commit(unit_id=unit().id, repo=self.config, base=local_ref("main")),
+            repo_config=self.config,
             head=lambda cwd: git_out(cwd, "rev-parse", "HEAD"),
             branch_commits=lambda cwd, base: branch_commits(cwd, base),
             run=agent,

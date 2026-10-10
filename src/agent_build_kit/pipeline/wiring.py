@@ -580,6 +580,8 @@ def build_commit(
     fix: Callable[..., str] | None = None,
     adopted_from: str = "",
     gate: Callable[[Path], str] | None = None,
+    repo: RepoConfig | None = None,
+    base: str = "",
 ) -> Callable[..., int]:
     """Commit whatever is staged or unstaged, reporting how many commits resulted.
 
@@ -1302,6 +1304,7 @@ def build_worktree(
     *,
     root: Path,
     prepare: Callable[..., Path] | None = None,
+    repo: RepoConfig | None = None,
 ) -> Worktree:
     """Give a unit its own checkout of the repo it lands in.
 

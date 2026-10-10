@@ -21,7 +21,12 @@ from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW
 from tests.conftest import make_installation, workspace_config
-from tests.environment_fakes import BROKEN_OUTPUT, SYNC_FAILED_OUTPUT, FakeEnvironment
+from tests.environment_fakes import (
+    BROKEN_OUTPUT,
+    SYNC_FAILED_OUTPUT,
+    FakeEnvironment,
+    repo_config,
+)
 from tests.factories import git, init_repo
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import Recorder
@@ -64,10 +69,7 @@ class Habitat:
 
     def repo(self) -> RepoConfig:
         """The configuration the runner is handed for the repository being built."""
-        return RepoConfig.model_validate(
-            workspace_config(self.root).repos["app"].model_dump(mode="json")
-            | ({"environment": self.env.config()} if self.env else {})
-        )
+        return repo_config(self.root, self.env)
 
     def edit_manifest(self) -> None:
         """What the unit's agent does: change the manifest and commit it to the branch."""

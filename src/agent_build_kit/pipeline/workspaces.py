@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -156,7 +157,13 @@ def commit_changes(path: Path, message: str) -> str:
 
 
 def prepare_worktree(
-    repo: Path, branch: str, *, base: str, root: Path, allow_dirty: bool = False
+    repo: Path,
+    branch: str,
+    *,
+    base: str,
+    root: Path,
+    allow_dirty: bool = False,
+    locks: Sequence[str] = (),
 ) -> Path:
     """The worktree for this unit's branch, created or reused.
 
