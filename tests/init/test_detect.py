@@ -15,6 +15,8 @@ import pytest
 
 from agent_build_kit.init.detect import (
     DEV_STACK_SCRIPT,
+    Host,
+    detect_host,
     detect_repo,
     parse_slug,
     resolve_consumes,
@@ -463,3 +465,40 @@ def test_feature_branches_do_not_win_a_popularity_contest(tmp_path: Path) -> Non
     )
 
     assert detection.default_branch == "dev"
+
+
+MICROSOFT_KERNEL = "Linux version 6.6.0-microsoft-standard-WSL2 (root@build) (gcc 12)"
+PLAIN_KERNEL = "Linux version 6.8.0-45-generic (buildd@lcy02) (gcc 13)"
+
+
+def test_wsl_is_detected_from_the_distro_name() -> None:
+    host = detect_host(
+        environ={"WSL_DISTRO_NAME": "Ubuntu"}, platform="linux", proc_version=PLAIN_KERNEL
+    )
+
+    assert host is Host.WSL
+
+
+def test_wsl_is_detected_from_the_kernel_version() -> None:
+    assert detect_host(environ={}, platform="linux", proc_version=MICROSOFT_KERNEL) is Host.WSL
+
+
+def test_the_kernel_version_is_matched_whatever_its_case() -> None:
+    kernel = MICROSOFT_KERNEL.replace("microsoft", "Microsoft")
+
+    assert detect_host(environ={}, platform="linux", proc_version=kernel) is Host.WSL
+
+
+def test_windows_is_detected_from_the_platform() -> None:
+    assert detect_host(environ={}, platform="win32", proc_version="") is Host.WINDOWS
+
+
+def test_anything_else_is_other() -> None:
+    assert detect_host(environ={}, platform="linux", proc_version=PLAIN_KERNEL) is Host.OTHER
+    assert detect_host(environ={}, platform="darwin", proc_version="") is Host.OTHER
+
+
+def test_an_empty_distro_name_is_not_wsl() -> None:
+    host = detect_host(environ={"WSL_DISTRO_NAME": ""}, platform="linux", proc_version="")
+
+    assert host is Host.OTHER

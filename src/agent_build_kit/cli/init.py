@@ -27,7 +27,13 @@ from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
 from agent_build_kit.config import CONFIG_FILENAME, ConfigError, WorkspaceConfig, dump
 from agent_build_kit.init.claude_call import RunClaude
-from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
+from agent_build_kit.init.detect import (
+    Host,
+    RepoDetection,
+    detect_host,
+    detect_repo,
+    resolve_consumes,
+)
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
 from agent_build_kit.init.scaffold import (
@@ -53,7 +59,9 @@ LANGUAGE_ALIAS = {"typescript": "javascript"}
 ask: Callable[[str], str] = input
 run_openspec: openspec.Run | None = None
 run_claude: RunClaude | None = None
-# Runs the installation's `runtimes.<name>.policy_fix`, once the operator agrees.
+# The host `abk init` runs on, which decides whether it offers notifications.
+host: Callable[[], Host] = detect_host
+# Runs a command the operator agreed to: a runtime's `policy_fix` or the notification install.
 run_fix: Callable[..., subprocess.CompletedProcess] | None = None
 
 

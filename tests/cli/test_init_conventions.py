@@ -10,6 +10,7 @@ import pytest
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump
+from agent_build_kit.init.detect import Host
 from tests.cli.test_init import fake_claude, fake_openspec
 from tests.factories import git, init_repo, recognised_planning
 
@@ -19,6 +20,7 @@ def stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(init_cmd, "run_openspec", fake_openspec)
     monkeypatch.setattr(init_cmd, "run_claude", fake_claude)
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: pytest.fail("prompted unexpectedly"))
+    monkeypatch.setattr(init_cmd, "host", lambda: Host.OTHER)
     monkeypatch.setattr(
         init_cmd, "run_fix", lambda argv, **kwargs: pytest.fail(f"ran a fix unasked: {argv}")
     )

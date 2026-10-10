@@ -955,3 +955,90 @@ def test_doctor_reports_a_failing_account_call_as_a_failure_naming_the_source(
 
     assert checks["forge app"].status == "FAIL"
     assert "gh auth token --user example" in checks["forge app"].detail
+
+
+INSTALL_FIX = "powershell.exe -NoProfile -Command Install-Module BurntToast -Scope CurrentUser"
+
+
+class PowerShell(Answers):
+    """`Answers`, plus what `powershell.exe` lists: nothing when the module is missing."""
+
+    def __init__(self, *, module: bool) -> None:
+        super().__init__()
+        self.module = module
+
+    def __call__(self, argv, **kwargs):
+        if argv[0] != "powershell.exe":
+            return super().__call__(argv, **kwargs)
+        self.commands.append(list(argv))
+        listing = (
+            "ModuleType Version Name\n---------- ------- ----\nScript     1.0     BurntToast\n"
+        )
+        return subprocess.CompletedProcess(argv, 0, listing if self.module else "", "")
+
+
+def notifications(workspace: Path, section: str) -> None:
+    text = (workspace / "abk.yaml").read_text()
+    (workspace / "abk.yaml").write_text(f"{text}notifications:\n{section}")
+
+
+def notification_checks(checks: list[Check]) -> list[Check]:
+    return [check for check in checks if "notification" in check.name]
+
+
+def test_no_notification_check_is_listed_while_the_provider_is_off(workspace: Path) -> None:
+    runner = PowerShell(module=False)
+
+    checks = run_doctor(workspace / "abk.yaml", run=runner, which=which_all)
+
+    assert notification_checks(checks) == []
+    assert not [argv for argv in runner.commands if argv[0] == "powershell.exe"]
+
+
+def test_a_missing_toast_module_fails_with_the_install_command_as_the_fix(workspace: Path) -> None:
+    notifications(workspace, "  provider: windows\n")
+
+    checks = run_doctor(workspace / "abk.yaml", run=PowerShell(module=False), which=which_all)
+
+    (check,) = notification_checks(checks)
+    assert check.status == "FAIL"
+    assert check.fix == INSTALL_FIX
+
+
+def test_an_installed_toast_module_passes(workspace: Path) -> None:
+    notifications(workspace, "  provider: windows\n")
+    runner = PowerShell(module=True)
+
+    checks = run_doctor(workspace / "abk.yaml", run=runner, which=which_all)
+
+    (check,) = notification_checks(checks)
+    assert check.status == "ok"
+    assert [
+        "powershell.exe",
+        "-NoProfile",
+        "-Command",
+        "Get-Module -ListAvailable BurntToast",
+    ] in runner.commands
+
+
+def test_a_command_provider_whose_program_is_not_on_path_fails(workspace: Path) -> None:
+    notifications(workspace, "  provider: command\n  command:\n    show: notify-send {title}\n")
+
+    checks = run_doctor(
+        workspace / "abk.yaml",
+        run=Answers(),
+        which=lambda name: None if name == "notify-send" else f"/usr/bin/{name}",
+    )
+
+    (check,) = notification_checks(checks)
+    assert check.status == "FAIL"
+    assert "notify-send" in check.detail + check.fix
+
+
+def test_a_command_provider_whose_program_is_on_path_passes(workspace: Path) -> None:
+    notifications(workspace, "  provider: command\n  command:\n    show: notify-send {title}\n")
+
+    checks = run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all)
+
+    (check,) = notification_checks(checks)
+    assert check.status == "ok"

@@ -19,6 +19,7 @@ import subprocess
 import tomllib
 from collections import Counter
 from collections.abc import Callable, Mapping
+from enum import StrEnum
 from pathlib import Path
 
 from agent_build_kit import forges, infra
@@ -387,3 +388,21 @@ def resolve_consumes(detections: Mapping[str, RepoDetection]) -> dict[str, RepoD
         ]
         resolved[name] = detection.model_copy(update={"consumes": consumes})
     return resolved
+
+
+class Host(StrEnum):
+    """The machine `abk init` runs on, as far as notifications care."""
+
+    WSL = "wsl"
+    WINDOWS = "windows"
+    OTHER = "other"
+
+
+def detect_host(
+    *,
+    environ: Mapping[str, str] | None = None,
+    platform: str | None = None,
+    proc_version: str | None = None,
+) -> Host:
+    """WSL, Windows or other; each argument left out is read from this machine."""
+    raise NotImplementedError
