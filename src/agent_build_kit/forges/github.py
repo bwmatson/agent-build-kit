@@ -708,10 +708,7 @@ class GitHubForge:
         self, repo: RepoId, pr: int, label: Label, *, family: Collection[str]
     ) -> None:
         self._ensure_label(repo, label)
-        on_pr = self._pages(
-            repo, lambda gh: gh.rest.issues.list_labels_on_issue, LabelDoc, issue_number=pr
-        )
-        present = {item.name for item in on_pr}
+        present = set(self.labels_on(repo, pr))
         self._attach(repo, pr, label.name)
         for name in sorted((present & set(family)) - {label.name}):
             self.remove_label(repo, pr, name)
@@ -728,7 +725,12 @@ class GitHubForge:
                 raise
 
     def labels_on(self, repo: RepoId, pr: int) -> list[str]:
-        raise NotImplementedError
+        return [
+            item.name
+            for item in self._pages(
+                repo, lambda gh: gh.rest.issues.list_labels_on_issue, LabelDoc, issue_number=pr
+            )
+        ]
 
     # --- state ----------------------------------------------------------------------
 

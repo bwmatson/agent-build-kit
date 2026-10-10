@@ -98,9 +98,10 @@ parts are free functions beside it rather than inherited behaviour.
 | `add_label(repo, pr, label)` | state labels | put the label on, creating it in the repo first if missing; raises if the host refuses |
 | `set_exclusive_label(repo, pr, label, family)` | state labels | put the label on and take off the rest of `family` only |
 | `remove_label(repo, pr, name)` | the poller | take `agent-rework` off once acted on |
+| `labels_on(repo, pr)` | state labels | the names of the labels on the pull request, read once before a finished unit's state labels come off; empty on the local forge |
 | `set_draft(repo, pr, draft)` | state drafts | make the pull request a draft or publish it; reads the current state first and writes only when it differs; raises if the host refuses |
 
-A host without labels raises `NotImplementedError` from all three label methods. That is said
+A host without labels raises `NotImplementedError` from all four label methods. That is said
 once ("this host keeps no labels") rather than logged as a failure on every
 call; any other error is logged as one.
 

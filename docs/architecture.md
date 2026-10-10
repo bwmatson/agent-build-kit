@@ -585,7 +585,11 @@ after. The state names and colours are the unit graph's — one
 vocabulary (`vocabulary.py`) that both read, the colour being the node's
 outline — so renaming or recolouring a state changes both. `merged`, `closed`,
 `unplanned` and `satisfied` carry no label: the host shows the first two
-itself, and the last two have no pull request of their own to carry one.
+itself, and the last two have no pull request of their own to carry one. When a
+unit reaches one of them and has a pull request, every state label comes off it
+(`StateLabels.clear_state`: one `labels_on` read, then only the state labels
+found are removed; change labels and a person's labels stay), so a merged pull
+request does not keep saying `in-review`.
 Labels are cosmetic and are never read back: the unit store is the source of
 truth, a pull request wearing a stale label does not change its unit, and a
 label that cannot be written is logged and changes nothing about the unit.

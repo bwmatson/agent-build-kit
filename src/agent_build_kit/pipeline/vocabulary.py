@@ -72,7 +72,8 @@ STATES: Mapping[str, StateStyle] = {
 # Drawn by the graph and deliberately given no label: the host shows merged and
 # closed itself, and an unplanned or satisfied unit has no pull request of its
 # own to carry one.
-UNLABELLED: frozenset[str] = frozenset({MERGED, CLOSED, UNPLANNED, SATISFIED})
+FINISHED: frozenset[str] = frozenset({MERGED, CLOSED, UNPLANNED, SATISFIED})
+UNLABELLED: frozenset[str] = FINISHED
 
 _DESCRIPTIONS = {
     "planned": "Ready to start when a slot allows",

@@ -332,7 +332,7 @@ class LocalForge:
         return None
 
     def labels_on(self, repo: RepoId, pr: int) -> list[str]:
-        raise NotImplementedError
+        return []
 
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
         return None
