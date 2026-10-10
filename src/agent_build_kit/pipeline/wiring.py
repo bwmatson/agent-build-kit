@@ -746,8 +746,13 @@ def build_tier1(
     changed = changed or _changed_files
     profile = profile or profiles.get("python-uv")
 
-    def tier1(*, cwd: Path, base: str, whole_repo: bool = False) -> tuple[bool, str]:
-        """(passed, what failed) — the output is what makes a retry useful."""
+    def tier1(
+        *, cwd: Path, base: str, whole_repo: bool = False, failed_output: str = ""
+    ) -> tuple[bool, str]:
+        """(passed, what failed) — the output is what makes a retry useful.
+
+        `failed_output` is the output of the failed check a fix is answering; given,
+        and the repo's affected-tests mode on, the tests run are the selected ones."""
         extra = profile.extra_checks(repo) if repo is not None else []
         for where, toolchain, files in _work(cwd, base, whole_repo, projects, profile, changed):
             if whole_repo:
