@@ -255,11 +255,26 @@ def test_the_handoff_skips_a_prerequisite_the_round_leaves_out() -> None:
 # --- 1.3 an unblocked unit waits for room ------------------------------------------
 
 
+def entry(state: str, hour: int) -> dict:
+    return {"state": state, "at": f"2026-09-23T{hour:02d}:00:00+00:00"}
+
+
+def returned_predecessor(**kw):
+    """A same-repo predecessor that went back for rework after `back/1` stopped, and
+    is in review again: nothing wrote a cause on `back/1` meanwhile."""
+    return review(
+        "p/1",
+        pr=3,
+        history=(entry("in_review", 8), entry("planned", 11), entry("in_review", 12)),
+        **kw,
+    )
+
+
 def unblocked_graph(*, busy: int):
     return [
         *(review(f"busy{n}/1", pr=n + 1) for n in range(busy)),
-        new("base/1", state=MERGED, repo="platform"),
-        worked("back/1", depends_on=("base/1",), **caused(Cause.UPSTREAM_WENT_BACK)),
+        returned_predecessor(),
+        worked("back/1", depends_on=("p/1",), history=(entry("planned", 10),)),
     ]
 
 
@@ -268,7 +283,25 @@ def test_a_unit_no_longer_blocked_stays_planned_while_the_others_fill_the_limit(
 
 
 def test_a_unit_no_longer_blocked_starts_when_one_finishes() -> None:
-    assert chosen(unblocked_graph(busy=1), limit=2) == ["back/1"]
+    assert chosen(unblocked_graph(busy=1), limit=3) == ["back/1"]
+
+
+def test_a_paused_unit_whose_predecessor_went_back_and_returned_waits_for_room() -> None:
+    graph = unblocked_graph(busy=2)
+
+    assert chosen(graph, limit=3) == []
+    assert chosen([unit for unit in graph if unit.id != "busy1/1"], limit=3) == ["back/1"]
+
+
+def test_a_paused_unit_whose_predecessor_stayed_in_review_resumes_at_the_limit() -> None:
+    graph = [
+        review("busy/1"),
+        review("busy/2", pr=2),
+        review("p/1", pr=3, history=(entry("in_review", 8),)),
+        worked("back/1", depends_on=("p/1",), history=(entry("planned", 10),)),
+    ]
+
+    assert chosen(graph, limit=3) == ["back/1"]
 
 
 @pytest.mark.parametrize("cause", [None, Cause.HOST_UNAVAILABLE, Cause.RELEASED])

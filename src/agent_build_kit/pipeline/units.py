@@ -17,6 +17,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
+from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Self
@@ -650,15 +651,56 @@ def uncounted(graph: Sequence[Unit]) -> list[Unit]:
 
 def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
     """Whether a planned unit that was blocked, and no longer is, must wait for
-    room: it has work and no pull request, and its record still carries the
-    cause of the wait it left. A build interrupted by a usage pause, a backoff or
-    a lease carries another cause, and resumes at the limit."""
+    room: it has work and no pull request, and either its record still carries
+    the cause of the wait it left, or a unit it depends on was outside review
+    and merge at some point since the unit last changed state (`_parent_went_back`).
+    A build interrupted by a usage pause, a backoff or a lease, whose parents stayed
+    reviewed or merged throughout, resumes at the limit."""
     return (
         unit.state == PLANNED
         and in_progress(unit, graph)
         and getattr(unit, "pr", None) is None
-        and getattr(unit, "cause", None) in _WAIT_CAUSES
+        and (getattr(unit, "cause", None) in _WAIT_CAUSES or _parent_went_back(unit, graph))
     )
+
+
+def _stamp(entry: dict[str, object]) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(entry.get("at", "")))
+    except ValueError:
+        return None
+
+
+def _parent_went_back(unit: Unit, graph: Sequence[Unit]) -> bool:
+    """Whether a unit `unit` depends on was neither reviewed nor merged at the
+    moment of its last state change, or at any time after it: the unit was
+    blocked since it last ran, whatever cause its record carries. Read from the
+    parents' recorded history, as nothing writes a cause on a paused unit whose
+    predecessor went back after it stopped."""
+    own = [stamp for entry in getattr(unit, "history", ()) if (stamp := _stamp(entry))]
+    since = own[-1] if own else None
+    index = _by_id(graph)
+    for dep in through_satisfied(unit, graph):
+        parent = index.get(dep)
+        if parent is None:
+            continue
+        state_then: str | None = None
+        for entry in getattr(parent, "history", ()):
+            stamp = _stamp(entry)
+            if stamp is None:
+                continue
+            try:
+                later = since is None or stamp >= since
+            except TypeError:
+                continue
+            if later:
+                if entry.get("state") not in REVIEWED:
+                    return True
+            else:
+                state_then = str(entry.get("state"))
+        if state_then is not None and state_then not in REVIEWED:
+            return True
+    return False
 
 
 def _worked_on(unit: Unit) -> bool:
