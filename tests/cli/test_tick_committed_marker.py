@@ -11,6 +11,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
@@ -56,6 +57,26 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def usage_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """What the usage guard itself read or judged: a real read depends on the host's
+    credentials, the network and the cache file, so no tick test may reach one."""
+    reached: list[str] = []
+    real_read, real_judge = usage_guard.current_usage, usage_guard.may_start_unit
+
+    def read(*args, **kwargs):
+        reached.append("read")
+        return real_read(*args, **kwargs)
+
+    def judge(*args, **kwargs):
+        reached.append("judge")
+        return real_judge(*args, **kwargs)
+
+    monkeypatch.setattr(usage_guard, "current_usage", read)
+    monkeypatch.setattr(usage_guard, "may_start_unit", judge)
+    return reached
+
+
+@pytest.fixture
 def inst(tmp_path: Path) -> Installation:
     return make_installation(
         tmp_path,
@@ -65,7 +86,7 @@ def inst(tmp_path: Path) -> Installation:
 
 
 def test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_lease(
-    inst: Installation,
+    inst: Installation, usage_reads: list[str]
 ) -> None:
     store = UnitStore(inst.state_dir / "units.json")
     store.upsert(
@@ -97,3 +118,4 @@ def test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_le
     assert Leases(lease_dir(inst.state_dir)).attachment(UNIT) is None
     adopted = [e for e in store.history(UNIT) if e.get("cause") == Cause.ADOPTED.value]
     assert len(adopted) == 1, "the event was delivered once"
+    assert usage_reads == [], "the delivery asked the real usage guard, not the scripted one"
