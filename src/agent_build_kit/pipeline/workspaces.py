@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -156,7 +157,13 @@ def commit_changes(path: Path, message: str) -> str:
 
 
 def prepare_worktree(
-    repo: Path, branch: str, *, base: str, root: Path, allow_dirty: bool = False
+    repo: Path,
+    branch: str,
+    *,
+    base: str,
+    root: Path,
+    allow_dirty: bool = False,
+    locks: Sequence[str] = (),
 ) -> Path:
     """The worktree for this unit's branch, created or reused.
 
@@ -165,6 +172,7 @@ def prepare_worktree(
     as it stands, so a re-run continues where the last one stopped — unless it
     is dirty, in which case this raises rather than touching anything, unless
     `allow_dirty` says the caller knows the changes are its own to carry on from.
+    A path in `locks` is the pipeline's own, and is never counted, listed or touched.
 
     Either way it carries the ignored scratch folder agent runs put long
     command output in (`pipeline/scratch.py`).
@@ -173,7 +181,7 @@ def prepare_worktree(
 
     if path.exists():
         ensure_scratch(path)
-        entries = _porcelain(path)
+        entries = [(code, name) for code, name in _porcelain(path) if name not in locks]
         if entries and not allow_dirty:
             listing = "\n".join(f"{code} {name}" for code, name in entries)
             raise DirtyWorktree(

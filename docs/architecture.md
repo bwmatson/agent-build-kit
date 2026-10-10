@@ -35,6 +35,15 @@ inputs equal to the base branch's (at the point the branch left it) fails the un
 cause `environment`; a failing `sync` or `check` after the unit changed the inputs is an
 ordinary tier 1 failure carrying that output.
 
+The lock files named in the repository's `environment.inputs.lock` belong to the pipeline in
+its worktrees, because a package manager's `sync` creates or rewrites them. The commit step
+(`build_commit`) commits a tracked lock with the unit's change when the unit changed a
+dependency input against its current base (the point its branch left it), and otherwise
+restores it to the branch's version; a lock the branch does not track is never committed and
+stays in the worktree. A restack restores an unchanged tracked lock before it moves the
+branch, since a rebase refuses a tree with an unstaged change. The same rules apply to a
+commit adopted from a chat.
+
 ### 1. An OpenSpec change
 
 A change lives in `openspec/changes/<change>/` in the planning repo:
@@ -1176,6 +1185,9 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   | stale, marked as holding changes | any | commits and continues nothing; holds the unit with the cause `attached` |
   | none | names the node being re-run | failure leftovers: resumes over them, the node's commit includes them |
   | none | none | holds the unit as an unexplained dirty tree (`dirty_worktree`) |
+
+  A path named in the repository's `environment.inputs.lock` is never part of a dirty tree:
+  it does not hold a unit, is not discarded and is not listed as a leftover.
 
 - `abk attach release <unit>` ends an attachment without the server: `--commit MESSAGE`
   commits every change and releases, `--discard` restores the tree to the branch head

@@ -20,7 +20,8 @@ from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from tests.attach_driver import changed_files, checked_out, head, leave_lease
 from tests.chat_serving import record_session
-from tests.conftest import make_installation
+from tests.conftest import make_installation, workspace_config
+from tests.environment_fakes import FakeEnvironment
 from tests.factories import git
 from tests.serving import seed_pipeline
 
@@ -43,6 +44,31 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 @pytest.fixture
 def tree(inst: Installation) -> Path:
     return checked_out(inst, UNIT)
+
+
+def test_a_lock_the_branch_does_not_track_is_not_adopted_with_the_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = FakeEnvironment(tmp_path / "control", locks=("deps.lock",))
+    root = tmp_path / "planning"
+    repos = {
+        name: repo.model_dump(mode="json") for name, repo in workspace_config(root).repos.items()
+    }
+    repos["app"]["environment"] = env.config()
+    locked = make_installation(root, repos=repos, planning={"worktree_root": str(tmp_path / "wt")})
+    (locked.root / "abk.yaml").write_text(dump(locked.config))
+    monkeypatch.chdir(locked.root)
+    seed_pipeline(locked)
+    record_session(locked, UNIT, SESSION, runtime="claude_code")
+    tree = checked_out(locked, UNIT)
+    (tree / "notes.txt").write_text("left by a chat\n")
+    (tree / "deps.lock").write_text("created by the sync\n")
+    leave_lease(lease_dir(locked.state_dir), UNIT, files=2)
+
+    assert main(["attach", "release", UNIT, "--commit", "Add a note"]) == 0
+
+    assert git(tree, "show", "--name-only", "--format=", "HEAD").split() == ["notes.txt"]
+    assert (tree / "deps.lock").read_text() == "created by the sync\n"
 
 
 def waiting_at(inst: Installation) -> tuple[str, ...]:

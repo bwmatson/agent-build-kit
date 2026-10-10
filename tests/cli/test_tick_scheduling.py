@@ -911,7 +911,7 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
                 assert merged.wait(WAIT), "the refresh never reported the merge"
             return ""
 
-        def commit(message: str, *, cwd: Path) -> int:
+        def commit(message: str, *, cwd: Path, base: str = "") -> int:
             commits[unit.id] = commits.get(unit.id, 0) + 1
             return 1
 

@@ -12,7 +12,8 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.consequences import Consequence, consequences_of
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import base_of, local_ref
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     changed_paths,
@@ -107,7 +108,11 @@ def adopt(
     tree = worktree_of(inst, unit)
     if tree is None:
         raise ValueError(f"{unit.id} has no worktree")
-    if not build_commit(unit_id=unit.id, fix=fix, adopted_from=session)(message, cwd=tree):
+    base = local_ref(base_of(unit, UnitStore(inst.state_dir / "units.json").all()), repo=unit.repo)
+    commit = build_commit(
+        unit_id=unit.id, fix=fix, adopted_from=session, repo=inst.repo(unit.repo), base=base
+    )
+    if not commit(message, cwd=tree):
         raise NothingToCommit("nothing to commit")
     head = git_out(tree, "rev-parse", "HEAD")
     leases = leases_of(inst)

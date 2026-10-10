@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig, active
 from agent_build_kit.installation import Installation
@@ -98,14 +99,27 @@ class WorktreeFault(Frozen):
 WORKTREE_RECORD = "abk-environment-hash"
 
 
-def _changed_from_base(environment: EnvironmentConfig, tree: Path, base: str) -> bool:
-    """Whether the unit changed the inputs: the worktree's copies against the base's at the
-    point the branch left it. Compared as git's own object ids, so line endings and
-    encodings are never decoded."""
+def lock_paths(repo: RepoConfig | None) -> tuple[str, ...]:
+    """The lock files a repository's environment names, relative to the worktree root.
+    They are the pipeline's own in its worktrees; empty when it declares no environment."""
+    environment = repo.environment if repo else None
+    if environment is None:
+        return ()
+    return tuple(
+        PurePosixPath(os.path.normpath(name)).as_posix() for name in environment.inputs.lock
+    )
+
+
+def _changed_from_base(
+    environment: EnvironmentConfig, tree: Path, base: str, names: list[str] | None = None
+) -> bool:
+    """Whether the unit changed the inputs (or just `names`): the worktree's copies against
+    the base's at the point the branch left it. Compared as git's own object ids, so line
+    endings and encodings are never decoded."""
     inputs = environment.inputs
     fork = git(tree, "merge-base", base, "HEAD", check=False)
     point = fork.stdout.strip() if fork.returncode == 0 and fork.stdout.strip() else base
-    for name in (*inputs.dependencies, *inputs.lock, *inputs.other):
+    for name in names if names is not None else (*inputs.dependencies, *inputs.lock, *inputs.other):
         there = git(tree, "rev-parse", "--verify", "-q", f"{point}:{name}", check=False)
         here = (tree / name).is_file()
         if not here or there.returncode != 0:
@@ -115,6 +129,38 @@ def _changed_from_base(environment: EnvironmentConfig, tree: Path, base: str) ->
         if git_out(tree, "hash-object", "--", name) != there.stdout.strip():
             return True
     return False
+
+
+def _tracked_locks(tree: Path, names: tuple[str, ...]) -> list[str]:
+    """Those of the lock files the branch's head holds."""
+    return [
+        name
+        for name in names
+        if git(tree, "cat-file", "-e", f"HEAD:{name}", check=False).returncode == 0
+    ]
+
+
+def restore_unchanged_locks(repo: RepoConfig | None, tree: Path, base: str) -> None:
+    """Put each tracked lock file back as the branch has it, unless the unit changed a
+    dependency input: a rewrite made without one is noise, and would be swept into an
+    unrelated commit or stop a move of the branch."""
+    environment = repo.environment if repo else None
+    if environment is None:
+        return
+    if _changed_from_base(environment, tree, base, environment.inputs.dependencies):
+        return
+    for name in _tracked_locks(tree, lock_paths(repo)):
+        git_out(tree, "checkout", "-q", "--", name)
+
+
+def unstage_untracked_locks(repo: RepoConfig | None, tree: Path) -> None:
+    """Take out of the index a lock file the branch does not track: the repository
+    chose not to commit it, and it stays in the worktree."""
+    names = lock_paths(repo)
+    tracked = _tracked_locks(tree, names)
+    for name in names:
+        if name not in tracked and (tree / name).exists():
+            git(tree, "rm", "-q", "--cached", "--ignore-unmatch", "--", name)
 
 
 def prepare_worktree(repo: RepoConfig | None, tree: Path, base: str) -> WorktreeFault | None:
@@ -192,7 +238,10 @@ __all__ = [
     "WorktreeFault",
     "ensure",
     "inputs_hash",
+    "lock_paths",
     "prepare_worktree",
     "problem",
     "read_state",
+    "restore_unchanged_locks",
+    "unstage_untracked_locks",
 ]

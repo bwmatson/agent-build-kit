@@ -56,7 +56,7 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
     )
 
     def runner(unit, *, store: UnitStore, installation, record_merge, log, **kwargs) -> UnitRunner:
-        def commit(message: str, *, cwd: Path) -> int:
+        def commit(message: str, *, cwd: Path, base: str = "") -> int:
             made[0] += 1
             return 1
 

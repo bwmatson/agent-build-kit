@@ -101,7 +101,7 @@ class Recorder:
         self.events.append("review")
         return self.verdicts.pop(0) if self.verdicts else approving()
 
-    def commit(self, message: str, *, cwd: Path) -> int:
+    def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
         count = 1 if "test" in message else self.commits_from_impl
         self.made += count
         self._after(f"commit:{message.split(':')[0]}")

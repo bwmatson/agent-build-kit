@@ -30,7 +30,7 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from agent_build_kit import forges, infra, profiles, runtimes
 from agent_build_kit.config import (
@@ -48,6 +48,11 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.command_limit import run_limited
+from agent_build_kit.pipeline.environment import (
+    lock_paths,
+    restore_unchanged_locks,
+    unstage_untracked_locks,
+)
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, wait_on_fix
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
@@ -580,6 +585,8 @@ def build_commit(
     fix: Callable[..., str] | None = None,
     adopted_from: str = "",
     gate: Callable[[Path], str] | None = None,
+    repo: RepoConfig | None = None,
+    base: str = "",
 ) -> Callable[..., int]:
     """Commit whatever is staged or unstaged, reporting how many commits resulted.
 
@@ -608,7 +615,9 @@ def build_commit(
     """
     run = run or _run
 
-    def commit(message: str, *, cwd: Path) -> int:
+    default_base = base
+
+    def commit(message: str, *, cwd: Path, base: str = "") -> int:
         # The unit id in the trailer keeps a branch's history readable without
         # the planning repo open beside it.
         trailers = ([f"Unit: {unit_id}"] if unit_id else []) + (
@@ -617,7 +626,9 @@ def build_commit(
         body = f"{message}\n\n" + "\n".join(trailers) + "\n" if trailers else message
 
         def attempt() -> subprocess.CompletedProcess | None:
+            restore_unchanged_locks(repo, cwd, base or default_base)
             run(["git", "add", "-A"], cwd=cwd)
+            unstage_untracked_locks(repo, cwd)
             if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
                 return None  # Nothing staged: an empty commit would be a lie.
             if gate is not None and (rejected := gate(cwd)):
@@ -1302,6 +1313,7 @@ def build_worktree(
     *,
     root: Path,
     prepare: Callable[..., Path] | None = None,
+    repo: RepoConfig | None = None,
 ) -> Worktree:
     """Give a unit its own checkout of the repo it lands in.
 
@@ -1321,7 +1333,9 @@ def build_worktree(
                 f"{unit.id} targets {unit.repo}, which has no checkout configured "
                 f"(known: {', '.join(sorted(repos)) or 'none'})"
             )
-        options = {"allow_dirty": True} if allow_dirty else {}
+        options: dict[str, Any] = {"allow_dirty": True} if allow_dirty else {}
+        if locks := lock_paths(repo):
+            options["locks"] = locks
         return prepare(repos[unit.repo], branch_name(unit), base, root, **options)
 
     return worktree
@@ -1685,6 +1699,7 @@ def build_restack_onto(
         old_base = own_work_starts_after(tree, base, unit, store)
         if not old_base:
             return None
+        restore_unchanged_locks(repo, tree, base)
 
         # Named for the resolver and the reviewer: the predecessor that moved.
         onto = predecessor(unit, base, store)
@@ -2099,7 +2114,7 @@ def build_runner(
     def repo_turn_of(name: str) -> AbstractContextManager[object]:
         return file_lock(root / "locks" / f"repo-{name}.lock")
 
-    worktree = build_worktree(installation.checkouts, root=installation.worktree_root)
+    worktree = build_worktree(installation.checkouts, root=installation.worktree_root, repo=repo)
     push = build_push(store)
 
     def worktree_in_turn(unit: Unit, base: str) -> Path:
@@ -2155,7 +2170,12 @@ def build_runner(
             repo=repo,
         ),
         # A rejected commit goes back to the build run's agent, same policy.
-        commit=build_commit(unit_id=unit.id, fix=run),
+        commit=build_commit(
+            unit_id=unit.id,
+            fix=run,
+            repo=repo,
+            base=local_ref(repo.default_branch, repo=unit.repo),
+        ),
         branch_commits=branch_commits,
         upstream_incomplete=build_upstream_incomplete(store),
         base_moved=build_base_moved(store),

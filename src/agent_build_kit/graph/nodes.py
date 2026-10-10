@@ -965,7 +965,7 @@ class BuildPath:
                 tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
             ),
         )
-        r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree)
+        r.commit(f"adapt: {unit.title} onto {restacked.onto_unit}", cwd=tree, base=self.ref(state))
         # The session that did the port: the follow-up rounds continue it, and it is the one
         # recorded for the role whatever they do.
         ported = self._ended
@@ -1082,7 +1082,7 @@ class BuildPath:
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
-            r.commit(f"test: {unit.title}", cwd=tree)
+            r.commit(f"test: {unit.title}", cwd=tree, base=self.ref(state))
         return {"head": r.head(tree)}
 
     def implement(self, state: UnitRun) -> Update:
@@ -1112,7 +1112,7 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
-            r.commit(f"feat: {unit.title}", cwd=tree)
+            r.commit(f"feat: {unit.title}", cwd=tree, base=self.ref(state))
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
         return {"head": r.head(tree), "produced_nothing": r.branch_commits(tree, ref) == 0}
@@ -1207,7 +1207,7 @@ class BuildPath:
                 model=model,
                 follow_up=self.told(CHECKS_CONTINUATION.format(feedback=feedback), outside),
             )
-            r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree)
+            r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree, base=self.ref(state))
             if r.head(tree) == state.head:
                 return self.stop(
                     f"checks failing and fix round {attempt} changed nothing, before review"
@@ -1363,7 +1363,11 @@ class BuildPath:
                 ),
             )
             kept["review_rounds"] = with_response(state.review_rounds, response)
-            r.commit(f"fix: {unit.title} (review round {state.review_round})", cwd=tree)
+            r.commit(
+                f"fix: {unit.title} (review round {state.review_round})",
+                cwd=tree,
+                base=self.ref(state),
+            )
         else:
             # One run on the review model, not the tests-then-implementation
             # pair: both are already on the branch.
@@ -1407,7 +1411,7 @@ class BuildPath:
                     outside,
                 ),
             )
-            r.commit(f"fix: {unit.title}", cwd=tree)
+            r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
                 kept["pending_replies"] = (*state.pending_replies, answer)
