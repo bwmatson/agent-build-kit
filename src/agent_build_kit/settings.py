@@ -18,6 +18,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agent_build_kit.replay.models import ReplayMode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ABK_", env_file=".env", extra="ignore")
@@ -93,6 +95,9 @@ class Settings(BaseSettings):
     # How long the rows must have stopped growing before they are taken as
     # complete: at least the gateway's flush interval.
     gateway_quiet_seconds: float = 10.0
+
+    # What tier-2 tests do with the calls they make outside the stack (replay/).
+    replay_mode: ReplayMode = ReplayMode.off
 
     # Telemetry (telemetry.py): off unless this is set. The endpoint and
     # resource settings keep their standard OpenTelemetry names, so any
