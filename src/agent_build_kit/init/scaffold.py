@@ -132,7 +132,9 @@ def draft_config(
         # is the forge's answer and differs per host.
         repos[name] = RepoConfig.model_validate(
             {
-                "environment": detect_environment(detection.path, framework=False),
+                "environment": detect_environment(
+                    detection.path, framework=False, profile=detection.profile
+                ),
                 "path": detection.path,
                 "forge": forge.name,
                 **named,

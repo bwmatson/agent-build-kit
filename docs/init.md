@@ -169,11 +169,15 @@ it; set `notifications` by hand there.
 
 ## The environment section
 
-Init is the only place that guesses an `environment` section. It reads marker
-files in the planning repo and in each code repo (a manifest, its lock file,
-and the checkouts inside the repo the manifest names as path sources; a
-checkout beside it cannot be listed, since patterns stay in the repo) and writes a `sync`
-command, a `check`, and the manifests and lock files found. The lock files
+Init is the only place that guesses an `environment` section. It asks the
+toolchain profile repository detection chose, then the other registered
+profiles in order, to draft it from the marker files in the planning repo and
+in each code repo (for Python a manifest, its lock file, and the checkouts
+inside the repo the manifest names as path sources; a checkout beside it
+cannot be listed, since patterns stay in the repo; for node a `package.json`,
+its lock file and `workspaces`, with the dependency directory as an artifact).
+The first profile to propose a section wins, and it writes a `sync` command,
+a `check`, and the manifests and lock files found. The lock files
 are also written into `limits.generated_files`. Where it recognises nothing
 it writes the planning section with empty commands and says to set them by
 hand; configuration refuses empty commands until then. A code repo it does

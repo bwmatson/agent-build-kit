@@ -78,6 +78,12 @@
   Replay runs must not use xdist workers: a worker's session neither counts runs nor writes
   the report. `abk replay review --keep` or `--delete` exits 1 when no repository has the
   section.
+- `abk init` now drafts a repository's `environment` section through its toolchain
+  profile, so a profile can describe its own ecosystem and init needs no change for a
+  new one. A Python repository gets the section it always did. A node repository with
+  a `package.json` now gets a proposal: the manager from the manifest's
+  `packageManager` field or its lock file, the manifest, lock and workspaces as inputs,
+  and the dependency folder as an artifact.
 
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package

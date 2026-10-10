@@ -10,13 +10,14 @@ environment, so the collision cannot happen.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import sys
 import tomllib
 from pathlib import Path
 
-from agent_build_kit.config import EnvironmentConfig, RepoConfig
+from agent_build_kit.config import EnvironmentConfig, EnvironmentInputs, RepoConfig
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import parse_pytest_summary
@@ -29,6 +30,8 @@ NO_TESTS_COLLECTED = 5
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 XDIST = "pytest-xdist"
+MANIFEST = "pyproject.toml"
+LOCK = "uv.lock"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
 
 
@@ -52,6 +55,21 @@ def _pyproject(path: Path) -> dict:
         return tomllib.loads((path / "pyproject.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
+
+
+def _relative(path: Path, root: Path) -> str:
+    return Path(os.path.relpath(path, root)).as_posix()
+
+
+def _path_sources(root: Path) -> list[Path]:
+    """The checkouts the manifest names as path sources, that exist."""
+    sources = _pyproject(root).get("tool", {}).get("uv", {}).get("sources", {})
+    found = []
+    for source in sources.values():
+        path = source.get("path") if isinstance(source, dict) else None
+        if isinstance(path, str) and (root / path).is_dir():
+            found.append((root / path).resolve())
+    return found
 
 
 def _declared_dependencies(pyproject: dict) -> set[str]:
@@ -127,7 +145,31 @@ class PythonUvProfile:
         return [str(member) for member in members]
 
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
-        raise NotImplementedError
+        """The section for the checkout at `root`, or None without a manifest.
+        `framework` says the pipeline itself runs from this environment, so its
+        check loads the framework."""
+        root = root.expanduser().resolve()
+        if not (root / MANIFEST).is_file():
+            return None
+        dependencies, lock = [MANIFEST], []
+        if (root / LOCK).is_file():
+            lock.append(LOCK)
+        for checkout in _path_sources(root):
+            for name, files in ((MANIFEST, dependencies), (LOCK, lock)):
+                # A pattern cannot leave the repository, so a checkout beside it is not listed.
+                relative = _relative(checkout / name, root)
+                if (checkout / name).is_file() and not relative.startswith(".."):
+                    files.append(relative)
+        check = (
+            ["uv", "run", "--no-sync", "python", "-c", "import agent_build_kit"]
+            if framework
+            else ["uv", "run", "--no-sync", "python", "-c", "pass"]
+        )
+        return EnvironmentConfig(
+            sync=["uv", "sync"],
+            check=check,
+            inputs=EnvironmentInputs(dependencies=dependencies, lock=lock),
+        )
 
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):
