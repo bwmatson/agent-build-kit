@@ -44,6 +44,15 @@ stays in the worktree. A restack restores an unchanged tracked lock before it mo
 branch, since a rebase refuses a tree with an unstaged change. The same rules apply to a
 commit adopted from a chat.
 
+Inputs are path patterns (`path_patterns.py`), and one matcher serves the hash, the
+comparison against the base, lock ownership and artifact ownership. The hash covers each
+pattern as written, the sorted files it matches and their contents, and a pattern matching
+nothing counts as missing. `environment.artifacts` names what `sync` and `check` produce,
+such as a dependency folder: matching skips anything under an artifact, so filling one never
+changes the hash, and in a worktree an untracked artifact is neither a leftover that holds a
+unit nor staged by the commit step. A tracked file under an artifact pattern is ordinary
+work.
+
 ### 1. An OpenSpec change
 
 A change lives in `openspec/changes/<change>/` in the planning repo:

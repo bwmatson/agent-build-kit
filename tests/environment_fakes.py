@@ -46,6 +46,12 @@ if (control / "lock-content").exists():
     runs = (control / "calls.log").read_text().split().count("sync")
     for name in sys.argv[2:]:
         pathlib.Path(name).write_text((control / "lock-content").read_text() + str(runs) + chr(10))
+if (control / "artifact-dirs").exists():
+    for name in (control / "artifact-dirs").read_text().split():
+        package = pathlib.Path(name) / "pkg"
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "manifest.json").write_text("{{}}" + chr(10))
+        (package / "built.bin").write_text("built" + chr(10))
 """
 
 
@@ -58,11 +64,13 @@ class FakeEnvironment:
         *,
         inputs: tuple[str, ...] = ("manifest.toml",),
         locks: tuple[str, ...] = (),
+        artifacts: tuple[str, ...] = (),
     ) -> None:
         control.mkdir(parents=True, exist_ok=True)
         self.control = control
         self.inputs = list(inputs)
         self.locks = list(locks)
+        self.artifacts = list(artifacts)
 
     def config(self) -> dict[str, Any]:
         """The `environment` section, for `make_installation(..., environment=...)`."""
@@ -70,7 +78,13 @@ class FakeEnvironment:
             "sync": [sys.executable, "-c", _SYNC, str(self.control), *self.locks],
             "check": [sys.executable, "-c", _CHECK, str(self.control)],
             "inputs": {"dependencies": self.inputs, "lock": self.locks},
+            "artifacts": self.artifacts,
         }
+
+    def builds_artifacts(self) -> None:
+        """From now on every `sync` fills each artifact folder the environment names with a
+        package holding a manifest and a built file, as a dependency install does."""
+        (self.control / "artifact-dirs").write_text("\n".join(self.artifacts))
 
     def writes_lock(self, text: str) -> None:
         """From now on every `sync` writes `text` and the number of syncs run so far into each

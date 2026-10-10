@@ -56,6 +56,9 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, _resolve, load_config
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_patterns import matches
+from agent_build_kit.pipeline.environment import matched_inputs
+from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.runtimes import policy_check
 from agent_build_kit.settings import settings
@@ -432,12 +435,32 @@ def _verify_env(inst: Installation, run: Run) -> list[Check]:
 
 
 def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
-    listed = [
-        *environment.inputs.dependencies,
-        *environment.inputs.lock,
-        *environment.inputs.other,
+    return [pattern for pattern, names in matched_inputs(environment, root).items() if not names]
+
+
+def _tracked_artifacts(environment: EnvironmentConfig, root: Path) -> list[str]:
+    """The artifact patterns that cover a file the repository tracks."""
+    if not environment.artifacts or not (root / ".git").exists():
+        return []
+    tracked = git_out(root, "ls-files", "-z").split("\0")
+    return [
+        pattern
+        for pattern in environment.artifacts
+        if any(name and matches(pattern, name) for name in tracked)
     ]
-    return [path for path in listed if not (root / path).exists()]
+
+
+def _artifact_warnings(environment: EnvironmentConfig, root: Path, name: str) -> list[Check]:
+    covering = _tracked_artifacts(environment, root)
+    if not covering:
+        return []
+    return [
+        _warn(
+            name,
+            f"covers tracked files, which are treated as ordinary work: {', '.join(covering)}",
+            "narrow `artifacts` so it names only what the sync produces",
+        )
+    ]
 
 
 def _environment(inst: Installation, run: Run) -> list[Check]:
@@ -463,6 +486,7 @@ def _environment(inst: Installation, run: Run) -> list[Check]:
                     "fix `environment.inputs` in abk.yaml",
                 )
             )
+        checks += _artifact_warnings(planning, inst.root, "environment artifacts")
         command = f"`{' '.join(planning.check)}`"
         fix = f"run `{' '.join(planning.sync)}`, or fix `environment.check`"
         try:
@@ -495,6 +519,9 @@ def _environment(inst: Installation, run: Run) -> list[Check]:
                     f"fix repos.{name}.environment.inputs in abk.yaml",
                 )
             )
+        checks += _artifact_warnings(
+            repo.environment, inst.checkouts[name], f"environment {name} artifacts"
+        )
     return checks
 
 

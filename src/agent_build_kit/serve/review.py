@@ -6,13 +6,14 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
@@ -123,16 +124,18 @@ def unit_worktree(installation: Installation, unit: StoredUnit) -> Path | None:
     return path if path.is_dir() else None
 
 
-def working_changes(tree: Path | None) -> WorkingChanges:
+def working_changes(tree: Path | None, artifacts: Sequence[str] = ()) -> WorkingChanges:
     """What the worktree `tree` holds uncommitted, as a patch against the commit it stands on,
     untracked files shown as additions. Nothing when `tree` is None, the unit having none."""
     if tree is None:
         return WorkingChanges(commit="", files=(), patch="")
     commit = git(tree, "rev-parse", "HEAD").stdout.strip()
-    files = tuple(sorted(changed_paths(tree)))
+    files = tuple(sorted(changed_paths(tree, artifacts)))
     patch = git(tree, "diff", *_PLAIN, "--no-renames", "HEAD").stdout
     untracked = git(tree, "ls-files", "--others", "--exclude-standard", "-z").stdout.split("\0")
     for name in sorted(filter(None, untracked)):
+        if matches_any(artifacts, name):
+            continue
         patch += git(
             tree, "diff", *_PLAIN, "--no-index", "--", "/dev/null", name, check=False
         ).stdout

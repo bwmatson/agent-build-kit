@@ -28,14 +28,19 @@ LOCK = "deps.lock"
 STRAY = "stray.txt"
 
 
-def built(tmp_path: Path, **tracked: str) -> tuple[Habitat, Recorder]:
-    """A unit built and waiting in review."""
-    env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,), locks=(LOCK,))
+def built(
+    tmp_path: Path, tracked: dict[str, str] | None = None, *, artifacts: tuple[str, ...] = ()
+) -> tuple[Habitat, Recorder]:
+    """A unit built and waiting in review; each sync fills the `artifacts` folders."""
+    env = FakeEnvironment(
+        tmp_path / "control", inputs=(MANIFEST,), locks=(LOCK,), artifacts=artifacts
+    )
     env.writes_lock("rewritten ")
+    env.builds_artifacts()
     habitat = Habitat(
         tmp_path,
         Hands(),
-        tracked={MANIFEST: 'widget = "1"\n', **tracked},
+        tracked={MANIFEST: 'widget = "1"\n', **(tracked or {})},
         config=repo_config(tmp_path / "meta", env),
     )
     recorder = fresh(tmp_path)
@@ -67,7 +72,7 @@ def test_an_untracked_lock_the_sync_created_does_not_hold_the_rework(tmp_path: P
 
 
 def test_a_tracked_lock_the_sync_rewrote_does_not_hold_the_rework(tmp_path: Path) -> None:
-    habitat, recorder = built(tmp_path, **{LOCK: "as committed\n"})
+    habitat, recorder = built(tmp_path, {LOCK: "as committed\n"})
 
     outcome = reworked(tmp_path, habitat, recorder)
 
@@ -80,7 +85,7 @@ def test_a_tracked_lock_the_sync_rewrote_does_not_hold_the_rework(tmp_path: Path
 def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named(
     tmp_path: Path,
 ) -> None:
-    habitat, recorder = built(tmp_path, **{LOCK: "as committed\n"})
+    habitat, recorder = built(tmp_path, {LOCK: "as committed\n"})
     (habitat.tree / LOCK).write_text("rewritten by a later sync\n")
     (habitat.tree / STRAY).write_text("mine\n")
     asked = len(habitat.runtime.requests)

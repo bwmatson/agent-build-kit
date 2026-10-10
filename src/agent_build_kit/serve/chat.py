@@ -29,6 +29,7 @@ from agent_build_kit.graph.state import AgentSession
 from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import attach
+from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.transcript import (
@@ -327,7 +328,7 @@ class Chat:
         # files it leaves there are part of what its attachment holds.
         free = held is not None and not (recorded and held.session == recorded.session_id)
         try:
-            files = len(changed_paths(tree))
+            files = len(changed_paths(tree, repo_artifacts(self.installation, unit.repo)))
         except Exception:  # noqa: BLE001 — a turn's end must not hang on a git failure
             return
         planned = 0
