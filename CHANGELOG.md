@@ -9,6 +9,7 @@
   shortest interval between successful calls not followed by a refusal), and the figures are
   exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
   from the record when the metrics store is not available.
+
 - Text that has to fit a size is now cut and shared out by one module: cuts that keep the
   head, the tail or both on a character, line or paragraph boundary and close any open code
   fence or collapsible block, and a fitter that gives each section of a text its smallest
