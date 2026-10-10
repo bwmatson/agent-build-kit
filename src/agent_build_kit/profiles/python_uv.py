@@ -16,7 +16,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import parse_pytest_summary
@@ -125,6 +125,9 @@ class PythonUvProfile:
             _pyproject(repo).get("tool", {}).get("uv", {}).get("workspace", {}).get("members", [])
         )
         return [str(member) for member in members]
+
+    def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
+        raise NotImplementedError
 
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):

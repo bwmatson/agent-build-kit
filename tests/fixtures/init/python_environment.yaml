@@ -1,0 +1,40 @@
+plain:
+  sync:
+    - uv
+    - sync
+  check:
+    - uv
+    - run
+    - --no-sync
+    - python
+    - -c
+    - pass
+  inputs:
+    dependencies:
+      - pyproject.toml
+      - vendor/lib/pyproject.toml
+    lock:
+      - uv.lock
+      - vendor/lib/uv.lock
+    other: []
+  artifacts: []
+framework:
+  sync:
+    - uv
+    - sync
+  check:
+    - uv
+    - run
+    - --no-sync
+    - python
+    - -c
+    - import agent_build_kit
+  inputs:
+    dependencies:
+      - pyproject.toml
+      - vendor/lib/pyproject.toml
+    lock:
+      - uv.lock
+      - vendor/lib/uv.lock
+    other: []
+  artifacts: []

@@ -36,10 +36,13 @@ def _path_sources(root: Path) -> list[Path]:
     return found
 
 
-def detect_environment(root: Path, *, framework: bool) -> EnvironmentConfig | None:
+def detect_environment(
+    root: Path, *, framework: bool, profile: str | None = None
+) -> EnvironmentConfig | None:
     """The section for the checkout at `root`, or None where nothing is
     recognised. `framework` says the pipeline itself runs from this
-    environment, so its check loads the framework."""
+    environment, so its check loads the framework. `profile` names the
+    toolchain profile repository detection chose, which is asked first."""
     root = root.expanduser().resolve()
     if not (root / MANIFEST).is_file():
         return None
