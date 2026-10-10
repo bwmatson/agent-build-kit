@@ -89,6 +89,7 @@
   place, and the tick logs which unit started ahead of which. A failed unit with others
   waiting on it is named in `abk status` and in the reason nothing started, with the number
   waiting and a hint to requeue it.
+
 - The usage module is now the only authority on usage. One process refreshes the cached
   reading at its expiry under a lock, and any other asker is served the last good reading
   instead of calling the endpoint. A reading from the editor's cache is no longer used past
