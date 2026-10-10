@@ -173,6 +173,8 @@ class ClaudeLimitsConfig(Frozen):
     usage_stale_retry_minutes: Annotated[int, Field(gt=0)] = 5
     # How long a good live usage reading answers every reader before the endpoint is asked again.
     usage_cache_minutes: Annotated[int, Field(gt=0)] = 15
+    # The longest a good reading is kept once refusals have doubled the time.
+    usage_cache_max_minutes: Annotated[int, Field(gt=0)] = 60
     # How old the last good live reading may be and still stand in for a failed call.
     usage_fallback_minutes: Annotated[int, Field(gt=0)] = 30
 

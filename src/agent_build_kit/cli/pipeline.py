@@ -142,12 +142,19 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
     waiting_on_me,
 )
-from agent_build_kit.pipeline.usage_calls import CALLS_NAME, derive_rate, rate_line, read_calls
+from agent_build_kit.pipeline.usage_calls import (
+    CALLS_NAME,
+    derive_rate,
+    interval_line,
+    rate_line,
+    read_calls,
+)
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
     Limits,
     RateLimited,
     UsageReading,
+    current_cache_interval,
     current_usage,
     forget_logged_failures,
     may_start_unit,
@@ -358,6 +365,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         calls = read_calls(inst.state_dir / CALLS_NAME)
         if calls:
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
+        if runtime.supports_usage_tracking:
+            log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
 
     units = store_for(inst).all()
     if not units:

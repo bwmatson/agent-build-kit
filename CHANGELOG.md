@@ -8,7 +8,11 @@
   `abk status` prints one line from it (calls in the hour, refusals, the cache's share and the
   shortest interval between successful calls not followed by a refusal), and the figures are
   exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
-  from the record when the metrics store is not available.
+  from the record when the metrics store is not available. The time a usage reading is kept
+  now adapts to what the record shows: each refusal doubles it (up to the new
+  `usage_cache_max_minutes`, an hour by default), a refusal's own retry time is respected when
+  longer, and each further stretch of that time without one halves it, never below
+  `usage_cache_minutes`. `abk status` says the time in use and what set it.
 
 - New `abk replan` plans changes again on demand: name changes (or a unit id), or use
   `--all` or `--failed`, and each is planned now whatever its recorded plan says, with

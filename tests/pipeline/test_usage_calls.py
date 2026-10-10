@@ -25,7 +25,7 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit import telemetry
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.config import WorkspaceConfig
+from agent_build_kit.config import CLAUDE_CODE, WorkspaceConfig
 from agent_build_kit.pipeline import archive, usage_guard
 from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
@@ -554,3 +554,138 @@ def test_a_refusal_after_a_failed_call_still_makes_the_interval_unsafe() -> None
     )
 
     assert derive_rate(calls, now=NOW).safe_interval_seconds == 80 * 60
+
+
+# --- the interval adapts ---------------------------------------------------------
+
+
+def since(**delta: float) -> datetime:
+    return datetime.now(UTC) - timedelta(**delta)
+
+
+def configure(**limits: int) -> None:
+    config_module.activate(
+        WorkspaceConfig.model_validate({"runtimes": {CLAUDE_CODE: {"limits": limits}}}), None
+    )
+
+
+def asks_the_endpoint(host: Host, age: timedelta) -> bool:
+    """Whether a reading kept `age` ago is asked for again, given the record."""
+    host.keep_reading(age)
+    host.answers = [payload()]
+    read_live_usage()
+    return not host.answers
+
+
+def test_a_refusal_doubles_the_time_a_reading_is_kept(host: Host) -> None:
+    host.seed(line(since(minutes=1), "rate_limited", status=429))
+
+    assert not asks_the_endpoint(host, timedelta(minutes=20))
+    assert asks_the_endpoint(host, timedelta(minutes=31))
+
+
+def test_a_second_refusal_doubles_it_again_up_to_the_maximum(host: Host) -> None:
+    host.seed(
+        line(since(minutes=3), "rate_limited", status=429),
+        line(since(minutes=1), "rate_limited", status=429),
+    )
+
+    assert not asks_the_endpoint(host, timedelta(minutes=45))
+    assert asks_the_endpoint(host, timedelta(minutes=61))
+
+
+def test_the_time_never_passes_the_configured_maximum(host: Host) -> None:
+    configure(usage_cache_max_minutes=40)
+    host.seed(
+        line(since(minutes=5), "rate_limited", status=429),
+        line(since(minutes=3), "rate_limited", status=429),
+        line(since(minutes=1), "rate_limited", status=429),
+    )
+
+    assert not asks_the_endpoint(host, timedelta(minutes=35))
+    assert asks_the_endpoint(host, timedelta(minutes=41))
+
+
+def test_a_refusal_that_names_a_longer_retry_time_is_respected(host: Host) -> None:
+    host.seed(line(since(minutes=1), "rate_limited", status=429, headers={"retry-after": "3600"}))
+
+    assert not asks_the_endpoint(host, timedelta(minutes=45))
+
+
+def test_a_retry_time_shorter_than_the_doubled_time_changes_nothing(host: Host) -> None:
+    host.seed(line(since(minutes=1), "rate_limited", status=429, headers={"retry-after": "60"}))
+
+    assert not asks_the_endpoint(host, timedelta(minutes=20))
+    assert asks_the_endpoint(host, timedelta(minutes=31))
+
+
+def test_the_same_time_without_a_refusal_halves_it(host: Host) -> None:
+    host.seed(line(since(minutes=31), "rate_limited", status=429))
+
+    assert asks_the_endpoint(host, timedelta(minutes=16))
+
+
+def test_a_time_at_the_maximum_halves_once_after_one_quiet(host: Host) -> None:
+    host.seed(
+        line(since(minutes=67), "rate_limited", status=429),
+        line(since(minutes=65), "rate_limited", status=429),
+    )
+
+    assert not asks_the_endpoint(host, timedelta(minutes=20))
+    assert asks_the_endpoint(host, timedelta(minutes=31))
+
+
+def test_the_time_never_falls_below_the_configured_value(host: Host) -> None:
+    host.seed(line(since(hours=5), "rate_limited", status=429))
+
+    assert not asks_the_endpoint(host, timedelta(minutes=10))
+    assert asks_the_endpoint(host, timedelta(minutes=16))
+
+
+def test_the_configured_value_is_the_start_when_nothing_was_refused(host: Host) -> None:
+    configure(usage_cache_minutes=5)
+    host.seed(line(since(minutes=10)))
+
+    assert not asks_the_endpoint(host, timedelta(minutes=4))
+    assert asks_the_endpoint(host, timedelta(minutes=6))
+
+
+def status_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *calls: dict) -> list[str]:
+    inst = make_installation(tmp_path, planning={"state_dir": "."})
+    inst.state_dir.mkdir(parents=True, exist_ok=True)
+    (inst.state_dir / CALLS_NAME).write_text("".join(json.dumps(each) + "\n" for each in calls))
+    monkeypatch.setattr(cli, "current_usage", lambda *a, **k: None)
+    messages: list[str] = []
+    monkeypatch.setattr(cli, "log", messages.append)
+    assert cli.cmd_status(argparse.Namespace(), inst) == 0
+    return [each for each in messages if "usage cache" in each]
+
+
+def test_the_status_command_says_the_interval_followed_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown = status_lines(tmp_path, monkeypatch, line(since(minutes=5), "rate_limited", status=429))
+
+    assert len(shown) == 1
+    assert "30 minutes" in shown[0]
+    assert "refusal" in shown[0]
+
+
+def test_the_status_command_says_the_interval_fell_after_a_quiet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown = status_lines(tmp_path, monkeypatch, line(since(minutes=40), "rate_limited", status=429))
+
+    assert len(shown) == 1
+    assert "15 minutes" in shown[0]
+    assert "quiet" in shown[0]
+
+
+def test_the_status_command_says_when_the_interval_is_the_configured_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown = status_lines(tmp_path, monkeypatch, line(since(minutes=10)))
+
+    assert len(shown) == 1
+    assert "15 minutes" in shown[0]
+    assert "configured" in shown[0]

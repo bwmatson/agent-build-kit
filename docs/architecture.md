@@ -758,8 +758,11 @@ before an agent can merge its own PR.
 subscription with a usage window shared with the user's own sessions, and
 credits past the plan limit cost money. No new unit starts once a window is
 at its threshold; the reading comes live from the usage endpoint with Claude
-Code's stored OAuth token (kept in `usage-cache.json` for `usage_cache_minutes`, fifteen by default, and never past a
-window's reset). A rate-limit answer starts a cool-down kept with that file, a timeout is retried
+Code's stored OAuth token (kept in `usage-cache.json` for a time that adapts, and never past a
+window's reset). The time starts at `usage_cache_minutes` (fifteen by default); each refusal doubles it up to
+`usage_cache_max_minutes` (an hour by default), a longer retry time a refusal names is respected, and each quiet
+stretch of that time halves it, never below the configured value. It is worked out from `usage-calls.jsonl`, and
+`abk status` shows the time in use and what set it. A rate-limit answer starts a cool-down kept with that file, a timeout is retried
 once, and a failed call uses the last good live reading younger than `usage_fallback_minutes`
 (thirty by default, source `cache`), then Claude Code's own cache when it is under an hour old. **An unknown reading pauses.**
 **A pause never ends before it is written:** the grace after a reset is added
@@ -956,7 +959,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below). Gitignored. | the spend history, not the work. |
-| `usage-cache.json` | the live usage reading (`usage_cache_minutes`) and any rate-limit cool-down. | one endpoint call. |
+| `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
 | `unit-logs/<change>-<nn>-<YYYYMMDD-HHMMSS>-<step>.log` | one file per unit run: a header (unit, change, step, model, base, start), that unit's lines, then the outcome. `<nn>` is the unit's number padded to two digits, so a change's units sort in order and a unit's runs sort by time. The last three runs of a unit are kept; archiving a change removes its files. The file name and `started:` are UTC; each entry starts with the tick's own local-time `[HH:MM:SS]`, the same stamp it prints (the closing `outcome:` line has none: the line above it, the run's last, does). Agent replies and tool-call commands are written whole, line breaks kept; each further line of an entry starts with four spaces (`run_log.CONTINUATION`) and has no stamp, so every line that starts at the margin is a new entry. The journal keeps its one clipped line per step. The unit's `run_log` names its latest. Gitignored. | a unit's transcript; the tick's own output is unchanged. |
 | `transcripts/<change>-<nn>-<YYYYMMDD-HHMMSS>-<node>-<round>.jsonl` | one file per agent run of a unit (implement, rework, review, checks fixes) or chat turn, named like a run log plus the node and review round that made the call (round 0 outside a round). One JSON event per line, appended as the agent streams, the same shape for Claude Code and ACP: `kind` (`text`, `reasoning`, `tool_call`, `tool_result`, `plan`, `usage`, `permission`, `stop`), `at`, `unit`, `node`, `round`, `session`, `source` (`build` or `chat`), `text`, `tool`, `call` (a tool call's id, repeated by its result), `input`, `usage` and `truncated`. A tool result longer than `limits.transcript_result_chars` is cut there, ends with `… [cut: the result was N characters long]`, and carries the original length in `truncated`. A text or reasoning event is a whole message or thought, not a streamed fragment, and a user-side event of the Claude stream contributes only tool results. The calls of one run (a unit thread's pass, or one chat turn) share the run's stamp, and the last `limits.transcript_runs_kept` such runs of a unit are kept, whole; archiving a change removes its files. Local only, never committed or sent anywhere. | the agent tab's replay of a unit; the run log is unchanged. |
