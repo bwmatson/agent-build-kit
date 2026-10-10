@@ -15,6 +15,7 @@ import threading
 import pytest
 
 DEFAULT_TEST_TIME_LIMIT = 60
+DEFAULT_TIER2_TEST_TIME_LIMIT = 30 * 60
 
 
 class TimedOut(BaseException):
