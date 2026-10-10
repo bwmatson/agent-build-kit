@@ -27,7 +27,10 @@
   figure. Older rows with a flat `cost_usd` are read as `legacy`: counted, listed and totalled
   apart in `abk report`, never added to the cost. `abk report` also shows each session's
   cumulative cost and flags one whose increments do not add up. The counter is right from this
-  release; figures exported before it stay overstated.
+  release; figures exported before it stay overstated. `abk usage backfill-costs` repairs an
+  existing ledger once (temporary: removed once every installation has run it): a dry run
+  shows the before and after totals per unit, `--apply` keeps a timestamped copy and rewrites
+  the ledger, and sessions whose figures fall and summaries with no detail left are listed.
 
 - A test that fails under load and passes alone no longer fails the unit that met it. When
   tier 1 fails on tests, the profile reads which ones from the output and they are run again,

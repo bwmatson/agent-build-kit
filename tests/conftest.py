@@ -47,6 +47,9 @@ def no_real_unit_directory(
     from agent_build_kit.settings import settings
 
     monkeypatch.setattr(settings, "config_home", tmp_path_factory.mktemp("config-home"))
+    # The pipeline's environment names the live installation; the settings read it at import,
+    # so a command run without `--config` would act on that installation's state.
+    monkeypatch.setattr(settings, "config", None)
 
 
 @pytest.fixture(autouse=True)
@@ -191,6 +194,7 @@ def workspace(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monk
     """The default workspace every test sees, on its own planning root. A
     runtime or model the developer's shell selects is not the suite's."""
     for key in (
+        "ABK_CONFIG",
         "ABK_RUNTIME",
         "ABK_IMPLEMENT_MODEL",
         "ABK_REWORK_MODEL",

@@ -112,6 +112,32 @@ that day. Exit 0.
 
 The same figures are written to `planning.usage_page` on every store write.
 
+### `abk usage backfill-costs [--apply]`
+
+**Temporary: removed once every installation has run it.** Turns the usage ledger's rows
+written before the `cost` object (a flat `cost_usd`) into incremental ones. It is a dry run
+unless `--apply` is given: it prints the before and after totals per unit and overall, the
+number of rows changed and left unknown, and writes nothing, not even a copy. Read that
+output before applying it.
+
+- A `claude_code` row with source `reported` stored a session's running total: the total is
+  kept as `cumulative_usd`, the increment is its difference from the session's previous row
+  (the first row's own figure), basis `backfilled`. A session already partly costed continues
+  from its last cumulative figure.
+- Any other row (ACP, gateway) stored the call's own spend: it stays the increment and gains
+  the session's running sum as `cumulative_usd`.
+- A session in which a stored total falls is left with basis `unknown` and no increment, and
+  is listed.
+- A summary whose unit's detail rows are all no later than it is taken to be built from them
+  and is recomputed by the archive's roll-up. A summary with no detail, or with detail rows
+  written after it (which it was not built from), cannot be corrected: it is marked
+  `cost_basis: cumulative_summed` and listed, and later rows are folded into it, keeping the
+  mark. Summaries the archive writes carry a `cost_basis` too and are never touched.
+
+`--apply` holds the ledger lock, writes a timestamped copy `usage-ledger-<time>.jsonl.bak` in
+the state directory first, rewrites the ledger atomically, and does nothing (no copy either)
+when no row or summary needs changing, so a second run is a no-op. Exit 0.
+
 ### `abk serve [--port PORT]`
 
 Serves the pipeline's state over HTTP on the loopback address only (`127.0.0.1`, port
