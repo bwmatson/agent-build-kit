@@ -30,6 +30,7 @@ from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -313,7 +314,9 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     @app.get("/api/units/{change}/{number}/review/working")
     def working(change: str, number: str) -> dict[str, Any]:
         unit, _ = find(change, number)
-        return working_changes(unit_worktree(installation, unit)).model_dump()
+        return working_changes(
+            unit_worktree(installation, unit), repo_artifacts(installation, unit.repo)
+        ).model_dump()
 
     @app.get("/api/units/{change}/{number}/review")
     def review(change: str, number: str) -> dict[str, Any]:

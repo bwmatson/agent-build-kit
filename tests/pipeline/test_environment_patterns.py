@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import EnvironmentConfig, EnvironmentInputs
-from agent_build_kit.pipeline.environment import inputs_hash, restore_unchanged_locks
+from agent_build_kit.pipeline.environment import inputs_hash, lock_paths, restore_unchanged_locks
 from agent_build_kit.pipeline.workspaces import prepare_worktree
 from tests.environment_fakes import FakeEnvironment, repo_config
 from tests.factories import git, init_repo
@@ -274,3 +274,31 @@ def test_a_manifest_an_artifact_holds_is_not_a_change_the_unit_made(
         artifacts=("modules",),
         edits=lambda tree: write(tree, "modules/pkg/manifest.json", "{}\n"),
     )
+
+
+def test_a_literal_input_outside_the_repository_hashes_as_it_did(tmp_path: Path) -> None:
+    root = tmp_path / "planning"
+    root.mkdir()
+    write(tmp_path, "other/manifest.toml", "sibling\n")
+    config = environment(dependencies=["../other/manifest.toml", "gone/../../nothing.toml"])
+
+    assert inputs_hash(config, root) == legacy_hash(
+        [("../other/manifest.toml", b"sibling\n"), ("gone/../../nothing.toml", None)]
+    )
+
+
+def test_a_literal_written_with_a_dot_hashes_as_it_did(tmp_path: Path) -> None:
+    write(tmp_path, "manifest.toml", "one\n")
+
+    config = environment(dependencies=["./manifest.toml"])
+
+    assert inputs_hash(config, tmp_path) == legacy_hash([("./manifest.toml", b"one\n")])
+
+
+def test_an_input_outside_the_repository_owns_no_lock(tmp_path: Path) -> None:
+    config = repo_config(
+        tmp_path / "meta",
+        FakeEnvironment(tmp_path / "control", inputs=(), locks=("../other/deps.lock", LOCK)),
+    )
+
+    assert lock_paths(config) == (LOCK,)

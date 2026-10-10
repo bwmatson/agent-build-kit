@@ -19,18 +19,22 @@ Two ways to reach it:
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
 
 from agent_build_kit import forges, infra, path_patterns, runtimes
 from agent_build_kit.model import Frozen
 
 CONFIG_FILENAME = "abk.yaml"
 CONFIG_ENV = "ABK_CONFIG"
+
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -50,8 +54,18 @@ class EnvironmentInputs(Frozen):
 
     @field_validator("dependencies", "lock", "other")
     @classmethod
-    def _patterns(cls, patterns: list[str]) -> list[str]:
-        return path_patterns.validate(patterns)
+    def _patterns(cls, patterns: list[str], info: ValidationInfo) -> list[str]:
+        # A wildcard-free path leaving the repository was documented and written by
+        # `abk init` for a path-source checkout, so it loads for one more release.
+        path_patterns.validate(patterns, allow_outside=True)
+        for pattern in filter(path_patterns.is_outside_literal, patterns):
+            logger.warning(
+                "environment.inputs.%s lists %r, which leaves the repository; it is hashed "
+                "but will be refused in the next release",
+                info.field_name,
+                pattern,
+            )
+        return patterns
 
 
 class EnvironmentConfig(Frozen):

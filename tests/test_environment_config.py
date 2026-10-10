@@ -6,6 +6,7 @@ valid only by what it says: a `sync` and a `check` that are not empty.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -122,7 +123,7 @@ def test_a_nested_pattern_is_accepted_in_every_input_list(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("list_name", ["dependencies", "lock", "other"])
-@pytest.mark.parametrize("pattern", ["/etc/manifest", "../manifest", "packages/../../manifest"])
+@pytest.mark.parametrize("pattern", ["/etc/manifest", "../*/manifest", "packages/../../*/manifest"])
 def test_an_input_pattern_leaving_the_repository_is_refused_naming_its_field(
     tmp_path: Path, list_name: str, pattern: str
 ) -> None:
@@ -130,6 +131,23 @@ def test_an_input_pattern_leaving_the_repository_is_refused_naming_its_field(
     text = f"{head}  inputs:\n    {list_name}: ['{pattern}']\n"
 
     assert f"environment.inputs.{list_name}" in refused(tmp_path, text)
+
+
+@pytest.mark.parametrize("list_name", ["dependencies", "lock", "other"])
+def test_a_literal_input_leaving_the_repository_still_loads_with_a_warning(
+    tmp_path: Path, list_name: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    head = "environment:\n  sync: [env-sync]\n  check: [env-check]\n"
+    text = f"{head}  inputs:\n    {list_name}: ['../other/manifest.toml']\n"
+
+    with caplog.at_level(logging.WARNING):
+        environment = load(write(tmp_path, text)).environment
+
+    assert environment is not None
+    assert getattr(environment.inputs, list_name) == ["../other/manifest.toml"]
+    assert f"environment.inputs.{list_name}" in caplog.text
+    assert "../other/manifest.toml" in caplog.text
+    assert "next release" in caplog.text
 
 
 @pytest.mark.parametrize("pattern", ["/var/cache", "../cache", "build/../../cache"])
@@ -142,7 +160,7 @@ def test_an_artifact_pattern_leaving_the_repository_is_refused_naming_its_field(
 
 
 def test_a_repository_entry_refuses_a_pattern_leaving_the_repository(tmp_path: Path) -> None:
-    bad = REPO_SECTION.replace("dependencies: [manifest.toml]", "dependencies: ['../manifest']")
+    bad = REPO_SECTION.replace("dependencies: [manifest.toml]", "dependencies: ['../*/manifest']")
 
     assert "repos.app.environment.inputs.dependencies" in refused(tmp_path, bad)
     worse = REPO_SECTION + "      artifacts: ['/abs']\n"

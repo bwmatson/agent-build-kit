@@ -146,7 +146,9 @@ environment:                    # how the pipeline's own environment is kept
   inputs:                       # path patterns relative to the repository: `*`
                                 # within one folder, `?`, `[...]`, `**` for any
                                 # number of folders, a folder for every file
-                                # under it. Absolute or `..` patterns are refused
+                                # under it. Absolute patterns, and `..` with a
+                                # wildcard, are refused; a plain `..` path loads
+                                # with a warning until the next release
     dependencies: [pyproject.toml]   # e.g. "**/manifest.json" for nested modules
     lock: [uv.lock]             # also left out of a unit's size, matched by the
                                 # pattern's file name wherever the file sits

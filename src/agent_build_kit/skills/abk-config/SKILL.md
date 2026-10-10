@@ -127,7 +127,8 @@ environment:                  # how the pipeline's own environment is kept curre
   check: [uv, run, --no-sync, python, -c, "import agent_build_kit"]
                               # required, not empty: exits 0 when it is healthy
   inputs:                     # path patterns relative to the repo (`**` spans folders;
-                              # absolute or `..` is refused); a literal path matches itself
+                              # absolute, or `..` with a wildcard, is refused; a plain `..` path
+                              # warns and goes in the next release); a literal path matches itself
     dependencies: [pyproject.toml]
     lock: [uv.lock]           # matched by file name, and left out of a unit's size
     other: []

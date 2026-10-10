@@ -10,9 +10,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.config import RepoConfig
+from agent_build_kit.pipeline import environment as environment_module
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_commit, build_restack_onto, build_worktree
-from agent_build_kit.pipeline.workspaces import DirtyWorktree
+from agent_build_kit.pipeline.workspaces import DirtyWorktree, changed_paths, discard_changes
 from tests.environment_fakes import FakeEnvironment, repo_config
 from tests.factories import git, init_repo, unit
 
@@ -242,3 +243,60 @@ def test_a_restack_keeps_the_artifacts_the_sync_built(
     assert moved is not None and not moved.conflict
     assert git(tree, "rev-parse", "HEAD^") == git(repo, "rev-parse", "main")
     assert (tree / artifact / "pkg" / "built.bin").read_text() == "built\n"
+
+
+def test_a_large_artifact_folder_is_unstaged_in_one_git_call(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = configured(tmp_path, "modules")
+    tree = worktree_of(repo, tmp_path, config)
+    (tree / "marker.py").write_text("MARKER = 1\n")
+    for number in range(200):
+        (tree / "modules" / f"pkg{number}").mkdir(parents=True)
+        (tree / "modules" / f"pkg{number}" / "built.bin").write_text("built\n")
+    removals: list[tuple[str, ...]] = []
+    original = environment_module.git
+
+    def spy(repo_path: Path, *args: str, **kwargs):
+        if args[:1] == ("rm",):
+            removals.append(args)
+        return original(repo_path, *args, **kwargs)
+
+    monkeypatch.setattr(environment_module, "git", spy)
+
+    commit(tree, config)
+
+    assert committed_files(tree) == ["marker.py"]
+    assert len(removals) == 1
+    assert len(list((tree / "modules").glob("pkg*/built.bin"))) == 200
+
+
+@pytest.mark.parametrize("artifact", SHAPES)
+def test_discarding_keeps_the_artifacts_and_removes_a_stray_file(
+    repo: Path, tmp_path: Path, artifact: str
+) -> None:
+    config = configured(tmp_path, artifact)
+    tree = worktree_of(repo, tmp_path, config)
+    fill(tree, artifact)
+    (tree / "stray.txt").write_text("x\n")
+    (tree / "README.md").write_text("edited\n")
+
+    assert changed_paths(tree, (artifact,)) == ("README.md", "stray.txt")
+    discard_changes(tree, (artifact,))
+
+    assert (tree / artifact / "pkg" / "built.bin").exists()
+    assert not (tree / "stray.txt").exists()
+    assert (tree / "README.md").read_text() == "base\n"
+
+
+def test_without_artifacts_discarding_removes_every_new_file(repo: Path, tmp_path: Path) -> None:
+    config = configured(tmp_path)
+    tree = worktree_of(repo, tmp_path, config)
+    fill(tree, "modules")
+    (tree / "stray.txt").write_text("x\n")
+
+    assert "modules/pkg/built.bin" in changed_paths(tree)
+    discard_changes(tree)
+
+    assert not (tree / "modules").exists()
+    assert not (tree / "stray.txt").exists()

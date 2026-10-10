@@ -14,12 +14,12 @@ import json
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig, active
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.path_patterns import matches_any, matching_files
+from agent_build_kit.path_patterns import inside, matches_any, matching_files, normalize
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git, git_out
@@ -44,6 +44,14 @@ def matched_inputs(environment: EnvironmentConfig, root: Path) -> dict[str, list
     )
 
 
+def _literal_name(pattern: str) -> str | None:
+    """The name a literal pattern matches as, so a file it names alone is not hashed twice."""
+    try:
+        return normalize(pattern)
+    except ValueError:
+        return os.path.normpath(pattern)  # an input leaving the repository, still allowed
+
+
 def inputs_hash(environment: EnvironmentConfig, root: Path) -> str:
     """A hash of every input pattern as written, the sorted files it matches and their
     contents; a pattern matching nothing counts as missing. A literal path hashes as the
@@ -54,7 +62,7 @@ def inputs_hash(environment: EnvironmentConfig, root: Path) -> str:
         if not names:
             digest.update(b"<missing>\0")
         for name in names:
-            if name != pattern:
+            if name != _literal_name(pattern):
                 digest.update(name.encode() + b"\0")
             digest.update((root / name).read_bytes() + b"\0")
     return digest.hexdigest()
@@ -118,9 +126,7 @@ def lock_paths(repo: RepoConfig | None) -> tuple[str, ...]:
     environment = repo.environment if repo else None
     if environment is None:
         return ()
-    return tuple(
-        PurePosixPath(os.path.normpath(name)).as_posix() for name in environment.inputs.lock
-    )
+    return tuple(normalize(name) for name in inside(environment.inputs.lock))
 
 
 def _base_inputs(
@@ -145,6 +151,7 @@ def _changed_from_base(
     inputs = environment.inputs
     if patterns is None:
         patterns = [*inputs.dependencies, *inputs.lock, *inputs.other]
+    patterns = inside(patterns)  # a path outside the repository is not the unit's to change
     fork = git(tree, "merge-base", base, "HEAD", check=False)
     point = fork.stdout.strip() if fork.returncode == 0 and fork.stdout.strip() else base
     there = _base_inputs(tree, point, patterns, environment.artifacts)
@@ -184,6 +191,27 @@ def artifact_patterns(repo: RepoConfig | None) -> tuple[str, ...]:
     return tuple(environment.artifacts) if environment else ()
 
 
+def repo_artifacts(inst: Installation, name: str) -> tuple[str, ...]:
+    """The artifact patterns of the repository `name` in the installation; empty for a name
+    that is not one, such as the planning repository."""
+    return artifact_patterns(inst.config.repos.get(name))
+
+
+def _unstage(tree: Path, names: list[str]) -> None:
+    """Take `names` out of the index in one git call; the files stay in the worktree."""
+    if names:
+        git(
+            tree,
+            "rm",
+            "-q",
+            "--cached",
+            "--ignore-unmatch",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+            input="\0".join(names),
+        )
+
+
 def unstage_artifacts(repo: RepoConfig | None, tree: Path) -> None:
     """Take out of the index each new file an artifact pattern matches, so that a commit
     never holds what a sync built; the files stay in the worktree. A file the branch
@@ -191,10 +219,10 @@ def unstage_artifacts(repo: RepoConfig | None, tree: Path) -> None:
     patterns = artifact_patterns(repo)
     if not patterns:
         return
-    added = git_out(tree, "diff", "--cached", "--name-only", "-z", "--diff-filter=A").split("\0")
-    for name in filter(None, added):
-        if matches_any(patterns, name):
-            git(tree, "rm", "-q", "--cached", "--ignore-unmatch", "--", name)
+    added = git_out(
+        tree, "diff", "--cached", "--no-renames", "--name-only", "-z", "--diff-filter=A"
+    ).split("\0")
+    _unstage(tree, [name for name in added if name and matches_any(patterns, name)])
 
 
 def unstage_untracked_locks(repo: RepoConfig | None, tree: Path) -> None:
@@ -203,9 +231,7 @@ def unstage_untracked_locks(repo: RepoConfig | None, tree: Path) -> None:
     patterns = lock_paths(repo)
     tracked = _tracked_locks(tree, patterns)
     present = matching_files(tree, patterns, excluding=artifact_patterns(repo))
-    for name in (name for names in present.values() for name in names):
-        if name not in tracked:
-            git(tree, "rm", "-q", "--cached", "--ignore-unmatch", "--", name)
+    _unstage(tree, [name for names in present.values() for name in names if name not in tracked])
 
 
 def prepare_worktree(repo: RepoConfig | None, tree: Path, base: str) -> WorktreeFault | None:
@@ -287,6 +313,7 @@ __all__ = [
     "lock_paths",
     "matched_inputs",
     "prepare_worktree",
+    "repo_artifacts",
     "problem",
     "read_state",
     "restore_unchanged_locks",

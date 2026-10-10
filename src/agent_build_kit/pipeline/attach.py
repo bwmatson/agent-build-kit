@@ -10,6 +10,7 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.consequences import Consequence, consequences_of
+from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -51,13 +52,13 @@ def leases_of(inst: Installation) -> Leases:
 
 def changes_of(inst: Installation, unit: StoredUnit) -> tuple[str, ...]:
     tree = worktree_of(inst, unit)
-    return changed_paths(tree) if tree is not None else ()
+    return changed_paths(tree, repo_artifacts(inst, unit.repo)) if tree is not None else ()
 
 
 def discard(inst: Installation, unit: StoredUnit) -> None:
     """Restore the unit's worktree to its branch head and release its lease."""
     if (tree := worktree_of(inst, unit)) is not None:
-        discard_changes(tree)
+        discard_changes(tree, repo_artifacts(inst, unit.repo))
     leases_of(inst).drop(unit.id)
 
 

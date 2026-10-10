@@ -138,16 +138,40 @@ def _porcelain(path: Path) -> list[tuple[str, str]]:
     return entries
 
 
-def changed_paths(path: Path) -> tuple[str, ...]:
-    """The paths a worktree holds uncommitted, every untracked file named."""
-    return tuple(name for _, name in _porcelain(path))
+def _uncommitted(
+    path: Path, locks: Sequence[str] = (), artifacts: Sequence[str] = ()
+) -> list[tuple[str, str]]:
+    """The worktree's changes without the pipeline's own: a path in `locks`, and an untracked
+    path an `artifacts` pattern matches."""
+    return [
+        (code, name)
+        for code, name in _porcelain(path)
+        if not matches_any(locks, name) and not (code == "??" and matches_any(artifacts, name))
+    ]
 
 
-def discard_changes(path: Path) -> None:
+def changed_paths(path: Path, artifacts: Sequence[str] = ()) -> tuple[str, ...]:
+    """The paths a worktree holds uncommitted, every untracked file named; what an
+    `artifacts` pattern matches and is untracked is the pipeline's own and left out."""
+    return tuple(name for _, name in _uncommitted(path, artifacts=artifacts))
+
+
+def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
     """Restore a worktree to its branch head: tracked files as committed, new files gone.
-    Ignored files, such as the scratch folder, stay."""
+    Ignored files, such as the scratch folder, stay, and so does an untracked file an
+    `artifacts` pattern matches."""
     git_out(path, "reset", "-q", "--hard", "HEAD")
-    git_out(path, "clean", "-q", "-fd")
+    untracked = git(path, "ls-files", "--others", "--exclude-standard", "-z").stdout.split("\0")
+    stray = [name for name in untracked if name and not matches_any(artifacts, name)]
+    for name in stray:
+        (path / name).unlink(missing_ok=True)
+        for folder in (path / name).parents:  # a folder the removal emptied goes too
+            if folder == path:
+                break
+            try:
+                folder.rmdir()
+            except OSError:
+                break
 
 
 def commit_changes(path: Path, message: str) -> str:
@@ -184,11 +208,7 @@ def prepare_worktree(
 
     if path.exists():
         ensure_scratch(path)
-        entries = [
-            (code, name)
-            for code, name in _porcelain(path)
-            if not matches_any(locks, name) and not (code == "??" and matches_any(artifacts, name))
-        ]
+        entries = _uncommitted(path, locks, artifacts)
         if entries and not allow_dirty:
             listing = "\n".join(f"{code} {name}" for code, name in entries)
             raise DirtyWorktree(

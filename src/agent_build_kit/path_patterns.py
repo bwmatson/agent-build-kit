@@ -31,10 +31,27 @@ def normalize(pattern: str) -> str:
     return PurePosixPath(os.path.normpath(pattern)).as_posix()
 
 
-def validate(patterns: list[str]) -> list[str]:
-    """`patterns` unchanged, or ValueError naming the first that is not a valid pattern."""
+def is_outside_literal(pattern: str) -> bool:
+    """Whether `pattern` is a wildcard-free relative path that leaves the repository, such
+    as a sibling checkout's manifest. Inputs may still list one for a release; it is
+    hashed, but owns no file in a worktree."""
+    if not pattern.strip() or pattern.startswith("/") or _WILDCARDS.search(pattern):
+        return False
+    parts = PurePosixPath(os.path.normpath(pattern)).parts
+    return not PurePosixPath(pattern).is_absolute() and parts[:1] == ("..",)
+
+
+def inside(patterns: Iterable[str]) -> list[str]:
+    """The patterns that stay inside the repository."""
+    return [pattern for pattern in patterns if not is_outside_literal(pattern)]
+
+
+def validate(patterns: list[str], *, allow_outside: bool = False) -> list[str]:
+    """`patterns` unchanged, or ValueError naming the first that is not a valid pattern.
+    `allow_outside` lets a wildcard-free path leaving the repository through."""
     for pattern in patterns:
-        normalize(pattern)
+        if not (allow_outside and is_outside_literal(pattern)):
+            normalize(pattern)
     return patterns
 
 
@@ -56,6 +73,8 @@ def _match(pieces: tuple[str, ...], parts: tuple[str, ...]) -> bool:
 
 def matches(pattern: str, path: str) -> bool:
     """Whether `path` (relative, `/`-separated) is matched by `pattern`."""
+    if is_outside_literal(pattern):
+        return False  # a worktree-relative path never leaves the repository
     parts = tuple(part for part in path.split("/") if part and part != ".")
     if GIT_DIR in parts:
         return False
@@ -85,6 +104,10 @@ def matching_files(
     anything under a path `excluding` matches. A folder `excluding` matches is not entered."""
     found: dict[str, list[str]] = {}
     for pattern in patterns:
+        if is_outside_literal(pattern):
+            literal = os.path.normpath(pattern)
+            found[pattern] = [literal] if (root / literal).is_file() else []
+            continue
         start = _start(pattern)
         hits: set[str] = set()
         origin = root / start if start else root
