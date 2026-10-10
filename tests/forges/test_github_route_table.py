@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.forges import github_answers as gh
 from tests.forges.github_host import GitHubHost, Scripted, answer
 from tests.forges.github_routes import API
 from tests.forges.github_server import FakeGitHub
@@ -44,6 +45,8 @@ ROUTES: list[Request] = [
     ("label-remove", "DELETE", f"{BASE}/issues/1/labels/running", {}, None),
     ("repo-label-list", "GET", f"{BASE}/labels", {}, None),
 ]
+
+BY_ID = {r[0]: r for r in ROUTES}
 
 
 def seed(server: FakeGitHub) -> None:
@@ -91,9 +94,9 @@ def test_a_review_with_an_inline_comment_written_through_the_server_is_seen_by_t
         comment = server.add_review(1, "CHANGES_REQUESTED", "needs a test", inline=INLINE)
         host = GitHubHost(state=server.state)
 
-        reviews = through_host(host, ROUTES[7])[1]
-        inline = through_host(host, ROUTES[10])[1]
-        listed = through_host(host, ROUTES[0])[1]
+        reviews = through_host(host, BY_ID["review-list"])[1]
+        inline = through_host(host, BY_ID["review-comment-list"])[1]
+        listed = through_host(host, BY_ID["pull-list"])[1]
 
     assert [r["state"] for r in reviews] == ["COMMENTED", "CHANGES_REQUESTED"]
     assert [(c["id"], c["path"], c["line"], c["body"]) for c in inline][-1] == (
@@ -111,8 +114,8 @@ def test_state_the_host_writes_is_read_back_by_the_server() -> None:
         seed(server)
         host = GitHubHost(state=server.state)
 
-        through_host(host, ROUTES[11])
-        replies = through_server(server, ROUTES[10])[1]
+        through_host(host, BY_ID["reply"])
+        replies = through_server(server, BY_ID["review-comment-list"])[1]
 
     assert [c["body"] for c in replies if c.get("in_reply_to_id")] == ["done"]
 
@@ -126,9 +129,9 @@ def test_a_scripted_route_overrides_the_table_for_its_test_only() -> None:
         overridden = GitHubHost(state=server.state, routes=scripted)
         plain = GitHubHost(state=server.state)
 
-        said = through_host(overridden, ROUTES[0])
-        table = through_host(plain, ROUTES[0])
-        elsewhere = through_host(overridden, ROUTES[4])
+        said = through_host(overridden, BY_ID["pull-list"])
+        table = through_host(plain, BY_ID["pull-list"])
+        elsewhere = through_host(overridden, BY_ID["pull-read"])
 
     assert said == (200, [{"number": 99}])
     assert [p["number"] for p in table[1]] == [1]
@@ -148,3 +151,34 @@ def test_a_route_no_handler_serves_is_a_404_recorded_as_unrouted_by_both_hosts()
     assert from_host[0] == from_server[0] == 404
     assert [(s.method, s.path) for s in host.unrouted] == [("POST", f"{BASE}/forks")]
     assert server.unrouted() == [("POST", f"{BASE}/forks")]
+
+
+def test_a_seeded_pull_request_on_a_pull_scoped_route_is_unrouted_not_a_silent_404() -> None:
+    host = GitHubHost(gh.pull(16))
+
+    seeded = through_host(host, ("r", "GET", f"{BASE}/pulls/16/reviews", {}, None))
+    missing = through_host(host, ("r", "GET", f"{BASE}/pulls/99/reviews", {}, None))
+
+    assert seeded[0] == 404
+    assert [s.path for s in host.unrouted] == [f"{BASE}/pulls/16/reviews"]
+    assert missing[0] == 404
+
+
+def test_a_scripted_route_overrides_the_table_on_the_server_for_its_test_only() -> None:
+    scripted: dict[tuple[str, str], Scripted | list[Scripted]] = {
+        ("GET", f"{BASE}/pulls"): answer([{"number": 99}])
+    }
+    with FakeGitHub(routes=scripted) as overridden, FakeGitHub() as plain:
+        seed(overridden)
+        seed(plain)
+
+        said = through_server(overridden, BY_ID["pull-list"])
+        table = through_server(plain, BY_ID["pull-list"])
+
+    assert said == (200, [{"number": 99}])
+    assert [p["number"] for p in table[1]] == [1]
+
+
+def test_a_host_built_over_a_state_refuses_what_the_state_decides() -> None:
+    with FakeGitHub() as server, pytest.raises(ValueError):
+        GitHubHost(state=server.state, page_size=5)

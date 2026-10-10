@@ -153,8 +153,16 @@ class GitHubState:
     # --- reading ------------------------------------------------------------------
 
     def pull(self, number: int) -> dict:
-        """The stored node of a pull request."""
+        """A pull request as the listing query answers it."""
+        return self._node(self.stored(number))
+
+    def stored(self, number: int) -> dict:
+        """The node a pull request was seeded or made with, which the draft mutations change."""
         return next(p for p in self.pulls if p["number"] == number)
+
+    def seeded(self, number: int) -> bool:
+        """Whether a pull request exists that no route made, so has no `Pull`."""
+        return number not in self.made and any(p["number"] == number for p in self.pulls)
 
     def nodes(self) -> list[dict]:
         """Every pull request as the listing query answers it, derived from the state."""
@@ -270,7 +278,7 @@ class GitHubState:
 
 # --- the handlers ------------------------------------------------------------------
 
-Handler = Callable[[GitHubState, Seen, re.Match[str]], httpx.Response]
+Handler = Callable[[GitHubState, Seen, re.Match[str]], httpx.Response | None]
 
 
 class Route(NamedTuple):
@@ -281,6 +289,13 @@ class Route(NamedTuple):
 
 def _made(state: GitHubState, match: re.Match[str]) -> Pull | None:
     return state.made.get(int(match["n"]))
+
+
+def _no_record(state: GitHubState, match: re.Match[str]) -> httpx.Response | None:
+    """What a pull-scoped route answers for a pull with no `Pull`: a 404 where there is
+    no such pull, and `None` (no route serves it, so the host records it as unrouted)
+    for one a host was seeded with."""
+    return None if state.seeded(int(match["n"])) else refusal(404, "Not Found")
 
 
 def _list_pulls(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
@@ -308,10 +323,10 @@ def _read_pull(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Re
     return refusal(404, "Not Found") if node is None else answer(state.document(node))
 
 
-def _update_pull(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+def _update_pull(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
     made = _made(state, match)
     if made is None:
-        return refusal(404, "Not Found")
+        return _no_record(state, match)
     changes = seen.body or {}
     made.base = str(changes.get("base", made.base))
     made.body = str(changes.get("body", made.body))
@@ -320,30 +335,36 @@ def _update_pull(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.
     return _read_pull(state, seen, match)
 
 
-def _list_reviews(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+def _list_reviews(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
     made = _made(state, match)
-    return refusal(404, "Not Found") if made is None else answer(list(made.reviews))
+    return _no_record(state, match) if made is None else answer(list(made.reviews))
 
 
-def _list_review_comments(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+def _list_review_comments(
+    state: GitHubState, seen: Seen, match: re.Match[str]
+) -> httpx.Response | None:
     made = _made(state, match)
-    return refusal(404, "Not Found") if made is None else answer(list(made.inline))
+    return _no_record(state, match) if made is None else answer(list(made.inline))
 
 
-def _list_files(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
-    return refusal(404, "Not Found") if _made(state, match) is None else answer([])
+def _list_files(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
+    return _no_record(state, match) if _made(state, match) is None else answer([])
 
 
-def _read_review(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+def _read_review(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
     made = _made(state, match)
-    found = [r for r in made.reviews if r["id"] == int(match["review"])] if made else []
+    if made is None:
+        return _no_record(state, match)
+    found = [r for r in made.reviews if r["id"] == int(match["review"])]
     return answer(found[0]) if found else refusal(404, f"Not Found: {seen.path}")
 
 
-def _reply(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+def _reply(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
     made = _made(state, match)
-    parent = [c for c in made.inline if c["id"] == int(match["note"])] if made else []
-    if made is None or not parent:
+    if made is None:
+        return _no_record(state, match)
+    parent = [c for c in made.inline if c["id"] == int(match["note"])]
+    if not parent:
         return refusal(404, f"Not Found: {seen.path} names no inline comment")
     review = state.new_review(made, "COMMENTED", "")
     reply = state.new_inline(
@@ -357,10 +378,10 @@ def _reply(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Respon
     return answer(reply, 201)
 
 
-def _post_comment(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+def _post_comment(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
     made = _made(state, match)
     if made is None:
-        return refusal(404, "Not Found")
+        return _no_record(state, match)
     body = str((seen.body or {}).get("body", ""))
     node = state.new_comment(made, body)
     return answer({"id": 2000 + state.ids, "node_id": node, "body": body}, 201)

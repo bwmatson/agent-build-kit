@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from tests.forges.github_host import GitHubHost, refusal
+from tests.forges.github_host import GitHubHost, Scripted, refusal
 from tests.forges.github_routes import GitHubState
 from tests.forges.mock_host import recorded
 
@@ -32,11 +32,17 @@ class FakeGitHub:
     # The state the routes answer from; a host built over it answers the same.
     state: GitHubState
 
-    def __init__(self, token: str = "fake-github-token", *, first_number: int = 1) -> None:
+    def __init__(
+        self,
+        token: str = "fake-github-token",
+        *,
+        first_number: int = 1,
+        routes: dict[tuple[str, str], Scripted | list[Scripted]] | None = None,
+    ) -> None:
         self.token = token
         self.url = ""
         self.state = GitHubState(first_number=first_number)
-        self._host = GitHubHost(state=self.state)
+        self._host = GitHubHost(state=self.state, routes=routes)
         self._requests: list[tuple[str, str]] = []
         self._unrouted: list[tuple[str, str]] = []
         self._lock = threading.Lock()

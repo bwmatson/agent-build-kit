@@ -9,16 +9,18 @@ does that a canned answer cannot:
   next page starts in `pageInfo`, and finding the page by the cursor the request
   carries, whether as a variable or written into the query; one pull request by
   number; and the two draft mutations, which change what the next read says;
-- keeps repository labels and each pull request's labels, matches names without
-  regard to case as GitHub does, and answers adding an unknown label to a pull
-  request by creating it in the default colour, as GitHub does;
+- answers the REST routes for pull requests, reviews, inline comments, issue
+  comments, commit statuses and labels from the table in `github_routes.py`, over a
+  `GitHubState` that `FakeGitHub` shares through `state=`: a route is added there, once,
+  for both hosts, and a pull request is derived from that state when it is read;
 - pages the lists it is given (`paged`) by `page` and `per_page`, never more than
   `page_size` a page, with the `Link` header GitHub sends;
 - lists a run's jobs, and answers a job's log with the redirect to storage that
   GitHub sends, the storage host answering the text;
 - keeps every request, and every request it had no answer for.
 
-Everything else is scripted, by `(method, path)`: a response, a list of them
+A scripted route comes first and overrides the table for its test only. Everything
+else is scripted, by `(method, path)`: a response, a list of them
 answered in turn (the last repeats), an exception, or a function of the request.
 A route nobody scripted is answered 404 and recorded in `unrouted`, which the
 tests' fixture asserts is empty: a forge reaching for a resource nobody expected
@@ -62,13 +64,17 @@ class GitHubHost(httpx.MockTransport):
         pr_labels: dict[int, list[str]] | None = None,
         jobs: dict[int, list[dict]] | None = None,
         job_logs: dict[int, str] | None = None,
-        page_size: int = 100,
+        page_size: int | None = None,
         draft_refusal: str = "",
         state: GitHubState | None = None,
     ) -> None:
         if state is None:
             state = GitHubState(
-                *pulls, page_size=page_size, repo_labels=repo_labels, pr_labels=pr_labels
+                *pulls, page_size=page_size or 100, repo_labels=repo_labels, pr_labels=pr_labels
+            )
+        elif pulls or repo_labels or pr_labels or page_size:
+            raise ValueError(
+                "a host built over a state takes its pull requests, labels and page size from it"
             )
         self.state = state
         self.pulls = state.pulls
