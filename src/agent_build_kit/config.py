@@ -247,14 +247,19 @@ class LimitsConfig(Frozen):
     min_unit_lines: int = 400
     # Estimated changed lines one unit may carry. It shapes plans; a unit whose
     # pull request lands over it is logged and listed by `abk status`, never
-    # blocked.
+    # blocked. A plan is held to it after calibration (`calibrate_estimates`).
     max_unit_lines: int = 750
+    # Whether a unit's estimate is multiplied by what units of its kind (repo, tier and
+    # group flag) landed at before it is held to the ceiling. The ratio is the median of
+    # the last `calibration_window` merged units' actual over estimate, each sample
+    # clamped to `calibration_sample_clamp`, moved toward 1 by n / (n + calibration_shrink),
+    # 1 with fewer than `calibration_min` samples, and kept between 1 and `calibration_max`.
     calibrate_estimates: bool = True
-    calibration_window: int = 20
-    calibration_min: int = 3
-    calibration_shrink: float = 5
+    calibration_window: Annotated[int, Field(ge=1)] = 20
+    calibration_min: Annotated[int, Field(ge=1)] = 3
+    calibration_shrink: Annotated[float, Field(ge=0)] = 5
     calibration_sample_clamp: tuple[float, float] = (0.5, 4.0)
-    calibration_max: float = 3.0
+    calibration_max: Annotated[float, Field(ge=1)] = 3.0
     # Path patterns (fnmatch, against the whole path or the file name) of
     # generated files, left out of a unit's actual size.
     generated_files: tuple[str, ...] = ()
@@ -292,6 +297,17 @@ class LimitsConfig(Frozen):
             raise ValueError(
                 f"max_unit_lines ({self.max_unit_lines}) must exceed "
                 f"min_unit_lines ({self.min_unit_lines})"
+            )
+        if self.calibration_min > self.calibration_window:
+            raise ValueError(
+                f"calibration_min ({self.calibration_min}) must not exceed "
+                f"calibration_window ({self.calibration_window})"
+            )
+        low, high = self.calibration_sample_clamp
+        if not 0 < low <= 1 <= high:
+            raise ValueError(
+                f"calibration_sample_clamp ({low}, {high}) must have a low above 0 and "
+                "not above 1, and a high not below 1"
             )
         return self
 

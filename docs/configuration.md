@@ -186,6 +186,19 @@ limits:
                                 # must exceed min_unit_lines. Shapes plans;
                                 # a unit that lands over it is logged and
                                 # listed by `abk status`, never blocked
+  calibrate_estimates: true     # multiply a unit's estimate by what units of
+                                # its kind (repo, tier, group flag) landed at
+                                # before holding it to the ceiling; off, plans
+                                # are checked on the raw estimate
+  calibration_window: 20        # the newest merged units of a kind sampled (>= 1)
+  calibration_min: 3            # fewer samples than this: the ratio is 1
+                                # (>= 1, not above the window)
+  calibration_shrink: 5         # n samples carry n / (n + shrink) of the
+                                # distance from 1 (>= 0; 0 uses the median whole)
+  calibration_sample_clamp: [0.5, 4.0]
+                                # each sample, actual over estimate, is held to
+                                # this range (low in (0, 1], high >= 1)
+  calibration_max: 3.0          # the ratio is kept between 1 and this (>= 1)
   generated_files: ["*.generated.ts", ...]
                                 # path patterns (whole path or file name) left
                                 # out of a unit's actual size, together with the

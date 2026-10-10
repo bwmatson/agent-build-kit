@@ -73,7 +73,13 @@ def run_of(ratios: list[float], **kw: Any) -> list[StoredUnit]:
     return [sample(ratio, at=at, **kw) for at, ratio in enumerate(ratios)]
 
 
+# What the test configured, which an installation made afterwards must be given again.
+CONFIGURED: dict[str, Any] = {}
+
+
 def limits(**overrides: Any) -> None:
+    CONFIGURED.clear()
+    CONFIGURED.update(overrides)
     activate_with(limits=overrides)
 
 
@@ -392,7 +398,9 @@ def new_unit(uid: str, groups: list[int], estimate: int, **extra: Any) -> dict:
 
 def project(tmp_path: Path, tasks: str, units: list[StoredUnit], **extra: dict):
     inst = make_installation(
-        tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits=CONFIGURED,
     )
     path = inst.changes_dir / "feature"
     path.mkdir(parents=True)
@@ -430,8 +438,16 @@ def test_a_first_stored_unit_keeps_its_flag_and_both_figures(
 ) -> None:
     limits(calibration_shrink=0)
     samples = [*run_of([2.0] * 3, flag="contract"), *run_of([1.0] * 3)]
-    inst, store = project(tmp_path, tasks_md("contract"), samples)
-    planner(monkeypatch, {"units": [new_unit("feature/1", [1], 100)]})
+    inst, store = project(tmp_path, tasks_md("contract", "narrow"), samples)
+    planner(
+        monkeypatch,
+        {
+            "units": [
+                new_unit("feature/1", [1], 100),
+                new_unit("feature/2", [2], 100, depends_on=["feature/1"]),
+            ]
+        },
+    )
 
     cli.plan_all(inst, store=store)
 
@@ -525,7 +541,9 @@ def test_the_same_join_is_made_when_calibration_is_off(
 
 def make_installation_of(root: Path):
     return make_installation(
-        root, planning={"state_dir": ".", "worktree_root": str(root.parent / "trees")}
+        root,
+        planning={"state_dir": ".", "worktree_root": str(root.parent / "trees")},
+        limits=CONFIGURED,
     )
 
 

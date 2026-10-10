@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.unit_size import applied, calibrated, calibrations, kind_of
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, SATISFIED, Join, Member, Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
@@ -61,6 +62,7 @@ def check_joins(
     if change is not None:
         catalog[change] = tuple(groups)
     claimed = {number for unit in plan for number in unit.groups}
+    found = calibrations(context.stored)
 
     for join in joins:
         name = f"join onto {join.onto}"
@@ -127,9 +129,16 @@ def check_joins(
         involved = [*onto.members(), *members]
         _check_groups(involved, catalog, refuse)
 
-        if onto.estimated_lines + added > ceiling:
+        ratio = applied(found, kind_of(onto))
+        if calibrated(onto.estimated_lines + added, ratio.ratio) > ceiling:
             raise refuse(
-                f"{onto.estimated_lines}+{added} changed lines is over the ceiling of {ceiling}"
+                f"{onto.estimated_lines}+{added} changed lines"
+                + (
+                    f" times {ratio.ratio:.2f} (from {ratio.samples} samples)"
+                    if ratio.ratio != 1.0
+                    else ""
+                )
+                + f" is over the ceiling of {ceiling}"
             )
 
         state[onto.id] = onto.taking(members, estimated_lines=added)
