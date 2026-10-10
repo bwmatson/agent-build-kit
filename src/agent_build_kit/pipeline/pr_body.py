@@ -19,13 +19,17 @@ Three things it must always say:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
+from pathlib import Path
 
 from agent_build_kit import forges
-from agent_build_kit.budget import Section, cut_tail, fit
+from agent_build_kit.budget import Section, cut_head, cut_tail, fit
+from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED, through_satisfied, trunk_of
+from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
+from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 
 
 def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
@@ -77,19 +81,24 @@ def assumptions(unit: StoredUnit, graph: list[StoredUnit], trunk: str = "main") 
     return "\n".join(lines)
 
 
+def _change_path(change: str) -> str:
+    """Where a change's files are, under the planning repo."""
+    return f"{active().planning.specs_dir}/changes/{change}"
+
+
 def _scope_lines(unit: StoredUnit) -> str:
     """What the unit builds: each change with its groups, and where its spec is."""
     first, *carried = unit.members()
     groups = ", ".join(str(group) for group in first.groups) or "—"
     lines = [
         f"Unit `{unit.id}` of change **{first.change}**, task group(s) {groups}.",
-        f"Spec: `openspec/changes/{first.change}/` in the planning repo.",
+        f"Spec: `{_change_path(first.change)}/` in the planning repo.",
     ]
     for member in carried:
         numbers = ", ".join(str(group) for group in member.groups)
         lines.append(
             f"Also carries task group(s) {numbers} of change **{member.change}**. "
-            f"Spec: `openspec/changes/{member.change}/` in the planning repo."
+            f"Spec: `{_change_path(member.change)}/` in the planning repo."
         )
     return "\n".join(lines)
 
@@ -181,6 +190,128 @@ def _follow_ups_section(follow_ups: Sequence[str]) -> Section:
     )
 
 
+# The new sections outweigh the process text, so they are the last to be reduced.
+_PURPOSE_WEIGHT = 8
+
+_WHY_SECTION = re.compile(r"^##[ \t]+Why[ \t]*\n(.*?)(?=^##[ \t]|\Z)", re.M | re.S)
+_LOCATED = re.compile(r"^(?P<file>[\w./-]*[./][\w./-]*?)(?::\d+)? — ")
+_PATH = re.compile(r"[\w-]+(?:/[\w.-]+)+|[\w-]+\.\w+")
+
+
+def _why_text(changes_dir: Path, change: str) -> str:
+    """The proposal's `Why` text, empty when it cannot be read or has none."""
+    try:
+        proposal = (changes_dir / change / "proposal.md").read_text()
+    except OSError:
+        return ""
+    found = _WHY_SECTION.search(proposal)
+    return found[1].strip() if found else ""
+
+
+def _groups_of(changes_dir: Path, change: str) -> list[TaskGroup]:
+    try:
+        return validate_tasks(changes_dir / change / "tasks.md")[0]
+    except OSError:
+        return []
+
+
+def _why_block(label: str, text: str, marker: str) -> Section:
+    """One change's reason: its label and text, the text cut at a paragraph to the
+    room given, down to the pointer alone."""
+    full = "\n\n".join(part for part in (label, text) if part)
+    pointer = "\n\n".join(part for part in (label, marker) if part)
+
+    def render(size: int) -> str:
+        if size >= len(full):
+            return full
+        room = size - len(label) - 2 * bool(label)
+        return "\n\n".join(
+            part for part in (label, cut_head(text, room, "paragraph", marker=marker)) if part
+        )
+
+    return Section(
+        key="why-block", render=render, natural=len(full), smallest=len(pointer), weight=1
+    )
+
+
+def _why_section(changes_dir: Path, members: Sequence[Member], ceiling: int) -> Section | None:
+    """The reason for each change the unit builds: its proposal's Why, cut at a
+    paragraph to the ceiling with a pointer to the proposal; the smallest form is
+    the pointers alone. Room one change's reason leaves unused goes to the others."""
+    blocks: list[Section] = []
+    for member in members:
+        text = _why_text(changes_dir, member.change)
+        if not text:
+            continue
+        numbers = {group.number for group in _groups_of(changes_dir, member.change)}
+        label = ""
+        if numbers - set(member.groups):
+            label = (
+                f"_This pull request builds part of change **{member.change}**; "
+                "this is the change's reason._"
+            )
+        elif len(members) > 1:
+            label = f"_Change **{member.change}**:_"
+        marker = f"_… The full reason is in `{_change_path(member.change)}/proposal.md`._"
+        blocks.append(
+            _why_block(label, cut_head(text, ceiling, "paragraph", marker=marker), marker)
+        )
+    if not blocks:
+        return None
+
+    parts = [_fixed("heading", "## Why"), *blocks]
+
+    def render(size: int) -> str:
+        return fit(parts, size)
+
+    return Section(
+        key="why",
+        render=render,
+        natural=sum(part.natural for part in parts) + 2 * len(blocks),
+        smallest=sum(part.smallest for part in parts) + 2 * len(blocks),
+        weight=_PURPOSE_WEIGHT,
+        required=True,
+    )
+
+
+def _goal_section(changes_dir: Path, members: Sequence[Member]) -> Section | None:
+    """What the pull request does: the goal of each group the unit builds."""
+    goals = [
+        group.goal
+        for member in members
+        for group in _groups_of(changes_dir, member.change)
+        if group.number in member.groups and group.goal
+    ]
+    if not goals:
+        return None
+    text = "## What this pull request does\n\n" + "\n\n".join(goals)
+    return Section(
+        key="goal",
+        render=lambda size: text,
+        natural=len(text),
+        smallest=len(text),
+        weight=_PURPOSE_WEIGHT,
+        required=True,
+    )
+
+
+def _once_each(points: Sequence[str]) -> list[str]:
+    """The follow-ups with each point listed one time, in its located form.
+
+    The reviewer records a point twice when it gives it as an optional finding
+    (`file:line — summary`) and again as a free-text follow-up, in words of its own,
+    so the two are paired by the file they name: a bare point that names a file an
+    optional finding locates is that finding again. A bare point that names no such
+    file is kept."""
+    located = {found["file"] for point in points if (found := _LOCATED.match(point))}
+    return [
+        point
+        for point in points
+        if _LOCATED.match(point)
+        or not any(path.rstrip(".:,;") in located for path in _PATH.findall(point))
+    ]
+
+
 def build_pr_body(
     unit: StoredUnit,
     *,
@@ -193,6 +324,8 @@ def build_pr_body(
     stacks: bool = False,
     linear: bool = True,
     limit: int | None = None,
+    changes_dir: Path | None = None,
+    why_ceiling: int = 600,
 ) -> str:
     """The full description for a unit's PR."""
     if unit.tier == "tier2":
@@ -232,19 +365,32 @@ def build_pr_body(
         position += " It merges after everything beneath it in the stack has merged."
     order = "the stack order the host shows" if stacks else "the stack order above"
 
+    built = (
+        "Tests were committed first and seen to fail before any implementation existed; "
+        "the commit order is checked mechanically; lint, formatting and types pass at the tip."
+    )
     footer = f"""\
 ## How this was built
 
-Tests were committed first and seen to fail before any implementation
-existed; the commit order is checked mechanically before the push. Lint,
-formatting and types pass at the tip.
+{built}
 
 ---
 
 _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
-    sections = [
+    members = unit.members()
+    sections = []
+    if changes_dir is not None:
+        sections += [
+            section
+            for section in (
+                _why_section(changes_dir, members, why_ceiling),
+                _goal_section(changes_dir, members),
+            )
+            if section is not None
+        ]
+    sections += [
         _fixed("position", position),
         _fixed("scope", _scope_lines(unit)),
         _fixed("assumptions", f"## Assumptions\n\n{assumptions(unit, graph, trunk_of(unit.repo))}"),
@@ -261,7 +407,7 @@ merges every one, after checking {order}._
             )
         )
     if follow_ups:
-        sections.append(_follow_ups_section(follow_ups))
+        sections.append(_follow_ups_section(_once_each(follow_ups)))
     sections.append(_fixed("footer", footer))
 
     if limit is None:

@@ -9,6 +9,13 @@
   The queue line, the reason nothing started and `abk status` count the blocked units and
   say what each waits on, and the graph shows them as blocked.
 
+- A pull request's description now opens with why the change exists (the `Why` of its
+  proposal, cut at a paragraph with a pointer to the rest) and what the pull request does
+  (the "Done when" sentence of each task group it builds), ahead of the stack position,
+  scope and verification. "How this was built" is one line, a follow-up recorded both as a
+  summary and as a located line is listed once, and when the description is fitted to a
+  host's limit the reason and the goal are the last to be shortened.
+
 - Units that have never run now start in order of their stack's age: after priority, a
   ready unit takes the age of the oldest unit that waits on it, directly or through a chain,
   so a prerequisite of old work no longer sits idle behind newer, unrelated units. The ready queue in `abk status` says "stack age, from <unit>" for such a

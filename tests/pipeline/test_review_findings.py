@@ -362,6 +362,13 @@ def test_the_later_rounds_context_lists_the_earlier_finding_and_judged_commit(
 # 1.9 — the method, and the tools
 
 
+def test_the_review_prompt_does_not_ask_for_an_optional_finding_again_as_a_follow_up() -> None:
+    from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
+
+    review = _flat(REVIEW_PROMPT).lower()
+    assert "already give as an optional finding is not repeated" in review
+
+
 def test_the_review_prompt_names_its_angles_and_the_reviewer_stays_read_only() -> None:
     from agent_build_kit.pipeline.wiring import REVIEW_PROMPT, REVIEW_TOOLS
 

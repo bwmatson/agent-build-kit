@@ -13,10 +13,21 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.shell import git_out as git
+from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit, ready_units
 
-__all__ = ["git", "init_repo", "new_unit", "started_ids", "stored_unit", "unit"]
+__all__ = [
+    "follow_ups",
+    "git",
+    "init_repo",
+    "new_unit",
+    "output_of",
+    "snapshot",
+    "started_ids",
+    "stored_unit",
+    "unit",
+]
 
 _DEFAULTS: dict[str, Any] = {
     "change": "add-marker",
@@ -128,3 +139,30 @@ def recognised_planning(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     (path / "pyproject.toml").write_text('[project]\nname = "planning"\n')
     return path
+
+
+def output_of(size: int) -> str:
+    """Distinct numbered lines ending in a recognisable tail, `size` characters."""
+    lines: list[str] = []
+    while sum(len(line) + 1 for line in lines) < size:
+        lines.append(f"output line {len(lines):04d} " + "o" * 30)
+    text = "\n".join(lines)[: size - 40]
+    return text + "\n" + "TAIL FAILED tests/test_bar.py::test_bar".ljust(39)
+
+
+def snapshot(output: str) -> str:
+    return build_snapshot(
+        Tier2Result(
+            sha="abcdef0123",
+            passed=3,
+            failed=1,
+            skipped=0,
+            duration_seconds=1.5,
+            command="uv run pytest -m local_stack",
+            output=output,
+        )
+    )
+
+
+def follow_ups(count: int) -> list[str]:
+    return [f"follow-up {number:02d}: " + "f" * 60 for number in range(count)]

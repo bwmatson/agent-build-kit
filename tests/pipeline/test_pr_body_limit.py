@@ -8,36 +8,13 @@ the room above their smallest forms, one part to two.
 from __future__ import annotations
 
 from agent_build_kit.pipeline.pr_body import build_pr_body
-from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
+from tests.factories import follow_ups, output_of, snapshot
 from tests.factories import stored_unit as unit
 
 HEADINGS = ("## Assumptions", "## Tier 2 results", "## How this was built")
 # The notes a trimmed output carries: one above the lines kept, one in their place.
 CUT_NOTE = "_(earlier output trimmed to fit the host's description limit)_"
 GONE_NOTE = "_The full output was trimmed: it did not fit the host's description limit._"
-
-
-def output_of(size: int) -> str:
-    """Distinct numbered lines ending in a recognisable tail, `size` characters."""
-    lines: list[str] = []
-    while sum(len(line) + 1 for line in lines) < size:
-        lines.append(f"output line {len(lines):04d} " + "o" * 30)
-    text = "\n".join(lines)[: size - 40]
-    return text + "\n" + "TAIL FAILED tests/test_bar.py::test_bar".ljust(39)
-
-
-def snapshot(output: str) -> str:
-    return build_snapshot(
-        Tier2Result(
-            sha="abcdef0123",
-            passed=3,
-            failed=1,
-            skipped=0,
-            duration_seconds=1.5,
-            command="uv run pytest -m local_stack",
-            output=output,
-        )
-    )
 
 
 def body_of(*, output: str, follow_ups: list[str] | None = None, limit: int | None = None) -> str:
@@ -50,10 +27,6 @@ def body_of(*, output: str, follow_ups: list[str] | None = None, limit: int | No
         follow_ups=follow_ups,
         limit=limit,
     )
-
-
-def follow_ups(count: int) -> list[str]:
-    return [f"follow-up {number:02d}: " + "f" * 60 for number in range(count)]
 
 
 def test_a_body_that_fits_is_the_body_built_without_a_limit() -> None:
