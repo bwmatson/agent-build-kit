@@ -1310,7 +1310,8 @@ def _log_ready(
 
     A unit that takes the age of an older unit waiting on it starts before ready
     units planned earlier than itself; the line names the unit it passed and the
-    waiter whose age it took.
+    waiter whose age it took. The comparison ignores the limit on units in
+    progress: a unit that fits under it is passed by one that took the place.
     """
     log(f"ready: {', '.join(unit.id for unit in ready)}")
     units = store.all()
@@ -1320,6 +1321,7 @@ def _log_ready(
         started=set(),
         building=set(),
         only=only,
+        enforce_limit=False,
         max_concurrent=len(units),
     )
     place = {unit.id: index for index, unit in enumerate(view)}
