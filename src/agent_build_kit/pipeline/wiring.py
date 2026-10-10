@@ -113,7 +113,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
-from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.profiles.base import SelectsAffectedTests, ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -765,8 +765,16 @@ def build_tier1(
         selected = run_selection(plan)
         if selected is not None and not selected[0]:
             return selected
-        # Linted already; a selected pass is not the green, so the full tests confirm it.
-        return full(cwd, base, work, whole_repo, lint=False)
+        # A selected pass is not the green: the full tests confirm it, and lint runs again
+        # unless the selection got through it for every project.
+        confirmed = full(cwd, base, work, whole_repo, lint=selected is None)
+        if selected is not None and not confirmed[0]:
+            _say(
+                log,
+                "affected tests: the selected tests passed and the full suite failed, "
+                "a disagreement",
+            )
+        return confirmed
 
     def full(
         cwd: Path,
@@ -811,10 +819,11 @@ def build_tier1(
             if affected.mode == "command":
                 tests = [expand_template(affected.command or "", files, failed_ids)]
             else:
-                hook = getattr(toolchain, "affected_test_commands", None)
                 tests = (
-                    hook(where, files, failed_ids, seed=where / ".abk-affected")
-                    if hook is not None
+                    toolchain.affected_test_commands(
+                        where, files, failed_ids, seed=where / ".abk-affected"
+                    )
+                    if isinstance(toolchain, SelectsAffectedTests)
                     else None
                 )
             if tests is None:
@@ -828,7 +837,7 @@ def build_tier1(
     ) -> tuple[bool, str] | None:
         """(passed, what failed), or None when a command could not start."""
         for where, toolchain, commands in plan:
-            for command in commands:
+            for index, command in enumerate(commands):
                 try:
                     result = ran(command, where, toolchain)
                 except OSError as error:
@@ -838,7 +847,9 @@ def build_tier1(
                         "running the full suite",
                     )
                     return None
-                if not toolchain.tolerates_exit(command, result.returncode):
+                # The first command is lint; a selector that picks nothing is a pass.
+                nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
+                if not nothing and not toolchain.tolerates_exit(command, result.returncode):
                     return False, _failure(command, result)
         return True, ""
 
