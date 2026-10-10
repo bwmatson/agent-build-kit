@@ -1775,3 +1775,36 @@ def test_a_rate_limit_pause_still_stops_new_builds_for_the_pass(
 
     assert set(builder.started) == {"mid/1", "slow/1"}
     assert builder.store.get("later/1").state == PLANNED
+
+
+def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard's decision takes time, and a build can record the model's
+    refusal in it. The round that then finds room must not resume over it: the
+    marker stays and no unit starts after the refusal."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("mid/1"), stored("slow/1", repo="platform"), stored("later/1")])
+    marker = tmp_path / "paused.json"
+    refusals: list[int] = []
+
+    def refused_while_deciding(r, **_) -> Decision:
+        if not refusals:
+            refusals.append(1)
+            pause.pause_until(
+                datetime.now(UTC) + timedelta(hours=1),
+                reason="the model refused",
+                marker=marker,
+                kind="rate_limit",
+            )
+        return Decision(may_start=True, reason="plenty")
+
+    monkeypatch.setattr(cli, "may_start_unit", refused_while_deciding)
+
+    assert tick(inst) == 0
+
+    held = pause.is_paused(marker)
+    assert held is not None
+    assert held.kind == "rate_limit"
+    assert set(builder.started) == {"mid/1", "slow/1"}
+    assert builder.store.get("later/1").state == PLANNED

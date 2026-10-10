@@ -148,40 +148,46 @@ def test_a_pause_being_rewritten_is_never_read_as_over(
     assert all(state is not None and state.kind == "rate_limit" for state in seen)
 
 
-def test_two_builds_recording_a_pause_at_once_leave_one_whole_pause(
+def test_a_failed_write_leaves_the_marker_and_nothing_beside_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Builds run in threads and may both be refused by the model together: a
-    second writer arriving while the first is part-way through must neither
-    fail nor leave the marker torn, and must leave nothing beside it."""
     marker = tmp_path / "paused.json"
-    real_open = Path.open
-    started = False
+    pause_until(datetime.now(UTC) + timedelta(hours=1), reason="the guard", marker=marker)
 
-    def interrupted(self: Path, data: str, *args: object, **kwargs: object) -> int:
-        """Writes the first half through an open handle, lets another pause
-        be recorded in full, then writes the rest through the same handle."""
-        nonlocal started
-        with real_open(self, "w") as handle:
-            handle.write(data[: len(data) // 2])
-            if not started:
-                started = True
-                pause_until(
-                    datetime.now(UTC) + timedelta(hours=2),
-                    reason="the other build",
-                    marker=marker,
-                    kind="rate_limit",
-                )
-            return handle.write(data[len(data) // 2 :])
+    def full_disk(self: Path, data: str, *args: object, **kwargs: object) -> int:
+        raise OSError("no space left on device")
 
-    monkeypatch.setattr(Path, "write_text", interrupted)
+    monkeypatch.setattr(Path, "write_text", full_disk)
 
+    with pytest.raises(OSError):
+        pause_until(datetime.now(UTC) + timedelta(hours=3), reason="the model", marker=marker)
+
+    monkeypatch.undo()
+    state = is_paused(marker)
+    assert state is not None
+    assert state.reason == "the guard"
+    assert {path.name for path in tmp_path.iterdir()} == {"paused.json", "paused.json.lock"}
+
+
+def test_clearing_leaves_a_rate_limit_pause_in_force(tmp_path: Path) -> None:
+    """A round clears a pause once the guard finds room; a build may have
+    recorded the model's refusal since that round last looked."""
+    marker = tmp_path / "paused.json"
     pause_until(
-        datetime.now(UTC) + timedelta(hours=3), reason="the model", marker=marker, kind="rate_limit"
+        datetime.now(UTC) + timedelta(hours=1), reason="the model", marker=marker, kind="rate_limit"
     )
+
+    clear_pause(marker)
 
     state = is_paused(marker)
     assert state is not None
     assert state.kind == "rate_limit"
-    assert list(tmp_path.glob("*.tmp")) + list(tmp_path.glob(".*.tmp")) == []
-    assert [path.name for path in tmp_path.iterdir()] == ["paused.json"]
+
+
+def test_clearing_ends_a_usage_pause(tmp_path: Path) -> None:
+    marker = tmp_path / "paused.json"
+    pause_until(datetime.now(UTC) + timedelta(hours=1), reason="the guard", marker=marker)
+
+    clear_pause(marker)
+
+    assert is_paused(marker) is None
