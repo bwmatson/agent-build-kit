@@ -9,6 +9,11 @@
   shortest interval between successful calls not followed by a refusal), and the figures are
   exported as a counter by outcome and caller and a gauge of that interval in seconds, drawn
   from the record when the metrics store is not available.
+- Text that has to fit a size is now cut and shared out by one module: cuts that keep the
+  head, the tail or both on a character, line or paragraph boundary and close any open code
+  fence or collapsible block, and a fitter that gives each section of a text its smallest
+  honest form, shares the rest by weight and passes on what a short section does not use.
+  The general description cut is now a thin wrapper over it and cuts the same way.
 
 - The agents that write tests, implement, fix checks and rework are now told to look for
   existing code before adding any: search by behaviour as well as name, use or extend a

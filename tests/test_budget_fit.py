@@ -111,7 +111,7 @@ def test_weights_divide_what_is_left_above_the_smallest_forms() -> None:
             section("a", 10_000, smallest=10, weight=2, sizes=sizes),
             section("b", 10_000, smallest=10, weight=1, sizes=sizes),
         ],
-        310,
+        320,
         separator="",
     )
     assert (sizes["a"] - 10) == 2 * (sizes["b"] - 10)

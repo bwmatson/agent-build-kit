@@ -22,6 +22,7 @@ from collections.abc import Callable, Collection, Sequence
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from agent_build_kit.budget import cut_head
 from agent_build_kit.model import Frozen
 
 if TYPE_CHECKING:
@@ -40,20 +41,7 @@ def fit_description(body: str, limit: int) -> str:
     """The body as it was if it fits, else cut on a line boundary to at most
     `limit` characters, with an open code fence and details block closed and a
     note saying so. A forge calls this on every description it sends."""
-    if len(body) <= limit:
-        return body
-    lines = body.split("\n")
-    for count in range(len(lines), 0, -1):
-        kept = lines[:count]
-        fenced = sum(line.lstrip().startswith("```") for line in kept) % 2 == 1
-        depth = sum(line.strip().startswith("<details") for line in kept) - sum(
-            "</details>" in line for line in kept
-        )
-        closers = (["```"] if fenced else []) + ["</details>"] * max(depth, 0)
-        cut = "\n".join([*kept, *closers, "", DESCRIPTION_CUT_NOTE])
-        if len(cut) <= limit:
-            return cut
-    return DESCRIPTION_CUT_NOTE[:limit]
+    return cut_head(body, limit, "line", marker=DESCRIPTION_CUT_NOTE)
 
 
 class BaseMissing(RuntimeError):
