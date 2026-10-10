@@ -24,8 +24,9 @@
   each configured upstream stores a passing test's calls as cassettes keyed by the request,
   answers an identical request from them and sends any difference live. `ABK_REPLAY_MODE` is
   `off` (the default), `record`, `replay` or `live`. A `repos.<name>.tests.replay` section is
-  accepted and documented, but only the test plugin reads it for now; nothing in a
-  repository's own run changes. Credentials are in no key or file, a response holding a
+  accepted and documented, but nothing reads it yet: a test gives its upstreams by
+  overriding the plugin's `replay_config` fixture, and nothing in a repository's own run
+  changes. Credentials are in no key or file, a response holding a
   configured secret is not stored, and nothing is stored from a failing test.
 
 - The repository now states that framework code is language- and tool-independent, and a

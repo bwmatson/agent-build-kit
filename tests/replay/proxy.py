@@ -150,13 +150,13 @@ class ReplayProxy:
 
     def finish(self, *, passed: bool) -> None:
         """Promote the staged calls of the test to the cassette directory, or discard them."""
-        with self._lock:
-            # A client has its answer before the proxy has staged the call.
-            settled = self._lock.wait_for(lambda: self._active == 0, timeout=self._settle)
         staged = test_directory(self._staging, self._test_id)
         try:
             if not passed:
                 return
+            with self._lock:
+                # A client has its answer before the proxy has staged the call.
+                settled = self._lock.wait_for(lambda: self._active == 0, timeout=self._settle)
             if not settled:
                 self.incomplete.append(self._test_id)
                 return
@@ -260,8 +260,11 @@ class ReplayProxy:
                 )
                 return
         received = self._forward(upstream, request, out)
+        if received is None:
+            return
         if sum(len(chunk) for chunk in received.chunks) > self.config.max_body_bytes:
-            self.too_large.append(key)
+            with self._lock:
+                self.too_large.append(key)
             return
         keep = STORED_HEADERS | ({"content-length"} if request.method == "HEAD" else set())
         stored = {n: v for n, v in received.headers.items() if n in keep}
@@ -289,36 +292,46 @@ class ReplayProxy:
 
     def _forward(
         self, upstream: ReplayUpstream, request: Request, out: BaseHTTPRequestHandler
-    ) -> _Answer:
-        """Ask the upstream, answering `out` as the answer arrives."""
-        url = upstream.url.rstrip("/") + request.path
+    ) -> _Answer | None:
+        """Ask the upstream, answering `out` as the answer arrives. None when the upstream
+        could not be reached or failed part way: nothing is recorded for the call."""
+        # The query exactly as the client sent it; a client library would re-encode it.
+        query = f"?{request.query}" if request.query else ""
+        url = upstream.url.rstrip("/") + request.path + query
         headers = {n: v for n, v in request.headers.items() if n not in _NOT_FORWARDED}
         # The client's own, so the answer is what it asked for; the HTTP library would add its own.
         headers.setdefault("accept-encoding", "identity")
-        with self._client.stream(
-            request.method,
-            url,
-            params=request.query or None,
-            headers=headers,
-            content=request.body,
-        ) as response:
-            head = request.method == "HEAD"
-            sent = {
-                n.lower(): v
-                for n, v in response.headers.items()
-                if n.lower() not in _HOP_BY_HOP or (head and n.lower() == "content-length")
-            }
-            chunks: list[bytes] = []
-            if "chunked" in response.headers.get("transfer-encoding", "").lower() and not head:
-                _start(out, response.status_code, sent, None)
-                for chunk in response.iter_raw():
-                    chunks.append(chunk)
-                    _write_chunk(out, chunk)
-                out.wfile.write(b"0\r\n\r\n")
-            else:
-                chunks = list(response.iter_raw())
-                _send(out, request.method, response.status_code, sent, chunks)
-            return _Answer(status=response.status_code, headers=sent, chunks=chunks)
+        head = request.method == "HEAD"
+        chunks: list[bytes] = []
+        try:
+            with self._client.stream(
+                request.method, url, headers=headers, content=request.body
+            ) as response:
+                sent = {
+                    n.lower(): v
+                    for n, v in response.headers.items()
+                    if n.lower() not in _HOP_BY_HOP or (head and n.lower() == "content-length")
+                }
+                if "chunked" in response.headers.get("transfer-encoding", "").lower() and not head:
+                    _start(out, response.status_code, sent, None)
+                    try:
+                        for chunk in response.iter_raw():
+                            chunks.append(chunk)
+                            _write_chunk(out, chunk)
+                    except httpx.HTTPError:
+                        # The answer has begun, so all that is left is to drop the connection.
+                        out.close_connection = True
+                        return None
+                    out.wfile.write(b"0\r\n\r\n")
+                else:
+                    chunks = list(response.iter_raw())
+                    _send(out, request.method, response.status_code, sent, chunks)
+                return _Answer(status=response.status_code, headers=sent, chunks=chunks)
+        except httpx.HTTPError as error:
+            # Nothing of the answer was sent yet, so the client can be told what went wrong.
+            body = f"replay proxy: upstream {upstream.name!r} failed: {error!r}".encode()
+            _send(out, request.method, 502, {"content-type": "text/plain"}, [body])
+            return None
 
 
 def _start(

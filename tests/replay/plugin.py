@@ -3,7 +3,8 @@
 A test that asks for the `replay` fixture gets the running proxy: `addresses` for each
 configured upstream and `environment()` for the code under test. The mode is the
 `ABK_REPLAY_MODE` setting; the `ReplayConfig` comes from the test, by overriding the
-`replay_config` fixture (a repository's committed one is `tests.replay` in its `abk.yaml`).
+`replay_config` fixture. The `tests.replay` section of `abk.yaml` is accepted by the schema
+but not read here yet, so the default fixture has no upstream.
 
 The calls a test makes are promoted to cassettes only once its setup, call and teardown
 have all passed, which is known only after its teardown report is made, so the proxy is

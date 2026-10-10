@@ -683,9 +683,10 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
 ## Record and replay of external calls
 
 A tier-2 test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
-reverse proxy with one loopback listener per upstream in its `ReplayConfig`
-(`repos.<name>.tests.replay`, or passed in code by a test whose workspace is a
-throwaway: override the `replay_config` fixture). The code under test is pointed at
+reverse proxy with one loopback listener per upstream in its `ReplayConfig`,
+which a test gives by overriding the `replay_config` fixture. The `repos.<name>.tests.replay`
+section holds the same fields and is accepted by the schema, but nothing reads it yet: the
+default fixture returns an empty `ReplayConfig`, which has no upstream. The code under test is pointed at
 the listener through the variables the upstream names in `env`; `fixture.addresses`
 and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 

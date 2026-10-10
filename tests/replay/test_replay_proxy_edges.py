@@ -4,6 +4,7 @@ import gzip
 import http.client
 import os
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -215,3 +216,55 @@ def test_a_call_still_in_flight_when_the_test_ends_is_not_promoted_and_is_report
 
     assert proxy.incomplete == [TEST]
     assert files(tmp_path / "cassettes") == []
+
+
+def test_the_query_reaches_the_upstream_exactly_as_the_client_sent_it(
+    upstream: FakeUpstream, tmp_path: Path
+) -> None:
+    config = config_for(upstream.url, tmp_path / "cassettes")
+    with proxy_for(config, tmp_path, ReplayMode.record) as proxy:
+        proxy.begin(TEST)
+        send(proxy, query="flag&q=a%20b")
+        proxy.finish(passed=True)
+
+    assert upstream.seen[0].path == "/v1/messages?flag&q=a%20b"
+
+
+def test_an_upstream_that_cannot_be_reached_is_answered_502_and_nothing_is_recorded(
+    tmp_path: Path,
+) -> None:
+    with FakeUpstream() as gone:
+        url = gone.url  # nothing listens here once it is closed
+    config = config_for(url, tmp_path / "cassettes")
+    with proxy_for(config, tmp_path, ReplayMode.record) as proxy:
+        proxy.begin(TEST)
+        reply = send(proxy)
+        proxy.finish(passed=True)
+
+    assert reply.status == 502
+    assert UPSTREAM in reply.raw.decode()
+    assert files(tmp_path / "cassettes") == []
+
+
+def test_a_failing_test_does_not_wait_for_a_call_still_in_flight(tmp_path: Path) -> None:
+    release = threading.Event()
+
+    def slow(_seen: Seen) -> Answer:
+        release.wait(30)
+        return Answer()
+
+    with FakeUpstream(slow) as upstream:
+        config = config_for(upstream.url, tmp_path / "cassettes")
+        with proxy_for(config, tmp_path, ReplayMode.record, settle_seconds=30) as proxy:
+            proxy.begin(TEST)
+            client = threading.Thread(target=send, args=(proxy,))
+            client.start()
+            wait_for(lambda: bool(upstream.seen), what="the call to reach the upstream")
+            started = time.monotonic()
+            proxy.finish(passed=False)
+            waited = time.monotonic() - started
+            release.set()
+            client.join()
+
+    assert waited < 5
+    assert proxy.incomplete == []
