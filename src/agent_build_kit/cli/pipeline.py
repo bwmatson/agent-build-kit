@@ -453,7 +453,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(f"no recorded cause: {', '.join(uncaused)}")
 
     for unit in units:
-        if unit.calibrated_lines is not None:
+        if (
+            unit.calibrated_lines is not None
+            and unit.calibrated_lines != unit.estimated_lines
+            and unit.state not in (MERGED, CLOSED, UNPLANNED)
+        ):
             log(
                 f"  estimate: {unit.id} ({unit.repo}) estimated {unit.estimated_lines} "
                 f"(calibrated {unit.calibrated_lines})"
@@ -1917,7 +1921,7 @@ def plan_all(
             if u.state in _STARTED or (u.state == PLANNED and u.change != change)
         ]
         # Once a round: the plan check, the prompt and the figures stored all use one set.
-        found = calibrations(store.all())
+        ratios = calibrations(store.all())
         try:
             catalog = {
                 path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
@@ -1942,7 +1946,7 @@ def plan_all(
                 for number in member.groups
             }
             plan = plan_round(
-                calibrations=found,
+                calibrations=ratios,
                 changes={change: tasks.read_text()},
                 in_flight=context,
                 groups=task_groups,
@@ -2004,7 +2008,7 @@ def plan_all(
             store.set_priority(unit_id, unit_priority(store.get(unit_id), catalog))
         for unit_id in dict.fromkeys([*(u.id for u in units), *(j.onto for j in plan.joins)]):
             if unit_id not in removed:
-                _record_calibration(store, unit_id, catalog, found)
+                _record_calibration(store, unit_id, catalog, ratios)
         orphaned = _orphaned_changes(store, before)
         for other in sorted(orphaned):
             # The unit that carried this change's groups is gone, and nothing
@@ -2032,14 +2036,14 @@ def _record_calibration(
     store: UnitStore,
     unit_id: str,
     catalog: dict[str, tuple[TaskGroup, ...]],
-    found: dict[Kind, Calibration],
+    ratios: dict[Kind, Calibration],
 ) -> None:
     """Fix an unstarted unit's flag and calibrated figure as it is planned, from its own
     estimate and its kind's ratio; with calibration off there is no figure."""
     unit = store.get(unit_id)
     kind = plan_kind(unit, catalog.get(unit.change))
     on = config.active().limits.calibrate_estimates
-    figure = calibrated(unit.estimated_lines, applied(found, kind).ratio) if on else None
+    figure = calibrated(unit.estimated_lines, applied(ratios, kind).ratio) if on else None
     store.set_calibration(unit_id, kind.flag, figure or None)
 
 

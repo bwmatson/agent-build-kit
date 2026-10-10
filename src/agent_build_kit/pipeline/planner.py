@@ -163,6 +163,7 @@ def parse_plan(
                 groups=groups or [],
                 built=built or set(),
                 ceiling=active().limits.max_unit_lines,
+                calibrations=calibrations,
             )
         except JoinRefused as error:
             raise PlannerError(str(error)) from error

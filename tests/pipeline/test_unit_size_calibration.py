@@ -457,6 +457,52 @@ def test_a_first_stored_unit_keeps_its_flag_and_both_figures(
     assert unit.calibrated_lines == 200
 
 
+def test_a_unit_carrying_an_unflagged_group_first_takes_the_flag_of_its_flagged_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    limits(calibration_shrink=0)
+    samples = [*run_of([2.0] * 3, flag="contract"), *run_of([1.0] * 3)]
+    inst, store = project(tmp_path, tasks_md("", "contract", "narrow"), samples)
+    planner(
+        monkeypatch,
+        {
+            "units": [
+                new_unit("feature/1", [1, 2], 100),
+                new_unit("feature/2", [3], 100, depends_on=["feature/1"]),
+            ]
+        },
+    )
+
+    cli.plan_all(inst, store=store)
+
+    unit = store.get("feature/1")
+    assert unit.flag == "contract"
+    assert unit.calibrated_lines == 200
+
+
+def test_the_plan_check_uses_the_ratio_of_the_first_flagged_group_a_unit_carries() -> None:
+    limits(max_unit_lines=750)
+    groups = [
+        TaskGroup(number=1, repo="app", tier="tier1", title="A", line=3, task_count=2),
+        TaskGroup(
+            number=2, repo="app", tier="tier1", title="B", line=9, task_count=2, flag="contract"
+        ),
+        TaskGroup(
+            number=3, repo="app", tier="tier1", title="C", line=15, task_count=2, flag="narrow"
+        ),
+    ]
+    output = graph(
+        {"id": "c/1", "groups": [1, 2], "estimated_lines": 400},
+        {"id": "c/2", "groups": [3], "estimated_lines": 100, "depends_on": ["c/1"]},
+    )
+    contract = {Kind(repo="app", tier="tier1", flag="contract"): Calibration(ratio=2.0, samples=9)}
+    plain = {APP: Calibration(ratio=2.0, samples=9)}
+
+    with pytest.raises(PlannerError, match="ceiling"):
+        parse_plan(output, groups=groups, calibrations=contract)
+    assert parse_plan(output, groups=groups, calibrations=plain).units
+
+
 def test_a_unit_with_no_flagged_group_has_the_empty_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -550,20 +596,48 @@ def make_installation_of(root: Path):
 # --- the stored unit ---------------------------------------------------------
 
 
-def test_a_started_unit_keeps_its_calibrated_figure_when_the_ratio_changes(tmp_path: Path) -> None:
+def test_a_started_unit_keeps_its_calibrated_figure_where_an_unstarted_one_is_set(
+    tmp_path: Path,
+) -> None:
     limits(calibration_shrink=0)
-    unit = stored_unit("feature/1", change="feature", estimated_lines=600)
+    running = stored_unit("feature/1", change="feature", estimated_lines=600)
+    waiting = stored_unit("feature/2", change="feature", estimated_lines=600, groups=(2,))
     store = write_store(
         tmp_path,
-        [unit, *run_of([3.0] * 5)],
-        **{"feature/1": {"calibrated_lines": 903, "flag": "", "state": "running"}},
+        [running, waiting, *run_of([3.0] * 5)],
+        **{
+            "feature/1": {"calibrated_lines": 903, "state": "running", "branch": "spec/feature/1"},
+            "feature/2": {"calibrated_lines": 903},
+        },
     )
 
-    store.upsert([unit], change="feature")
+    store.set_calibration("feature/1", "", 1800)
+    store.set_calibration("feature/2", "", 1800)
+    store.upsert([running], change="feature")
     store.set_state("feature/1", IN_REVIEW, pr=1, branch="spec/feature/1")
 
     assert store.get("feature/1").calibrated_lines == 903
     assert store.get("feature/1").estimated_lines == 600
+    assert store.get("feature/2").calibrated_lines == 1800
+
+
+def test_a_round_that_plans_other_groups_leaves_a_started_units_figure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    limits(calibration_shrink=0)
+    running = stored_unit("feature/1", change="feature", estimated_lines=600, groups=(1,))
+    inst, store = project(
+        tmp_path,
+        tasks_md("", ""),
+        [running, *run_of([3.0] * 5)],
+        **{"feature/1": {"calibrated_lines": 903, "state": "running", "branch": "spec/feature/1"}},
+    )
+    planner(monkeypatch, {"units": [new_unit("feature/2", [2], 200, depends_on=["feature/1"])]})
+
+    cli.plan_all(inst, store=store)
+
+    assert store.get("feature/1").calibrated_lines == 903
+    assert store.get("feature/2").calibrated_lines == 600
 
 
 def test_a_sample_uses_the_planners_estimate_not_the_calibrated_figure(tmp_path: Path) -> None:

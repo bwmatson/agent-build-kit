@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_size import applied, calibrated, calibrations, kind_of
+from agent_build_kit.pipeline.unit_size import Calibration, Kind, applied, calibrated, kind_of
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, SATISFIED, Join, Member, Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
@@ -45,6 +45,7 @@ def check_joins(
     groups: Sequence[TaskGroup],
     built: set[int],
     ceiling: int,
+    calibrations: Mapping[Kind, Calibration] | None = None,
 ) -> None:
     """Raise `JoinRefused` for the first join that breaks a rule.
 
@@ -62,7 +63,6 @@ def check_joins(
     if change is not None:
         catalog[change] = tuple(groups)
     claimed = {number for unit in plan for number in unit.groups}
-    found = calibrations(context.stored)
 
     for join in joins:
         name = f"join onto {join.onto}"
@@ -129,7 +129,7 @@ def check_joins(
         involved = [*onto.members(), *members]
         _check_groups(involved, catalog, refuse)
 
-        ratio = applied(found, kind_of(onto))
+        ratio = applied(calibrations, kind_of(onto))
         if calibrated(onto.estimated_lines + added, ratio.ratio) > ceiling:
             raise refuse(
                 f"{onto.estimated_lines}+{added} changed lines"
