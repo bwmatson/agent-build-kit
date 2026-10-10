@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -99,8 +100,11 @@ def pause_until(
 
     marker.parent.mkdir(parents=True, exist_ok=True)
     # Written aside and renamed into place: a tick reads the marker while a
-    # build records a pause, and a torn file would read as "not paused".
-    partial = marker.with_name(f"{marker.name}.tmp")
+    # build records a pause, and a torn file would read as "not paused". Each
+    # writer has its own file, as builds record pauses from threads at once.
+    handle, name = tempfile.mkstemp(dir=marker.parent, prefix=f".{marker.name}.", suffix=".tmp")
+    os.close(handle)
+    partial = Path(name)
     partial.write_text(
         json.dumps(
             {
