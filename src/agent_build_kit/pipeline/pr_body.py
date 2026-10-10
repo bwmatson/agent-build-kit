@@ -20,6 +20,7 @@ Three things it must always say:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from agent_build_kit import forges
 from agent_build_kit.budget import Section, cut_tail, fit
@@ -193,6 +194,8 @@ def build_pr_body(
     stacks: bool = False,
     linear: bool = True,
     limit: int | None = None,
+    changes_dir: Path | None = None,
+    why_ceiling: int = 600,
 ) -> str:
     """The full description for a unit's PR."""
     if unit.tier == "tier2":

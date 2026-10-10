@@ -150,6 +150,8 @@ class TaskGroup(Frozen):
     independent: bool = False
     # 1 (most urgent) to 5, from a `Priority:` line in the group or above the first.
     priority: int = Priority.NORMAL
+    # The "Done when" sentence under the heading, "" when the group has none.
+    goal: str = ""
 
 
 class ValidationError(Frozen):
