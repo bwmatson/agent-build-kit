@@ -722,7 +722,11 @@ description note as its marker; it is the last guard of the description builder.
 
 The description is fitted once, to `forges.description_limit()`, the lowest description
 limit across the registered forges, where the open-pull-request step builds the body; no
-forge cuts a description it sends.
+forge cuts a description it sends. `build_pr_body` makes the body from `Section`s and
+shares the limit with `fit`: the position, scope, assumptions, restack note, held points,
+footer and the tier 2 results are required (the results shrink to their pass or fail line
+and a note that the output was trimmed, the output keeping its tail), and the follow-ups,
+whole items followed by a count, weigh twice what the output does.
 
 `fit` shares a budget between `Section`s (a render function, a natural size, a smallest
 honest form, a weight, an optional ceiling and whether it is required). Everything is

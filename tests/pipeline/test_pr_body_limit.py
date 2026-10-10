@@ -130,6 +130,27 @@ def test_without_output_the_follow_ups_have_the_room_the_output_would_have_had()
     assert f"and {60 - len(kept)} more" in body
 
 
+def test_above_their_smallest_forms_the_follow_ups_get_twice_the_output() -> None:
+    """Weight two against weight one: what one more stretch of room is shared as."""
+    output = output_of(40_000)
+    items = follow_ups(300)
+
+    def sizes(limit: int) -> tuple[int, int]:
+        body = body_of(output=output, follow_ups=items, limit=limit)
+        assert len(body) <= limit
+        shown = body[body.index("## Tier 2 results") : body.index("## Left for later")]
+        later = body[body.index("## Left for later") : body.index("## How this was built")]
+        return len(shown), len(later)
+
+    small_output, small_later = sizes(5_000)
+    large_output, large_later = sizes(13_000)
+
+    grown_output = large_output - small_output
+    grown_later = large_later - small_later
+    assert grown_output > 1_000
+    assert abs(grown_later - 2 * grown_output) <= 300, "within a line or two of each"
+
+
 def test_the_verdict_and_headings_survive_a_limit_below_everything_else() -> None:
     body = body_of(output=output_of(4_000), follow_ups=follow_ups(20), limit=1_500)
 
