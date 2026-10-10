@@ -8,6 +8,7 @@
   starting. When a waiting unit is no longer blocked, it starts only while there is room.
   The queue line, the reason nothing started and `abk status` count the blocked units and
   say what each waits on, and the graph shows them as blocked.
+
 - A pull request's description now opens with why the change exists (the `Why` of its
   proposal, cut at a paragraph with a pointer to the rest) and what the pull request does
   (the "Done when" sentence of each task group it builds), ahead of the stack position,
