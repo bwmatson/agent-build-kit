@@ -40,7 +40,8 @@ DESCRIPTION_CUT_NOTE = "_Description cut to fit the host's limit._"
 def fit_description(body: str, limit: int) -> str:
     """The body as it was if it fits, else cut on a line boundary to at most
     `limit` characters, with an open code fence and details block closed and a
-    note saying so. A forge calls this on every description it sends."""
+    note saying so. The last guard of the description builder, so the limit
+    holds; no forge calls it."""
     return cut_head(body, limit, "line", marker=DESCRIPTION_CUT_NOTE)
 
 
@@ -263,8 +264,9 @@ class Forge(RegistersStacks, Protocol):
     # What this host's CI is called, for a pull request body that says who runs
     # the checks.
     ci_name: str
-    # The most characters this host takes in a pull request description; the
-    # forge cuts what it is handed to it with `fit_description`.
+    # The most characters this host takes in a pull request description. The
+    # forge does not cut: the pipeline fits a description once, to the lowest
+    # of these across the registered forges (`forges.description_limit`).
     description_limit: int
 
     def parse_remote(self, url: str) -> RepoId | None: ...

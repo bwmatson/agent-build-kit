@@ -714,9 +714,15 @@ tick tries it again. A finished change with no directory is logged as withdrawn 
 
 `budget.py` is the one place text is cut to a size. `cut_head`, `cut_tail` and
 `cut_middle` take a text, a size, a boundary (`char`, `line` or `paragraph`) and a
-marker: each returns the text unchanged when it fits, never returns more than the size,
-and closes any code fence or `<details>` block it leaves open. `forges.base.fit_description`
-is a wrapper over `cut_head` with the description note as its marker.
+marker: each returns the text unchanged when it fits and never returns more than the size.
+A head cut (keeping the start) closes any code fence or `<details>` block it leaves open;
+a tail cut (keeping the end) reopens what the dropped head left open, with lines of its own
+that it then closes. `forges.base.fit_description` is a wrapper over `cut_head` with the
+description note as its marker; it is the last guard of the description builder.
+
+The description is fitted once, to `forges.description_limit()`, the lowest description
+limit across the registered forges, where the open-pull-request step builds the body; no
+forge cuts a description it sends.
 
 `fit` shares a budget between `Section`s (a render function, a natural size, a smallest
 honest form, a weight, an optional ceiling and whether it is required). Everything is

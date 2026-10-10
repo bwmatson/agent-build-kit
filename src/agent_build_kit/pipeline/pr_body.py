@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from agent_build_kit import forges
+from agent_build_kit.forges.base import fit_description
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import MERGED, through_satisfied, trunk_of
 
@@ -236,9 +237,13 @@ merges every one, after checking {order}._
                 break
         return body
 
+    def guarded(text: str) -> str:
+        # No host cuts a description, so the limit has to hold here.
+        return fit_description(text, limit)
+
     parts = _output_parts(verification)
     if parts is None:
-        return fitted(verification)
+        return guarded(fitted(verification))
     head, output, tail, start, end = parts
     if len(output) > _OUTPUT_FLOOR:
         trimmed = head + _trim_output(output, len(body) - limit) + tail
@@ -247,7 +252,7 @@ merges every one, after checking {order}._
     body = fitted(trimmed)
     if len(body) <= limit:
         return body
-    return fitted(verification[:start] + _OUTPUT_GONE + verification[end:])
+    return guarded(fitted(verification[:start] + _OUTPUT_GONE + verification[end:]))
 
 
 def _landed_elsewhere(unit: StoredUnit, graph: Sequence[StoredUnit]) -> StoredUnit | None:

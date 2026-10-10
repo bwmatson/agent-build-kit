@@ -73,8 +73,13 @@ def for_repo(name: str) -> tuple[Forge, RepoId]:
 
 
 def description_limit() -> int:
-    """The lowest description limit across the registered forges."""
-    raise NotImplementedError
+    """The lowest description limit across the registered forges.
+
+    A description is fitted to this once, where it is handed to a forge, so it
+    reads the same on every host and no forge cuts it.
+    """
+    _load_builtin()
+    return min(forge.description_limit for forge in _REGISTRY.values())
 
 
 def denies(tokens: list[str]) -> str:

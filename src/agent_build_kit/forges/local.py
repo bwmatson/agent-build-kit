@@ -21,7 +21,6 @@ from agent_build_kit.forges.base import (
     ReviewNote,
     Run,
     Stack,
-    fit_description,
     key,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -213,7 +212,7 @@ class LocalForge:
                     "head": head,
                     "base": base,
                     "title": title,
-                    "body": fit_description(body, self.description_limit),
+                    "body": body,
                     "state": "open",
                     **({"tip": tip} if tip else {}),
                 }
@@ -229,7 +228,7 @@ class LocalForge:
                     if base:
                         pull["base"] = base
                     if body:
-                        pull["body"] = fit_description(body, self.description_limit)
+                        pull["body"] = body
 
         self._change(repo, update)
 

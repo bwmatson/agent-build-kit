@@ -59,7 +59,6 @@ from agent_build_kit.forges.base import (
     Stack,
     StackRefused,
     failing_names,
-    fit_description,
 )
 from agent_build_kit.forges.transport import (
     AZURE_CLI_SOURCE,
@@ -531,7 +530,7 @@ class AzureDevOpsForge:
                     "sourceRefName": f"refs/heads/{head}",
                     "targetRefName": f"refs/heads/{base}",
                     "title": title,
-                    "description": fit_description(body, self.description_limit),
+                    "description": body,
                 },
                 run=run,
             )
@@ -578,7 +577,7 @@ class AzureDevOpsForge:
                     repo,
                     "PATCH",
                     route,
-                    json={"description": fit_description(body, self.description_limit)},
+                    json={"description": body},
                     run=run,
                 )
             except TRANSIENT:

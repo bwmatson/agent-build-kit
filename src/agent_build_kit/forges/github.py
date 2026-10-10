@@ -43,7 +43,6 @@ from agent_build_kit.forges.base import (
     Stack,
     StackRefused,
     failing_names,
-    fit_description,
     key,
 )
 from agent_build_kit.forges.github_models import (
@@ -346,7 +345,7 @@ class GitHubForge:
                         "head": head,
                         "base": base,
                         "title": title,
-                        "body": fit_description(body, self.description_limit),
+                        "body": body,
                     },
                 )
         except TransportError as error:
@@ -373,7 +372,7 @@ class GitHubForge:
         """
         changes: dict[str, Any] = {
             **({"base": base} if base else {}),
-            **({"body": fit_description(body, self.description_limit)} if body else {}),
+            **({"body": body} if body else {}),
         }
         if not changes:
             return
