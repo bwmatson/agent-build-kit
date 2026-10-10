@@ -40,6 +40,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
+from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
@@ -102,6 +103,9 @@ The pipeline pushes this branch, after review and tier 1; you never do. Run no
 
 OUTPUT_NOTE = "\n" + output_convention()
 
+# Part of a full prompt only: a continued session already holds it.
+REUSE_NOTE = "\n" + reuse_guidance() + "\n"
+
 NO_REWRITE_NOTE = """\
 Do not rewrite history either: no amend, rebase, squash, reset or force. Your
 work is new commits on top of what is already here, and the commits that exist
@@ -126,6 +130,8 @@ You may add stubs for code that does not exist yet — a signature whose body is
 only `raise NotImplementedError`, or a model field — so the tests fail when
 they run instead of failing to import. Stubs contain no logic.
 
+Use the repository's shared fixtures before writing new ones.
+
 Where a test needs a stand-in for something outside this code (a library, a
 browser, a service), fake it at the protocol boundary — the raw shape the real
 system sends (CDP JSON, an HTTP body, a CLI's output) — not in place of a
@@ -144,6 +150,7 @@ the unit has passed review, tier 1 and been pushed.
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
+    + REUSE_NOTE
 )
 
 _REVIEW_FEEDBACK_ASK = """\
@@ -183,6 +190,7 @@ the unit has passed review, tier 1 and been pushed.
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
+    + REUSE_NOTE
     + NO_REWRITE_NOTE
 )
 
@@ -191,7 +199,8 @@ the unit has passed review, tier 1 and been pushed.
 TIER1_FAILED = "tier 1 failed:"
 
 
-CHECKS_PROMPT = """\
+CHECKS_PROMPT = (
+    """\
 The pipeline's checks (lint, formatting, types and the tests) failed on this
 branch, for change {change_dir}, task group(s) {groups}. Nothing has been
 reviewed yet: a reviewer is only asked once these pass.
@@ -213,6 +222,8 @@ The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, tier 1 and been pushed.
 """
+    + REUSE_NOTE
+)
 
 
 # The only follow-up kind that does not block approval. Anything else — a
@@ -472,6 +483,9 @@ your reply to that comment. Where you genuinely cannot tell what was intended,
 implement nothing for that point and ask in your reply, rather than guessing at
 a rewrite. A question gets an answer, whether or not it also gets a change.
 
+When feedback names one duplicate, look for the others of the kind: the same
+copy in sibling code, so the next round does not find them.
+
 A comment that contradicts a requirement of this change is not acted on: flag it
 in your reply to that comment's thread, naming the requirement, and leave the code
 as it is until the reviewer confirms.
@@ -520,6 +534,7 @@ the unit has passed review, tier 1 and been pushed.
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
+    + REUSE_NOTE
     + NO_REWRITE_NOTE
 )
 
@@ -538,6 +553,7 @@ the unit has passed review, tier 1 and been pushed.
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + OUTPUT_NOTE
+    + REUSE_NOTE
 )
 
 # Given to every build-side prompt above, only when this change has units
