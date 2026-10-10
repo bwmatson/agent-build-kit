@@ -142,6 +142,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
     waiting_on_me,
 )
+from agent_build_kit.pipeline.usage_calls import CALLS_NAME, derive_rate, rate_line, read_calls
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
     Limits,
@@ -150,6 +151,7 @@ from agent_build_kit.pipeline.usage_guard import (
     current_usage,
     forget_logged_failures,
     may_start_unit,
+    reading_as,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -345,13 +347,17 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     except KeyError as exc:
         log(f"usage: runtime {config.runtime_name()} is not available: {exc}")
     else:
-        reading = current_usage() if runtime.supports_usage_tracking else None
+        with reading_as("cli-status"):
+            reading = current_usage() if runtime.supports_usage_tracking else None
         if not runtime.supports_usage_tracking:
             log(f"usage: runtime {runtime.name} has no usage window")
         elif reading:
             log(f"usage: {_usage_line(reading)} ({reading.source})")
         else:
             log("usage: unknown")
+        calls = read_calls(inst.state_dir / CALLS_NAME)
+        if calls:
+            log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
     units = store_for(inst).all()
     if not units:

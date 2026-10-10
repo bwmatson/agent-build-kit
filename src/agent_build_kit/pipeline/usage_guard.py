@@ -53,7 +53,9 @@ import re
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -68,6 +70,12 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
+from agent_build_kit.pipeline.usage_calls import (
+    CALLS_NAME,
+    UsageCall,
+    rate_limit_headers,
+    record_call,
+)
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -495,6 +503,7 @@ def read_live_usage(
     ttl: timedelta | None = None,
     expired: Callable[[], bool] | None = None,
     refresh: Callable[[], None] | None = None,
+    caller: str | None = None,
 ) -> UsageReading | None:
     """Ask the endpoint where the windows stand, or None if it can't say.
 
@@ -507,6 +516,8 @@ def read_live_usage(
     there.
     """
     cache_path = cache_path or _cache_file()
+    calls_file = cache_path.parent / CALLS_NAME
+    caller = caller or _caller.get()
     limits = _limits()
     if ttl is None:
         ttl = timedelta(minutes=limits.usage_cache_minutes)
@@ -523,6 +534,15 @@ def read_live_usage(
 
     if kept is not None and ttl > timedelta(0) and now - kept.observed_at < ttl:
         if not _past_reset(kept, now):
+            record_call(
+                calls_file,
+                UsageCall(
+                    at=now,
+                    caller=caller,
+                    outcome="cache",
+                    age_seconds=int((now - kept.observed_at).total_seconds()),
+                ),
+            )
             return kept
 
     try:
@@ -538,10 +558,37 @@ def read_live_usage(
         return None
 
     def ask(bearer: str) -> object:
-        return fetch(
-            USAGE_URL,
-            {"Authorization": f"Bearer {bearer}", "anthropic-beta": OAUTH_BETA_HEADER},
-        )
+        started = time.monotonic()
+        asked = datetime.now(UTC)
+        status: int | None = 200
+        headers: object = None
+        outcome = "ok"
+        try:
+            return fetch(
+                USAGE_URL,
+                {"Authorization": f"Bearer {bearer}", "anthropic-beta": OAUTH_BETA_HEADER},
+            )
+        except Exception as error:
+            if isinstance(error, urllib.error.HTTPError):
+                status, headers = error.code, error.headers
+                outcome = "rate_limited" if error.code == 429 else "error"
+            else:
+                status = None
+                reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                outcome = "timeout" if isinstance(reason, TimeoutError) else "error"
+            raise
+        finally:
+            record_call(
+                calls_file,
+                UsageCall(
+                    at=asked,
+                    caller=caller,
+                    outcome=outcome,
+                    status=status,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    headers=rate_limit_headers(headers),
+                ),
+            )
 
     def failed(error: Exception) -> UsageReading | None:
         if isinstance(error, urllib.error.HTTPError):
@@ -645,6 +692,19 @@ def rate_limit_note(cache_path: Path | None = None) -> str | None:
     if until <= datetime.now(UTC):
         return None
     return f"rate limited until {_hhmm(until)}"
+
+
+_caller: ContextVar[str] = ContextVar("usage_caller", default="guard")
+
+
+@contextmanager
+def reading_as(caller: str) -> Iterator[None]:
+    """Name who asks for the readings taken inside the block, in the call record."""
+    token = _caller.set(caller)
+    try:
+        yield
+    finally:
+        _caller.reset(token)
 
 
 def current_usage() -> UsageReading | None:

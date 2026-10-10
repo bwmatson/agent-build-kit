@@ -744,6 +744,16 @@ after thirty minutes); and a reading too old to trust refuses starts for the
 stale-retry interval (`usage_stale_retry_minutes`, five by default) without
 borrowing its window. A reading served from the cache file has its own source,
 so it is not mistaken for a live one.
+**Every use of the endpoint is recorded** (`usage_calls.py`) in `usage-calls.jsonl`, beside the
+cache in the state directory and gitignored: one line per call or cache answer with the time, the
+caller (`guard`, `status` for the runtime's usage status, `cli-status` for the status command, `tracks`), the outcome (`ok`,
+`rate_limited`, `timeout`, `error` or `cache`), the status, the latency, the rate-limit and retry
+headers of the answer and, for the cache, the reading's age. It holds no token, keeps a week, and
+archiving a change leaves it. From it `abk status` prints one line (calls in the hour, refusals,
+the cache's share and the shortest interval between successful calls that no refusal followed
+within a minute), and the figures are exported as `abk.usage.calls` by outcome and caller and the
+gauge `abk.usage.safe_interval` in whole seconds, drawn from the record when the metrics store is
+down.
 **A step already running is never interrupted** — the guard only ever gates
 what starts next. The one place that reading is taken mid-unit rather than
 only at a boundary is judging a step that ends having written nothing: an

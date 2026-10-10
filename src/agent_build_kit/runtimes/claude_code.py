@@ -303,7 +303,9 @@ class ClaudeCodeRuntime:
         )
 
     def get_usage_status(self) -> UsageStatus | None:
-        read_live = self._read_live or (lambda: read_live_usage(refresh=refresh_login))
+        read_live = self._read_live or (
+            lambda: read_live_usage(refresh=refresh_login, caller="status")
+        )
         reading = read_live() or (self._read_cached or read_cached_usage)()
         if reading is None:
             return None
