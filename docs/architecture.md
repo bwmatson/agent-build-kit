@@ -694,6 +694,23 @@ archives), and never twice. A conflict is not auto-resolved, and it does not end
 tick either: the failure is logged with its reason, the change is skipped, and the next
 tick tries it again. A finished change with no directory is logged as withdrawn and not attempted.
 
+## Cutting and fitting text
+
+`budget.py` is the one place text is cut to a size. `cut_head`, `cut_tail` and
+`cut_middle` take a text, a size, a boundary (`char`, `line` or `paragraph`) and a
+marker: each returns the text unchanged when it fits, never returns more than the size,
+and closes any code fence or `<details>` block it leaves open. `forges.base.fit_description`
+is a wrapper over `cut_head` with the description note as its marker.
+
+`fit` shares a budget between `Section`s (a render function, a natural size, a smallest
+honest form, a weight, an optional ceiling and whether it is required). Everything is
+rendered in full when it fits; otherwise every section gets its smallest form (dropping
+from the lowest weight up, never a required one), the rest is shared by weight, and a
+section needing less than its share keeps only what it needs and passes the remainder on.
+A render that overshoots is trimmed from the section with the most room and rendered again
+(up to three times), and a final line cut guarantees the budget. Ties go to the earlier
+section, so the result is deterministic.
+
 ## The guards
 
 None of these rely on the prompt being followed. All three read as they do
