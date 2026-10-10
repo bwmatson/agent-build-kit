@@ -41,7 +41,10 @@
   head, the tail or both on a character, line or paragraph boundary and close any open code
   fence or collapsible block, and a fitter that gives each section of a text its smallest
   honest form, shares the rest by weight and passes on what a short section does not use.
-  The general description cut is now a thin wrapper over it and cuts the same way.
+  The general description cut is now a thin wrapper over it and cuts the same way. A pull
+  request description is fitted once, to the lowest limit any registered code host allows,
+  instead of being cut by whichever host receives it, so it reads the same on every host
+  and a host added later with a lower limit lowers it; the hosts send what they are given.
 
 - The agents that write tests, implement, fix checks and rework are now told to look for
   existing code before adding any: search by behaviour as well as name, use or extend a

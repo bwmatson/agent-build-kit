@@ -22,6 +22,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from agent_build_kit import forges
+from agent_build_kit.budget import Section, cut_tail, fit
+from agent_build_kit.forges.base import fit_description
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import MERGED, through_satisfied, trunk_of
 
@@ -92,8 +94,6 @@ def _scope_lines(unit: StoredUnit) -> str:
     return "\n".join(lines)
 
 
-# What shrinking keeps of the tier 2 output before the output goes altogether.
-_OUTPUT_FLOOR = 500
 _OUTPUT_CUT = "_(earlier output trimmed to fit the host's description limit)_"
 _OUTPUT_GONE = "_The full output was trimmed: it did not fit the host's description limit._"
 
@@ -116,16 +116,69 @@ def _output_parts(verification: str) -> tuple[str, str, str, int, int] | None:
     )
 
 
-def _trim_output(output: str, excess: int) -> str:
-    """The output without its first `excess` characters, or as much of that as
-    the floor allows, cut on a line boundary with the tail kept."""
-    keep = max(len(output) - excess - len(_OUTPUT_CUT) - 1, _OUTPUT_FLOOR)
-    if keep >= len(output) - len(_OUTPUT_CUT) - 1:
-        return output
-    tail = output[-keep:]
-    if output[-keep - 1] != "\n":
-        tail = tail.partition("\n")[2]
-    return f"{_OUTPUT_CUT}\n{tail}"
+def _fixed(key: str, text: str) -> Section:
+    """A part of the description that is never shrunk or dropped."""
+    return Section(
+        key=key, render=lambda size: text, natural=len(text), smallest=len(text), required=True
+    )
+
+
+def _verification_section(verification: str) -> Section:
+    """The verification part. Its tier 2 output is what shrinks, by keeping the
+    tail on a line boundary; its smallest form keeps the results and says the
+    output was trimmed."""
+    verification = verification.rstrip("\n")
+    parts = _output_parts(verification)
+    if parts is None:
+        return _fixed("verification", verification)
+    head, output, tail, start, end = parts
+    gone = verification[:start] + _OUTPUT_GONE + verification[end:]
+
+    def render(size: int) -> str:
+        if size >= len(verification):
+            return verification
+        room = size - len(head) - len(tail)
+        if room <= len(_OUTPUT_CUT):
+            return gone
+        cut = cut_tail(output, room, "line", marker=_OUTPUT_CUT)
+        # A cut that kept no output line is a bare or clipped marker: say it with `gone`.
+        return head + cut + tail if cut.startswith(f"{_OUTPUT_CUT}\n\n") else gone
+
+    return Section(
+        key="verification",
+        render=render,
+        natural=len(verification),
+        smallest=len(gone),
+        weight=1,
+        required=True,
+    )
+
+
+def _follow_ups_section(follow_ups: Sequence[str]) -> Section:
+    """The follow-ups: whole items in order, then a count of those left out;
+    the smallest form is the count alone."""
+
+    def block(shown: int) -> str:
+        more = len(follow_ups) - shown
+        return (
+            "## Left for later\n\nApproved, with these recorded rather than blocking:\n\n"
+            + "\n".join(f"- {item}" for item in follow_ups[:shown])
+            + (f"{chr(10) * 2 if shown else ''}_…and {more} more._" if more else "")
+        )
+
+    def render(size: int) -> str:
+        for shown in range(len(follow_ups), 0, -1):
+            if len(block(shown)) <= size:
+                return block(shown)
+        return block(0)
+
+    return Section(
+        key="follow_ups",
+        render=render,
+        natural=len(block(len(follow_ups))),
+        smallest=len(block(0)),
+        weight=2,
+    )
 
 
 def build_pr_body(
@@ -155,25 +208,6 @@ def build_pr_body(
             f"throwaway containers, so {ci} runs the whole of it. No tier 2 run was required."
         )
 
-    restack = f"\n## What moved underneath this\n\n{restack_note}\n" if restack_note else ""
-    open_points_block = (
-        f"\n## Held for a person\n\nReview's rounds ran out with this still outstanding:\n\n"
-        f"{open_points}\n"
-        if open_points
-        else ""
-    )
-
-    def follow_ups_block(shown: int) -> str:
-        if not follow_ups:
-            return ""
-        more = len(follow_ups) - shown
-        return (
-            "\n## Left for later\n\nApproved, with these recorded rather than blocking:\n\n"
-            + "\n".join(f"- {item}" for item in follow_ups[:shown])
-            + (f"{chr(10) * 2 if shown else ''}_…and {more} more._" if more else "")
-            + "\n"
-        )
-
     # Where the host renders the stack, it shows the order and what is beneath
     # this PR; repeated here, the pipeline's copy is the one that goes stale.
     # Linearity it does not show until the merge button is disabled. On the
@@ -198,18 +232,7 @@ def build_pr_body(
         position += " It merges after everything beneath it in the stack has merged."
     order = "the stack order the host shows" if stacks else "the stack order above"
 
-    def render(verification: str, shown: int) -> str:
-        return f"""\
-{position}
-
-{_scope_lines(unit)}
-
-## Assumptions
-
-{assumptions(unit, graph, trunk_of(unit.repo))}
-
-{verification}
-{restack}{open_points_block}{follow_ups_block(shown)}
+    footer = f"""\
 ## How this was built
 
 Tests were committed first and seen to fail before any implementation
@@ -221,33 +244,31 @@ formatting and types pass at the tip.
 _Opened by the spec-driven pipeline. It never merges its own PRs — a human
 merges every one, after checking {order}._
 """
+    sections = [
+        _fixed("position", position),
+        _fixed("scope", _scope_lines(unit)),
+        _fixed("assumptions", f"## Assumptions\n\n{assumptions(unit, graph, trunk_of(unit.repo))}"),
+        _verification_section(verification),
+    ]
+    if restack_note:
+        sections.append(_fixed("restack", f"## What moved underneath this\n\n{restack_note}"))
+    if open_points:
+        sections.append(
+            _fixed(
+                "held",
+                "## Held for a person\n\nReview's rounds ran out with this still outstanding:\n\n"
+                f"{open_points}",
+            )
+        )
+    if follow_ups:
+        sections.append(_follow_ups_section(follow_ups))
+    sections.append(_fixed("footer", footer))
 
-    count = len(follow_ups or ())
-    body = render(verification, count)
-    if limit is None or len(body) <= limit:
-        return body
-
-    # Least important first: the output's start, then the follow-ups, then the
-    # output altogether. The headings and the pass or fail line stay.
-    def fitted(text: str) -> str:
-        for shown in range(count, -1, -1):
-            body = render(text, shown)
-            if len(body) <= limit:
-                break
-        return body
-
-    parts = _output_parts(verification)
-    if parts is None:
-        return fitted(verification)
-    head, output, tail, start, end = parts
-    if len(output) > _OUTPUT_FLOOR:
-        trimmed = head + _trim_output(output, len(body) - limit) + tail
-    else:
-        trimmed = verification
-    body = fitted(trimmed)
-    if len(body) <= limit:
-        return body
-    return fitted(verification[:start] + _OUTPUT_GONE + verification[end:])
+    if limit is None:
+        return fit(sections, sum(section.natural for section in sections) + 2 * len(sections))
+    # Shared by weight when over the limit; the line cut is the last guard, as
+    # no host cuts a description.
+    return fit_description(fit(sections, limit), limit)
 
 
 def _landed_elsewhere(unit: StoredUnit, graph: Sequence[StoredUnit]) -> StoredUnit | None:

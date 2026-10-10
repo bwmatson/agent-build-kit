@@ -1,8 +1,8 @@
-"""A description is shrunk to the host's limit, least important part first.
+"""A description is fitted to the host's limit by sections.
 
-The tier 2 output goes first (its tail kept, where measures and failed bars
-print), then the follow-ups, then the output altogether; the headings and the
-pass or fail line are never cut.
+The required parts and the pass or fail line are never cut; the tier 2 output
+(its tail kept, where measures and failed bars print) and the follow-ups share
+the room above their smallest forms, one part to two.
 """
 
 from __future__ import annotations
@@ -12,6 +12,9 @@ from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from tests.factories import stored_unit as unit
 
 HEADINGS = ("## Assumptions", "## Tier 2 results", "## How this was built")
+# The notes a trimmed output carries: one above the lines kept, one in their place.
+CUT_NOTE = "_(earlier output trimmed to fit the host's description limit)_"
+GONE_NOTE = "_The full output was trimmed: it did not fit the host's description limit._"
 
 
 def output_of(size: int) -> str:
@@ -100,6 +103,84 @@ def test_the_last_resort_drops_the_output_but_keeps_the_verdict() -> None:
     assert len(body) <= limit
     assert output[-200:] not in body
     assert "trimmed" in body.lower()
+    assert "3 passed, 1 failed" in body
+    for heading in HEADINGS:
+        assert heading in body
+
+
+def test_without_follow_ups_the_output_has_the_room_they_would_have_had() -> None:
+    output = output_of(6_000)
+    limit = 3_000
+
+    body = body_of(output=output, limit=limit)
+
+    assert len(body) <= limit
+    assert len(body) > limit - 200, "the room went to the output, not left unused"
+    assert output[-200:] in body
+
+
+def test_without_output_the_follow_ups_have_the_room_the_output_would_have_had() -> None:
+    items = follow_ups(60)
+    limit = 3_000
+
+    body = body_of(output="", follow_ups=items, limit=limit)
+
+    kept = [item for item in items if f"- {item}" in body]
+    assert len(body) <= limit
+    assert kept == items[: len(kept)], "whole items, in order"
+    assert len(kept) < 60
+    assert len(body) + len(items[0]) > limit, "another whole item would not have fitted"
+    assert f"and {60 - len(kept)} more" in body
+
+
+def test_above_their_smallest_forms_the_follow_ups_get_twice_the_output() -> None:
+    """Weight two against weight one: what one more stretch of room is shared as."""
+    output = output_of(40_000)
+    items = follow_ups(300)
+
+    def sizes(limit: int) -> tuple[int, int]:
+        body = body_of(output=output, follow_ups=items, limit=limit)
+        assert len(body) <= limit
+        shown = body[body.index("## Tier 2 results") : body.index("## Left for later")]
+        later = body[body.index("## Left for later") : body.index("## How this was built")]
+        return len(shown), len(later)
+
+    small_output, small_later = sizes(5_000)
+    large_output, large_later = sizes(13_000)
+
+    grown_output = large_output - small_output
+    grown_later = large_later - small_later
+    assert grown_output > 1_000
+    assert abs(grown_later - 2 * grown_output) <= 300, "within a line or two of each"
+
+
+def test_a_trimmed_output_is_whole_lines_under_its_note_or_the_note_alone() -> None:
+    """At every limit from where the required parts barely fit to the full body, the
+    output is never a clipped note or a note with nothing under it."""
+    output = output_of(4_000)
+    items = follow_ups(20)
+    full = len(body_of(output=output, follow_ups=items))
+    floor = len(body_of(output="", follow_ups=None)) + 200
+
+    for limit in range(floor, full + 1, 2):
+        body = body_of(output=output, follow_ups=items, limit=limit)
+        lines = body.splitlines()
+
+        assert len(body) <= limit, limit
+        assert not [
+            line for line in lines if line and line != CUT_NOTE and CUT_NOTE.startswith(line)
+        ]
+        if CUT_NOTE in body:
+            below = body.split(CUT_NOTE, 1)[1]
+            assert below.split("```")[0].strip(), f"no output line under the note at {limit}"
+        elif body != body_of(output=output, follow_ups=items):
+            assert GONE_NOTE in body, limit
+
+
+def test_the_verdict_and_headings_survive_a_limit_below_everything_else() -> None:
+    body = body_of(output=output_of(4_000), follow_ups=follow_ups(20), limit=1_500)
+
+    assert len(body) <= 1_500
     assert "3 passed, 1 failed" in body
     for heading in HEADINGS:
         assert heading in body

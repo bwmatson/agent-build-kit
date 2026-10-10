@@ -1683,7 +1683,7 @@ class BuildPath:
             open_points=stored.feedback if state.spent else None,
             follow_ups=r.follow_ups_for(unit) or None,
             linear=r.linear(tree, local_ref(base, repo=unit.repo)),
-            limit=forges.for_repo(unit.repo)[0].description_limit,
+            limit=forges.description_limit(),
         )
         try:
             pr = r.open_pr(

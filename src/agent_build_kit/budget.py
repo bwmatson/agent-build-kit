@@ -1,8 +1,9 @@
 """Cuts text to a size and shares a budget between the sections of a text.
 
 The cuts (`cut_head`, `cut_tail`, `cut_middle`) return a text unchanged when it
-fits, never return more than the size asked, and close any code fence or
-collapsible block they leave open. `fit` renders the sections of a text within a
+fits and never return more than the size asked. A head cut closes any code
+fence or collapsible block it leaves open; a tail cut reopens what the dropped
+head left open, with lines of its own that it closes. `fit` renders the sections of a text within a
 budget: everything in full when it fits, otherwise each section's smallest form
 first, then the rest shared by weight, a section that needs less than its share
 passing the remainder on.
