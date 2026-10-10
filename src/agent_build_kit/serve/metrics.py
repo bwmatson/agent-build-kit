@@ -266,7 +266,7 @@ def _token_kinds(r: UsageRecord) -> list[tuple[dict[str, str], float | None]]:
 
 
 MEASURES: dict[str, Callable[[UsageRecord], list[tuple[dict[str, str], float | None]]]] = {
-    "abk.agent.cost": lambda r: [({}, r.cost_usd)],
+    "abk.agent.cost": lambda r: [({}, r.cost.incremental_usd if r.cost else None)],
     "abk.agent.turns": lambda r: [({}, r.turns)],
     "abk.agent.tokens": _token_kinds,
 }

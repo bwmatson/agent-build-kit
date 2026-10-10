@@ -30,14 +30,18 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.usage_ledger import (
+    CostBasis,
     UsageRecord,
+    combine_records,
+    grouped_records,
     ledger_lock,
     read_lines,
-    records_in,
 )
 
 GROUPINGS = ("unit", "change", "node", "role", "model", "repo", "day")
 
+# A session's increments this far from its final cumulative figure still add up.
+SESSION_TOLERANCE = 1e-6
 NONE = "(none)"
 NO_BREAKDOWN = "(archived, no breakdown)"
 TOP_UNITS = 10
@@ -92,10 +96,36 @@ class ReportRow(Frozen):
     difference: Difference | None = None
 
 
+class SessionRow(Frozen):
+    """One session: the sum of its calls' increments beside its final cumulative cost."""
+
+    session_id: str
+    incremental_usd: float | None = None
+    cumulative_usd: float | None = None
+    flagged: bool = False
+
+
+class LegacyRow(Frozen):
+    unit: str
+    node: str
+    legacy_usd: float
+
+
+class Legacy(Frozen):
+    """The rows written before costs were incremental, kept apart from every sum."""
+
+    count: int = 0
+    total_usd: float | None = None
+    rows: tuple[LegacyRow, ...] = ()
+
+
 class Report(Frozen):
     group_by: str
     rows: tuple[ReportRow, ...]
     total: ReportRow
+    sessions: tuple[SessionRow, ...] = ()
+    legacy: Legacy = Legacy()
+    unknown_calls: int = 0  # calls whose incremental cost could not be known
 
 
 class _Entry(Frozen):
@@ -112,6 +142,9 @@ class _Entry(Frozen):
     usage_source: str = ""
     at: datetime | None = None
     row: ReportRow
+    call: UsageRecord | None = None  # the ledger record, for what is read off the call itself
+    parts: tuple[UsageRecord, ...] = ()  # the ledger lines `call` combines, counted one by one
+    legacy: Legacy = Legacy()  # a summary's legacy rows, which its cost figures leave out
 
 
 def _add(a: float | None, b: float | None) -> float | None:
@@ -165,7 +198,10 @@ def _difference(record: UsageRecord) -> Difference | None:
     pairs = {
         "input_tokens": (record.input_tokens, reported.input_tokens if reported else None),
         "output_tokens": (record.output_tokens, reported.output_tokens if reported else None),
-        "cost_usd": (record.cost_usd, record.reported_cost_usd),
+        "cost_usd": (
+            record.cost.incremental_usd if record.cost else None,
+            record.cost.reported_usd if record.cost else None,
+        ),
     }
     fields: dict[str, float | int] = {}
     for name, (ours, theirs) in pairs.items():
@@ -182,7 +218,7 @@ def _call_row(record: UsageRecord) -> ReportRow:
         output_tokens=record.output_tokens,
         cache_read_input_tokens=record.cache_read_input_tokens,
         cache_creation_input_tokens=record.cache_creation_input_tokens,
-        cost_usd=record.cost_usd,
+        cost_usd=record.cost.incremental_usd if record.cost else None,
     )
     estimated = record.usage_source == "estimated"
     return ReportRow(
@@ -269,6 +305,7 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
     entries = [
         _Entry(
             **meta(r.unit, r.change, r.repo),
+            parts=tuple(parts),
             node=r.node,
             role=r.role or NONE,
             model=r.model or NONE,
@@ -276,8 +313,10 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
             usage_source=r.usage_source,
             at=_when(r.at),
             row=_call_row(r),
+            call=r,
         )
-        for r in records_in(lines)
+        for parts in grouped_records(lines)
+        for r in [combine_records(parts)]
     ]
     for line in lines:
         try:
@@ -304,6 +343,9 @@ def _entries_in(lines: list[str], units: dict[str, StoredUnit]) -> list[_Entry]:
                 )
                 for part in parts
             ]
+            if kind == "summary" and found and isinstance(raw.get("legacy"), dict):
+                kept = Legacy.model_validate(raw["legacy"])
+                found[0] = found[0].model_copy(update=dict(legacy=kept))
         except (ValueError, AttributeError, KeyError, TypeError, ValidationError):
             continue
         entries.extend(found)
@@ -377,20 +419,85 @@ def _report_of(
 ) -> Report:
     if group_by not in GROUPINGS:
         raise ValueError(f"cannot group by {group_by!r}; choose from {', '.join(GROUPINGS)}")
-    if since is not None:
-        floor = since if since.tzinfo else since.replace(tzinfo=UTC)
-        entries = [e for e in entries if e.at is not None and e.at >= floor]
     if change is not None:
         entries = [e for e in entries if e.change == change]
     if unit is not None:
         entries = [e for e in entries if e.unit == unit]
+    scoped = entries
+    if since is not None:
+        floor = since if since.tzinfo else since.replace(tzinfo=UTC)
+        entries = [e for e in entries if e.at is not None and e.at >= floor]
 
     groups: dict[str, list[ReportRow]] = {}
     for entry in entries:
         groups.setdefault(_group_key(entry, group_by), []).append(entry.row)
     rows = tuple(_finish(_combine(key, groups[key]), include_estimates) for key in sorted(groups))
     total = _finish(_combine("total", (e.row for e in entries)), include_estimates)
-    return Report(group_by=group_by, rows=rows, total=total)
+    calls = [e.call for e in entries if e.call is not None]
+    # A session is judged on all its calls, so a date that cuts it does not flag it.
+    live = {c.session_id for c in calls if c.session_id}
+    whole = [e.call for e in scoped if e.call is not None and e.call.session_id in live]
+    return Report(
+        group_by=group_by,
+        rows=rows,
+        total=total,
+        sessions=_sessions(whole),
+        legacy=_legacy(entries),
+        unknown_calls=sum(
+            1
+            for e in entries
+            for p in e.parts
+            if p.cost is not None and p.cost.basis == CostBasis.UNKNOWN
+        ),
+    )
+
+
+def _sessions(calls: list[UsageRecord]) -> tuple[SessionRow, ...]:
+    """Each session's increments summed beside its final cumulative figure, flagged when
+    they do not agree."""
+    by_session: dict[str, list[UsageRecord]] = {}
+    for call in calls:
+        if call.session_id and call.cost is not None and call.cost.basis != CostBasis.LEGACY:
+            by_session.setdefault(call.session_id, []).append(call)
+    rows = []
+    for session_id, parts in sorted(by_session.items()):
+        increments = [
+            p.cost.incremental_usd for p in parts if p.cost and p.cost.incremental_usd is not None
+        ]
+        finals = [
+            (p.at, p.cost.cumulative_usd)
+            for p in parts
+            if p.cost and p.cost.cumulative_usd is not None
+        ]
+        incremental = sum(increments) if increments else None
+        cumulative = max(finals)[1] if finals else None
+        flagged = (
+            cumulative is not None and abs((incremental or 0.0) - cumulative) > SESSION_TOLERANCE
+        )
+        rows.append(
+            SessionRow(
+                session_id=session_id,
+                incremental_usd=None if incremental is None else round(incremental, 10),
+                cumulative_usd=cumulative,
+                flagged=flagged,
+            )
+        )
+    return tuple(rows)
+
+
+def _legacy(entries: list[_Entry]) -> Legacy:
+    """The older flat figures: those of calls still in the ledger, whatever basis a later call
+    folded into their record gave it, and those a summary kept when it replaced the calls."""
+    rows = [
+        LegacyRow(unit=p.unit, node=p.node, legacy_usd=p.cost.legacy_usd)
+        for e in entries
+        for p in e.parts
+        if p.cost is not None and p.cost.legacy_usd is not None
+    ]
+    rows += [row for e in entries for row in e.legacy.rows]
+    rows.sort(key=lambda r: (r.unit, r.node, r.legacy_usd))
+    total = round(sum(r.legacy_usd for r in rows), 10) if rows else None
+    return Legacy(count=len(rows), total_usd=total, rows=tuple(rows))
 
 
 _HEADINGS = (
@@ -458,13 +565,38 @@ def _cells(row: ReportRow) -> list[str]:
     ]
 
 
-def render_table(report: Report) -> str:
-    table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
+def _aligned(table: list[list[str]]) -> list[str]:
     widths = [max(len(line[i]) for line in table) for i in range(len(table[0]))]
-    return "\n".join(
+    return [
         "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip()
         for line in table
-    )
+    ]
+
+
+def render_table(report: Report) -> str:
+    table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
+    lines = _aligned(table)
+    if report.sessions:
+        sessions = [["session", "increments", "cumulative", ""]] + [
+            [
+                s.session_id,
+                _cost(s.incremental_usd),
+                _cost(s.cumulative_usd),
+                "FLAGGED: increments do not add up" if s.flagged else "",
+            ]
+            for s in report.sessions
+        ]
+        lines += ["", *_aligned(sessions)]
+    if report.legacy.count:
+        lines += [
+            "",
+            f"legacy rows: {report.legacy.count}, {_cost(report.legacy.total_usd)} USD "
+            "(older flat figures, not in the cost above)",
+            *(f"  {r.unit} {r.node} {_cost(r.legacy_usd)}" for r in report.legacy.rows),
+        ]
+    if report.unknown_calls:
+        lines += ["", f"calls with an unknown cost: {report.unknown_calls} (not in the cost above)"]
+    return "\n".join(lines)
 
 
 def render_json(report: Report) -> str:
@@ -568,6 +700,7 @@ def roll_up_change(ledger: Path, change: str) -> None:
             total = _combine(unit, (e.row for e in group))
             if _combine(unit, (_row_of(i) for i in breakdown)) != total:
                 raise ValueError(f"the breakdown of {unit} does not sum to its totals")
+            legacy = _legacy(group)
             summaries.append(
                 {
                     "kind": "summary",
@@ -577,6 +710,7 @@ def roll_up_change(ledger: Path, change: str) -> None:
                     "repo": next((e.repo for e in group if e.repo), ""),
                     **total.model_dump(exclude={"key"}),
                     "breakdown": breakdown,
+                    **(dict(legacy=legacy.model_dump()) if legacy.count else {}),
                 }
             )
 

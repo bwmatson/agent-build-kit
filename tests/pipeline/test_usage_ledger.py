@@ -21,7 +21,20 @@ from agent_build_kit.pipeline.usage_ledger import (
 )
 
 
+def spend(record: UsageRecord) -> float | None:
+    """The call's own spend, as the report sums it."""
+    return record.cost.incremental_usd if record.cost else None
+
+
 def line(**fields) -> dict:
+    """A ledger line as written now: a call's own spend is in its `cost` object."""
+    flat = {**_flat_line(), **fields}
+    own = flat.pop("cost_usd", None)
+    theirs = flat.pop("reported_cost_usd", None)
+    return flat | {"cost": {"incremental_usd": own, "basis": "reported", "reported_usd": theirs}}
+
+
+def _flat_line(**fields) -> dict:
     return {
         "kind": "agent",
         "at": "2026-01-01T10:00:00+00:00",
@@ -59,8 +72,8 @@ def test_the_same_node_and_round_written_twice_is_counted_once_with_the_latest_f
 
     assert len(records) == 2
     (build,) = [r for r in records if r.node == "implement"]
-    assert build.cost_usd == 0.9
-    assert sum(r.cost_usd or 0 for r in records) == 0.9 + 0.5
+    assert spend(build) == 0.9
+    assert sum(spend(r) or 0 for r in records) == 0.9 + 0.5
 
 
 def test_a_round_of_the_same_node_is_its_own_record(tmp_path: Path) -> None:
@@ -86,7 +99,7 @@ def test_a_node_re_run_in_a_new_session_is_counted_once_with_the_latest_figures(
 
     (record,) = read_ledger(ledger)
 
-    assert (record.session_id, record.cost_usd) == ("sess-2", 0.7)
+    assert (record.session_id, spend(record)) == ("sess-2", 0.7)
 
 
 def test_a_fix_continuing_the_build_session_is_the_fixs_spend_and_not_the_builds(
@@ -101,7 +114,7 @@ def test_a_fix_continuing_the_build_session_is_the_fixs_spend_and_not_the_builds
 
     records = read_ledger(ledger)
 
-    assert {(r.node, r.round): r.cost_usd for r in records} == {
+    assert {(r.node, r.round): spend(r) for r in records} == {
         ("implement", 0): 0.50,
         ("fix_checks", 1): 0.08,
         ("fix_checks", 2): 0.06,
@@ -123,8 +136,8 @@ def test_a_fix_that_ran_twice_after_the_build_in_one_session_is_counted_once(
 
     records = read_ledger(ledger)
 
-    assert {r.node: r.cost_usd for r in records if r.node == "implement"} == {"implement": 0.50}
-    assert sum(r.cost_usd or 0 for r in records if r.node == "fix_checks") == pytest.approx(0.17)
+    assert {r.node: spend(r) for r in records if r.node == "implement"} == {"implement": 0.50}
+    assert sum(spend(r) or 0 for r in records if r.node == "fix_checks") == pytest.approx(0.17)
 
 
 def test_a_crash_resume_of_the_same_node_still_adds_to_the_call_it_resumed(
@@ -137,7 +150,7 @@ def test_a_crash_resume_of_the_same_node_still_adds_to_the_call_it_resumed(
         line(node="fix_checks", round=1, session_id="S", resumed=True, cost_usd=0.02),
     )
 
-    by_node = {r.node: r.cost_usd for r in read_ledger(ledger)}
+    by_node = {r.node: spend(r) for r in read_ledger(ledger)}
 
     assert by_node["fix_checks"] == pytest.approx(0.10)
     assert by_node["implement"] == 0.50, "another node's resumed call is not folded in"
@@ -157,8 +170,8 @@ def test_a_resumed_call_adds_to_the_call_it_resumed_and_a_rerun_replaces_it(
         line(node="review", round=1, session_id="S", resumed=False, cost_usd=0.05),
     )
 
-    assert sum(r.cost_usd or 0 for r in read_ledger(resumed)) == pytest.approx(0.45)
-    assert sum(r.cost_usd or 0 for r in read_ledger(rerun)) == 0.05
+    assert sum(spend(r) or 0 for r in read_ledger(resumed)) == pytest.approx(0.45)
+    assert sum(spend(r) or 0 for r in read_ledger(rerun)) == 0.05
 
 
 def test_a_resumed_call_adds_what_the_agent_reported_beside_the_gateways_figures_too(
@@ -186,7 +199,8 @@ def test_a_resumed_call_adds_what_the_agent_reported_beside_the_gateways_figures
     assert record.reported is not None
     assert record.reported.input_tokens == 10
     assert record.reported.output_tokens is None
-    assert record.reported_cost_usd == pytest.approx(0.5)
+    assert record.cost is not None
+    assert record.cost.reported_usd == pytest.approx(0.5)
 
 
 def test_calls_with_no_session_id_in_one_node_and_round_are_each_counted(tmp_path: Path) -> None:
@@ -196,7 +210,7 @@ def test_calls_with_no_session_id_in_one_node_and_round_are_each_counted(tmp_pat
         line(session_id=None, cost_usd=0.3, at="2026-01-01T10:05:00+00:00"),
     )
 
-    assert sum(r.cost_usd or 0 for r in read_ledger(ledger)) == 0.5
+    assert sum(spend(r) or 0 for r in read_ledger(ledger)) == 0.5
 
 
 def test_a_line_from_before_a_field_existed_loads_with_that_field_absent(tmp_path: Path) -> None:
@@ -215,7 +229,9 @@ def test_a_line_from_before_a_field_existed_loads_with_that_field_absent(tmp_pat
 
     (record,) = read_ledger(ledger)
 
-    assert record.cost_usd == 0.25
+    assert record.cost is not None
+    assert record.cost.legacy_usd == 0.25
+    assert record.cost.incremental_usd is None
     assert record.input_tokens is None
     assert record.cache_read_input_tokens is None
     assert record.duration_ms is None
@@ -226,7 +242,7 @@ def test_a_line_with_a_field_a_later_version_adds_still_loads(tmp_path: Path) ->
 
     (record,) = read_ledger(ledger)
 
-    assert record.cost_usd == 0.5
+    assert spend(record) == 0.5
 
 
 def test_a_missing_ledger_reads_as_empty(tmp_path: Path) -> None:

@@ -12,9 +12,10 @@ import json
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from agent_build_kit import config, telemetry
 from agent_build_kit.installation import Installation
@@ -27,6 +28,40 @@ LEDGER_NAME = "usage-ledger.jsonl"
 # say it once; guarded because units run on threads.
 _told: set[str] = set()
 _told_lock = threading.Lock()
+
+
+class CostBasis(StrEnum):
+    """How a record's incremental cost was obtained."""
+
+    REPORTED = "reported"
+    DERIVED = "derived"
+    FIRST = "first"
+    UNKNOWN = "unknown"
+    BACKFILLED = "backfilled"
+    LEGACY = "legacy"
+    CUMULATIVE_SUMMED = "cumulative_summed"
+
+
+class Cost(BaseModel):
+    """A call's own spend and its session's running total."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    incremental_usd: float | None = None
+    cumulative_usd: float | None = None
+    basis: CostBasis = CostBasis.UNKNOWN
+    reported_usd: float | None = None
+    legacy_usd: float | None = None
+
+    @field_validator(
+        "incremental_usd", "cumulative_usd", "reported_usd", "legacy_usd", mode="before"
+    )
+    @classmethod
+    def _number_or_absent(cls, value: object) -> object:
+        """A figure that is not a number reads as absent."""
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        return value
 
 
 class UsageRecord(BaseModel):
@@ -53,15 +88,31 @@ class UsageRecord(BaseModel):
     output_tokens: int | None = None
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
-    cost_usd: float | None = None
+    cost: Cost | None = None
     turns: int | None = None
     duration_ms: int | None = None
     usage_source: UsageSource = "none"
     # What the agent itself reported, kept beside the gateway's figures above
     # when both exist, so a report can show the difference.
     reported: Usage | None = None
-    reported_cost_usd: float | None = None
     outcome: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_cost(cls, raw: object) -> object:
+        """A line with a flat figure and no `cost` object is a legacy row: the old
+        figure is kept apart and never summed as incremental. A line with the
+        object is read from the object alone; a `cost` that is not an object is
+        absent."""
+        if not isinstance(raw, dict):
+            return raw
+        cost = raw.get("cost")
+        if isinstance(cost, dict | Cost):
+            return raw
+        flat = raw.get("cost_usd")
+        if cost is None and isinstance(flat, int | float) and not isinstance(flat, bool):
+            return raw | {"cost": {"basis": CostBasis.LEGACY, "legacy_usd": flat}}
+        return raw | {"cost": None}
 
 
 def ledger_lock(path: Path) -> AbstractContextManager[None]:
@@ -105,8 +156,8 @@ def export_call(record: UsageRecord) -> None:
     }
     if record.usage_source == "none":
         return
-    if record.cost_usd is not None:
-        telemetry.count("abk.agent.cost", record.cost_usd, **attributes)
+    if record.cost is not None and record.cost.incremental_usd is not None:
+        telemetry.count("abk.agent.cost", record.cost.incremental_usd, **attributes)
     for kind, tokens in (
         ("input", record.input_tokens),
         ("output", record.output_tokens),
@@ -146,14 +197,12 @@ _FIGURES = (
     "output_tokens",
     "cache_read_input_tokens",
     "cache_creation_input_tokens",
-    "cost_usd",
     "turns",
     "duration_ms",
-    "reported_cost_usd",
 )
 
 
-def _combine(parts: list[UsageRecord]) -> UsageRecord:
+def combine_records(parts: list[UsageRecord]) -> UsageRecord:
     """The last part, carrying each figure summed over the parts that report it."""
     if len(parts) == 1:
         return parts[0]
@@ -163,8 +212,24 @@ def _combine(parts: list[UsageRecord]) -> UsageRecord:
         summed[name] = sum(reported) if reported else None
     reported = [p.reported for p in parts if p.reported is not None]
     return parts[-1].model_copy(
-        update=summed | {"reported": _combine_usage(reported) if reported else None}
+        update=summed
+        | {
+            "reported": _combine_usage(reported) if reported else None,
+            "cost": _combine_cost([p.cost for p in parts]),
+        }
     )
+
+
+def _combine_cost(parts: list[Cost | None]) -> Cost | None:
+    """The last part's cost with the incremental and reported figures summed over the parts."""
+    present = [p for p in parts if p is not None]
+    if not present:
+        return None
+    summed: dict[str, float | None] = {}
+    for name in ("incremental_usd", "reported_usd", "legacy_usd"):
+        figures = [v for p in present if (v := getattr(p, name)) is not None]
+        summed[name] = sum(figures) if figures else None
+    return present[-1].model_copy(update=summed)
 
 
 def _combine_usage(parts: list[Usage]) -> Usage:
@@ -192,7 +257,13 @@ def read_ledger(path: Path) -> list[UsageRecord]:
 
 
 def records_in(lines: list[str]) -> list[UsageRecord]:
-    """The ledger's records, one per unit, node and round.
+    """The ledger's records, one per unit, node and round; see `grouped_records`."""
+    return [combine_records(parts) for parts in grouped_records(lines)]
+
+
+def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
+    """The ledger's lines grouped by call, each group the lines `records_in` combines into one
+    record, so what is counted per line (a legacy row, a call of unknown cost) can be.
 
     The session id is an attribute of a record, not part of its key: a call
     that continues a session another node started is its own node's spend, and
@@ -219,4 +290,56 @@ def records_in(lines: list[str]) -> list[UsageRecord]:
             calls[key].append(record)
         else:
             calls[key] = [record]
-    return [_combine(parts) for parts in calls.values()]
+    return list(calls.values())
+
+
+def session_cumulative(session_id: str) -> float | None:
+    """The cumulative figure of the last record of the session in the active ledger."""
+    return _last_in_session(session_id, lambda c: c.cumulative_usd)
+
+
+def session_spend(session_id: str) -> float | None:
+    """The sum of the incremental figures of the session's records in the active ledger."""
+    root = config.active_root()
+    if root is None:
+        return None
+    path = Installation(config.active(), root).state_dir / LEDGER_NAME
+    figures = [
+        r.cost.incremental_usd
+        for r in _session_records(path, session_id)
+        if r.cost is not None and r.cost.incremental_usd is not None
+    ]
+    return sum(figures) if figures else None
+
+
+def _last_in_session(session_id: str, pick: Callable[[Cost], float | None]) -> float | None:
+    root = config.active_root()
+    if root is None:
+        return None
+    path = Installation(config.active(), root).state_dir / LEDGER_NAME
+    for record in reversed(_session_records(path, session_id)):
+        # A gateway record's cumulative figure is the gateway's running sum, not the runtime's
+        # total, so it is no baseline for deriving what the runtime spent.
+        if record.usage_source == "gateway":
+            continue
+        if record.cost is not None and (figure := pick(record.cost)) is not None:
+            return figure
+    return None
+
+
+def _session_records(path: Path, session_id: str) -> list[UsageRecord]:
+    """Every agent line of the session, in the order written, uncombined."""
+    found = []
+    try:
+        lines = read_lines(path)
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            if raw.get("kind", "agent") != "agent" or raw.get("session_id") != session_id:
+                continue
+            found.append(UsageRecord.model_validate(raw))
+        except (ValueError, AttributeError, ValidationError):
+            continue
+    return found

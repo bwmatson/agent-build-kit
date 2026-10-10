@@ -44,6 +44,7 @@ class AgentSession(Frozen):
     node: Node
     round: int
     head: str
+    cumulative_usd: float | None = None  # the session's running cost after its last call
 
 
 class Verdict(StrEnum):

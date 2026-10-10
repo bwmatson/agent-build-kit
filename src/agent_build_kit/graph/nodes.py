@@ -96,7 +96,14 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     local_ref,
 )
-from agent_build_kit.pipeline.usage_ledger import UsageRecord, record_call
+from agent_build_kit.pipeline.usage_ledger import (
+    Cost,
+    CostBasis,
+    UsageRecord,
+    record_call,
+    session_cumulative,
+    session_spend,
+)
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -193,8 +200,12 @@ class BuildPath:
         # Whether a dirty tree is the running node's own, killed mid-agent, and what it holds.
         self._own = False
         self._leftovers: tuple[str, ...] = ()
-        # The last session an agent call of the running node ended in: (id, runtime, model).
-        self._ended: tuple[str, str, str] | None = None
+        # The last session an agent call of the running node ended in:
+        # (id, runtime, model, the session's cumulative cost after the call).
+        self._ended: tuple[str, str, str, float | None] | None = None
+        # The cumulative cost of each session the running node's calls ended, so a follow-up
+        # in the same node starts from the call before it.
+        self._totals: dict[str, float] = {}
 
     def work(self) -> dict[Node, Callable[[UnitRun], Any]]:
         """Each node's body, wrapped in its span and run off the event loop."""
@@ -248,6 +259,7 @@ class BuildPath:
             with span as current:
                 self._node = node.value
                 self._ended = None
+                self._totals = {}
                 context = spans.current_unit.set(
                     (self.unit.id, self.unit.change, node.value, _round(node, state))
                 )
@@ -338,7 +350,7 @@ class BuildPath:
             if state.session_id and role in state.sessions:
                 return {"sessions": {k: v for k, v in state.sessions.items() if k != role}}
             return {}
-        session_id, runtime, model = self._ended
+        session_id, runtime, model, cumulative = self._ended
         head = update["head"] if "head" in update else state.head
         session = AgentSession(
             session_id=session_id,
@@ -347,6 +359,7 @@ class BuildPath:
             node=node,
             round=_round(node, state),
             head=head,
+            cumulative_usd=cumulative,
         )
         kept: Update = {"sessions": {**state.sessions, role: session}}
         if role is SessionRole.BUILD and not state.build_model:
@@ -660,11 +673,14 @@ class BuildPath:
         ) -> None:
             # What the gateway logged for the call's own key is exact; what the
             # agent said is kept beside it, for the report to compare.
-            if result.session_id:
-                self._ended = (result.session_id, runtime, model or "")
             spent = gateway() if gateway else Spend()
             exact = spent.usage is not None
             usage = (spent.usage if exact else result.usage) or Usage()
+            cost, cumulative = self._cost(state, result, spent, exact, resumed)
+            if result.session_id:
+                self._ended = (result.session_id, runtime, model or "", cumulative)
+                if cumulative is not None:
+                    self._totals[result.session_id] = cumulative
             line = UsageRecord(
                 at=datetime.now(UTC).isoformat(),
                 unit=unit.id,
@@ -679,17 +695,81 @@ class BuildPath:
                 session_id=result.session_id,
                 resumed=resumed,
                 **usage.model_dump(),
-                cost_usd=spent.cost_usd if exact else result.cost_usd,
+                cost=cost,
                 turns=result.turns,
                 duration_ms=result.duration_ms,
                 usage_source="gateway" if exact else result.usage_source,
                 reported=result.usage if exact else None,
-                reported_cost_usd=result.cost_usd if exact else None,
                 outcome="ok" if result.succeeded else "failed",
             )
             record_call(line, self.say)
 
         return record
+
+    def _baseline(self, state: UnitRun, session_id: str | None) -> float | None:
+        """The session's cumulative cost before the call: from an earlier call of this node,
+        the recorded session, or the ledger's last record of it."""
+        if not session_id:
+            return None
+        if session_id in self._totals:
+            return self._totals[session_id]
+        if state.session_id == session_id:
+            # A call cut off before its node finished has already written its figure to the
+            # ledger, which the recorded session predates.
+            if (written := session_cumulative(session_id)) is not None:
+                return written
+        for held in state.sessions.values():
+            if held.session_id == session_id and held.cumulative_usd is not None:
+                return held.cumulative_usd
+        return session_cumulative(session_id)
+
+    def _cost(
+        self, state: UnitRun, result: AgentResult, spent: Spend, exact: bool, resumed: bool
+    ) -> tuple[Cost | None, float | None]:
+        """The call's cost object and the session's cumulative figure after it, for the
+        next call's baseline: the runtime's own, whatever the record says."""
+        baseline = self._baseline(state, result.session_id)
+        reported: float | None = None
+        runtime_total = result.cumulative_cost_usd
+        basis = CostBasis.UNKNOWN
+        if runtime_total is not None:
+            if baseline is not None and runtime_total >= baseline:
+                reported, basis = runtime_total - baseline, CostBasis.DERIVED
+            elif baseline is not None:
+                self.say(
+                    f"the session's cost fell from {baseline} to {runtime_total}: "
+                    "the baseline is reset"
+                )
+                reported, basis = runtime_total, CostBasis.FIRST
+            elif not resumed:
+                reported, basis = runtime_total, CostBasis.FIRST
+            elif result.cost_usd is not None:
+                # No baseline here, but the runtime worked out the call's own spend against
+                # the total its agent replayed when the session was loaded.
+                reported, basis = result.cost_usd, CostBasis.DERIVED
+            cumulative: float | None = runtime_total
+        elif result.cost_usd is not None:
+            reported, basis = result.cost_usd, CostBasis.REPORTED
+            cumulative = (baseline or 0.0) + result.cost_usd
+        else:
+            cumulative = None
+        if exact and spent.cost_usd is not None:
+            earlier = session_spend(result.session_id) if result.session_id else None
+            cost = Cost(
+                incremental_usd=spent.cost_usd,
+                cumulative_usd=(earlier or 0.0) + spent.cost_usd,
+                basis=CostBasis.REPORTED,
+                reported_usd=reported,
+            )
+        elif reported is None and cumulative is None:
+            return None, None
+        else:
+            cost = Cost(
+                incremental_usd=reported,
+                cumulative_usd=cumulative,
+                basis=basis,
+            )
+        return cost, runtime_total if runtime_total is not None else cumulative
 
     def record_check_failure(self, output: str, round: int) -> None:
         """Keep a failed tier 1 run of this unit as a local metric record."""
@@ -936,12 +1016,12 @@ class BuildPath:
         return {"conflict": None, **self.standing(r.branch_commits(tree, ref), feedback)}
 
     def ported_session(
-        self, ended: tuple[str, str, str] | None, state: UnitRun, head: str
+        self, ended: tuple[str, str, str, float | None] | None, state: UnitRun, head: str
     ) -> AgentSession | None:
         """The session the port ran in, as the adapt follow-up rounds continue it."""
         if ended is None:
             return None
-        session_id, runtime, model = ended
+        session_id, runtime, model, cumulative = ended
         return AgentSession(
             session_id=session_id,
             runtime=runtime,
@@ -949,6 +1029,7 @@ class BuildPath:
             node=Node.ADAPT,
             round=_round(Node.ADAPT, state),
             head=head,
+            cumulative_usd=cumulative,
         )
 
     @staticmethod

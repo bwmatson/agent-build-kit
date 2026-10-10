@@ -922,7 +922,7 @@ call ends, ok or failed (a Claude Code call cut off by a usage limit included). 
 where the call was made (`unit`, `node`, `round`, `change`, `repo`, `tier`), what ran (`role`,
 `model`, `runtime`), the `session_id` and whether the call `resumed` one, the figures
 (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`,
-`cost_usd`, `turns`, `duration_ms`) and the `outcome`. A figure the runtime did not report is
+`turns`, `duration_ms`), the `cost` object and the `outcome`. A figure the runtime did not report is
 absent, never zero, and `usage_source` says where the figures came from: `gateway` (the totals
 a gateway logged for the call's own key, see below), `reported` (the
 runtime's own: a Claude Code result event; an `acp` prompt response's `usage` and the cost of its
@@ -939,16 +939,29 @@ another node started (`fix_checks` continuing the build session) is that node's 
 session id can appear under several nodes. A call with no session id cannot be told apart from
 another and stays a record of its own. A resumed call keeps its session id and
 its record holds that call's figures, not a running total, so a `resumed` line adds to the call of
-the same node and round it resumed instead of replacing it. What holds for each runtime: Claude
-Code's result reports the call's own figures (checked live); an ACP agent's `usage_update` cost is
-the session's cumulative cost, so the `acp` runtime records the increase over the total it saw
-when the session was resumed, and no cost at all when it saw none; the gateway's figures are per
-call key already.
+the same node and round it resumed instead of replacing it, adding only `incremental_usd`.
+
+The `cost` object holds the call's own spend (`incremental_usd`), the session's running total as
+the runtime reported it (`cumulative_usd`), `basis` and, where a gateway's figure is recorded
+instead, the runtime's own incremental figure (`reported_usd`). `basis` is one of `reported` (the
+runtime gave the call's own figure), `derived` (the difference of two cumulative figures),
+`first` (the session's first call, baseline 0), `unknown` (a resumed call with no known
+baseline: no incremental figure, never the total), `backfilled` or `legacy`. A running total
+(a Claude Code result's `total_cost_usd`, an ACP `usage_update` amount) becomes an increment
+against the session's previous total, kept on the recorded `AgentSession` and, failing that,
+read from the ledger's last record with the same session id; a total below the baseline starts a
+new baseline and is logged. A gateway-attributed call records the gateway's figure as
+`incremental_usd` and the session's running sum as `cumulative_usd`. A line written before the
+object, with a flat `cost_usd`, is read as `legacy`: the figure is kept as `legacy_usd` and never
+summed. Every cost total, the summaries written at archive, the web UI's usage view and the
+`abk.agent.cost` counter add `incremental_usd` only. The counter is right from the release that
+introduced the object; figures exported before it counted a session's earlier calls again in each
+later one.
 With `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, each agent call of the graph gets a
 gateway key of its own, aliased `abk:<unit>:<node>:<round>:<random>` and handed to the agent in
 `ABK_GATEWAY_KEY` (`AgentRequest.env`). When the call ends the figures the gateway logged for that
 key are read and recorded with `usage_source` `gateway`, the agent's own report is kept beside
-them (`reported`, `reported_cost_usd`) for a report to compare, and the key is revoked however the
+them (`reported`, `cost.reported_usd`) for a report to compare, and the key is revoked however the
 call ended. A gateway that cannot be reached, a refused mint or unreadable totals is said in the
 unit's log once per call and the call goes on as without a gateway: no key, and the agent's own
 figures as before. A gateway writes its spend logs in batches, so the read repeats until the rows

@@ -99,6 +99,10 @@ stay out of the totals unless `--include-estimates`; a figure never recorded pri
 `-`, never `0`. The source column says whether figures were `reported`, from the
 `gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported
 figures differ by more than 10%. `--json` prints the same rows, with the difference.
+Cost is the sum of each call's own spend. Under the table, each session shows the sum of its
+increments beside its final `cumulative` figure and is flagged when they differ; rows written
+before costs were recorded per call are counted and listed as `legacy` with their total on a
+line of their own, never in the cost, and calls with an unknown cost are counted.
 A change archived by the pipeline is read from its per-unit summary, so its totals do
 not change, and its summary keeps a breakdown by node, role, model and source, so
 `--by node`, `--by role` and `--by model` split it as before it was archived. A summary

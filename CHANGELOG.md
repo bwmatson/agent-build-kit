@@ -19,6 +19,16 @@
   and is resumed by the tick once the environment is healthy again. A unit's own failure
   while the check passes is handled as before.
 
+- Cost in the ledger is now each call's own spend. A Claude Code call's reported cost is the
+  session's running total, so every report, summary, the web UI and the `abk.agent.cost`
+  counter counted a session's earlier calls again in each resumed call. Each agent row now
+  carries a `cost` object (the call's `incremental_usd`, the session's `cumulative_usd`, a
+  `basis` and, with a gateway, the runtime's own figure), and every sum adds the incremental
+  figure. Older rows with a flat `cost_usd` are read as `legacy`: counted, listed and totalled
+  apart in `abk report`, never added to the cost. `abk report` also shows each session's
+  cumulative cost and flags one whose increments do not add up. The counter is right from this
+  release; figures exported before it stay overstated.
+
 - A test that fails under load and passes alone no longer fails the unit that met it. When
   tier 1 fails on tests, the profile reads which ones from the output and they are run again,
   serially, twice (python-uv has the hooks; a profile without them behaves as before). If
