@@ -289,3 +289,28 @@ def test_a_call_cut_off_by_the_usage_limit_leaves_its_total_as_the_baseline_of_t
     assert cost_of(implement[-1])["basis"] == CostBasis.DERIVED
     session = [x for x in lines(workspace) if x["session_id"] == BUILD_SESSION]
     assert sum(cost_of(x)["incremental_usd"] for x in session) == pytest.approx(6.00)
+
+
+def test_a_gateway_sessions_resume_derives_the_runtimes_increase_from_the_runtimes_own_total(
+    tmp_path: Path, workspace: Installation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reuse(build=True)
+    recorder = fresh(tmp_path)
+    with serving() as gateway:
+        monkeypatch.setattr(settings, "gateway_url", gateway.url)
+        monkeypatch.setattr(settings, "gateway_master_key", MASTER)
+        monkeypatch.setattr(settings, "gateway_settle_seconds", 0.1)
+        runtime = Cumulative([0.4, 0.0, 1.1], gateway, die_on=2)
+        run = build_run(runtime=runtime)
+        with pytest.raises(Killed):
+            tick(tmp_path, recorder, run=run)
+
+        tick(tmp_path, recorder, run=run)
+
+    (tests,) = lines(workspace, "tests")
+    assert cost_of(tests)["incremental_usd"] == pytest.approx(0.5), "the gateway's figure"
+    (implement,) = lines(workspace, "implement")
+    assert implement["usage_source"] == "gateway"
+    assert cost_of(implement)["incremental_usd"] == pytest.approx(1.5), "the gateway's figure"
+    assert cost_of(implement)["reported_usd"] == pytest.approx(0.7), "the runtime's own increase"
+    assert cost_of(implement)["cumulative_usd"] == pytest.approx(2.0)

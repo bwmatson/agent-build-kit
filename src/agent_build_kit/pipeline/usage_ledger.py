@@ -312,6 +312,10 @@ def _last_in_session(session_id: str, pick: Callable[[Cost], float | None]) -> f
         return None
     path = Installation(config.active(), root).state_dir / LEDGER_NAME
     for record in reversed(_session_records(path, session_id)):
+        # A gateway record's cumulative figure is the gateway's running sum, not the runtime's
+        # total, so it is no baseline for deriving what the runtime spent.
+        if record.usage_source == "gateway":
+            continue
         if record.cost is not None and (figure := pick(record.cost)) is not None:
             return figure
     return None

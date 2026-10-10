@@ -72,10 +72,13 @@ class Cumulative(StandInRuntime):
     supports_session_resume = True
     passes_env = True
 
-    def __init__(self, totals: Sequence[float], gateway: FakeGateway | None = None) -> None:
+    def __init__(
+        self, totals: Sequence[float], gateway: FakeGateway | None = None, *, die_on: int = 0
+    ) -> None:
         super().__init__(answer="done")
         self.totals = list(totals)
         self.gateway = gateway
+        self.die_on = die_on
 
     def run(self, request: AgentRequest) -> AgentResult:
         self.requests.append(request)
@@ -86,6 +89,8 @@ class Cumulative(StandInRuntime):
         session = request.resume_session or "cumulative-session"
         if request.on_session:
             request.on_session(session)
+        if n == self.die_on:
+            raise Killed("power loss")
         result = AgentResult(
             ok=True,
             text="done",
