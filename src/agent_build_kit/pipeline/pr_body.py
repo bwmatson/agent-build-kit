@@ -138,8 +138,11 @@ def _verification_section(verification: str) -> Section:
         if size >= len(verification):
             return verification
         room = size - len(head) - len(tail)
-        cut = cut_tail(output, room, "line", marker=_OUTPUT_CUT) if room > 0 else _OUTPUT_CUT
-        return head + cut + tail if cut != _OUTPUT_CUT else gone
+        if room <= len(_OUTPUT_CUT):
+            return gone
+        cut = cut_tail(output, room, "line", marker=_OUTPUT_CUT)
+        # A cut that kept no output line is a bare or clipped marker: say it with `gone`.
+        return head + cut + tail if cut.startswith(f"{_OUTPUT_CUT}\n\n") else gone
 
     return Section(
         key="verification",

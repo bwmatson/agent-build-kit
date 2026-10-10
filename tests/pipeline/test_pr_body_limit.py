@@ -1,8 +1,8 @@
-"""A description is shrunk to the host's limit, least important part first.
+"""A description is fitted to the host's limit by sections.
 
-The tier 2 output goes first (its tail kept, where measures and failed bars
-print), then the follow-ups, then the output altogether; the headings and the
-pass or fail line are never cut.
+The required parts and the pass or fail line are never cut; the tier 2 output
+(its tail kept, where measures and failed bars print) and the follow-ups share
+the room above their smallest forms, one part to two.
 """
 
 from __future__ import annotations
@@ -12,6 +12,9 @@ from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from tests.factories import stored_unit as unit
 
 HEADINGS = ("## Assumptions", "## Tier 2 results", "## How this was built")
+# The notes a trimmed output carries: one above the lines kept, one in their place.
+CUT_NOTE = "_(earlier output trimmed to fit the host's description limit)_"
+GONE_NOTE = "_The full output was trimmed: it did not fit the host's description limit._"
 
 
 def output_of(size: int) -> str:
@@ -149,6 +152,29 @@ def test_above_their_smallest_forms_the_follow_ups_get_twice_the_output() -> Non
     grown_later = large_later - small_later
     assert grown_output > 1_000
     assert abs(grown_later - 2 * grown_output) <= 300, "within a line or two of each"
+
+
+def test_a_trimmed_output_is_whole_lines_under_its_note_or_the_note_alone() -> None:
+    """At every limit from where the required parts barely fit to the full body, the
+    output is never a clipped note or a note with nothing under it."""
+    output = output_of(4_000)
+    items = follow_ups(20)
+    full = len(body_of(output=output, follow_ups=items))
+    floor = len(body_of(output="", follow_ups=None)) + 200
+
+    for limit in range(floor, full + 1, 2):
+        body = body_of(output=output, follow_ups=items, limit=limit)
+        lines = body.splitlines()
+
+        assert len(body) <= limit, limit
+        assert not [
+            line for line in lines if line and line != CUT_NOTE and CUT_NOTE.startswith(line)
+        ]
+        if CUT_NOTE in body:
+            below = body.split(CUT_NOTE, 1)[1]
+            assert below.split("```")[0].strip(), f"no output line under the note at {limit}"
+        elif body != body_of(output=output, follow_ups=items):
+            assert GONE_NOTE in body, limit
 
 
 def test_the_verdict_and_headings_survive_a_limit_below_everything_else() -> None:
