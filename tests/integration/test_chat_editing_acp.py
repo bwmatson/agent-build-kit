@@ -442,9 +442,14 @@ def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_commit
     assert free_session != BUILD_COMMIT_SESSION["id"], "it was taken for the build session's"
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
+    logs_before = log_names(scratch)
     ticked = abk(scratch, "tick")
     assert ticked.returncode == 0, ticked.output
-    assert CHAT_COMMIT_REVIEW in run_log(scratch)
+    log = logs_since(scratch, logs_before)
+    assert CHAT_COMMIT_REVIEW in log, log
+    assert not re.search(r"(?<!address )review round \d+ \(", log), (
+        f"the free session's commit was reviewed as a counted round\n{log}"
+    )
 
 
 def test_the_next_rework_lists_the_outside_commit_as_authoritative(in_review: Scratch) -> None:
