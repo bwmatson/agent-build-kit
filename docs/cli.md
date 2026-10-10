@@ -125,7 +125,10 @@ output before applying it.
   (the first row's own figure), basis `backfilled`. A session already partly costed continues
   from its last cumulative figure.
 - Any other row (ACP, gateway) stored the call's own spend: it stays the increment and gains
-  the session's running sum as `cumulative_usd`.
+  the session's running sum as `cumulative_usd`. A `claude_code` row's agent-reported figure
+  (`reported_cost_usd`), whatever its source, was a running total too: it becomes
+  `reported_usd` as the difference from the session's previous row, left out where it falls;
+  other runtimes' reported figures are kept as they are.
 - A session in which a stored total falls is left with basis `unknown` and no increment, and
   is listed.
 - A summary whose unit's detail rows are all no later than it is taken to be built from them

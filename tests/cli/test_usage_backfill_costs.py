@@ -270,6 +270,22 @@ def test_acp_and_gateway_rows_keep_their_figure_and_gain_a_running_cumulative(
     assert {c["basis"] for c in (*acp, gateway)} == {"backfilled"}
 
 
+def test_a_gateway_claude_code_session_reports_increments_of_the_running_reported_total(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = write_ledger(
+        inst.state_dir / LEDGER,
+        legacy_line(0.9, reported_cost_usd=1.0, usage_source="gateway", at=at(0), session_id="gws"),
+        legacy_line(2.1, reported_cost_usd=3.0, usage_source="gateway", at=at(1), session_id="gws"),
+    )
+
+    run(inst, capsys, "--apply")
+
+    costs = [x["cost"] for x in session_lines(ledger, "gws")]
+    assert [c["reported_usd"] for c in costs] == pytest.approx([1.0, 2.0])
+    assert [c["incremental_usd"] for c in costs] == pytest.approx([0.9, 2.1])
+
+
 def test_a_session_in_which_a_figure_falls_is_left_unknown_and_listed(
     inst: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:

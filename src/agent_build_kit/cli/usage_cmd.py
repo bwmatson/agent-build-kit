@@ -49,8 +49,13 @@ def _is_legacy(raw: object) -> bool:
     )
 
 
-def _cost_of(raw: dict, cumulative: float | None, incremental: float | None, basis: CostBasis):
-    reported = _number(raw.get("reported_cost_usd"))
+def _cost_of(
+    raw: dict,
+    cumulative: float | None,
+    incremental: float | None,
+    basis: CostBasis,
+    reported: float | None,
+):
     cost: dict[str, object] = {
         "incremental_usd": incremental,
         "cumulative_usd": cumulative,
@@ -71,6 +76,29 @@ def _when(value: object) -> datetime:
     return at if at.tzinfo else at.replace(tzinfo=UTC)
 
 
+def _reported(
+    rows: list[dict], costed: list[tuple[str, float]], first: str
+) -> dict[int, float | None]:
+    """Each row's own reported figure, by position in `rows`.
+
+    A Claude Code row stored the session's running reported total, so its figure is the
+    difference from the row before (continuing from reported figures already costed); a
+    figure that falls is left out. Other runtimes stored the call's own figure.
+    """
+    figures: dict[int, float | None] = {}
+    previous = round(sum(v for at, v in costed if at <= first), 10)
+    for n, raw in enumerate(rows):
+        total = _number(raw.get("reported_cost_usd"))
+        if total is None:
+            figures[n] = None
+        elif raw.get("runtime") != "claude_code":
+            figures[n] = total
+        else:
+            figures[n] = round(total - previous, 10) if total >= previous else None
+            previous = total
+    return figures
+
+
 def _plan(lines: list[str]) -> _Plan:
     parsed: list[dict | None] = []
     for line in lines:
@@ -82,6 +110,7 @@ def _plan(lines: list[str]) -> _Plan:
 
     sessions: dict[str, list[int]] = {}
     costed: dict[str, list[tuple[str, float]]] = {}
+    costed_reported: dict[str, list[tuple[str, float]]] = {}
     for index, raw in enumerate(parsed):
         if raw is None:
             continue
@@ -92,6 +121,11 @@ def _plan(lines: list[str]) -> _Plan:
             if figure is not None:
                 costed.setdefault(str(raw["session_id"]), []).append(
                     (str(raw.get("at", "")), figure)
+                )
+            own = _number(raw["cost"].get("reported_usd"))
+            if own is not None:
+                costed_reported.setdefault(str(raw["session_id"]), []).append(
+                    (str(raw.get("at", "")), own)
                 )
 
     rewritten: dict[int, dict] = {}
@@ -107,16 +141,19 @@ def _plan(lines: list[str]) -> _Plan:
         first = str(rows[0].get("at", ""))
         earlier = [c for c in sorted(costed.get(session, [])) if c[0] <= first]
         baseline = earlier[-1][1] if earlier else 0.0
+        reported = _reported(rows, costed_reported.get(session, []), first)
         stored = [t for t, run in zip(totals, running, strict=True) if run and t is not None]
         if stored and earlier:
             stored = [baseline, *stored]
         if any(b < a for a, b in zip(stored, stored[1:], strict=False)):
             unknown_sessions.append(session)
-            for i, raw in zip(indexes, rows, strict=True):
-                rewritten[i] = _cost_of(raw, None, None, CostBasis.UNKNOWN)
+            for n, (i, raw) in enumerate(zip(indexes, rows, strict=True)):
+                rewritten[i] = _cost_of(raw, None, None, CostBasis.UNKNOWN, reported[n])
             continue
         previous, summed = baseline, baseline
-        for i, raw, total, is_total in zip(indexes, rows, totals, running, strict=True):
+        for n, (i, raw, total, is_total) in enumerate(
+            zip(indexes, rows, totals, running, strict=True)
+        ):
             assert total is not None
             if is_total:
                 incremental, cumulative = round(total - previous, 10), total
@@ -124,7 +161,7 @@ def _plan(lines: list[str]) -> _Plan:
             else:
                 summed = round(summed + total, 10)
                 incremental, cumulative = total, summed
-            rewritten[i] = _cost_of(raw, cumulative, incremental, CostBasis.BACKFILLED)
+            rewritten[i] = _cost_of(raw, cumulative, incremental, CostBasis.BACKFILLED, reported[n])
 
     before: dict[str, float] = {}
     after: dict[str, float] = {}
