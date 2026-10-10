@@ -54,6 +54,8 @@ class Recorder:
         self.closed: list[tuple[str, int, str]] = []  # (unit, pull request, reason)
         # Answers for successive tier 1 runs, in order; once spent, `tier1_ok`.
         self.tier1_results: list[tuple[bool, str]] = []
+        # The failed output each tier 1 run was given to select tests by ("" when none).
+        self.tier1_failed_outputs: list[str] = []
         self.made = 0
         self.remote: list[str] = []  # every distinct head the remote has been given
         self.prs: dict[str, int] = {}  # branch -> pull request, as the forge holds them
@@ -113,8 +115,11 @@ class Recorder:
     def head(self, cwd: Path) -> str:
         return f"sha-{self.made}"
 
-    def tier1(self, *, cwd: Path, base: str = "main", whole_repo: bool = False) -> tuple[bool, str]:
+    def tier1(
+        self, *, cwd: Path, base: str = "main", whole_repo: bool = False, failed_output: str = ""
+    ) -> tuple[bool, str]:
         self.events.append("tier1:whole_repo" if whole_repo else "tier1")
+        self.tier1_failed_outputs.append(failed_output)
         if self.tier1_results:
             return self.tier1_results.pop(0)
         return self.tier1_ok, self.tier1_output

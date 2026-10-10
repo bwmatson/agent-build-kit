@@ -305,6 +305,24 @@ repos:                          # ordered: deploy order is derived from
                                 #   max_body_bytes: 2097152   # a larger response is not recorded
                                 #   max_directory_mb: 100     # past it nothing more is promoted
                                 #   review_after_runs: 5      # read by the review work to come
+    checks:
+      affected:
+        mode: off               # off | profile | command: which tests the check
+                                # after a failed check and a fix runs first.
+                                # `profile` asks the toolchain profile's
+                                # `affected_test_commands`; `command` runs the
+                                # template below. Lint always runs in full, a
+                                # selected failure goes back to the fixer, and a
+                                # selected pass is confirmed by one full run, which
+                                # alone makes a unit green. The first check, a
+                                # rework's check and every gate run in full, and so
+                                # does a selection that cannot be made or run
+        command: null           # required for `command`: a template whose words
+                                # `{changed_files}` and `{failed_ids}` each become
+                                # one argument per file or test identifier, run in
+                                # the project directory under the tier 1 time limit;
+                                # the profile's "no tests collected" exit counts as
+                                # a pass, and the full run still confirms it
     dev_stack: null             # {script: scripts/dev-stack.sh}: a script with
                                 # `up`, `test` and `down`. Tier 2 runs the
                                 # unit's branch on it instead of the live

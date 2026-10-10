@@ -348,6 +348,25 @@ class TestsConfig(Frozen):
     replay: ReplayConfig | None = None
 
 
+class AffectedConfig(Frozen):
+    # How a fix round picks the tests it runs: `off` runs the full tests, `profile`
+    # asks the toolchain profile, `command` runs `command`.
+    mode: Literal["off", "profile", "command"] = "off"
+    # In `command` mode: a template whose `{changed_files}` and `{failed_ids}` are
+    # each replaced by separate quoted arguments.
+    command: str | None = None
+
+    @model_validator(mode="after")
+    def _command_mode_needs_its_template(self) -> AffectedConfig:
+        if self.mode == "command" and not self.command:
+            raise ValueError("checks.affected.mode `command` needs a `command` template")
+        return self
+
+
+class ChecksConfig(Frozen):
+    affected: AffectedConfig = AffectedConfig()
+
+
 class DevStackConfig(Frozen):
     # A script with `up`, `test` and `down` subcommands. Tier 2 runs a unit's
     # branch on it instead of the live stack.
@@ -444,6 +463,7 @@ class RepoConfig(Frozen):
     # Prose the planner is given about how this repo relates to the others.
     relationships: str = ""
     tests: TestsConfig = TestsConfig()
+    checks: ChecksConfig = ChecksConfig()
     dev_stack: DevStackConfig | None = None
     deploy: DeployConfig = DeployConfig()
     # Where the repo keeps its changelog; None switches the changelog convention

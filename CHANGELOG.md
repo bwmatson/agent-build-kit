@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A repo can now set `checks.affected` so the check after a failed check and a fix runs
+  only the tests the change affects, instead of the whole suite again. `profile` asks
+  the toolchain profile, through a new optional `affected_test_commands`; `command` runs
+  a template whose `{changed_files}` and `{failed_ids}` become separate arguments. A
+  failing selected run goes straight back to the fixer, and a passing one is confirmed
+  by one full run, which alone makes a unit green; the first check, a rework's check
+  and every gate stay full, as does a selection that cannot be made or run. The default
+  is `off`, which changes nothing.
+
 - An environment's `inputs` are now path patterns, `**` included, so a repository with
   many nested manifests and locks can list them and a new module is no longer missed. A
   pattern matching nothing is reported by `abk doctor`, and an absolute pattern, or one

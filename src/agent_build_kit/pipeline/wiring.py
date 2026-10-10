@@ -113,7 +113,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
-from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.profiles.base import SelectsAffectedTests, ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -745,11 +745,47 @@ def build_tier1(
     run = run or _run_limited
     changed = changed or _changed_files
     profile = profile or profiles.get("python-uv")
+    affected = (
+        repo.checks.affected if repo is not None and repo.checks.affected.mode != "off" else None
+    )
 
-    def tier1(*, cwd: Path, base: str, whole_repo: bool = False) -> tuple[bool, str]:
-        """(passed, what failed) — the output is what makes a retry useful."""
+    def tier1(
+        *, cwd: Path, base: str, whole_repo: bool = False, failed_output: str = ""
+    ) -> tuple[bool, str]:
+        """(passed, what failed) — the output is what makes a retry useful.
+
+        `failed_output` is the output of the failed check a fix is answering; given,
+        and the repo's affected-tests mode on, the tests run are the selected ones."""
+        work = _work(cwd, base, whole_repo, projects, profile, changed)
+        plan = None
+        if affected is not None and not whole_repo and failed_output.strip():
+            plan = selection(base, work, failed_output)
+        if plan is None:
+            return full(cwd, base, work, whole_repo, lint=True)
+        selected = run_selection(plan)
+        if selected is not None and not selected[0]:
+            return selected
+        # A selected pass is not the green: the full tests confirm it, and lint runs again
+        # unless the selection got through it for every project.
+        confirmed = full(cwd, base, work, whole_repo, lint=selected is None)
+        if selected is not None and not confirmed[0]:
+            _say(
+                log,
+                "affected tests: the selected tests passed and the full suite failed, "
+                "a disagreement",
+            )
+        return confirmed
+
+    def full(
+        cwd: Path,
+        base: str,
+        work: list[tuple[Path, ToolchainProfile, list[str]]],
+        whole_repo: bool,
+        *,
+        lint: bool,
+    ) -> tuple[bool, str]:
         extra = profile.extra_checks(repo) if repo is not None else []
-        for where, toolchain, files in _work(cwd, base, whole_repo, projects, profile, changed):
+        for where, toolchain, files in work:
             if whole_repo:
                 lint_command = toolchain.lint_command_all_files()
                 test_commands = toolchain.test_commands_all(where, root_extras=root_extras or [])
@@ -757,7 +793,7 @@ def build_tier1(
                 lint_command = toolchain.lint_command(base)
                 test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
 
-            for command in [lint_command, *test_commands]:
+            for command in [*([lint_command] if lint else []), *test_commands]:
                 result = ran(command, where, toolchain)
                 if not toolchain.tolerates_exit(command, result.returncode):
                     isolate(command, result, where, toolchain)
@@ -767,6 +803,54 @@ def build_tier1(
             result = ran(command, cwd, profile)
             if not profile.tolerates_exit(command, result.returncode):
                 return False, _failure(command, result)
+        return True, ""
+
+    def selection(
+        base: str,
+        work: list[tuple[Path, ToolchainProfile, list[str]]],
+        failed_output: str,
+    ) -> list[tuple[Path, ToolchainProfile, list[list[str]]]] | None:
+        """Per project, its lint and the tests the change affects; None when they cannot
+        be named, so that the full suite stands in."""
+        assert affected is not None
+        plan = []
+        for where, toolchain, files in work:
+            failed_ids = _failed_ids(toolchain, failed_output)
+            if affected.mode == "command":
+                tests = [expand_template(affected.command or "", files, failed_ids)]
+            else:
+                tests = (
+                    toolchain.affected_test_commands(
+                        where, files, failed_ids, seed=where / ".abk-affected"
+                    )
+                    if isinstance(toolchain, SelectsAffectedTests)
+                    else None
+                )
+            if tests is None:
+                _say(log, "affected tests: the profile cannot say, running the full suite")
+                return None
+            plan.append((where, toolchain, [toolchain.lint_command(base), *tests]))
+        return plan
+
+    def run_selection(
+        plan: list[tuple[Path, ToolchainProfile, list[list[str]]]],
+    ) -> tuple[bool, str] | None:
+        """(passed, what failed), or None when a command could not start."""
+        for where, toolchain, commands in plan:
+            for index, command in enumerate(commands):
+                try:
+                    result = ran(command, where, toolchain)
+                except OSError as error:
+                    _say(
+                        log,
+                        f"affected tests: {command[0]} could not run ({error}), "
+                        "running the full suite",
+                    )
+                    return None
+                # The first command is lint; a selector that picks nothing is a pass.
+                nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
+                if not nothing and not toolchain.tolerates_exit(command, result.returncode):
+                    return False, _failure(command, result)
         return True, ""
 
     def isolate(
@@ -851,6 +935,24 @@ def build_on_flake(
         return fix
 
     return on_flake
+
+
+def _say(log: Callable[[str], None] | None, message: str) -> None:
+    if log is not None:
+        log(f"  tier 1: {message}")
+
+
+def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
+    """The tests a failed check's output names, as the profile reads them; none when it cannot."""
+    reader = getattr(toolchain, "failed_tests", None)
+    return reader(output) if reader is not None else []
+
+
+def expand_template(template: str, changed_files: list[str], failed_ids: list[str]) -> list[str]:
+    """The argv a `command`-mode template stands for: each placeholder, a word of its
+    own, becomes one argument per file or identifier, whatever characters they hold."""
+    words = {"{changed_files}": changed_files, "{failed_ids}": failed_ids}
+    return [arg for word in shlex.split(template) for arg in words.get(word, [word])]
 
 
 def _failure(command: list[str], result: subprocess.CompletedProcess) -> str:
