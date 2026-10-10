@@ -115,6 +115,7 @@ from agent_build_kit.pipeline.unit_store import (
     feedback_source_of,
 )
 from agent_build_kit.pipeline.units import (
+    CLOSED,
     FAILED,
     HELD,
     IN_FLIGHT,
@@ -129,6 +130,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    effective_priority,
     in_progress,
     in_progress_label,
     local_ref,
@@ -138,6 +140,7 @@ from agent_build_kit.pipeline.units import (
     trunk_of,
     unmet_gates,
     waiting_on,
+    waiting_on_me,
 )
 from agent_build_kit.pipeline.usage_guard import (
     Interrupted,
@@ -371,6 +374,17 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
+
+    urgency = [
+        f"{unit.id} {unit.priority}"
+        for unit in units
+        if unit.priority != Priority.NORMAL and unit.state not in (MERGED, CLOSED)
+    ]
+    if urgency:
+        log("priority: " + ", ".join(urgency))
+
+    for line in _ready_queue_lines(inst, units):
+        log(line)
 
     # Units in flight from before causes were kept: nothing reads their notes, so
     # each is requeued (`abk requeue`) or, for a reviewer's hold, held again from
@@ -1088,7 +1102,36 @@ def _evaluate(
     max_concurrent: int | None = None,
     idle: Collection[str] = (),
 ) -> list[Unit]:
-    """What this pass may start now.
+    """What this pass may start now: `_evaluate_round` without the view it chose from."""
+    ready, _view, _excluded = _evaluate_round(
+        inst,
+        units,
+        started=started,
+        building=building,
+        only=only,
+        enforce_limit=enforce_limit,
+        max_concurrent=max_concurrent,
+        idle=idle,
+    )
+    return ready
+
+
+def _evaluate_round(
+    inst: Installation,
+    units: list[StoredUnit],
+    *,
+    started: set[str],
+    building: set[str],
+    only: frozenset[str],
+    enforce_limit: bool = True,
+    max_concurrent: int | None = None,
+    idle: Collection[str] = (),
+) -> tuple[list[Unit], list[Unit], frozenset[str]]:
+    """What this pass may start now, the graph it chose from, and the units it left out.
+
+    The units left out are those already started this pass, outside `--only`,
+    held by a lease, awaiting a requeue or in a backoff: they give no priority
+    to what they wait on.
 
     `ready_units` decides from the stored state alone, which lags the pass: a
     unit just handed to the pool is still `planned` until its build marks it
@@ -1101,6 +1144,7 @@ def _evaluate(
     take no slot: they show as held, still blocking their dependents.
     """
     view: list[Unit] = []
+    excluded: set[str] = set()
     now = spans.clock.now()
     leases = Leases(lease_dir(inst.state_dir))
     for unit in units:
@@ -1120,14 +1164,16 @@ def _evaluate(
             or backoff_remaining(unit, now) is not None
         ):
             unit = unit.model_copy(update={"state": HELD})
+            excluded.add(unit.id)
         view.append(unit)
     ready = ready_units(
         view,
         max_concurrent=max_concurrent or inst.max_concurrent_stacks,
         depth_cap=inst.stack_depth_build_cap,
         max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
+        excluded=excluded,
     )
-    return [unit for unit in ready if unit.id not in started]
+    return [unit for unit in ready if unit.id not in started], view, frozenset(excluded)
 
 
 def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
@@ -1143,6 +1189,34 @@ def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
         f"queue is full: {len(held)} units in progress, limit {inst.max_units_in_progress} "
         f"({states})"
     )
+
+
+def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+    """The ready queue in the order the scheduler starts it, with why each unit is where it is."""
+    attached = {held.unit_id for held in Leases(lease_dir(inst.state_dir)).attachments()}
+    ready, view, excluded = _evaluate_round(
+        inst,
+        units,
+        started=attached,
+        building=set(),
+        only=frozenset(),
+        enforce_limit=False,
+        max_concurrent=len(units),
+    )
+    if not ready:
+        return []
+    lines = ["ready queue (start order):"]
+    for place, unit in enumerate(ready, start=1):
+        urgency = effective_priority(unit, view, excluded)
+        if urgency < unit.priority:
+            source = min(waiting_on_me(unit, view, excluded), key=lambda waiter: waiter.priority)
+            why = f"priority {urgency}, from {source.id}"
+        elif unit.priority != Priority.NORMAL:
+            why = f"priority {unit.priority}"
+        else:
+            why = "planned order"
+        lines.append(f"  {place}. {unit.id} ({unit.repo}) — {why}")
+    return lines
 
 
 def _nothing_started_reason(
