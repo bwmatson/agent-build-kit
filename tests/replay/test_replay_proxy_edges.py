@@ -95,7 +95,9 @@ def test_a_client_that_asks_for_no_compression_gets_none(tmp_path: Path) -> None
         with proxy_for(config, tmp_path, ReplayMode.record) as proxy:
             proxy.begin(TEST)
             connection = connect(proxy)
-            connection.request("GET", "/v1/files")  # http.client adds no Accept-Encoding
+            # `request()` would add `Accept-Encoding: identity`; this sends none at all.
+            connection.putrequest("GET", "/v1/files", skip_accept_encoding=True)
+            connection.endheaders()
             reply = connection.getresponse()
             body = reply.read()
             connection.close()
@@ -104,6 +106,24 @@ def test_a_client_that_asks_for_no_compression_gets_none(tmp_path: Path) -> None
     assert "gzip" not in upstream.seen[0].headers.get("accept-encoding", "")
     assert reply.getheader("content-encoding") is None
     assert body == b"plain"
+
+
+def test_a_head_answer_the_upstream_marks_chunked_is_headers_alone(tmp_path: Path) -> None:
+    chunked = Answer(chunks=[b"one", b"two", b"three"])
+    with FakeUpstream(lambda _seen: chunked) as upstream:
+        config = config_for(upstream.url, tmp_path / "cassettes")
+        with proxy_for(config, tmp_path, ReplayMode.record) as proxy:
+            proxy.begin(TEST)
+            connection = connect(proxy)
+            statuses = []
+            for _ in range(2):  # stray bytes would break the second answer on this connection
+                connection.request("HEAD", "/v1/files/1")
+                reply = connection.getresponse()
+                statuses.append((reply.status, reply.read()))
+            connection.close()
+            proxy.finish(passed=True)
+
+    assert statuses == [(200, b""), (200, b"")]
 
 
 def test_a_chunked_request_body_reaches_the_upstream_whole(

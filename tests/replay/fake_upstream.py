@@ -65,6 +65,8 @@ class FakeUpstream:
                 if len(reply.chunks) > 1:
                     self.send_header("Transfer-Encoding", "chunked")
                     self.end_headers()
+                    if self.command == "HEAD":
+                        return
                     for chunk in reply.chunks:
                         self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
                         self.wfile.flush()

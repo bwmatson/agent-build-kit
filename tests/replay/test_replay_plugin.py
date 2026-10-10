@@ -144,7 +144,7 @@ def test_an_upstream_inside_the_stack_is_refused_by_default(
         "record",
         tmp_path,
         select="test_passes",
-        in_stack="@pytest.fixture\ndef replay_in_stack():\n    return InStackHosts()",
+        in_stack="",  # the plugin's own `replay_in_stack` builds the set
     )
 
     result.assert_outcomes(errors=1)

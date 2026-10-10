@@ -309,7 +309,7 @@ class ReplayProxy:
                 if n.lower() not in _HOP_BY_HOP or (head and n.lower() == "content-length")
             }
             chunks: list[bytes] = []
-            if "chunked" in response.headers.get("transfer-encoding", "").lower():
+            if "chunked" in response.headers.get("transfer-encoding", "").lower() and not head:
                 _start(out, response.status_code, sent, None)
                 for chunk in response.iter_raw():
                     chunks.append(chunk)
