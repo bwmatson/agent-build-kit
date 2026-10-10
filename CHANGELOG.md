@@ -6,6 +6,9 @@
   test fails when source outside the toolchain profiles and `abk init` names a package
   manager or lock file. The `limits.generated_files` example no longer suggests listing
   lock files there.
+- A pause is now written to its marker in one step, so a tick reading it while a build
+  records the model's refusal can no longer see half a file, take it for "not paused" and
+  start another build during the pause.
 
 - An agent step in a repo with no `origin` no longer fails with "the agent pushed" when
   the agent commits to the unit's branch. With no remote there is nothing to push to, so

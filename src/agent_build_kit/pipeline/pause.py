@@ -23,6 +23,7 @@ rather than "idle since lunchtime for reasons unknown".
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -97,7 +98,10 @@ def pause_until(
         return existing
 
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(
+    # Written aside and renamed into place: a tick reads the marker while a
+    # build records a pause, and a torn file would read as "not paused".
+    partial = marker.with_name(f"{marker.name}.tmp")
+    partial.write_text(
         json.dumps(
             {
                 "until": deadline.isoformat(),
@@ -109,6 +113,7 @@ def pause_until(
         )
         + "\n"
     )
+    os.replace(partial, marker)
     return Pause(until=deadline, reason=reason, kind=kind)
 
 
