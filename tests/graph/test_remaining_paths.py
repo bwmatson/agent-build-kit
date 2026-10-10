@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit import forges
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.unit import run_unit
@@ -62,6 +63,35 @@ def capturing(recorder: Recorder, bodies: list[dict[str, str]]) -> Callable[...,
         return recorder.open_pr(u, body=body, base=base, cwd=cwd)
 
     return open_pr
+
+
+# --- the description limit ----------------------------------------------------
+
+
+def test_the_body_is_fitted_once_to_the_lowest_limit_whatever_the_repos_host_takes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unit's repository is on a host that takes more; the description is
+    the one every host takes, the same whatever this host's own limit is."""
+    output = "## Tier 2 results\n3 passed\n" + "\n".join(
+        f"output line {n:04d} " + "o" * 60 for n in range(300)
+    )
+    sent: list[dict[str, str]] = []
+    for own_limit in (65_536, 10_000):
+        monkeypatch.setattr(forges.get("github"), "description_limit", own_limit)
+        recorder = fresh(tmp_path / str(own_limit), tier="tier2")
+        recorder.tier2_output = output
+        bodies: list[dict[str, str]] = []
+
+        build(tmp_path / str(own_limit), recorder, open_pr=capturing(recorder, bodies))
+
+        sent.append(bodies[-1])
+
+    lowest = forges.description_limit()
+    assert lowest == 4_000
+    assert all(len(text) <= lowest for body in sent for text in body.values())
+    assert sent[0] == sent[1]
+    assert "## Assumptions" in sent[0]["body"]
 
 
 # --- tier 2 -------------------------------------------------------------------

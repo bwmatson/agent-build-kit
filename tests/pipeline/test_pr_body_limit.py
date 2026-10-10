@@ -103,3 +103,37 @@ def test_the_last_resort_drops_the_output_but_keeps_the_verdict() -> None:
     assert "3 passed, 1 failed" in body
     for heading in HEADINGS:
         assert heading in body
+
+
+def test_without_follow_ups_the_output_has_the_room_they_would_have_had() -> None:
+    output = output_of(6_000)
+    limit = 3_000
+
+    body = body_of(output=output, limit=limit)
+
+    assert len(body) <= limit
+    assert len(body) > limit - 200, "the room went to the output, not left unused"
+    assert output[-200:] in body
+
+
+def test_without_output_the_follow_ups_have_the_room_the_output_would_have_had() -> None:
+    items = follow_ups(60)
+    limit = 3_000
+
+    body = body_of(output="", follow_ups=items, limit=limit)
+
+    kept = [item for item in items if f"- {item}" in body]
+    assert len(body) <= limit
+    assert kept == items[: len(kept)], "whole items, in order"
+    assert len(kept) < 60
+    assert len(body) + len(items[0]) > limit, "another whole item would not have fitted"
+    assert f"and {60 - len(kept)} more" in body
+
+
+def test_the_verdict_and_headings_survive_a_limit_below_everything_else() -> None:
+    body = body_of(output=output_of(4_000), follow_ups=follow_ups(20), limit=1_500)
+
+    assert len(body) <= 1_500
+    assert "3 passed, 1 failed" in body
+    for heading in HEADINGS:
+        assert heading in body

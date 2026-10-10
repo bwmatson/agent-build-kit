@@ -72,6 +72,11 @@ def for_repo(name: str) -> tuple[Forge, RepoId]:
     return forge, forge.identity(repo)
 
 
+def description_limit() -> int:
+    """The lowest description limit across the registered forges."""
+    raise NotImplementedError
+
+
 def denies(tokens: list[str]) -> str:
     """The reason no agent may run this command, or "" when it may.
 
