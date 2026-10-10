@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A lock file named in a repository's environment lock inputs no longer holds a unit for
+  "uncommitted changes" when the environment's sync creates or rewrites it. It is never
+  listed as a leftover or discarded. A unit that changed a dependency input commits the
+  rewritten tracked lock with it; otherwise the lock is restored to the branch's version
+  before a commit or a restack, and a lock the branch does not track is never committed.
+
 - Every use of the usage endpoint, and every reading answered from its cache, is now recorded
   in `usage-calls.jsonl` in the state directory (gitignored, a week's worth, no token): when,
   who asked, the outcome, the status, the latency and any rate-limit or retry headers.

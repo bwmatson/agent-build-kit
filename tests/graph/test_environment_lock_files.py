@@ -29,7 +29,7 @@ STRAY = "stray.txt"
 
 
 def built(tmp_path: Path, **tracked: str) -> tuple[Habitat, Recorder]:
-    """A unit built and waiting in review, the lock the sync last wrote still in its tree."""
+    """A unit built and waiting in review."""
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,), locks=(LOCK,))
     env.writes_lock("rewritten ")
     habitat = Habitat(
@@ -40,7 +40,6 @@ def built(tmp_path: Path, **tracked: str) -> tuple[Habitat, Recorder]:
     )
     recorder = fresh(tmp_path)
     assert tick(tmp_path, recorder, **habitat.overrides()).status == RunStatus.OPEN
-    assert (habitat.tree / LOCK).read_text().startswith("rewritten ")
     return habitat, recorder
 
 
@@ -56,6 +55,7 @@ def committed(habitat: Habitat) -> list[str]:
 
 def test_an_untracked_lock_the_sync_created_does_not_hold_the_rework(tmp_path: Path) -> None:
     habitat, recorder = built(tmp_path)
+    assert (habitat.tree / LOCK).read_text().startswith("rewritten "), "the sync's lock is there"
 
     outcome = reworked(tmp_path, habitat, recorder)
 
@@ -81,6 +81,7 @@ def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named
     tmp_path: Path,
 ) -> None:
     habitat, recorder = built(tmp_path, **{LOCK: "as committed\n"})
+    (habitat.tree / LOCK).write_text("rewritten by a later sync\n")
     (habitat.tree / STRAY).write_text("mine\n")
     asked = len(habitat.runtime.requests)
 
@@ -94,4 +95,6 @@ def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named
     assert LOCK not in words, "the lock is not a leftover"
     assert len(habitat.runtime.requests) == asked, "no agent was started over it"
     assert (habitat.tree / STRAY).read_text() == "mine\n"
-    assert (habitat.tree / LOCK).read_text().startswith("rewritten "), "the rewrite was kept"
+    assert (habitat.tree / LOCK).read_text() == "rewritten by a later sync\n", (
+        "the rewrite was kept"
+    )
