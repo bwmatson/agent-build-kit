@@ -177,17 +177,18 @@ def test_clearing_leaves_a_rate_limit_pause_in_force(tmp_path: Path) -> None:
         datetime.now(UTC) + timedelta(hours=1), reason="the model", marker=marker, kind="rate_limit"
     )
 
-    clear_pause(marker)
+    left = clear_pause(marker)
 
     state = is_paused(marker)
     assert state is not None
     assert state.kind == "rate_limit"
+    assert left == state
 
 
 def test_clearing_ends_a_usage_pause(tmp_path: Path) -> None:
     marker = tmp_path / "paused.json"
     pause_until(datetime.now(UTC) + timedelta(hours=1), reason="the guard", marker=marker)
 
-    clear_pause(marker)
+    assert clear_pause(marker) is None
 
     assert is_paused(marker) is None

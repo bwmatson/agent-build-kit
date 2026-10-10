@@ -1806,5 +1806,5 @@ def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
     held = pause.is_paused(marker)
     assert held is not None
     assert held.kind == "rate_limit"
-    assert set(builder.started) == {"mid/1", "slow/1"}
-    assert builder.store.get("later/1").state == PLANNED
+    assert builder.started == []
+    assert {builder.store.get(unit).state for unit in ("mid/1", "slow/1", "later/1")} == {PLANNED}

@@ -140,16 +140,18 @@ def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = Non
     return f"{verb} until {end:%H:%M} — {pause.reason}"
 
 
-def clear_pause(marker: Path) -> None:
+def clear_pause(marker: Path) -> Pause | None:
     """End a pause the guard has found room under.
 
-    A rate-limit pause in force is left alone: it is the model's refusal, kept to
-    its deadline, and the caller's own reading said none held. A build may have
-    recorded one since, and clearing it would let the pass start builds the
-    model has just refused.
+    A rate-limit pause in force is left alone and returned: it is the model's
+    refusal, kept to its deadline, and the caller's own reading said none held,
+    so a build has recorded it since. Clearing it would let the pass start
+    builds the model has just refused. None means the marker was cleared, or
+    there was nothing to clear.
     """
     with _locked(marker):
         held = is_paused(marker)
         if held and held.kind == "rate_limit":
-            return
+            return held
         marker.unlink(missing_ok=True)
+    return None
