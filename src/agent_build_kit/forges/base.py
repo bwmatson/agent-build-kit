@@ -372,6 +372,11 @@ class Forge(RegistersStacks, Protocol):
         """Take a label off a pull request. Raises where the host refuses."""
         ...
 
+    def labels_on(self, repo: RepoId, pr: int) -> list[str]:
+        """The names of the labels on a pull request. Raises where the host
+        refuses, and raises `NotImplementedError` for a forge with no labels."""
+        ...
+
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
         """Make a pull request a draft, or publish it for review.
 

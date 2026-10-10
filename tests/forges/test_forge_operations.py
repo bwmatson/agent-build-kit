@@ -47,6 +47,7 @@ def test_only_a_create_names_the_read_that_shows_it_landed() -> None:
         ("list_prs", "read", None),
         ("pr_files", "read", None),
         ("review_notes", "read", None),
+        ("labels_on", "read", None),
         ("stack_of", "read", None),
         ("update_pr", "advisory", None),
         ("post_status", "advisory", None),

@@ -6,6 +6,7 @@ Cosmetic by construction: nothing here raises, and nothing reads a label back.
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import StrEnum
 
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -18,6 +19,14 @@ from agent_build_kit.pipeline.vocabulary import (
 )
 
 ForRepo = Callable[[str], tuple[Forge, RepoId]]
+
+
+class ClearOutcome(StrEnum):
+    """What taking the state labels off a pull request came to."""
+
+    CLEARED = "cleared"
+    NOTHING_TO_CLEAR = "nothing_to_clear"
+    FAILED = "failed"
 
 
 class StateLabels:
@@ -54,6 +63,10 @@ class StateLabels:
             ),
             repo,
         )
+
+    def clear_state(self, repo: str, pr: int) -> ClearOutcome:
+        """Take every state label off the pull request of a finished unit."""
+        raise NotImplementedError
 
     def tag_change(self, repo: str, pr: int, change: str) -> None:
         """Put the change's own label on the pull request."""

@@ -72,7 +72,7 @@ class StandInForge:
         self.failing_replies = failing_replies
         self.close_error = close_error
         self.comment_error = comment_error
-        # Which label calls fail: any of "add", "set", "remove".
+        # Which label calls fail: any of "add", "set", "remove", "read".
         self.label_errors = label_errors
         # What `set_draft` raises, when it should.
         self.draft_error = draft_error
@@ -89,6 +89,9 @@ class StandInForge:
         self.added: list[tuple[int, Label]] = []
         # The labels on each pull request, by number.
         self.on_pr: dict[int, set[str]] = {}
+        # Every `labels_on` call, by pull request, and every `remove_label`.
+        self.label_reads: list[int] = []
+        self.label_removals: list[tuple[int, str]] = []
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.replies: list[tuple[str, str]] = []
@@ -239,7 +242,14 @@ class StandInForge:
     def remove_label(self, repo: RepoId, pr: int, name: str) -> None:
         if "remove" in self.label_errors:
             raise RuntimeError("403 Forbidden")
+        self.label_removals.append((pr, name))
         self.on_pr.setdefault(pr, set()).discard(name)
+
+    def labels_on(self, repo: RepoId, pr: int) -> list[str]:
+        self.label_reads.append(pr)
+        if "read" in self.label_errors:
+            raise RuntimeError("403 Forbidden")
+        return sorted(self.on_pr.get(pr, set()))
 
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:
         if self.draft_error:

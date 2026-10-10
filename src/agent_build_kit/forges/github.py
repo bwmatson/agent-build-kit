@@ -727,6 +727,9 @@ class GitHubForge:
             if _NO_SUCH_LABEL not in _reason(error):
                 raise
 
+    def labels_on(self, repo: RepoId, pr: int) -> list[str]:
+        raise NotImplementedError
+
     # --- state ----------------------------------------------------------------------
 
     def set_draft(self, repo: RepoId, pr: int, draft: bool) -> None:

@@ -142,6 +142,14 @@ def test_a_read_repeats_on_a_network_failure(waits: Waits) -> None:
     assert inner.made("pr_files") == 3
 
 
+def test_reading_the_labels_on_a_pull_request_repeats_on_a_server_error(waits: Waits) -> None:
+    inner = FakeForge(labels_on=[down(), ["in-review"]])
+
+    assert layer(inner, waits).labels_on(REPO, 7) == ["in-review"]
+
+    assert inner.made("labels_on") == 2
+
+
 def test_an_idempotent_write_repeats_on_a_server_error(waits: Waits) -> None:
     inner = FakeForge(post_status=[down(), None])
 
