@@ -84,6 +84,8 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # fails at load; only the selected runtime's
                                 # entry is checked.
   claude_code:                  # the Claude subscription: a five-hour session
+    context_windows: {}         # model name -> window in tokens, for when the agent's
+                                # result does not name it (any runtime)
     limits:                     # and a seven-day week fill independently, so
       session:                  # each has its own section, with the same names
         usage_pause_pct: 70     # % of the window at which no new unit starts,
@@ -167,6 +169,13 @@ environment:                    # how the pipeline's own environment is kept
 # `check`. With inputs equal to the base branch's a failure is the environment's
 # (cause `environment`); a failing `sync` or `check` after the unit changed an
 # input is the unit's, and its output is the fix round's feedback.
+
+context:
+  compaction_drop_share: 0.3    # a fall in the context's fill between two requests
+                                # larger than this share of the window counts as a
+                                # compaction, for a runtime with no marker of its own
+  warn_share: 0.8               # a step ending above this share of the window logs a
+                                # warning (a signal only)
 
 limits:
   stack_depth_build_cap: 3      # longest chain of in-review PRs from main a

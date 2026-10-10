@@ -115,6 +115,14 @@ class UsageRecord(BaseModel):
             return raw | {"cost": {"basis": CostBasis.LEGACY, "legacy_usd": flat}}
         return raw | {"cost": None}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _read_context(cls, raw: object) -> object:
+        """A `context` that is not an object is absent."""
+        if isinstance(raw, dict) and not isinstance(raw.get("context"), dict | Context):
+            return raw | {"context": None}
+        return raw
+
 
 def ledger_lock(path: Path) -> AbstractContextManager[None]:
     """The lock appends and the archive roll-up take, so a rewrite of the ledger
@@ -140,6 +148,19 @@ def record_call(record: UsageRecord, say: Callable[[str], None]) -> None:
     export its figures as metrics when telemetry is on."""
     record_line(record, say)
     export_call(record)
+    warn_if_near_limit(record, say)
+
+
+def warn_if_near_limit(record: UsageRecord, say: Callable[[str], None]) -> None:
+    """Say so when a step ended above the configured share of the window: a signal only."""
+    context = record.context
+    if context is None or not context.used_end or not context.max:
+        return
+    if context.used_end > config.active().context.warn_share * context.max:
+        say(
+            f"the context window is nearly full: {context.used_end} of {context.max} tokens "
+            f"({round(100 * context.used_end / context.max)}%) at the end of {record.node}"
+        )
 
 
 def export_call(record: UsageRecord) -> None:
@@ -155,6 +176,13 @@ def export_call(record: UsageRecord) -> None:
         "model": record.model or "default",
         "source": source,
     }
+    if record.context is not None:
+        if record.context.used_end is not None:
+            telemetry.level("abk.agent.context_used", record.context.used_end, **attributes)
+        if record.context.max is not None:
+            telemetry.level("abk.agent.context_max", record.context.max, **attributes)
+        if record.context.compactions:
+            telemetry.count("abk.agent.compactions", record.context.compactions, **attributes)
     if record.usage_source == "none":
         return
     if record.cost is not None and record.cost.incremental_usd is not None:
@@ -217,6 +245,7 @@ def combine_records(parts: list[UsageRecord]) -> UsageRecord:
         | {
             "reported": _combine_usage(reported) if reported else None,
             "cost": _combine_cost([p.cost for p in parts]),
+            "context": _combine_context([p.context for p in parts]),
         }
     )
 
@@ -231,6 +260,24 @@ def _combine_cost(parts: list[Cost | None]) -> Cost | None:
         figures = [v for p in present if (v := getattr(p, name)) is not None]
         summed[name] = sum(figures) if figures else None
     return present[-1].model_copy(update=summed)
+
+
+def _combine_context(parts: list[Context | None]) -> Context | None:
+    """The calls' context as one step's: it started where the first did and ended where the
+    last did, and added, compacted and peaked over all of them."""
+    present = [p for p in parts if p is not None]
+    if not present:
+        return None
+    peaks = [p.peak for p in present if p.peak is not None]
+    added = [p.added for p in present if p.added is not None]
+    return present[-1].model_copy(
+        update={
+            "used_start": present[0].used_start,
+            "added": sum(added) if added else None,
+            "peak": max(peaks) if peaks else None,
+            "compactions": sum(p.compactions for p in present),
+        }
+    )
 
 
 def _combine_usage(parts: list[Usage]) -> Usage:

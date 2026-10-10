@@ -38,7 +38,9 @@ def run(tmp_path: Path, stdout: str) -> AgentResult:
 def test_the_fill_follows_each_requests_input_cache_read_and_cache_creation(
     tmp_path: Path,
 ) -> None:
-    result = run(tmp_path, requests_filling(tmp_path, 150 * K, 170 * K, 195 * K, blocks=2))
+    result = run(
+        tmp_path, requests_filling(tmp_path, 150 * K, 170 * K, 195 * K, blocks=2, window=200 * K)
+    )
 
     context = result.context
     assert context is not None

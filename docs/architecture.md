@@ -1084,6 +1084,22 @@ summed. Every cost total, the summaries written at archive, the web UI's usage v
 `abk.agent.cost` counter add `incremental_usd` only. The counter is right from the release that
 introduced the object; figures exported before it counted a session's earlier calls again in each
 later one.
+The `context` object says how full the model's window was, in tokens: `used_start` (the fill
+at the call's first request), `used_end` (at its last: input plus cache read plus cache creation),
+`added` (their difference, never below zero), `peak` (the largest fill at any request),
+`compactions`, `max` (the window) and `basis` (`reported`, `estimated` or `unknown`). Claude Code's
+fill comes from each `assistant` event's usage (a request repeated by its content blocks counts
+once; a sub-agent's requests, which name the tool call that started them, are not the main
+context); the window is the result's `modelUsage[model].contextWindow` when it has one, else
+`runtimes.<name>.context_windows`. An ACP agent's fill is its `usage_update`s' `used` and `size`;
+a resumed session starts from the figure the agent replays on loading it. A compaction is the
+runtime's own marker (Claude Code's `compact_boundary` event) where the stream has one, else a
+fall in the fill between requests larger than `context.compaction_drop_share` of the window. A
+figure the runtime does not give is absent with `basis` `unknown`, never zero, and never fails a
+run; a step ending above `context.warn_share` of the window logs one warning and nothing is
+scheduled from it. Rows written before this have no `context` and cannot be rebuilt from retained
+transcripts, which hold only each call's aggregate usage. The gauges `abk.agent.context_used` and
+`abk.agent.context_max` and the counter `abk.agent.compactions` carry the cost's attributes.
 With `ABK_GATEWAY_URL` and `ABK_GATEWAY_MASTER_KEY` set, each agent call of the graph gets a
 gateway key of its own, aliased `abk:<unit>:<node>:<round>:<random>` and handed to the agent in
 `ABK_GATEWAY_KEY` (`AgentRequest.env`). When the call ends the figures the gateway logged for that

@@ -90,7 +90,7 @@ or `planned` with work on them and no cause on their last history entry. Changes
 Rewrites `planning.graph_page` from `runs/units.json`. The tick does this on
 every store write; this is for a page that went missing. Exit 0.
 
-### `abk report [--by GROUPING] [--since DATE] [--change CHANGE] [--unit UNIT] [--include-estimates] [--json]`
+### `abk report [--by GROUPING] [--since DATE] [--change CHANGE] [--unit UNIT] [--include-estimates] [--json] [--context]`
 
 Tokens by kind, cost and time by bucket (agent, checks, slot wait, usage-pause wait,
 review wait) from the usage ledger and the unit store, grouped `--by` unit (default),
@@ -112,6 +112,12 @@ figures are dated by the unit's last call, so `--by day` and `--since` place the
 that day. Exit 0.
 
 The same figures are written to `planning.usage_page` on every store write.
+
+`abk report --context` prints the context window's use instead of cost: per step kind the mean
+and 90th percentile of what a call added, the compactions and the end fill as `used / max`
+(the peak only where it differs); per session the fill after each step; the steps that added
+the most; and the number of calls with no context figures, which stay out of the means. Rows
+written before context was recorded have none.
 
 ### `abk usage backfill-costs [--apply]`
 

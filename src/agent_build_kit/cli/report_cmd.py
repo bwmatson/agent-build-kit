@@ -10,7 +10,9 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.usage_report import (
     GROUPINGS,
+    build_context_report,
     build_report,
+    render_context,
     render_json,
     render_table,
 )
@@ -22,6 +24,19 @@ def cmd_report(args: argparse.Namespace, inst: Installation) -> int:
     except ValueError:
         print(f"--since: {args.since!r} is not a date (YYYY-MM-DD)")
         return 2
+    if args.context:
+        print(
+            render_context(
+                build_context_report(
+                    inst.state_dir / LEDGER_NAME,
+                    UnitStore(inst.state_dir / "units.json").all(),
+                    since=since,
+                    change=args.change,
+                    unit=args.unit,
+                )
+            )
+        )
+        return 0
     report = build_report(
         inst.state_dir / LEDGER_NAME,
         UnitStore(inst.state_dir / "units.json").all(),

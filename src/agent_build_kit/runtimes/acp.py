@@ -112,7 +112,7 @@ from agent_build_kit.runtimes.base import (
     ToolPolicy,
 )
 from agent_build_kit.runtimes.traced import traced
-from agent_build_kit.usage import Usage
+from agent_build_kit.usage import Usage, context_of
 
 NAME = "acp"
 
@@ -580,6 +580,9 @@ class _Session:
         # the session is continued; `cost_baseline` is None until a cost was seen.
         self.resumed = False
         self.cost_baseline: float | None = None
+        # The tokens in the context each `usage_update` said, in order, and the window it gave.
+        self.fills: list[int] = []
+        self.window: int | None = None
         # Set once the connection exists (`on_connect`), so `request_permission`
         # can itself send `session/cancel` when it cancels a turn: denying
         # the one call is not enough to stop the agent's turn, and the
@@ -658,6 +661,8 @@ class _Session:
             )
             self._flush_unrecorded(keep=streaming)
         if isinstance(update, UsageUpdate):
+            self.fills.append(update.used)
+            self.window = update.size
             if update.cost is not None:
                 self.cost_usd = update.cost.amount if update.cost.currency == "USD" else None
         elif isinstance(update, AgentThoughtChunk):
@@ -1196,7 +1201,14 @@ def _spent(raw: Any, session: _Session) -> dict:
     when the agent sent one in USD. A call with neither is `none`; a response
     whose counts are not numbers is too, and is said once.
     """
-    spent: dict = {"session_id": session.session_id}
+    spent: dict = {
+        "session_id": session.session_id,
+        "context": context_of(
+            session.fills,
+            window=session.window,
+            drop_share=config.active().context.compaction_drop_share,
+        ),
+    }
     cost = session.cost_usd
     if cost is not None:
         # The agent's own running total, from which the recorder derives the call's spend

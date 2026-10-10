@@ -21,7 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent_build_kit.pipeline.transcript import TranscriptEvent
 from agent_build_kit.usage import Salvaged, Usage
@@ -39,7 +39,7 @@ class ResultEvent(BaseModel):
     and a new key there is no reason to lose the one event that says how the run ended.
     """
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
 
     type: Literal["result"]
     # `success`, or an error subtype: `error_during_execution`, `error_max_turns`.
@@ -60,6 +60,53 @@ class ResultEvent(BaseModel):
     total_cost_usd: Annotated[float | None, Salvaged] = None
     duration_ms: Annotated[int | None, Salvaged] = None
     session_id: Annotated[str | None, Salvaged] = None
+    # Per model, what the run spent; a newer claude adds each model's `contextWindow`.
+    model_usage: Annotated[dict[str, dict] | None, Salvaged] = Field(
+        default=None, alias="modelUsage"
+    )
+
+    def context_window(self, model: str | None) -> int | None:
+        """The window `model` ran in, as the event names it; the only model's when `model` is
+        not among them. A figure that is not a whole number is absent."""
+        entries = self.model_usage or {}
+        entry = entries.get(model or "") or (
+            next(iter(entries.values())) if len(entries) == 1 else {}
+        )
+        window = entry.get("contextWindow") if isinstance(entry, dict) else None
+        return window if isinstance(window, int) and not isinstance(window, bool) else None
+
+
+def request_fills(stdout: str) -> tuple[list[int], int]:
+    """The main conversation's context fill at each model request of a streamed run, in
+    order, and how many times the run said it compacted. An assistant event repeats its
+    request's message once per content block, which counts once; a sub-agent's requests
+    (those naming the tool call that started them) are not the main context."""
+    fills: list[int] = []
+    markers = 0
+    seen: str | None = None
+    for line in stdout.splitlines():
+        event = _parse(line)
+        if event is None:
+            continue
+        if event.get("type") == "system" and event.get("subtype") == "compact_boundary":
+            markers += 1
+        elif event.get("type") == "assistant" and not event.get("parent_tool_use_id"):
+            message = event.get("message") or {}
+            usage = message.get("usage") or {}
+            counts = [
+                usage.get(key)
+                for key in (
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                )
+            ]
+            whole = [n for n in counts if isinstance(n, int) and not isinstance(n, bool)]
+            if message.get("id") == seen or len(whole) != len(counts):
+                continue
+            seen = message.get("id")
+            fills.append(sum(whole))
+    return fills, markers
 
 
 def stream_run(

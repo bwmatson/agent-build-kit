@@ -19,6 +19,7 @@ row labelled `(archived, no breakdown)` in the node, role and model views.
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -126,6 +127,10 @@ class Report(Frozen):
     sessions: tuple[SessionRow, ...] = ()
     legacy: Legacy = Legacy()
     unknown_calls: int = 0  # calls whose incremental cost could not be known
+
+
+# How many of the steps that added the most the context report lists.
+BIGGEST = 10
 
 
 class StepContext(Frozen):
@@ -455,12 +460,95 @@ def build_context_report(
     unit: str | None = None,
 ) -> ContextReport:
     """How full the context window was, per step kind and per session."""
-    raise NotImplementedError
+    floor = None if since is None else since if since.tzinfo else since.replace(tzinfo=UTC)
+    calls = [
+        (e, e.call)
+        for e in _all_entries(ledger, units)
+        if e.call is not None
+        and (change is None or e.change == change)
+        and (unit is None or e.unit == unit)
+        and (floor is None or (e.at is not None and e.at >= floor))
+    ]
+    known = [(e, c) for e, c in calls if c.context is not None and c.context.used_end is not None]
+    by_node: dict[str, list[UsageRecord]] = {}
+    by_session: dict[str, list[tuple[datetime, int]]] = {}
+    for entry, call in known:
+        assert call.context is not None and call.context.used_end is not None
+        by_node.setdefault(call.node, []).append(call)
+        if call.session_id:
+            by_session.setdefault(call.session_id, []).append(
+                (entry.at or datetime.min.replace(tzinfo=UTC), call.context.used_end)
+            )
+    adders = sorted(
+        (
+            Adder(unit=c.unit, node=c.node, round=c.round, added=c.context.added)
+            for _, c in known
+            if c.context is not None and c.context.added is not None
+        ),
+        key=lambda a: -a.added,
+    )
+    return ContextReport(
+        steps=tuple(_step_context(node, group) for node, group in sorted(by_node.items())),
+        sessions=tuple(
+            SessionContext(session_id=sid, fills=tuple(fill for _, fill in sorted(rows)))
+            for sid, rows in sorted(by_session.items())
+        ),
+        biggest=tuple(adders[:BIGGEST]),
+        unknown_calls=len(calls) - len(known),
+    )
+
+
+def _step_context(node: str, group: list[UsageRecord]) -> StepContext:
+    contexts = [c.context for c in group if c.context is not None]
+    added = sorted(c.added for c in contexts if c.added is not None)
+    ends = [c.used_end for c in contexts if c.used_end is not None]
+    windows = [c.max for c in contexts if c.max is not None]
+    peaks = [c.peak for c in contexts if c.peak is not None]
+    peak = max(peaks, default=None)
+    return StepContext(
+        node=node,
+        calls=len(contexts),
+        mean_added=sum(added) / len(added) if added else 0.0,
+        p90_added=added[math.ceil(0.9 * len(added)) - 1] if added else 0.0,
+        compactions=sum(c.compactions for c in contexts),
+        used_end=round(sum(ends) / len(ends)),
+        max=max(windows, default=None),
+        peak=peak if peak is not None and peak > max(ends) else None,
+    )
+
+
+def _tokens(count: float) -> str:
+    return f"{round(count / 1000)}k"
 
 
 def render_context(report: ContextReport) -> str:
     """The context report as the table `abk report --context` prints."""
-    raise NotImplementedError
+    steps = [["step", "calls", "mean added", "p90 added", "compactions", "end fill", "peak"]]
+    for step in report.steps:
+        fill = _tokens(step.used_end) + (f" / {_tokens(step.max)}" if step.max else "")
+        steps.append(
+            [
+                step.node,
+                str(step.calls),
+                _tokens(step.mean_added),
+                _tokens(step.p90_added),
+                str(step.compactions),
+                fill,
+                f"peak {_tokens(step.peak)}" if step.peak is not None else "",
+            ]
+        )
+    out = [*_aligned(steps)]
+    if report.sessions:
+        out += ["", "session fill after each step"]
+        out += [
+            f"{s.session_id}  " + " -> ".join(_tokens(fill) for fill in s.fills)
+            for s in report.sessions
+        ]
+    if report.biggest:
+        out += ["", "steps that added the most"]
+        out += [f"{a.unit} {a.node} round {a.round}  +{_tokens(a.added)}" for a in report.biggest]
+    out += ["", f"{report.unknown_calls} unknown (no context figures, left out of the means)"]
+    return "\n".join(out)
 
 
 def _report_of(
