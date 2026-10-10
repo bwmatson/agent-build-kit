@@ -95,7 +95,7 @@ class Recorder:
 
     made: int = 0
 
-    def commit(self, message: str, *, cwd: Path) -> int:
+    def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
         self.events.append(f"commit:{message.split(':')[0]}")
         count = 1 if "test" in message else self.commits_from_impl
         self.made += count
@@ -247,7 +247,7 @@ class SelfCommitting(Recorder):
         self.made += 1
         return super().claude(prompt, cwd=cwd, **session)
 
-    def commit(self, message: str, *, cwd: Path) -> int:
+    def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
         self.events.append(f"commit:{message.split(':')[0]}")
         return 0
 

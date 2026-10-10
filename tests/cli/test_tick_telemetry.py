@@ -308,7 +308,7 @@ def test_no_span_or_metric_carries_feedback_a_prompt_a_diff_or_a_commit_message(
     messages: list[str] = []
     real_commit = ticks.recorder.commit
 
-    def commit(message: str, *, cwd: Path) -> int:
+    def commit(message: str, *, cwd: Path, base: str = "") -> int:
         messages.append(message)
         return real_commit(message, cwd=cwd)
 
@@ -331,7 +331,7 @@ def test_no_span_or_metric_carries_feedback_a_prompt_a_diff_or_a_commit_message(
 def test_a_commit_the_gate_rejects_leaves_its_text_on_no_span(
     ticks: Ticks, exported: Collector
 ) -> None:
-    def rejected(message: str, *, cwd: Path) -> int:
+    def rejected(message: str, *, cwd: Path, base: str = "") -> int:
         raise CommitRejected("git commit was rejected: SENTINEL-gate said\n" + DIFF)
 
     ticks.options["commit"] = rejected

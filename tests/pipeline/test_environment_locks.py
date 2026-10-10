@@ -10,8 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import local_ref
-from agent_build_kit.pipeline.wiring import build_commit, build_restack_onto
+from agent_build_kit.pipeline.wiring import build_commit, build_restack_onto, build_worktree
 from agent_build_kit.pipeline.workspaces import DirtyWorktree, prepare_worktree
 from tests.environment_fakes import FakeEnvironment, repo_config
 from tests.factories import git, init_repo, unit
@@ -76,28 +75,52 @@ def test_another_file_still_holds_a_worktree_and_is_the_only_path_named(
     assert LOCK not in str(dirty.value), "the message does not list it either"
 
 
-def test_a_worktree_with_no_lock_inputs_is_held_for_an_uncommitted_lock(
+def held_by(work: Path, tmp_path: Path, config) -> list[str] | None:
+    """What holds the unit's worktree in `work`, once the sync's lock (`deps.lock`), a second
+    lock (`other.lock`) and nothing else have been left uncommitted; the worktree is asked
+    for through `build_worktree` with the repository's configuration, as a unit's steps do."""
+    worktree = build_worktree({"app": work}, root=tmp_path / "trees", repo=config)
+    tree = worktree(unit(), "main")
+    (tree / LOCK).write_text("a\n")
+    (tree / OTHER_LOCK).write_text("b\n")
+    try:
+        worktree(unit(), "main")
+    except DirtyWorktree as dirty:
+        return sorted(dirty.paths)
+    return None
+
+
+def environment_of(tmp_path: Path, *locks: str):
+    env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,), locks=locks)
+    return repo_config(tmp_path / "meta", env)
+
+
+def test_a_worktree_of_a_repository_without_an_environment_is_held_for_an_uncommitted_lock(
     repo: Path, tmp_path: Path
 ) -> None:
-    tree = prepare_worktree(repo, BRANCH, base="main", root=tmp_path / "trees")
-    (tree / LOCK).write_text("rewritten\n")
+    assert held_by(repo, tmp_path, repo_config(tmp_path / "meta")) == [LOCK, OTHER_LOCK]
 
-    assert dirty_paths(repo, tmp_path / "trees", locks=()) == [LOCK]
+
+def test_an_environment_with_no_lock_inputs_ignores_none(repo: Path, tmp_path: Path) -> None:
+    assert held_by(repo, tmp_path, environment_of(tmp_path)) == [LOCK, OTHER_LOCK]
 
 
 def test_each_repository_ignores_only_the_lock_its_own_inputs_name(tmp_path: Path) -> None:
     held: dict[str, list[str] | None] = {}
-    for name, locks in {"first": (LOCK,), "second": (OTHER_LOCK,)}.items():
+    for name, lock in {"first": LOCK, "second": OTHER_LOCK}.items():
         work = init_repo(tmp_path / name)
         (work / "README.md").write_text("base\n")
         git(work, "add", "-A")
         git(work, "commit", "-qm", "base")
-        tree = prepare_worktree(work, BRANCH, base="main", root=tmp_path / f"{name}-trees")
-        (tree / LOCK).write_text("a\n")
-        (tree / OTHER_LOCK).write_text("b\n")
-        held[name] = dirty_paths(work, tmp_path / f"{name}-trees", locks=locks)
+        held[name] = held_by(work, tmp_path / name, environment_of(tmp_path / name, lock))
 
     assert held == {"first": [OTHER_LOCK], "second": [LOCK]}
+
+
+def test_a_lock_input_written_with_a_dot_prefix_names_the_same_file(
+    repo: Path, tmp_path: Path
+) -> None:
+    assert held_by(repo, tmp_path, environment_of(tmp_path, f"./{LOCK}")) == [OTHER_LOCK]
 
 
 # --- the commit step ---------------------------------------------------------------------
@@ -163,6 +186,31 @@ def test_an_untracked_lock_is_never_committed_and_stays_in_the_worktree(
     assert (tree / LOCK).read_text() == "created by the sync\n"
 
 
+def test_a_stacked_unit_is_judged_against_its_own_base_not_the_trunk(
+    repo: Path, tmp_path: Path
+) -> None:
+    git(repo, "checkout", "-q", "-b", "spec/add-marker/0")
+    (repo / MANIFEST).write_text('widget = "9"\n')
+    (repo / LOCK).write_text("resolved for 9\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the parent bumps widget")
+    git(repo, "checkout", "-q", "main")
+    tree = prepare_worktree(
+        repo, BRANCH, base="spec/add-marker/0", root=tmp_path / "trees", locks=(LOCK,)
+    )
+    (tree / "marker.py").write_text("MARKER = 1\n")
+    (tree / LOCK).write_text("reformatted by a newer tool\n")
+    config = environment_of(tmp_path, LOCK)
+
+    made = build_commit(unit_id=unit().id, repo=config, base="main")(
+        "feat: the work", cwd=tree, base="spec/add-marker/0"
+    )
+
+    assert made == 1
+    assert committed_files(tree) == ["marker.py"]
+    assert (tree / LOCK).read_text() == "resolved for 9\n"
+
+
 def test_a_dependency_change_in_an_earlier_commit_still_carries_the_lock(
     repo: Path, tmp_path: Path
 ) -> None:
@@ -203,4 +251,3 @@ def test_a_restack_succeeds_over_a_tracked_lock_the_unit_did_not_change(
 
     assert moved is not None and not moved.conflict
     assert git(tree, "rev-parse", "HEAD^") == git(repo, "rev-parse", "main")
-    assert local_ref("main") != "main" or True

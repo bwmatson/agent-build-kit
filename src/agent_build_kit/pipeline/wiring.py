@@ -615,7 +615,9 @@ def build_commit(
     """
     run = run or _run
 
-    def commit(message: str, *, cwd: Path) -> int:
+    default_base = base
+
+    def commit(message: str, *, cwd: Path, base: str = "") -> int:
         # The unit id in the trailer keeps a branch's history readable without
         # the planning repo open beside it.
         trailers = ([f"Unit: {unit_id}"] if unit_id else []) + (
@@ -624,7 +626,7 @@ def build_commit(
         body = f"{message}\n\n" + "\n".join(trailers) + "\n" if trailers else message
 
         def attempt() -> subprocess.CompletedProcess | None:
-            restore_unchanged_locks(repo, cwd, base)
+            restore_unchanged_locks(repo, cwd, base or default_base)
             run(["git", "add", "-A"], cwd=cwd)
             unstage_untracked_locks(repo, cwd)
             if not run(["git", "diff", "--cached", "--quiet"], cwd=cwd).returncode:
