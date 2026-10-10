@@ -4,6 +4,7 @@ proxy that returns the bytes as they came off the wire, and a reader of the file
 from __future__ import annotations
 
 import gzip
+import socket
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -59,7 +60,10 @@ def send(
 def refused_url() -> Iterator[str]:
     """The base URL of a loopback port that refuses every connection and that nothing else
     can take for as long as the block runs: a closed port may be handed to another test."""
-    raise NotImplementedError
+    # Bound and never listening: connections are refused, and the port stays ours.
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        yield f"http://127.0.0.1:{held.getsockname()[1]}"
 
 
 def files(directory: Path) -> list[Path]:
