@@ -16,11 +16,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource
+from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.serve.metrics import catalogue
 from agent_build_kit.serve.server import create_app
 from agent_build_kit.settings import reload
 from tests.ledger_lines import agent_line, span_line, write_ledger
-from tests.serving import EXPECTED, seed_pipeline
+from tests.serving import seed_pipeline
 
 EMIT_CALL = re.compile(
     r"telemetry\.(?:duration|observe|count|level)\(\s*[\"'](abk\.[a-z0-9_.]+)[\"']"
@@ -277,10 +279,36 @@ def test_with_prometheus_down_durations_and_unit_counts_come_from_local_files(
     counted = {
         s["labels"]["state"]: s["points"][0][1] for s in metric(answer, "abk.units")["series"]
     }
-    expected: dict[str, float] = {}
-    for state, *_ in EXPECTED.values():
-        expected[state] = expected.get(state, 0) + 1
-    assert counted == expected
+    # One series per stored state: the blocked unit is planned, as it is stored.
+    assert counted == {
+        "merged": 1,
+        "in_review": 1,
+        "planned": 2,
+        "held": 1,
+        "failed": 1,
+        "running": 1,
+        "satisfied": 1,
+        "closed": 1,
+    }
+
+
+def test_units_reading_reworking_or_rebasing_are_counted_as_running(
+    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    point_at(monkeypatch, dead_url())
+    store = seed_pipeline(inst)
+    store.set_feedback("feature/7", "rename it", source=FeedbackSource.REVIEW)
+    store.set_state("feature/7", RUNNING, note="rework requested", cause=Cause.REWORK)
+    store.set_state("feature/4", RUNNING, note="base moved", cause=Cause.BASE_CHANGED)
+
+    answer = page.get("/api/metrics").json()
+
+    counted = {
+        s["labels"]["state"]: s["points"][0][1] for s in metric(answer, "abk.units")["series"]
+    }
+    assert counted["running"] == 2
+    assert "reworking" not in counted
+    assert "rebasing" not in counted
 
 
 def test_with_prometheus_down_the_ledgers_metric_records_draw_their_charts(

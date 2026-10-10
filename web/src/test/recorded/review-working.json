@@ -1,5 +1,8 @@
 {
   "commit": "5c0b8e1f3a7d49e2b6f1a08c3d5e7f9012b4a6c8",
-  "files": ["src/extra.py", "src/notes.py"],
+  "files": [
+    "src/extra.py",
+    "src/notes.py"
+  ],
   "patch": "diff --git a/src/extra.py b/src/extra.py\nindex 1a2b3c4..5d6e7f8 100644\n--- a/src/extra.py\n+++ b/src/extra.py\n@@ -1,3 +1,4 @@\n first\n-second\n+second changed\n+added\n third\ndiff --git a/src/notes.py b/src/notes.py\nnew file mode 100644\nindex 0000000..9a8b7c6\n--- /dev/null\n+++ b/src/notes.py\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n"
 }

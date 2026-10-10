@@ -1771,6 +1771,7 @@ class BuildPath:
             EventKind.REWORK,
             EventKind.HOLD,
             EventKind.BASE_MOVED,
+            EventKind.UPSTREAM_CHANGED,
         ):
             # A person has the unit: nothing automatic touches it again.
             return {"event": None}
@@ -1798,6 +1799,14 @@ class BuildPath:
                     # A CI log or a conflict text gives the agent no comment, so none of
                     # those on the pull request was given; they were answered before.
                     update["seen_comments"] = self.covered(pr)
+        elif event.kind is EventKind.UPSTREAM_CHANGED:
+            # Parked, not sent back to work: the approval, branch and pull request stay, and
+            # the thread keeps waiting here for the release to resume it. Only a unit still in
+            # review: a person's hold, or a build, that got there first is left as it is.
+            if r.store.get(unit.id).state != IN_REVIEW:
+                self.say("not in review any more, nothing to park")
+                return {"event": None}
+            r.store.set_state(unit.id, PLANNED, note=event.reason, cause=Cause.UPSTREAM_WENT_BACK)
         elif event.kind is EventKind.ADOPTED:
             # A chat's commit is on the branch: nothing earlier is approved, and the checks
             # start with a fix budget of their own. The recorded node start is the chat's now.

@@ -14,7 +14,7 @@ import { useApi } from "./useApi";
 
 /** The state, then the cause and who holds the unit, each from the record. */
 function stateLine(unit: UnitSummary): ReactElement {
-  const parts = [unit.state];
+  const parts = [unit.status];
   if (unit.cause) parts.push(unit.cause.replaceAll("_", " "));
   const text = parts.join(" — ");
   return (
@@ -54,7 +54,7 @@ function RelatedList({ label, items, link }: { label: string; items: Related[]; 
     <ul aria-label={label}>
       {items.map((item) => (
         <li key={item.id}>
-          {link ? <Link to={unitPath(item.id)}>{item.id}</Link> : item.id} {item.state}
+          {link ? <Link to={unitPath(item.id)}>{item.id}</Link> : item.id} {item.status}
         </li>
       ))}
     </ul>

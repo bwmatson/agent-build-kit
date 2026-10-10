@@ -27,7 +27,6 @@ from agent_build_kit.pipeline.spans import Span
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.usage_calls import CALLS_NAME, derive_rate, read_calls
 from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, records_in
-from agent_build_kit.pipeline.vocabulary import effective_state
 
 # What each telemetry function creates; `value` and `seconds` are its own parameters.
 TYPES = {"count": "counter", "duration": "histogram", "observe": "histogram", "level": "gauge"}
@@ -392,7 +391,7 @@ class LocalSource:
     def _unit_series(self) -> list[Series]:
         counts: dict[str, int] = defaultdict(int)
         for unit in self._units:
-            counts[effective_state(unit, self._units)] += 1
+            counts[unit.state] += 1
         at = self._now().timestamp()
         return [
             Series(labels={"state": s}, points=((at, float(n)),)) for s, n in sorted(counts.items())
