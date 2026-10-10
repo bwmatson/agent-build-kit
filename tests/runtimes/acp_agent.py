@@ -530,20 +530,25 @@ class FakeAgent:
     def _leave_child(self, *, new_session: bool) -> None:
         """Start a child that holds this agent's stderr for `HANG_SECONDS`."""
         life = orphan_life_fifo(self._record)
-        child = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                "import os, sys, time\n"
-                "if os.path.exists(sys.argv[1]):\n"
-                "    os.write(os.open(sys.argv[1], os.O_WRONLY), b'x')\n"
-                f"time.sleep({HANG_SECONDS})",
-                str(life),
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            start_new_session=new_session,
-        )
+        held: tuple[int, ...] = ()
+        if life.exists():
+            # Opened here, not in the child: the child holds it from its birth,
+            # however late its interpreter starts. The test's reader is open
+            # already, so this does not block.
+            fd = os.open(life, os.O_WRONLY)
+            os.write(fd, b"x")
+            held = (fd,)
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-c", f"import time; time.sleep({HANG_SECONDS})"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                pass_fds=held,
+                start_new_session=new_session,
+            )
+        finally:
+            for fd in held:
+                os.close(fd)
         orphan_pid_file(self._record).write_text(str(child.pid))
 
     async def _work(self, session_id: str, prompt: list) -> bool:
@@ -875,9 +880,10 @@ class FakeAgent:
 
 
 def orphan_life_fifo(record: Path) -> Path:
-    """A named pipe a test may create before the run: the child `--linger`
-    leaves behind opens it for writing, writes a byte once it is up and holds
-    it until it dies, so a reader sees its start and its end as events."""
+    """A named pipe a test may create before the run: the agent writes a byte
+    to it as it starts the child `--linger` leaves behind, and the child holds
+    its write end from birth until it dies, so a reader sees the start and the
+    end as events whatever the child's own startup time."""
     return record.with_suffix(".life")
 
 

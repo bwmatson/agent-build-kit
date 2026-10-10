@@ -382,31 +382,6 @@ def test_an_agent_abk_had_to_kill_is_a_failed_result_not_an_interruption(
     assert result.raw != ""
 
 
-def _gone(pid: int) -> bool:
-    """Whether `pid` has exited. A zombie counts: once its parent is gone it
-    waits on whatever adopted it to reap it, which need not be prompt."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        # It existed a moment ago and its entry is gone now: it exited and was
-        # reaped in between. Read as "still running", this made a process that
-        # died on time look like one that outlived the run.
-        return True
-    # The state follows the command name, which is in parentheses.
-    return stat.rpartition(")")[2].split()[0] == "Z"
-
-
-def _gone_soon(pid: int) -> bool:
-    deadline = time.monotonic() + 5
-    while not _gone(pid) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    return _gone(pid)
-
-
 def _watch_child(record: Path) -> int:
     """Open the end of the child's life pipe the test reads, before the run."""
     fifo = orphan_life_fifo(record)
@@ -463,10 +438,11 @@ def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
     monkeypatch.setattr(acp, "EXIT_GRACE", 0.2)
     record = tmp_path / "agent.jsonl"
     use_agent(record, fail="orphan")
+    watch = _watch_child(record)
 
     result, elapsed = _run_bounded(_request(worktree, specs))
     orphan = int(orphan_pid_file(record).read_text())
-    left = not _gone_soon(orphan)
+    left = not _read_to_end(watch)
     if left:
         _kill_if_left(orphan)
 
