@@ -9,10 +9,10 @@ from agent_build_kit.pipeline.shell import git
 from agent_build_kit.replay.models import ReplayMode
 from agent_build_kit.replay.report import Miss, ReplayedTest, replay_label
 from agent_build_kit.replay.state import STATE_FILE, read_state
-from agent_build_kit.replay.store import read_cassettes
+from agent_build_kit.replay.store import cassette_name, read_cassettes
 from tests.factories import init_repo
 from tests.replay.fake_upstream import Answer, FakeUpstream, Seen
-from tests.replay.support import START, files, relative, send
+from tests.replay.support import START, files, send
 from tests.replay.test_replay_modes import TEST, passing_run, proxy_for, recorded
 from tests.replay.test_replay_recording import PREFIXES, VOLATILE, body_in
 
@@ -62,7 +62,7 @@ def test_the_report_lists_the_cassette_no_call_asked_for(
 
     [test] = proxy.report().tests
     unasked = next(c for c in before if c.call_index == 3)
-    assert test.unused == [relative(tmp_path / "cassettes", unasked)]
+    assert test.unused == [cassette_name(tmp_path / "cassettes", unasked)]
 
 
 def test_the_report_lists_a_cassette_too_old_to_answer(
@@ -153,6 +153,41 @@ def test_billed_calls_avoided_are_totalled_from_the_recorded_usage_figures(
     assert report.tokens_avoided == 65
 
 
+def streamed_answer(seen: Seen) -> Answer:
+    def event(name: str, data: dict) -> bytes:
+        return f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
+
+    start = {
+        "type": "message_start",
+        "message": {"usage": {"input_tokens": 25, "output_tokens": 1}},
+    }
+    delta = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}}
+    final = {"type": "message_delta", "usage": {"output_tokens": 15}}
+    return Answer(
+        headers={"content-type": "text/event-stream"},
+        chunks=[
+            event("message_start", start),
+            event("content_block_delta", delta),
+            event("message_delta", final),
+            event("message_stop", {"type": "message_stop"}),
+        ],
+    )
+
+
+def test_a_streamed_response_totals_the_usage_of_its_start_and_its_final_delta(
+    tmp_path: Path,
+) -> None:
+    with FakeUpstream(streamed_answer) as upstream:
+        recorded(upstream, tmp_path, {"body": b"stream"})
+        with proxy_for(upstream, tmp_path, ReplayMode.replay) as proxy:
+            passing_run(proxy, {"body": b"stream"})
+
+    report = proxy.report()
+    assert report.tests[0].hits == 1
+    assert report.billed_calls_avoided == 1
+    assert report.tokens_avoided == 40
+
+
 def test_a_run_that_replayed_nothing_avoided_nothing(tmp_path: Path) -> None:
     with FakeUpstream(usage_answer) as upstream:
         with proxy_for(upstream, tmp_path, ReplayMode.record) as proxy:
@@ -188,7 +223,7 @@ def test_using_a_cassette_changes_the_state_file_and_not_the_committed_one(
         passing_run(proxy, FIRST[0])
 
     assert {path: path.read_bytes() for path in files(directory)} == before
-    assert read_state(directory).last_hit_at == {relative(directory, held): later}
+    assert read_state(directory).last_hit_at == {cassette_name(directory, held): later}
     assert git(repo, "check-ignore", "-q", str(directory / STATE_FILE), check=False).returncode == 0
     [cassette_file] = files(directory)
     assert git(repo, "check-ignore", "-q", str(cassette_file), check=False).returncode == 1

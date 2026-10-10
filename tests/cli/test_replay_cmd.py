@@ -11,10 +11,10 @@ from agent_build_kit.cli import main
 from agent_build_kit.config import WorkspaceConfig, dump
 from agent_build_kit.replay.models import Cassette
 from agent_build_kit.replay.state import read_state
-from agent_build_kit.replay.store import cassette_path, load_cassette
+from agent_build_kit.replay.store import cassette_name, cassette_path, load_cassette
 from tests.cli.replay_driver import replay_repo, store
 from tests.factories import init_repo
-from tests.replay.support import relative, waiting_cassette
+from tests.replay.support import waiting_cassette
 
 TEST = "tests/test_a.py::test_one"
 
@@ -64,6 +64,7 @@ def test_each_waiting_cassette_is_listed_with_its_reason_and_the_difference_in_r
     # The summaries of the waiting cassette and of what superseded it, where they differ.
     assert "/v1/old" in out
     assert "/v1/new" in out
+    assert "path differs" in out
 
 
 def test_keep_clears_the_mark_and_leaves_the_file(
@@ -94,6 +95,6 @@ def test_delete_removes_the_file(workspace: Workspace, capsys: pytest.CaptureFix
     assert cassette_path(workspace.directory, workspace.old).exists()
     _, after = workspace.run(capsys)
     assert workspace.file(workspace.lonely) not in after
-    assert relative(workspace.directory, workspace.lonely) not in (
+    assert cassette_name(workspace.directory, workspace.lonely) not in (
         read_state(workspace.directory).unreviewed_runs
     )

@@ -24,7 +24,7 @@ from agent_build_kit import config as config_module
 from agent_build_kit.config import ReplayConfig, WorkspaceConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.replay.hosts import InStackHosts, in_stack_hosts
-from agent_build_kit.replay.models import Rule
+from agent_build_kit.replay.models import ReplayMode, Rule
 from agent_build_kit.replay.report import RunReport, combine, render, replay_label
 from agent_build_kit.replay.review import count_run, overdue
 from agent_build_kit.settings import Settings
@@ -126,6 +126,8 @@ def pytest_runtest_makereport(
 
 def _note(item: pytest.Item, report: pytest.TestReport, proxy: ReplayProxy) -> None:
     """Keep the proxy's report for the summary, and label the test when it replayed."""
+    if proxy.mode is ReplayMode.off:
+        return
     finished = proxy.report()
     item.config.stash.setdefault(_REPORTS, []).append((proxy.config, finished))
     if finished.tests and (label := replay_label(finished.tests[-1])):

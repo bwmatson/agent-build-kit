@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.replay.state import ReplayState, read_state, write_state
-from agent_build_kit.replay.store import write_cassette
+from agent_build_kit.replay.store import cassette_name, write_cassette
 from tests.replay.fake_upstream import FakeUpstream
-from tests.replay.support import ENV, UPSTREAM, relative, run_session, waiting_cassette
+from tests.replay.support import ENV, UPSTREAM, run_session, waiting_cassette
 
 INNER = """
 import os
@@ -135,7 +135,7 @@ def waiting(session: Session, runs: int) -> str:
     """A cassette of a test that no longer exists, waiting for `runs` runs."""
     held = waiting_cassette("tests/test_gone.py::test_old")
     write_cassette(session.directory, held)
-    name = relative(session.directory, held)
+    name = cassette_name(session.directory, held)
     write_state(session.directory, ReplayState(unreviewed_runs={name: runs}))
     return name
 

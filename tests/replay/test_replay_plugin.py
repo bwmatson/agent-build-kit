@@ -123,6 +123,7 @@ def test_mode_off_gives_an_empty_environment_and_records_nothing(
 
     result.assert_outcomes(passed=1)
     assert read_cassettes(directory) == []
+    assert not directory.exists()
     assert upstream.seen == []
 
 

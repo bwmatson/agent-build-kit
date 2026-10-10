@@ -17,7 +17,6 @@ import pytest
 from agent_build_kit.config import ReplayConfig, ReplayUpstream
 from agent_build_kit.model import Frozen
 from agent_build_kit.replay.models import Cassette, RequestSummary, StoredResponse, UpstreamKind
-from agent_build_kit.replay.store import cassette_name
 from tests.replay.proxy import ReplayProxy
 
 UPSTREAM = "svc-a"
@@ -107,11 +106,6 @@ def waiting_cassette(
         needs_review=needs_review,
         review_reason=reason if needs_review else "",
     )
-
-
-def relative(directory: Path, cassette: Cassette) -> str:
-    """The cassette's path under `directory`, as the state file and the report name it."""
-    return cassette_name(directory, cassette)
 
 
 def run_session(

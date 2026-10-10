@@ -7,9 +7,8 @@ from pathlib import Path
 from agent_build_kit.config import ReplayConfig, RepoConfig, TestsConfig
 from agent_build_kit.replay.models import Cassette
 from agent_build_kit.replay.state import ReplayState, write_state
-from agent_build_kit.replay.store import write_cassette
+from agent_build_kit.replay.store import cassette_name, write_cassette
 from tests.factories import init_repo
-from tests.replay.support import relative
 
 DIRECTORY = Path("tests/cassettes")
 REVIEW_AFTER_RUNS = 5
@@ -27,6 +26,6 @@ def store(directory: Path, *cassettes: Cassette, unreviewed_runs: int = 0) -> li
     """Write `cassettes`, each waiting for `unreviewed_runs` runs; their names under `directory`."""
     for cassette in cassettes:
         write_cassette(directory, cassette)
-    names = [relative(directory, cassette) for cassette in cassettes if cassette.needs_review]
+    names = [cassette_name(directory, cassette) for cassette in cassettes if cassette.needs_review]
     write_state(directory, ReplayState(unreviewed_runs={name: unreviewed_runs for name in names}))
     return names
