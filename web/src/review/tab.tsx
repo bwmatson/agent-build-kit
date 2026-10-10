@@ -6,7 +6,7 @@ import { getJson, sendJson } from "../api";
 import type { Attachment } from "../composer";
 import { useApi } from "../useApi";
 import type { Decision, LineRange, ReviewThread } from "./types";
-import { DiffViewer, patchFiles } from "./viewer";
+import { DiffViewer, patchFiles, rangeContext } from "./viewer";
 
 interface DiffAnswer {
   commit: string;
@@ -60,45 +60,17 @@ function lineSelector(focus: Focus): string {
   return `[data-path="${quoted(focus.path)}"][data-${focus.side}-line="${focus.line}"]`;
 }
 
-/** The part of the page a focus is in: the uncommitted section, or the branch's diff, which
- * comes first, so its first match is its own. */
-function sectionOf(focus: Focus): ParentNode {
-  return (focus.working && document.querySelector('[data-working="true"]')) || document;
+/** The part of the page a focus is in: the uncommitted section, which is null until it is
+ * drawn, or the branch's diff, which comes first, so its first match is its own. */
+function sectionOf(focus: Focus): ParentNode | null {
+  return focus.working ? document.querySelector('[data-working="true"]') : document;
 }
 
-/** The file, lines, hunk and text of `range` in `patch`: every hunk the range touches and the
- * lines of it the patch shows. Null where the patch shows none of them. */
+/** The file, lines, hunk and text of `range` in `patch`, or null where the patch shows none. */
 function attachmentOf(patch: string, range: LineRange): Attachment | null {
-  const sections = patch.split(/^(?=diff --git )/m);
-  const section = sections.find((part) => part.startsWith(`diff --git a/${range.path} b/`));
-  if (!section) return null;
-  const touched: string[] = [];
-  const picked: string[] = [];
-  for (const hunk of section.split(/^(?=@@ )/m).slice(1)) {
-    const [header, ...body] = hunk.replace(/\n$/, "").split("\n");
-    const start = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(header);
-    if (!start) continue;
-    let oldLine = Number(start[1]);
-    let newLine = Number(start[2]);
-    const before = picked.length;
-    for (const row of body) {
-      if (row.startsWith("\\")) continue;
-      const mark = row[0];
-      const here = range.side === "new" ? newLine : oldLine;
-      const counts = range.side === "new" ? mark !== "-" : mark !== "+";
-      if (counts && here >= range.start && here <= range.end) picked.push(row.slice(1));
-      if (mark !== "+") oldLine++;
-      if (mark !== "-") newLine++;
-    }
-    if (picked.length > before) touched.push(hunk.replace(/\n$/, ""));
-  }
-  if (picked.length === 0) return null;
-  return {
-    file: range.path,
-    lines: [range.start, range.end],
-    hunk: touched.join("\n"),
-    text: picked.join("\n"),
-  };
+  const found = rangeContext(patch, range);
+  if (found === null) return null;
+  return { file: range.path, lines: [range.start, range.end], ...found };
 }
 
 const DECISION_LABELS = { request_changes: "Request changes", approve: "Approve" } as const;
@@ -243,6 +215,7 @@ function UnitReview({ name }: { name: string }): ReactElement {
   const written = useRef<string | null>(null);
 
   const patch = diff && "data" in diff ? diff.data.patch : null;
+  const workingPatch = working && "data" in working ? working.data.patch : "";
   const answer = review && "data" in review ? review.data : null;
   const file = params.get("file");
   const linesText = params.get("lines");
@@ -288,11 +261,14 @@ function UnitReview({ name }: { name: string }): ReactElement {
 
   useEffect(() => {
     if (focus === null || patch === null) return;
+    // An uncommitted focus waits for its section, which draws once the working answer is in.
+    const section = sectionOf(focus);
+    if (section === null) return;
     const target =
-      (focus.line !== null && sectionOf(focus).querySelector(lineSelector(focus))) ||
-      sectionOf(focus).querySelector(`[data-file="${quoted(focus.path)}"]`);
+      (focus.line !== null && section.querySelector(lineSelector(focus))) ||
+      section.querySelector(`[data-file="${quoted(focus.path)}"]`);
     target?.scrollIntoView({ block: "center" });
-  }, [focus, patch]);
+  }, [focus, patch, workingPatch]);
 
   const selection: LineRange | null = useMemo(() => {
     if (!file || !lines) return null;
@@ -322,12 +298,15 @@ function UnitReview({ name }: { name: string }): ReactElement {
     setFocus({ path: finding.file, side: "new", line: finding.line });
   }
 
-  const workingPatch = working && "data" in working ? working.data.patch : "";
   const workingFiles = useMemo(() => patchFiles(workingPatch), [workingPatch]);
   const uncommitted = selection?.working === true;
 
-  function ask(range: LineRange) {
-    const found = attachmentOf(uncommitted ? workingPatch : (patch ?? ""), range);
+  const attachable = selection
+    ? attachmentOf(uncommitted ? workingPatch : (patch ?? ""), selection)
+    : null;
+
+  function ask() {
+    const found = attachable;
     if (found === null) return;
     navigate(`/units/${name}`, {
       state: { attachment: uncommitted ? { ...found, uncommitted: true } : found },
@@ -412,9 +391,14 @@ function UnitReview({ name }: { name: string }): ReactElement {
             }
             onPost={(body) => comment(selection, body)}
           />
-          <button type="button" onClick={() => ask(selection)}>
+          <button type="button" disabled={attachable === null} onClick={ask}>
             Ask the agent
           </button>
+          {attachable === null && (
+            <p role="status" aria-label="Ask note">
+              The diff shows none of these lines, so there is nothing to send.
+            </p>
+          )}
         </>
       )}
       <ul aria-label="Findings">

@@ -73,8 +73,10 @@ function sentChat(api: Api) {
   return api.sent.filter((r) => r.path === `/api${ROOT}/chat`);
 }
 
+const scrolled = vi.fn();
 beforeEach(() => {
-  Element.prototype.scrollIntoView = vi.fn();
+  scrolled.mockClear();
+  Element.prototype.scrollIntoView = scrolled;
 });
 
 describe("the uncommitted changes", () => {
@@ -264,6 +266,29 @@ describe("a file changed on the branch and in the worktree", () => {
     expect(attached.text).toBe("line 13\nline 14 edited\nline 15\nline 40\nline 41 edited");
     expect(attached.hunk).toContain("@@ -13,3 +13,3 @@");
     expect(attached.hunk).toContain("@@ -40,3 +40,3 @@");
+  });
+});
+
+describe("an address into the uncommitted section", () => {
+  it("opens scrolled to its lines there, not to the same file's lines on the branch", async () => {
+    open(`${ROOT}/review?file=${encodeURIComponent(MARKER)}&lines=13-14&working=1`, overlap);
+
+    await waitFor(() => expect(selectedIn(true)).toBe(2));
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(selectedIn(false)).toBe(0);
+    const targets = scrolled.mock.contexts as HTMLElement[];
+    expect(targets.every((el) => el.closest('[data-working="true"]') !== null)).toBe(true);
+    expect(targets).toContain(lineIn(true, MARKER, 13));
+  });
+});
+
+describe("asking about lines the diff does not show", () => {
+  it("is disabled, with the reason", async () => {
+    open(`${ROOT}/review?file=${encodeURIComponent(MARKER)}&lines=200-201`);
+    await screen.findByRole("region", { name: MARKER });
+
+    expect(await screen.findByRole("button", { name: /ask the agent/i })).toBeDisabled();
+    expect(screen.getByRole("status", { name: /ask note/i })).toHaveTextContent(/none of these/i);
   });
 });
 

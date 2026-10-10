@@ -11,6 +11,7 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.review import ReviewStore
 from tests.attach_driver import checked_out, head
+from tests.factories import git
 from tests.serving import seed_pipeline
 
 UNIT = "feature/2"
@@ -89,3 +90,32 @@ def test_a_thread_on_uncommitted_lines_is_refused_with_the_reason_and_stores_not
     assert answer.status_code == 409
     assert "uncommitted" in answer.json()["detail"]
     assert store(inst).read(UNIT).threads == ()
+
+
+def test_the_patch_does_not_depend_on_the_users_git_config(tree: Path, api: httpx.Client) -> None:
+    git(tree, "config", "diff.mnemonicPrefix", "true")
+    git(tree, "config", "diff.noprefix", "true")
+    git(tree, "config", "color.diff", "always")
+    (tree / "base.txt").write_text("base\nedited\n")
+    (tree / "notes.txt").write_text("a new file\n")
+
+    patch = api.get(WORKING).json()["patch"]
+
+    assert "diff --git a/base.txt b/base.txt" in patch
+    assert "diff --git a/notes.txt b/notes.txt" in patch
+    assert "\x1b[" not in patch
+
+
+def test_the_branch_diff_does_not_depend_on_the_users_git_config(
+    tree: Path, api: httpx.Client
+) -> None:
+    git(tree, "config", "diff.noprefix", "true")
+    git(tree, "config", "color.diff", "always")
+    (tree / "more.txt").write_text("more\n")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-q", "-m", "more")
+
+    patch = api.get(f"/api/units/{UNIT}/diff").json()["patch"]
+
+    assert "diff --git a/more.txt b/more.txt" in patch
+    assert "\x1b[" not in patch

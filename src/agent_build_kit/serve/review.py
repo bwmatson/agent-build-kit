@@ -22,6 +22,10 @@ from agent_build_kit.pipeline.workspaces import changed_paths, worktree_path
 
 Decision = Literal["request_changes", "approve"]
 
+# What every diff here is parsed from must not depend on the user's git config: prefixes
+# (`diff.noprefix`, `diff.mnemonicPrefix`), colour and an external driver change its text.
+_PLAIN = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/")
+
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 
 
@@ -101,7 +105,7 @@ def unit_diff(repo: Path, *, base: str, branch: str, commit: str | None = None) 
     if base_tip is None:
         raise NoDiff(f"the base {base} is not in the checkout")
     fork = git(repo, "merge-base", base_tip, tip).stdout.strip()
-    patch = git(repo, "diff", "--no-renames", fork, tip).stdout
+    patch = git(repo, "diff", *_PLAIN, "--no-renames", fork, tip).stdout
     return UnitDiff(commit=tip, base=base, base_commit=fork, patch=patch)
 
 
@@ -126,10 +130,12 @@ def working_changes(tree: Path | None) -> WorkingChanges:
         return WorkingChanges(commit="", files=(), patch="")
     commit = git(tree, "rev-parse", "HEAD").stdout.strip()
     files = tuple(sorted(changed_paths(tree)))
-    patch = git(tree, "diff", "--no-renames", "HEAD").stdout
+    patch = git(tree, "diff", *_PLAIN, "--no-renames", "HEAD").stdout
     untracked = git(tree, "ls-files", "--others", "--exclude-standard", "-z").stdout.split("\0")
     for name in sorted(filter(None, untracked)):
-        patch += git(tree, "diff", "--no-index", "--", "/dev/null", name, check=False).stdout
+        patch += git(
+            tree, "diff", *_PLAIN, "--no-index", "--", "/dev/null", name, check=False
+        ).stdout
     return WorkingChanges(commit=commit, files=files, patch=patch)
 
 
@@ -137,7 +143,7 @@ def relocate(repo: Path, path: str, line: int | None, commit: str, tip: str) -> 
     """Where `line` of `path` at `commit` is at `tip`, None where it was changed."""
     if line is None:
         return None
-    diff = git(repo, "diff", "-U0", "--no-renames", commit, tip, "--", path, check=False)
+    diff = git(repo, "diff", *_PLAIN, "-U0", "--no-renames", commit, tip, "--", path, check=False)
     if diff.returncode:
         return None
     patch = diff.stdout
