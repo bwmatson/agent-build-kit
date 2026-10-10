@@ -283,7 +283,9 @@ def build_run(
             raise SessionUnavailable(
                 f"the session belongs to {resume_runtime}, and this call runs on {agent.name}"
             )
-        branch = _unit_branch(cwd)
+        # With no origin there is no push to catch: the "remote" head is the
+        # worktree's own branch, which any commit moves.
+        branch = _unit_branch(cwd) if has_origin(cwd) else ""
         before = remote_head(cwd, branch) if branch else None
         # A key of its own for this call, where a gateway is configured: its
         # totals reach the callback beside what the agent reports, and it is

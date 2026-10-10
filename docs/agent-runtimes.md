@@ -434,7 +434,8 @@ on the remote before and after each agent step and raises `AgentPushed` only
 when both reads succeed, the head moved, and the new head is contained in the
 worktree's own branch (an ancestor of its HEAD). An unreadable remote, or a head pushed from elsewhere
 (a person, the host's update-branch button), is not the agent's and never
-fails the step.
+fails the step. A repo with no `origin` has no push to catch, so the
+check is skipped there.
 
 ## Where a redirect may land
 
