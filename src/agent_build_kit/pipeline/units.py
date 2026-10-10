@@ -536,6 +536,11 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     return waiting
 
 
+def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
+    """Whether a planned unit waits on another unit, so it holds no place."""
+    raise NotImplementedError
+
+
 def unmet_gates(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     """The dependencies `unit` must wait to see merged that have not: the
     entries of `waiting_on` its `merge_before` names. A same-repo parent that
