@@ -98,6 +98,25 @@ def test_a_group_joined_onto_another_changes_planned_unit_leaves_nothing_to_plan
     assert run.records["feature"]["ok"] is True
 
 
+def test_an_edited_priority_reaches_the_planned_unit_that_carries_the_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(2), base=tasks_md(1))
+    started(run, 1, FAILED)
+    joined = (Member(change="feature", groups=(2,)),)
+    run.store.upsert([unit("base/1", change="base", groups=(1,), joined=joined)])
+    normal = run.store.get("base/1").priority
+    urgent = tasks_md(2).replace("Group 2\n\n", "Group 2\n\nPriority: 1\n\n")
+    assert urgent != tasks_md(2)
+    edit(run, urgent)
+
+    results = cli.plan_all(run.inst, store=run.store, only={"feature"})
+
+    assert run.calls == 0
+    assert results["feature"].status == "planned"
+    assert run.store.get("base/1").priority < normal
+
+
 def test_editing_the_text_of_a_merged_units_group_is_recorded_the_same_way(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -126,7 +145,7 @@ def test_replan_says_nothing_was_asked_and_why(
 
     assert code == 0
     assert run.calls == 0
-    assert "built by a started unit" in out
+    assert "taken by a started unit" in out
     assert run.records["feature"]["ok"] is True
 
 

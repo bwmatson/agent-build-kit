@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -2057,6 +2057,11 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
 # built, a failed or held unit's too, which wait for a person and keep their branch.
 _STARTED = (*IN_FLIGHT, FAILED, HELD, MERGED, SATISFIED)
 
+# Why a change needs no plan, as `plan_all` logs it and `abk replan` prints it.
+ALL_TAKEN = (
+    "every group is taken by a started unit or another change's planned unit, which reads the edit"
+)
+
 
 class PlanResult(Frozen):
     """What `plan_all` did for one change: `planned`, `failed`, `refused` (the
@@ -2064,34 +2069,60 @@ class PlanResult(Frozen):
 
     status: Literal["planned", "failed", "refused", "skipped"]
     dropped_joins: int = 0
-    # Recorded as planned without asking: every group already belongs to a started unit.
+    # Recorded as planned without asking: every group is taken, by a started unit or by
+    # another change's planned unit.
     recorded_only: bool = False
+
+
+def _carried(store: UnitStore, change: str, keep: Callable[[StoredUnit], bool]) -> set[int]:
+    """The numbers of `change`'s groups carried, its own or joined, by units `keep` accepts."""
+    return {
+        number
+        for u in store.all()
+        if keep(u)
+        for member in u.members()
+        if member.change == change
+        for number in member.groups
+    }
 
 
 def _taken_groups(store: UnitStore, change: str) -> set[int]:
     """The numbers of `change`'s groups no plan may claim: those a unit that has started
     carries, and those another change's planned unit carries."""
-    return {
-        number
-        for u in store.all()
-        if u.state in _STARTED or (u.state == PLANNED and u.change != change)
-        for member in u.members()
-        if member.change == change
-        for number in member.groups
-    }
+    return _carried(
+        store, change, lambda u: u.state in _STARTED or (u.state == PLANNED and u.change != change)
+    )
 
 
 def _gone_groups(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[int]:
     """The groups a started unit carries that `tasks.md` no longer has: renumbered or deleted."""
-    carried = {
-        number
-        for u in store.all()
-        if u.state in _STARTED
-        for member in u.members()
-        if member.change == change
-        for number in member.groups
-    }
+    carried = _carried(store, change, lambda u: u.state in _STARTED)
     return sorted(carried - {g.number for g in groups})
+
+
+def _task_catalog(inst: Installation) -> dict[str, tuple[TaskGroup, ...]]:
+    """Every change's task groups, as `unit_priority` and the plan check read them."""
+    return {
+        path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
+        for path in inst.tasks_files()
+    }
+
+
+def _set_priorities(
+    store: UnitStore, ids: Iterable[str], catalog: Mapping[str, Sequence[TaskGroup]]
+) -> None:
+    """Each unit's priority from the groups it builds now; a unit that has started keeps
+    what it has (the store ignores it)."""
+    for unit_id in dict.fromkeys(ids):
+        store.set_priority(unit_id, unit_priority(store.get(unit_id), catalog))
+
+
+def _carrying_unstarted(store: UnitStore, change: str) -> list[str]:
+    """The unstarted units that carry some of `change`'s groups: an edited line reaches
+    them without a join naming them."""
+    return [
+        u.id for u in store.all() if u.unstarted and any(m.change == change for m in u.members())
+    ]
 
 
 def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[str]:
@@ -2196,8 +2227,11 @@ def plan_all(
             if problems:
                 results[change] = PlanResult(status="refused")
                 continue
+            # A planned unit of another change that carries a group has its priority
+            # from the edited line, as the planning path gives it.
+            _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
             record_plans(inst, {change: {"hash": digest, "attempts": 0, "ok": True}})
-            log(f"{change}: every group is built by a started unit, which reads the edit")
+            log(f"{change}: {ALL_TAKEN}")
             results[change] = PlanResult(status="planned", recorded_only=True)
             continue
 
@@ -2216,10 +2250,7 @@ def plan_all(
         # Once a round: the plan check, the prompt and the figures stored all use one set.
         ratios = calibrations(store.all())
         try:
-            catalog = {
-                path.parent.name: tuple(validate_tasks(path, repos=tuple(inst.repos))[0])
-                for path in inst.tasks_files()
-            }
+            catalog = _task_catalog(inst)
             # The groups go in so the plan is checked against the tags, which
             # were validated on the change's own PR: a model handing one
             # repo's group to another repo's unit is a real failure mode.
@@ -2280,17 +2311,19 @@ def plan_all(
         # Units that carry this change's groups from an earlier round are
         # visited too: an edited line reaches them without a join naming them.
         removed = {j.unit for j in plan.joins if j.unit}
-        carrying = [
-            u.id
-            for u in store.all()
-            if u.unstarted and any(m.change == change for m in u.members())
-        ]
-        for unit_id in dict.fromkeys(
-            [*(u.id for u in units), *(j.onto for j in plan.joins), *carrying]
-        ):
-            if unit_id in removed:
-                continue
-            store.set_priority(unit_id, unit_priority(store.get(unit_id), catalog))
+        _set_priorities(
+            store,
+            [
+                unit_id
+                for unit_id in [
+                    *(u.id for u in units),
+                    *(j.onto for j in plan.joins),
+                    *_carrying_unstarted(store, change),
+                ]
+                if unit_id not in removed
+            ],
+            catalog,
+        )
         for unit_id in dict.fromkeys([*(u.id for u in units), *(j.onto for j in plan.joins)]):
             if unit_id not in removed:
                 _record_calibration(store, unit_id, catalog, ratios)
@@ -3326,10 +3359,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     failed = [change for change in to_plan if results[change].status != "planned"]
     for change in to_plan:
         if results[change].recorded_only:
-            print(
-                f"{change}: nothing was asked of the planner; every group is built by a "
-                "started unit, which reads the edit; the plan is recorded"
-            )
+            print(f"{change}: nothing was asked of the planner; {ALL_TAKEN}; the plan is recorded")
     for change in failed:
         print(f"{change}: the plan failed — see above")
     for change in to_plan:
