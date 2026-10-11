@@ -58,7 +58,9 @@ def test_the_table_is_the_default_and_shows_the_analysis(
 
     out = capsys.readouterr().out
     assert not out.lstrip().startswith("{")
-    assert "1343" in out.replace(",", "")
+    lines = out.splitlines()
+    assert "hours: planned 1343.0, in review 172.0, running 93.0 (agent 11.6)" in lines
+    assert "nothing ran for 47 of 87 hours: 17 with a full queue, 30 with room" in lines
 
 
 def test_a_grouping_the_waits_do_not_have_is_refused(

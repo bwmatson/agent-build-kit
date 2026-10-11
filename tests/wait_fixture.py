@@ -57,11 +57,11 @@ def history(start: datetime, *stamps: tuple[str, float]) -> tuple[dict, ...]:
     return tuple({"state": state, "at": at(hours, start)} for state, hours in stamps)
 
 
-def _decision(unit: str, when: str, reason: str, waits_on: list[str]) -> dict:
+def decision(unit: str, when: str, reason: str, waits_on: list[str]) -> dict:
     return {"at": when, "unit": unit, "reason": reason, "waits_on": waits_on, "tick": "t"}
 
 
-def _write_decisions(path: Path, decisions: list[dict]) -> None:
+def write_decisions(path: Path, decisions: list[dict]) -> None:
     path.write_text("".join(json.dumps(d) + "\n" for d in decisions))
 
 
@@ -80,7 +80,6 @@ def worked_example(state: Path) -> Recorded:
                 change=change,
                 state="merged",
                 ready_at=t0 + timedelta(hours=ready),
-                first_human_activity_at=t0 + timedelta(hours=merged - 1),
                 history=history(
                     t0,
                     ("planned", 0),
@@ -105,12 +104,11 @@ def worked_example(state: Path) -> Recorded:
                 waited="slot",
                 duration_ms=HOUR,
             ),
-            span_line(**who, at=at(merged, t0), node="review", cause="review", duration_ms=HOUR),
         ]
         decisions += [
-            _decision(uid, at(0, t0), "blocked", [f"change-{i - 1}/1"] if i else []),
-            _decision(uid, at(ready, t0), "slot", []),
-            _decision(uid, at(ran, t0), "none", []),
+            decision(uid, at(0, t0), "blocked", [f"change-{i - 1}/1"] if i else []),
+            decision(uid, at(ready, t0), "slot", []),
+            decision(uid, at(ran, t0), "none", []),
         ]
     for k in range(SAMPLES):
         idle_full, idle_room = k < IDLE_FULL, IDLE_FULL <= k < IDLE_FULL + IDLE_ROOM
@@ -128,7 +126,7 @@ def worked_example(state: Path) -> Recorded:
             ).model_dump()
         )
     write_ledger(state / LEDGER_NAME, *ledger)
-    _write_decisions(state / DECISIONS_NAME, decisions)
+    write_decisions(state / DECISIONS_NAME, decisions)
     write_units(state / "units.json", units)
     return Recorded(state, units)
 
@@ -140,9 +138,9 @@ ALL_CAUSES_HOURS = {
     "planned_blocked": 3,
     "planned_ready": 2,
     "running_agent": 1,
-    "running_checks": 0.5,
+    "running_checks": 1.5,
     "paused": 1,
-    "running_other": 2.5,
+    "running_other": 1.5,
     "in_review_person": 3,
     "in_review_round": 1,
     "failed": 2,
@@ -152,8 +150,9 @@ ALL_CAUSES_HOURS = {
 
 def all_causes(state: Path) -> Recorded:
     """A unit that waits 3 h for a prerequisite and 2 h for a slot, runs 4 h (1 h of agent,
-    half an hour of checks, an hour paused, the rest other), is in review 4 h (3 h for a
-    person, a 1 h round), fails for 2 h, runs 1 h more and merges; and a unit with nothing
+    half an hour of checks, an hour paused, the rest other), is in review 4 h (a person
+    answers after 3 h, and the other hour is checks'), fails for 2 h, runs 1 h more in a
+    rework round after the review, and merges; and a unit with nothing
     recorded."""
     base = ALL_CAUSES_START
     who = {"unit": ALL_CAUSES_UNIT, "change": "add-marker", "repo": "app"}
@@ -195,14 +194,22 @@ def all_causes(state: Path) -> Recorded:
             waited="usage_pause",
             duration_ms=HOUR,
         ),
-        span_line(**who, at=at(13, base), node="review", cause="review", duration_ms=HOUR),
+        span_line(
+            **who,
+            at=at(16, base),
+            started=at(15, base),
+            ended=at(16, base),
+            node="rework",
+            cause="review",
+            duration_ms=HOUR,
+        ),
     )
-    _write_decisions(
+    write_decisions(
         state / DECISIONS_NAME,
         [
-            _decision(ALL_CAUSES_UNIT, at(0, base), "blocked", ["add-marker/0"]),
-            _decision(ALL_CAUSES_UNIT, at(3, base), "slot", []),
-            _decision(ALL_CAUSES_UNIT, at(5, base), "none", []),
+            decision(ALL_CAUSES_UNIT, at(0, base), "blocked", ["add-marker/0"]),
+            decision(ALL_CAUSES_UNIT, at(3, base), "slot", []),
+            decision(ALL_CAUSES_UNIT, at(5, base), "none", []),
         ],
     )
     write_units(state / "units.json", [unit, silent])

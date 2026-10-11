@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.usage_report import (
     render_waits,
 )
 from tests.factories import stored_unit
+from tests.ledger_lines import span_line, write_ledger
 from tests.wait_fixture import (
     ALL_CAUSES_HOURS,
     ALL_CAUSES_UNIT,
@@ -28,8 +29,11 @@ from tests.wait_fixture import (
     START,
     Recorded,
     all_causes,
+    at,
+    decision,
     history,
     worked_example,
+    write_decisions,
 )
 
 CAUSES = (
@@ -133,7 +137,7 @@ def test_a_unit_with_no_review_has_the_review_causes_absent(tmp_path: Path) -> N
     (row,) = [r for r in report.rows if r.key == "add-marker/2"]
     assert row.in_review_person_ms is None
     assert row.in_review_round_ms is None
-    assert row.wall_ms == 2 * HOUR
+    assert row.wall_ms == HOUR, "its planned stretch has no ready stamp, so it is left out"
 
 
 # --- regrouping -----------------------------------------------------------------------
@@ -182,10 +186,10 @@ def test_the_json_carries_the_reports_rows(tmp_path: Path) -> None:
 
 
 def test_the_table_shows_the_analysis_figures(tmp_path: Path) -> None:
-    table = render_waits(waits(worked_example(tmp_path))).replace(",", "")
+    lines = render_waits(waits(worked_example(tmp_path))).splitlines()
 
-    for figure in ("1343", "172", "93", "11.6", "47", "87", "17", "30"):
-        assert figure in table, figure
+    assert "hours: planned 1343.0, in review 172.0, running 93.0 (agent 11.6)" in lines
+    assert "nothing ran for 47 of 87 hours: 17 with a full queue, 30 with room" in lines
 
 
 # --- the estimate ratio ---------------------------------------------------------------------
@@ -216,8 +220,8 @@ def test_the_estimate_ratio_is_actual_over_estimated_lines_per_kind(tmp_path: Pa
 
     found = {e.kind: (e.ratio, e.units) for e in report.estimates}
     assert found == {
-        "app/tier1": (pytest.approx(2.0), 2),
-        "platform/tier2": (pytest.approx(0.8), 1),
+        "app tier1": (pytest.approx(2.0), 2),
+        "platform tier2": (pytest.approx(0.8), 1),
     }
 
 
@@ -231,7 +235,7 @@ def test_the_table_prints_the_estimate_ratio_per_kind(tmp_path: Path) -> None:
 
     table = render_waits(report)
 
-    assert "app/tier1" in table
+    assert "app tier1" in table
     assert "2.0" in table
 
 
@@ -256,3 +260,79 @@ def test_a_missing_ledger_and_decision_log_report_the_stores_units(tmp_path: Pat
 
     assert [r.key for r in report.rows] == ["add-marker/1"]
     assert report.total.wall_ms is None
+
+
+# --- review rounds and ready stamps --------------------------------------------------------
+
+
+def test_a_round_before_the_first_review_is_running_time_and_one_after_is_a_rounds(
+    tmp_path: Path,
+) -> None:
+    """running -> in_review -> running (rework) -> in_review -> merged, with an internal round."""
+    unit = stored_unit(
+        "add-marker/1",
+        state="merged",
+        ready_at=START,
+        first_human_activity_at=at(8),
+        history=history(
+            START,
+            ("planned", 0),
+            ("running", 1),
+            ("in_review", 5),
+            ("running", 8),
+            ("in_review", 10),
+            ("merged", 12),
+        ),
+    )
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl",
+        span_line(
+            unit=unit.id,
+            node="rework",
+            cause="review",
+            started=at(2),
+            ended=at(3),
+            duration_ms=HOUR,
+        ),
+        span_line(
+            unit=unit.id,
+            node="fix_checks",
+            cause="check",
+            started=at(8),
+            ended=at(9),
+            duration_ms=HOUR,
+        ),
+    )
+
+    report = build_wait_report(ledger, tmp_path / "decisions.jsonl", [unit])
+
+    (row,) = report.rows
+    assert row.in_review_round_ms == HOUR, "only the round after the review began"
+    assert row.in_review_person_ms == 3 * HOUR, "answered 3 h in: the review is not shortened"
+    assert row.running_checks_ms == 2 * HOUR, "the 5 h in review less the person's 3 h"
+    assert row.running_other_ms == 5 * HOUR, "both running stretches less the round"
+    assert caused(row) == row.wall_ms == 12 * HOUR
+
+
+def test_a_unit_ready_at_its_first_slot_decision_starts_waiting_there(tmp_path: Path) -> None:
+    """A full queue is a reason too, but `mark_ready` stamps only a unit that could start."""
+    unit = stored_unit(
+        "add-marker/1",
+        state="merged",
+        history=history(START, ("planned", 0), ("running", 6), ("merged", 7)),
+    )
+    write_decisions(
+        tmp_path / "decisions.jsonl",
+        [
+            decision(unit.id, at(0), "blocked", ["add-marker/0"]),
+            decision(unit.id, at(2), "queue_full", []),
+            decision(unit.id, at(4), "slot", []),
+            decision(unit.id, at(6), "none", []),
+        ],
+    )
+
+    report = build_wait_report(tmp_path / "ledger.jsonl", tmp_path / "decisions.jsonl", [unit])
+
+    (row,) = report.rows
+    assert row.planned_blocked_ms == 4 * HOUR
+    assert row.planned_ready_ms == 2 * HOUR

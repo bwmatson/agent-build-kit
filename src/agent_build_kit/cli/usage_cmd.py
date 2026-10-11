@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, CostBasis, ledger_lock, read_lines
 from agent_build_kit.pipeline.usage_report import roll_up_change
 
@@ -256,8 +257,9 @@ def cmd_backfill_costs(args: argparse.Namespace, inst: Installation) -> int:
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
             shutil.copyfile(ledger, ledger.with_name(f"usage-ledger-{stamp}.jsonl.bak"))
             _write(ledger, list(plan.lines))
+    units = UnitStore(inst.state_dir / "units.json").all()
     for change in plan.recompute:
-        roll_up_change(ledger, change)
+        roll_up_change(ledger, change, units)
     _report(plan, applied=True)
     return 0
 

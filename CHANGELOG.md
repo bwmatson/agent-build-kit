@@ -35,24 +35,15 @@
   `runs/usage-ledger.jsonl`; new ones get it from `abk init`). A rework or adapt round's ledger
   span says why it ran (`review`, `check` or `conflict`), and a running unit that a pause in force
   has parked (no run holds it) reads as `paused` in status, the graph, labels and the web UI.
+  `abk report --waits` shows each unit's wall time by cause, the hours nothing ran (with a full
+  queue or with room) and the estimate ratio per kind, by unit or by day; and a change's summary
+  at archive carries its slot, pause and review waits, review split into a person's, the rounds'
+  and the checks'.
 
 - The reviewer now searches for an existing equivalent of each new function, constant,
   pattern or test helper in a diff, and for a second copy within it, naming the existing one
   by file and line. A duplicate the change introduces or makes worse is a required finding;
   duplication the change leaves alone is not reported.
-  state directory records a change of reason once, and a wait that ends is one span in the usage
-  ledger. A unit's record gains `ready_at` and `first_human_activity_at`, written only once set,
-  a usage-paused unit shows as `paused`, and each refresh of a running pass adds a `sample` row
-  to the ledger and sets the `abk.slots.free` and `abk.slots.idle_with_ready` gauges. A units
-  store with the two new fields set needs this release to be read. An installation adds
-  `runs/decisions.jsonl` to its planning repo's `.gitignore` (beside `runs/usage-ledger.jsonl`;
-  new ones get it from `abk init`). A rework or adapt round's ledger span says why it ran
-  (`review`, `check` or `conflict`), and a unit that is running while a pause is in force reads
-  as `paused` in status, the graph, labels and the web UI. `abk report --waits` shows each
-  unit's wall time by cause, the hours the pipeline ran nothing (with a full queue, or with room
-  to spare) and the estimate ratio per kind, by unit or by day, and a change's summary at
-  archive now carries its slot, pause and review waits, review split into a person's, the
-  rounds' and the checks'.
 
 - A new `notifications` section of `abk.yaml` tells a person when a unit waits on them. After
   each round the pipeline works out the cards the units call for (a unit in review with no

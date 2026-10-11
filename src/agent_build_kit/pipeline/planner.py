@@ -566,9 +566,7 @@ def _calibration_section(found: Mapping[Kind, Calibration] | None) -> str:
     if not active().limits.calibrate_estimates or not found:
         return ""
     lines = [
-        f"- {kind.repo} {kind.tier}"
-        + (f" [{kind.flag}]" if kind.flag else "")
-        + f": {found[kind].ratio:.2f} from {found[kind].samples} samples"
+        f"- {kind.label}: {found[kind].ratio:.2f} from {found[kind].samples} samples"
         for kind in sorted(found, key=lambda k: (k.repo, k.tier, k.flag))
         if found[kind].ratio > 1.0
     ]

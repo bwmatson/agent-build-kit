@@ -45,6 +45,10 @@ class Kind(Frozen):
     tier: str
     flag: str = ""
 
+    @property
+    def label(self) -> str:
+        return f"{self.repo} {self.tier}" + (f" [{self.flag}]" if self.flag else "")
+
 
 class Calibration(Frozen):
     """A kind's ratio and the number of samples behind it."""
@@ -55,6 +59,11 @@ class Calibration(Frozen):
 
 def kind_of(unit: StoredUnit) -> Kind:
     return Kind(repo=unit.repo, tier=unit.tier, flag=unit.flag)
+
+
+def measured(unit: StoredUnit) -> bool:
+    """Whether the unit merged with an estimate and a measured size to compare."""
+    return unit.state == MERGED and unit.estimated_lines > 0 and unit.actual_lines is not None
 
 
 def _merged_at(unit: StoredUnit) -> datetime:
@@ -73,21 +82,12 @@ def _samples(units: Sequence[StoredUnit], kind: Kind) -> list[float]:
     each clamped to the configured range."""
     limits = active().limits
     low, high = limits.calibration_sample_clamp
-    measured = sorted(
-        (
-            unit
-            for unit in units
-            if unit.state == MERGED
-            and unit.estimated_lines > 0
-            and unit.actual_lines is not None
-            and kind_of(unit) == kind
-        ),
+    newest = sorted(
+        (unit for unit in units if measured(unit) and kind_of(unit) == kind),
         key=_merged_at,
         reverse=True,
     )[: limits.calibration_window]
-    return [
-        min(max((unit.actual_lines or 0) / unit.estimated_lines, low), high) for unit in measured
-    ]
+    return [min(max((unit.actual_lines or 0) / unit.estimated_lines, low), high) for unit in newest]
 
 
 def sample_count(units: Sequence[StoredUnit], kind: Kind) -> int:

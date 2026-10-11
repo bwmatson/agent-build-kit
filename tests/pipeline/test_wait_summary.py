@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.pipeline.archive import archive_ready_changes
-from agent_build_kit.pipeline.usage_report import build_report, roll_up_change
+from agent_build_kit.pipeline.usage_report import build_report, build_wait_report, roll_up_change
 from tests.factories import stored_unit
 from tests.ledger_lines import agent_line, span_line, write_ledger
 from tests.wait_fixture import HOUR, START, at, history
@@ -27,13 +27,20 @@ def merged(uid: str, **overrides):
 
 
 def units() -> list:
-    """`REVIEWED` is 6 h in review, a person answering after 3 h; `DIRECT` is never reviewed."""
+    """`REVIEWED` is 6 h in review (two stretches around an hour's rework round), a person
+    answering after 3 h; `DIRECT` is never reviewed."""
     return [
         merged(
             REVIEWED,
-            first_human_activity_at=START.replace(hour=13),
+            first_human_activity_at=START.replace(hour=11),
             history=history(
-                START, ("planned", 0), ("running", 4), ("in_review", 10), ("merged", 16)
+                START,
+                ("planned", 0),
+                ("running", 4),
+                ("in_review", 8),
+                ("running", 11),
+                ("in_review", 12),
+                ("merged", 15),
             ),
         ),
         merged(DIRECT, history=history(START, ("planned", 0), ("running", 1), ("merged", 2))),
@@ -46,7 +53,23 @@ def ledger_of(tmp_path: Path) -> Path:
         agent_line(unit=REVIEWED),
         span_line(unit=REVIEWED, node="", waited="slot", duration_ms=2 * HOUR),
         span_line(unit=REVIEWED, node="", waited="usage_pause", duration_ms=HOUR),
-        span_line(unit=REVIEWED, node="review", cause="review", duration_ms=HOUR),
+        # A round of the build's own, before the review, and the rework after it.
+        span_line(
+            unit=REVIEWED,
+            node="rework",
+            cause="review",
+            started=at(5),
+            ended=at(6),
+            duration_ms=HOUR,
+        ),
+        span_line(
+            unit=REVIEWED,
+            node="rework",
+            cause="review",
+            started=at(11),
+            ended=at(12),
+            duration_ms=HOUR,
+        ),
         agent_line(unit=DIRECT, session_id="sess-2"),
         span_line(unit=DIRECT, node="", waited="slot", duration_ms=HOUR // 2),
     )
@@ -84,17 +107,32 @@ def test_the_review_wait_is_split_into_person_round_and_checks(tmp_path: Path) -
 
 
 def test_a_review_nobody_answered_is_all_the_persons(tmp_path: Path) -> None:
+    """All of what the rounds leave of the stretch, so the three parts still sum to it."""
     ledger = ledger_of(tmp_path)
-    waiting = merged(
-        REVIEWED,
-        history=history(START, ("planned", 0), ("running", 4), ("in_review", 10), ("merged", 16)),
-    )
+    waiting = units()[0].model_copy(update={"first_human_activity_at": None})
 
     roll_up_change(ledger, CHANGE, [waiting, units()[1]])
 
     found = summaries(ledger)[REVIEWED]
-    assert found["review_person_ms"] == 6 * HOUR
+    assert found["review_person_ms"] == 5 * HOUR
+    assert found["review_round_ms"] == HOUR
     assert found["review_checks_ms"] == 0
+    assert (
+        found["review_person_ms"] + found["review_round_ms"] + found["review_checks_ms"]
+        == found["review_wait_ms"]
+    )
+
+
+def test_the_reports_person_time_is_the_summarys(tmp_path: Path) -> None:
+    ledger = ledger_of(tmp_path)
+    stored = units()
+    report = build_wait_report(ledger, tmp_path / "decisions.jsonl", stored)
+
+    roll_up_change(ledger, CHANGE, stored)
+
+    (row,) = [r for r in report.rows if r.key == REVIEWED]
+    assert row.in_review_person_ms == summaries(ledger)[REVIEWED]["review_person_ms"]
+    assert row.in_review_round_ms == summaries(ledger)[REVIEWED]["review_round_ms"]
 
 
 def test_every_unit_of_the_change_gets_the_three_figures(tmp_path: Path) -> None:
