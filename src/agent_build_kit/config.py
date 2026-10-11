@@ -251,9 +251,6 @@ class ContextConfig(Frozen):
 
 
 class LimitsConfig(Frozen):
-    # How many times the tests a unit added or changed are run again, under load, after
-    # tier 1 passes.
-    tier1_repeat_runs: int = 0
     # Longest chain of in-review PRs from main to a branch that a unit may
     # start building on.
     stack_depth_build_cap: int = 3
@@ -319,6 +316,9 @@ class LimitsConfig(Frozen):
     tier1_command_seconds: Annotated[float, Field(gt=0)] = 3600
     # How long an aborted tier 1 command has to exit before it is ended, in seconds.
     tier1_abort_grace_seconds: Annotated[float, Field(gt=0)] = 10
+    # How many times the tests a unit added or changed are run again, under the same
+    # load, after tier 1 passes; 0 turns the check off.
+    tier1_repeat_runs: Annotated[int, Field(ge=0)] = 3
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

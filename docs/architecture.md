@@ -1014,6 +1014,15 @@ approved.
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
   has merged: it restacks and runs tier 1 again. A unit of the fix change itself does not
   wait. `abk status` lists each flaky test with its count and fix change.
+- **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
+  changed (`tests_changed`) are run `limits.tier1_repeat_runs` times (three by default, 0
+  turns it off) with each test command's own workers, narrowed by the profile's optional
+  `repeat_command` hook; any failure fails tier 1 with that run's output. A new test is not
+  classified as a flake. The test-writing prompt and the reviewer's checklist carry the same
+  determinism rules (`templates/determinism-guidance.md`): wait on events, not the clock,
+  join or signal every thread, bind a free port, share no temporary path, assert no state a
+  background actor repairs, and expose a step for timer code. A change that introduces such a
+  use is a required finding, since the test passes alone and fails under load.
 
 ## Telemetry
 

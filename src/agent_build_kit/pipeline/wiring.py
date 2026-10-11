@@ -49,6 +49,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.command_limit import run_limited
+from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.environment import (
     artifact_patterns,
     lock_paths,
@@ -380,7 +381,8 @@ def build_run(
 # says, and the build step makes the change — so its judgement is not limited to
 # what it can safely rewrite itself, and a concern it can only articulate
 # ("this leaks under concurrency") reaches someone instead of being discarded.
-REVIEW_PROMPT = """\
+REVIEW_PROMPT = (
+    """\
 Review the changes on this branch against the repo's conventions in its
 CLAUDE.md and against the change this unit implements.
 
@@ -426,6 +428,11 @@ Every round you ask for costs a rework and another review, so:
   and per-variant copies (two hosts, backends or runtimes) are the common
   cases. This states the consequence a required finding needs. Duplication the
   change neither adds to nor extends is not yours to report.
+- **Hold the tests to the determinism rules.** """
+    + determinism_guidance()
+    + """ A use of
+  any of these that the change introduces is a required finding, and its
+  consequence is that the test passes alone and fails under load.
 - **Read the code around the change, not only the diff.** For each hunk, open
   the enclosing function and read it whole. For each removed line, ask what it
   enforced — a check, a lock, a validation, an ordering — and whether the change
@@ -521,6 +528,7 @@ Reply with JSON and nothing else:
  "escalate": "", "reasoning": "",
  "description": {"summary": "...", "changes": ["..."]}}
 """
+)
 
 # Read-only. The reviewer physically cannot edit the branch, so the separation
 # between judging and authoring is enforced rather than asked for.
@@ -802,6 +810,7 @@ def build_tier1(
         lint: bool,
     ) -> tuple[bool, str]:
         extra = profile.extra_checks(repo) if repo is not None else []
+        ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
         for where, toolchain, files in work:
             if whole_repo:
                 lint_command = toolchain.lint_command_all_files()
@@ -815,11 +824,42 @@ def build_tier1(
                 if not toolchain.tolerates_exit(command, result.returncode):
                     isolate(command, result, where, toolchain)
                     return False, _failure(command, result, where)
+            ran_tests.append((where, toolchain, test_commands))
         # Once per checkout, in its root: these look at the repo, not at a project.
         for command in extra:
             result = ran(command, cwd, profile)
             if not profile.tolerates_exit(command, result.returncode):
                 return False, _failure(command, result)
+        if whole_repo:
+            return True, ""
+        return repeat(cwd, base, ran_tests)
+
+    def repeat(
+        cwd: Path, base: str, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]]
+    ) -> tuple[bool, str]:
+        """Run the tests the unit added or changed again, under the load of the run that
+        passed. A new test has no excuse to be flaky, so any failure fails tier 1."""
+        runs = active().limits.tier1_repeat_runs
+        try:
+            names = sorted(tests_changed(cwd, base)) if runs else []
+        except (subprocess.CalledProcessError, OSError) as error:
+            # What the unit touched cannot be read; the checks that ran stand.
+            _say(log, f"repeat check skipped, the unit's tests could not be listed ({error})")
+            return True, ""
+        if not names:
+            return True, ""
+        for where, toolchain, commands in ran_tests:
+            narrow = getattr(toolchain, "repeat_command", None)
+            if narrow is None:
+                continue
+            for command in commands:
+                again = narrow(command, names)
+                for _ in range(runs):
+                    result = ran(again, where, toolchain)
+                    if result.returncode == toolchain.no_tests_collected_exit:
+                        break
+                    if not toolchain.tolerates_exit(again, result.returncode):
+                        return False, _failure(again, result, where)
         return True, ""
 
     def selection(

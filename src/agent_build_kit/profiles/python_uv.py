@@ -323,6 +323,11 @@ class PythonUvProfile:
         # What follows is the run's selection, workers and markers: all dropped.
         return [*command[: program + 1], *tests, "-q"]
 
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
+        """`command`, a test run, narrowed to the tests named `tests` (function names),
+        under the same workers and markers."""
+        return [*command, "-k", " or ".join(tests)]
+
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.
         # No tests/ at all is intentional too — the satisfied verdict then

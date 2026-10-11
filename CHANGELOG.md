@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- After tier 1 passes, the tests a unit added or changed are run again three times under the
+  same parallel load, and a failure in any run fails tier 1 with its output, so a flaky new
+  test is caught before review. `limits.tier1_repeat_runs` sets the count (0 turns it off); a
+  toolchain profile supports it with an optional `repeat_command` hook, which the Python
+  profile provides. The test-writing prompt and the reviewer's checklist now carry rules for
+  deterministic tests, and a reviewer treats a violation a change introduces as required.
+
 - A file a toolchain profile's own commands create in a unit's worktree, such as a lock file
   the repository does not commit, no longer holds the next step of the unit as a leftover and
   is never committed, even in a repository with no `environment` section. A profile names
