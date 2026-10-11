@@ -325,7 +325,7 @@ A commit with nothing to commit exits 1 and keeps the lease. A commit already ma
 by a live server is left for that server to deliver. A clean tree is simply released.
 A unit the tick held as `attached` stays held; `abk requeue` returns it.
 
-### `abk requeue UNIT [--restart | --rework]`
+### `abk requeue UNIT [--restart | --rework] [--note TEXT | --note-file PATH]`
 
 Gives a `failed` or `held` unit another go. Three different things, and the
 command says which:
@@ -344,6 +344,18 @@ command says which:
   Right when the failure was the attempt's own, such as a build on the wrong
   base branch, where resuming would judge work that was never valid. It clears
   the remembered step and the failure the unit was handed.
+
+**A person's note.** `--note TEXT` (or `--note-file PATH`) with `--rework` or
+`--restart` records what a person wants as the unit's guidance, and the first
+200 characters go in the requeue's history entry. The agent's next prompt, fresh
+or resumed, shows it first, ahead of any saved failure or review text, as a
+person's instruction that wins where the two conflict; the review of the work
+that follows is told it too, and a rework commit clears it. With a note,
+`--rework` accepts a unit with no saved failure, and the note is the whole ask;
+a unit with no work on its branch yet builds tests first, the note shown to both steps.
+A note with a plain requeue is refused (exit 1, nothing changed): a resume
+re-runs a step without reading it. Pull request comments are unchanged, and the
+note is not posted to the pull request.
 
 A unit with a `Needs: … merged` line whose dependency has not merged is not
 resumed: it goes to `planned` with the cause `gated`, keeping its thread, branch

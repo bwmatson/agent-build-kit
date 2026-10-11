@@ -71,6 +71,7 @@ class ResumeEvent(Frozen):
     feedback: str = ""
     from_person: bool = False  # the feedback is words a person left on the pull request
     feedback_source: FeedbackSource = FeedbackSource.NONE
+    guidance: str = ""  # a person's note from `abk requeue --note`
     requeue: RequeueReason | None = None
     rework: ReworkKind | None = None
     # The ids of every comment the dispatch built that feedback from (the poller's listing and
@@ -94,6 +95,8 @@ class UnitRun(Frozen):
     # push that makes them true.
     pending_replies: tuple[str, ...] = ()
     person_comments: str = ""
+    # What a person asked with `abk requeue --note` of the work the next review judges.
+    guidance_asked: str = ""
     # Ids of every comment a rework covers: those it was delivered with, and those it has
     # taken in since. None when no rework is checking comments, which an empty tuple (a
     # pull request nobody had commented on) is not.

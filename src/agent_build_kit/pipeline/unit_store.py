@@ -183,6 +183,9 @@ class StoredUnit(Unit):
     # What review asked for, waiting to be addressed. Cleared once a run has
     # acted on it, so a unit is never reworked twice for the same comment.
     feedback: str = ""
+    # What a person asked for with `abk requeue --note`, shown ahead of `feedback`
+    # in the next prompt and cleared where the rework commit is made.
+    guidance: str = ""
     # The commit the review loop last approved. Nothing else may be pushed:
     # see the gate before the `push` node. Here, not in the run, because the
     # push gate and `build_restack` read and write it with no run in progress.
@@ -363,6 +366,11 @@ def _exclusive(method):
             return method(self, *args, **kwargs)
 
     return locked
+
+
+def guidance_excerpt(note: str) -> str:
+    """What a history entry says of a person's note: its first 200 characters, or nothing."""
+    return f" — {note[:200]}" if note else ""
 
 
 class UnitStore:
@@ -711,6 +719,10 @@ class UnitStore:
             feedback_from_person=from_person and bool(feedback),
             feedback_source=source if feedback else FeedbackSource.NONE,
         )
+
+    def set_guidance(self, unit_id: str, guidance: str) -> None:
+        """A person's note for the next prompt, or `""` once a run has acted on it."""
+        self._update(unit_id, guidance=guidance)
 
     @_exclusive
     def mark_ready(self, unit_id: str) -> None:

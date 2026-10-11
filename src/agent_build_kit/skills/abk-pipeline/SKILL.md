@@ -148,7 +148,11 @@ broken toolchain, a branch someone deleted — then `abk requeue <unit>` resumes
 it where it stopped. Where the failure is in the branch's own work (a type
 error, a failing test) a plain requeue meets the same failure again; use
 `abk requeue <unit> --rework` to keep the work and hand the agent the saved
-output. `--restart` throws the attempt away. Never edit `runs/units.json` by
+output. `--restart` throws the attempt away. To tell the agent something a task
+is too small for, add `--note TEXT` (or `--note-file PATH`) to `--rework` or
+`--restart`: the agent sees it first, ahead of any saved failure, as a person's
+instruction that wins where they conflict, and the review that follows is told
+it. With a note, `--rework` needs no saved failure; a plain requeue refuses a note. Never edit `runs/units.json` by
 hand: a failed unit remembers its step, and putting it back to `planned` alone
 sends the next run past the agent to a check on the same branch.
 
