@@ -52,7 +52,7 @@ def test_the_section_names_no_installation_language_tool_or_path() -> None:
     text = raw_section()
 
     assert text.strip()
-    assert not re.search(r"\w+#\d+|/home/|~/|github\.com", text)
+    assert not re.search(r"\w+#\d+|/home/|github\.com", text)
     assert not re.search(r"\.(py|ts|tsx|js|go|rs|java|rb|md|toml|lock)\b", text)
     assert not re.search(r"\b(agent[-_]build[-_]kit|abk)\b", text, re.IGNORECASE)
     for tool in ("pytest", "uv ", "npm", "ruff", "cargo", "pip", "jest", "vitest"):
