@@ -688,6 +688,18 @@ Acceptance: none — a fixture about planning, not about the acceptance group
 """
 
 
+# One group is left for the planner: a change whose groups have all started is not planned.
+TASKS_WITH_A_SECOND_GROUP = (
+    TASKS
+    + """
+## 2. [app] [tier1] Use the marker
+
+- [ ] 2.1 Test: it is used.
+- [ ] 2.2 Use it.
+"""
+)
+
+
 def test_a_change_with_no_units_is_planned(tmp_path: Path, monkeypatch) -> None:
     write_change(tmp_path, "add-marker", TASKS)
     asked: list[dict] = []
@@ -963,7 +975,7 @@ def test_the_planner_is_told_about_merged_units(tmp_path: Path, monkeypatch) -> 
     """If a re-plan does happen after some units merged, the planner has to
     know they exist — otherwise it either re-plans work that is already in
     main, or drops the groups and the validator rejects the graph."""
-    write_change(tmp_path, "add-marker", TASKS)
+    write_change(tmp_path, "add-marker", TASKS_WITH_A_SECOND_GROUP)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("add-marker/1")])
     store.set_state("add-marker/1", UnitState.MERGED, pr=1, branch="spec/add-marker/1")
@@ -983,7 +995,7 @@ def test_the_planner_is_told_about_satisfied_units(tmp_path: Path, monkeypatch) 
     nothing because the work was already there — so a re-plan has to count
     them as built too, or it either re-plans them or the graph check rejects
     the plan for dropping them."""
-    write_change(tmp_path, "add-marker", TASKS)
+    write_change(tmp_path, "add-marker", TASKS_WITH_A_SECOND_GROUP)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("add-marker/1", state="satisfied")])
     seen: list[dict] = []

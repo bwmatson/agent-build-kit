@@ -786,7 +786,23 @@ def test_abk_tags_rejects_a_separate_line_without_a_reason(
 def test_a_started_unit_that_carries_a_group_is_shown_to_the_planner_as_building_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = carrying_feature(tmp_path, monkeypatch, answer())
+    # A second group is left to plan: a change whose groups have all started is not planned.
+    run = set_up(
+        tmp_path,
+        monkeypatch,
+        units=[
+            stored_unit(
+                "base/1",
+                change="base",
+                groups=(1,),
+                estimated_lines=180,
+                joined=(Member(change="feature", groups=(1,)),),
+            )
+        ],
+        tasks={"base": tasks_md(), "feature": tasks_md(group(), group())},
+        planning="feature",
+        reply=answer(units=[new_unit("feature/2", (2,))]),
+    )
     start(run.store, "base/1", IN_REVIEW)
 
     run.plan()

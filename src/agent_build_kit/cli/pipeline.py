@@ -2059,6 +2059,55 @@ class PlanResult(Frozen):
 
     status: Literal["planned", "failed", "refused", "skipped"]
     dropped_joins: int = 0
+    # Recorded as planned without asking: every group already belongs to a started unit.
+    recorded_only: bool = False
+
+
+def _started_groups(store: UnitStore, change: str) -> set[int]:
+    """The numbers of `change`'s groups that units in a started state carry."""
+    return {
+        number
+        for u in store.all()
+        if u.state in _STARTED
+        for member in u.members()
+        if member.change == change
+        for number in member.groups
+    }
+
+
+def _started_problems(
+    store: UnitStore, change: str, groups: Sequence[TaskGroup], started: set[int]
+) -> list[str]:
+    """Why a change whose groups have all started cannot be recorded as planned: a
+    started group gone from tasks.md, or a repo, tier or flag that differs from what
+    the unit stored. Each line names the unit and the way out; none when clean."""
+    lines: list[str] = []
+    gone = started - {g.number for g in groups}
+    if gone:
+        lines.append(
+            f"group(s) {', '.join(str(n) for n in sorted(gone))} are built by a started "
+            "unit but are no longer in tasks.md — restore or renumber them back"
+        )
+    for u in store.all():
+        if u.state not in _STARTED or u.change != change:
+            continue
+        carried = [g for g in groups if g.number in u.groups]
+        if not carried:
+            continue
+        now = (
+            ("repo", carried[0].repo),
+            ("tier", carried[0].tier),
+            ("flag", plan_kind(u, groups).flag),
+        )
+        for field, value in now:
+            stored = getattr(u, field)
+            if stored != value:
+                lines.append(
+                    f"{u.id} is {u.state.value} with {field} {stored or 'none'!r} but its "
+                    f"group is now {value or 'none'!r} — restore the tag, or "
+                    f"`abk requeue --restart {u.id}` rebuilds it from the new tags"
+                )
+    return lines
 
 
 def plan_all(
@@ -2104,6 +2153,22 @@ def plan_all(
         if errors:
             log(f"not planning {change}: {len(errors)} task-group problem(s) — run `abk tags`")
             results[change] = PlanResult(status="refused")
+            continue
+
+        # Nothing is left for the planner when every group belongs to a started unit:
+        # each reads tasks.md at its next step, so an edit of the text needs no plan.
+        # Only the tags it copied at plan time can disagree with the file.
+        started = _started_groups(store, change)
+        if task_groups and started >= {g.number for g in task_groups}:
+            problems = _started_problems(store, change, task_groups, started)
+            for line in problems:
+                log(f"{change}: {line}")
+            if problems:
+                results[change] = PlanResult(status="refused")
+                continue
+            record_plans(inst, {change: {"hash": digest, "attempts": 0, "ok": True}})
+            log(f"{change}: every group is built by a started unit, which reads the edit")
+            results[change] = PlanResult(status="planned", recorded_only=True)
             continue
 
         # Merged units included, not just in-flight ones: a re-plan after some
@@ -3237,6 +3302,12 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     after = {unit.id: unit for unit in store.all()}
 
     failed = [change for change in to_plan if results[change].status != "planned"]
+    for change in to_plan:
+        if results[change].recorded_only:
+            print(
+                f"{change}: nothing was asked of the planner; every group is built by a "
+                "started unit, which reads the edit; the plan is recorded"
+            )
     for change in failed:
         print(f"{change}: the plan failed — see above")
     for change in to_plan:
