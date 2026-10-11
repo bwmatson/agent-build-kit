@@ -182,6 +182,10 @@ class PythonUvProfile:
             note=PATH_SOURCES_NOTE,
         )
 
+    def created_files(self, repo: Path) -> list[str]:
+        """The lock file `uv run` creates where the repository has none."""
+        return [LOCK]
+
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):
             if path == member or path.startswith(f"{member}/"):

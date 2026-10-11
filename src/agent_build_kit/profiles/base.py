@@ -39,6 +39,20 @@ class EnvironmentDrafting(Protocol):
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None: ...
 
 
+@runtime_checkable
+class CreatedFiles(Protocol):
+    """The optional hook a profile adds to name the files its own commands create or
+    rewrite in a worktree, such as a lock file the repository does not commit. A profile
+    without it counts as returning an empty list."""
+
+    def created_files(self, repo: Path) -> list[str]:
+        """Paths or patterns relative to `repo`, `/` separated; `[]` for none. Not what a
+        build produces (that is `environment.artifacts`). The pipeline owns them: it never
+        holds a unit for them or commits an untracked one. A path that is absolute, has `..`
+        or names `.git` is dropped."""
+        ...
+
+
 class ToolchainProfile(Protocol):
     name: str
     # Files whose presence in a repo root suggests this profile (init's detection).

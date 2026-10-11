@@ -45,6 +45,13 @@ stays in the worktree. A restack restores an unchanged tracked lock before it mo
 branch, since a rebase refuses a tree with an unstaged change. The same rules apply to a
 commit adopted from a chat.
 
+The files a toolchain profile says its own commands create (`created_files`) are owned the
+same way in a repository with no `environment` section, so a tier 1 command that writes one
+does not hold the next step as a dirty worktree. `owned_paths` merges them with the lock files
+and artifacts, one entry per path, an artifact before a lock before a created file. An
+untracked one is never committed; a tracked one follows the lock rule only where the
+environment declares dependency inputs to compare, and is ordinary work otherwise.
+
 Inputs are path patterns (`path_patterns.py`), and one matcher serves the hash, the
 comparison against the base, lock ownership and artifact ownership. The hash covers each
 pattern as written, the sorted files it matches and their contents, and a pattern matching

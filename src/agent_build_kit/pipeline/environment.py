@@ -14,15 +14,18 @@ import json
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
+from agent_build_kit import profiles
 from agent_build_kit.config import EnvironmentConfig, RepoConfig, active
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.path_patterns import inside, matches_any, matching_files, normalize
+from agent_build_kit.path_patterns import GIT_DIR, inside, matches_any, matching_files, normalize
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.profiles.base import CreatedFiles
 
 RECORD = "environment.json"
 
@@ -120,13 +123,74 @@ class WorktreeFault(Frozen):
 WORKTREE_RECORD = "abk-environment-hash"
 
 
-def lock_paths(repo: RepoConfig | None) -> tuple[str, ...]:
-    """The lock files a repository's environment names, relative to the worktree root.
-    They are the pipeline's own in its worktrees; empty when it declares no environment."""
+class Ownership(StrEnum):
+    """Where a pipeline-owned path came from, strictest first: an artifact is never staged,
+    a lock follows the lock rule, a created file is one only a profile's commands make."""
+
+    ARTIFACT = "artifact"
+    LOCK = "lock"
+    CREATED = "created"
+
+
+def _created_by_profiles(repo: RepoConfig, root: Path) -> list[str]:
+    """What the toolchain profile of the repository, and of each project in it, says its
+    commands create, relative to `root`. An unknown profile, or one without the hook,
+    adds none; a path that is absolute, leaves the repository or names `.git` is dropped."""
+    found: list[str] = []
+    for profile_name, folder in [
+        (repo.profile, "."),
+        *((p.profile, p.path) for p in repo.projects),
+    ]:
+        try:
+            profile = profiles.get(profile_name)
+        except KeyError:
+            continue
+        if not isinstance(profile, CreatedFiles):
+            continue
+        prefix = "" if normalize(folder) == "." else f"{normalize(folder)}/"
+        for name in profile.created_files(root / folder):
+            try:
+                path = normalize(name)
+            except ValueError:
+                continue
+            if path.split("/")[0] != GIT_DIR and path != ".":
+                found.append(prefix + path)
+    return found
+
+
+def owned_paths(repo: RepoConfig | None, root: Path | None) -> dict[str, Ownership]:
+    """Every path the pipeline owns in a worktree at `root`: the environment's lock files and
+    artifacts merged with what the repository's profiles say their commands create. A path
+    several sources name is one entry, an artifact before a lock before a created file.
+    Without `root` no profile is asked."""
     environment = repo.environment if repo else None
-    if environment is None:
-        return ()
-    return tuple(normalize(name) for name in inside(environment.inputs.lock))
+    owned: dict[str, Ownership] = {}
+    if repo and root is not None:
+        owned |= dict.fromkeys(_created_by_profiles(repo, root), Ownership.CREATED)
+    if environment:
+        owned |= {normalize(name): Ownership.LOCK for name in inside(environment.inputs.lock)}
+        owned |= {
+            name: Ownership.ARTIFACT for name in owned if matches_any(environment.artifacts, name)
+        }
+        owned |= dict.fromkeys(environment.artifacts, Ownership.ARTIFACT)
+    return owned
+
+
+def _owned_as(repo: RepoConfig | None, root: Path | None, *kinds: Ownership) -> tuple[str, ...]:
+    return tuple(name for name, kind in owned_paths(repo, root).items() if kind in kinds)
+
+
+def _has_dependencies(repo: RepoConfig | None) -> bool:
+    return bool(repo and repo.environment and repo.environment.inputs.dependencies)
+
+
+def lock_paths(repo: RepoConfig | None, root: Path | None = None) -> tuple[str, ...]:
+    """The files that follow the lock rule in a worktree at `root`, relative to it: the
+    lock files an environment names, and the files a profile says its commands create where
+    the environment declares dependency inputs to tell a rewrite from a change. They are the
+    pipeline's own; empty when there are none. Without `root` no profile is asked."""
+    kinds = (Ownership.LOCK, Ownership.CREATED) if _has_dependencies(repo) else (Ownership.LOCK,)
+    return _owned_as(repo, root, *kinds)
 
 
 def _base_inputs(
@@ -180,15 +244,21 @@ def restore_unchanged_locks(repo: RepoConfig | None, tree: Path, base: str) -> N
         return
     if _changed_from_base(environment, tree, base, environment.inputs.dependencies):
         return
-    for name in _tracked_locks(tree, lock_paths(repo)):
+    for name in _tracked_locks(tree, lock_paths(repo, tree)):
         git_out(tree, "checkout", "-q", "--", name)
 
 
-def artifact_patterns(repo: RepoConfig | None) -> tuple[str, ...]:
-    """The path patterns of what a repository's environment produces; empty when it
-    declares none. They are the pipeline's own in its worktrees."""
-    environment = repo.environment if repo else None
-    return tuple(environment.artifacts) if environment else ()
+def artifact_patterns(repo: RepoConfig | None, root: Path | None = None) -> tuple[str, ...]:
+    """The path patterns of what a repository's environment produces, and, where no
+    dependency inputs are declared, the files a profile says its commands create: only
+    untracked ones are the pipeline's. Empty when there are none. They are the pipeline's
+    own in its worktrees. Without `root` no profile is asked."""
+    kinds = (
+        (Ownership.ARTIFACT,)
+        if _has_dependencies(repo)
+        else (Ownership.ARTIFACT, Ownership.CREATED)
+    )
+    return _owned_as(repo, root, *kinds)
 
 
 def repo_artifacts(inst: Installation, name: str) -> tuple[str, ...]:
@@ -216,7 +286,7 @@ def unstage_artifacts(repo: RepoConfig | None, tree: Path) -> None:
     """Take out of the index each new file an artifact pattern matches, so that a commit
     never holds what a sync built; the files stay in the worktree. A file the branch
     already tracks is ordinary work and stays staged."""
-    patterns = artifact_patterns(repo)
+    patterns = artifact_patterns(repo, tree)
     if not patterns:
         return
     added = git_out(
@@ -228,9 +298,9 @@ def unstage_artifacts(repo: RepoConfig | None, tree: Path) -> None:
 def unstage_untracked_locks(repo: RepoConfig | None, tree: Path) -> None:
     """Take out of the index a lock file the branch does not track: the repository
     chose not to commit it, and it stays in the worktree."""
-    patterns = lock_paths(repo)
+    patterns = lock_paths(repo, tree)
     tracked = _tracked_locks(tree, patterns)
-    present = matching_files(tree, patterns, excluding=artifact_patterns(repo))
+    present = matching_files(tree, patterns, excluding=artifact_patterns(repo, tree))
     _unstage(tree, [name for names in present.values() for name in names if name not in tracked])
 
 
@@ -306,12 +376,14 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
 
 __all__ = [
     "EnvironmentState",
+    "Ownership",
     "WorktreeFault",
     "ensure",
     "artifact_patterns",
     "inputs_hash",
     "lock_paths",
     "matched_inputs",
+    "owned_paths",
     "prepare_worktree",
     "repo_artifacts",
     "problem",
