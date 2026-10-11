@@ -264,7 +264,7 @@ def artifact_patterns(repo: RepoConfig | None, root: Path | None = None) -> tupl
 def repo_artifacts(inst: Installation, name: str) -> tuple[str, ...]:
     """The artifact patterns of the repository `name` in the installation; empty for a name
     that is not one, such as the planning repository."""
-    return artifact_patterns(inst.config.repos.get(name), inst.checkouts.get(name))
+    return artifact_patterns(inst.config.repos.get(name))
 
 
 def _unstage(tree: Path, names: list[str]) -> None:
