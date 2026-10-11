@@ -93,8 +93,8 @@ Lists, for each repository with a `tests.replay` section, the recorded calls hel
 recording no passing run asked for, or one a live call at the same test and call index
 superseded. Each is shown with the reason, its request, the request that replaced it and where
 the two differ. `--keep NAME` clears the mark and leaves the file; `--delete NAME` removes it. A
-kept recording is not marked again unless it is superseded afterwards. NAME is as the listing
-prints it. Exit 1 when a NAME matches nothing waiting, else 0.
+kept recording is marked again when a later passing run does not ask for it, or a live call
+supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches nothing waiting, else 0.
 
 ### `abk graph`
 

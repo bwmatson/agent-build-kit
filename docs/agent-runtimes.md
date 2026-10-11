@@ -713,14 +713,21 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
   differs", "differs at system"), the cassettes that matched but were too old, the unused ones
   and the declared rules that applied. The outcome is unchanged. Billed calls avoided are
   totalled from the usage figures recorded responses carry; a response without any adds nothing.
+- The summary ends with `total: H hit, L live, U unused, A aged out` over the run, a `rule used:`
+  line for each declared rule that applied, and the billed-calls line. The combined report, a
+  `RunReport`, is also written as `report.json` beside `state.json` in each cassette directory,
+  overwritten by every run and ignored by that directory's own `.gitignore`, for whatever
+  reads it by machine.
 - A passing run marks `needs_review`, with a reason, each cassette of the test that no call
   asked for or that a live call at the same index superseded. Nothing is deleted.
   `abk replay review` lists them and `--keep` or `--delete` decides each. `abk status` counts the
   waiting ones and `abk doctor` notes them, warning when one has waited through more than
-  `review_after_runs` runs; the next run prints the same warning and fails nothing.
+  `review_after_runs` runs; the next run prints the same warning and fails nothing. A held
+  recording that a later passing run uses again has its mark cleared and leaves the unreviewed
+  count; one kept by hand is marked again if a later passing run does not ask for it.
 - When each cassette was last used and for how many runs it has waited are kept in
-  `state.json` in the cassette directory, which ignores itself, so a run changes no committed
-  file for them.
+  `state.json` in the cassette directory, which ignores it (and `report.json`) in its own
+  `.gitignore`, so a run changes no committed file for them.
 - Run in `live` mode whenever the prompt text or the code under test changed, and at least
   weekly otherwise, so a replayed pass does not stand in for the provider's behaviour that day.
 
