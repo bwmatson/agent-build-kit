@@ -25,6 +25,30 @@ from agent_build_kit.usage import Context, Usage, UsageSource
 
 LEDGER_NAME = "usage-ledger.jsonl"
 
+# Fields the pipeline sets that identify or classify a line, kept as written when text is
+# redacted: readers group, join and skip lines by them, so a withheld value there would
+# drop the line's figures from accounting. Free text (`outcome`, `cause`, `command`) is not here.
+IDENTIFYING_FIELDS = frozenset(
+    {
+        "kind",
+        "at",
+        "unit",
+        "node",
+        "change",
+        "session_id",
+        "started",
+        "ended",
+        "repo",
+        "tier",
+        "role",
+        "model",
+        "runtime",
+        "waited",
+        "metric",
+        "usage_source",
+    }
+)
+
 # What has been reported this process, so that many units failing the same way
 # say it once; guarded because units run on threads.
 _told: set[str] = set()
@@ -135,7 +159,11 @@ def append_record(path: Path, record: BaseModel) -> None:
     """Add `record` as a line of the ledger. Raises `OSError` when it cannot."""
     path.parent.mkdir(parents=True, exist_ok=True)
     # Each text field on its own: a value with a quote in it would not match once serialised.
-    texts = {name: value for name, value in record if isinstance(value, str)}
+    texts = {
+        name: value
+        for name, value in record
+        if isinstance(value, str) and name not in IDENTIFYING_FIELDS
+    }
     safe = record.model_copy(update=redact_leaves(texts, where="ledger"))
     with ledger_lock(path), path.open("a") as ledger:
         ledger.write(safe.model_dump_json() + "\n")

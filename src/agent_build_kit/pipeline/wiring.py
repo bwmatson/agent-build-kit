@@ -116,7 +116,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import RepeatsTests, SelectsAffectedTests, ToolchainProfile
-from agent_build_kit.redaction import redact_text
+from agent_build_kit.redaction import redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -1723,7 +1723,7 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
-        outputs: list[str] = []
+        outputs: list[tuple[str, str, int | None]] = []  # header, text, how much of it to keep
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -1748,14 +1748,19 @@ class Tier2Session:
                         skipped + s,
                         duration + d,
                     )
-                    # Redacted before any cut, so a cut cannot leave half a value.
-                    shown = redact_text(out, where="tier-2 output")
+                    header = f"$ {' '.join(command)}{label}"
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append(f"$ {' '.join(command)}{label}\n{shown}")
+                        outputs.append((header, out, None))
                     elif p:
-                        outputs.append(f"$ {' '.join(command)}{label}\n{shown[-1500:]}")
+                        outputs.append((header, out, 1500))
 
-        output = "\n\n".join(outputs)
+        # Every command's text in one pass, before any cut, so a cut cannot leave half a
+        # value and a failing redaction is logged once.
+        redacted = redact_leaves([out for _, out, _ in outputs], where="tier-2 output")
+        output = "\n\n".join(
+            f"{header}\n{text if keep is None else text[-keep:]}"
+            for (header, _, keep), text in zip(outputs, redacted, strict=True)
+        )
         command = " && ".join(
             " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
             for where, _, commands in entries

@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.usage_ledger import (
     LEDGER_NAME,
     UsageRecord,
     forget_told,
+    read_ledger,
     record_call,
     record_line,
 )
@@ -259,6 +260,50 @@ def test_a_failed_redaction_withholds_a_ledger_line(caplog: pytest.LogCaptureFix
     assert NOTICE in written
     assert SECRET not in written
     _assert_one_failure_line(caplog, "ledger")
+
+
+def test_a_failed_redaction_keeps_the_figures_of_a_ledger_record(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    forget_told()
+    record = UsageRecord(
+        at="2026-01-01T10:00:00+00:00",
+        unit="add-marker/1",
+        node="implement",
+        session_id="sess-1",
+        input_tokens=120,
+        outcome=f"died: {SECRET}",
+    )
+
+    with known(broken=True):
+        record_call(record, lambda message: None)
+
+    assert SECRET not in _ledger_path().read_text()
+    (read,) = read_ledger(_ledger_path())
+    assert (read.unit, read.input_tokens, read.outcome) == ("add-marker/1", 120, NOTICE)
+    _assert_one_failure_line(caplog, "ledger")
+
+
+def test_a_failed_redaction_logs_one_line_for_a_tier_two_of_several_commands(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["svc-a", "svc-b"]\n')
+    for member in ("svc-a", "svc-b"):
+        (tmp_path / member / "tests").mkdir(parents=True)
+        (tmp_path / member / "pyproject.toml").write_text(f'[project]\nname = "{member}"\n')
+    session = Tier2Session(
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        run=lambda command, **kw: subprocess.CompletedProcess(
+            command, 1, f"1 failed in 1.00s {SECRET}", ""
+        ),
+        sha=lambda cwd: "abc1234",
+    )
+
+    with known(broken=True):
+        session.run(cwd=tmp_path)
+
+    _assert_one_failure_line(caplog, "tier-2 output")
 
 
 def test_a_failed_redaction_withholds_every_text_field_of_a_span(
