@@ -155,8 +155,10 @@ class Chat:
         *,
         units: Callable[[], list[StoredUnit]],
         recorded_session: Callable[[str], AgentSession | None],
+        agent_environment: dict[str, str] | None = None,
     ) -> None:
         self.installation = installation
+        self.agent_environment = agent_environment
         self._units = units
         self._recorded = recorded_session
         self.leases = Leases(lease_dir(installation.state_dir))
@@ -514,6 +516,7 @@ class Chat:
             model=model or None,
             resume_session=resume,
             fork_session=fork,
+            environment=self.agent_environment,
             policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
             if builder is not None
             else ToolPolicy(scoped=False, no_commit=True),
@@ -543,8 +546,14 @@ def register(
     *,
     units: Callable[[], list[StoredUnit]],
     recorded_session: Callable[[str], AgentSession | None],
+    agent_environment: dict[str, str] | None = None,
 ) -> None:
-    chat = Chat(installation, units=units, recorded_session=recorded_session)
+    chat = Chat(
+        installation,
+        units=units,
+        recorded_session=recorded_session,
+        agent_environment=agent_environment,
+    )
     # The server's stop calls this before uvicorn waits on its open requests: a turn waiting
     # for an answer and a page's open stream are requests it would wait on for ever.
     app.state.stop_chat = chat.shutdown
@@ -903,7 +912,7 @@ def register(
         unit = chat.acp_sessions()[session][0]
         cwd = chat.worktree(unit) or installation.root
         can = getattr(runtimes.get(ACP), "can_resume_session", None)
-        return bool(can is not None and can(session, cwd))
+        return bool(can is not None and can(session, cwd, environment=agent_environment))
 
     @app.get("/api/sessions/{runtime}/{session}")
     def one_session(runtime: str, session: str) -> dict[str, Any]:

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `start_server` takes an `agent_environment`: the whole environment the agents a chat starts
+  (turns, new and continued sessions, the resume check) run in, so a test's own variables do not
+  reach them. `abk serve` passes none and is unchanged.
+
 - The decision log is kept to `retention.decision_log_mb` megabytes (default 50), dropping its
   oldest lines, and a unit's run log older than `retention.unit_log_days` days (default 30) is
   removed once the unit's summary is in the usage ledger; a unit with no summary keeps its log.

@@ -223,7 +223,11 @@ def _recorded_session(installation: Installation, unit_id: str) -> AgentSession 
         return None
 
 
-def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> FastAPI:
+def create_app(
+    installation: Installation,
+    static_dir: Path = STATIC_DIR,
+    agent_environment: dict[str, str] | None = None,
+) -> FastAPI:
     app = FastAPI(title="abk serve", docs_url=None, redoc_url=None, openapi_url=None)
     units_path = installation.state_dir / "units.json"
 
@@ -270,6 +274,7 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
         installation,
         units=lambda: _read_units(units_path),
         recorded_session=lambda unit_id: _recorded_session(installation, unit_id),
+        agent_environment=agent_environment,
     )
 
     register_actions(app, installation, find)
@@ -621,7 +626,12 @@ class RunningServer:
         self._thread.join(timeout=10)
 
 
-def start_server(installation: Installation, *, port: int = 0) -> RunningServer:
+def start_server(
+    installation: Installation,
+    *,
+    port: int = 0,
+    agent_environment: dict[str, str] | None = None,
+) -> RunningServer:
     """Listen on the loopback address (any free port when `port` is 0) and serve
     `installation`'s stores."""
-    return RunningServer(create_app(installation), port)
+    return RunningServer(create_app(installation, agent_environment=agent_environment), port)

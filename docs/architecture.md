@@ -1259,6 +1259,10 @@ includes reasoning tokens depends on the agent. Move the ignore line if `plannin
 
 ## The web server
 
+`start_server(installation, agent_environment=...)` hands every agent the chat starts (a turn, a
+new or continued session, the resume check) that mapping as its whole environment, so a test
+can keep its own process's variables out of them; `abk serve` passes none.
+
 `abk serve` (`serve/server.py`) is a FastAPI app on uvicorn, bound to `127.0.0.1`. Its
 readers are library calls over the same stores the tick uses, and read only: the unit
 store is parsed without write hooks, the ledger is read by line (an unparsable last line is

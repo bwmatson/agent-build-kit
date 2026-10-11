@@ -11,10 +11,10 @@ spent usage window, an interruption, or a failed result as
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit import config
 from agent_build_kit.config import ModelsConfig
@@ -46,6 +46,7 @@ from agent_build_kit.runtimes.base import (
     PolicyReport,
     SessionUnavailable,
     UsageStatus,
+    child_environment,
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.traced import traced
@@ -91,10 +92,11 @@ def spawn(
     cwd: Path | None = None,
     on_event: Callable[[dict], None] | None = None,
     env: dict[str, str] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """The real `claude` process: streamed when there is someone to tell. `env`
-    is added to this process's own environment."""
-    merged = {**os.environ, **env} if env else None
+    is added to `environment` when given, else to this process's own."""
+    merged = child_environment(environment, env or {})
     if on_event is not None:
         return stream_run(argv, cwd=cwd, on_event=on_event, env=merged)
     return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False, env=merged)
@@ -244,7 +246,9 @@ class ClaudeCodeRuntime:
         execute = self._execute or spawn
         # Only when there is something to add: an injected `execute` written
         # before the environment was passed does not take the argument.
-        extra = {"env": request.env} if request.env else {}
+        extra: dict[str, Any] = {"env": request.env} if request.env else {}
+        if request.environment is not None:
+            extra["environment"] = request.environment
         result = execute(build_argv(request), cwd=request.cwd, on_event=_progress(request), **extra)
         outcome = self._finish(request, result)
         if request.on_result is not None:

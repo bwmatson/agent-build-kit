@@ -9,7 +9,6 @@ files and the process holding one as they are on a machine; ACP is a real agent 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,18 +17,17 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.settings import settings
 from tests.chat_serving import (
     claude_session_file,
     holding_process,
     prompt_of,
     record_session,
+    recorded_acp_session,
     turn,
     unit_worktree,
     use_claude,
 )
-from tests.factories import unit
 from tests.runtimes.acp_agent import (
     DEFAULT_MODEL,
     EARLIER_TURN,
@@ -264,21 +262,6 @@ def test_continuing_a_session_a_process_holds_forks_it_instead(
 
     assert "--fork-session" in fake.calls[0][0]
     assert editor.read_bytes() == before
-
-
-def recorded_acp_session(installation: Installation, session: str) -> None:
-    """What a build run recorded of an ACP session, which is how the page knows of it."""
-    step = Transcript(
-        transcript_dir(installation.state_dir),
-        unit("feature/2", change="feature"),
-        node="implement",
-        round=0,
-        started=datetime(2026, 10, 1, 9, 0, 0, tzinfo=UTC),
-        result_limit=1000,
-        runs_kept=3,
-    )
-    step.record(TranscriptEvent(kind="text", session=session, text=EARLIER_TURN))
-    step.record(TranscriptEvent(kind="stop", session=session, text="end_turn"))
 
 
 def test_an_acp_session_the_agent_lists_is_resumed_in_place(
