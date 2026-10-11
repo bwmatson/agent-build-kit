@@ -332,6 +332,13 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    reply; a malformed one is ignored and costs no round). An approval stores it
    on the unit record, a later approval replacing it; the field is omitted when
    empty, so a release older than this one refuses a record that holds one.
+   The reviewer also searches for prior art: for each new function, constant,
+   pattern or test helper in the diff it looks for an existing equivalent and a
+   second copy in the diff, naming the existing one by file and line. A duplicate
+   the change introduces or makes worse is a required finding (two copies must
+   change together; done is to use or extend the existing one, or extract one
+   shared function); duplication the change neither adds to nor extends is not
+   reported.
    Its prompt names its angles — the enclosing function of each hunk, what each
    removed line enforced, callers and callees — and an evidence bar: each
    candidate is re-checked before it is reported. Each finding carries a file, an optional line, a summary, a
