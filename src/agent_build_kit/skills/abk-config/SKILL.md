@@ -134,6 +134,7 @@ limits:
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
   tier1_command_seconds: 3600       # longest a tier 1 command may run before it is aborted
   tier1_abort_grace_seconds: 10    # how long an aborted command has to exit before it is killed
+  tier1_repeat_runs: 3              # times the tests a unit added or changed are run again under load (0: off)
 
 environment:                  # how the pipeline's own environment is kept current;
                               # leave it out and nothing is managed (`abk doctor` warns)

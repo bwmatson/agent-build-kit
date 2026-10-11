@@ -1,0 +1,1 @@
+Do not wait on the clock: inject the clock or the sleep, or wait on an event. Do not start a thread that nothing joins or signals. Bind to a free port, never a fixed one. Do not share a temporary path between tests. Do not assert a state that a background actor repairs later. Code that runs on a timer or a thread exposes a step that a test calls directly.

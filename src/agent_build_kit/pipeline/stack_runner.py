@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
@@ -131,6 +132,10 @@ only `raise NotImplementedError`, or a model field — so the tests fail when
 they run instead of failing to import. Stubs contain no logic.
 
 Use the repository's shared fixtures before writing new ones.
+
+"""
+    + determinism_guidance()
+    + """
 
 Where a test needs a stand-in for something outside this code (a library, a
 browser, a service), fake it at the protocol boundary — the raw shape the real

@@ -131,6 +131,19 @@ def package_name(member: Path) -> str:
     return str(_pyproject(member).get("project", {}).get("name") or member.name)
 
 
+# The pytest options that take their value as the next word.
+_OPTIONS_WITH_VALUE = frozenset(["-n", "-m", "-k", "-p", "-c", "--maxprocesses"])
+
+
+def _pytest_program(command: list[str]) -> int | None:
+    """Where `pytest` is in `command`: the program, not the `--with pytest` that adds it to
+    an environment."""
+    return next(
+        (i for i, word in enumerate(command) if word == "pytest" and command[i - 1] != "--with"),
+        None,
+    )
+
+
 class PythonUvProfile:
     name: str = "python-uv"
     detect_markers: tuple[str, ...] = ("uv.lock", "pyproject.toml")
@@ -309,19 +322,37 @@ class PythonUvProfile:
 
     def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
         """`command`, a failed test run, as one that runs only `tests`, serially."""
-        # The program, not the `--with pytest` that adds it to an environment.
-        program = next(
-            (
-                i
-                for i, word in enumerate(command)
-                if word == "pytest" and command[i - 1] != "--with"
-            ),
-            None,
-        )
+        program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
         # What follows is the run's selection, workers and markers: all dropped.
         return [*command[: program + 1], *tests, "-q"]
+
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+        """`command`, a test run, as one of exactly those node ids of `tests` that fall under
+        the paths it was given to run (all of them when it was given none): its options
+        (workers, markers) stay, the paths are replaced by the ids. None when none is in
+        scope, since the command's environment is not the one those tests run in."""
+        program = _pytest_program(command)
+        if program is None:
+            return [*command, *tests]
+        options: list[str] = []
+        paths: list[str] = []
+        words = iter(command[program + 1 :])
+        for word in words:
+            if word.startswith("-"):
+                options.append(word)
+                if word in _OPTIONS_WITH_VALUE:
+                    options.append(next(words, ""))
+            else:
+                paths.append(word.rstrip("/"))
+        ids = [
+            test
+            for test in tests
+            if not paths
+            or any(test.split("::", 1)[0] == p or test.startswith(f"{p}/") for p in paths)
+        ]
+        return [*command[: program + 1], *options, *ids] if ids else None
 
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.
