@@ -24,15 +24,12 @@ from agent_build_kit.pipeline.stack_runner import (
     TESTS_PROMPT,
 )
 from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
+from tests.prompt_text import flat
 
 ROOT = Path(__file__).resolve().parents[2]
 
 FIXTURE_CONVENTION = "Keep a bullet per change under `## Unreleased`, with {braces} in it."
 OTHER_CONVENTION = "Put each entry at the top of the file."
-
-
-def squeezed(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def packaged() -> str:
@@ -105,7 +102,7 @@ def test_the_convention_is_stated_in_the_conventions_file() -> None:
 
 
 def test_the_packaged_text_states_the_convention_and_names_no_installation() -> None:
-    text = squeezed(packaged()).lower()
+    text = flat(packaged()).lower()
 
     assert "unreleased" in text
     assert "blank line" in text
@@ -146,7 +143,7 @@ def test_a_repo_with_no_section_gets_the_packaged_text(tmp_path: Path) -> None:
 
 def test_a_repo_with_no_conventions_files_gets_the_packaged_text(tmp_path: Path) -> None:
     assert changelog_convention(tmp_path, on(tmp_path)) == packaged()
-    assert squeezed(packaged()) in squeezed(changelog_note(tmp_path, on(tmp_path)))
+    assert flat(packaged()) in flat(changelog_note(tmp_path, on(tmp_path)))
 
 
 def test_a_repo_with_the_changelog_off_gets_no_convention_even_with_a_section(
@@ -166,7 +163,7 @@ def test_each_prompt_carries_the_text_of_a_repos_own_section(tmp_path: Path) -> 
 
 def test_each_prompt_carries_this_repos_text_when_it_is_the_one_built() -> None:
     for prompt in build_prompts(ROOT, on(ROOT)):
-        assert squeezed(changelog_convention(ROOT, on(ROOT))) in squeezed(prompt)
+        assert flat(changelog_convention(ROOT, on(ROOT))) in flat(prompt)
 
 
 def test_each_prompt_carries_the_packaged_text_for_a_repo_with_no_section(
@@ -175,7 +172,7 @@ def test_each_prompt_carries_the_packaged_text_for_a_repo_with_no_section(
     worktree = repo_with(tmp_path, None)
 
     for prompt in build_prompts(worktree, on(worktree)):
-        assert squeezed(packaged()) in squeezed(prompt)
+        assert flat(packaged()) in flat(prompt)
 
 
 def test_a_repo_with_the_changelog_off_gets_no_changelog_in_any_prompt(tmp_path: Path) -> None:
@@ -189,7 +186,7 @@ def test_a_repo_with_the_changelog_off_gets_no_changelog_in_any_prompt(tmp_path:
 
 def test_the_resolver_is_told_to_keep_both_sides_and_fold_one_change(tmp_path: Path) -> None:
     worktree = repo_with(tmp_path, None)
-    prompt = squeezed(resolve_prompt(worktree, ["CHANGELOG.md"], on(worktree))).lower()
+    prompt = flat(resolve_prompt(worktree, ["CHANGELOG.md"], on(worktree))).lower()
 
     assert "both sides' bullets" in prompt
     assert "fold" in prompt
@@ -214,7 +211,7 @@ def test_the_keep_both_rule_is_absent_where_the_setting_is_off(tmp_path: Path) -
 def changelog_paragraphs(prompt: str) -> str:
     """What the review prompt says in the paragraphs that mention the changelog."""
     paragraphs = re.split(r"\n\s*\n|\n- ", prompt)
-    return squeezed(" ".join(p for p in paragraphs if "changelog" in p.lower())).lower()
+    return flat(" ".join(p for p in paragraphs if "changelog" in p.lower())).lower()
 
 
 def test_the_review_prompt_covers_a_repo_with_no_section_of_its_own(tmp_path: Path) -> None:
@@ -272,5 +269,5 @@ def test_the_review_paragraph_carries_the_convention_it_points_at(tmp_path: Path
         worktree = repo_with(tmp_path, section)
         paragraph = review_changelog_paragraph(worktree, on(worktree))
 
-        assert squeezed(changelog_convention(worktree, on(worktree))) in squeezed(paragraph)
+        assert flat(changelog_convention(worktree, on(worktree))) in flat(paragraph)
         assert "AGENTS.md" not in paragraph

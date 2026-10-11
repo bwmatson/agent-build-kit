@@ -6,7 +6,6 @@ existing code; the reviewer counts a stub the tests commit added.
 """
 
 import re
-import string
 
 import pytest
 
@@ -24,18 +23,7 @@ from agent_build_kit.pipeline.stack_runner import (
     TESTS_PROMPT,
 )
 from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
-
-
-def flat(text: str) -> str:
-    return " ".join(text.split())
-
-
-def placeholders(template: str) -> set[str]:
-    return {name for _, name, _, _ in string.Formatter().parse(template) if name}
-
-
-def filled(template: str) -> str:
-    return template.format(**dict.fromkeys(placeholders(template), "x"))
+from tests.prompt_text import filled, flat, placeholders
 
 
 def stub_paragraph() -> str:
@@ -108,6 +96,11 @@ def test_the_paragraph_names_no_installation_language_tool_or_path() -> None:
         pytest.param(CHECKS_PROMPT, id="checks"),
         pytest.param(REWORK_PROMPT, id="rework"),
         pytest.param(REVIEW_FEEDBACK_PROMPT, id="review-feedback"),
+        pytest.param(IMPLEMENTATION_CONTINUATION, id="implementation-continuation"),
+        pytest.param(CHECKS_CONTINUATION, id="checks-continuation"),
+        pytest.param(REWORK_CONTINUATION, id="rework-continuation"),
+        pytest.param(REVIEW_FEEDBACK_CONTINUATION, id="review-feedback-continuation"),
+        pytest.param(ADAPT_CONTINUATION, id="adapt-continuation"),
     ],
 )
 def test_the_paragraph_is_in_the_tests_prompt_only(prompt: str) -> None:

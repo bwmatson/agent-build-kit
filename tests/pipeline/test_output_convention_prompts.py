@@ -20,11 +20,7 @@ from agent_build_kit.pipeline.stack_runner import (
     TESTS_PROMPT,
 )
 from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
-
-
-def squeezed(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
+from tests.prompt_text import flat
 
 PROMPTS = [
     pytest.param(TESTS_PROMPT, id="tests"),
@@ -36,7 +32,7 @@ PROMPTS = [
 
 
 def test_the_convention_states_each_rule() -> None:
-    text = squeezed(output_convention()).lower()
+    text = flat(output_convention()).lower()
 
     assert "$abk_out/" in text
     assert ".log" in text
@@ -62,7 +58,7 @@ def test_the_convention_names_no_installation() -> None:
 
 @pytest.mark.parametrize("prompt", PROMPTS)
 def test_each_prompt_carries_the_convention(prompt: str) -> None:
-    assert squeezed(output_convention()) in squeezed(prompt)
+    assert flat(output_convention()) in flat(prompt)
 
 
 def test_the_convention_is_safe_to_put_in_a_format_string() -> None:
@@ -74,4 +70,4 @@ def test_the_convention_is_safe_to_put_in_a_format_string() -> None:
 
 
 def test_the_reviewer_is_told_to_run_its_own_commands() -> None:
-    assert "own commands" in squeezed(REVIEW_PROMPT).lower()
+    assert "own commands" in flat(REVIEW_PROMPT).lower()
