@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Editing the text of a change's groups once every group belongs to a started unit no longer asks
+  the planner: the edit is recorded and a requeued unit reads it from `tasks.md`. A changed repo,
+  tier or flag under a started unit is reported with the way out and not recorded as planned, and
+  `abk replan` prints which of the two happened.
+
 - A test marked `local_stack` may start a real agent: the suite's guards on the runtime's spawn
   and on a direct `claude` start no longer refuse it. Every other test is refused as before, and
   the guards on the login refresh, the usage window, `gh` and the code host apply to all.
