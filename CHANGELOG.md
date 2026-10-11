@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Known secret values (`verify.env`, the credential settings, `runtimes.<name>.env`, variables
-  named in the new `redact` list, and each gateway key minted) are gathered when an installation
+- Known secret values (`verify.env`, the credential settings, variables named in the
+  new `redact` list, and each gateway key minted) are gathered when an installation
   is activated, and a redaction function replaces them with `[redacted:<NAME>]` in any text it is
   given, along with token-shaped strings. Values shorter than 8 characters are not replaced.
 

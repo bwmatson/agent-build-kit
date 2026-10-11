@@ -9,12 +9,9 @@ the set does not hold becomes `[redacted:token-shape]`.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
-
-from dotenv import dotenv_values
 
 from agent_build_kit import settings as settings_module
 
@@ -84,13 +81,9 @@ def gather(installation: Installation) -> Redactor:
             failed.append(name)
     for field in settings_module.CREDENTIAL_FIELDS:
         values[field] = str(getattr(settings_module.settings, field))
-    for runtime, entry in installation.config.runtimes.items():
-        for name, value in entry.env.items():
-            values[f"runtimes.{runtime}.{name}"] = value
-    env_file = installation.env_file
-    file_values = dotenv_values(env_file) if env_file.exists() else {}
+    env_file = installation.env_file if installation.env_file.exists() else None
     for name in installation.config.redact:
-        value = os.environ.get(name) or file_values.get(name)
+        value = settings_module.named_value(name, env_file)
         if value:
             values[name] = value
     if failed:

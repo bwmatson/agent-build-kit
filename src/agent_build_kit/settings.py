@@ -13,8 +13,10 @@ and reviewed.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -136,6 +138,14 @@ class Settings(BaseSettings):
 CREDENTIAL_FIELDS: tuple[str, ...] = ("gh_token", "ado_pat", "gateway_master_key", "grafana_token")
 
 settings = Settings()
+
+
+def named_value(name: str, env_file: Path | None) -> str:
+    """The value of the variable `name`: the process environment first, then
+    `env_file`; empty when neither sets it."""
+    if os.environ.get(name):
+        return os.environ[name]
+    return (dotenv_values(env_file).get(name) or "") if env_file else ""
 
 
 def reload(env_file: Path | None) -> Settings:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,6 @@ from tests.conftest import make_installation
 from tests.fake_gateway import MASTER, serving
 
 VERIFY = "verify-value-0001"
-RUNTIME = "runtime-value-002"
 LISTED = "listed-value-0003"
 TOKEN = "credential-value-4"
 
@@ -35,7 +35,6 @@ def test_each_source_is_held_under_its_own_name(
     installation = make_installation(
         tmp_path,
         verify={"env": {"STACK_KEY": {"from": "literal", "value": VERIFY}}},
-        runtimes={"claude_code": {"command": ["x"], "env": {"EXTRA": RUNTIME}}},
         redact=["LISTED_VAR", "FROM_PROCESS"],
     )
 
@@ -44,13 +43,11 @@ def test_each_source_is_held_under_its_own_name(
     assert set(secrets.names) >= {
         "STACK_KEY",
         "gh_token",
-        "runtimes.claude_code.EXTRA",
         "LISTED_VAR",
         "FROM_PROCESS",
     }
     assert secrets.redact(VERIFY) == "[redacted:STACK_KEY]"
     assert secrets.redact(TOKEN) == "[redacted:gh_token]"
-    assert secrets.redact(RUNTIME) == "[redacted:runtimes.claude_code.EXTRA]"
     assert secrets.redact(LISTED) == "[redacted:LISTED_VAR]"
     assert secrets.redact("process-value-005") == "[redacted:FROM_PROCESS]"
 
@@ -81,12 +78,12 @@ def test_activating_an_installation_rebuilds_the_set_from_the_reloaded_settings(
 
 
 def test_the_set_shows_names_only_when_printed() -> None:
-    secrets = redaction.Redactor({"API_KEY": VERIFY, "OTHER": RUNTIME})
+    secrets = redaction.Redactor({"API_KEY": VERIFY, "OTHER": LISTED})
 
     for shown in (repr(secrets), str(secrets), f"{secrets}", f"{secrets!r}"):
         assert "API_KEY" in shown
         assert VERIFY not in shown
-        assert RUNTIME not in shown
+        assert LISTED not in shown
 
 
 def test_a_value_whose_provider_fails_is_left_out_with_one_warning_holding_no_value(
@@ -119,6 +116,16 @@ def test_a_value_whose_provider_fails_is_left_out_with_one_warning_holding_no_va
     assert VERIFY not in caplog.text
 
 
+@pytest.fixture
+def clean_active_set() -> Iterator[None]:
+    """An empty active set for the test, and the previous one back afterwards."""
+    before = redaction.active()
+    redaction.activate(redaction.Redactor({}))
+    yield
+    redaction.activate(before)
+
+
+@pytest.mark.usefixtures("clean_active_set")
 def test_a_minted_gateway_key_is_registered_under_gateway_key() -> None:
     with serving() as gateway:
         client = GatewayUsage(gateway.url, MASTER, lambda _: None, settle_seconds=0.3)
