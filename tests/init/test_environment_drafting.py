@@ -3,22 +3,34 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
 import yaml
 
 from agent_build_kit import profiles
-from agent_build_kit.config import EnvironmentConfig
+from agent_build_kit.config import DraftedEnvironment, EnvironmentConfig
 from agent_build_kit.init.environment import detect_environment
-from agent_build_kit.init.scaffold import draft_config
-from agent_build_kit.profiles import python_uv
+from agent_build_kit.init.scaffold import draft_config, dump_with_notes
+from agent_build_kit.profiles import ToolchainProfile, python_uv
 from tests.init.test_scaffold import detection
 
 EXPECTED = Path(__file__).parent.parent / "fixtures" / "init" / "python_environment.yaml"
 
 # What a frozen sync is: it fails for exactly the unit that changed a dependency.
 FROZEN = {"ci", "--frozen-lockfile", "--immutable"}
+
+
+def plain_python_repo(parent: Path) -> Path:
+    """A manifest and its lock file, no path source."""
+    root = parent / "app"
+    root.mkdir(parents=True)
+    (root / "pyproject.toml").write_text("[project]\nname = 'app'\n")
+    (root / "uv.lock").write_text("")
+    return root
 
 
 def python_repo(parent: Path) -> Path:
@@ -65,11 +77,10 @@ class HooklessProfile:
 
 
 @pytest.fixture
-def register(monkeypatch: pytest.MonkeyPatch):
-    """The built-in profiles plus whatever a test registers, undone afterwards."""
-    monkeypatch.setattr(profiles, "_REGISTRY", {})
-    profiles.names()
-    return profiles.register
+def register() -> Iterator[Callable[[ToolchainProfile], None]]:
+    """The built-in profiles plus whatever a test registers, removed afterwards."""
+    with ExitStack() as stack:
+        yield lambda profile: stack.enter_context(profiles.registered(profile))
 
 
 def expected_python(key: str) -> EnvironmentConfig:
@@ -80,18 +91,85 @@ def expected_python(key: str) -> EnvironmentConfig:
 
 
 @pytest.mark.parametrize("key, framework", [("plain", False), ("framework", True)])
-def test_a_python_repository_is_drafted_as_it_was_before(
+def test_a_python_repository_without_path_sources_is_drafted_as_it_was_before(
     tmp_path: Path, key: str, framework: bool
 ) -> None:
-    drafted = detect_environment(python_repo(tmp_path), framework=framework)
+    drafted = detect_environment(plain_python_repo(tmp_path), framework=framework)
 
     assert drafted == expected_python(key)
+    assert drafted is not None and drafted.sync == ["uv", "sync"]
+    assert drafted.inputs.dependencies == ["pyproject.toml"]
+    assert drafted.inputs.lock == ["uv.lock"] and drafted.artifacts == []
 
 
 def test_the_python_profile_drafts_the_same_section(tmp_path: Path) -> None:
-    drafted = python_uv.PROFILE.detect_environment(python_repo(tmp_path), framework=False)
+    drafted = python_uv.PROFILE.detect_environment(plain_python_repo(tmp_path), framework=False)
 
     assert drafted == expected_python("plain")
+
+
+# --- 3.6 / 3.7 path sources ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key, framework", [("path_sources_plain", False), ("path_sources_framework", True)]
+)
+def test_path_sources_get_a_drift_checked_draft_listing_nothing_outside_the_repository(
+    tmp_path: Path, key: str, framework: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    expected = expected_python(key)
+
+    with caplog.at_level(logging.WARNING):
+        drafted = detect_environment(python_repo(tmp_path), framework=framework)
+        assert drafted is not None
+        loaded = EnvironmentConfig.model_validate(drafted.model_dump(mode="json"))
+
+    assert drafted.inputs == expected.inputs
+    assert drafted.inputs.dependencies == ["pyproject.toml"]
+    assert drafted.inputs.lock == ["uv.lock"]
+    assert (drafted.sync, drafted.check) == (expected.sync, expected.check)
+    assert loaded.check == drafted.check
+    assert caplog.text == ""
+
+
+def test_the_drift_check_runs_both_freshness_commands_before_the_import_check(
+    tmp_path: Path,
+) -> None:
+    plain = detect_environment(plain_python_repo(tmp_path / "a"), framework=True)
+    drafted = detect_environment(python_repo(tmp_path / "b"), framework=True)
+
+    assert plain is not None and drafted is not None
+    assert drafted.check != plain.check
+    assert drafted.check[:2] == ["sh", "-c"]
+    script = drafted.check[2]
+    lock, sync, imports = (
+        script.index(part) for part in ("uv lock --check", "uv sync --check", "import agent")
+    )
+    assert lock < sync < imports
+
+
+def test_a_node_shaped_draft_is_unchanged_by_path_source_handling(tmp_path: Path) -> None:
+    environment = detect_environment(node_repo(tmp_path / "web", lock="yarn.lock"), framework=False)
+
+    assert environment is not None
+    assert environment.check[0] == "yarn"
+    assert environment.inputs.lock == ["yarn.lock"]
+    assert not isinstance(environment, DraftedEnvironment)
+
+
+def test_the_path_source_draft_carries_the_explanatory_comment(tmp_path: Path) -> None:
+    python_repo(tmp_path / "a")
+    plain_python_repo(tmp_path / "b")
+    drafted = draft_config(
+        {"app": detection("app", tmp_path / "a")}, planning_dir=tmp_path / "plan"
+    )
+    plain = draft_config({"app": detection("app", tmp_path / "b")}, planning_dir=tmp_path / "plan")
+
+    text = dump_with_notes(drafted)
+
+    assert "# The manifest names path sources" in text
+    assert yaml.safe_load(text)["repos"]["app"]["environment"]["check"][0] == "sh"
+    assert "path sources" not in dump_with_notes(plain)
 
 
 # --- 3.2 the node profile ------------------------------------------------------------

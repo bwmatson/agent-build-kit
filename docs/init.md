@@ -172,9 +172,12 @@ it; set `notifications` by hand there.
 Init is the only place that guesses an `environment` section. It asks the
 toolchain profile repository detection chose, then the other registered
 profiles in order, to draft it from the marker files in the planning repo and
-in each code repo (for Python a manifest, its lock file, and the checkouts
-inside the repo the manifest names as path sources; a checkout beside it
-cannot be listed, since patterns stay in the repo; for node a `package.json`,
+in each code repo (for Python a manifest and its lock file; where the manifest
+names path sources, the inputs still hold only the repo's own manifest and lock,
+since patterns stay in the repo, and `check` becomes `sh -c "uv lock --check &&
+uv sync --check && <import check>"` so a change in a checkout it points at fails
+the check and the next tick syncs, with a comment above the section saying why;
+for node a `package.json`,
 its lock file and `workspaces`, with the dependency directory as an artifact).
 The first profile to propose a section wins, and it writes a `sync` command,
 a `check`, and the manifests and lock files found. The lock files

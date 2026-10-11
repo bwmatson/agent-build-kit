@@ -42,7 +42,7 @@ implemented.
 | `members(repo)` | tier 1, tier 2, verify | workspace members; empty for a single-package repo |
 | `member_of(repo, path)` | verify | which member a path is in |
 | `dependents(repo, member)` | verify | members that declare `member` as a dependency |
-| `detect_environment(root, framework)` (optional) | `abk init` | the proposed `environment` section for a checkout, or `None` when the profile cannot say; a profile without it counts as returning `None` |
+| `detect_environment(root, framework)` (optional) | `abk init` | the proposed `environment` section for a checkout, or `None` when the profile cannot say; a profile without it counts as returning `None`; declared as `profiles.base.EnvironmentDrafting`, which the walk selects on. A draft can be a `config.DraftedEnvironment`, whose `note` init writes as a comment above the section. `profiles.registered(profile)` registers one for a `with` block |
 
 `profiles.base.is_doc_path` is not a profile method: `.md`/`.rst`/`.txt`,
 anything under `docs/`, and `LICENSE*` never deploy, whatever the profile.

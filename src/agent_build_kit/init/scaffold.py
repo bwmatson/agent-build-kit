@@ -33,6 +33,8 @@ from agent_build_kit.config import (
     DeployConfig,
     DeployRule,
     DevStackConfig,
+    DraftedEnvironment,
+    EnvironmentConfig,
     LimitsConfig,
     NamesFrom,
     ProjectConfig,
@@ -169,10 +171,40 @@ def draft_config(
     )
 
 
-def _block(key: str, value: object, indent: str) -> list[str]:
-    """`key: value` dumped as block YAML, every line indented."""
+def _note(environment: EnvironmentConfig | None) -> str:
+    return environment.note if isinstance(environment, DraftedEnvironment) else ""
+
+
+def _block(key: str, value: object, indent: str, note: str = "") -> list[str]:
+    """`key: value` dumped as block YAML, every line indented, under `note` as comments."""
     text = yaml.safe_dump({key: value}, sort_keys=False, default_flow_style=False)
-    return [f"{indent}{line}\n" for line in text.splitlines()]
+    comments = [f"{indent}# {line}\n" for line in note.splitlines()]
+    return comments + [f"{indent}{line}\n" for line in text.splitlines()]
+
+
+def dump_with_notes(config: WorkspaceConfig) -> str:
+    """`dump(config)` with each drafted environment's note as comments above its section."""
+    lines = dump(config).splitlines(keepends=True)
+    sections = [(None, config.environment)] + [(n, r.environment) for n, r in config.repos.items()]
+    for name, environment in reversed(sections):
+        note = _note(environment)
+        if not note:
+            continue
+        start, stop = 0, len(lines)
+        if name is not None:
+            repos = _key_line(lines, "repos", top=True)
+            at = _key_line(
+                lines, name, start=(repos or 0) + 1, stop=_top_level_end(lines, repos or 0)
+            )
+            if at is None:
+                continue
+            start = at + 1
+        found = _key_line(lines, "environment", start=start, stop=stop, top=name is None)
+        if found is None:
+            continue
+        indent = lines[found][: len(lines[found]) - len(lines[found].lstrip())]
+        lines[found:found] = [f"{indent}# {line}\n" for line in note.splitlines()]
+    return "".join(lines)
 
 
 def _child_indent(lines: list[str], at: int, parent: int) -> str:
@@ -228,8 +260,9 @@ def fill_missing_environment(
     # A planning section nothing was recognised for is not added to a file that
     # loads without it: empty commands would stop it loading.
     if "environment" not in raw and drafted_raw.get("environment", {}).get("sync"):
-        lines += _block("environment", drafted_raw["environment"], "")
-        filled["environment"] = "".join(_block("environment", drafted_raw["environment"], ""))
+        block = _block("environment", drafted_raw["environment"], "", _note(drafted.environment))
+        lines += block
+        filled["environment"] = "".join(block)
 
     for name, entry in (raw.get("repos") or {}).items():
         wanted = drafted_raw.get("repos", {}).get(name, {}).get("environment")
@@ -243,8 +276,9 @@ def fill_missing_environment(
             continue
         parent = len(lines[at]) - len(lines[at].lstrip())
         indent = _child_indent(lines, at, parent)
-        lines[at + 1 : at + 1] = _block("environment", wanted, indent)
-        filled[f"repos.{name}.environment"] = "".join(_block("environment", wanted, ""))
+        note = _note(drafted.repos[name].environment) if name in drafted.repos else ""
+        lines[at + 1 : at + 1] = _block("environment", wanted, indent, note)
+        filled[f"repos.{name}.environment"] = "".join(_block("environment", wanted, "", note))
 
     patterns = drafted_raw.get("limits", {}).get("generated_files")
     limits = raw.get("limits")
@@ -475,7 +509,7 @@ def write_planning_repo(
                 f"openspec init failed in {planning}:\n{result.stdout}\n{result.stderr}".strip()
             )
 
-    _write(planning / CONFIG_FILENAME, dump(config), overwrite=force, written=written)
+    _write(planning / CONFIG_FILENAME, dump_with_notes(config), overwrite=force, written=written)
 
     openspec_config = planning / "openspec" / "config.yaml"
     _write(

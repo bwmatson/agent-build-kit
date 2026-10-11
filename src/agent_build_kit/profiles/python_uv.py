@@ -10,14 +10,18 @@ environment, so the collision cannot happen.
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 import sys
 import tomllib
 from pathlib import Path
 
-from agent_build_kit.config import EnvironmentConfig, EnvironmentInputs, RepoConfig
+from agent_build_kit.config import (
+    DraftedEnvironment,
+    EnvironmentConfig,
+    EnvironmentInputs,
+    RepoConfig,
+)
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import parse_pytest_summary
@@ -33,6 +37,14 @@ XDIST = "pytest-xdist"
 MANIFEST = "pyproject.toml"
 LOCK = "uv.lock"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
+# The lock-freshness and environment-freshness commands a path-source draft's check starts with.
+DRIFT_CHECKS = "uv lock --check && uv sync --check"
+PATH_SOURCES_NOTE = (
+    "The manifest names path sources, whose own manifest and lock are outside this\n"
+    "repository and cannot be listed as inputs. `check` runs `uv lock --check` and\n"
+    "`uv sync --check` first, so a change in a checkout it points at fails the check\n"
+    "and the next tick syncs."
+)
 
 
 # The pre-commit hooks that are the type checker, by id.
@@ -55,10 +67,6 @@ def _pyproject(path: Path) -> dict:
         return tomllib.loads((path / "pyproject.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
-
-
-def _relative(path: Path, root: Path) -> str:
-    return Path(os.path.relpath(path, root)).as_posix()
 
 
 def _path_sources(root: Path) -> list[Path]:
@@ -154,21 +162,24 @@ class PythonUvProfile:
         dependencies, lock = [MANIFEST], []
         if (root / LOCK).is_file():
             lock.append(LOCK)
-        for checkout in _path_sources(root):
-            for name, files in ((MANIFEST, dependencies), (LOCK, lock)):
-                # A pattern cannot leave the repository, so a checkout beside it is not listed.
-                relative = _relative(checkout / name, root)
-                if (checkout / name).is_file() and not relative.startswith(".."):
-                    files.append(relative)
-        check = (
-            ["uv", "run", "--no-sync", "python", "-c", "import agent_build_kit"]
-            if framework
-            else ["uv", "run", "--no-sync", "python", "-c", "pass"]
-        )
-        return EnvironmentConfig(
+        word = "import agent_build_kit" if framework else "pass"
+        inputs = EnvironmentInputs(dependencies=dependencies, lock=lock)
+        if not _path_sources(root):
+            return EnvironmentConfig(
+                sync=["uv", "sync"],
+                check=["uv", "run", "--no-sync", "python", "-c", word],
+                inputs=inputs,
+            )
+        # A path-source checkout's own manifest and lock are outside the inputs a pattern
+        # can name, so the check is what notices them drift: the first failing command
+        # makes the tick sync.
+        quoted = f'"{word}"' if " " in word else word
+        import_check = f"uv run --no-sync python -c {quoted}"
+        return DraftedEnvironment(
             sync=["uv", "sync"],
-            check=check,
-            inputs=EnvironmentInputs(dependencies=dependencies, lock=lock),
+            check=["sh", "-c", f"{DRIFT_CHECKS} && {import_check}"],
+            inputs=inputs,
+            note=PATH_SOURCES_NOTE,
         )
 
     def member_of(self, repo: Path, path: str) -> str | None:

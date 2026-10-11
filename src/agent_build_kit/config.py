@@ -65,7 +65,7 @@ class EnvironmentInputs(Frozen):
         for pattern in filter(path_patterns.is_outside_literal, patterns):
             logger.warning(
                 "environment.inputs.%s lists %r, which leaves the repository; it is hashed "
-                "but will be refused in the next release",
+                "but will be refused in the next release; use `check` to detect drift",
                 info.field_name,
                 pattern,
             )
@@ -94,6 +94,13 @@ class EnvironmentConfig(Frozen):
         if not command:
             raise ValueError("the command must not be empty")
         return command
+
+
+class DraftedEnvironment(EnvironmentConfig):
+    """A section `abk init` drafted, with the comment it writes above it. The note is
+    not configuration: it is never dumped and is lost on loading the file back."""
+
+    note: str = Field("", exclude=True)
 
 
 # --- planning repo -----------------------------------------------------------

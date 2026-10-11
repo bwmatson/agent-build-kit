@@ -148,6 +148,7 @@ def test_a_literal_input_leaving_the_repository_still_loads_with_a_warning(
     assert f"environment.inputs.{list_name}" in caplog.text
     assert "../other/manifest.toml" in caplog.text
     assert "next release" in caplog.text
+    assert "use `check` to detect drift" in caplog.text
 
 
 @pytest.mark.parametrize("pattern", ["/var/cache", "../cache", "build/../../cache"])

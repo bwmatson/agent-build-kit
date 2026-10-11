@@ -2,16 +2,39 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig
-from agent_build_kit.profiles.base import PromptWords, ToolchainProfile, is_doc_path
+from agent_build_kit.profiles.base import (
+    EnvironmentDrafting,
+    PromptWords,
+    ToolchainProfile,
+    is_doc_path,
+)
 
 _REGISTRY: dict[str, ToolchainProfile] = {}
 
 
 def register(profile: ToolchainProfile) -> None:
     _REGISTRY[profile.name] = profile
+
+
+@contextmanager
+def registered(profile: ToolchainProfile) -> Iterator[None]:
+    """Register `profile` for the duration of a `with` block, then remove it (a profile of
+    the same name registered before is put back). The built-in profiles stay."""
+    _load_builtin()
+    previous = _REGISTRY.get(profile.name)
+    register(profile)
+    try:
+        yield
+    finally:
+        if previous is None:
+            del _REGISTRY[profile.name]
+        else:
+            _REGISTRY[profile.name] = previous
 
 
 def get(name: str) -> ToolchainProfile:
@@ -39,8 +62,9 @@ def detect_environment(
     ordered = [p for p in _REGISTRY.values() if p.name == first]
     ordered += [p for p in _REGISTRY.values() if p.name != first]
     for profile in ordered:
-        hook = getattr(profile, "detect_environment", None)
-        environment = hook(root, framework=framework) if hook else None
+        if not isinstance(profile, EnvironmentDrafting):
+            continue
+        environment = profile.detect_environment(root, framework=framework)
         if environment is not None:
             return environment
     return None
@@ -56,6 +80,7 @@ def _load_builtin() -> None:
 
 
 __all__ = [
+    "EnvironmentDrafting",
     "PromptWords",
     "ToolchainProfile",
     "detect_environment",
@@ -63,4 +88,5 @@ __all__ = [
     "is_doc_path",
     "names",
     "register",
+    "registered",
 ]
