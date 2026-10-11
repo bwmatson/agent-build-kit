@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The command rules now judge a command as its tool would run it: git's global options
+  (`-C`, `-c`, `--no-pager`, `--git-dir`, `--work-tree`, in both the `=` and two-word forms)
+  and the host CLI's repository option no longer hide an amend, a push to the default branch,
+  a force push, a hard reset, a branch force-delete or a pull request merge, and a merge sent
+  through the host's raw API is refused while reads through it are not. A privilege wrapper's
+  option value (`sudo -u root`) no longer hides the command either. The policy check now
+  also attempts the global-option spellings of the amend, the push to the default branch and
+  the force push, the repository-option spellings of the merge and two raw-API merge
+  spellings, all in its one prompt, and reports, per class and spelling, which one an agent
+  ran without asking.
+
 - Known secret values (`verify.env`, the credential settings, variables named in the
   new `redact` list, and each gateway key minted) are gathered when an installation
   is activated, and a redaction function replaces them with `[redacted:<NAME>]` in any text it is

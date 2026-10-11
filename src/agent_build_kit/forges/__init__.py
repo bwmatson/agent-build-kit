@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import cast
 
 from agent_build_kit.forges.base import (
+    DeniedRequest,
     FileChange,
     Forge,
     Label,
@@ -94,7 +96,38 @@ def denies(tokens: list[str]) -> str:
         for denied in forge.denied_commands:
             if tuple(tokens[: len(denied)]) == denied:
                 return f"{' '.join(denied)} is not the agent's to run"
+        for request in forge.denied_requests:
+            if _sends(tokens, request):
+                return (
+                    f"{' '.join(request.command)} merging a pull request is not the agent's to run"
+                )
     return ""
+
+
+# Options of a raw API client that carry a request body, which make its default
+# method a POST.
+BODY_OPTIONS = ("-f", "-F", "--field", "--raw-field", "--input")
+
+
+def _method_of(args: list[str]) -> str:
+    """The method a raw API client sends: the one named (`-X PUT`, `-XPUT`,
+    `--method PUT`, `--method=PUT`), else POST when a body is given, else GET."""
+    for index, token in enumerate(args):
+        if token in ("-X", "--method") and index + 1 < len(args):
+            return args[index + 1].upper()
+        if token.startswith("--method="):
+            return token.split("=", 1)[1].upper()
+        if token.startswith("-X") and len(token) > 2:
+            return token[2:].removeprefix("=").upper()
+    has_body = any(token.split("=", 1)[0] in BODY_OPTIONS for token in args)
+    return "POST" if has_body else "GET"
+
+
+def _sends(tokens: list[str], request: DeniedRequest) -> bool:
+    if tuple(tokens[: len(request.command)]) != request.command:
+        return False
+    args = tokens[len(request.command) :]
+    return _method_of(args) in request.methods and any(re.search(request.path, a) for a in args)
 
 
 def denied_prefixes() -> tuple[str, ...]:

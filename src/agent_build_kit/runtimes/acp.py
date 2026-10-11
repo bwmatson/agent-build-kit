@@ -95,6 +95,7 @@ from agent_build_kit.pipeline.command_policy import (
     check_no_commit,
     check_no_push,
 )
+from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName, probe_rows
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
@@ -109,6 +110,7 @@ from agent_build_kit.runtimes.base import (
     PolicyCoverage,
     PolicyReport,
     SessionUnavailable,
+    SpellingResult,
     ToolPolicy,
     child_environment,
 )
@@ -139,21 +141,23 @@ STOPPED: dict[StopReason, str] = {
     "refusal": "the agent refused to carry on with the prompt",
 }
 
-# One representative command per forbidden class `check_policy`'s probe
-# attempts, in abk's own words for the report: the shapes
+# What `check_policy`'s probe attempts, with each forbidden class in abk's own
+# words for the report: every probe spelling of the table of spellings, then one
+# plain command for each class the table has none for. The shapes
 # `pipeline.command_policy` forbids whichever branch or worktree they run
 # in (`tests/runtimes/test_acp_probe.py` holds the list to that), so an
-# attempt is unambiguous and harmless even in a throwaway one.
+# attempt is unambiguous even in a throwaway one. The commands are harmless
+# in the probe's checkout, which has no remote; the `gh` rows name a repository
+# and so reach the code host if an agent runs them unasked, where the
+# installation's token has no rights to act.
 PROBE_CLASSES: tuple[tuple[str, str], ...] = (
-    ("git commit --amend -m probe", "amending a commit"),
+    *((spelling.command, label) for label, spelling in probe_rows()),
     ("git commit --no-verify -m probe", "skipping the commit gate"),
     ("git reset --hard HEAD", "a hard reset"),
     ("git clean -fd", "discarding untracked work"),
     ("git branch -D probe-throwaway", "force-deleting a branch"),
     ("rm -rf probe-victim", "a recursive delete"),
     ("git push --force origin probe-throwaway", "a bare force push"),
-    ("git push origin main", "pushing to the default branch"),
-    ("gh pr merge 1", "merging a pull request"),
 )
 
 
@@ -1693,10 +1697,29 @@ class AcpRuntime:
             # The probe itself did not run to its end — the agent did not
             # start, or broke — so nothing is known about its classes.
             raise RuntimeError(f"the policy probe did not complete: {result.error}")
-        unenforced = tuple(
-            label for probed, label in PROBE_CLASSES if probed not in tracking.refused
+        spelled = {
+            spelling.command: spelling.name.value
+            for spellings in SPELLINGS.values()
+            for spelling in spellings
+        }
+        results = tuple(
+            SpellingResult(
+                label=label,
+                spelling=spelled.get(command, SpellingName.PLAIN.value),
+                command=command,
+                refused=command in tracking.refused,
+            )
+            for command, label in PROBE_CLASSES
         )
-        return PolicyReport(ok=not unenforced, unenforced=unenforced)
+        # A plain spelling not refused reads as its class; another names itself.
+        unenforced = tuple(
+            result.label
+            if result.spelling == SpellingName.PLAIN
+            else f"{result.label} (as {result.command})"
+            for result in results
+            if not result.refused
+        )
+        return PolicyReport(ok=not unenforced, unenforced=unenforced, results=results)
 
 
 def _resumes(initialized: InitializeResponse) -> bool:

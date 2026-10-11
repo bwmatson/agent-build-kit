@@ -25,7 +25,7 @@ from agent_build_kit.forges import (
     Stack,
     StackRefused,
 )
-from agent_build_kit.forges.base import FileChange, Run
+from agent_build_kit.forges.base import DeniedRequest, FileChange, Run
 from agent_build_kit.settings import Settings
 
 
@@ -36,6 +36,7 @@ class StandInForge:
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
+    denied_requests: tuple[DeniedRequest, ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = ()
     requires: tuple[str, ...] = ()
     ci_name: str = "the stand-in CI"
