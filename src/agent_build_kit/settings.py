@@ -133,7 +133,7 @@ class Settings(BaseSettings):
 
 # The fields that hold a secret: the redaction set (redaction.py) takes each by
 # its field name.
-CREDENTIAL_FIELDS: tuple[str, ...] = ()
+CREDENTIAL_FIELDS: tuple[str, ...] = ("gh_token", "ado_pat", "gateway_master_key", "grafana_token")
 
 settings = Settings()
 

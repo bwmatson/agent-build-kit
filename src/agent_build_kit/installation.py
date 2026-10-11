@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from agent_build_kit import config as config_module
-from agent_build_kit import forges
+from agent_build_kit import forges, redaction
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     CommandProvider,
@@ -164,6 +164,7 @@ class Installation:
         """Make this the workspace the leaf modules see (config.active())."""
         settings_module.reload(self.env_file if self.env_file.exists() else None)
         config_module.activate(self.config, self.root)
+        redaction.activate(redaction.gather(self))
 
 
 def _resolve(provider: object) -> str:

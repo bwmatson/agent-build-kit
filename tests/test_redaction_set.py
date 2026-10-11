@@ -106,6 +106,7 @@ def test_a_value_whose_provider_fails_is_left_out_with_one_warning_holding_no_va
         },
     )
 
+    caplog.clear()  # activating the installation warned once already
     with caplog.at_level(logging.WARNING):
         secrets = redaction.gather(installation)
 
