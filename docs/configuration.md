@@ -189,6 +189,9 @@ limits:
   max_concurrent_stacks: 4      # units being built at once, across all repos
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
                                 # checks yet still reads `checking`
+  label_sweep_per_tick: 20      # finished units' pull requests whose stale state
+                                # label a round takes off (each tick and each
+                                # refresh of a pass), at least 1
   max_units_in_progress: 5      # units started and not finished, across all
                                 # repos, at least 1; at it no unit that has
                                 # never started does, while reworks, resumes

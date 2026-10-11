@@ -259,6 +259,10 @@ class LimitsConfig(Frozen):
     # At it no unit that has never started does; what drains the queue
     # (finishing, rework, resuming, a further review round) still runs.
     max_units_in_progress: Annotated[int, Field(ge=1)] = 5
+    # How many pull requests of finished units a round (each tick and each refresh of a
+    # pass) takes their stale state label off, so a backlog does not spend the code
+    # host's rate limit at once.
+    label_sweep_per_tick: Annotated[int, Field(ge=1)] = 20
     # Estimated changed lines before a unit stops absorbing the next task group.
     min_unit_lines: int = 400
     # Estimated changed lines one unit may carry. It shapes plans; a unit whose

@@ -110,6 +110,7 @@ limits:
   max_concurrent_stacks: 4    # units implemented at once, across repos
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
   max_units_in_progress: 5    # started, unfinished units (>= 1); at it no never-started unit starts
+  label_sweep_per_tick: 20    # finished units' PRs a round takes a stale state label off (>= 1)
   min_unit_lines: 400         # estimated lines before a unit stops growing
   max_unit_lines: 750         # estimated lines one unit may carry; above
                               # min_unit_lines. Shapes plans; a unit landing

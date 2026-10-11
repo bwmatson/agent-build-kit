@@ -264,6 +264,22 @@ class StandInForge:
         self.calls.append(("close", pr))
 
 
+class NoLabelsForge(StandInForge):
+    """A host that keeps no labels: every label call is unimplemented."""
+
+    def add_label(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+
+    def set_exclusive_label(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+
+    def remove_label(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+
+    def labels_on(self, *args, **kwargs) -> list[str]:
+        raise NotImplementedError
+
+
 def lookup(forge: StandInForge):
     """A `for_repo` the `wiring.build_*` factories accept: every repo name
     resolves to this one stand-in."""

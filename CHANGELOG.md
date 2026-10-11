@@ -18,7 +18,9 @@
 - A pull request whose unit has merged, been closed, satisfied or unplanned now has its
   state label taken off, so a merged pull request no longer keeps saying `in-review`.
   Change labels and labels a person added stay. The code forges gain a `labels_on` read
-  to see what a pull request carries.
+  to see what a pull request carries. Pull requests of units that finished earlier are
+  cleaned the same way, a few each tick (`limits.label_sweep_per_tick`, default 20), with no
+  command to run, on ticks that have work.
 
 - A unit in review that follows a changing predecessor back to `planned` now does so
   through an event to its thread, so the thread records the move and stays waiting for
