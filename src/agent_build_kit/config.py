@@ -128,6 +128,15 @@ class OpenSpecConfig(Frozen):
     command: list[str] | None = None
 
 
+class RetentionConfig(Frozen):
+    """How long the files the pipeline writes for diagnosis are kept."""
+
+    # The decision log's size, in megabytes; past it the oldest lines are dropped.
+    decision_log_mb: Annotated[float, Field(gt=0)] = 50
+    # How old a unit's run log may get once its summary is in the usage ledger.
+    unit_log_days: Annotated[int, Field(ge=0)] = 30
+
+
 class GitConfig(Frozen):
     # An ssh host alias (see ~/.ssh/config) carrying the key for the account
     # the pipeline pushes agent branches as. "" means push to `origin`, which
@@ -654,6 +663,7 @@ class WorkspaceConfig(Frozen):
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()
     git: GitConfig = GitConfig()
+    retention: RetentionConfig = RetentionConfig()
     # The agent runtime (runtimes/) every call runs on; ABK_RUNTIME overrides it.
     runtime: str = runtimes.DEFAULT
     # Per-runtime facts, only the selected runtime's demanded.

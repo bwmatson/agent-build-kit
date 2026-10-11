@@ -98,7 +98,12 @@ from agent_build_kit.pipeline.pr_poller import (
 )
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
-from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
+from agent_build_kit.pipeline.run_log import (
+    RunLog,
+    remove_change_logs,
+    remove_old_logs,
+    run_log_dir,
+)
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.stack_runner import (
     PauseInfo,
@@ -197,7 +202,7 @@ from agent_build_kit.pipeline.vocabulary import (
     state_label,
     state_label_names,
 )
-from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder, trim_decision_log
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_on_flake,
@@ -3678,6 +3683,14 @@ def _record_waits(
         left_out = [unit.id for unit in units if only and unit.id not in only]
         reasons = waits()
         _RECORDERS[path].record(reasons, tick=_PROCESS_TICK, keep=left_out)
+        retention = inst.config.retention
+        trim_decision_log(path, limit_mb=retention.decision_log_mb)
+        remove_old_logs(
+            run_log_dir(inst.state_dir),
+            inst.state_dir / LEDGER_NAME,
+            days=retention.unit_log_days,
+            now=datetime.now(UTC),
+        )
         # Where reasons are decided, so a tick that starts nothing still dates a unit's readiness.
         unstamped = {unit.id for unit in units if unit.ready_at is None}
         for unit_id, wait in reasons.items():

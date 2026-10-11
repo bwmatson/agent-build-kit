@@ -6,9 +6,10 @@ it where a person looking for that unit can find it.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.pipeline.units import Unit
@@ -19,6 +20,9 @@ RUNS_KEPT = 3
 # What each further line of a multi-line message starts with, so every line
 # that begins at the margin is a new entry and the file stays parsable by line.
 CONTINUATION = "    "
+
+
+_UNIT_LOG = re.compile(r"(?P<change>.+)-(?P<number>\d{2,})-\d{8}-\d{6}-")
 
 
 def run_log_dir(state_dir: Path) -> Path:
@@ -127,4 +131,26 @@ def remove_change_logs(directory: Path, change: str) -> None:
 def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) -> None:
     """Remove each unit log last written more than `days` before `now` whose unit has a
     `summary` line in `ledger`; a log whose unit has none is kept."""
-    raise NotImplementedError
+    try:
+        lines = ledger.read_text().splitlines()
+        paths = list(directory.iterdir())
+    except OSError:
+        return
+    summarised: set[str] = set()
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            if raw.get("kind") == "summary":
+                summarised.add(str(raw["unit"]))
+        except (ValueError, AttributeError, KeyError):
+            continue
+    cutoff = (now - timedelta(days=days)).timestamp()
+    for path in paths:
+        if (match := _UNIT_LOG.match(path.name)) is None:
+            continue
+        unit = f"{match['change']}/{int(match['number'])}"
+        try:
+            if unit in summarised and path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue

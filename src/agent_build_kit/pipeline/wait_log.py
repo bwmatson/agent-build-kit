@@ -112,5 +112,21 @@ class WaitRecorder:
 
 
 def trim_decision_log(path: Path, *, limit_mb: float) -> None:
-    """Drop the oldest lines of the log at `path` until it is within `limit_mb`."""
-    raise NotImplementedError
+    """Drop the oldest lines of the log at `path` until it is within `limit_mb` megabytes."""
+    limit = int(limit_mb * 1024 * 1024)
+    try:
+        if path.stat().st_size <= limit:
+            return
+        lines = path.read_bytes().splitlines(keepends=True)
+    except OSError:
+        return
+    kept: list[bytes] = []
+    size = 0
+    for line in reversed(lines):
+        if size + len(line) > limit:
+            break
+        kept.append(line)
+        size += len(line)
+    scratch = path.with_name(path.name + ".tmp")
+    scratch.write_bytes(b"".join(reversed(kept)))
+    scratch.replace(path)

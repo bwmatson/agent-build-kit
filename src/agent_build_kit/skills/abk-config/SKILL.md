@@ -99,6 +99,10 @@ session_reuse:                # per agent role: continue the role's latest sessi
   build: true                 # tests/implement/fix/rework/adapt share one session
   review: false               # always false: a review starts fresh; a role left out is off
 
+retention:
+  decision_log_mb: 50         # decision log size; the oldest lines are dropped past it
+  unit_log_days: 30           # age at which a summarised unit's run log is removed
+
 context:
   compaction_drop_share: 0.3  # fall in the fill larger than this share of the window = a compaction
   warn_share: 0.8             # a step ending above this share of the window logs a warning

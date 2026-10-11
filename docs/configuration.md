@@ -61,6 +61,11 @@ openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
                                 # @fission-ai/openspec@<ABK_OPENSPEC_VERSION>.
 
+retention:
+  decision_log_mb: 50           # decisions.jsonl is trimmed to this size, newest lines kept
+  unit_log_days: 30             # a unit's run log older than this goes once its summary
+                                # is in the usage ledger; one without a summary stays
+
 git:
   push_host: ""                 # an ssh host alias (from ~/.ssh/config)
                                 # carrying the key agent branches are pushed
