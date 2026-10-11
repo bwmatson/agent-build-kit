@@ -516,6 +516,7 @@ class Chat:
             model=model or None,
             resume_session=resume,
             fork_session=fork,
+            environment=self.agent_environment,
             policy=ToolPolicy(specs_dir=self.installation.specs_dir, no_commit=True)
             if builder is not None
             else ToolPolicy(scoped=False, no_commit=True),
@@ -911,7 +912,7 @@ def register(
         unit = chat.acp_sessions()[session][0]
         cwd = chat.worktree(unit) or installation.root
         can = getattr(runtimes.get(ACP), "can_resume_session", None)
-        return bool(can is not None and can(session, cwd))
+        return bool(can is not None and can(session, cwd, environment=agent_environment))
 
     @app.get("/api/sessions/{runtime}/{session}")
     def one_session(runtime: str, session: str) -> dict[str, Any]:

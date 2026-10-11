@@ -110,6 +110,7 @@ from agent_build_kit.runtimes.base import (
     PolicyReport,
     SessionUnavailable,
     ToolPolicy,
+    child_environment,
 )
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.usage import ContextBasis, Usage, context_of
@@ -1282,7 +1283,9 @@ class AcpRuntime:
         # a tick runs through it.
         self._unoffered: set[str] = set()
         self._no_roots_told = False
-        self._resumable: set[tuple[str, ...]] = set()
+        self._resumable: set[
+            tuple[tuple[str, ...], str, str, tuple[tuple[str, str], ...] | None]
+        ] = set()
 
     def run(self, request: AgentRequest) -> AgentResult:
         return traced(NAME, request, lambda: self._call(request))
@@ -1353,7 +1356,7 @@ class AcpRuntime:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=request.cwd,
-                env={**os.environ, **request.env} if request.env else None,
+                env=child_environment(request.environment, request.env),
                 limit=LINE_LIMIT,
                 start_new_session=True,
             )
@@ -1609,20 +1612,28 @@ class AcpRuntime:
         if not command:
             return False
         # A yes is kept for the life of the runtime, since the agent is started to ask.
-        key = (*command, session_id, str(cwd))
+        key = (
+            tuple(command),
+            session_id,
+            str(cwd),
+            None if environment is None else tuple(sorted(environment.items())),
+        )
         if key not in self._resumable:
-            if not asyncio.run(self._declares_loading(command, session_id, str(cwd))):
+            if not asyncio.run(self._declares_loading(command, session_id, str(cwd), environment)):
                 return False
             self._resumable.add(key)
         return True
 
-    async def _declares_loading(self, command: list[str], session_id: str, cwd: str) -> bool:
+    async def _declares_loading(
+        self, command: list[str], session_id: str, cwd: str, environment: dict[str, str] | None
+    ) -> bool:
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=child_environment(environment, {}),
                 limit=LINE_LIMIT,
                 start_new_session=True,
             )

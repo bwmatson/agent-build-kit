@@ -8,6 +8,7 @@ role, a working directory, a tool policy) rather than one runtime's CLI flags.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -128,6 +129,16 @@ class AgentRequest(Frozen):
     env: dict[str, str] = {}
     # The whole environment the agent starts with, not an addition to ours; None: ours.
     environment: dict[str, str] | None = None
+
+
+def child_environment(
+    environment: dict[str, str] | None, env: dict[str, str]
+) -> dict[str, str] | None:
+    """What a spawned agent starts with: `environment` whole when given, else this process's,
+    plus `env` on top. None when neither is given, for the process's own."""
+    if environment is None and not env:
+        return None
+    return {**(os.environ if environment is None else environment), **env}
 
 
 class AgentResult(Frozen):
