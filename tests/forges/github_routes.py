@@ -26,6 +26,8 @@ from tests.forges import github_answers
 API = "https://api.github.com"
 JSON = {"content-type": "application/json; charset=utf-8"}
 DEFAULT_COLOUR = "ededed"
+GRAPHQL = "/graphql"
+STORAGE = "https://productionresultssa0.blob.core.windows.net"
 
 _MERGED_AT = "2026-10-01T12:00:00Z"
 _DECIDING = ("APPROVED", "CHANGES_REQUESTED")
@@ -144,6 +146,10 @@ class GitHubState:
         self.next_number = max(first_number, max((p["number"] for p in pulls), default=0) + 1)
         self.ids = 0
         self.statuses: list[tuple[str, str, str]] = []
+        self.jobs: dict[int, list[dict]] = {}
+        self.job_logs: dict[int, str] = {}
+        self.stacks: list[dict[str, Any]] = []
+        self.draft_refusal = ""
         self.repo_labels: dict[str, dict] = {
             name: make_label(name, colour, description)
             for name, colour, description in repo_labels or []
@@ -186,6 +192,31 @@ class GitHubState:
         )
         node["title"] = made.title
         return node
+
+    def stack_document(self, stack: dict[str, Any]) -> dict[str, Any]:
+        """A stack as the REST API answers it, its pull requests read from the state."""
+        pulls = []
+        for number in stack["pulls"]:
+            node = self.pull(number)
+            pulls.append(
+                {
+                    "number": number,
+                    "state": "open" if node["state"] == "OPEN" else "closed",
+                    "draft": node["isDraft"],
+                    "merged_at": node["mergedAt"],
+                    "head": {"ref": node["headRefName"], "sha": f"{number:040x}"},
+                }
+            )
+        return {
+            "id": 4200 + stack["number"],
+            "number": stack["number"],
+            "node_id": f"PRS_kwDOAAAAAc4AAB{stack['number']:03d}",
+            "url": f"{API}/repos/example/app/stacks/{stack['number']}",
+            "base": {"ref": "main"},
+            "open": any(p["state"] == "open" for p in pulls),
+            "created_at": "2026-09-28T14:02:11Z",
+            "pull_requests": pulls,
+        }
 
     def document(self, node: dict) -> dict[str, Any]:
         """A pull request as the REST API answers it."""
@@ -470,6 +501,120 @@ def _remove_pull_label(state: GitHubState, seen: Seen, match: re.Match[str]) -> 
     return answer(_pull_labels(state, int(match["n"])))
 
 
+def _graphql(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response | None:
+    text = json.dumps(seen.body)
+    for mutation, draft in (
+        ("convertPullRequestToDraft", True),
+        ("markPullRequestReadyForReview", False),
+    ):
+        if mutation in seen.query:
+            return _mutate(state, mutation, draft, text)
+    if re.search(r"\bpullRequests\s*\(", seen.query):
+        return _listing(state, text)
+    if re.search(r"\bpullRequest\s*\(", seen.query):
+        return _one(state, seen)
+    return None
+
+
+def _listing(state: GitHubState, text: str) -> httpx.Response:
+    nodes = state.nodes()
+    size = state.page_size
+    start = 0
+    for index in range(0, len(nodes), size):
+        if re.search(rf"cursor:{index}(?!\d)", text):
+            start = index
+    end = start + size
+    more = end < len(nodes)
+    connection = {
+        "totalCount": len(nodes),
+        "pageInfo": {
+            "hasNextPage": more,
+            "hasPreviousPage": start > 0,
+            "startCursor": f"cursor:{start}",
+            "endCursor": f"cursor:{end}" if more else f"cursor:{start}-end",
+        },
+        "nodes": nodes[start:end],
+    }
+    return answer({"data": {"repository": {"pullRequests": connection}}})
+
+
+def _one(state: GitHubState, seen: Seen) -> httpx.Response:
+    variables = (seen.body or {}).get("variables") or {}
+    numbers = [v for v in variables.values() if isinstance(v, int)]
+    numbers += [int(n) for n in re.findall(r"number:\s*(\d+)", seen.query)]
+    node = next((p for p in state.nodes() if p["number"] in numbers), None)
+    return answer({"data": {"repository": {"pullRequest": node}}})
+
+
+def _mutate(state: GitHubState, mutation: str, draft: bool, text: str) -> httpx.Response:
+    if state.draft_refusal:
+        error = {"type": "UNPROCESSABLE", "message": state.draft_refusal}
+        return answer({"data": {mutation: None}, "errors": [error]})
+    node = next((p for p in state.pulls if p["id"] in text), None)
+    if node is None:
+        return answer({"data": {mutation: None}, "errors": [{"message": "Could not resolve"}]})
+    node["isDraft"] = draft
+    payload = {"pullRequest": {"id": node["id"], "isDraft": draft}}
+    return answer({"data": {mutation: payload}})
+
+
+def _list_stacks(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    wanted = seen.params.get("pull_request")
+    held = [s for s in state.stacks if wanted is None or int(wanted) in s["pulls"]]
+    return answer([state.stack_document(s) for s in held])
+
+
+def _unknown_pulls(state: GitHubState, numbers: list[int]) -> httpx.Response | None:
+    known = {p["number"] for p in state.pulls}
+    missing = [n for n in numbers if n not in known]
+    if not missing:
+        return None
+    problem = {"resource": "PullRequestStack", "code": "invalid", "field": "pull_requests"}
+    return refusal(422, "Validation Failed", [{**problem, "message": f"No pull request {missing}"}])
+
+
+def _create_stack(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    numbers = [int(n) for n in (seen.body or {}).get("pull_requests", [])]
+    refused = _unknown_pulls(state, numbers)
+    if refused is not None:
+        return refused
+    stack = {"number": len(state.stacks) + 1, "pulls": numbers}
+    state.stacks.append(stack)
+    return answer(state.stack_document(stack), 201)
+
+
+def _add_to_stack(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    stack = next((s for s in state.stacks if s["number"] == int(match["stack"])), None)
+    if stack is None:
+        return refusal(404, "Not Found")
+    numbers = [int(n) for n in (seen.body or {}).get("pull_requests", [])]
+    refused = _unknown_pulls(state, numbers)
+    if refused is not None:
+        return refused
+    stack["pulls"].extend(n for n in numbers if n not in stack["pulls"])
+    return answer(state.stack_document(stack))
+
+
+def _branch_protection(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    return refusal(404, "Branch not protected")
+
+
+def _rerun_failed_jobs(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    return answer({}, 201)
+
+
+def _list_jobs(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    jobs = state.jobs.get(int(match["run"]), [])
+    return answer({"total_count": len(jobs), "jobs": jobs})
+
+
+def _job_log(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    if int(match["job"]) not in state.job_logs:
+        return refusal(404, "Not Found")
+    location = f"{STORAGE}/actions-results/{match['job']}.log?sig=abc"
+    return httpx.Response(302, headers={"location": location})
+
+
 def _route(method: str, path: str, handler: Handler) -> Route:
     return Route(method, re.compile(f"{_REPO}{path}"), handler)
 
@@ -495,6 +640,14 @@ ROUTES: list[Route] = [
     _route("PUT", r"/issues/(?P<n>\d+)/labels", _add_pull_labels),
     _route("DELETE", r"/issues/(?P<n>\d+)/labels", _clear_pull_labels),
     _route("DELETE", r"/issues/(?P<n>\d+)/labels/(?P<name>.+)", _remove_pull_label),
+    Route("POST", re.compile(GRAPHQL), _graphql),
+    _route("GET", r"/stacks", _list_stacks),
+    _route("POST", r"/stacks", _create_stack),
+    _route("POST", r"/stacks/(?P<stack>\d+)/add", _add_to_stack),
+    _route("GET", r"/branches/[^/]+/protection", _branch_protection),
+    _route("POST", r"/actions/runs/(?P<run>\d+)/rerun-failed-jobs", _rerun_failed_jobs),
+    _route("GET", r"/actions/runs/(?P<run>\d+)/jobs", _list_jobs),
+    _route("GET", r"/actions/jobs/(?P<job>\d+)/logs", _job_log),
 ]
 
 

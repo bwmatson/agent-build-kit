@@ -6,6 +6,7 @@ for its test only, and a route no one serves is a recorded 404.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -46,6 +47,40 @@ ROUTES: list[Request] = [
     ("repo-label-list", "GET", f"{BASE}/labels", {}, None),
 ]
 
+RUN = 123
+JOB = 456
+PULL_ID = gh.pull(1)["id"]
+
+
+def draft_mutation(name: str, pull_id: str = PULL_ID) -> dict[str, str]:
+    return {"query": f'mutation {{ {name}(input: {{pullRequestId: "{pull_id}"}}) {{ id }} }}'}
+
+
+# The routes only the table answers, against `seed_chain`: pull requests 1 to 4, a stack
+# of 1 and 2, and a run with a failed job and its log.
+REMAINING: list[Request] = [
+    ("draft-convert", "POST", "/graphql", {}, draft_mutation("convertPullRequestToDraft")),
+    ("draft-publish", "POST", "/graphql", {}, draft_mutation("markPullRequestReadyForReview")),
+    (
+        "draft-unknown-pull",
+        "POST",
+        "/graphql",
+        {},
+        draft_mutation("convertPullRequestToDraft", "PR_none"),
+    ),
+    ("stack-find", "GET", f"{BASE}/stacks", {"pull_request": "1"}, None),
+    ("stack-find-none", "GET", f"{BASE}/stacks", {"pull_request": "3"}, None),
+    ("stack-create", "POST", f"{BASE}/stacks", {}, {"pull_requests": [3, 4]}),
+    ("stack-add", "POST", f"{BASE}/stacks/1/add", {}, {"pull_requests": [3]}),
+    ("stack-add-unknown", "POST", f"{BASE}/stacks/99/add", {}, {"pull_requests": [3]}),
+    ("branch-protection", "GET", f"{BASE}/branches/main/protection", {}, None),
+    ("check-rerun", "POST", f"{BASE}/actions/runs/{RUN}/rerun-failed-jobs", {}, {}),
+    ("job-list", "GET", f"{BASE}/actions/runs/{RUN}/jobs", {}, None),
+    ("job-list-unknown-run", "GET", f"{BASE}/actions/runs/7/jobs", {}, None),
+    ("job-log", "GET", f"{BASE}/actions/jobs/{JOB}/logs", {}, None),
+    ("job-log-unknown", "GET", f"{BASE}/actions/jobs/9/logs", {}, None),
+]
+
 BY_ID = {r[0]: r for r in ROUTES}
 
 
@@ -57,27 +92,42 @@ def seed(server: FakeGitHub) -> None:
     server.add_comment(1, "a note")
 
 
+def seed_chain(server: FakeGitHub) -> None:
+    """Pull requests 1 to 4, a stack of 1 and 2, and a run with a failed job and its log."""
+    headers = {"authorization": f"Bearer {server.token}"}
+    for number in range(1, 5):
+        sent = {**OPEN, "head": f"spec/add-marker/{number}"}
+        httpx.post(f"{server.url}{BASE}/pulls", json=sent, headers=headers).raise_for_status()
+    httpx.post(
+        f"{server.url}{BASE}/stacks", json={"pull_requests": [1, 2]}, headers=headers
+    ).raise_for_status()
+    server.state.jobs[RUN] = [gh.job(JOB, "pre-commit", "failure", RUN)]
+    server.state.job_logs[JOB] = gh.JOB_LOG
+
+
+def _said(reply: httpx.Response) -> Any:
+    """The JSON body, or where a redirect points when there is no body."""
+    return reply.json() if reply.content else reply.headers.get("location")
+
+
 def through_server(server: FakeGitHub, request: Request) -> tuple[int, Any]:
     _, method, path, query, body = request
     headers = {"authorization": f"Bearer {server.token}"}
     reply = httpx.request(method, f"{server.url}{path}", params=query, json=body, headers=headers)
-    return reply.status_code, reply.json()
+    return reply.status_code, _said(reply)
 
 
 def through_host(host: GitHubHost, request: Request) -> tuple[int, Any]:
     _, method, path, query, body = request
     with httpx.Client(transport=host, base_url=API) as http:
         reply = http.request(method, path, params=query, json=body)
-    return reply.status_code, reply.json()
+    return reply.status_code, _said(reply)
 
 
-@pytest.mark.parametrize("request_", ROUTES, ids=[r[0] for r in ROUTES])
-def test_the_host_and_the_server_answer_a_route_alike_from_the_same_state(
-    request_: Request,
-) -> None:
+def alike(request_: Request, seeder: Callable[[FakeGitHub], None]) -> None:
     with FakeGitHub() as for_server, FakeGitHub() as for_host:
-        seed(for_server)
-        seed(for_host)
+        seeder(for_server)
+        seeder(for_host)
         host = GitHubHost(state=for_host.state)
 
         from_host = through_host(host, request_)
@@ -86,6 +136,20 @@ def test_the_host_and_the_server_answer_a_route_alike_from_the_same_state(
     assert from_host == from_server
     assert host.unrouted == []
     assert for_server.unrouted() == []
+
+
+@pytest.mark.parametrize("request_", ROUTES, ids=[r[0] for r in ROUTES])
+def test_the_host_and_the_server_answer_a_route_alike_from_the_same_state(
+    request_: Request,
+) -> None:
+    alike(request_, seed)
+
+
+@pytest.mark.parametrize("request_", REMAINING, ids=[r[0] for r in REMAINING])
+def test_the_host_and_the_server_answer_the_remaining_routes_alike_from_the_same_state(
+    request_: Request,
+) -> None:
+    alike(request_, seed_chain)
 
 
 def test_a_review_with_an_inline_comment_written_through_the_server_is_seen_by_the_host() -> None:
@@ -153,14 +217,29 @@ def test_a_route_no_handler_serves_is_a_404_recorded_as_unrouted_by_both_hosts()
     assert server.unrouted() == [("POST", f"{BASE}/forks")]
 
 
-def test_a_seeded_pull_request_on_a_pull_scoped_route_is_unrouted_not_a_silent_404() -> None:
-    host = GitHubHost(gh.pull(16))
+SEEDED: list[Request] = [
+    ("pull-update", "PATCH", f"{BASE}/pulls/16", {}, {"base": "develop"}),
+    ("review-list", "GET", f"{BASE}/pulls/16/reviews", {}, None),
+    ("review-by-id", "GET", f"{BASE}/pulls/16/reviews/1001", {}, None),
+    ("review-comment-list", "GET", f"{BASE}/pulls/16/comments", {}, None),
+    ("reply", "POST", f"{BASE}/pulls/16/comments/5001/replies", {}, {"body": "done"}),
+    ("files", "GET", f"{BASE}/pulls/16/files", {}, None),
+    ("comment", "POST", f"{BASE}/issues/16/comments", {}, {"body": "note"}),
+]
 
-    seeded = through_host(host, ("r", "GET", f"{BASE}/pulls/16/reviews", {}, None))
-    missing = through_host(host, ("r", "GET", f"{BASE}/pulls/99/reviews", {}, None))
+
+@pytest.mark.parametrize("request_", SEEDED, ids=[r[0] for r in SEEDED])
+def test_a_seeded_pull_request_on_a_pull_scoped_route_is_unrouted_not_a_silent_404(
+    request_: Request,
+) -> None:
+    host = GitHubHost(gh.pull(16))
+    absent = (request_[0], request_[1], request_[2].replace("/16", "/99"), {}, request_[4])
+
+    seeded = through_host(host, request_)
+    missing = through_host(host, absent)
 
     assert seeded[0] == 404
-    assert [s.path for s in host.unrouted] == [f"{BASE}/pulls/16/reviews"]
+    assert [s.path for s in host.unrouted] == [request_[2]]
     assert missing[0] == 404
 
 
@@ -182,6 +261,11 @@ def test_a_scripted_route_overrides_the_table_on_the_server_for_its_test_only() 
 def test_a_host_built_over_a_state_refuses_what_the_state_decides() -> None:
     with FakeGitHub() as server, pytest.raises(ValueError):
         GitHubHost(state=server.state, page_size=5)
+
+
+def test_a_host_built_over_a_state_refuses_an_explicit_zero_page_size() -> None:
+    with FakeGitHub() as server, pytest.raises(ValueError):
+        GitHubHost(state=server.state, page_size=0)
 
 
 def test_a_pull_request_made_on_a_seeded_host_gets_the_next_number_and_a_seeded_head_is_taken() -> (

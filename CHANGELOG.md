@@ -99,8 +99,10 @@
 - The fake GitHub hosts the tests use now answer the pull, review, comment, status and
   label routes from one table over one state, so the in-process host and the HTTP server
   give the same answer and a review written through the server is what the other reads.
-  A route a test scripts still overrides the table for that test only. This is test
-  support: nothing changes in what `abk` does.
+  The draft mutations, stacks, branch protection and the check and job routes are in the
+  table too, and a test fails if a route is answered anywhere else. A route a test
+  scripts still overrides the table for that test only. This is test support: nothing
+  changes in what `abk` does.
 
 - A pause the model's refusal records while a tick is deciding whether to go on is no
   longer cleared by that tick, so no further build starts until the pause's deadline.

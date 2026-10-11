@@ -1434,7 +1434,11 @@ module naming it, whichever test made the call.
 
 The routes are defined once, in `tests/forges/github_routes.py`: a table of method,
 path pattern and handler over one `GitHubState` (pull requests, reviews, inline
-comments, labels, statuses and the counters that give ids). The in-process host
+comments, labels, statuses, stacks, a run's jobs and logs, and the counters that give
+ids), covering the GraphQL listing and draft mutations, stacks, branch protection and
+the check and job routes as well as the pull, review, comment, status and label routes.
+A guard test fails if a route is registered or answered in either host instead of in
+the table. The in-process host
 (`GitHubHost`) and `FakeGitHub` both look a request up in a route the test
 scripted first and then in that table; a miss is a 404 recorded as unrouted. The
 pull request node a listing returns is derived from the state when read, so a
