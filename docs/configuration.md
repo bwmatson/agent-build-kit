@@ -404,6 +404,19 @@ verify:                         # post-merge verification (docs/architecture.md)
                                 # a unit's tier 2 and the check after a merge
                                 # alike — each value resolved by a provider
                                 # when the run starts (below)
+
+notifications:                  # tell a person when a unit waits on them (off by default)
+  provider: off                 # off | command | windows
+  delay_minutes: 10             # a card waits this long before it is shown, so one that
+                                # clears in the meantime is never raised
+  remind_after_minutes: 30      # a card still standing is shown again this often; 0 never
+  command:                      # the `command` provider: argv templates split like a shell
+    show: ""                    # would, never run through one. Placeholders {id} {title}
+    clear: ""                   # {body} {link}; `clear` takes only {id}. `show` is required
+                                # for the provider `command`.
+                                # The `windows` provider needs none: it raises toasts
+                                # through BurntToast pinned to 0.8.5 (`abk init` installs
+                                # it, `abk doctor` checks that version is listed).
 ```
 
 ### Env providers

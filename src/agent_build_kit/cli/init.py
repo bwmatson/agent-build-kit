@@ -25,9 +25,22 @@ import yaml
 
 from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
-from agent_build_kit.config import CONFIG_FILENAME, ConfigError, WorkspaceConfig, dump
+from agent_build_kit.config import (
+    CONFIG_FILENAME,
+    ConfigError,
+    NotificationProvider,
+    NotificationsConfig,
+    WorkspaceConfig,
+    dump,
+)
 from agent_build_kit.init.claude_call import RunClaude
-from agent_build_kit.init.detect import RepoDetection, detect_repo, resolve_consumes
+from agent_build_kit.init.detect import (
+    Host,
+    RepoDetection,
+    detect_host,
+    detect_repo,
+    resolve_consumes,
+)
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
 from agent_build_kit.init.scaffold import (
@@ -42,6 +55,7 @@ from agent_build_kit.init.scaffold import (
     write_planning_repo,
 )
 from agent_build_kit.installation import Installation, load_config
+from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
@@ -53,7 +67,9 @@ LANGUAGE_ALIAS = {"typescript": "javascript"}
 ask: Callable[[str], str] = input
 run_openspec: openspec.Run | None = None
 run_claude: RunClaude | None = None
-# Runs the installation's `runtimes.<name>.policy_fix`, once the operator agrees.
+# The host `abk init` runs on, which decides whether it offers notifications.
+host: Callable[[], Host] = detect_host
+# Runs a command the operator agreed to: a runtime's `policy_fix` or the notification install.
 run_fix: Callable[..., subprocess.CompletedProcess] | None = None
 
 
@@ -318,6 +334,27 @@ def _update_rules(planning: Path) -> int:
     return 0
 
 
+def _notification_provider() -> NotificationProvider:
+    """Ask whether to enable toasts, and install their module on a yes, on a host that has them."""
+    if host() is Host.OTHER:
+        return NotificationProvider.OFF
+    answer = ask("raise desktop notifications when a unit needs you? [y/N] ")
+    if answer.strip().lower() not in ("y", "yes"):
+        return NotificationProvider.OFF
+    command = " ".join(INSTALL_COMMAND)
+    print(f"notifications need the BurntToast module: {command}")
+    if ask("install it now? [y/N] ").strip().lower() in ("y", "yes"):
+        result = (run_fix or subprocess.run)(
+            INSTALL_COMMAND, capture_output=True, text=True, check=False
+        )
+        if result.returncode:
+            print(
+                f"abk init: `{command}` exited {result.returncode}: {result.stderr.strip()}",
+                file=sys.stderr,
+            )
+    return NotificationProvider.WINDOWS
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     if args.update_rules:
@@ -366,6 +403,12 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("code repos:")
         print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
+
+    # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
+    if not args.yes and not keeps:
+        config = config.model_copy(
+            update={"notifications": NotificationsConfig(provider=_notification_provider())}
+        )
 
     clean_before = _tree_clean(planning)
     try:

@@ -226,7 +226,8 @@ again in the same pass, at most twice; anything else the pass started stays
 handed out, which is what lets a pass end. The caps apply to every
 evaluation, and `--only` narrows every one. The tick and each of those
 refreshes run the same round (`run_round`): the usage check, fetch and poll,
-planning, reclaim, verification and archive, then readiness. A change added or
+planning, reclaim, the notification reconciliation, verification and archive,
+then readiness. A change added or
 edited during a pass is planned by its next refresh (a change whose tasks are
 unchanged costs no model call), a unit sent back is let in again, and a step
 that raises is logged while the others still run. Only the model's own
@@ -235,6 +236,16 @@ and the builds in flight are still awaited. A usage refusal pauses only that
 unit: a refused round still fetches, polls and archives, starts nothing, and
 later rounds ask the guard again and resume it. A pass therefore
 lasts as long as the work it can reach — watch the pass, not a unit.
+
+**Notifications.** When `notifications.provider` is not `off`, every round ends its bookkeeping with a
+reconciliation (`notify.reconcile`): the units are turned into the cards that call for a person,
+the new ones are shown after `delay_minutes` and again after `remind_after_minutes`, and a card
+whose reason has ended is cleared. A unit calls for a person when it is in review with no rework
+pending, has failed, or is held for one. "No rework pending" is `feedback == ""` on an
+`IN_REVIEW` unit (a gated send-back is `PLANNED` with `Cause.GATED`, so it needs no check);
+"needs a person" is `HeldBy.REVIEW` or `HeldBy.TOOLCHAIN`, or `Cause.NEEDS_HUMAN`. There is no
+person-activity signal yet: `pr_replies.own_posts` is not used, so a card does not clear because
+the person has begun to answer. A provider that fails is logged and never fails the round.
 
 A round reclaims too: a unit marked `running` that no process holds and that
 has no thread to resume goes back to `planned`, so its state is true for as
@@ -1021,6 +1032,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | File | What | Loss means |
 |---|---|---|
 | `units.json` | every unit: state, branch, PR, pushed and approved SHAs, feedback, history. In-run progress (review rounds, deferred follow-ups, pending replies) is in the unit's thread, not here; only `approved` and `predecessor_note` stay, because the push gate and the restack write them with no run in progress. A store whose unit still carries a value in `review_rounds`, `deferred`, `pending_replies`, `person_comments`, `resume_from` or `classic_run` is refused when read, naming the unit and the field; the empty `resume_from` and `classic_run` the last release wrote on every unit are dropped on read. A key no field of this release names is dropped on read when empty (a newer release's field carries nothing, and the next write omits it) and refused when it holds a value, naming the unit, the field and the value and saying a newer release wrote it: the value is information this release cannot keep. The truth; the graph page is a view of it. | rebuilt work. Commit it. |
+| `notifications.json` | the cards shown or held back: when each was first seen, last shown and the reminder due, so a restart repeats none. | cards shown again or held again by their delay. |
 | `verified.json` | the last verification of each change and the units it covered. | a change verified again. |
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot per repo. | the next poll only records; events in the gap are missed. |

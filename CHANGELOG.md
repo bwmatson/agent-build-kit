@@ -10,7 +10,10 @@
   `remind_after_minutes` (default 30), and kept in `notifications.json` so a restart repeats
   none. The `command` provider runs a configured argv template with `{id}`, `{title}`,
   `{body}` and `{link}`, never through a shell. Off by default, and a provider that fails is
-  logged and never fails a tick.
+  logged and never fails a tick. A `windows` provider raises toasts through the BurntToast
+  module (pinned to the release its scripts are written for) from WSL or Windows; `abk init`
+  offers it on those hosts when it writes a new `abk.yaml`, showing the install command before
+  running it only on a yes, and `abk doctor` checks the chosen provider's prerequisites.
 
 - A pull request whose unit has merged, been closed, satisfied or unplanned now has its
   state label taken off, so a merged pull request no longer keeps saying `in-review`.

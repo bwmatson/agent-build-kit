@@ -12,7 +12,8 @@ import pytest
 from agent_build_kit import __version__, openspec
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
-from agent_build_kit.config import load
+from agent_build_kit.config import NotificationProvider, load
+from agent_build_kit.init.detect import Host
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from tests.factories import git, init_repo, recognised_planning
 from tests.runtimes.selectable import SelectableRuntime, select
@@ -61,6 +62,7 @@ def stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(init_cmd, "run_openspec", fake_openspec)
     monkeypatch.setattr(init_cmd, "run_claude", fake_claude)
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: pytest.fail("prompted unexpectedly"))
+    monkeypatch.setattr(init_cmd, "host", lambda: Host.OTHER)
     monkeypatch.setattr(
         init_cmd, "run_fix", lambda argv, **kwargs: pytest.fail(f"ran a fix unasked: {argv}")
     )
@@ -485,3 +487,150 @@ def test_update_rules_on_a_planning_repo_without_the_file_is_a_usage_error(
 ) -> None:
     assert main(["init", str(tmp_path), "--update-rules"]) == 2
     assert "does not exist" in capsys.readouterr().err
+
+
+INSTALL = [
+    "powershell.exe",
+    "-NoProfile",
+    "-Command",
+    "Install-Module BurntToast -RequiredVersion 0.8.5 -Scope CurrentUser -Force",
+]
+INSTALL_TEXT = " ".join(INSTALL)
+
+
+class Conversation:
+    """Answers the questions in order, noting what had been printed when each was asked."""
+
+    def __init__(self, answers: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+        self.answers = iter(answers)
+        self.capsys = capsys
+        self.printed_before: list[str] = []
+        self.prompts: list[str] = []
+        self.ran: list[list[str]] = []
+
+    def ask(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        self.printed_before.append(self.capsys.readouterr().out)
+        return next(self.answers)
+
+    def run(self, argv, **kwargs) -> subprocess.CompletedProcess:
+        self.ran.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+
+def converse(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    host: Host,
+    *answers: str,
+) -> Conversation:
+    talk = Conversation(list(answers), capsys)
+    monkeypatch.setattr(init_cmd, "host", lambda: host)
+    monkeypatch.setattr(init_cmd, "ask", talk.ask)
+    monkeypatch.setattr(init_cmd, "run_fix", talk.run)
+    return talk
+
+
+def provider_written(planning: Path) -> NotificationProvider:
+    return load(planning / "abk.yaml").notifications.provider
+
+
+@pytest.mark.parametrize("host", [Host.WSL, Host.WINDOWS])
+def test_the_install_command_is_printed_before_the_question_and_run_on_a_yes(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    host: Host,
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    talk = converse(monkeypatch, capsys, host, "y", "y", "n")
+
+    assert main(init_args(planning, app)) == 0
+
+    assert talk.ran == [INSTALL]
+    assert INSTALL_TEXT not in talk.printed_before[0]
+    assert INSTALL_TEXT in talk.printed_before[1]
+    assert provider_written(planning) is NotificationProvider.WINDOWS
+
+
+def test_a_no_to_the_install_runs_nothing_and_still_enables_notifications(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    talk = converse(monkeypatch, capsys, Host.WSL, "y", "n", "n")
+
+    assert main(init_args(planning, app)) == 0
+
+    assert talk.ran == []
+    assert provider_written(planning) is NotificationProvider.WINDOWS
+
+
+def test_declining_notifications_runs_nothing_and_writes_the_provider_as_off(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    talk = converse(monkeypatch, capsys, Host.WSL, "n", "n")
+
+    assert main(init_args(planning, app)) == 0
+
+    assert talk.ran == []
+    assert len(talk.prompts) == 1
+    assert provider_written(planning) is NotificationProvider.OFF
+
+
+@pytest.mark.parametrize("host", [Host.WSL, Host.WINDOWS])
+def test_yes_asks_nothing_about_notifications_and_writes_the_provider_as_off(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    host: Host,
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    talk = converse(monkeypatch, capsys, host)
+
+    assert main([*init_args(planning, app), "--yes"]) == 0
+
+    assert talk.prompts == []
+    assert talk.ran == []
+    assert provider_written(planning) is NotificationProvider.OFF
+
+
+def test_another_host_is_asked_nothing_about_notifications(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    talk = converse(monkeypatch, capsys, Host.OTHER)
+
+    assert main(init_args(planning, app)) == 0
+
+    assert not any("notification" in prompt.lower() for prompt in talk.prompts)
+    assert talk.ran == []
+    assert provider_written(planning) is NotificationProvider.OFF
+
+
+def test_a_kept_abk_yaml_is_asked_nothing_about_notifications(
+    tmp_path: Path,
+    app: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planning = recognised_planning(tmp_path / "planning")
+    assert main([*init_args(planning, app), "--yes"]) == 0
+    talk = converse(monkeypatch, capsys, Host.WSL, "y", "y")
+
+    assert main(init_args(planning, app)) == 0
+
+    assert not any("notification" in prompt.lower() for prompt in talk.prompts)
+    assert talk.ran == []
+    assert provider_written(planning) is NotificationProvider.OFF

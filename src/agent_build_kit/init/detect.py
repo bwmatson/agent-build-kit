@@ -14,11 +14,14 @@ temporary repos, and a caller with a recorded answer can pass its own.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import sys
 import tomllib
 from collections import Counter
 from collections.abc import Callable, Mapping
+from enum import StrEnum
 from pathlib import Path
 
 from agent_build_kit import forges, infra
@@ -387,3 +390,30 @@ def resolve_consumes(detections: Mapping[str, RepoDetection]) -> dict[str, RepoD
         ]
         resolved[name] = detection.model_copy(update={"consumes": consumes})
     return resolved
+
+
+class Host(StrEnum):
+    """The machine `abk init` runs on, as far as notifications care."""
+
+    WSL = "wsl"
+    WINDOWS = "windows"
+    OTHER = "other"
+
+
+def detect_host(
+    *,
+    environ: Mapping[str, str] | None = None,
+    platform: str | None = None,
+    proc_version: str | None = None,
+) -> Host:
+    """WSL, Windows or other; each argument left out is read from this machine."""
+    environ = os.environ if environ is None else environ
+    platform = sys.platform if platform is None else platform
+    if proc_version is None:
+        try:
+            proc_version = Path("/proc/version").read_text()
+        except OSError:
+            proc_version = ""
+    if environ.get("WSL_DISTRO_NAME") or "microsoft" in proc_version.lower():
+        return Host.WSL
+    return Host.WINDOWS if platform == "win32" else Host.OTHER
