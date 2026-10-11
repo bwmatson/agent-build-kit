@@ -1081,7 +1081,7 @@ def _comments_note(asked: str, answers: Sequence[str]) -> str:
         chunks[-1][1].append(line)
     parts = [COMMENTS_NOTE]
     for number, lines in chunks:
-        quoted = "\n".join(f"> {line}" for line in lines if line.strip())
+        quoted = _quoted("\n".join(lines))
         if not quoted:
             continue
         if not number:
