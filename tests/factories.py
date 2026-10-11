@@ -8,8 +8,10 @@ imports these, rather than in a tenth near-copy.
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -177,4 +179,15 @@ def write_rate_limit_marker(marker: Path, until: datetime) -> None:
     `pause.pause_until` adds a grace that would outlast a test, so a test that
     needs a short pause writes the marker itself. The marker is read without a
     lock, so it must appear complete: written aside and renamed into place."""
-    raise NotImplementedError
+    partial = marker.with_name(f"{marker.name}.tmp")
+    partial.write_text(
+        json.dumps(
+            {
+                "until": until.isoformat(),
+                "reason": "the model refused",
+                "kind": "rate_limit",
+                "at": datetime.now(UTC).isoformat(),
+            }
+        )
+    )
+    os.replace(partial, marker)

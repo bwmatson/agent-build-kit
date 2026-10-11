@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import json
 import sqlite3
 import threading
 import time
@@ -53,7 +52,7 @@ from agent_build_kit.pipeline.wiring import (
 from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.settings import reload
 from tests.conftest import make_installation
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, write_rate_limit_marker
 from tests.runtimes.selectable import SelectableRuntime, select
 
 # How long a build waits for something the pass should make happen meanwhile.
@@ -1845,16 +1844,7 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
         # Written whole, as a pause is, but ending in a moment: the grace a recorded
         # pause adds would outlast the test.
         ends.append(datetime.now(UTC) + timedelta(seconds=0.5))
-        marker.write_text(
-            json.dumps(
-                {
-                    "until": ends[0].isoformat(),
-                    "reason": "the model refused",
-                    "kind": "rate_limit",
-                    "at": datetime.now(UTC).isoformat(),
-                }
-            )
-        )
+        write_rate_limit_marker(marker, ends[0])
 
     builder.scripts["mid/1"] = refused_by_the_model
     submitted: list[datetime] = []
