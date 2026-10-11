@@ -15,6 +15,7 @@
   test process still keeps the sessions a later step resumes. An acceptance test that
   resumes a session now checks after its first agent step that the agent lists it, and fails
   there naming the three variables to check. Unset, nothing changes.
+
 - Every unit that is not running now has one recorded reason (blocked, queue full, slot, usage
   pause, lease, backoff, waiting for review, needs a person, or ready). A decision log in the
   state directory records a change of reason once, and a wait that ends is one span in the usage
