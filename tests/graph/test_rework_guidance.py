@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    person_guidance,
 )
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
 from tests.factories import unit
@@ -60,8 +61,8 @@ def test_a_template_shows_the_guidance_as_a_persons_instruction_ahead_of_the_fee
 ) -> None:
     template, before = TEMPLATES[name]
 
-    with_note = template.format(**FIELDS, guidance=NOTE)
-    without = template.format(**FIELDS, guidance="")
+    with_note = template.format(**FIELDS, guidance=person_guidance(NOTE))
+    without = template.format(**FIELDS, guidance=person_guidance(""))
 
     assert NOTE in with_note
     assert with_note.index(NOTE) < with_note.index(FEEDBACK)

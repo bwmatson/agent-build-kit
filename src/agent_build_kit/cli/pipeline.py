@@ -2994,6 +2994,7 @@ def resume_thread(
     from_person: bool = False,
     requeue: RequeueReason | None = None,
     rework: ReworkKind | None = None,
+    guidance: str = "",
 ) -> Resumed | None:
     """Deliver an event to the unit's thread, which then waits for the tick.
 
@@ -3022,6 +3023,7 @@ def resume_thread(
         feedback=words,
         from_person=from_person,
         feedback_source=feedback_source_of(rework),
+        guidance=guidance,
         requeue=requeue,
         rework=rework,
     )
@@ -3145,7 +3147,11 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     def say(text: str, *, error: bool = False) -> None:
         print(text, file=sys.stderr if error else sys.stdout)
 
-    return requeue(inst, args.unit, mode, say=say)
+    # Absent from a namespace built by hand, as older callers do.
+    note = getattr(args, "note", None) or ""
+    if path := getattr(args, "note_file", None):
+        note = Path(path).read_text()
+    return requeue(inst, args.unit, mode, say=say, note=note)
 
 
 def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
@@ -3359,12 +3365,17 @@ def requeue_refusal(unit: StoredUnit) -> str | None:
     )
 
 
-def requeue(inst: Installation, unit_id: str, mode: str, *, say: Callable[..., None]) -> int:
+def requeue(
+    inst: Installation, unit_id: str, mode: str, *, say: Callable[..., None], note: str = ""
+) -> int:
     """Give a failed or held unit another go; `abk requeue` and the web UI both call this.
 
     `mode` is `resume`, `rework` or `restart`, as `cmd_requeue` describes them. Every
     message goes to `say(text, error=...)` instead of being printed, so the caller
     decides where it shows. The result is the command's exit code.
+
+    `note` is a person's instruction for the agent's next run; only `rework` and
+    `restart` run the agent, so a plain requeue with one is refused.
     """
     store = store_for(inst)
     known = {unit.id: unit for unit in store.all()}
@@ -3377,33 +3388,43 @@ def requeue(inst: Installation, unit_id: str, mode: str, *, say: Callable[..., N
     if (refusal := requeue_refusal(known[unit_id])) is not None:
         say(refusal)
         return 1
+    if note and mode == "resume":
+        say(
+            f"{unit_id}: a note is read by the agent, and a plain requeue resumes a step "
+            "without running it; use --rework or --restart with --note"
+        )
+        return 1
     why = {
         "rework": RequeueReason.FROM_FAILURE,
         "restart": RequeueReason.RESTART,
         "resume": RequeueReason.RESUME,
     }[mode]
-    if mode == "rework" and not known[unit_id].feedback:
+    if mode == "rework" and not known[unit_id].feedback and not note:
         say(
             f"{unit_id} has no saved failure to rework from; "
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
     waits = unmet_gates(known[unit_id], list(known.values()))
+    # What the history entry of a requeue says of a note: its first 200 characters.
+    said = f" — {note[:200]}" if note else ""
     if waits and has_thread(inst, unit_id):
         # The gate is unmet: the thread is left where it stopped, and the pass
         # delivers the event in this mode once the dependency has merged.
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: {merge_wait(waits)}",
+            note=f"requeued: {merge_wait(waits)}{said}",
             cause=Cause.GATED,
         )
+        if note:
+            store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
         say(f"{unit_id} requeued ({mode}), {merge_wait(waits)}")
         return 0
     try:
         delivered = resume_thread(
-            inst, known[unit_id], "requeue", store=store, reason=mode, requeue=why
+            inst, known[unit_id], "requeue", store=store, reason=mode, requeue=why, guidance=note
         )
     except BranchBusy as error:
         say(f"{unit_id} is being built ({error}); requeue it again once it has stopped")
@@ -3415,17 +3436,23 @@ def requeue(inst: Installation, unit_id: str, mode: str, *, say: Callable[..., N
             error=delivered.raised,
         )
         return 1 if delivered.raised else 0
+    if note and mode != "restart":
+        store.set_guidance(unit_id, note)
     if mode == "rework":
         store.set_state(
             unit_id,
             PLANNED,
-            note="requeued: reworking from the saved failure",
+            note=f"requeued: reworking from the saved failure{said}",
             cause=Cause.REQUEUED,
         )
         say(f"{unit_id} requeued, the agent will rework it from the failure it saved")
     elif mode == "restart":
         store.set_feedback(unit_id, "")
-        store.set_state(unit_id, PLANNED, note="requeued: starting over", cause=Cause.REQUEUED)
+        if note:
+            store.set_guidance(unit_id, note)
+        store.set_state(
+            unit_id, PLANNED, note=f"requeued: starting over{said}", cause=Cause.REQUEUED
+        )
         say(f"{unit_id} requeued, starting over from the agent's step")
     else:
         store.set_state(
@@ -3518,6 +3545,13 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="keep the work and have the agent rework it from the failure the unit saved "
         "(a failed check), instead of resuming into the same failure",
     )
+    requeue.add_argument(
+        "--note",
+        metavar="TEXT",
+        help="a person's instruction for the agent's next run, shown ahead of any saved failure; "
+        "needs --rework or --restart",
+    )
+    requeue.add_argument("--note-file", metavar="PATH", help="--note, read from a file")
     requeue.set_defaults(func=cmd_requeue)
 
     replan = sub.add_parser("replan", help="plan changes again now, whatever their recorded plan")

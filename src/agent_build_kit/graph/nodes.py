@@ -65,6 +65,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     TESTS_PROMPT,
     TIER1_FAILED,
+    WHOLE_ASK,
     Escalation,
     Restacked,
     RunStatus,
@@ -73,6 +74,7 @@ from agent_build_kit.pipeline.stack_runner import (
     check_test_decisions,
     escalates,
     parse_test_decisions,
+    person_guidance,
     tests_needing_decision,
     with_response,
 )
@@ -878,7 +880,9 @@ class BuildPath:
         r, unit = self.runner, self.unit
         branch = branch_name(unit)
         base = state.base or self.base
-        feedback = r.store.get(unit.id).feedback
+        saved = r.store.get(unit.id)
+        # A person's note makes the run a rework as saved feedback does.
+        feedback = saved.feedback or saved.guidance
         r.store.set_state(unit.id, UnitState.RUNNING, branch=branch)
         # Made again: a trip back here may be onto a different base.
         self._tree = None
@@ -1226,12 +1230,14 @@ class BuildPath:
             # The model that wrote the code fixes it, whatever the configuration says now.
             model = state.build_model or models().implement
             feedback = r.store.get(unit.id).feedback
+            note = person_guidance(r.store.get(unit.id).guidance)
             self.say(f"fix the failing checks ({model}), round {attempt}")
             outside = self.outside_note(state, tree)
             self.agent(
                 r.run,
                 self.told(
                     CHECKS_PROMPT.format(
+                        guidance=note,
                         change_dir=change_dir,
                         groups=groups,
                         feedback=feedback,
@@ -1242,7 +1248,9 @@ class BuildPath:
                 cwd=tree,
                 state=state,
                 model=model,
-                follow_up=self.told(CHECKS_CONTINUATION.format(feedback=feedback), outside),
+                follow_up=self.told(
+                    CHECKS_CONTINUATION.format(guidance=note, feedback=feedback), outside
+                ),
             )
             r.commit(f"fix: {unit.title} (checks, round {attempt})", cwd=tree, base=self.ref(state))
             if r.head(tree) == state.head:
@@ -1364,9 +1372,11 @@ class BuildPath:
         change_dir, groups = r.scope(unit)
         build_boundary, _ = r.boundary_notes(unit, self.graph)
         stored = r.store.get(unit.id)
-        feedback = stored.feedback
+        guidance = stored.guidance
+        feedback = stored.feedback or (WHOLE_ASK if guidance else "")
         failed_check = stored.feedback_source in (FeedbackSource.TIER1, FeedbackSource.TIER2)
         in_loop = state.verdict is Verdict.CHANGES
+        note = person_guidance(guidance)
         kept: Update = {}
         outside = self.outside_note(state, tree)
         # An empty head is a rework just delivered by an event: no node has recorded the
@@ -1381,6 +1391,7 @@ class BuildPath:
                 r.run,
                 self.told(
                     REVIEW_FEEDBACK_PROMPT.format(
+                        guidance=note,
                         change_dir=change_dir,
                         groups=groups,
                         feedback=feedback,
@@ -1394,7 +1405,9 @@ class BuildPath:
                 model=models().rework,
                 follow_up=self.told(
                     REVIEW_FEEDBACK_CONTINUATION.format(
-                        feedback=feedback, changelog=changelog_note(tree, r.repo_config)
+                        guidance=note,
+                        feedback=feedback,
+                        changelog=changelog_note(tree, r.repo_config),
                     ),
                     outside,
                 ),
@@ -1405,6 +1418,7 @@ class BuildPath:
                 cwd=tree,
                 base=self.ref(state),
             )
+            r.store.set_guidance(unit.id, "")
         else:
             # One run on the review model, not the tests-then-implementation
             # pair: both are already on the branch.
@@ -1418,6 +1432,7 @@ class BuildPath:
                 r.run,
                 self.told(
                     CHECKS_PROMPT.format(
+                        guidance=note,
                         groups=groups,
                         change_dir=change_dir,
                         feedback=feedback,
@@ -1425,6 +1440,7 @@ class BuildPath:
                     )
                     if failed_check
                     else REWORK_PROMPT.format(
+                        guidance=note,
                         groups=groups,
                         change_dir=change_dir,
                         feedback=feedback,
@@ -1438,9 +1454,10 @@ class BuildPath:
                 state=state,
                 model=models().rework,
                 follow_up=self.told(
-                    CHECKS_CONTINUATION.format(feedback=feedback)
+                    CHECKS_CONTINUATION.format(guidance=note, feedback=feedback)
                     if failed_check
                     else REWORK_CONTINUATION.format(
+                        guidance=note,
                         feedback=feedback,
                         pr=stored.pr or "(not yet opened)",
                         changelog=changelog_note(tree, r.repo_config),
@@ -1449,11 +1466,18 @@ class BuildPath:
                 ),
             )
             r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
+            r.store.set_guidance(unit.id, "")
+            if guidance:
+                # The next review judges the work against what the person asked, pull
+                # request or not.
+                kept["person_comments"] = f"{state.person_comments}\n\n{guidance}".strip()
             if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
                 kept["pending_replies"] = (*state.pending_replies, answer)
                 if stored.feedback_from_person:
-                    kept["person_comments"] = f"{state.person_comments}\n\n{feedback}".strip()
+                    kept["person_comments"] = (
+                        f"{kept.get('person_comments', state.person_comments)}\n\n{feedback}"
+                    ).strip()
         return {
             **kept,
             "comments_pending": False,
@@ -1912,6 +1936,8 @@ class BuildPath:
             if event.requeue is RequeueReason.RESTART:
                 r.store.set_feedback(unit.id, "")
                 update["review_rounds"] = ()
+            if event.guidance:
+                r.store.set_guidance(unit.id, event.guidance)
             head = ""
             if resumes_parked(state, event):
                 # Read before the store moves: a tree still dirty keeps the unit held,
@@ -1924,7 +1950,8 @@ class BuildPath:
             r.store.set_state(
                 unit.id,
                 RUNNING,
-                note=f"{event.kind.value}: {event.reason or 'no reason given'}",
+                note=f"{event.kind.value}: {event.reason or 'no reason given'}"
+                + (f" — {event.guidance[:200]}" if event.guidance else ""),
                 cause=Cause.BASE_CHANGED if event.kind is EventKind.BASE_MOVED else Cause.REQUEUED,
             )
             if resumes_parked(state, event):

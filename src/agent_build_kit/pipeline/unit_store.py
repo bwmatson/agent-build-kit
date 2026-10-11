@@ -717,7 +717,7 @@ class UnitStore:
 
     def set_guidance(self, unit_id: str, guidance: str) -> None:
         """A person's note for the next prompt, or `""` once a run has acted on it."""
-        raise NotImplementedError
+        self._update(unit_id, guidance=guidance)
 
     @_exclusive
     def mark_ready(self, unit_id: str) -> None:

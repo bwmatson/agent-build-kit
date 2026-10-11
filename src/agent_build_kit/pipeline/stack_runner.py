@@ -194,9 +194,39 @@ point `BLOCKED:` in your account, with the exact change a person should make.
 Run linting, formatting, types and the tests before you finish.
 """
 
-REVIEW_FEEDBACK_PROMPT = (
+
+class PromptTemplate(str):
+    """A prompt with a `{guidance}` place that is empty unless a caller fills it, so a
+    caller with no person's note formats it as it always did."""
+
+    def format(self, *args: object, **fields: object) -> str:
+        return super().format(*args, **{"guidance": "", **fields})
+
+
+_PERSON_GUIDANCE = """\
+A person asked for this. It comes before anything below, and where it conflicts
+with a saved failure or review text, follow it and say so.
+
+---
+{note}
+---
+
+"""
+
+
+# What stands where the saved failure would, for a unit requeued with only a note.
+WHOLE_ASK = "(No failure was saved for this unit: the person's instruction above is the whole ask.)"
+
+
+def person_guidance(note: str) -> str:
+    """The block the prompts' `{guidance}` takes: a person's note as their instruction,
+    or nothing when there is none, which leaves a prompt as it always was."""
+    return _PERSON_GUIDANCE.format(note=note) if note else ""
+
+
+REVIEW_FEEDBACK_PROMPT = PromptTemplate(
     """\
-A review of this branch asked for changes, for change {change_dir}, task
+{guidance}A review of this branch asked for changes, for change {change_dir}, task
 group(s) {groups}:
 
 ---
@@ -222,9 +252,9 @@ the unit has passed review, tier 1 and been pushed.
 TIER1_FAILED = "tier 1 failed:"
 
 
-CHECKS_PROMPT = (
+CHECKS_PROMPT = PromptTemplate(
     """\
-The pipeline's checks (lint, formatting, types and the tests) failed on this
+{guidance}The pipeline's checks (lint, formatting, types and the tests) failed on this
 branch, for change {change_dir}, task group(s) {groups}. Nothing has been
 reviewed yet: a reviewer is only asked once these pass.
 
@@ -554,9 +584,9 @@ commit it describes — and leave out your own verification (lint, types, test
 counts); tier 1 runs before anything is pushed.
 """
 
-REWORK_PROMPT = (
+REWORK_PROMPT = PromptTemplate(
     """\
-Review asked for a change to the work already on this branch, specified at
+{guidance}Review asked for a change to the work already on this branch, specified at
 {change_dir}, task group(s) {groups}. This is PR #{pr}.
 
 ---
@@ -757,9 +787,9 @@ the tests before you finish.
     + "{changelog}"
 )
 
-CHECKS_CONTINUATION = (
+CHECKS_CONTINUATION = PromptTemplate(
     """\
-The pipeline's checks (lint, formatting, types and the tests) failed on this
+{guidance}The pipeline's checks (lint, formatting, types and the tests) failed on this
 branch. Nothing has been reviewed yet: a reviewer is only asked once these pass.
 
 ---
@@ -778,9 +808,9 @@ them pass.
     + CONTINUATION_READONLY
 )
 
-REVIEW_FEEDBACK_CONTINUATION = (
+REVIEW_FEEDBACK_CONTINUATION = PromptTemplate(
     """\
-A review of this branch asked for changes:
+{guidance}A review of this branch asked for changes:
 
 ---
 {feedback}
@@ -792,9 +822,9 @@ A review of this branch asked for changes:
     + "{changelog}"
 )
 
-REWORK_CONTINUATION = (
+REWORK_CONTINUATION = PromptTemplate(
     """\
-Review asked for a change to the work already on this branch. This is PR #{pr}.
+{guidance}Review asked for a change to the work already on this branch. This is PR #{pr}.
 
 ---
 {feedback}

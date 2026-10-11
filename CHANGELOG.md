@@ -9,6 +9,11 @@
 - The decision log is kept to `retention.decision_log_mb` megabytes (default 50), dropping its
   oldest lines, and a unit's run log older than `retention.unit_log_days` days (default 30) is
   removed once the unit's summary is in the usage ledger; a unit with no summary keeps its log.
+- `abk requeue --rework` and `--restart` take `--note TEXT` or `--note-file PATH`: a
+  person's instruction that the agent's next run sees first, ahead of any saved failure,
+  and that the review of the work that follows is told. With a note, `--rework` no longer
+  needs a saved failure. A note with a plain requeue is refused, since a resume would
+  not read it.
 
 - After tier 1 passes, the tests a unit added or changed are run again three times under the
   same parallel load, and a failure in any run fails tier 1 with its output, so a flaky new
