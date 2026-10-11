@@ -9,6 +9,7 @@ imports these, rather than in a tenth near-copy.
 from __future__ import annotations
 
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ __all__ = [
     "started_ids",
     "stored_unit",
     "unit",
+    "write_rate_limit_marker",
 ]
 
 _DEFAULTS: dict[str, Any] = {
@@ -167,3 +169,12 @@ def snapshot(output: str) -> str:
 
 def follow_ups(count: int) -> list[str]:
     return [f"follow-up {number:02d}: " + "f" * 60 for number in range(count)]
+
+
+def write_rate_limit_marker(marker: Path, until: datetime) -> None:
+    """A rate-limit pause ending exactly at `until`, written whole.
+
+    `pause.pause_until` adds a grace that would outlast a test, so a test that
+    needs a short pause writes the marker itself. The marker is read without a
+    lock, so it must appear complete: written aside and renamed into place."""
+    raise NotImplementedError
