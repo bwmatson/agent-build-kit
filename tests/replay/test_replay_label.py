@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.replay.state import ReplayState, read_state, write_state
+from agent_build_kit.pipeline.shell import git
+from agent_build_kit.replay.report import RunReport
+from agent_build_kit.replay.state import REPORT_FILE, ReplayState, read_state, write_state
 from agent_build_kit.replay.store import cassette_name, write_cassette
+from tests.factories import init_repo
 from tests.replay.fake_upstream import FakeUpstream
 from tests.replay.support import ENV, UPSTREAM, run_session, waiting_cassette
 
@@ -165,3 +168,19 @@ def test_a_set_within_the_limit_does_not_warn_and_each_run_is_counted_in_the_sta
     assert "abk replay review" not in result.stdout.str()
     assert read_state(session.directory).unreviewed_runs[name] == 2
     assert (session.directory / name).read_bytes() == committed
+
+
+def test_a_replay_run_writes_its_report_beside_the_state_and_ignored(
+    session: Session, tmp_path: Path
+) -> None:
+    init_repo(tmp_path)
+    session.run("record", "a,b,c")
+
+    session.run("replay", "a,b,d")
+
+    report = RunReport.model_validate_json((session.directory / REPORT_FILE).read_text())
+    by_name = {test.test_id.rsplit("::", 1)[1]: test for test in report.tests}
+    assert by_name["test_calls"].hits == 2
+    assert len(by_name["test_calls"].misses) == 1
+    ignored = git(tmp_path, "check-ignore", "-q", str(session.directory / REPORT_FILE), check=False)
+    assert ignored.returncode == 0

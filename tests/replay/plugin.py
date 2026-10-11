@@ -27,6 +27,7 @@ from agent_build_kit.replay.hosts import InStackHosts, in_stack_hosts
 from agent_build_kit.replay.models import ReplayMode, Rule
 from agent_build_kit.replay.report import RunReport, combine, render, replay_label
 from agent_build_kit.replay.review import count_run, overdue
+from agent_build_kit.replay.state import write_report
 from agent_build_kit.settings import Settings
 from tests.replay.proxy import ReplayProxy, SecretInRecording
 
@@ -142,6 +143,12 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         str(config.directory): config for config, _ in session.config.stash.get(_REPORTS, [])
     }
     for config in configs.values():
+        write_report(
+            config.directory,
+            combine(
+                r for c, r in session.config.stash[_REPORTS] if c.directory == config.directory
+            ),
+        )
         count_run(config.directory)
         late += overdue(config.directory, config.review_after_runs)
     session.config.stash[_OVERDUE] = late

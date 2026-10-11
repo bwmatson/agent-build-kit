@@ -72,6 +72,13 @@ def render(report: RunReport) -> list[str]:
         lines += [f"  aged out: {key[:12]}" for key in test.aged_out]
         lines += [f"  unused: {name}" for name in test.unused]
         lines += [f"  rule: {rule.pattern!r} -> {rule.placeholder!r}" for rule in test.rules]
+    if report.tests:
+        hit = sum(test.hits for test in report.tests)
+        live = sum(len(test.misses) for test in report.tests)
+        unused = sum(len(test.unused) for test in report.tests)
+        aged = sum(len(test.aged_out) for test in report.tests)
+        lines.append(f"total: {hit} hit, {live} live, {unused} unused, {aged} aged out")
+    lines += [f"rule used: {rule.pattern!r} -> {rule.placeholder!r}" for rule in report.rules]
     if report.billed_calls_avoided:
         lines.append(
             f"billed calls avoided: {report.billed_calls_avoided} ({report.tokens_avoided} tokens)"

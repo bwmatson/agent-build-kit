@@ -6,10 +6,11 @@ from datetime import timedelta
 from pathlib import Path
 
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.replay import review
 from agent_build_kit.replay.models import ReplayMode
-from agent_build_kit.replay.report import Miss, ReplayedTest, replay_label
-from agent_build_kit.replay.state import STATE_FILE, read_state
-from agent_build_kit.replay.store import cassette_name, read_cassettes
+from agent_build_kit.replay.report import Miss, ReplayedTest, RunReport, render, replay_label
+from agent_build_kit.replay.state import STATE_FILE, ReplayState, read_state, write_state
+from agent_build_kit.replay.store import cassette_name, load_cassette, read_cassettes
 from tests.factories import init_repo
 from tests.replay.fake_upstream import Answer, FakeUpstream, Seen
 from tests.replay.support import START, files, send
@@ -227,3 +228,36 @@ def test_using_a_cassette_changes_the_state_file_and_not_the_committed_one(
     assert git(repo, "check-ignore", "-q", str(directory / STATE_FILE), check=False).returncode == 0
     [cassette_file] = files(directory)
     assert git(repo, "check-ignore", "-q", str(cassette_file), check=False).returncode == 1
+
+
+def test_the_total_adds_up_the_hits_live_unused_and_aged_out_calls_of_every_test() -> None:
+    miss = Miss(call_index=1, key="k", difference="path differs")
+    report = RunReport(
+        tests=[
+            ReplayedTest(test_id="a", hits=2, misses=[miss], unused=["x/1.json.gz"]),
+            ReplayedTest(test_id="b", hits=1, misses=[miss, miss], aged_out=["k1", "k2"]),
+        ],
+        rules=[VOLATILE],
+    )
+
+    lines = render(report)
+
+    assert "total: 3 hit, 3 live, 1 unused, 2 aged out" in lines
+    assert any(VOLATILE.placeholder in line for line in lines if line.startswith("rule used"))
+
+
+def test_a_marked_cassette_a_later_run_hits_is_cleared_and_no_longer_counted(
+    upstream: FakeUpstream, tmp_path: Path
+) -> None:
+    replayed_second_run(upstream, tmp_path)
+    directory = tmp_path / "cassettes"
+    [unasked] = [h for h in review.waiting(directory) if h.cassette.call_index == 3]
+    write_state(directory, ReplayState(unreviewed_runs={unasked.name: 4}))
+
+    with proxy_for(upstream, tmp_path, ReplayMode.replay) as proxy:
+        passing_run(proxy, *FIRST)
+
+    assert unasked.name not in [h.name for h in review.waiting(directory)]
+    assert unasked.name not in read_state(directory).unreviewed_runs
+    assert not load_cassette(directory / unasked.name).needs_review
+    assert load_cassette(directory / unasked.name).review_reason == ""

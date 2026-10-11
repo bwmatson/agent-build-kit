@@ -35,7 +35,7 @@ from agent_build_kit.replay.models import (
     summarise,
 )
 from agent_build_kit.replay.report import Miss, ReplayedTest, RunReport, usage_tokens
-from agent_build_kit.replay.review import mark, stale
+from agent_build_kit.replay.review import mark, stale, unmark
 from agent_build_kit.replay.state import read_state, write_state
 from agent_build_kit.replay.store import (
     cassette_name,
@@ -104,7 +104,7 @@ class ReplayProxy:
         self._asked: set[str] = set()
         self._called: set[int] = set()
         self._missed: set[int] = set()
-        self._hit_names: list[str] = []
+        self._hits: list[Cassette] = []
         self._misses: list[Miss] = []
         self._aged_out: list[str] = []
         self._test_rules: list[Rule] = []
@@ -172,7 +172,7 @@ class ReplayProxy:
                 else test_cassettes(self.config.directory, test_id)
             )
             self._asked, self._called, self._missed = set(), set(), set()
-            self._hit_names, self._misses, self._aged_out = [], [], []
+            self._hits, self._misses, self._aged_out = [], [], []
             self._test_rules, self._tokens = [], []
         shutil.rmtree(test_directory(self._staging, test_id), ignore_errors=True)
 
@@ -191,7 +191,7 @@ class ReplayProxy:
         self._finished.append(
             ReplayedTest(
                 test_id=self._test_id,
-                hits=len(self._hit_names),
+                hits=len(self._hits),
                 misses=self._misses,
                 unused=[cassette_name(directory, f.cassette) for f in found if f.unasked],
                 aged_out=self._aged_out,
@@ -204,12 +204,17 @@ class ReplayProxy:
             return
         for each in found:
             mark(directory, each)
-        if self._hit_names:
+        if self._hits:
+            # A recording the run used is in use, whatever an earlier run made of it.
+            names = {cassette_name(directory, hit): hit for hit in self._hits}
+            for hit in names.values():
+                if hit.needs_review:
+                    unmark(directory, hit)
             state = read_state(directory)
-            used = {name: self._clock() for name in self._hit_names}
-            write_state(
-                directory, state.model_copy(update={"last_hit_at": state.last_hit_at | used})
-            )
+            runs = {n: c for n, c in state.unreviewed_runs.items() if n not in names}
+            used = {name: self._clock() for name in names}
+            update = {"last_hit_at": state.last_hit_at | used, "unreviewed_runs": runs}
+            write_state(directory, state.model_copy(update=update))
 
     def _promote(self, staged: Path) -> bool:
         """Move the staged calls into the cassette directory; False when they were not kept."""
@@ -366,7 +371,7 @@ class ReplayProxy:
 
     def _note_hit(self, held: Cassette, tokens: int | None) -> None:
         with self._lock:
-            self._hit_names.append(cassette_name(self.config.directory, held))
+            self._hits.append(held)
             if tokens is not None:
                 self._tokens.append(tokens)
 

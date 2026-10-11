@@ -70,6 +70,11 @@ def mark(directory: Path, found: Stale) -> None:
     write_cassette(directory, marked)
 
 
+def unmark(directory: Path, cassette: Cassette) -> None:
+    cleared = cassette.model_copy(update={"needs_review": False, "review_reason": ""})
+    write_cassette(directory, cleared)
+
+
 def waiting(directory: Path) -> list[Waiting]:
     """The cassettes marked for review, with what replaced each."""
     every = read_cassettes(directory)
@@ -109,8 +114,7 @@ def keep(directory: Path, name: str) -> bool:
     """Clear the mark on `name`; False when no cassette waits under that name."""
     for held in waiting(directory):
         if held.name == name:
-            cleared = held.cassette.model_copy(update={"needs_review": False, "review_reason": ""})
-            write_cassette(directory, cleared)
+            unmark(directory, held.cassette)
             _forget(directory, name)
             return True
     return False

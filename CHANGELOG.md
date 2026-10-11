@@ -69,7 +69,9 @@
   test that replayed is labelled with its counts. A recording no run asked for, or one a live
   call superseded, is held for review rather than deleted: `abk replay review` lists them and
   keeps or deletes each, `abk status` and `abk doctor` count them, and a run warns when one
-  has waited through more than `review_after_runs` runs.
+  has waited through more than `review_after_runs` runs. The summary ends with a run total,
+  and the same report is written as `report.json` in the cassette directory, which ignores
+  it. A held recording a later run uses again is cleared.
 
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package
