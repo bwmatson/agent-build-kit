@@ -100,7 +100,7 @@ class RunLog:
             self._failed(error)
 
     def emit(self, message: str) -> None:
-        message = redact_text(message)
+        message = redact_text(message, where="run log")
         first, *rest = message.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         self._append("".join(f"{line}\n" for line in [first, *(CONTINUATION + r for r in rest)]))
 

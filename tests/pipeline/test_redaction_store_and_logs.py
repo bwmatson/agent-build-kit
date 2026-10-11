@@ -18,6 +18,7 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.run_log import RunLog
+from agent_build_kit.pipeline.spans import Span
 from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -26,6 +27,7 @@ from agent_build_kit.pipeline.usage_ledger import (
     UsageRecord,
     forget_told,
     record_call,
+    record_line,
 )
 from agent_build_kit.pipeline.wiring import Tier2Session, build_tier1
 from tests.factories import stored_unit, unit
@@ -51,10 +53,12 @@ def _only(directory: Path) -> str:
     return written.read_text()
 
 
-def _assert_one_failure_line(caplog: pytest.LogCaptureFixture) -> None:
+def _assert_one_failure_line(caplog: pytest.LogCaptureFixture, where: str) -> None:
     lines = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(lines) == 1, [r.getMessage() for r in caplog.records]
     shown = lines[0].getMessage()
+    assert where in shown
+    assert "RuntimeError" in shown
     assert SECRET not in shown
     assert FAILURE_MESSAGE not in shown
 
@@ -216,7 +220,7 @@ def test_a_failed_redaction_withholds_feedback(
         store.set_feedback("add-marker/1", f"output {SECRET}")
 
     assert store.get("add-marker/1").feedback == NOTICE
-    _assert_one_failure_line(caplog)
+    _assert_one_failure_line(caplog, "feedback")
 
 
 def test_a_failed_redaction_withholds_a_run_log_line(
@@ -230,7 +234,7 @@ def test_a_failed_redaction_withholds_a_run_log_line(
     written = _only(tmp_path)
     assert NOTICE in written
     assert SECRET not in written
-    _assert_one_failure_line(caplog)
+    _assert_one_failure_line(caplog, "run log")
 
 
 def test_a_failed_redaction_withholds_a_transcript_event(
@@ -242,7 +246,7 @@ def test_a_failed_redaction_withholds_a_transcript_event(
         transcript.record(TranscriptEvent(kind="text", text=f"said {SECRET}"))
 
     assert json.loads(_only(tmp_path))["text"] == NOTICE
-    _assert_one_failure_line(caplog)
+    _assert_one_failure_line(caplog, "transcript")
 
 
 def test_a_failed_redaction_withholds_a_ledger_line(caplog: pytest.LogCaptureFixture) -> None:
@@ -254,7 +258,98 @@ def test_a_failed_redaction_withholds_a_ledger_line(caplog: pytest.LogCaptureFix
     written = _ledger_path().read_text().splitlines()[-1]
     assert NOTICE in written
     assert SECRET not in written
-    _assert_one_failure_line(caplog)
+    _assert_one_failure_line(caplog, "ledger")
+
+
+def test_a_failed_redaction_withholds_every_text_field_of_a_span(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    forget_told()
+    span = Span(
+        at="2026-01-01T10:00:00+00:00",
+        started="2026-01-01T10:00:00+00:00",
+        ended="2026-01-01T10:00:01+00:00",
+        duration_ms=1000,
+        cause=f"waited for {SECRET}",
+    )
+
+    with known(broken=True):
+        record_line(span, lambda message: None)
+
+    written = _ledger_path().read_text().splitlines()[-1]
+    assert SECRET not in written
+    assert json.loads(written)["cause"] == NOTICE
+    _assert_one_failure_line(caplog, "ledger")
+
+
+def test_a_value_with_a_quote_in_it_is_replaced_in_the_ledger() -> None:
+    forget_told()
+    value = 'pa"ss\\word-0001'
+
+    with known({NAME: value}):
+        record_call(_record(f"died: {value}"), lambda message: None)
+
+    written = _ledger_path().read_text().splitlines()[-1]
+    assert json.loads(written)["outcome"] == f"died: {REPLACED}"
+    assert "pa" + '\\"' + "ss" not in written
+
+
+def test_a_tool_call_input_holds_the_replacement_at_every_depth(tmp_path: Path) -> None:
+    transcript = _transcript(tmp_path)
+
+    with known():
+        transcript.record(
+            TranscriptEvent(
+                kind="tool_call",
+                tool="Bash",
+                input={"command": f"echo {SECRET}", "nested": {"k": [SECRET]}},
+            )
+        )
+
+    written = _only(tmp_path)
+    assert SECRET not in written
+    recorded = json.loads(written)["input"]
+    assert recorded == {"command": f"echo {REPLACED}", "nested": {"k": [REPLACED]}}
+
+
+def test_a_passing_tier_two_command_is_redacted_before_its_output_is_cut(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    out = "1 passed in 0.10s\n" + "x" * 100 + SECRET + "y" * 1490
+    session = Tier2Session(
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        run=lambda command, **kw: subprocess.CompletedProcess(command, 0, out, ""),
+        sha=lambda cwd: "abc1234",
+    )
+
+    with known():
+        session.run(cwd=tmp_path)
+
+    assert session.result is not None
+    assert SECRET[:8] not in session.result.output
+    assert SECRET[-8:] not in session.result.output
+
+
+def test_verification_detail_holds_the_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_build_kit.cli import pipeline as pipeline_cli
+    from agent_build_kit.pipeline.verify import Verification
+
+    monkeypatch.setattr(
+        pipeline_cli,
+        "verify_change",
+        lambda *a, **k: Verification(change="add-marker", passed=False, detail=f"down: {SECRET}"),
+    )
+    root = config.active_root()
+    assert root is not None
+
+    with known():
+        outcome = pipeline_cli.verify_one(Installation(config.active(), root), "add-marker", [])
+
+    assert outcome.detail == f"down: {REPLACED}"
 
 
 def test_a_failed_redaction_leaves_the_tier_two_counts_and_verdict(
@@ -268,5 +363,7 @@ def test_a_failed_redaction_leaves_the_tier_two_counts_and_verdict(
     assert ok is False
     assert session.result is not None
     assert (session.result.passed, session.result.failed) == (3, 1)
-    assert session.result.output == NOTICE
-    _assert_one_failure_line(caplog)
+    # The command's own header stays; what it printed is withheld.
+    assert session.result.output.endswith(f"\n{NOTICE}")
+    assert SECRET not in session.result.output
+    _assert_one_failure_line(caplog, "tier-2 output")

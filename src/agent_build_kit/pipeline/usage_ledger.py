@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, mo
 from agent_build_kit import config, telemetry
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.redaction import WITHHELD, redact_text
+from agent_build_kit.redaction import redact_leaves
 from agent_build_kit.usage import Context, Usage, UsageSource
 
 LEDGER_NAME = "usage-ledger.jsonl"
@@ -134,11 +134,11 @@ def ledger_lock(path: Path) -> AbstractContextManager[None]:
 def append_record(path: Path, record: BaseModel) -> None:
     """Add `record` as a line of the ledger. Raises `OSError` when it cannot."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = redact_text(record.model_dump_json())
-    if line == WITHHELD:
-        line = record.model_copy(update={"outcome": WITHHELD}).model_dump_json()
+    # Each text field on its own: a value with a quote in it would not match once serialised.
+    texts = {name: value for name, value in record if isinstance(value, str)}
+    safe = record.model_copy(update=redact_leaves(texts, where="ledger"))
     with ledger_lock(path), path.open("a") as ledger:
-        ledger.write(line + "\n")
+        ledger.write(safe.model_dump_json() + "\n")
 
 
 def forget_told() -> None:

@@ -714,7 +714,7 @@ class UnitStore:
         every feedback the pipeline writes itself leaves it False, and so does
         clearing it.
         """
-        feedback = redact_text(feedback)
+        feedback = redact_text(feedback, where="feedback")
         self._update(
             unit_id,
             feedback=feedback,
