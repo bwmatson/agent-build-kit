@@ -9,6 +9,11 @@
   resumes a session now checks after its first agent step that the agent lists it, and fails
   there naming the three variables to check. Unset, nothing changes.
 
+- The reviewer now searches for an existing equivalent of each new function, constant,
+  pattern or test helper in a diff, and for a second copy within it, naming the existing one
+  by file and line. A duplicate the change introduces or makes worse is a required finding;
+  duplication the change leaves alone is not reported.
+
 - A new `notifications` section of `abk.yaml` tells a person when a unit waits on them. After
   each round the pipeline works out the cards the units call for (a unit in review with no
   rework pending, a failed unit, a unit held for a person), shows the new ones and clears the

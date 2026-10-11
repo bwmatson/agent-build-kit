@@ -417,6 +417,15 @@ Every round you ask for costs a rework and another review, so:
   named accessor instead of a raw reach-through); note it as optional, not
   required, when fixing it well means a real design decision spanning several
   callers — that is not a rework a builder should be sent back to make alone.
+- **Search for prior art.** For each new function, constant, pattern or test
+  helper in the diff, search the repository for an existing equivalent and the
+  diff for a second copy, and name the existing one by file and line.
+  A duplicate the change introduces or makes worse is a required finding: its
+  consequence is that two copies must change together, and done is to use or
+  extend the existing one, or extract one shared function. Parallel call sites
+  and per-variant copies (two hosts, backends or runtimes) are the common
+  cases. This states the consequence a required finding needs. Duplication the
+  change neither adds to nor extends is not yours to report.
 - **Read the code around the change, not only the diff.** For each hunk, open
   the enclosing function and read it whole. For each removed line, ask what it
   enforced — a check, a lock, a validation, an ordering — and whether the change
