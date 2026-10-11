@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -93,6 +93,10 @@ class ReportRow(Frozen):
     slot_wait_ms: int | None = None
     pause_wait_ms: int | None = None
     review_wait_ms: int | None = None
+    # `review_wait_ms` split by who or what the unit waited on in review.
+    review_person_ms: int | None = None
+    review_round_ms: int | None = None
+    review_checks_ms: int | None = None
     sources: tuple[str, ...] = ()
     difference: Difference | None = None
 
@@ -127,6 +131,63 @@ class Report(Frozen):
     sessions: tuple[SessionRow, ...] = ()
     legacy: Legacy = Legacy()
     unknown_calls: int = 0  # calls whose incremental cost could not be known
+
+
+WAIT_GROUPINGS = ("unit", "day")
+
+
+class WaitRow(Frozen):
+    """One group's wall time by cause, in milliseconds; a cause never recorded is None."""
+
+    key: str
+    wall_ms: int | None = None
+    planned_blocked_ms: int | None = None
+    planned_ready_ms: int | None = None
+    running_agent_ms: int | None = None
+    running_checks_ms: int | None = None
+    running_other_ms: int | None = None
+    in_review_person_ms: int | None = None
+    in_review_round_ms: int | None = None
+    paused_ms: int | None = None
+    failed_ms: int | None = None
+
+    @property
+    def planned_ms(self) -> int | None:
+        raise NotImplementedError
+
+    @property
+    def running_ms(self) -> int | None:
+        raise NotImplementedError
+
+    @property
+    def in_review_ms(self) -> int | None:
+        raise NotImplementedError
+
+
+class IdleHours(Frozen):
+    """The hours the samples observed, and those in which nothing ran, split by
+    whether the queue was full."""
+
+    observed_h: float = 0.0
+    idle_h: float = 0.0
+    queue_full_h: float = 0.0
+    room_h: float = 0.0
+
+
+class EstimateRatio(Frozen):
+    """Actual over estimated lines, summed over a kind's merged units that have both."""
+
+    kind: str
+    ratio: float
+    units: int
+
+
+class WaitReport(Frozen):
+    group_by: str
+    rows: tuple[WaitRow, ...]
+    total: WaitRow
+    idle: IdleHours = IdleHours()
+    estimates: tuple[EstimateRatio, ...] = ()
 
 
 # How many of the steps that added the most the context report lists.
@@ -742,7 +803,7 @@ def render_table(report: Report) -> str:
     return "\n".join(lines)
 
 
-def render_json(report: Report) -> str:
+def render_json(report: Report | WaitReport) -> str:
     return report.model_dump_json(indent=2)
 
 
@@ -836,7 +897,23 @@ def _summary_bases(lines: list[str]) -> dict[str, str]:
     return found
 
 
-def roll_up_change(ledger: Path, change: str) -> None:
+def build_wait_report(
+    ledger: Path,
+    decisions: Path,
+    units: list[StoredUnit],
+    *,
+    group_by: str = "unit",
+) -> WaitReport:
+    """Each unit's wall time by cause, from its history, the ledger's spans and the
+    decision log, and the idle hours from the ledger's samples."""
+    raise NotImplementedError
+
+
+def render_waits(report: WaitReport) -> str:
+    raise NotImplementedError
+
+
+def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) -> None:
     """Replace the change's detail lines with one `summary` line per unit.
 
     Holds the ledger's lock from the read to the swap, so a line appended
