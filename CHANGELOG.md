@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A file a toolchain profile's own commands create in a unit's worktree, such as a lock file
+  the repository does not commit, no longer holds the next step of the unit as a leftover and
+  is never committed, even in a repository with no `environment` section. A profile names
+  these files with an optional `created_files(repo)` hook; the Python profile names its lock
+  file. A tracked file follows the lock rule only where the environment declares dependency
+  inputs, and is ordinary work otherwise.
+
 - The acceptance tests that start a real agent can now give it a scratch home of its own, set
   by three `verify.env` entries (`ABK_ACCEPTANCE_AGENT_HOME_VAR`, `ABK_ACCEPTANCE_AGENT_HOME`,
   `ABK_ACCEPTANCE_AGENT_HOME_FILES`), so an agent that refuses its real session store under a

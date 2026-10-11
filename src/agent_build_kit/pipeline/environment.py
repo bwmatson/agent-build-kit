@@ -14,6 +14,7 @@ import json
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig, active
@@ -127,6 +128,21 @@ def lock_paths(repo: RepoConfig | None) -> tuple[str, ...]:
     if environment is None:
         return ()
     return tuple(normalize(name) for name in inside(environment.inputs.lock))
+
+
+class Ownership(StrEnum):
+    """Where a pipeline-owned path came from, strictest first: an artifact is never staged,
+    a lock follows the lock rule, a created file is one only a profile's commands make."""
+
+    ARTIFACT = "artifact"
+    LOCK = "lock"
+    CREATED = "created"
+
+
+def owned_paths(repo: RepoConfig | None, root: Path) -> dict[str, Ownership]:
+    """Every path the pipeline owns in a worktree at `root`: the environment's lock files and
+    artifacts merged with what the repository's profiles say their commands create."""
+    raise NotImplementedError
 
 
 def _base_inputs(
@@ -306,12 +322,14 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
 
 __all__ = [
     "EnvironmentState",
+    "Ownership",
     "WorktreeFault",
     "ensure",
     "artifact_patterns",
     "inputs_hash",
     "lock_paths",
     "matched_inputs",
+    "owned_paths",
     "prepare_worktree",
     "repo_artifacts",
     "problem",
