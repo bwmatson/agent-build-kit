@@ -36,6 +36,8 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.commit_order import check_structure, classify_paths
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
+from agent_build_kit.pipeline.workspaces import worktree_path
+from tests.agent_home import agent_home, assert_unit_session_listed
 from tests.factories import git, init_repo, scratch_app
 from tests.factories import who_pushed as reflog_and_pushes
 from tests.forges.github_server import FakeGitHub
@@ -91,6 +93,7 @@ class Scratch(Frozen):
     state: Path
     env: dict[str, str]
     host: FakeGitHub
+    command: list[str]
 
 
 @pytest.fixture(scope="module")
@@ -143,21 +146,26 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
 
+    home = agent_home(tmp_path_factory)
     env = {
         **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
+        **home.env,
         "ABK_CONFIG": str(planning / "abk.yaml"),
         "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
         # The per-machine override: abk.yaml still names the default runtime.
         "ABK_RUNTIME": "acp",
     }
-    yield Scratch(
-        planning=planning,
-        app=app,
-        remote=remote,
-        state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
-        env=env,
-        host=github_host,
-    )
+    with pytest.MonkeyPatch.context() as patch:
+        home.apply(patch)
+        yield Scratch(
+            planning=planning,
+            app=app,
+            remote=remote,
+            state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
+            env=env,
+            host=github_host,
+            command=shlex.split(command),
+        )
 
 
 def tick(scratch: Scratch) -> Ticked:
@@ -187,7 +195,12 @@ def tick(scratch: Scratch) -> Ticked:
 
 @pytest.fixture(scope="module")
 def built(scratch: Scratch) -> tuple[Scratch, Ticked]:
-    return scratch, tick(scratch)
+    ticked = tick(scratch)
+    # A later step resumes this session: the agent must list it, or say why not here.
+    if ticked.returncode == 0:
+        cwd = worktree_path(scratch.app, BRANCH, Path(scratch.env["ABK_WORKTREE_ROOT"]))
+        assert_unit_session_listed(scratch.state, UNIT_ID, scratch.command, cwd)
+    return scratch, ticked
 
 
 def output_of(ticked: Ticked) -> str:

@@ -92,11 +92,13 @@ def test_the_real_home_is_never_the_scratch_home(
 ) -> None:
     scratch = tmp_path / "scratch"
     scratch.mkdir()
+    for name in NAMES:
+        (scratch / name).write_text(name)
     alias = tmp_path / "alias"
     alias.symlink_to(scratch)
     monkeypatch.setenv(REAL_HOME, str(alias))
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="is, or is inside, the real home"):
         agent_home(_Factory(scratch))
 
 
@@ -106,7 +108,7 @@ def test_a_real_home_that_contains_the_scratch_home_is_refused(
     scratch = configured / "nested" / "scratch"
     scratch.mkdir(parents=True)
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="is, or is inside, the real home"):
         agent_home(_Factory(scratch))
 
 
@@ -143,20 +145,32 @@ def test_a_listed_file_missing_from_the_real_home_fails_naming_both(
 
 
 @pytest.mark.parametrize(
-    "name", ["subdir", "a/b", "../config.yaml", "state.db", "state.db-wal", "state.db-shm"]
+    ("name", "refusal"),
+    [
+        ("subdir", "is a directory"),
+        ("a/b", "not a plain file name"),
+        ("../config.yaml", "not a plain file name"),
+        ("state.db", "looks like the agent's state database"),
+        ("state.db-wal", "looks like the agent's state database"),
+        ("state.db-shm", "looks like the agent's state database"),
+    ],
 )
 def test_a_directory_a_path_or_the_state_database_is_refused(
     name: str,
+    refusal: str,
     configured: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (configured / "subdir").mkdir()
+    (configured / "a").mkdir()
+    (configured / "a" / "b").write_text("nested")
+    (tmp_path_factory.getbasetemp() / "config.yaml").write_text("outside")
     (configured / "state.db-wal").write_text("wal")
     (configured / "state.db-shm").write_text("shm")
     monkeypatch.setenv(HOME_FILES, f"config.yaml,{name}")
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match=refusal):
         agent_home(tmp_path_factory)
 
 

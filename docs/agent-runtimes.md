@@ -647,6 +647,26 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
   demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
   test-local-stack`).
+  Some agents refuse to open their real session store below a pytest process,
+  so a build keeps no sessions and a step that resumes one fails. Three
+  `verify.env` entries give the agent a scratch home of its own:
+  `ABK_ACCEPTANCE_AGENT_HOME_VAR` (the variable the agent reads for its home;
+  unset, nothing changes), `ABK_ACCEPTANCE_AGENT_HOME` (the real home, `~`
+  expanded) and `ABK_ACCEPTANCE_AGENT_HOME_FILES` (comma-separated plain file
+  names to link from it, never a directory or the state database). The scratch
+  home is a fresh directory, mode 0700, under pytest's temporary directory
+  holding only symbolic links to those files; the agent opens a store of its
+  own there. Each acceptance test that later resumes a session asserts after its
+  first agent step that the agent lists it, and fails there naming these
+  variables. Hazards: the agent can rewrite a linked credential through its
+  link, so the real file is updated; the scratch homes go only with pytest's
+  temporary-directory retention; only names are logged, never contents; a file
+  the agent needs and the list omits shows up as the agent failing to start or
+  to reach its model, and the fix is to list it. For an agent whose home cannot
+  be moved, leave the home variable unset and set the agent's own guard-bypass
+  variable in `verify.env` instead: its sessions then land in the person's real
+  store, with a working directory under the test temporary directory, and are
+  never removed.
 - Every test runs under a time limit on each of its setup, call and teardown.
   A test without the `local_stack` marker has `--test-time-limit` seconds
   (default 60); a `local_stack` test has `--tier2-test-time-limit` seconds

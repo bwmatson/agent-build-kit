@@ -25,15 +25,31 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Protocol
+
+import pytest
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
+from agent_build_kit.runtimes.acp import AcpRuntime
 
 LOG = logging.getLogger(__name__)
 
 HOME_VAR = "ABK_ACCEPTANCE_AGENT_HOME_VAR"
 REAL_HOME = "ABK_ACCEPTANCE_AGENT_HOME"
 HOME_FILES = "ABK_ACCEPTANCE_AGENT_HOME_FILES"
+
+
+class TempFactory(Protocol):
+    """What `agent_home` asks of pytest's `tmp_path_factory`."""
+
+    def mktemp(self, basename: str, numbered: bool = True) -> Path: ...
+
+
+class SessionResumer(Protocol):
+    """What `assert_session_listed` asks of the runtime."""
+
+    def can_resume_session(self, session_id: str, cwd: Path) -> bool: ...
 
 
 class AgentHome(Frozen):
@@ -43,6 +59,12 @@ class AgentHome(Frozen):
     path: Path | None
     linked: tuple[str, ...]
     env: dict[str, str]
+
+    def apply(self, patch: pytest.MonkeyPatch) -> None:
+        """Set `env` in this process, for an agent the test process starts itself or asks (the
+        precondition's own spawn), as the child processes get it through their `env=`."""
+        for name, value in self.env.items():
+            patch.setenv(name, value)
 
 
 def _required(name: str) -> str:
@@ -64,7 +86,7 @@ def _refuse_name(name: str, real_home: Path) -> None:
     assert not source.is_dir(), f"{HOME_FILES}: {name!r} is a directory; only files are linked"
 
 
-def agent_home(tmp_path_factory: Any) -> AgentHome:
+def agent_home(tmp_path_factory: TempFactory) -> AgentHome:
     """Build the scratch home, or an empty `AgentHome` when the home variable is unset."""
     variable = os.environ.get(HOME_VAR)
     if not variable:
@@ -87,7 +109,7 @@ def agent_home(tmp_path_factory: Any) -> AgentHome:
     return AgentHome(path=scratch, linked=names, env={variable: str(scratch)})
 
 
-def assert_session_listed(runtime: Any, session_id: str, cwd: Path) -> None:
+def assert_session_listed(runtime: SessionResumer, session_id: str, cwd: Path) -> None:
     """Fail, naming the likely cause, unless the agent lists `session_id` for `cwd`."""
     assert runtime.can_resume_session(session_id, cwd), (
         f"the agent does not list session {session_id} for {cwd} after its first step: it "
@@ -95,3 +117,15 @@ def assert_session_listed(runtime: Any, session_id: str, cwd: Path) -> None:
         f"below a pytest process. Check that {HOME_VAR}, {REAL_HOME} and {HOME_FILES} are set "
         "in `verify.env`."
     )
+
+
+def assert_unit_session_listed(state: Path, unit_id: str, command: list[str], cwd: Path) -> None:
+    """`assert_session_listed` for the session of the unit's first agent step, read from the
+    usage ledger under `state`, asked of the agent `command` for the step's `cwd`."""
+    records = [r for r in read_ledger(state / LEDGER_NAME) if r.unit == unit_id and r.session_id]
+    assert records, f"the ledger under {state} holds no agent session for {unit_id}"
+    first = records[0].session_id
+    assert first is not None
+    runtime = AcpRuntime()
+    runtime.agent_command = tuple(command)
+    assert_session_listed(runtime, first, cwd)
