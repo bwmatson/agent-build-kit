@@ -23,6 +23,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     key,
+    redacted_writes,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git
@@ -206,6 +207,7 @@ class LocalForge:
                 )
         return None
 
+    @redacted_writes("title", "body")
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         checkout = self._checkout(repo)
         tip = _seen(checkout, {"head": head, "base": base})[0] if checkout else ""
@@ -227,6 +229,7 @@ class LocalForge:
 
         return self._change(repo, add)
 
+    @redacted_writes("body")
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
         def update(pulls: list[Stored]) -> None:
             for pull in pulls:
@@ -276,9 +279,11 @@ class LocalForge:
         # The pipeline takes the UI review's notes itself, placed at the branch tip.
         return []
 
+    @redacted_writes("body")
     def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]:
         return self._post(repo, pr, body, note_id)
 
+    @redacted_writes("body")
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
         return self._post(repo, pr, body, None)
 
@@ -308,6 +313,7 @@ class LocalForge:
 
     # --- what has no local meaning --------------------------------------------------
 
+    @redacted_writes("description")
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
     ) -> None:

@@ -66,9 +66,10 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
-from agent_build_kit.settings import settings
+from agent_build_kit.settings import named_value, settings
 
 Run = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], str | None]
@@ -481,6 +482,44 @@ def _ssh_keys(inst: Installation) -> list[Check]:
                     f"ssh key {name}", f"{key} does not exist", "fix `deploy.ssh_key` in abk.yaml"
                 )
             )
+    return checks
+
+
+def _weak_secrets(inst: Installation) -> list[Check]:
+    """A secret name the redaction set cannot protect: set to under `MIN_LENGTH`
+    characters, or not set at all. Names only; a value is never printed."""
+    short = []
+    for name, provider in inst.config.verify.env.items():
+        try:
+            if len(_resolve(provider)) < MIN_LENGTH:
+                short.append(f"verify.env {name}")
+        except Exception:  # noqa: BLE001 — _verify_env reports a provider that fails
+            continue
+    unset = []
+    env_file = inst.env_file if inst.env_file.exists() else None
+    for name in inst.config.redact:
+        value = named_value(name, env_file)
+        if not value:
+            unset.append(name)
+        elif len(value) < MIN_LENGTH:
+            short.append(f"redact {name}")
+    checks = []
+    if short:
+        checks.append(
+            _warn(
+                "secrets too short",
+                f"{', '.join(short)}: under {MIN_LENGTH} characters, so never redacted",
+                "use a longer value, or accept that it can appear in stored output",
+            )
+        )
+    if unset:
+        checks.append(
+            _warn(
+                "secrets not set",
+                f"redact: {', '.join(unset)} not set, so nothing is redacted for it",
+                "set the variable in the environment or the planning repo's .env",
+            )
+        )
     return checks
 
 
@@ -1054,6 +1093,7 @@ def run_doctor(
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
+    checks += _weak_secrets(inst)
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)

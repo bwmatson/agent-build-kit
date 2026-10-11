@@ -144,7 +144,15 @@ NOT_SECRET_FIELDS: tuple[str, ...] = ()
 def unclassified_secret_fields(model: type[BaseSettings]) -> tuple[str, ...]:
     """The sorted names of `model`'s fields that end in `token`, `key`, `pat` or `secret`
     and are neither in `CREDENTIAL_FIELDS` nor in `NOT_SECRET_FIELDS`."""
-    raise NotImplementedError
+    return tuple(
+        sorted(
+            name
+            for name in model.model_fields
+            if name.endswith(("token", "key", "pat", "secret"))
+            and name not in CREDENTIAL_FIELDS
+            and name not in NOT_SECRET_FIELDS
+        )
+    )
 
 
 settings = Settings()

@@ -17,13 +17,15 @@ functions here rather than inherited behaviour.
 
 from __future__ import annotations
 
+import functools
 import subprocess
 from collections.abc import Callable, Collection, Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from agent_build_kit.budget import cut_head
 from agent_build_kit.model import Frozen
+from agent_build_kit.redaction import redact_leaves
 
 if TYPE_CHECKING:
     # config imports this package to check a repo's forge at load.
@@ -33,6 +35,22 @@ if TYPE_CHECKING:
 # Injected so a check can be tested against recorded answers, the way
 # `tier2.post_status` and the `wiring.build_*` factories already take one.
 Run = Callable[..., subprocess.CompletedProcess]
+
+
+def redacted_writes[F: Callable[..., Any]](*names: str) -> Callable[[F], F]:
+    """Decorate a forge's write method so the text keyword arguments `names` pass through
+    the known secret values before they reach the host or the store: one line is logged
+    however many of them fail to redact."""
+
+    def decorate(method: F) -> F:
+        @functools.wraps(method)
+        def write(self: Any, *args: Any, **kwargs: Any) -> Any:
+            held = {name: kwargs[name] for name in names if name in kwargs}
+            return method(self, *args, **{**kwargs, **redact_leaves(held, where=method.__name__)})
+
+        return write  # type: ignore[return-value]
+
+    return decorate
 
 
 DESCRIPTION_CUT_NOTE = "_Description cut to fit the host's limit._"

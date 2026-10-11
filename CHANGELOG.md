@@ -19,7 +19,10 @@
   given, along with token-shaped strings. Values shorter than 8 characters are not replaced.
   Saved feedback, run logs, transcripts, the usage ledger's outcome, printed output and tier-1
   and tier-2 results are redacted before they are written; when redaction fails the text is
-  replaced by `[redaction failed: text withheld]` and the failure is logged once.
+  replaced by `[redaction failed: text withheld]` and the failure is logged once. Text sent to a code host
+  (pull request titles and descriptions, comments, replies, statuses) and the prompt a rework
+  agent is given are redacted the same way. `abk doctor` warns, by name, about a `verify.env` or
+  `redact` variable whose value is under 8 characters and a `redact` name that is not set.
 
 - Editing the text of a change's groups once every group belongs to a started unit no longer asks
   the planner: the edit is recorded and a requeued unit reads it from `tasks.md`. A changed repo,
