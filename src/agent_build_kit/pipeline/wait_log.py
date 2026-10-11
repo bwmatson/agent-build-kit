@@ -111,8 +111,13 @@ class WaitRecorder:
                 self.say(f"the decision log could not be written: {error}")
 
 
+# What a trim leaves, as a share of the limit, so the next rewrite waits for that much growth.
+TRIM_TO = 0.8
+
+
 def trim_decision_log(path: Path, *, limit_mb: float) -> None:
-    """Drop the oldest lines of the log at `path` until it is within `limit_mb` megabytes."""
+    """Drop the oldest lines of the log at `path` once it passes `limit_mb` megabytes, down to
+    `TRIM_TO` of the limit. A diagnostic file: a failure to rewrite it leaves it as it was."""
     limit = int(limit_mb * 1024 * 1024)
     try:
         if path.stat().st_size <= limit:
@@ -123,10 +128,13 @@ def trim_decision_log(path: Path, *, limit_mb: float) -> None:
     kept: list[bytes] = []
     size = 0
     for line in reversed(lines):
-        if size + len(line) > limit:
+        if size + len(line) > limit * TRIM_TO:
             break
         kept.append(line)
         size += len(line)
     scratch = path.with_name(path.name + ".tmp")
-    scratch.write_bytes(b"".join(reversed(kept)))
-    scratch.replace(path)
+    try:
+        scratch.write_bytes(b"".join(reversed(kept)))
+        scratch.replace(path)
+    except OSError:
+        scratch.unlink(missing_ok=True)

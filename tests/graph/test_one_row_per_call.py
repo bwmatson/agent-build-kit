@@ -24,6 +24,7 @@ from tests.graph.test_session_continuation import failing_checks
 from tests.graph.test_usage_ledger_records import ledger_lines
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import Killed
+from tests.runtimes.acp_agent import SESSION as ACP_SESSION
 from tests.runtimes.acp_agent import use_agent
 from tests.runtimes.claude_cli import FakeClaude, finished_build
 
@@ -32,25 +33,34 @@ ACP = "acp"
 
 
 class Counted:
-    """A real runtime that counts the calls that finished, and dies before the call numbered
-    `die_on` (from 1) does anything, as a power loss does."""
+    """A real runtime that counts the calls that finished and keeps each request it got. The
+    call numbered `die_on` (from 1) runs for real and announces its session, then dies before
+    it reports a result, as a power loss does: it leaves a session id and no row."""
 
     def __init__(self, inner: Any, *, die_on: int = 0) -> None:
         self.inner = inner
         self.die_on = die_on
-        self.started = 0
+        self.requests: list[AgentRequest] = []
+        self.sessions: list[str] = []
         self.finished = 0
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
 
     def run(self, request: AgentRequest) -> AgentResult:
-        self.started += 1
-        if self.started == self.die_on:
-            raise Killed("power loss")
-        result = self.inner.run(request)
-        self.finished += 1
-        return result
+        self.requests.append(request)
+        if len(self.requests) != self.die_on:
+            result = self.inner.run(request)
+            self.finished += 1
+            return result
+
+        def announce(session: str) -> None:
+            self.sessions.append(session)
+            if request.on_session:
+                request.on_session(session)
+
+        self.inner.run(request.model_copy(update={"on_session": announce, "on_result": None}))
+        raise Killed("power loss")
 
 
 def runtime_of(kind: str, tmp_path: Path, *, die_on: int = 0) -> Counted:
@@ -58,7 +68,7 @@ def runtime_of(kind: str, tmp_path: Path, *, die_on: int = 0) -> Counted:
         fake = FakeClaude(stdout=finished_build(tmp_path, "done"))
         return Counted(ClaudeCodeRuntime(execute=fake), die_on=die_on)
     (tmp_path / "tree").mkdir(exist_ok=True)  # the worktree the runner hands the agent
-    use_agent(tmp_path / "agent.jsonl", load_session=True, resume=True)
+    use_agent(tmp_path / "agent.jsonl", resume=True, list_sessions=True, sessions=(ACP_SESSION,))
     return Counted(AcpRuntime(), die_on=die_on)
 
 
@@ -83,6 +93,9 @@ def test_a_resumed_call_writes_one_row(tmp_path: Path, workspace: Installation, 
 
     tick(tmp_path, recorder, run=run)
 
+    (session,) = runtime.sessions
+    retry = runtime.requests[2]
+    assert retry.resume_session == session, "the retry continues the session the killed call opened"
     assert runtime.finished == 2, "the killed call finished nothing; its retry is the second"
     records = ledger_lines(workspace)
     assert Counter(r["node"] for r in records) == {"tests": 1, "implement": 1}
@@ -99,6 +112,7 @@ def test_a_continued_call_writes_one_row(
 
     tick(tmp_path, recorder, run=build_run(runtime=runtime))  # pyrefly: ignore
 
+    assert runtime.requests[2].resume_session, "the fix continues the build session"
     assert runtime.finished == 3, "tests, implement, and the fix that continues the session"
     records = ledger_lines(workspace)
     assert len(records) == runtime.finished

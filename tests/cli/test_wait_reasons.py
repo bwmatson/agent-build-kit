@@ -7,8 +7,9 @@ The reasons come from the facts the pass already decides on, through `wait_reaso
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Collection
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,14 +19,17 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
+from agent_build_kit.pipeline.run_log import run_log_dir
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.vocabulary import WaitReason
-from agent_build_kit.pipeline.wait_log import Wait
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait
 from tests.conftest import make_installation
 from tests.factories import new_unit
 from tests.fake_clock import install
+from tests.pipeline.test_run_log import start_run
 
 Setup = Callable[[UnitStore, Installation], None]
 
@@ -305,3 +309,57 @@ def test_a_round_that_starts_nothing_dates_when_a_unit_became_ready(
 
     assert store.get("third/1").ready_at is not None
     assert store.get("second/1").ready_at is None
+
+
+def test_a_round_bounds_the_logs_by_the_installations_retention(tmp_path: Path) -> None:
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        retention={"decision_log_mb": 0.002, "unit_log_days": 3},
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("second/1")])
+    lines = [
+        json.dumps({"at": "x", "unit": "old/1", "reason": "blocked", "n": n}) for n in range(200)
+    ]
+    log = inst.state_dir / DECISIONS_NAME
+    log.write_text("".join(f"{line}\n" for line in lines))
+    old = run_log_dir(inst.state_dir)
+    start_run(old, "add-marker/1").close("open")
+    (path,) = old.iterdir()
+    stamp = (datetime.now(UTC) - timedelta(days=4)).timestamp()
+    os.utime(path, (stamp, stamp))
+    (inst.state_dir / LEDGER_NAME).write_text(
+        json.dumps({"kind": "summary", "unit": "add-marker/1", "change": "add-marker"}) + "\n"
+    )
+
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    kept = log.read_text().splitlines()
+    assert log.stat().st_size <= 0.002 * 1024 * 1024
+    assert lines[-1] in kept and lines[0] not in kept, "the newest lines stay"
+    assert not path.exists(), "four days old is past the three the installation sets"
+
+
+def test_a_decision_log_that_cannot_be_trimmed_still_dates_readiness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        retention={"decision_log_mb": 0.001},
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("second/1")])
+    (inst.state_dir / DECISIONS_NAME).write_text("x" * 5000 + "\n")
+
+    def full_disk(self: Path, data: bytes) -> int:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", full_disk)
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session usage at 90%")
+    )
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    assert store.get("second/1").ready_at is not None

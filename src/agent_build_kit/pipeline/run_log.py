@@ -22,7 +22,9 @@ RUNS_KEPT = 3
 CONTINUATION = "    "
 
 
-_UNIT_LOG = re.compile(r"(?P<change>.+)-(?P<number>\d{2,})-\d{8}-\d{6}-")
+# What follows a unit's prefix in a log's name: the run's start stamp and its dash.
+_STAMP = r"\d{8}-\d{6}-"
+_UNIT_LOG = re.compile(rf"(?P<change>.+)-(?P<number>\d{{2,}})-{_STAMP}")
 
 
 def run_log_dir(state_dir: Path) -> Path:
@@ -107,7 +109,7 @@ class RunLog:
 def _unit_logs(directory: Path, prefix: str) -> list[Path]:
     """The files of the unit whose prefix this is: a stamp follows it directly,
     so a change whose name merely begins with another's is not matched."""
-    pattern = re.compile(re.escape(prefix) + r"\d{8}-\d{6}-")
+    pattern = re.compile(re.escape(prefix) + _STAMP)
     return sorted(path for path in directory.glob(f"{prefix}*") if pattern.match(path.name))
 
 
@@ -119,10 +121,9 @@ def _prune(directory: Path, unit: Unit) -> None:
 def remove_change_logs(directory: Path, change: str) -> None:
     """Drop every unit log of a change. The logs are a diagnostic copy: a
     directory that cannot be read leaves the archive it follows standing."""
-    pattern = re.compile(re.escape(change) + r"-\d{2,}-\d{8}-\d{6}-")
     try:
         for path in directory.iterdir():
-            if pattern.match(path.name):
+            if (match := _UNIT_LOG.match(path.name)) and match["change"] == change:
                 path.unlink(missing_ok=True)
     except OSError:
         return
@@ -131,9 +132,15 @@ def remove_change_logs(directory: Path, change: str) -> None:
 def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) -> None:
     """Remove each unit log last written more than `days` before `now` whose unit has a
     `summary` line in `ledger`; a log whose unit has none is kept."""
+    cutoff = (now - timedelta(days=days)).timestamp()
+    try:
+        old = [p for p in directory.iterdir() if p.stat().st_mtime < cutoff]
+    except OSError:
+        return
+    if not (candidates := [p for p in old if _UNIT_LOG.match(p.name)]):
+        return  # the ledger is read only when a log is old enough to go
     try:
         lines = ledger.read_text().splitlines()
-        paths = list(directory.iterdir())
     except OSError:
         return
     summarised: set[str] = set()
@@ -144,13 +151,7 @@ def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) 
                 summarised.add(str(raw["unit"]))
         except (ValueError, AttributeError, KeyError):
             continue
-    cutoff = (now - timedelta(days=days)).timestamp()
-    for path in paths:
-        if (match := _UNIT_LOG.match(path.name)) is None:
-            continue
-        unit = f"{match['change']}/{int(match['number'])}"
-        try:
-            if unit in summarised and path.stat().st_mtime < cutoff:
-                path.unlink(missing_ok=True)
-        except OSError:
-            continue
+    for path in candidates:
+        match = _UNIT_LOG.match(path.name)
+        if match and f"{match['change']}/{int(match['number'])}" in summarised:
+            path.unlink(missing_ok=True)

@@ -884,6 +884,18 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def _bound_logs(inst: Installation) -> None:
+    """Keep the decision log and the unit run logs within `retention`."""
+    retention = inst.config.retention
+    trim_decision_log(inst.state_dir / DECISIONS_NAME, limit_mb=retention.decision_log_mb)
+    remove_old_logs(
+        run_log_dir(inst.state_dir),
+        inst.state_dir / LEDGER_NAME,
+        days=retention.unit_log_days,
+        now=datetime.now(UTC),
+    )
+
+
 def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
     """Show the cards the stored units call for and clear the ones they no longer do."""
     config = inst.config.notifications
@@ -1084,6 +1096,7 @@ def run_round(
             raise ValueError("pass `started` or `readmit`, not both")
         started = readmit.started
     spared = {*building, *started}
+    _step("bounding the logs", _bound_logs, inst)
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
@@ -3683,14 +3696,6 @@ def _record_waits(
         left_out = [unit.id for unit in units if only and unit.id not in only]
         reasons = waits()
         _RECORDERS[path].record(reasons, tick=_PROCESS_TICK, keep=left_out)
-        retention = inst.config.retention
-        trim_decision_log(path, limit_mb=retention.decision_log_mb)
-        remove_old_logs(
-            run_log_dir(inst.state_dir),
-            inst.state_dir / LEDGER_NAME,
-            days=retention.unit_log_days,
-            now=datetime.now(UTC),
-        )
         # Where reasons are decided, so a tick that starts nothing still dates a unit's readiness.
         unstamped = {unit.id for unit in units if unit.ready_at is None}
         for unit_id, wait in reasons.items():
