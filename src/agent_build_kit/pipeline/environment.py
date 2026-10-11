@@ -25,6 +25,7 @@ from agent_build_kit.path_patterns import GIT_DIR, inside, matches_any, matching
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.profiles.base import CreatedFiles
 
 RECORD = "environment.json"
 
@@ -144,11 +145,10 @@ def _created_by_profiles(repo: RepoConfig, root: Path) -> list[str]:
             profile = profiles.get(profile_name)
         except KeyError:
             continue
-        hook = getattr(profile, "created_files", None)
-        if hook is None:
+        if not isinstance(profile, CreatedFiles):
             continue
         prefix = "" if normalize(folder) == "." else f"{normalize(folder)}/"
-        for name in hook(root / folder):
+        for name in profile.created_files(root / folder):
             try:
                 path = normalize(name)
             except ValueError:
@@ -158,7 +158,11 @@ def _created_by_profiles(repo: RepoConfig, root: Path) -> list[str]:
     return found
 
 
-def _owned(repo: RepoConfig | None, root: Path | None) -> dict[str, Ownership]:
+def owned_paths(repo: RepoConfig | None, root: Path | None) -> dict[str, Ownership]:
+    """Every path the pipeline owns in a worktree at `root`: the environment's lock files and
+    artifacts merged with what the repository's profiles say their commands create. A path
+    several sources name is one entry, an artifact before a lock before a created file.
+    Without `root` no profile is asked."""
     environment = repo.environment if repo else None
     owned: dict[str, Ownership] = {}
     if repo and root is not None:
@@ -172,15 +176,8 @@ def _owned(repo: RepoConfig | None, root: Path | None) -> dict[str, Ownership]:
     return owned
 
 
-def owned_paths(repo: RepoConfig | None, root: Path) -> dict[str, Ownership]:
-    """Every path the pipeline owns in a worktree at `root`: the environment's lock files and
-    artifacts merged with what the repository's profiles say their commands create. A path
-    several sources name is one entry, an artifact before a lock before a created file."""
-    return _owned(repo, root)
-
-
 def _owned_as(repo: RepoConfig | None, root: Path | None, *kinds: Ownership) -> tuple[str, ...]:
-    return tuple(name for name, kind in _owned(repo, root).items() if kind in kinds)
+    return tuple(name for name, kind in owned_paths(repo, root).items() if kind in kinds)
 
 
 def _has_dependencies(repo: RepoConfig | None) -> bool:
@@ -267,7 +264,7 @@ def artifact_patterns(repo: RepoConfig | None, root: Path | None = None) -> tupl
 def repo_artifacts(inst: Installation, name: str) -> tuple[str, ...]:
     """The artifact patterns of the repository `name` in the installation; empty for a name
     that is not one, such as the planning repository."""
-    return artifact_patterns(inst.config.repos.get(name))
+    return artifact_patterns(inst.config.repos.get(name), inst.checkouts.get(name))
 
 
 def _unstage(tree: Path, names: list[str]) -> None:

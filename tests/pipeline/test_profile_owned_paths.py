@@ -309,8 +309,14 @@ def test_a_path_the_profile_and_the_lock_inputs_both_name_is_one_lock_entry(
 ) -> None:
     env = FakeEnvironment(tmp_path / "control", inputs=(MANIFEST,), locks=(LOCK,))
     config = configured(tmp_path / "meta", MAKES_LOCK.name, env)
+    tree = worktree_of(repo, tmp_path, config)
+    (tree / "marker.py").write_text("MARKER = 1\n")
+    (tree / LOCK).write_text("created\n")
 
     assert owned_paths(config, repo) == {LOCK: Ownership.LOCK}
+    commit(tree, config)
+    assert committed_files(tree) == ["marker.py"], "staged once, as a lock: not at all"
+    assert (tree / LOCK).exists()
 
 
 def test_a_path_the_profile_names_and_an_artifact_pattern_matches_is_an_artifact(
@@ -320,6 +326,15 @@ def test_a_path_the_profile_names_and_an_artifact_pattern_matches_is_an_artifact
     config = configured(tmp_path / "meta", MAKES_NESTED.name, env)
 
     assert owned_paths(config, repo)[NESTED] is Ownership.ARTIFACT
+    tree = worktree_of(repo, tmp_path, config)
+    (tree / "marker.py").write_text("MARKER = 1\n")
+    (tree / NESTED).parent.mkdir()
+    (tree / NESTED).write_text("created\n")
+
+    commit(tree, config)
+
+    assert committed_files(tree) == ["marker.py"], "an artifact is never staged"
+    assert (tree / NESTED).exists()
 
 
 def test_a_path_that_leaves_the_repository_or_names_the_git_directory_is_dropped(

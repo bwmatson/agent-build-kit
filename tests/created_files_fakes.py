@@ -11,9 +11,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import cast
 
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
+from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.environment_fakes import FakeEnvironment, repo_config
 
@@ -32,11 +34,10 @@ class Creates(PythonUvProfile):
         return list(self.files)
 
 
-class Hookless(PythonUvProfile):
+class Hookless:
     """A profile written before the hook: it has none."""
 
     name = "hookless"
-    created_files = None  # type: ignore[assignment]
 
 
 MAKES_LOCK = Creates("makes-lock", LOCK)
@@ -45,10 +46,16 @@ MAKES_NOTHING = Creates("makes-nothing")
 
 
 @contextmanager
-def registered(*extra: PythonUvProfile) -> Iterator[None]:
+def registered(*extra: Creates) -> Iterator[None]:
     """The profiles above, and `extra`, registered for a `with` block."""
     with ExitStack() as stack:
-        for profile in (MAKES_LOCK, MAKES_NESTED, MAKES_NOTHING, Hookless(), *extra):
+        for profile in (
+            MAKES_LOCK,
+            MAKES_NESTED,
+            MAKES_NOTHING,
+            cast(ToolchainProfile, Hookless()),
+            *extra,
+        ):
             stack.enter_context(profiles.registered(profile))
         yield
 
