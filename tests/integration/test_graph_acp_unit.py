@@ -36,6 +36,8 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.workspaces import worktree_path
+from tests.agent_home import agent_home, assert_unit_session_listed
 from tests.factories import git, init_repo, scratch_app
 from tests.forges.github_server import FakeGitHub
 from tests.forges.process_host import process_env
@@ -72,10 +74,12 @@ class Scratch(Frozen):
     model_config = {"arbitrary_types_allowed": True}
 
     planning: Path
+    app: Path
     remote: Path
     state: Path
     host: FakeGitHub
     env: dict[str, str]
+    command: list[str]
 
 
 @pytest.fixture(scope="module")
@@ -124,19 +128,25 @@ def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -
     git(planning, "add", "-A")
     git(planning, "commit", "-q", "-m", "plan")
 
+    home = agent_home(tmp_path_factory)
     env = {
         **process_env(github_host, tmp_path / "bin", tmp_path / "gh-calls.txt"),
+        **home.env,
         "ABK_CONFIG": str(planning / "abk.yaml"),
         "ABK_WORKTREE_ROOT": str(tmp_path / "worktrees"),
         "ABK_RUNTIME": "acp",
     }
-    yield Scratch(
-        planning=planning,
-        remote=remote,
-        state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
-        host=github_host,
-        env=env,
-    )
+    with pytest.MonkeyPatch.context() as patch:
+        home.apply(patch)
+        yield Scratch(
+            planning=planning,
+            app=app,
+            remote=remote,
+            state=Installation(config.load(planning / "abk.yaml"), planning).state_dir,
+            host=github_host,
+            env=env,
+            command=shlex.split(command),
+        )
 
 
 def tick(scratch: Scratch) -> Ticked:
@@ -182,6 +192,9 @@ def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_m
     assert scratch.host.requests("POST", "/repos/example/app/pulls"), "no pull request was opened"
     # Waiting in review is a thread parked at its wait, not a finished one.
     assert thread_next(scratch) == (Node.AWAIT_REVIEW,), run_log(scratch)
+    # The rework below resumes the build's session: the agent must list it, or say why not here.
+    cwd = worktree_path(scratch.app, BRANCH, Path(scratch.env["ABK_WORKTREE_ROOT"]))
+    assert_unit_session_listed(scratch.state, UNIT_ID, scratch.command, cwd)
 
     # A tick with nothing new changes nothing: the poller records the pull
     # request's comments as seen before the reviewer writes one.

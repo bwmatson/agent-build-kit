@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The acceptance tests that start a real agent can now give it a scratch home of its own, set
+  by three `verify.env` entries (`ABK_ACCEPTANCE_AGENT_HOME_VAR`, `ABK_ACCEPTANCE_AGENT_HOME`,
+  `ABK_ACCEPTANCE_AGENT_HOME_FILES`), so an agent that refuses its real session store under a
+  test process still keeps the sessions a later step resumes. An acceptance test that
+  resumes a session now checks after its first agent step that the agent lists it, and fails
+  there naming the three variables to check. Unset, nothing changes.
+
 - A new `notifications` section of `abk.yaml` tells a person when a unit waits on them. After
   each round the pipeline works out the cards the units call for (a unit in review with no
   rework pending, a failed unit, a unit held for a person), shows the new ones and clears the
