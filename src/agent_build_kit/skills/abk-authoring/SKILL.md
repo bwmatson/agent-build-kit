@@ -155,6 +155,18 @@ carried ones included, and keeps it once it has started. A value that is not an
 integer from 1 to 5, a second line in one place, or a line in a group that could
 not be read is an error; `abk tags` shows a priority that is not 3.
 
+## Describe behaviour, not names
+
+A task describes behaviour. It names a new function, class or constant only when
+the name is a contract: public API, a command, a wire shape, or a name another
+change or repository depends on. Otherwise replace "add a helper that does X"
+with what must be true, so the tests step is not handed a name to pin and can
+search for existing code first.
+
+- Good: "Two spellings that differ only in case or surrounding spaces select the
+  same record."
+- Bad: "Add `normalize_key()` and call it from the lookup and the import."
+
 ## Before committing a change
 
 ```

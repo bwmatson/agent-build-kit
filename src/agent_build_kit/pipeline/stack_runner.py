@@ -130,6 +130,24 @@ You may add stubs for code that does not exist yet — a signature whose body is
 only `raise NotImplementedError`, or a model field — so the tests fail when
 they run instead of failing to import. Stubs contain no logic.
 
+Before you stub anything: when a task names code to add, or the same logic is
+needed in a second place, first search for an existing equivalent and decide
+which of three cases it is. (a) An existing function does the job: test through
+it, add no stub, and say "reused X instead of adding Y" in your summary. (b) An
+existing function nearly does it: the tests target that function's missing
+behaviour, and no new name is created. (c) No reusable helper exists and two
+places need the logic: one stub at the place the repository keeps shared code
+covers the helper's own interface, the tests cover each call site, and no second
+copy is stubbed per call site. Prefer asserting at the nearest existing entry
+point to asserting on a new internal helper's name; a name that is a contract
+(public API, a command, a wire shape, a name the specification requires) is
+stubbed as named.
+
+New tests go in test files in which every test fails before the implementation:
+do not add a failing test to a file that holds passing ones, because the whole
+file is run and its passing tests are rejected. A test for a conversion with no
+new behaviour observes the call site reaching the shared or existing function.
+
 Use the repository's shared fixtures before writing new ones.
 
 Where a test needs a stand-in for something outside this code (a library, a
@@ -560,7 +578,10 @@ Work the remaining tasks of task group(s) {groups} in the change specified at
 {change_dir}, and stop before any later group.
 {boundary}
 Make the tests written in the previous commit pass, keeping the change to what
-those tests require. Do not weaken or delete a test to make it pass. Run
+those tests require. Do not weaken or delete a test to make it pass. If a stub
+the tests added duplicates existing code, delete the stub and repoint the test at
+the existing function with the same assertions; that is not weakening a test, and
+your summary says so. Run
 linting, formatting, types and the tests before you finish.
 The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
@@ -722,7 +743,10 @@ IMPLEMENTATION_CONTINUATION = (
     """\
 The tests are written and committed. Now implement: make them pass, keeping the
 change to what those tests require. Do not weaken or delete a test to make it
-pass. Run linting, formatting, types and the tests before you finish.
+pass. If a stub the tests added duplicates existing code, delete the stub and
+repoint the test at the existing function with the same assertions; that is not
+weakening a test, and your summary says so. Run linting, formatting, types and
+the tests before you finish.
 """
     + CONTINUATION_READONLY
     + "{changelog}"

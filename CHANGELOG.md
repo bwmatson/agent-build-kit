@@ -228,7 +228,13 @@
   helper, constant or fixture that exists, write shared logic once, give calls that must
   change together one function, delete what the change makes dead and stay within the
   change. A session that is continued is not told again, and rework now also looks for the
-  others of the kind when feedback names one duplicate.
+  others of the kind when feedback names one duplicate. The agent that writes tests first
+  searches and decides whether to reuse, generalize or create before it stubs a function a
+  task names, puts new tests only in files where every test fails, and the implementing
+  agent may repoint a test whose stub duplicates existing code; the reviewer counts such a
+  stub. The authoring skill now tells authors to describe behaviour and name code only when
+  the name is a contract; copies of the skill in planning repositories stay as they were
+  until `abk install-skills` is run.
 
 - Tests carrying the tier-2 marker now run under their own time limit, thirty minutes
   by default and set by `--tier2-test-time-limit` (zero turns it off), instead of the

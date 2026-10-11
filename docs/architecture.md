@@ -539,6 +539,18 @@ in its full prompt. The adapt prompt keeps its own instruction not to re-impleme
 predecessor provides. The rework prompt also tells the agent to look for the others of the
 kind, and the tests prompt points to the shared fixtures.
 
+The tests prompt also decides before it stubs a named function: after searching, an
+existing function that does the job is tested through (no stub, "reused X instead of
+adding Y" in the summary); one that nearly does it has its missing behaviour tested and no
+new name created; with no helper and two places needing the logic, one stub at the shared
+place covers the helper and the tests cover each call site. New tests go in files in which
+every test fails, since the red check runs whole files and rejects any that pass; a
+conversion with no new behaviour is tested by observing the call site reach the existing
+function. The implementing prompt and its continuation (and no other continuation) let the
+agent delete a stub that duplicates existing code and repoint the test with the same
+assertions, saying so in its summary; "Do not weaken or delete a test" stays. The reviewer
+counts a stub added by the tests commit, and a repointed test is not a finding.
+
 **Long command output goes to an ignored file.** Every worktree carries
 `.abk/out/`, named once in the repository's local `info/exclude` (never a tracked
 ignore file), so `git status`, `git add -A` and the leftover commit never see it.
