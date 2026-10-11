@@ -15,7 +15,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member, UnitState
 from agent_build_kit.pipeline.vocabulary import STATES, change_label, state_label_names
 from tests.factories import stored_unit as unit
-from tests.forges.stand_in import StandInForge, lookup
+from tests.forges.stand_in import NoLabelsForge, StandInForge, lookup
 
 PR = 7
 
@@ -109,22 +109,6 @@ def test_a_label_call_that_fails_is_logged_once_and_raises_nothing(
     labels.consume("app", PR, "agent-rework")
 
     assert len(logged) == 1, logged
-
-
-class NoLabelsForge(StandInForge):
-    """A host that has no labels at all: every label call is unimplemented."""
-
-    def add_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def set_exclusive_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def remove_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def labels_on(self, *args, **kwargs) -> list[str]:
-        raise NotImplementedError
 
 
 def wired(tmp_path: Path, forge: StandInForge, logged: list[str]) -> UnitStore:

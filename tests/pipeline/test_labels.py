@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.vocabulary import change_label
 from agent_build_kit.settings import settings
 from tests.factories import stored_unit as unit
 from tests.forges.azure_rest_host import RestHost, refusal
-from tests.forges.stand_in import StandInForge, lookup
+from tests.forges.stand_in import NoLabelsForge, lookup
 
 PR = 7
 REPO = RepoId(forge="azure_devops", account="example", project="Proj", name="app")
@@ -74,20 +74,6 @@ def test_a_refused_label_write_is_logged_and_the_unit_goes_on(tmp_path: Path) ->
     assert store.get("add-marker/1").state == "held"
     assert any("failed" in line and "you need permission" in line for line in logged), logged
     assert not any("no labels" in line for line in logged), logged
-
-
-class NoLabelsForge(StandInForge):
-    def add_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def set_exclusive_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def remove_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def labels_on(self, *args, **kwargs) -> list[str]:
-        raise NotImplementedError
 
 
 def test_a_host_without_labels_still_says_so_once(tmp_path: Path) -> None:

@@ -22,28 +22,12 @@ from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.forges.stand_in import StandInForge
+from tests.forges.stand_in import NoLabelsForge, StandInForge
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 SWEPT = "labels-swept.json"
 LIMIT = 3
-
-
-class NoLabelsForge(StandInForge):
-    """A host that keeps no labels: every label call is unimplemented."""
-
-    def labels_on(self, *args, **kwargs) -> list[str]:
-        raise NotImplementedError
-
-    def add_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def set_exclusive_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
-
-    def remove_label(self, *args, **kwargs) -> None:
-        raise NotImplementedError
 
 
 @pytest.fixture
@@ -327,8 +311,9 @@ def test_a_unit_of_a_repo_the_installation_no_longer_lists_is_left_alone(
     out = capsys.readouterr().out
     assert swept(inst) == {"app": [5]}
     assert "removed" not in asked
-    assert "failed" not in out.replace("verif", "")
-    assert "remain" not in out
+    assert not [line for line in out.splitlines() if "#6" in line or "removed" in line]
+    assert "clearing the state label" not in out
+    assert "label sweep" not in out
 
 
 def test_the_record_is_written_under_its_lock(
@@ -399,7 +384,7 @@ def test_a_failure_in_the_sweep_stops_neither_the_rest_of_the_round_nor_a_build(
     hosts: dict[str, StandInForge],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # A lock that cannot be taken: the sweep raises where it records.
+    # A lock that cannot be taken: the sweep raises when it takes the lock to read its record.
     (inst.state_dir / f"{SWEPT}.lock").mkdir()
     seed(store, [finished(5), stored_unit("build-me/1", change="build-me", state="planned")])
 
