@@ -108,6 +108,75 @@ def _result(
     }
 
 
+def _request(
+    fill: int, n: int, *, sub_agent: bool = False, blocks: int = 1, model: str = MODEL
+) -> list[dict]:
+    """The assistant events of one model request that left `fill` tokens in the context: one
+    event per content block, all repeating the request's message id and usage, as the CLI
+    prints them. A sub-agent's request names the tool call that started it."""
+    cache_creation = fill // 10
+    usage = USAGE | {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": cache_creation,
+        "cache_read_input_tokens": fill - 3 - cache_creation,
+    }
+    events = []
+    for block in range(blocks):
+        event = _assistant([{"type": "text", "text": f"step {n}.{block}"}])
+        message = event["message"] | {
+            "id": f"msg_{n:02d}RequestAbCdEfGhJkLmNpQrS",
+            "usage": usage,
+            "model": model,
+        }
+        events.append(
+            event
+            | {"message": message}
+            | ({"parent_tool_use_id": "toolu_01SubAgentAbCdEfGhJkLmN"} if sub_agent else {})
+        )
+    return events
+
+
+# What Claude Code prints when it compacts the conversation: a system event naming the
+# trigger and the context before and after.
+COMPACT_BOUNDARY = {
+    "type": "system",
+    "subtype": "compact_boundary",
+    "content": "Conversation compacted",
+    "compactMetadata": {"trigger": "auto", "preTokens": 195000, "postTokens": 20639},
+    "session_id": SESSION,
+    "uuid": "2e8b4d71-0c5a-4f93-b6a8-9d3f1c7e5b02",
+}
+
+
+def requests_filling(
+    cwd: Path,
+    *fills: int | tuple[int, bool] | dict,
+    window: int | str | None = None,
+    blocks: int = 1,
+    model: str = MODEL,
+    model_usage: dict | None = None,
+) -> str:
+    """A streamed run of one request per figure, each leaving that many tokens in the context.
+    A tuple `(fill, True)` is a request by a sub-agent; a dict is any other event, printed as
+    given. The requests ran on `model`. The result's `modelUsage` is `model_usage` when given;
+    else it names `MODEL` with `window` as its `contextWindow`, as a recorded result does
+    (keyed by the full model id), or no window when none is given."""
+    events: list[dict] = [_init(cwd)]
+    for n, fill in enumerate(fills):
+        if isinstance(fill, dict):
+            events.append(fill)
+        elif isinstance(fill, tuple):
+            events += _request(fill[0], n, sub_agent=fill[1], blocks=blocks, model=model)
+        else:
+            events += _request(fill, n, blocks=blocks, model=model)
+    closing = _result("done")
+    if window is not None:
+        closing["modelUsage"][MODEL] |= {"contextWindow": window, "maxOutputTokens": 64000}
+    if model_usage is not None:
+        closing["modelUsage"] = model_usage
+    return stream(*events, closing)
+
+
 def stream(*events: dict) -> str:
     return "".join(json.dumps(event) + "\n" for event in events)
 

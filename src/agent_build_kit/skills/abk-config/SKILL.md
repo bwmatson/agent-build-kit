@@ -99,6 +99,11 @@ session_reuse:                # per agent role: continue the role's latest sessi
   build: true                 # tests/implement/fix/rework/adapt share one session
   review: false               # always false: a review starts fresh; a role left out is off
 
+context:
+  compaction_drop_share: 0.3  # fall in the fill larger than this share of the window = a compaction
+  warn_share: 0.8             # a step ending above this share of the window logs a warning
+# runtimes.claude_code.context_windows: {model: tokens}, when the result does not name the window
+
 limits:
   stack_depth_build_cap: 3    # longest chain of in-review PRs from main
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap

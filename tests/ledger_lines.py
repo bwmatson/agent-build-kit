@@ -62,6 +62,32 @@ def costed_line(
     }
 
 
+def context_line(
+    used_start: int | None,
+    used_end: int | None,
+    *,
+    peak: int | None = None,
+    compactions: int = 0,
+    window: int | None = 200_000,
+    basis: str = "reported",
+    **fields,
+) -> dict:
+    """An agent line with its `context` object: tokens in the window at the step's first and
+    last request, the largest fill between, and the window. `added` is what `used_end` says
+    over `used_start`, never below zero."""
+    added = None if used_start is None or used_end is None else max(used_end - used_start, 0)
+    context = {
+        "used_start": used_start,
+        "used_end": used_end,
+        "added": added,
+        "peak": peak if peak is not None else used_end,
+        "compactions": compactions,
+        "max": window,
+        "basis": basis,
+    }
+    return costed_line(1.0, 1.0, **fields) | {"context": context}
+
+
 def legacy_line(cost_usd: float, **fields) -> dict:
     """An agent line as it was written before the `cost` object: one flat figure."""
     return _flat_line(cost_usd=cost_usd, **fields)

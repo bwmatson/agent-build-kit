@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.claude_stream import (
     final_text,
     own_words,
     records,
+    request_fills,
     result_event,
     stream_run,
 )
@@ -48,6 +49,7 @@ from agent_build_kit.runtimes.base import (
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.usage import Context, ContextBasis, context_of
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
 # shape. `on_event` is called with each JSON event as it is printed, and is
@@ -283,6 +285,7 @@ class ClaudeCodeRuntime:
                 stop_reason=stop_reason,
                 turns=ended.num_turns if ended is not None else None,
                 **_spent(ended),
+                context=_context(result.stdout, ended, request.model),
             )
             if failure.kind == "rate_limited":
                 # Raised, so `_run` never sees it: the spend of a call cut off
@@ -299,6 +302,7 @@ class ClaudeCodeRuntime:
             raw=result.stdout,
             stop_reason=stop_reason,
             turns=ended.num_turns if ended is not None else None,
+            context=_context(result.stdout, ended, request.model),
             **_spent(ended),
         )
 
@@ -321,6 +325,26 @@ class ClaudeCodeRuntime:
         """Answered locally: every policed run registers the hook and passes
         the same denies as flags, so no class goes unenforced."""
         return PolicyReport(ok=True)
+
+
+def _context(stdout: str, ended: ResultEvent | None, model: str | None) -> Context | None:
+    """How full the window was over the run: the window the result names for the model the
+    conversation ran on (else the requested one), else the configured table's, which is an
+    estimate."""
+    fills, markers, ran = request_fills(stdout)
+    window = ended.context_window(ran, model) if ended is not None else None
+    basis = ContextBasis.REPORTED
+    if window is None:
+        windows = config.runtime_entry(name=NAME).context_windows
+        window = next((windows[m] for m in (ran, model) if m and m in windows), None)
+        basis = ContextBasis.ESTIMATED
+    return context_of(
+        fills,
+        window=window,
+        basis=basis,
+        drop_share=config.active().context.compaction_drop_share,
+        markers=markers,
+    )
 
 
 def _spent(ended: ResultEvent | None) -> dict:

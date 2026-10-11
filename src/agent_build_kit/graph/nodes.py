@@ -111,7 +111,7 @@ from agent_build_kit.runtimes.base import (
     AgentResult,
     SessionUnavailable,
 )
-from agent_build_kit.usage import Usage
+from agent_build_kit.usage import Context, Usage
 
 Update = dict[str, Any]
 
@@ -696,6 +696,7 @@ class BuildPath:
                 resumed=resumed,
                 **usage.model_dump(),
                 cost=cost,
+                context=result.context or Context(),
                 turns=result.turns,
                 duration_ms=result.duration_ms,
                 usage_source="gateway" if exact else result.usage_source,

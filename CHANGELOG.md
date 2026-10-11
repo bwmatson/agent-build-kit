@@ -86,6 +86,17 @@
   the agent commits to the unit's branch. With no remote there is nothing to push to, so
   the check is skipped; with an `origin` it is unchanged.
 
+- Each agent call now records how full the model's context window was, in tokens: where the
+  step started, where it ended, the peak, how much it added, the compactions and the window.
+  `abk report --context` shows it per step kind and per session, with the steps that add the
+  most; a step ending above `context.warn_share` of the window (0.8) logs a warning, and
+  `context.compaction_drop_share` (0.3) sets what counts as a compaction where the runtime
+  has no marker. The window comes from the agent or, for Claude Code, from
+  `runtimes.claude_code.context_windows`.
+  Telemetry gains the gauges `abk.agent.context_used` and `abk.agent.context_max` and the
+  counter `abk.agent.compactions`. Rows written before this have no context and it cannot be
+  rebuilt from retained transcripts.
+
 - A unit that waits on another unit no longer holds a place in the limit on units in
   progress, however much work it has. The unit it waits on starts into that place ahead of
   the usual order, so a full queue of waiting units cannot keep their prerequisite from
