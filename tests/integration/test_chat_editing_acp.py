@@ -23,6 +23,7 @@ minutes, so it is marked tier 2 and excluded from the default suite.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import shlex
@@ -38,6 +39,9 @@ import httpx
 import pytest
 
 from agent_build_kit import config
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+from agent_build_kit.graph.state import SessionRole
+from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -107,10 +111,6 @@ if git diff --cached | grep -q '^+.*{HOOK_MARKER}'; then
   exit 1
 fi
 """
-
-
-# The session the build-session chat commit named, kept for the free session's test to differ from.
-BUILD_COMMIT_SESSION: dict[str, str] = {}
 
 
 class Ticked(Frozen):
@@ -262,6 +262,18 @@ def logs_since(scratch: Scratch, before: set[str]) -> str:
     return "\n".join((directory / name).read_text() for name in sorted(log_names(scratch) - before))
 
 
+def build_session_of(scratch: Scratch) -> str:
+    """The unit's build session, as its thread in the checkpoint store records it."""
+
+    async def read() -> str:
+        async with open_checkpointer(unit_graphs_path(scratch.installation.state_dir)) as saver:
+            state = (await thread_position(saver, UNIT_ID)).state
+            assert state is not None, "the unit has no thread"
+            return state.sessions[SessionRole.BUILD].session_id
+
+    return asyncio.run(read())
+
+
 def adopted_from(tree: Path, commit: str) -> str:
     return git(
         tree, "log", "-1", "--format=%(trailers:key=Adopted-From,valueonly,separator=)", commit
@@ -387,7 +399,7 @@ def test_a_chat_edit_is_fixed_for_the_hook_committed_and_reviewed_without_a_roun
     assert len(runs) >= 2, "the hook rejected nothing, so the agent fixed nothing"
     build_commit_session = adopted_from(tree, result["commit"])
     assert build_commit_session, "the commit names no session"
-    BUILD_COMMIT_SESSION["id"] = build_commit_session
+    assert build_commit_session == build_session_of(scratch), "not the build session's own commit"
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
     logs_before = log_names(scratch)
@@ -450,7 +462,7 @@ def test_a_free_session_changes_code_and_a_task_file_and_each_checkout_is_commit
     assert code.json()["delivered"] is True
     free_session = adopted_from(tree, code.json()["commit"])
     assert free_session, "the free session's commit names no session"
-    assert free_session != BUILD_COMMIT_SESSION["id"], "it was taken for the build session's"
+    assert free_session != build_session_of(scratch), "it was taken for the build session's"
     assert Leases(lease_dir(scratch.installation.state_dir)).attachment(UNIT_ID) is None
 
     logs_before = log_names(scratch)
