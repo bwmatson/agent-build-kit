@@ -122,7 +122,11 @@
   (the "Done when" sentence of each task group it builds), ahead of the stack position,
   scope and verification. "How this was built" is one line, a follow-up recorded both as a
   summary and as a located line is listed once, and when the description is fitted to a
-  host's limit the reason and the goal are the last to be shortened.
+  host's limit the reason and the goal are the last to be shortened. When the reviewer
+  approves it also describes the branch (a summary and its core changes, from the diff, in
+  the same reply); the changes are stored with the approval and shown under what the pull
+  request does, and a malformed description is ignored. A release older than this one
+  refuses a unit record that holds a description.
 
 - Units that have never run now start in order of their stack's age: after priority, a
   ready unit takes the age of the oldest unit that waits on it, directly or through a chain,

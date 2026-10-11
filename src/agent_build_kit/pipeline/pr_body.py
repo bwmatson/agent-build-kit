@@ -27,7 +27,7 @@ from agent_build_kit import forges
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import Description, StoredUnit
 from agent_build_kit.pipeline.units import MERGED, Member, through_satisfied, trunk_of
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
 
@@ -274,25 +274,81 @@ def _why_section(changes_dir: Path, members: Sequence[Member], ceiling: int) -> 
     )
 
 
-def _goal_section(changes_dir: Path, members: Sequence[Member]) -> Section | None:
-    """What the pull request does: the goal of each group the unit builds."""
+_WHAT_HEADING = "## What this pull request does"
+# What the reviewer's text may take of the description, whatever it wrote.
+_MAX_CHANGES = 6
+_MAX_CHANGE_CHARS = 300
+_MAX_SUMMARY_CHARS = 400
+
+
+def _capped(text: str, size: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= size else text[: size - 1] + "…"
+
+
+def _changes_section(described: Description) -> Section | None:
+    """The reviewer's core changes as bullets, with its summary leading them.
+
+    The text is the model's, so it is capped. When the room is short the summary
+    goes first, then bullets from the end with a count of those left out; the
+    smallest form is the first bullet."""
+    bullets = [
+        f"- {_capped(change, _MAX_CHANGE_CHARS)}" for change in described.changes if change.strip()
+    ][:_MAX_CHANGES]
+    if not bullets:
+        return None
+    summary = _capped(described.summary, _MAX_SUMMARY_CHARS)
+
+    def block(shown: int, *, lead: bool) -> str:
+        more = len(bullets) - shown
+        parts = [summary if lead and summary else "", "\n".join(bullets[:shown])]
+        if more:
+            parts.append(f"_…and {more} more._")
+        return "\n\n".join(part for part in parts if part)
+
+    def render(size: int) -> str:
+        for shown in range(len(bullets), 0, -1):
+            for lead in (True, False):
+                if len(block(shown, lead=lead)) <= size:
+                    return block(shown, lead=lead)
+        return bullets[0][:size]
+
+    return Section(
+        key="changes",
+        render=render,
+        natural=len(block(len(bullets), lead=True)),
+        smallest=len(bullets[0]),
+        weight=_PURPOSE_WEIGHT,
+        required=True,
+    )
+
+
+def _purpose_sections(
+    changes_dir: Path, members: Sequence[Member], described: Description | None = None
+) -> list[Section]:
+    """What the pull request does: the goal of each group the unit builds, kept
+    whole, then the core changes the reviewer last described, which shrink."""
     goals = [
         group.goal
         for member in members
         for group in _groups_of(changes_dir, member.change)
         if group.number in member.groups and group.goal
     ]
-    if not goals:
-        return None
-    text = "## What this pull request does\n\n" + "\n\n".join(goals)
-    return Section(
-        key="goal",
-        render=lambda size: text,
-        natural=len(text),
-        smallest=len(text),
-        weight=_PURPOSE_WEIGHT,
-        required=True,
-    )
+    changes = _changes_section(described) if described is not None else None
+    if not goals and changes is None:
+        return []
+    text = "\n\n".join([_WHAT_HEADING, *goals])
+    return [
+        Section(
+            key="goal",
+            render=lambda size: text,
+            natural=len(text),
+            smallest=len(text),
+            weight=_PURPOSE_WEIGHT,
+            required=True,
+        ),
+        *([changes] if changes else []),
+    ]
 
 
 def _once_each(points: Sequence[str]) -> list[str]:
@@ -382,13 +438,10 @@ merges every one, after checking {order}._
     members = unit.members()
     sections = []
     if changes_dir is not None:
+        why = _why_section(changes_dir, members, why_ceiling)
         sections += [
-            section
-            for section in (
-                _why_section(changes_dir, members, why_ceiling),
-                _goal_section(changes_dir, members),
-            )
-            if section is not None
+            *([why] if why else []),
+            *_purpose_sections(changes_dir, members, unit.description),
         ]
     sections += [
         _fixed("position", position),
