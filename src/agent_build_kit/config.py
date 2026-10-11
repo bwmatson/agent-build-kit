@@ -241,6 +241,8 @@ class RuntimeConfig(Frozen):
     # asked to, and never interprets it.
     policy_fix: list[str] | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
+    # Environment variables the runtime's agent is started with.
+    env: dict[str, str] = {}
     # The context window, in tokens, of each model, for when the agent does not say
     # (read by the Claude Code runtime only).
     context_windows: dict[str, int] = {}
@@ -675,6 +677,9 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # Names of environment variables whose values are secret, for text that
+    # leaves a run (redaction.py).
+    redact: list[str] = []
     # The cards that tell a person a unit waits on them; off by default.
     notifications: NotificationsConfig = NotificationsConfig()
     # How the pipeline's own environment is kept current; None manages none.

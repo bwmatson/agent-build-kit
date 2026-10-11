@@ -131,6 +131,10 @@ class Settings(BaseSettings):
     tempo_url: str = ""
 
 
+# The fields that hold a secret: the redaction set (redaction.py) takes each by
+# its field name.
+CREDENTIAL_FIELDS: tuple[str, ...] = ()
+
 settings = Settings()
 
 
