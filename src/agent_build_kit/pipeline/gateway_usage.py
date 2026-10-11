@@ -12,6 +12,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any, Protocol
 
+from agent_build_kit import redaction
 from agent_build_kit.model import Frozen
 from agent_build_kit.settings import settings
 from agent_build_kit.usage import Usage
@@ -104,6 +105,7 @@ class GatewayUsage:
         except (GatewayError, KeyError, TypeError) as error:
             self.say(f"gateway: could not mint a key ({error}); usage is not read from it")
             return {}, None
+        redaction.register("gateway-key", key)
         return {KEY_ENV: key}, key
 
     def finish(self, handle: object) -> Spend:

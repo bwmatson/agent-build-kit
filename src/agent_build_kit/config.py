@@ -675,6 +675,9 @@ class WorkspaceConfig(Frozen):
     # Ordered: a task group's `[repo]` tag must be one of these keys.
     repos: dict[str, RepoConfig] = {}
     verify: VerifyConfig = VerifyConfig()
+    # Names of environment variables whose values are secret, for text that
+    # leaves a run (redaction.py).
+    redact: list[str] = []
     # The cards that tell a person a unit waits on them; off by default.
     notifications: NotificationsConfig = NotificationsConfig()
     # How the pipeline's own environment is kept current; None manages none.
