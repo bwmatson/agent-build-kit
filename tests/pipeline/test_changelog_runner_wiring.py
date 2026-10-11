@@ -21,7 +21,8 @@ from agent_build_kit.pipeline.wiring import build_runner
 from tests.conftest import make_installation
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh
-from tests.pipeline.test_changelog_prompts import FIXTURE_CONVENTION, packaged, repo_with, squeezed
+from tests.pipeline.test_changelog_prompts import FIXTURE_CONVENTION, packaged, repo_with
+from tests.prompt_text import flat
 from tests.runner_fakes import approving
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -96,4 +97,4 @@ def test_a_repo_with_the_setting_on_and_no_section_is_told_the_packaged_text_eve
 
     assert prompts
     for prompt in [*prompts, agent.request.prompt]:
-        assert squeezed(packaged()) in squeezed(prompt)
+        assert flat(packaged()) in flat(prompt)

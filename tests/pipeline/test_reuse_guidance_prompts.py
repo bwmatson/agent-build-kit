@@ -6,7 +6,6 @@ send an agent to change code and by no continuation prompt (spec: dry-guidance).
 
 import inspect
 import re
-import string
 
 import pytest
 
@@ -25,17 +24,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     TESTS_PROMPT,
 )
-
-
-def squeezed(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def filled(template: str) -> str:
-    """The template with every placeholder filled in, as the nodes fill them."""
-    names = {name for _, name, _, _ in string.Formatter().parse(template) if name}
-    return template.format(**dict.fromkeys(names, "x"))
-
+from tests.prompt_text import filled, flat
 
 BUILDERS = [
     pytest.param(TESTS_PROMPT, id="tests"),
@@ -56,12 +45,12 @@ CONTINUATIONS = [
 
 @pytest.mark.parametrize("prompt", BUILDERS)
 def test_each_builder_prompt_carries_the_part(prompt: str) -> None:
-    assert squeezed(reuse_guidance()) in squeezed(prompt)
+    assert flat(reuse_guidance()) in flat(prompt)
 
 
 @pytest.mark.parametrize("prompt", BUILDERS)
 def test_filling_a_prompt_in_leaves_the_part_unchanged(prompt: str) -> None:
-    assert squeezed(reuse_guidance()) in squeezed(filled(prompt))
+    assert flat(reuse_guidance()) in flat(filled(prompt))
 
 
 def test_the_part_has_no_braces_to_break_the_filling() -> None:
@@ -73,19 +62,19 @@ def test_the_part_has_no_braces_to_break_the_filling() -> None:
 
 
 def test_the_adapt_prompt_does_not_carry_the_part_and_keeps_its_own_instruction() -> None:
-    text = squeezed(ADAPT_PROMPT)
+    text = flat(ADAPT_PROMPT)
 
-    assert squeezed(reuse_guidance()) not in text
+    assert flat(reuse_guidance()) not in text
     assert "do not re-implement anything it already provides" in text
 
 
 @pytest.mark.parametrize("prompt", CONTINUATIONS)
 def test_a_continuation_prompt_does_not_repeat_the_part(prompt: str) -> None:
-    assert squeezed(reuse_guidance()) not in squeezed(prompt)
+    assert flat(reuse_guidance()) not in flat(prompt)
 
 
 def test_the_part_says_what_to_do() -> None:
-    text = squeezed(reuse_guidance()).lower()
+    text = flat(reuse_guidance()).lower()
 
     assert re.search(r"search[^.]*before (adding|writing)", text), "search before adding"
     assert "use or extend" in text
@@ -97,7 +86,7 @@ def test_the_part_says_what_to_do() -> None:
 
 
 def test_the_part_says_how_to_look() -> None:
-    text = squeezed(reuse_guidance()).lower()
+    text = flat(reuse_guidance()).lower()
 
     assert "import" in text, "what the neighbouring code imports"
     for name in ("utils", "common", "shared", "lib", "helpers"):
@@ -127,8 +116,8 @@ def test_the_pipeline_reads_no_repository_section_for_the_part() -> None:
 def test_rework_adds_the_line_to_look_for_the_others_of_the_kind() -> None:
     pattern = r"look for (the )?others of the (same )?kind"
 
-    assert re.search(pattern, squeezed(REWORK_PROMPT), re.IGNORECASE)
-    assert re.search(pattern, squeezed(REWORK_CONTINUATION), re.IGNORECASE)
+    assert re.search(pattern, flat(REWORK_PROMPT), re.IGNORECASE)
+    assert re.search(pattern, flat(REWORK_CONTINUATION), re.IGNORECASE)
 
 
 def test_review_feedback_and_checks_prompts_keep_their_wording() -> None:
@@ -138,8 +127,8 @@ def test_review_feedback_and_checks_prompts_keep_their_wording() -> None:
         CHECKS_PROMPT,
         CHECKS_CONTINUATION,
     ):
-        assert "look for others of the same kind" in squeezed(prompt)
+        assert "look for others of the same kind" in flat(prompt)
 
 
 def test_the_tests_prompt_points_to_the_shared_fixtures() -> None:
-    assert "shared fixtures" in squeezed(TESTS_PROMPT).lower()
+    assert "shared fixtures" in flat(TESTS_PROMPT).lower()

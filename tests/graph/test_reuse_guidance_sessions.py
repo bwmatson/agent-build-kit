@@ -19,17 +19,14 @@ from tests.graph.test_session_continuation import (
     reuse,
 )
 from tests.graph_driver import fresh, tick
+from tests.prompt_text import flat
 from tests.runner_fakes import approving, rejecting
 
 OTHERS = re.compile(r"look for (the )?others of the (same )?kind", re.IGNORECASE)
 
 
-def squeezed(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
 def carries(prompt: str) -> bool:
-    return squeezed(reuse_guidance()) in squeezed(prompt)
+    return flat(reuse_guidance()) in flat(prompt)
 
 
 def test_the_tests_prompt_carries_the_part_and_the_continuations_after_it_do_not(
@@ -98,7 +95,7 @@ def test_the_rework_lines_stay_in_the_continuation_without_the_part(tmp_path: Pa
     continued = runtime.built[2]
     assert continued.resume_session == "sess-1"
     assert REWORK_ASK in continued.prompt
-    assert OTHERS.search(squeezed(continued.prompt))
+    assert OTHERS.search(flat(continued.prompt))
     assert not carries(continued.prompt)
 
 
@@ -113,5 +110,5 @@ def test_the_rework_lines_stay_in_the_full_prompt_with_the_part(tmp_path: Path) 
     full = runtime.built[2]
     assert full.resume_session == ""
     assert REWORK_ASK in full.prompt
-    assert OTHERS.search(squeezed(full.prompt))
+    assert OTHERS.search(flat(full.prompt))
     assert carries(full.prompt)

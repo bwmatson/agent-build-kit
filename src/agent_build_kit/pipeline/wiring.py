@@ -421,7 +421,9 @@ Every round you ask for costs a rework and another review, so:
   callers — that is not a rework a builder should be sent back to make alone.
 - **Search for prior art.** For each new function, constant, pattern or test
   helper in the diff, search the repository for an existing equivalent and the
-  diff for a second copy, and name the existing one by file and line.
+  diff for a second copy, and name the existing one by file and line. A stub or
+  helper added by the tests commit counts as added by the change. A test
+  repointed at an existing function with unchanged assertions is not a finding.
   A duplicate the change introduces or makes worse is a required finding: its
   consequence is that two copies must change together, and done is to use or
   extend the existing one, or extract one shared function. Parallel call sites

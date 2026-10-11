@@ -22,14 +22,11 @@ from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh
 from tests.graph_driver import position, run_on_graph, tick
+from tests.prompt_text import flat
 from tests.runner_fakes import Killed, Recorder, approving, make_runner
 
 FOLLOW_UPS = Path("openspec") / "changes" / "add-marker" / "follow-ups.md"
 LOCK = "Name the lock after what it guards"
-
-
-def flat(text: str) -> str:
-    return " ".join(text.split())
 
 
 def verdict(**fields: object) -> str:
