@@ -136,7 +136,7 @@ def archive_ready_changes(
         archived.append(change)
         if usage_ledger is not None:
             try:
-                roll_up_change(usage_ledger, change)
+                roll_up_change(usage_ledger, change, units)
             except (OSError, ValueError) as exc:
                 # The ledger is a record, never a reason to stop archiving; the
                 # detail stays and is rolled up by nothing, but still reports.

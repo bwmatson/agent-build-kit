@@ -12,10 +12,13 @@ from agent_build_kit.pipeline.usage_report import (
     GROUPINGS,
     build_context_report,
     build_report,
+    build_wait_report,
     render_context,
     render_json,
     render_table,
+    render_waits,
 )
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
 
 
 def cmd_report(args: argparse.Namespace, inst: Installation) -> int:
@@ -24,6 +27,19 @@ def cmd_report(args: argparse.Namespace, inst: Installation) -> int:
     except ValueError:
         print(f"--since: {args.since!r} is not a date (YYYY-MM-DD)")
         return 2
+    if args.waits:
+        try:
+            waits = build_wait_report(
+                inst.state_dir / LEDGER_NAME,
+                inst.state_dir / DECISIONS_NAME,
+                UnitStore(inst.state_dir / "units.json").all(),
+                group_by=args.by,
+            )
+        except ValueError as error:
+            print(f"--waits: {error}")
+            return 2
+        print(render_json(waits) if args.json else render_waits(waits))
+        return 0
     if args.context:
         print(
             render_context(
@@ -57,6 +73,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     parser.add_argument("--change", default=None)
     parser.add_argument("--unit", default=None)
     parser.add_argument("--include-estimates", action="store_true")
+    parser.add_argument("--waits", action="store_true", help="wall time by cause, not cost")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--context", action="store_true", help="context window use, not cost")
     parser.set_defaults(func=cmd_report)

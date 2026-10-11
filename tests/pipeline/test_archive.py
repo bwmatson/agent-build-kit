@@ -265,7 +265,7 @@ def test_a_roll_up_that_raises_does_not_stop_archiving_or_log_removal(
     """The ledger is a record: a breakdown that fails its check leaves the
     detail in place and the rest of the tick runs."""
 
-    def refuse(ledger: Path, change: str) -> None:
+    def refuse(ledger: Path, change: str, units: object = ()) -> None:
         raise ValueError(f"the breakdown of {change}/1 does not sum to its totals")
 
     monkeypatch.setattr(archive, "roll_up_change", refuse)
