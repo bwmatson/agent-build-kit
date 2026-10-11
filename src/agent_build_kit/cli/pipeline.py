@@ -182,6 +182,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import effective_state, state_label, state_label_names
+from agent_build_kit.pipeline.wait_log import Wait
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_on_flake,
@@ -3384,3 +3385,17 @@ def register(sub: argparse._SubParsersAction) -> None:
     gate.add_argument("--cache", type=Path, default=None)
     gate.add_argument("--profile", default=None, help="toolchain profile (default: from abk.yaml)")
     gate.set_defaults(func=cmd_gate, needs_installation="optional")
+
+
+def wait_reasons(
+    inst: Installation,
+    units: list[StoredUnit],
+    *,
+    started: set[str],
+    building: set[str],
+    only: frozenset[str],
+    idle: Collection[str] = (),
+    usage_paused: bool = False,
+) -> dict[str, Wait]:
+    """The one reason each unit that is not running is not, with what it waits on."""
+    raise NotImplementedError

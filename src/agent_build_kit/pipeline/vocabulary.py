@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
+from enum import StrEnum
 
 from agent_build_kit.config import active
 from agent_build_kit.forges import Label
@@ -31,6 +32,20 @@ from agent_build_kit.pipeline.units import (
 # A label a person adds to instruct the pipeline starts with this; one the
 # pipeline maintains never does.
 INSTRUCTION_PREFIX = "agent-"
+
+
+class WaitReason(StrEnum):
+    """Why a unit that is not running is not: one member per cause."""
+
+    BLOCKED = "blocked"
+    QUEUE_FULL = "queue_full"
+    SLOT = spans.SLOT
+    USAGE_PAUSE = spans.USAGE_PAUSE
+    LEASE = "lease"
+    BACKOFF = "backoff"
+    WAITING_REVIEW = "waiting_review"
+    NEEDS_PERSON = "needs_person"
+    READY = "ready"
 
 
 class StateStyle(Frozen):
@@ -125,7 +140,11 @@ ChecksOf = Callable[[StoredUnit], Sequence[Check]]
 
 
 def effective_state(
-    unit: StoredUnit, units: list[StoredUnit], *, checks_of: ChecksOf | None = None
+    unit: StoredUnit,
+    units: list[StoredUnit],
+    *,
+    checks_of: ChecksOf | None = None,
+    usage_paused: bool = False,
 ) -> str:
     """The key in `STATES` a unit currently reads as.
 

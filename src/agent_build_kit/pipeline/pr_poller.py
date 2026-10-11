@@ -176,6 +176,9 @@ class Poller(BaseModel):
     list_prs: ListPrs
     # Comment and review ids the pipeline posted on a PR itself, by number.
     ignore: Callable[[int], set[str]] = lambda number: set()
+    # Told the number of each PR a poll finds a comment or review on that the
+    # pipeline did not post.
+    human_activity: Callable[[int], None] = lambda number: None
     # Takes an instruction label off a PR, answering whether it came off. The
     # default removes nothing: the label then stays as seen, and is acted on
     # once until a person takes it off and adds it again.

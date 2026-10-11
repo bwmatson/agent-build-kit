@@ -224,6 +224,10 @@ class StoredUnit(Unit):
     step: str = ""
     parked_attempts: int = 0
     history: tuple[dict, ...] = ()
+    # When the unit was first evaluated with nothing blocking it, and when a
+    # person first answered its pull request; None until then.
+    ready_at: datetime | None = None
+    first_human_activity_at: datetime | None = None
 
     @field_validator("flag")
     @classmethod
@@ -239,6 +243,16 @@ class StoredUnit(Unit):
         return self.state == PLANNED and not (
             self.branch or self.pr is not None or self.pushed or self.approved
         )
+
+    @property
+    def started_at(self) -> datetime | None:
+        """When the unit first ran, read from its history."""
+        raise NotImplementedError
+
+    @property
+    def review_requested_at(self) -> datetime | None:
+        """When the unit first entered review, read from its history."""
+        raise NotImplementedError
 
     @property
     def note(self) -> str:
@@ -687,6 +701,14 @@ class UnitStore:
             feedback_from_person=from_person and bool(feedback),
             feedback_source=source if feedback else FeedbackSource.NONE,
         )
+
+    def mark_ready(self, unit_id: str) -> None:
+        """Stamp `ready_at` with the clock's now, unless it is already set."""
+        raise NotImplementedError
+
+    def mark_human_activity(self, unit_id: str) -> None:
+        """Stamp `first_human_activity_at` with the clock's now, unless it is already set."""
+        raise NotImplementedError
 
     def set_run_log(self, unit_id: str, name: str) -> None:
         """Name the unit's most recent run log. Not a state change."""

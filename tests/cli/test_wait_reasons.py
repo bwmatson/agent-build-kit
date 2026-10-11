@@ -1,0 +1,195 @@
+"""Every unit that is not running has one reason for it (spec: unit-timeline-is-recorded).
+
+The reasons come from the facts the pass already decides on, through `wait_reasons`;
+`run_round` still starts the units it started without them.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Collection
+from pathlib import Path
+
+import pytest
+
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
+from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.pipeline.vocabulary import WaitReason
+from agent_build_kit.pipeline.wait_log import Wait
+from tests.conftest import make_installation
+from tests.factories import new_unit
+from tests.fake_clock import install
+
+Setup = Callable[[UnitStore, Installation], None]
+
+
+def reviewed(store: UnitStore, uid: str) -> None:
+    store.set_state(uid, RUNNING, branch=f"spec/{uid}")
+    store.set_state(uid, IN_REVIEW, pr=7)
+
+
+def blocked(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("first/1"), new_unit("second/1", depends_on=("first/1",))])
+
+
+def queue_full(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("busy/1"), new_unit("second/1")])
+    reviewed(store, "busy/1")
+
+
+def in_review(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("second/1")])
+    reviewed(store, "second/1")
+
+
+def held(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("second/1")])
+    store.set_state("second/1", HELD, note="a person took over")
+
+
+def failed(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("second/1")])
+    store.set_state("second/1", FAILED, note="stopped")
+
+
+def leased(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("second/1")])
+    assert Leases(lease_dir(inst.state_dir)).take("second/1", "tab:a")
+
+
+def in_backoff(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("second/1")])
+    store.record_step("second/1", "open_pr")
+    store.set_state("second/1", PLANNED, note="host unavailable", cause=Cause.HOST_UNAVAILABLE)
+
+
+def startable(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("second/1")])
+
+
+# What each setup leaves `second/1` waiting for, and the limits of the pass it is judged in.
+CASES = [
+    pytest.param(blocked, WaitReason.BLOCKED, {}, id="blocked"),
+    pytest.param(queue_full, WaitReason.QUEUE_FULL, {"max_units_in_progress": 1}, id="queue-full"),
+    pytest.param(in_review, WaitReason.WAITING_REVIEW, {}, id="in-review"),
+    pytest.param(held, WaitReason.NEEDS_PERSON, {}, id="held"),
+    pytest.param(failed, WaitReason.NEEDS_PERSON, {}, id="failed"),
+    pytest.param(leased, WaitReason.LEASE, {}, id="leased"),
+    pytest.param(in_backoff, WaitReason.BACKOFF, {}, id="backoff"),
+    pytest.param(startable, WaitReason.READY, {}, id="startable"),
+]
+
+
+@pytest.fixture(autouse=True)
+def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    install(monkeypatch)
+    monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
+    monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
+    monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
+    monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
+    monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
+    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+
+
+def installation(tmp_path: Path, **limits: int) -> Installation:
+    return make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50, **limits},
+    )
+
+
+def waits_of(
+    tmp_path: Path,
+    setup: Setup,
+    *,
+    building: Collection[str] = (),
+    usage_paused: bool = False,
+    limits: dict[str, int] | None = None,
+) -> dict[str, Wait]:
+    inst = installation(tmp_path, **(limits or {}))
+    store = UnitStore(tmp_path / "units.json")
+    setup(store, inst)
+    return cli.wait_reasons(
+        inst,
+        store.all(),
+        started=set(),
+        building=set(building),
+        only=frozenset(),
+        usage_paused=usage_paused,
+    )
+
+
+def test_slot_and_usage_pause_equal_the_buckets_the_ledger_already_holds(tmp_path: Path) -> None:
+    assert WaitReason.SLOT == spans.SLOT == "slot"
+    assert WaitReason.USAGE_PAUSE == spans.USAGE_PAUSE == "usage_pause"
+
+    waits = waits_of(tmp_path, startable, usage_paused=True)
+
+    assert waits["second/1"].reason == "usage_pause"
+
+
+@pytest.mark.parametrize(("setup", "reason", "limits"), CASES)
+def test_a_unit_that_is_not_running_gets_the_one_reason_for_what_holds_it(
+    tmp_path: Path, setup: Setup, reason: WaitReason, limits: dict[str, int]
+) -> None:
+    waits = waits_of(tmp_path, setup, limits=limits)
+
+    assert waits["second/1"].reason is reason
+
+
+def test_a_ready_unit_without_a_free_slot_waits_for_one(tmp_path: Path) -> None:
+    def setup(store: UnitStore, inst: Installation) -> None:
+        store.upsert([new_unit("busy/1"), new_unit("second/1")])
+        store.set_state("busy/1", RUNNING, branch="spec/busy/1")
+
+    waits = waits_of(tmp_path, setup, building={"busy/1"}, limits={"max_concurrent_stacks": 1})
+
+    assert waits["second/1"].reason is WaitReason.SLOT
+    assert "busy/1" not in waits, "a unit that is running has no reason"
+
+
+def test_a_startable_unit_waits_for_the_usage_pause_when_the_pipeline_is_paused(
+    tmp_path: Path,
+) -> None:
+    waits = waits_of(tmp_path, startable, usage_paused=True)
+
+    assert waits["second/1"].reason is WaitReason.USAGE_PAUSE
+
+
+def test_a_unit_blocked_on_a_prerequisite_names_what_it_waits_on(tmp_path: Path) -> None:
+    waits = waits_of(tmp_path, blocked)
+
+    assert waits["second/1"].waits_on == ("first/1",)
+    assert waits["first/1"].reason is WaitReason.READY
+    assert waits["first/1"].waits_on == ()
+
+
+def test_finished_units_have_no_reason(tmp_path: Path) -> None:
+    def setup(store: UnitStore, inst: Installation) -> None:
+        store.upsert([new_unit("done/1"), new_unit("second/1")])
+        store.set_state("done/1", MERGED, note="merged")
+
+    assert set(waits_of(tmp_path, setup)) == {"second/1"}
+
+
+@pytest.mark.parametrize(("setup", "reason", "limits"), CASES)
+def test_a_round_starts_the_units_it_started_before_reasons_were_computed(
+    tmp_path: Path, setup: Setup, reason: WaitReason, limits: dict[str, int]
+) -> None:
+    inst = installation(tmp_path, **limits)
+    store = UnitStore(tmp_path / "units.json")
+    setup(store, inst)
+
+    ready = cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    expected = ["second/1"] if reason is WaitReason.READY else []
+    assert [unit.id for unit in ready if unit.id == "second/1"] == expected
+    assert cli.wait_reasons(inst, store.all(), started=set(), building=set(), only=frozenset()), (
+        "and every one of them has a reason"
+    )

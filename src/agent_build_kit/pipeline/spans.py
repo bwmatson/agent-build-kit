@@ -64,6 +64,7 @@ class Span(Frozen):
     outcome: str = "ok"
     waited: str = ""
     command: str = ""
+    cause: str = ""
 
 
 class Mark:
@@ -86,6 +87,7 @@ def record_span(
     outcome: str = "ok",
     waited: str = "",
     command: str = "",
+    cause: str = "",
 ) -> None:
     """Record the time since `mark` as a span, never raising: a record that cannot
     be kept is told once through `say`."""
