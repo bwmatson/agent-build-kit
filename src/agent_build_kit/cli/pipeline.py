@@ -98,7 +98,12 @@ from agent_build_kit.pipeline.pr_poller import (
 )
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.restack import push_with_lease, resolved_move
-from agent_build_kit.pipeline.run_log import RunLog, remove_change_logs, run_log_dir
+from agent_build_kit.pipeline.run_log import (
+    RunLog,
+    remove_change_logs,
+    remove_old_logs,
+    run_log_dir,
+)
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.stack_runner import (
     PauseInfo,
@@ -197,7 +202,7 @@ from agent_build_kit.pipeline.vocabulary import (
     state_label,
     state_label_names,
 )
-from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder, trim_decision_log
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_on_flake,
@@ -879,6 +884,18 @@ def _step(name: str, step: Callable[..., object], *args, **kwargs) -> None:
         log(f"{name} failed — {type(error).__name__}: {error}")
 
 
+def _bound_logs(inst: Installation) -> None:
+    """Keep the decision log and the unit run logs within `retention`."""
+    retention = inst.config.retention
+    trim_decision_log(inst.state_dir / DECISIONS_NAME, limit_mb=retention.decision_log_mb)
+    remove_old_logs(
+        run_log_dir(inst.state_dir),
+        inst.state_dir / LEDGER_NAME,
+        days=retention.unit_log_days,
+        now=datetime.now(UTC),
+    )
+
+
 def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
     """Show the cards the stored units call for and clear the ones they no longer do."""
     config = inst.config.notifications
@@ -1079,6 +1096,7 @@ def run_round(
             raise ValueError("pass `started` or `readmit`, not both")
         started = readmit.started
     spared = {*building, *started}
+    _step("bounding the logs", _bound_logs, inst)
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)

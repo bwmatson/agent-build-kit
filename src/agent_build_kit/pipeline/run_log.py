@@ -6,9 +6,10 @@ it where a person looking for that unit can find it.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.pipeline.units import Unit
@@ -19,6 +20,11 @@ RUNS_KEPT = 3
 # What each further line of a multi-line message starts with, so every line
 # that begins at the margin is a new entry and the file stays parsable by line.
 CONTINUATION = "    "
+
+
+# What follows a unit's prefix in a log's name: the run's start stamp and its dash.
+_STAMP = r"\d{8}-\d{6}-"
+_UNIT_LOG = re.compile(rf"(?P<change>.+)-(?P<number>\d{{2,}})-{_STAMP}")
 
 
 def run_log_dir(state_dir: Path) -> Path:
@@ -103,7 +109,7 @@ class RunLog:
 def _unit_logs(directory: Path, prefix: str) -> list[Path]:
     """The files of the unit whose prefix this is: a stamp follows it directly,
     so a change whose name merely begins with another's is not matched."""
-    pattern = re.compile(re.escape(prefix) + r"\d{8}-\d{6}-")
+    pattern = re.compile(re.escape(prefix) + _STAMP)
     return sorted(path for path in directory.glob(f"{prefix}*") if pattern.match(path.name))
 
 
@@ -115,10 +121,48 @@ def _prune(directory: Path, unit: Unit) -> None:
 def remove_change_logs(directory: Path, change: str) -> None:
     """Drop every unit log of a change. The logs are a diagnostic copy: a
     directory that cannot be read leaves the archive it follows standing."""
-    pattern = re.compile(re.escape(change) + r"-\d{2,}-\d{8}-\d{6}-")
     try:
         for path in directory.iterdir():
-            if pattern.match(path.name):
+            if (match := _UNIT_LOG.match(path.name)) and match["change"] == change:
                 path.unlink(missing_ok=True)
     except OSError:
         return
+
+
+def _written_before(path: Path, cutoff: float) -> bool:
+    try:
+        return path.stat().st_mtime < cutoff
+    except OSError:
+        return False
+
+
+def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) -> None:
+    """Remove each unit log last written more than `days` before `now` whose unit has a
+    `summary` line in `ledger`; a log whose unit has none is kept."""
+    cutoff = (now - timedelta(days=days)).timestamp()
+    try:
+        paths = list(directory.iterdir())
+    except OSError:
+        return
+    candidates = [p for p in paths if _UNIT_LOG.match(p.name) and _written_before(p, cutoff)]
+    if not candidates:
+        return  # the ledger is read only when a log is old enough to go
+    try:
+        lines = ledger.read_text().splitlines()
+    except OSError:
+        return
+    summarised: set[str] = set()
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            if raw.get("kind") == "summary":
+                summarised.add(str(raw["unit"]))
+        except (ValueError, AttributeError, KeyError):
+            continue
+    for path in candidates:
+        match = _UNIT_LOG.match(path.name)
+        if match and f"{match['change']}/{int(match['number'])}" in summarised:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
