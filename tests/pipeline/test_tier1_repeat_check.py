@@ -20,7 +20,9 @@ from tests.conftest import make_installation
 from tests.factories import git, init_repo
 
 RUN = ["uv", "run", "pytest", "-n", "auto", "-q"]
+NPM_TEST = ["npm", "test"]
 LINT = ["lint"]
+METHOD = "class TestGroup:\n    def test_method(self):\n        assert 3 == 3\n"
 
 UNTOUCHED = "def test_untouched():\n    assert 1 == 1\n"
 WEAKENED_BEFORE = "def test_weakened():\n    assert 1 == 1\n"
@@ -45,13 +47,14 @@ class Runs:
     """Answers lint and the full run with a pass; any other command is a repeat run, which
     exits as `repeats` says, one entry per run, passing once they run out."""
 
-    def __init__(self, repeats: list[int] | None = None) -> None:
+    def __init__(self, repeats: list[int] | None = None, full: list[str] = RUN) -> None:
         self.repeats = list(repeats or [])
+        self.full = full
         self.commands: list[list[str]] = []
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.commands.append(command)
-        if command in (LINT, RUN):
+        if command in (LINT, self.full):
             return subprocess.CompletedProcess(command, 0, "12 passed\n", "")
         exit_code = self.repeats.pop(0) if self.repeats else 0
         output = "1 passed\n" if exit_code == 0 else FAILURE + "\n"
@@ -59,7 +62,7 @@ class Runs:
 
     @property
     def repeat_runs(self) -> list[list[str]]:
-        return [c for c in self.commands if c not in (LINT, RUN)]
+        return [c for c in self.commands if c not in (LINT, self.full)]
 
     def repeating(self, test: str) -> list[list[str]]:
         return [c for c in self.repeat_runs if test in " ".join(c)]
@@ -80,10 +83,41 @@ def checkout(tmp_path: Path, files: dict[str, str]) -> tuple[Path, str]:
     return repo, base
 
 
-def tier1(runs: Runs, repo: Path, base: str, **limits: int) -> tuple[bool, str]:
+class NodeProfile(Profile):
+    """A node-shaped profile: its tests run as `npm test`, a run that finds no tests exits 0,
+    and its repeat command passes the identifiers after `--`."""
+
+    no_tests_collected_exit = 0
+
+    def test_commands(
+        self, repo: Path, changed: list[str], *, root_extras: list[str]
+    ) -> list[list[str]]:
+        return [NPM_TEST]
+
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
+        return [*command, "--", *tests]
+
+
+class WithoutRepeat:
+    """`Profile` offering no `repeat_command`."""
+
+    def __init__(self) -> None:
+        self.inner = Profile()
+
+    def __getattr__(self, name: str):
+        if name == "repeat_command":
+            raise AttributeError(name)
+        return getattr(self.inner, name)
+
+
+def tier1(
+    runs: Runs, repo: Path, base: str, profile: object | None = None, **limits: int
+) -> tuple[bool, str]:
     make_installation(repo.parent / "planning", limits=limits)
     return build_tier1(
-        profile=cast(ToolchainProfile, Profile()), run=runs, changed=lambda *a: ["test_new.py"]
+        profile=cast(ToolchainProfile, profile or Profile()),
+        run=runs,
+        changed=lambda *a: ["test_new.py"],
     )(cwd=repo, base=base)
 
 
@@ -159,3 +193,70 @@ def test_the_number_of_runs_is_the_setting(tmp_path: Path) -> None:
     tier1(runs, repo, base, tier1_repeat_runs=5)
 
     assert len(runs.repeating("test_added")) == 5
+
+
+def test_a_test_in_a_class_is_selected_by_its_class_path(tmp_path: Path) -> None:
+    repo, base = checkout(tmp_path, {"test_new.py": METHOD})
+    runs = Runs()
+
+    tier1(runs, repo, base)
+
+    assert len(runs.repeat_runs) == 3
+    for command in runs.repeat_runs:
+        assert command[-1] == "test_new.py::TestGroup::test_method"
+
+
+def test_a_repeat_run_selects_exact_identifiers_not_name_patterns(tmp_path: Path) -> None:
+    repo, base = checkout(tmp_path, {"test_new.py": ADDED})
+    runs = Runs()
+
+    tier1(runs, repo, base)
+
+    assert runs.repeat_runs
+    for command in runs.repeat_runs:
+        assert command[-1] == "test_new.py::test_added"
+        assert "-k" not in command
+
+
+def test_a_profile_whose_nothing_collected_status_is_zero_still_repeats_every_run(
+    tmp_path: Path,
+) -> None:
+    repo, base = checkout(tmp_path, {"test_new.py": ADDED})
+    runs = Runs(full=NPM_TEST)
+
+    passed, _ = tier1(runs, repo, base, NodeProfile())
+
+    assert passed
+    assert runs.repeat_runs == [[*NPM_TEST, "--", "test_new.py::test_added"]] * 3
+
+
+def test_a_profile_without_a_repeat_command_runs_no_repeat(tmp_path: Path) -> None:
+    repo, base = checkout(tmp_path, {"test_new.py": ADDED})
+    runs = Runs()
+
+    passed, message = tier1(runs, repo, base, WithoutRepeat())
+
+    assert (passed, message) == (True, "")
+    assert runs.commands == [LINT, RUN]
+
+
+def test_a_setting_of_zero_runs_no_repeat(tmp_path: Path) -> None:
+    repo, base = checkout(tmp_path, {"test_new.py": ADDED})
+    runs = Runs()
+
+    passed, _ = tier1(runs, repo, base, tier1_repeat_runs=0)
+
+    assert passed
+    assert runs.commands == [LINT, RUN]
+
+
+def test_a_base_that_cannot_be_resolved_skips_the_check_and_the_pass_stands(
+    tmp_path: Path,
+) -> None:
+    repo, _ = checkout(tmp_path, {"test_new.py": ADDED})
+    runs = Runs()
+
+    passed, message = tier1(runs, repo, "refs/does-not-exist")
+
+    assert (passed, message) == (True, "")
+    assert runs.commands == [LINT, RUN]

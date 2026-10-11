@@ -117,6 +117,18 @@ class ToolchainProfile(Protocol):
 
 
 @runtime_checkable
+class RepeatsTests(Protocol):
+    """The optional hook a profile adds to run chosen tests again under the load of a
+    test run. A profile without it has no repeat check."""
+
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
+        """`command`, one of the profile's test runs, as a run of exactly `tests`, under
+        the same workers and markers. Each is an identifier the runner selects by, given
+        relative to the directory the command runs in."""
+        ...
+
+
+@runtime_checkable
 class SelectsAffectedTests(Protocol):
     """The optional hook a profile adds to name the tests a change affects. A profile
     without it behaves as one that returns None."""

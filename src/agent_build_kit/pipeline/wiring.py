@@ -115,7 +115,7 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
-from agent_build_kit.profiles.base import SelectsAffectedTests, ToolchainProfile
+from agent_build_kit.profiles.base import RepeatsTests, SelectsAffectedTests, ToolchainProfile
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -841,22 +841,31 @@ def build_tier1(
         passed. A new test has no excuse to be flaky, so any failure fails tier 1."""
         runs = active().limits.tier1_repeat_runs
         try:
-            names = sorted(tests_changed(cwd, base)) if runs else []
+            touched = touched_tests(cwd, base) if runs else []
         except (subprocess.CalledProcessError, OSError) as error:
             # What the unit touched cannot be read; the checks that ran stand.
             _say(log, f"repeat check skipped, the unit's tests could not be listed ({error})")
             return True, ""
-        if not names:
-            return True, ""
         for where, toolchain, commands in ran_tests:
-            narrow = getattr(toolchain, "repeat_command", None)
-            if narrow is None:
+            if not isinstance(toolchain, RepeatsTests):
+                continue
+            # The profile selects by identifier, relative to where its command runs.
+            ids = [
+                f"{relative}::{name}"
+                for path, name in touched
+                if (relative := _under(cwd / path, where)) is not None
+            ]
+            if not ids:
                 continue
             for command in commands:
-                again = narrow(command, names)
+                again = toolchain.repeat_command(command, ids)
                 for _ in range(runs):
                     result = ran(again, where, toolchain)
-                    if result.returncode == toolchain.no_tests_collected_exit:
+                    nothing = (
+                        result.returncode != 0
+                        and result.returncode == toolchain.no_tests_collected_exit
+                    )
+                    if nothing:
                         break
                     if not toolchain.tolerates_exit(again, result.returncode):
                         return False, _failure(again, result, where)
@@ -998,6 +1007,14 @@ def build_on_flake(
         return fix
 
     return on_flake
+
+
+def _under(path: Path, where: Path) -> str | None:
+    """`path` as seen from the directory `where`, or None when it is not inside it."""
+    try:
+        return path.relative_to(where).as_posix()
+    except ValueError:
+        return None
 
 
 def _say(log: Callable[[str], None] | None, message: str) -> None:
@@ -2044,7 +2061,7 @@ def tests_in(tree: Path) -> set[str]:
     return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
 
 
-def _test_bodies(source: str) -> dict[str, list[str]]:
+def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]]:
     """Each `test_*` function's own source text, by name, decorators included.
 
     Body against body, not the file's diff: a test moved or resurrounded by
@@ -2052,7 +2069,8 @@ def _test_bodies(source: str) -> dict[str, list[str]]:
     markers or parametrized cases actually shifted must — even kept under its
     old name. Every same-named test is kept (in different classes, say), so a
     change to any of them shows. A test moved into a class reads as changed,
-    the safe direction.
+    the safe direction. `qualified` names a method by its classes too
+    (`Group::test_x`), which is how a runner selects it.
     """
     try:
         tree = ast.parse(source)
@@ -2060,25 +2078,29 @@ def _test_bodies(source: str) -> dict[str, list[str]]:
         return {}
     lines = source.splitlines()
     bodies: dict[str, list[str]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
-            "test_"
-        ):
-            first = min([d.lineno for d in node.decorator_list] + [node.lineno])
-            end = node.end_lineno or node.lineno
-            bodies.setdefault(node.name, []).append("\n".join(lines[first - 1 : end]))
+
+    def visit(node: ast.AST, classes: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) and child.name.startswith(
+                "test_"
+            ):
+                first = min([d.lineno for d in child.decorator_list] + [child.lineno])
+                end = child.end_lineno or child.lineno
+                name = "::".join([*classes, child.name]) if qualified else child.name
+                bodies.setdefault(name, []).append("\n".join(lines[first - 1 : end]))
+            visit(child, (*classes, child.name) if isinstance(child, ast.ClassDef) else classes)
+
+    visit(tree, ())
     return {name: sorted(texts) for name, texts in bodies.items()}
 
 
-def tests_changed(tree: Path, ref: str) -> set[str]:
-    """Test functions whose body differs between `ref` and the tree, per file.
+def _changed_tests(tree: Path, ref: str, *, qualified: bool) -> list[tuple[str, str, bool]]:
+    """(file, test, still there) for each test whose body differs between `ref` and the tree.
 
     Compared file by file in both directions, so a test that only survived the
     replay by name — kept, but silently weakened — is caught, and so is one
     gone from the file it was in, even when the same name lives on in another
-    file or in a string. A test moved to another file unchanged reads as
-    changed. Data living outside the function, such as a module-level table a
-    parametrize reads, is not seen.
+    file or in a string.
     """
     # `-z` so git does not C-quote paths; no `check=False`, since a failing
     # listing must not read as "nothing changed".
@@ -2104,14 +2126,40 @@ def tests_changed(tree: Path, ref: str) -> set[str]:
         errors="surrogateescape",
     )
     paths = {p for p in (diff.stdout + "\0" + new.stdout).split("\0") if p}
-    changed: set[str] = set()
-    for path in paths:
+    changed: list[tuple[str, str, bool]] = []
+    for path in sorted(paths):
         file = tree / path
-        current = _test_bodies(file.read_text(errors="replace")) if file.is_file() else {}
+        source = file.read_text(errors="replace") if file.is_file() else ""
+        current = _test_bodies(source, qualified=qualified) if file.is_file() else {}
         old_source = git(tree, "show", f"{ref}:{path}", check=False, errors="replace")
-        old = _test_bodies(old_source.stdout) if old_source.returncode == 0 else {}
-        changed |= {n for n in old.keys() | current.keys() if old.get(n) != current.get(n)}
+        old = (
+            _test_bodies(old_source.stdout, qualified=qualified)
+            if old_source.returncode == 0
+            else {}
+        )
+        changed += [
+            (path, n, n in current)
+            for n in sorted(old.keys() | current.keys())
+            if old.get(n) != current.get(n)
+        ]
     return changed
+
+
+def tests_changed(tree: Path, ref: str) -> set[str]:
+    """Test functions whose body differs between `ref` and the tree, per file.
+
+    A test moved to another file unchanged reads as changed. Data living
+    outside the function, such as a module-level table a parametrize reads, is
+    not seen.
+    """
+    return {name for _, name, _ in _changed_tests(tree, ref, qualified=False)}
+
+
+def touched_tests(tree: Path, ref: str) -> list[tuple[str, str]]:
+    """(file, test) for each test the tree adds or changes against `ref`, as a runner
+    selects it: the file's path from the tree's root and the test's name, with its classes
+    (`Group::test_x`). A deleted test is not listed, since nothing is left to run."""
+    return [(p, n) for p, n, there in _changed_tests(tree, ref, qualified=True) if there]
 
 
 def reset_to(tree: Path, onto: str, keep: str) -> None:

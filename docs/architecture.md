@@ -1016,8 +1016,8 @@ approved.
   wait. `abk status` lists each flaky test with its count and fix change.
 - **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
   changed (`tests_changed`) are run `limits.tier1_repeat_runs` times (three by default, 0
-  turns it off) with each test command's own workers, narrowed by the profile's optional
-  `repeat_command` hook; any failure fails tier 1 with that run's output. A new test is not
+  turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the
+  profile's optional `repeat_command` hook (the `RepeatsTests` protocol); any failure fails tier 1 with that run's output. A new test is not
   classified as a flake. The test-writing prompt and the reviewer's checklist carry the same
   determinism rules (`templates/determinism-guidance.md`): wait on events, not the clock,
   join or signal every thread, bind a free port, share no temporary path, assert no state a
