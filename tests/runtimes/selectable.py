@@ -16,7 +16,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
-from agent_build_kit.runtimes.base import PolicyCoverage
+from agent_build_kit.runtimes.base import PolicyCoverage, SpellingResult
 
 
 class SelectableRuntime:
@@ -69,3 +69,18 @@ def select(monkeypatch: pytest.MonkeyPatch, runtime: SelectableRuntime) -> Selec
 
 
 _: AgentRuntime = SelectableRuntime("typed")
+
+AMEND = "amending a commit"
+AMEND_UNREFUSED = "git -C . commit --amend --no-edit"
+AMEND_REFUSED = ("git commit --amend --no-edit", "git --no-pager commit --amend --no-edit")
+
+
+def spelling_report() -> PolicyReport:
+    """A report that leaves one spelling of one class unrefused: the amend is
+    refused plain and behind `--no-pager`, and runs through `-C .`."""
+    results = (
+        SpellingResult(label=AMEND, spelling="plain", command=AMEND_REFUSED[0], refused=True),
+        SpellingResult(label=AMEND, spelling="directory", command=AMEND_UNREFUSED, refused=False),
+        SpellingResult(label=AMEND, spelling="no-pager", command=AMEND_REFUSED[1], refused=True),
+    )
+    return PolicyReport(ok=False, unenforced=(f"{AMEND} (as {AMEND_UNREFUSED})",), results=results)
