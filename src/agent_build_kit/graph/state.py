@@ -95,6 +95,8 @@ class UnitRun(Frozen):
     # push that makes them true.
     pending_replies: tuple[str, ...] = ()
     person_comments: str = ""
+    # What a person asked with `abk requeue --note` of the work the next review judges.
+    guidance_asked: str = ""
     # Ids of every comment a rework covers: those it was delivered with, and those it has
     # taken in since. None when no rework is checking comments, which an empty tuple (a
     # pull request nobody had commented on) is not.

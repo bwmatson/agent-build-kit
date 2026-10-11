@@ -139,6 +139,7 @@ from agent_build_kit.pipeline.unit_store import (
     UnitStore,
     backoff_remaining,
     feedback_source_of,
+    guidance_excerpt,
 )
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -3407,7 +3408,10 @@ def requeue(
         return 1
     waits = unmet_gates(known[unit_id], list(known.values()))
     # What the history entry of a requeue says of a note: its first 200 characters.
-    said = f" — {note[:200]}" if note else ""
+    said = guidance_excerpt(note)
+    # With no saved failure the person's note is what the rework is from.
+    saved = bool(known[unit_id].feedback)
+    source = "the saved failure" if saved else "the person's note"
     if waits and has_thread(inst, unit_id):
         # The gate is unmet: the thread is left where it stopped, and the pass
         # delivers the event in this mode once the dependency has merged.
@@ -3442,10 +3446,13 @@ def requeue(
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: reworking from the saved failure{said}",
+            note=f"requeued: reworking from {source}{said}",
             cause=Cause.REQUEUED,
         )
-        say(f"{unit_id} requeued, the agent will rework it from the failure it saved")
+        say(
+            f"{unit_id} requeued, the agent will rework it from "
+            + ("the failure it saved" if saved else "the person's note")
+        )
     elif mode == "restart":
         store.set_feedback(unit_id, "")
         if note:
@@ -3545,13 +3552,14 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="keep the work and have the agent rework it from the failure the unit saved "
         "(a failed check), instead of resuming into the same failure",
     )
-    requeue.add_argument(
+    given = requeue.add_mutually_exclusive_group()
+    given.add_argument(
         "--note",
         metavar="TEXT",
         help="a person's instruction for the agent's next run, shown ahead of any saved failure; "
         "needs --rework or --restart",
     )
-    requeue.add_argument("--note-file", metavar="PATH", help="--note, read from a file")
+    given.add_argument("--note-file", metavar="PATH", help="--note, read from a file")
     requeue.set_defaults(func=cmd_requeue)
 
     replan = sub.add_parser("replan", help="plan changes again now, whatever their recorded plan")

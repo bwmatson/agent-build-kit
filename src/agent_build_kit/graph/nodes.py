@@ -85,6 +85,7 @@ from agent_build_kit.pipeline.unit_store import (
     HeldBy,
     RequeueReason,
     StoredUnit,
+    guidance_excerpt,
 )
 from agent_build_kit.pipeline.units import (
     HELD,
@@ -881,8 +882,7 @@ class BuildPath:
         branch = branch_name(unit)
         base = state.base or self.base
         saved = r.store.get(unit.id)
-        # A person's note makes the run a rework as saved feedback does.
-        feedback = saved.feedback or saved.guidance
+        feedback = saved.feedback
         r.store.set_state(unit.id, UnitState.RUNNING, branch=branch)
         # Made again: a trip back here may be onto a different base.
         self._tree = None
@@ -932,7 +932,9 @@ class BuildPath:
                 existing = r.branch_commits(tree, ref)
         return {
             **FRESH,
-            **self.standing(existing, feedback),
+            # A person's note makes the run a rework as saved feedback does, once there is
+            # work on the branch to rework; before that the build starts, tests first.
+            **self.standing(existing, feedback or (saved.guidance if existing else "")),
             "start": start,
             "tier2": unit.tier == "tier2",
         }
@@ -1105,6 +1107,7 @@ class BuildPath:
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"write the tests ({models().implement})")
             prompt = TESTS_PROMPT.format(
+                guidance=person_guidance(r.store.get(unit.id).guidance),
                 groups=groups,
                 change_dir=change_dir,
                 boundary=build_boundary,
@@ -1119,13 +1122,16 @@ class BuildPath:
     def implement(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
+        kept: Update = {}
         if r.head(tree) != state.head:
             self.say("the implementation commit is already on the branch")
         else:
             change_dir, groups = r.scope(unit)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"implement ({models().implement})")
+            guidance = r.store.get(unit.id).guidance
             prompt = IMPLEMENTATION_PROMPT.format(
+                guidance=person_guidance(guidance),
                 groups=groups,
                 change_dir=change_dir,
                 boundary=build_boundary,
@@ -1144,9 +1150,15 @@ class BuildPath:
                 ),
             )
             r.commit(f"feat: {unit.title}", cwd=tree, base=self.ref(state))
+            r.store.set_guidance(unit.id, "")
+            kept["guidance_asked"] = guidance_asked(state, guidance)
         # Counted on the branch, not taken from the commit step: an agent that
         # commits its own work leaves the pipeline nothing to commit.
-        return {"head": r.head(tree), "produced_nothing": r.branch_commits(tree, ref) == 0}
+        return {
+            **kept,
+            "head": r.head(tree),
+            "produced_nothing": r.branch_commits(tree, ref) == 0,
+        }
 
     def checks(self, state: UnitRun) -> Update:
         """Tier 1 on the committed branch, before a reviewer is asked."""
@@ -1287,6 +1299,7 @@ class BuildPath:
             review_boundary=review_boundary,
             rounds=rounds,
             person_comments=state.person_comments,
+            guidance=state.guidance_asked,
             pending_replies=state.pending_replies,
         )
         if outside := self.outside_note(state, tree):
@@ -1467,17 +1480,15 @@ class BuildPath:
             )
             r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
-            if guidance:
-                # The next review judges the work against what the person asked, pull
-                # request or not.
-                kept["person_comments"] = f"{state.person_comments}\n\n{guidance}".strip()
             if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
                 kept["pending_replies"] = (*state.pending_replies, answer)
                 if stored.feedback_from_person:
-                    kept["person_comments"] = (
-                        f"{kept.get('person_comments', state.person_comments)}\n\n{feedback}"
-                    ).strip()
+                    kept["person_comments"] = f"{state.person_comments}\n\n{feedback}".strip()
+        if guidance:
+            # The next review judges the work against what the person asked, whichever
+            # prompt the agent had it in, and pull request or not.
+            kept["guidance_asked"] = guidance_asked(state, guidance)
         return {
             **kept,
             "comments_pending": False,
@@ -1652,6 +1663,7 @@ class BuildPath:
             "review_rounds": (),
             "pending_replies": (),
             "person_comments": "",
+            "guidance_asked": "",
             "seen_comments": None,
             "given_comments": (),
         }
@@ -1806,6 +1818,7 @@ class BuildPath:
             # Said, except what the host did not take: the loop that asked is over.
             "pending_replies": unposted,
             "person_comments": "",
+            "guidance_asked": "",
             "seen_comments": None,
             "given_comments": (),
             "review_rounds": (),
@@ -1951,7 +1964,7 @@ class BuildPath:
                 unit.id,
                 RUNNING,
                 note=f"{event.kind.value}: {event.reason or 'no reason given'}"
-                + (f" — {event.guidance[:200]}" if event.guidance else ""),
+                + guidance_excerpt(event.guidance),
                 cause=Cause.BASE_CHANGED if event.kind is EventKind.BASE_MOVED else Cause.REQUEUED,
             )
             if resumes_parked(state, event):
@@ -2016,6 +2029,11 @@ class BuildPath:
             cause=Cause.ENVIRONMENT if state.blocked_by_environment else Cause.FAILED,
         )
         return {"status": outcome.status, "detail": outcome.detail}
+
+
+def guidance_asked(state: UnitRun, note: str) -> str:
+    """The notes the next review is told, with `note` added to those already kept."""
+    return f"{state.guidance_asked}\n\n{note}".strip()
 
 
 def _listed(paths: tuple[str, ...]) -> str:

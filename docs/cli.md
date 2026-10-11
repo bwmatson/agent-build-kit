@@ -351,7 +351,8 @@ command says which:
 or resumed, shows it first, ahead of any saved failure or review text, as a
 person's instruction that wins where the two conflict; the review of the work
 that follows is told it too, and a rework commit clears it. With a note,
-`--rework` accepts a unit with no saved failure, and the note is the whole ask.
+`--rework` accepts a unit with no saved failure, and the note is the whole ask;
+a unit with no work on its branch yet builds tests first, the note shown to both steps.
 A note with a plain requeue is refused (exit 1, nothing changed): a resume
 re-runs a step without reading it. Pull request comments are unchanged, and the
 note is not posted to the pull request.

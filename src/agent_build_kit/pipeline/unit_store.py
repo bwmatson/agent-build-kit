@@ -368,6 +368,11 @@ def _exclusive(method):
     return locked
 
 
+def guidance_excerpt(note: str) -> str:
+    """What a history entry says of a person's note: its first 200 characters, or nothing."""
+    return f" — {note[:200]}" if note else ""
+
+
 class UnitStore:
     """The planning repo's record of every unit, across all repos."""
 

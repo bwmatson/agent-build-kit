@@ -22,11 +22,13 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    WHOLE_ASK,
     person_guidance,
 )
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
 from tests.factories import unit
 from tests.graph_driver import fresh, tick
+from tests.runner_fakes import rejecting
 
 UNIT = unit().id
 NOTE = "give the date exactly as printed"
@@ -120,3 +122,64 @@ def test_the_rework_commit_clears_the_note_and_the_next_review_is_told_it(
     assert held == [NOTE], "stored by the requeue, for the agent that runs"
     assert recorder.store.get(UNIT).guidance == "", "cleared where the rework commit is made"
     assert NOTE in "\n".join(recorder.contexts[reviews:]), "and the reviewer was told it"
+
+
+def test_a_unit_with_only_a_note_and_no_saved_failure_is_reworked_from_the_note(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    prompts: list[str] = []
+
+    def agent(prompt: str, **kwargs: Any) -> str:
+        prompts.append(prompt)
+        return recorder.claude(prompt, **kwargs)
+
+    tick(tmp_path, recorder, event=requeue())
+    tick(tmp_path, recorder, run=agent)
+
+    [prompt] = prompts
+    assert prompt.startswith(person_guidance(NOTE) + "Review asked for a change")
+    assert prompt.index(NOTE) < prompt.index(WHOLE_ASK)
+    assert recorder.store.get(UNIT).guidance == ""
+
+
+def test_a_unit_with_no_work_on_its_branch_builds_tests_first_with_the_note(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.store.set_guidance(UNIT, NOTE)
+
+    tick(tmp_path, recorder)
+
+    assert recorder.events[:2] == ["claude:tests", "commit:test"]
+    assert NOTE in recorder.prompts[0]
+    assert NOTE in recorder.prompts[1], "the implementation step is told it too"
+    assert "claude:rework" not in recorder.events
+    assert recorder.store.get(UNIT).guidance == "", "cleared by the implementation commit"
+    assert NOTE in "\n".join(recorder.contexts), "and the review judges against it"
+
+
+def test_a_note_given_to_the_review_loop_s_rework_is_told_to_the_next_review(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [rejecting("rename the marker")]
+    asked = False
+
+    def review(**kwargs: Any) -> str:
+        nonlocal asked
+        if not asked:
+            # The person's note arrives while the first round is out, so the rework it
+            # asks for is the loop's, which the note is cleared in.
+            asked = True
+            recorder.store.set_guidance(UNIT, NOTE)
+        return recorder.review(**kwargs)
+
+    tick(tmp_path, recorder, run_review=review, run_rework_review=review)
+
+    first, second = recorder.contexts
+    assert NOTE not in first
+    assert NOTE in second
+    assert any(NOTE in prompt and "rename the marker" in prompt for prompt in recorder.prompts)
+    assert recorder.store.get(UNIT).guidance == ""
