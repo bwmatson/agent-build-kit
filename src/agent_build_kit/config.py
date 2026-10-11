@@ -251,6 +251,9 @@ class ContextConfig(Frozen):
 
 
 class LimitsConfig(Frozen):
+    # How many times the tests a unit added or changed are run again, under load, after
+    # tier 1 passes.
+    tier1_repeat_runs: int = 0
     # Longest chain of in-review PRs from main to a branch that a unit may
     # start building on.
     stack_depth_build_cap: int = 3
