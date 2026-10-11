@@ -157,15 +157,41 @@ def test_an_old_log_is_kept_when_there_is_no_ledger(tmp_path: Path) -> None:
     assert old.exists()
 
 
-def test_the_ledger_is_not_read_while_no_log_is_old_enough(tmp_path: Path) -> None:
+def test_the_ledger_is_not_read_while_no_log_is_old_enough(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     directory = run_log_dir(tmp_path)
     recent = log_of(directory, "add-marker/1", days=DAYS - 1)
-    ledger = tmp_path / "usage-ledger.jsonl"
-    ledger.mkdir()  # reading it as a file would raise
+    ledger = ledger_with_summaries(tmp_path / "usage-ledger.jsonl", "add-marker/1")
 
+    def read(self: Path, *args: object, **kwargs: object) -> str:
+        raise AssertionError("the ledger was read")
+
+    monkeypatch.setattr(Path, "read_text", read)
     remove_old_logs(directory, ledger, days=DAYS, now=NOW)
 
     assert recent.exists()
+
+
+def test_a_log_that_cannot_be_removed_does_not_stop_the_others(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = run_log_dir(tmp_path)
+    stuck = log_of(directory, "add-marker/1", days=DAYS + 1)
+    other = log_of(directory, "add-marker/2", days=DAYS + 1)
+    ledger = ledger_with_summaries(tmp_path / "usage-ledger.jsonl", "add-marker/1", "add-marker/2")
+    real = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == stuck:
+            raise PermissionError("not yours")
+        real(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    remove_old_logs(directory, ledger, days=DAYS, now=NOW)
+
+    assert stuck.exists()
+    assert not other.exists()
 
 
 def test_a_log_within_the_age_is_kept_with_its_summary(tmp_path: Path) -> None:

@@ -129,15 +129,23 @@ def remove_change_logs(directory: Path, change: str) -> None:
         return
 
 
+def _written_before(path: Path, cutoff: float) -> bool:
+    try:
+        return path.stat().st_mtime < cutoff
+    except OSError:
+        return False
+
+
 def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) -> None:
     """Remove each unit log last written more than `days` before `now` whose unit has a
     `summary` line in `ledger`; a log whose unit has none is kept."""
     cutoff = (now - timedelta(days=days)).timestamp()
     try:
-        old = [p for p in directory.iterdir() if p.stat().st_mtime < cutoff]
+        paths = list(directory.iterdir())
     except OSError:
         return
-    if not (candidates := [p for p in old if _UNIT_LOG.match(p.name)]):
+    candidates = [p for p in paths if _UNIT_LOG.match(p.name) and _written_before(p, cutoff)]
+    if not candidates:
         return  # the ledger is read only when a log is old enough to go
     try:
         lines = ledger.read_text().splitlines()
@@ -154,4 +162,7 @@ def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) 
     for path in candidates:
         match = _UNIT_LOG.match(path.name)
         if match and f"{match['change']}/{int(match['number'])}" in summarised:
-            path.unlink(missing_ok=True)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
