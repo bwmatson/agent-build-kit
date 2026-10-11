@@ -136,6 +136,8 @@ def test_an_older_summary_with_null_wait_figures_still_loads_and_reads_as_absent
         "unit": "feature/1",
         "change": "feature",
         "repo": "app",
+        "measured": {"calls": 1, "input_tokens": 10},
+        "estimated": {"calls": 0},
         "slot_wait_ms": None,
         "pause_wait_ms": None,
         "review_wait_ms": None,

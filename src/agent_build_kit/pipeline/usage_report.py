@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_ledger import (
     CostBasis,
     UsageRecord,
@@ -55,7 +56,16 @@ _COUNTS = (
     "cache_read_input_tokens",
     "cache_creation_input_tokens",
 )
-_TIMES = ("agent_ms", "checks_ms", "slot_wait_ms", "pause_wait_ms", "review_wait_ms")
+_TIMES = (
+    "agent_ms",
+    "checks_ms",
+    "slot_wait_ms",
+    "pause_wait_ms",
+    "review_wait_ms",
+    "review_person_ms",
+    "review_round_ms",
+    "review_checks_ms",
+)
 
 
 class Figures(Frozen):
@@ -153,15 +163,16 @@ class WaitRow(Frozen):
 
     @property
     def planned_ms(self) -> int | None:
-        raise NotImplementedError
+        return _add(self.planned_blocked_ms, self.planned_ready_ms)  # type: ignore[return-value]
 
     @property
     def running_ms(self) -> int | None:
-        raise NotImplementedError
+        both = _add(self.running_agent_ms, self.running_checks_ms)
+        return _add(both, self.running_other_ms)  # type: ignore[return-value]
 
     @property
     def in_review_ms(self) -> int | None:
-        raise NotImplementedError
+        return _add(self.in_review_person_ms, self.in_review_round_ms)  # type: ignore[return-value]
 
 
 class IdleHours(Frozen):
@@ -488,7 +499,11 @@ def _all_entries(ledger: Path, units: list[StoredUnit]) -> list[_Entry]:
     for the units the ledger knows."""
     entries = _entries_in(read_lines(ledger), {u.id: u for u in units})
     known = {e.unit for e in entries}
-    return entries + [wait for u in units if u.id in known for wait in _review_waits(u)]
+    # A summary that holds a unit's review wait already counts it.
+    summarised = {e.unit for e in entries if e.row.review_wait_ms is not None}
+    return entries + [
+        wait for u in units if u.id in known - summarised for wait in _review_waits(u)
+    ]
 
 
 def build_report(
@@ -897,6 +912,157 @@ def _summary_bases(lines: list[str]) -> dict[str, str]:
     return found
 
 
+_WAIT_CAUSES = (
+    "planned_blocked_ms",
+    "planned_ready_ms",
+    "running_agent_ms",
+    "running_checks_ms",
+    "running_other_ms",
+    "in_review_person_ms",
+    "in_review_round_ms",
+    "paused_ms",
+    "failed_ms",
+)
+# The reasons in the decision log that say nothing about a unit being ready.
+_NOT_READY = ("blocked", "none")
+
+
+def _kind_lines(lines: list[str], kind: str) -> Iterable[dict]:
+    for line in lines:
+        try:
+            raw = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(raw, dict) and raw.get("kind") == kind:
+            yield raw
+
+
+def _round_spans(lines: list[str]) -> dict[str, list[tuple[datetime | None, int]]]:
+    """The review-round spans (those with a cause) of each unit, as `(when, ms)`."""
+    found: dict[str, list[tuple[datetime | None, int]]] = {}
+    for raw in _kind_lines(lines, "span"):
+        if raw.get("cause") and isinstance(raw.get("duration_ms"), int) and raw.get("unit"):
+            found.setdefault(str(raw["unit"]), []).append(
+                (_when(raw.get("at")), raw["duration_ms"])
+            )
+    return found
+
+
+def _decided_ready(decisions: Path) -> dict[str, datetime]:
+    """When each unit's first wait that was not for a prerequisite began, for a unit
+    that carries no `ready_at`."""
+    found: dict[str, datetime] = {}
+    try:
+        lines = decisions.read_text().splitlines()
+    except OSError:
+        return found
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            at = _when(raw["at"])
+            if raw["reason"] not in _NOT_READY and at is not None:
+                found.setdefault(str(raw["unit"]), at)
+        except (ValueError, KeyError, TypeError):
+            continue
+    return found
+
+
+def _stretches(unit: StoredUnit) -> list[tuple[str, datetime, datetime]]:
+    """Each stretch of the unit's history that a later entry ended."""
+    found = []
+    for entry, following in zip(unit.history, unit.history[1:], strict=False):
+        start, end = _when(entry.get("at")), _when(following.get("at"))
+        if start is not None and end is not None:
+            found.append((str(entry.get("state")), start, end))
+    return found
+
+
+def _ms(start: datetime, end: datetime) -> int:
+    return int((end - start).total_seconds() * 1000)
+
+
+def _unit_waits(
+    unit: StoredUnit,
+    ready: datetime | None,
+    recorded: dict[str, list[tuple[datetime | None, int]]],
+) -> list[tuple[datetime, str, int]]:
+    """The unit's wall time as `(when, cause, ms)`. A running stretch holds the unit's
+    pauses, checks and agent calls, in that order, and the rest is other; a review
+    stretch holds the rounds, and the rest is a person's."""
+    found: list[tuple[datetime | None, str, int]] = []
+    running = review = 0
+    running_at = review_at = None
+    for state, start, end in _stretches(unit):
+        if state == PLANNED:
+            split = min(max(ready, start), end) if ready else end
+            found += [
+                (start, "planned_blocked_ms", _ms(start, split)),
+                (split, "planned_ready_ms", _ms(split, end)),
+            ]
+        elif state == RUNNING:
+            running, running_at = running + _ms(start, end), running_at or start
+        elif state == IN_REVIEW:
+            review, review_at = review + _ms(start, end), review_at or start
+        elif state in (FAILED, HELD):
+            found.append((start, "failed_ms", _ms(start, end)))
+    first = _when(unit.history[0].get("at")) if unit.history else None
+    running_causes = ("paused_ms", "running_checks_ms", "running_agent_ms")
+    for budget, causes, rest, rest_at in (
+        (running, running_causes, "running_other_ms", running_at),
+        (review, ("in_review_round_ms",), "in_review_person_ms", review_at),
+    ):
+        for cause in causes:
+            for at, ms in recorded.get(cause, []):
+                taken = min(ms, budget)
+                budget -= taken
+                found.append((at or first, cause, taken))
+        found.append((rest_at, rest, budget))
+    return [(at, cause, ms) for at, cause, ms in found if at is not None and ms > 0]
+
+
+def _wait_row(key: str, sums: dict[str, int]) -> WaitRow:
+    return WaitRow(key=key, wall_ms=sum(sums.values()) if sums else None, **sums)
+
+
+def _idle_hours(lines: list[str]) -> IdleHours:
+    """Each sample stands for the time to the next; the last one stands for none."""
+    samples = sorted(
+        (at, raw)
+        for raw in _kind_lines(lines, "sample")
+        if (at := _when(raw.get("at"))) is not None
+        and all(isinstance(raw.get(k), int) for k in ("running", "in_review", "limit"))
+    )
+    hours = dict.fromkeys(("observed", "idle", "full", "room"), 0.0)
+    for (at, raw), (following, _) in zip(samples, samples[1:], strict=False):
+        span = (following - at).total_seconds() / 3600
+        hours["observed"] += span
+        if raw["running"] == 0:
+            hours["idle"] += span
+            hours["full" if raw["running"] + raw["in_review"] >= raw["limit"] else "room"] += span
+    return IdleHours(
+        observed_h=hours["observed"],
+        idle_h=hours["idle"],
+        queue_full_h=hours["full"],
+        room_h=hours["room"],
+    )
+
+
+def _estimate_ratios(units: list[StoredUnit]) -> tuple[EstimateRatio, ...]:
+    kinds: dict[str, list[StoredUnit]] = {}
+    for unit in units:
+        if unit.state == MERGED and unit.estimated_lines > 0 and unit.actual_lines is not None:
+            label = "/".join(part for part in (unit.repo, unit.tier, unit.flag) if part)
+            kinds.setdefault(label, []).append(unit)
+    return tuple(
+        EstimateRatio(
+            kind=kind,
+            ratio=sum(u.actual_lines or 0 for u in group) / sum(u.estimated_lines for u in group),
+            units=len(group),
+        )
+        for kind, group in sorted(kinds.items())
+    )
+
+
 def build_wait_report(
     ledger: Path,
     decisions: Path,
@@ -906,11 +1072,95 @@ def build_wait_report(
 ) -> WaitReport:
     """Each unit's wall time by cause, from its history, the ledger's spans and the
     decision log, and the idle hours from the ledger's samples."""
-    raise NotImplementedError
+    if group_by not in WAIT_GROUPINGS:
+        raise ValueError(f"cannot group by {group_by!r}; choose from {', '.join(WAIT_GROUPINGS)}")
+    lines = read_lines(ledger)
+    entries = _entries_in(lines, {u.id: u for u in units})
+    rounds = _round_spans(lines)
+    ready = _decided_ready(decisions)
+    groups: dict[str, dict[str, int]] = {u.id: {} for u in units} if group_by == "unit" else {}
+    everything: dict[str, int] = {}
+    for unit in units:
+        recorded: dict[str, list[tuple[datetime | None, int]]] = {
+            "in_review_round_ms": rounds.get(unit.id, [])
+        }
+        for entry in entries:
+            if entry.unit == unit.id:
+                for cause, ms in (
+                    ("running_agent_ms", entry.row.agent_ms),
+                    ("running_checks_ms", entry.row.checks_ms),
+                    ("paused_ms", entry.row.pause_wait_ms),
+                ):
+                    if ms:
+                        recorded.setdefault(cause, []).append((entry.at, ms))
+        stamp = _when(unit.ready_at) if unit.ready_at else ready.get(unit.id)
+        for at, cause, ms in _unit_waits(unit, stamp, recorded):
+            key = unit.id if group_by == "unit" else at.date().isoformat()
+            sums = groups.setdefault(key, {})
+            sums[cause] = sums.get(cause, 0) + ms
+            everything[cause] = everything.get(cause, 0) + ms
+    return WaitReport(
+        group_by=group_by,
+        rows=tuple(_wait_row(key, groups[key]) for key in sorted(groups)),
+        total=_wait_row("total", everything),
+        idle=_idle_hours(lines),
+        estimates=_estimate_ratios(units),
+    )
+
+
+def _hours(ms: int | None) -> str:
+    return "-" if ms is None else f"{ms / 3_600_000:.1f}"
 
 
 def render_waits(report: WaitReport) -> str:
-    raise NotImplementedError
+    headings = ("wall", *(name.removesuffix("_ms").replace("_", " ") for name in _WAIT_CAUSES))
+    cells = [
+        [row.key, *(_hours(x) for x in (row.wall_ms, *(getattr(row, n) for n in _WAIT_CAUSES)))]
+        for row in (*report.rows, report.total)
+    ]
+    total = report.total
+    lines = [
+        *_aligned([[report.group_by, *headings], *cells]),
+        "",
+        f"hours: planned {_hours(total.planned_ms)}, in review {_hours(total.in_review_ms)}, "
+        f"running {_hours(total.running_ms)} (agent {_hours(total.running_agent_ms)})",
+    ]
+    idle = report.idle
+    if idle.observed_h:
+        lines.append(
+            f"nothing ran for {idle.idle_h:.0f} of {idle.observed_h:.0f} hours: "
+            f"{idle.queue_full_h:.0f} with a full queue, {idle.room_h:.0f} with room"
+        )
+    lines += [f"estimate {e.kind}: {e.ratio:.2f} ({e.units} units)" for e in report.estimates]
+    return "\n".join(lines)
+
+
+def _review_entry(unit: StoredUnit, rounds_ms: int) -> list[_Entry]:
+    """The unit's time in review split into a person's, the rounds' and the checks': a
+    person's runs to their first answer, or the whole stretch if nobody answered, and
+    the checks are what neither takes."""
+    waits = _review_waits(unit)
+    stretch = sum(w.row.review_wait_ms or 0 for w in waits)
+    if not waits:
+        return []
+    answered = unit.first_human_activity_at
+    started = unit.review_requested_at
+    person = stretch
+    if answered is not None and started is not None:
+        person = min(stretch, max(0, _ms(started, answered)))
+    return [
+        _Entry(
+            unit=unit.id,
+            change=unit.change,
+            repo=unit.repo,
+            row=_time_row(
+                review_wait_ms=stretch,
+                review_person_ms=person,
+                review_round_ms=rounds_ms,
+                review_checks_ms=max(0, stretch - person - rounds_ms),
+            ),
+        )
+    ]
 
 
 def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) -> None:
@@ -927,8 +1177,13 @@ def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) 
         for entry in _entries_in(lines, {}):
             if entry.change == change:
                 by_unit.setdefault(entry.unit, []).append(entry)
+        stored = {u.id: u for u in units}
+        rounds = _round_spans(lines)
         summaries = []
         for unit, group in sorted(by_unit.items()):
+            # A summary of an earlier roll-up already holds the unit's review wait.
+            if unit in stored and all(e.row.review_wait_ms is None for e in group):
+                group += _review_entry(stored[unit], sum(ms for _, ms in rounds.get(unit, [])))
             stamps = [e.at for e in group if e.at is not None]
             breakdown = _breakdown(group)
             total = _combine(unit, (e.row for e in group))
