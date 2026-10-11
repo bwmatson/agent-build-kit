@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A test marked `local_stack` may start a real agent: the suite's guards on the runtime's spawn
+  and on a direct `claude` start no longer refuse it. Every other test is refused as before, and
+  the guards on the login refresh, the usage window, `gh` and the code host apply to all.
+
 - `start_server` takes an `agent_environment`: the whole environment the agents a chat starts
   (turns, new and continued sessions, the resume check) run in, so a test's own variables do not
   reach them. `abk serve` passes none and is unchanged.
