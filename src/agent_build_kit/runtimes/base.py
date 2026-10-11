@@ -180,6 +180,15 @@ class AgentResult(Frozen):
         return {kind: n for kind, n in counts.items() if isinstance(n, int)}
 
 
+class SpellingResult(Frozen):
+    """What became of one attempted spelling of a forbidden command class."""
+
+    label: str
+    spelling: str
+    command: str
+    refused: bool
+
+
 class PolicyReport(Frozen):
     """Whether this runtime's agent actually refuses what abk forbids.
 
@@ -191,6 +200,7 @@ class PolicyReport(Frozen):
     ok: bool
     unenforced: tuple[str, ...] = ()
     fix: str = ""
+    results: tuple[SpellingResult, ...] = ()
 
 
 class AgentInterrupted(RuntimeError):

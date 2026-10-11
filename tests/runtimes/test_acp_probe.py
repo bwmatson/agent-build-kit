@@ -17,17 +17,7 @@ import pytest
 
 from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.runtimes.acp import PROBE_CLASSES, AcpRuntime, probe_branch
-from tests.factories import init_repo
 from tests.runtimes.acp_agent import requests, use_agent, use_command
-
-
-@pytest.fixture
-def planning(tmp_path: Path) -> Path:
-    """Where `doctor` and `init` ask from: the planning checkout, which the
-    probe must leave as it found it."""
-    root = init_repo(tmp_path / "planning")
-    (root / "abk.yaml").write_text("repos: {}\n")
-    return root
 
 
 def _files(root: Path) -> set[Path]:

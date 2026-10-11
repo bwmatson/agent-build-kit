@@ -112,10 +112,10 @@ the client's capabilities (`terminal`) or by asking permission (`ask`).
 `--unasked` makes it run, without asking, any command starting with PREFIX:
 an agent whose own configuration does not flag that class, so the client
 only hears of it from the tool call's updates. That run too is only
-reported, never performed. `--only` has it attempt just the commands starting
-with PREFIX; `--split` sends a probed terminal command as a program and its
-arguments rather than one line; `--offer` is the option kinds its probed asks
-offer.
+reported, never performed; an empty PREFIX is every command. `--only` has it
+attempt just the commands starting with PREFIX; `--split` sends a probed
+terminal command as a program and its arguments rather than one line;
+`--offer` is the option kinds its probed asks offer.
 """
 
 from __future__ import annotations
@@ -641,7 +641,7 @@ class FakeAgent:
             if self._probe == "terminal":
                 return {"write": span, "content": "probe\n"}
             return {"ask": "edit", "paths": [span]}
-        if self._unasked and span.startswith(self._unasked):
+        if self._unasked is not None and span.startswith(self._unasked):
             return {"unasked": span}
         if self._probe == "terminal":
             if self._split:
@@ -973,7 +973,7 @@ def command(
         argv += ["--act", str(actions)]
     if probe:
         argv += ["--probe", probe]
-    if unasked:
+    if unasked is not None:
         argv += ["--unasked", unasked]
     if only:
         argv += ["--only", only]
