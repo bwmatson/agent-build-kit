@@ -333,8 +333,8 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    on the unit record, a later approval replacing it; the field is omitted when
    empty, so a release older than this one refuses a record that holds one.
    Its prompt names its angles — the enclosing function of each hunk, what each
-   removed line enforced, callers and callees — and an evidence bar: each candidate is re-checked before it is
-   reported. Each finding carries a file, an optional line, a summary, a
+   removed line enforced, callers and callees — and an evidence bar: each
+   candidate is re-checked before it is reported. Each finding carries a file, an optional line, a summary, a
    consequence, what done looks like and whether it is required; the builder's
    feedback is rendered from the list, required first, with optional findings
    past five left out (logged) and a required one without a consequence marked
@@ -469,10 +469,11 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    sentence of each of the unit's groups, then the core changes the reviewer
    last stored, at most six, each capped, shrinking to the first before the goal
    or any required part gives way; the goal alone when none), then the stack
-   position, scope, assumptions and verification, then what is held and left for later, each
-   follow-up once, in its located form (in the body only, the follow-ups file keeps every point; a bare point that names a file an
-   optional finding locates is left out of the body; the review prompt asks the reviewer not
-   to repeat an optional finding as a follow-up). A body over the host's
+   position, scope, assumptions and verification, then what is held and left
+   for later, each follow-up once, in its located form (in the body only, the
+   follow-ups file keeps every point; a bare point that names a file an
+   optional finding locates is left out of the body; the review prompt asks the
+   reviewer not to repeat an optional finding as a follow-up). A body over the host's
    description limit is fitted by weight, not in sequence: the tier 2 output
    (its tail kept, down to the pass or fail line) and the follow-ups (whole
    items and a count of the rest) give up room first, the reason and the goal
