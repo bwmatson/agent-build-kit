@@ -2,13 +2,39 @@
 
 from __future__ import annotations
 
-from agent_build_kit.profiles.base import PromptWords, ToolchainProfile, is_doc_path
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+from agent_build_kit.config import EnvironmentConfig
+from agent_build_kit.profiles.base import (
+    EnvironmentDrafting,
+    PromptWords,
+    ToolchainProfile,
+    is_doc_path,
+)
 
 _REGISTRY: dict[str, ToolchainProfile] = {}
 
 
 def register(profile: ToolchainProfile) -> None:
     _REGISTRY[profile.name] = profile
+
+
+@contextmanager
+def registered(profile: ToolchainProfile) -> Iterator[None]:
+    """Register `profile` for the duration of a `with` block, then remove it (a profile of
+    the same name registered before is put back). The built-in profiles stay."""
+    _load_builtin()
+    previous = _REGISTRY.get(profile.name)
+    register(profile)
+    try:
+        yield
+    finally:
+        if previous is None:
+            del _REGISTRY[profile.name]
+        else:
+            _REGISTRY[profile.name] = previous
 
 
 def get(name: str) -> ToolchainProfile:
@@ -26,6 +52,24 @@ def names() -> list[str]:
     return sorted(_REGISTRY)
 
 
+def detect_environment(
+    root: Path, *, framework: bool, first: str | None = None
+) -> EnvironmentConfig | None:
+    """The first environment section a profile proposes for `root`: the profile named
+    `first` is asked first, then the rest in registration order. A profile without the
+    hook counts as returning None."""
+    _load_builtin()
+    ordered = [p for p in _REGISTRY.values() if p.name == first]
+    ordered += [p for p in _REGISTRY.values() if p.name != first]
+    for profile in ordered:
+        if not isinstance(profile, EnvironmentDrafting):
+            continue
+        environment = profile.detect_environment(root, framework=framework)
+        if environment is not None:
+            return environment
+    return None
+
+
 def _load_builtin() -> None:
     if _REGISTRY:
         return
@@ -35,4 +79,14 @@ def _load_builtin() -> None:
     register(node_npm.PROFILE)
 
 
-__all__ = ["PromptWords", "ToolchainProfile", "get", "is_doc_path", "names", "register"]
+__all__ = [
+    "EnvironmentDrafting",
+    "PromptWords",
+    "ToolchainProfile",
+    "detect_environment",
+    "get",
+    "is_doc_path",
+    "names",
+    "register",
+    "registered",
+]

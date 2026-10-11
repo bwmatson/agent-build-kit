@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import EnvironmentConfig, RepoConfig
+from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
 
 
@@ -85,6 +86,9 @@ class NodeNpmProfile:
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")
         return "__tests__" in parts[:-1] or parts[-1].endswith((".test.ts", ".spec.ts", ".test.js"))
+
+    def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
+        return node_environment.detect_environment(root)
 
     def stub_violations(self, path: str, content: str) -> list[str]:
         return []

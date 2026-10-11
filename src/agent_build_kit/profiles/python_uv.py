@@ -16,7 +16,12 @@ import sys
 import tomllib
 from pathlib import Path
 
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import (
+    DraftedEnvironment,
+    EnvironmentConfig,
+    EnvironmentInputs,
+    RepoConfig,
+)
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
 from agent_build_kit.pipeline.tier2 import parse_pytest_summary
@@ -29,7 +34,17 @@ NO_TESTS_COLLECTED = 5
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 XDIST = "pytest-xdist"
+MANIFEST = "pyproject.toml"
+LOCK = "uv.lock"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
+# The lock-freshness and environment-freshness commands a path-source draft's check starts with.
+DRIFT_CHECKS = "uv lock --check && uv sync --check"
+PATH_SOURCES_NOTE = (
+    "The manifest names path sources, whose own manifest and lock are outside this\n"
+    "repository and cannot be listed as inputs. `check` runs `uv lock --check` and\n"
+    "`uv sync --check` first, so a change in a checkout it points at fails the check\n"
+    "and the next tick syncs."
+)
 
 
 # The pre-commit hooks that are the type checker, by id.
@@ -52,6 +67,17 @@ def _pyproject(path: Path) -> dict:
         return tomllib.loads((path / "pyproject.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
+
+
+def _path_sources(root: Path) -> list[Path]:
+    """The checkouts the manifest names as path sources, that exist."""
+    sources = _pyproject(root).get("tool", {}).get("uv", {}).get("sources", {})
+    found = []
+    for source in sources.values():
+        path = source.get("path") if isinstance(source, dict) else None
+        if isinstance(path, str) and (root / path).is_dir():
+            found.append((root / path).resolve())
+    return found
 
 
 def _declared_dependencies(pyproject: dict) -> set[str]:
@@ -125,6 +151,36 @@ class PythonUvProfile:
             _pyproject(repo).get("tool", {}).get("uv", {}).get("workspace", {}).get("members", [])
         )
         return [str(member) for member in members]
+
+    def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
+        """The section for the checkout at `root`, or None without a manifest.
+        `framework` says the pipeline itself runs from this environment, so its
+        check loads the framework."""
+        root = root.expanduser().resolve()
+        if not (root / MANIFEST).is_file():
+            return None
+        dependencies, lock = [MANIFEST], []
+        if (root / LOCK).is_file():
+            lock.append(LOCK)
+        word = "import agent_build_kit" if framework else "pass"
+        inputs = EnvironmentInputs(dependencies=dependencies, lock=lock)
+        if not _path_sources(root):
+            return EnvironmentConfig(
+                sync=["uv", "sync"],
+                check=["uv", "run", "--no-sync", "python", "-c", word],
+                inputs=inputs,
+            )
+        # A path-source checkout's own manifest and lock are outside the inputs a pattern
+        # can name, so the check is what notices them drift: the first failing command
+        # makes the tick sync.
+        quoted = f'"{word}"' if " " in word else word
+        import_check = f"uv run --no-sync python -c {quoted}"
+        return DraftedEnvironment(
+            sync=["uv", "sync"],
+            check=["sh", "-c", f"{DRIFT_CHECKS} && {import_check}"],
+            inputs=inputs,
+            note=PATH_SOURCES_NOTE,
+        )
 
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):

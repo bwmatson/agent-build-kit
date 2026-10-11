@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
 
 
@@ -26,6 +26,17 @@ class PromptWords(Frozen):
     verify: str = "linting, formatting and type checks"
     # What a permitted stub looks like in a tests-first commit.
     stub: str = "a signature whose body is only a raise-not-implemented, or a data field"
+
+
+@runtime_checkable
+class EnvironmentDrafting(Protocol):
+    """The optional hook a profile has to draft `abk init`'s `environment` section.
+
+    A profile without it counts as returning None, which means "cannot say": the
+    next profile is asked. `framework` says the pipeline itself runs from this
+    environment, so its check loads the framework."""
+
+    def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None: ...
 
 
 class ToolchainProfile(Protocol):

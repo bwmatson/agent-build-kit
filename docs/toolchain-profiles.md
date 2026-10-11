@@ -42,6 +42,7 @@ implemented.
 | `members(repo)` | tier 1, tier 2, verify | workspace members; empty for a single-package repo |
 | `member_of(repo, path)` | verify | which member a path is in |
 | `dependents(repo, member)` | verify | members that declare `member` as a dependency |
+| `detect_environment(root, framework)` (optional) | `abk init` | the proposed `environment` section for a checkout, or `None` when the profile cannot say; a profile without it counts as returning `None`; declared as `profiles.base.EnvironmentDrafting`, which the walk selects on. A draft can be a `config.DraftedEnvironment`, whose `note` init writes as a comment above the section. `profiles.registered(profile)` registers one for a `with` block |
 
 `profiles.base.is_doc_path` is not a profile method: `.md`/`.rst`/`.txt`,
 anything under `docs/`, and `LICENSE*` never deploy, whatever the profile.
@@ -115,7 +116,13 @@ What exists: `detect_markers` (`package-lock.json`, `package.json`),
 type checks (oxlint, tsc --noEmit)", a stub body of
 `throw new Error("not implemented")`), `no_tests_collected_exit` 0,
 `is_test_path` (a `__tests__` directory, or `.test.ts`/`.spec.ts`/`.test.js`),
-and `stub_violations` returning nothing.
+and `stub_violations` returning nothing. It also drafts the environment for
+`abk init` from a `package.json` (`profiles/node_environment.py`): the manager is
+the manifest's `packageManager` field, else the lock file present (`package-lock.json`
+npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain install
+(never a frozen one, which fails for the unit that changed a dependency), `check` a
+depth-0 listing, the manifest and lock files are inputs, a `workspaces` field adds
+`<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
 What it would need, method by method: `npm test --workspace <member>` with a
 summary parser for the chosen runner; `npx oxlint` and `npx tsc --noEmit` as
@@ -137,7 +144,9 @@ There is no plugin discovery: the registry is filled in-process by
    equivalents beside the profile.
 2. Register it in `_load_builtin` (or call `profiles.register` before the
    first `get` in an embedding program).
-3. Teach `init/detect.py` the markers that select it, if detection should.
+3. Teach `init/detect.py` the markers that select it, if detection should, and give
+   the profile `detect_environment` if `abk init` should draft its environment: init
+   asks the profile detection chose first, then the rest in registration order.
 4. Tests go in `tests/profiles/`, with the fixture repos as the only
    installation.
 

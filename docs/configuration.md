@@ -154,7 +154,9 @@ environment:                    # how the pipeline's own environment is kept
                                 # number of folders, a folder for every file
                                 # under it. Absolute patterns, and `..` with a
                                 # wildcard, are refused; a plain `..` path loads
-                                # with a warning until the next release
+                                # with a warning until the next release; to notice
+                                # such a file drifting, use `check` (a command that
+                                # fails when it has) instead
     dependencies: [pyproject.toml]   # e.g. "**/manifest.json" for nested modules
     lock: [uv.lock]             # also left out of a unit's size, matched by the
                                 # pattern's file name wherever the file sits

@@ -79,6 +79,18 @@
   the report. `abk replay review --keep` or `--delete` exits 1 when no repository has the
   section.
 
+- `abk init` now drafts a repository's `environment` section through its toolchain
+  profile, so a profile can describe its own ecosystem and init needs no change for a
+  new one. A Python repository gets the section it always did, except that one whose
+  manifest has path sources no longer gets inputs for those checkouts' own manifests
+  and locks (a pattern cannot leave the repository): its `check` runs `uv lock --check`
+  and `uv sync --check` before the import check, with a comment saying why, and the
+  warning for an input outside the repository now says to use `check` to detect drift.
+  A node repository with
+  a `package.json` now gets a proposal: the manager from the manifest's
+  `packageManager` field or its lock file, the manifest, lock and workspaces as inputs,
+  and the dependency folder as an artifact.
+
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package
   manager or lock file. The `limits.generated_files` example no longer suggests listing

@@ -1,0 +1,38 @@
+plain:
+  sync: [uv, sync]
+  check: [uv, run, --no-sync, python, -c, pass]
+  inputs:
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]
+    other: []
+  artifacts: []
+framework:
+  sync: [uv, sync]
+  check: [uv, run, --no-sync, python, -c, import agent_build_kit]
+  inputs:
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]
+    other: []
+  artifacts: []
+path_sources_plain:
+  sync: [uv, sync]
+  check:
+    - sh
+    - -c
+    - uv lock --check && uv sync --check && uv run --no-sync python -c pass
+  inputs:
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]
+    other: []
+  artifacts: []
+path_sources_framework:
+  sync: [uv, sync]
+  check:
+    - sh
+    - -c
+    - uv lock --check && uv sync --check && uv run --no-sync python -c "import agent_build_kit"
+  inputs:
+    dependencies: [pyproject.toml]
+    lock: [uv.lock]
+    other: []
+  artifacts: []
