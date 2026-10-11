@@ -261,3 +261,19 @@ def test_a_marked_cassette_a_later_run_hits_is_cleared_and_no_longer_counted(
     assert unasked.name not in read_state(directory).unreviewed_runs
     assert not load_cassette(directory / unasked.name).needs_review
     assert load_cassette(directory / unasked.name).review_reason == ""
+
+
+def test_a_cassette_already_marked_is_still_reported_unused_with_its_reason_kept(
+    upstream: FakeUpstream, tmp_path: Path
+) -> None:
+    _, first = replayed_second_run(upstream, tmp_path)
+    directory = tmp_path / "cassettes"
+    [marked] = [h for h in review.waiting(directory) if h.cassette.call_index == 3]
+    reason = marked.cassette.review_reason
+
+    with proxy_for(upstream, tmp_path, ReplayMode.replay) as proxy:
+        passing_run(proxy, *SECOND)
+
+    [test] = proxy.report().tests
+    assert test.unused == [marked.name]
+    assert load_cassette(directory / marked.name).review_reason == reason

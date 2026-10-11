@@ -61,11 +61,11 @@
   each configured upstream stores a passing test's calls as cassettes keyed by the request,
   answers an identical request from them and sends any difference live. `ABK_REPLAY_MODE` is
   `off` (the default), `record`, `replay` or `live`. A `repos.<name>.tests.replay` section is
-  accepted and documented, but nothing reads it yet: a test gives its upstreams by
-  overriding the plugin's `replay_config` fixture, and nothing in a repository's own run
-  changes. Credentials are in no key or file, a response holding a configured secret is
-  not stored, and nothing is stored from a failing test. A run reports what replayed and
-  what went live, with where each live request differs from the nearest earlier recording; a
+  accepted and documented, but the pytest plugin does not read it yet: a test gives its
+  upstreams by overriding the plugin's `replay_config` fixture. `abk status`, `abk doctor` and
+  `abk replay review` find a repository's cassettes through its `tests.replay.directory`.
+  Credentials are in no key or file, a response holding a configured secret is not stored,
+  and nothing is stored from a failing test. A run reports what replayed and what went live, with where each live request differs from the nearest earlier recording; a
   test that replayed is labelled with its counts. A recording no run asked for, or one a live
   call superseded, is held for review rather than deleted: `abk replay review` lists them and
   keeps or deletes each, `abk status` and `abk doctor` count them, and a run warns when one

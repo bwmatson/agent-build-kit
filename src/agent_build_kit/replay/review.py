@@ -25,6 +25,8 @@ class Stale(Frozen):
     reason: str
     # No call was made at its index at all, as opposed to one that went live instead.
     unasked: bool
+    # Already waiting for review, so its reason is not written again.
+    marked: bool = False
 
 
 class Waiting(Frozen):
@@ -52,14 +54,22 @@ def stale(
     missed: Collection[int],
 ) -> list[Stale]:
     """The cassettes of one test that a passing run shows to be stale: no call was made at
-    their index, or the call there went live under another key. Marked ones are not again."""
+    their index, or the call there went live under another key. One already marked is found
+    when unasked, so a report lists it, but never again as superseded."""
     found: list[Stale] = []
     for cassette in held:
-        if cassette.needs_review or cassette.key in asked_keys:
+        if cassette.key in asked_keys:
             continue
         if cassette.call_index not in called:
-            found.append(Stale(cassette=cassette, reason=UNASKED, unasked=True))
-        elif cassette.call_index in missed:
+            found.append(
+                Stale(
+                    cassette=cassette,
+                    reason=UNASKED,
+                    unasked=True,
+                    marked=cassette.needs_review,
+                )
+            )
+        elif cassette.call_index in missed and not cassette.needs_review:
             reason = f"superseded by a live call at index {cassette.call_index}"
             found.append(Stale(cassette=cassette, reason=reason, unasked=False))
     return found

@@ -685,9 +685,10 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
 A tier-2 test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
 reverse proxy with one loopback listener per upstream in its `ReplayConfig`,
 which a test gives by overriding the `replay_config` fixture. The `repos.<name>.tests.replay`
-section holds the same fields and is accepted by the schema, but nothing reads it yet: the
-default fixture returns an empty `ReplayConfig`, which has no upstream. The code under test is pointed at
-the listener through the variables the upstream names in `env`; `fixture.addresses`
+section holds the same fields and is accepted by the schema. The plugin does not read it yet,
+so the default fixture returns an empty `ReplayConfig`, which has no upstream; `abk status`,
+`abk doctor` and `abk replay review` find a repository's cassettes through its
+`tests.replay.directory`. The code under test is pointed at the listener through the variables the upstream names in `env`; `fixture.addresses`
 and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 
 - A cassette is keyed by the upstream's name, method, path, sorted query, the request

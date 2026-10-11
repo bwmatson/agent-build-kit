@@ -113,7 +113,7 @@ def test_a_replayed_test_is_labelled_with_its_counts_and_its_outcome_is_unchange
     assert "1 live" in label
     summary = [line for line in result.stdout.lines if "test_calls" in line and "2 of 3" in line]
     assert summary, "the terminal summary labels the test"
-    assert "body" in result.stdout.str().lower(), "and says where the live call differed"
+    assert "  live: call 2: body differs" in result.stdout.lines, "and where the live call differed"
 
 
 def test_a_test_that_replayed_nothing_carries_no_label(session: Session) -> None:

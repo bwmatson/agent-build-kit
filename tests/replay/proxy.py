@@ -203,7 +203,8 @@ class ReplayProxy:
         if not promoted:
             return
         for each in found:
-            mark(directory, each)
+            if not each.marked:
+                mark(directory, each)
         if self._hits:
             # A recording the run used is in use, whatever an earlier run made of it.
             names = {cassette_name(directory, hit): hit for hit in self._hits}
