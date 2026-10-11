@@ -138,6 +138,8 @@ def _note(item: pytest.Item, report: pytest.TestReport, proxy: ReplayProxy) -> N
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
     """Count this run against each cassette waiting for review, and note the overdue ones."""
+    if hasattr(session.config, "workerinput"):
+        return  # one worker sees part of the run; counting and the report would be partial
     late: list[str] = []
     configs = {
         str(config.directory): config for config, _ in session.config.stash.get(_REPORTS, [])

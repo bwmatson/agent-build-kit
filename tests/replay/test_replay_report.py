@@ -275,5 +275,28 @@ def test_a_cassette_already_marked_is_still_reported_unused_with_its_reason_kept
         passing_run(proxy, *SECOND)
 
     [test] = proxy.report().tests
-    assert test.unused == [marked.name]
+    assert marked.name in test.unused
+    assert sorted(test.unused) == sorted(h.name for h in review.waiting(directory))
     assert load_cassette(directory / marked.name).review_reason == reason
+
+
+def test_a_kept_cassette_another_hit_answers_over_is_marked_again(
+    upstream: FakeUpstream, tmp_path: Path
+) -> None:
+    directory = tmp_path / "cassettes"
+    a, b = conversation("be brief"), conversation("be verbose")
+    recorded(upstream, tmp_path, a)
+    with proxy_for(upstream, tmp_path, ReplayMode.replay) as proxy:
+        passing_run(proxy, b)
+    [waiting] = review.waiting(directory)
+    assert review.keep(directory, waiting.name)
+
+    with proxy_for(upstream, tmp_path, ReplayMode.replay) as proxy:
+        passing_run(proxy, b)
+
+    [test] = proxy.report().tests
+    assert test.hits == 1
+    assert test.unused == [waiting.name]
+    again = load_cassette(directory / waiting.name)
+    assert again.needs_review
+    assert again.review_reason == review.UNASKED

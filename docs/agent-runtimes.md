@@ -713,7 +713,9 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
   request differs from the nearest earlier cassette for the same test and call index ("path
   differs", "differs at system"), the cassettes that matched but were too old, the unused ones
   and the declared rules that applied. The outcome is unchanged. Billed calls avoided are
-  totalled from the usage figures recorded responses carry; a response without any adds nothing.
+  totalled from the usage figures recorded responses carry, read as `input_tokens` and `output_tokens` under `usage` or `message.usage`; a response without them adds nothing.
+  Counting runs for review and writing `report.json` happen once per pytest session, so replay
+  runs must not use xdist workers: a worker's session skips both.
 - The summary ends with `total: H hit, L live, U unused, A aged out` over the run, a `rule used:`
   line for each declared rule that applied, and the billed-calls line. The combined report, a
   `RunReport`, is also written as `report.json` beside `state.json` in each cassette directory,

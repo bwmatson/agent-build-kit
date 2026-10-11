@@ -94,7 +94,7 @@ recording no passing run asked for, or one a live call at the same test and call
 superseded. Each is shown with the reason, its request, the request that replaced it and where
 the two differ. `--keep NAME` clears the mark and leaves the file; `--delete NAME` removes it. A
 kept recording is marked again when a later passing run does not ask for it, or a live call
-supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches nothing waiting, else 0.
+supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches nothing waiting, or no repository has a `tests.replay` section and a NAME was given; else 0.
 
 ### `abk graph`
 

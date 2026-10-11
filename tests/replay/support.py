@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Imported here so pytester's module snapshot cannot swap out httpx's lazily imported httpcore.
+import httpcore  # noqa: F401
 import httpx
 import pytest
 

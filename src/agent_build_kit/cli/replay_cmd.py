@@ -30,7 +30,7 @@ def cmd_review(args: argparse.Namespace, inst: Installation) -> int:
     found = review.directories(inst.repos)
     if not found:
         print("no repository has a tests.replay section")
-        return 0
+        return 1 if args.keep or args.delete else 0
     missing = 0
     for action, names in ((review.keep, args.keep), (review.delete, args.delete)):
         for name in names:

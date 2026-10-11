@@ -71,7 +71,11 @@
   keeps or deletes each, `abk status` and `abk doctor` count them, and a run warns when one
   has waited through more than `review_after_runs` runs. The summary ends with a run total,
   and the same report is written as `report.json` in the cassette directory, which ignores
-  it. A held recording a later run uses again is cleared.
+  it. A held recording a later run uses again is cleared, and one kept by hand is held again
+  when a later passing run does not ask for it, even if another recording answered its call.
+  Replay runs must not use xdist workers: a worker's session neither counts runs nor writes
+  the report. `abk replay review --keep` or `--delete` exits 1 when no repository has the
+  section.
 
 - The repository now states that framework code is language- and tool-independent, and a
   test fails when source outside the toolchain profiles and `abk init` names a package

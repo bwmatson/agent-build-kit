@@ -54,13 +54,16 @@ def stale(
     missed: Collection[int],
 ) -> list[Stale]:
     """The cassettes of one test that a passing run shows to be stale: no call was made at
-    their index, or the call there went live under another key. One already marked is found
-    when unasked, so a report lists it, but never again as superseded."""
+    their index, or the call there went live or hit another cassette. One already marked is
+    found, so a report lists it, but never again as superseded."""
     found: list[Stale] = []
     for cassette in held:
         if cassette.key in asked_keys:
             continue
-        if cassette.call_index not in called:
+        if cassette.call_index in missed and not cassette.needs_review:
+            reason = f"superseded by a live call at index {cassette.call_index}"
+            found.append(Stale(cassette=cassette, reason=reason, unasked=False))
+        else:
             found.append(
                 Stale(
                     cassette=cassette,
@@ -69,9 +72,6 @@ def stale(
                     marked=cassette.needs_review,
                 )
             )
-        elif cassette.call_index in missed and not cassette.needs_review:
-            reason = f"superseded by a live call at index {cassette.call_index}"
-            found.append(Stale(cassette=cassette, reason=reason, unasked=False))
     return found
 
 
