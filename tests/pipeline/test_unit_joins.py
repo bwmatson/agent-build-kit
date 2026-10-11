@@ -687,7 +687,8 @@ def test_planning_a_change_again_creates_no_unit_for_groups_another_unit_carries
 
     run.plan()
 
-    assert len(run.runtime.requests) == 1
+    # Its only group is carried, so nothing is left to ask the planner about.
+    assert len(run.runtime.requests) == 0
     assert run.store.all() == before
     assert "failed" not in capsys.readouterr().out
 
@@ -695,7 +696,23 @@ def test_planning_a_change_again_creates_no_unit_for_groups_another_unit_carries
 def test_a_unit_claiming_a_group_another_unit_carries_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = carrying_feature(tmp_path, monkeypatch, answer(units=[new_unit()]))
+    # A second group is left to plan, so the planner is asked and claims the carried one.
+    run = set_up(
+        tmp_path,
+        monkeypatch,
+        units=[
+            stored_unit(
+                "base/1",
+                change="base",
+                groups=(1,),
+                estimated_lines=180,
+                joined=(Member(change="feature", groups=(1,)),),
+            )
+        ],
+        tasks={"base": tasks_md(), "feature": tasks_md(group(), group())},
+        planning="feature",
+        reply=answer(units=[new_unit()]),
+    )
 
     run.plan()
 

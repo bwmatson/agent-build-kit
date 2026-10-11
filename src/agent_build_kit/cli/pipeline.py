@@ -920,7 +920,7 @@ def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
     )
 
 
-def _needs_planning(inst: Installation) -> bool:
+def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     """Whether some change would be planned now: planning is a model call, so a round that
     has some to do is one the usage guard has to be asked about."""
     planned = _planned_hashes(inst)
@@ -929,7 +929,10 @@ def _needs_planning(inst: Installation) -> bool:
         record = planned.get(tasks.parent.name) or {}
         if _plan_is_current(record, digest, inst.max_plan_attempts):
             continue
-        if not validate_tasks(tasks, repos=tuple(inst.repos))[1]:
+        groups, errors = validate_tasks(tasks, repos=tuple(inst.repos))
+        # A change whose groups are all taken is recorded with no model call.
+        taken = _taken_groups(store, tasks.parent.name)
+        if not errors and not (groups and taken >= {g.number for g in groups}):
             return True
     return False
 
@@ -1002,7 +1005,9 @@ def _may_build(
     # rate-limit refusal still pauses, above and in `_run_unit`.
     runtime = runtimes.active()
     if runtime.supports_usage_tracking:
-        if _no_unit_can_start(inst, store, only=only, spared=spared) and not _needs_planning(inst):
+        if _no_unit_can_start(inst, store, only=only, spared=spared) and not _needs_planning(
+            inst, store
+        ):
             return "idle"
         decision = _start_decision()
         if not decision.may_start:
@@ -2063,9 +2068,22 @@ class PlanResult(Frozen):
     recorded_only: bool = False
 
 
-def _started_groups(store: UnitStore, change: str) -> set[int]:
-    """The numbers of `change`'s groups that units in a started state carry."""
+def _taken_groups(store: UnitStore, change: str) -> set[int]:
+    """The numbers of `change`'s groups no plan may claim: those a unit that has started
+    carries, and those another change's planned unit carries."""
     return {
+        number
+        for u in store.all()
+        if u.state in _STARTED or (u.state == PLANNED and u.change != change)
+        for member in u.members()
+        if member.change == change
+        for number in member.groups
+    }
+
+
+def _gone_groups(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[int]:
+    """The groups a started unit carries that `tasks.md` no longer has: renumbered or deleted."""
+    carried = {
         number
         for u in store.all()
         if u.state in _STARTED
@@ -2073,39 +2091,40 @@ def _started_groups(store: UnitStore, change: str) -> set[int]:
         if member.change == change
         for number in member.groups
     }
+    return sorted(carried - {g.number for g in groups})
 
 
-def _started_problems(
-    store: UnitStore, change: str, groups: Sequence[TaskGroup], started: set[int]
-) -> list[str]:
-    """Why a change whose groups have all started cannot be recorded as planned: a
-    started group gone from tasks.md, or a repo, tier or flag that differs from what
-    the unit stored. Each line names the unit and the way out; none when clean."""
+def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) -> list[str]:
+    """Where a started unit's stored repo, tier or flag differs from the tags of a group
+    of `change` it carries, its own or joined. Each line names the unit, the group and
+    the way out; none when they agree."""
+    by_number = {g.number: g for g in groups}
     lines: list[str] = []
-    gone = started - {g.number for g in groups}
-    if gone:
-        lines.append(
-            f"group(s) {', '.join(str(n) for n in sorted(gone))} are built by a started "
-            "unit but are no longer in tasks.md — restore or renumber them back"
-        )
     for u in store.all():
-        if u.state not in _STARTED or u.change != change:
+        if u.state not in _STARTED:
             continue
-        carried = [g for g in groups if g.number in u.groups]
-        if not carried:
-            continue
-        now = (
-            ("repo", carried[0].repo),
-            ("tier", carried[0].tier),
-            ("flag", plan_kind(u, groups).flag),
-        )
-        for field, value in now:
-            stored = getattr(u, field)
-            if stored != value:
+        way_out = "restore the tag"
+        if u.state in (FAILED, HELD):
+            way_out += f", or `abk requeue --restart {u.id}` rebuilds it from the new tags"
+        checks: list[tuple[str, str, str, str]] = []
+        for member in u.members():
+            if member.change != change:
+                continue
+            for number in member.groups:
+                if group := by_number.get(number):
+                    checks += [
+                        (f"its group {number}", "repo", u.repo, group.repo),
+                        (f"its group {number}", "tier", u.tier, group.tier),
+                    ]
+        # The flag is the unit's own first flagged group (see `plan_kind`). A record
+        # from before flags were kept stores none, which says nothing about the group.
+        if u.change == change and u.flag:
+            checks.append(("its groups", "flag", u.flag, plan_kind(u, groups).flag))
+        for which, field, stored, now in checks:
+            if stored != now:
                 lines.append(
-                    f"{u.id} is {u.state.value} with {field} {stored or 'none'!r} but its "
-                    f"group is now {value or 'none'!r} — restore the tag, or "
-                    f"`abk requeue --restart {u.id}` rebuilds it from the new tags"
+                    f"{u.id} is {u.state.value} with {field} {stored or 'none'!r} but "
+                    f"{which} is now {now or 'none'!r} — {way_out}"
                 )
     return lines
 
@@ -2155,12 +2174,23 @@ def plan_all(
             results[change] = PlanResult(status="refused")
             continue
 
-        # Nothing is left for the planner when every group belongs to a started unit:
-        # each reads tasks.md at its next step, so an edit of the text needs no plan.
-        # Only the tags it copied at plan time can disagree with the file.
-        started = _started_groups(store, change)
-        if task_groups and started >= {g.number for g in task_groups}:
-            problems = _started_problems(store, change, task_groups, started)
+        # A group a started unit carries must still be in tasks.md: renumbered or
+        # deleted, the unit's branch and the groups no longer agree, so no plan is made.
+        if gone := _gone_groups(store, change, task_groups):
+            numbers = ", ".join(str(n) for n in gone)
+            log(
+                f"not planning {change}: group(s) {numbers} are built by a started unit "
+                "but are no longer in tasks.md — restore or renumber them back"
+            )
+            results[change] = PlanResult(status="refused")
+            continue
+
+        # Nothing is left for the planner when every group is taken: each started unit
+        # reads tasks.md at its next step, so an edit of the text needs no plan. Only the
+        # tags it copied at plan time can disagree with the file.
+        built = _taken_groups(store, change)
+        if task_groups and built >= {g.number for g in task_groups}:
+            problems = _tag_problems(store, change, task_groups)
             for line in problems:
                 log(f"{change}: {line}")
             if problems:
@@ -2200,14 +2230,6 @@ def plan_all(
             # plan, which makes a change unplannable the moment any part of
             # it starts.
             # Groups another change's planned unit carries are as claimed.
-            built = {
-                number
-                for u in store.all()
-                if u.state in _STARTED or (u.state == PLANNED and u.change != change)
-                for member in u.members()
-                if member.change == change
-                for number in member.groups
-            }
             plan = plan_round(
                 calibrations=ratios,
                 changes={change: tasks.read_text()},
