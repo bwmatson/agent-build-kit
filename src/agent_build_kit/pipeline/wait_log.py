@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
+from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.vocabulary import WaitReason
+
+# The decision log, in the state directory.
+DECISIONS_NAME = "decisions.jsonl"
+
+# The reason a closing record carries.
+ENDED = "none"
+
+# The waits that become a span when they end. `slot` and `usage_pause` are spans
+# already, written where the unit starts or resumes, and a second would count the
+# time twice.
+SPANNED = frozenset(
+    {WaitReason.QUEUE_FULL, WaitReason.LEASE, WaitReason.BACKOFF, WaitReason.NEEDS_PERSON}
+)
 
 
 class Wait(Frozen):
@@ -18,13 +34,77 @@ class Wait(Frozen):
 
 class WaitRecorder:
     """Appends `{at, unit, reason, waits_on, tick}` to the log at `path` only when a
-    unit's reason or what it waits on changes."""
+    unit's reason or what it waits on changes, resuming from the log's tail."""
 
     def __init__(self, path: Path, say: Callable[[str], None]) -> None:
         self.path = path
         self.say = say
+        self._told = False
+        # Each waiting unit: what it waits for, and since when.
+        self._current: dict[str, tuple[Wait, datetime]] = self._resume()
+
+    def _resume(self) -> dict[str, tuple[Wait, datetime]]:
+        current: dict[str, tuple[Wait, datetime]] = {}
+        try:
+            lines = self.path.read_text().splitlines()
+        except OSError:
+            return current
+        for line in lines:
+            try:
+                raw = json.loads(line)
+                unit = str(raw["unit"])
+                if raw["reason"] == ENDED:
+                    current.pop(unit, None)
+                    continue
+                wait = Wait(reason=WaitReason(raw["reason"]), waits_on=tuple(raw["waits_on"]))
+                current[unit] = (wait, datetime.fromisoformat(raw["at"]))
+            except (ValueError, KeyError, TypeError):
+                continue
+        return current
 
     def record(self, waits: Mapping[str, Wait], *, tick: str) -> None:
         """Log what changed since the last call; a unit that left `waits` gets a
-        closing record, and its wait a span if it is one the build path does not write."""
-        raise NotImplementedError
+        closing record, and a wait that ended a span if it is one the build path does
+        not write."""
+        now = spans.clock.now()
+        for unit, wait in waits.items():
+            before = self._current.get(unit)
+            if before and before[0] == wait:
+                continue
+            if before:
+                self._end(unit, before)
+            self._current[unit] = (wait, now)
+            self._append(now, unit, wait.reason, wait.waits_on, tick)
+        for unit in [unit for unit in self._current if unit not in waits]:
+            self._end(unit, self._current.pop(unit))
+            self._append(now, unit, ENDED, (), tick)
+
+    def _end(self, unit: str, before: tuple[Wait, datetime]) -> None:
+        wait, since = before
+        if wait.reason in SPANNED:
+            spans.record_span(
+                spans.Mark(since),
+                self.say,
+                unit=unit,
+                change=unit.partition("/")[0],
+                waited=wait.reason.value,
+            )
+
+    def _append(
+        self, at: datetime, unit: str, reason: str, waits_on: tuple[str, ...], tick: str
+    ) -> None:
+        line = {
+            "at": at.isoformat(),
+            "unit": unit,
+            "reason": str(reason),
+            "waits_on": list(waits_on),
+            "tick": tick,
+        }
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a") as log:
+                log.write(json.dumps(line) + "\n")
+        except OSError as error:
+            if not self._told:
+                self._told = True
+                self.say(f"the decision log could not be written: {error}")

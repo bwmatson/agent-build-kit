@@ -154,7 +154,7 @@ def effective_state(
     showed a unit as startable while its same-repo parent was still building.
     """
     if unit.state == RUNNING:
-        return _running_status(unit)
+        return "paused" if usage_paused else _running_status(unit)
     if unit.state == IN_REVIEW and checks_of is not None and _checking(unit, checks_of):
         return "checking"
     if unit.state != PLANNED:

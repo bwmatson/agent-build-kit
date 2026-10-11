@@ -227,6 +227,8 @@ class Poller(BaseModel):
 
             number = str(pull.number)
             current = snapshot(pull, self.ignore(int(number)))
+            if current["comment_ids"]:
+                self.human_activity(int(number))
             if current["mergeable"] is None and number in known:
                 # The host resets its answer to undetermined whenever the base
                 # moves and works it out lazily. Recorded, it would make the

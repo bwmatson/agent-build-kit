@@ -51,6 +51,9 @@ what the pipeline is doing, watch the pass, not a single unit.
 - `runs/paused.json` — a record of the last pause, shown by `abk status`; says until when and
   why. Only a `rate_limit` pause (the model's refusal) holds starts; a usage pause refuses
   nothing, since the guard is asked again every round.
+- `runs/decisions.jsonl` — why each unit that is not running is waiting (blocked, queue_full,
+  slot, usage_pause, lease, backoff, waiting_review, needs_person, ready), one line each time
+  the reason or what it waits on changes, and a `none` line when the wait ends.
 - `runs/verified.json` — the outcome of each change's verification.
 - `openspec/changes/<change>/` — the change a unit belongs to; its `tasks.md`
   is ticked as units pass review.

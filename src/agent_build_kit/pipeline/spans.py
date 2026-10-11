@@ -67,6 +67,21 @@ class Span(Frozen):
     cause: str = ""
 
 
+class Sample(Frozen):
+    """A `sample` line of the ledger: how full the slots were as a running pass
+    refreshed. Readers that do not know the kind skip it."""
+
+    kind: str = "sample"
+    at: str
+    running: int
+    in_review: int
+    blocked: int
+    queued: int
+    free_workers: int
+    limit: int
+    cap: int
+
+
 class Mark:
     """A moment on `clock`, to measure a span from."""
 
@@ -105,11 +120,17 @@ def record_span(
             outcome=outcome,
             waited=waited,
             command=command,
+            cause=cause,
         )
         record_line(span, say)
         export_span(span)
     except Exception as error:  # noqa: BLE001 — a span is never a run's to lose
         say(f"the usage ledger is not recording spans ({error})")
+
+
+def record_sample(sample: Sample, say: Callable[[str], None]) -> None:
+    """Record a sample, never raising."""
+    record_line(sample, say)
 
 
 def export_span(span: Span) -> None:
