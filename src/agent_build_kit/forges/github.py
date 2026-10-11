@@ -34,6 +34,7 @@ from agent_build_kit.forges.base import (
     BaseMissing,
     Check,
     CheckStatus,
+    DeniedRequest,
     FileChange,
     Label,
     PullRequest,
@@ -169,6 +170,9 @@ class GitHubForge:
     # Annotated, not inferred: the Protocol's attribute is read-write, so a
     # narrower literal type would not satisfy it.
     denied_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "merge"),)
+    denied_requests: tuple[DeniedRequest, ...] = (
+        DeniedRequest(command=("gh", "api"), methods=("PUT", "POST"), path=r"/pulls/\d+/merge$"),
+    )
     read_commands: tuple[tuple[str, ...], ...] = (("gh", "pr", "view"), ("gh", "pr", "diff"))
     requires: tuple[str, ...] = ("slug",)
     ci_name: str = "GitHub Actions"

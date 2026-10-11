@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from agent_build_kit.forges.base import (
+    DeniedRequest,
     FileChange,
     Label,
     PullRequest,
@@ -46,6 +47,7 @@ class LocalForge:
     deletes_head_branch_on_merge: bool = False
     supports_stacks: bool = False
     denied_commands: tuple[tuple[str, ...], ...] = ()
+    denied_requests: tuple[DeniedRequest, ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = (("abk", "pr", "view"), ("abk", "pr", "diff"))
     requires: tuple[str, ...] = ()
     ci_name: str = "no CI"

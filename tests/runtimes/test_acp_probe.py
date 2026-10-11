@@ -74,7 +74,8 @@ def test_a_class_the_agent_never_attempted_is_reported(tmp_path: Path, planning:
     report = AcpRuntime().check_policy(planning)
 
     assert report.ok is False
-    assert set(report.unenforced) == {label for _c, label in PROBE_CLASSES} - {"a hard reset"}
+    classes = {entry.split(" (as ", 1)[0] for entry in report.unenforced}
+    assert classes == {label for _c, label in PROBE_CLASSES} - {"a hard reset"}
     assert report.fix == ""
 
 
@@ -89,7 +90,8 @@ def test_an_agent_offering_only_permitting_options_is_not_ok(
     report = AcpRuntime().check_policy(planning)
 
     assert report.ok is False
-    assert set(report.unenforced) == {label for _c, label in PROBE_CLASSES}
+    classes = {entry.split(" (as ", 1)[0] for entry in report.unenforced}
+    assert classes == {label for _c, label in PROBE_CLASSES}
 
 
 def test_a_command_sent_as_a_program_and_its_arguments_is_intercepted(

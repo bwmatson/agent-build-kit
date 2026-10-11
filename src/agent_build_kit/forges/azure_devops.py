@@ -50,6 +50,7 @@ from agent_build_kit.forges.base import (
     BaseMissing,
     Check,
     CheckStatus,
+    DeniedRequest,
     FileChange,
     Label,
     PullRequest,
@@ -190,6 +191,7 @@ class AzureDevOpsForge:
         ("az", "rest"),
         ("az", "devops", "invoke"),
     )
+    denied_requests: tuple[DeniedRequest, ...] = ()
     read_commands: tuple[tuple[str, ...], ...] = (
         ("az", "repos", "pr", "show"),
         ("az", "repos", "pr", "list"),

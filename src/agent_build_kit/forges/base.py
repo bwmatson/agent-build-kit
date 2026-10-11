@@ -54,6 +54,15 @@ class BaseMissing(RuntimeError):
     """
 
 
+class DeniedRequest(Frozen):
+    """A raw API request no agent may send: through `command`, with a method
+    among `methods` (the client's default included) and a path matching `path`."""
+
+    command: tuple[str, ...]
+    methods: tuple[str, ...]
+    path: str
+
+
 class RepoId(Frozen):
     """A repo, named the way its host names it, decoded.
 
@@ -254,6 +263,9 @@ class Forge(RegistersStacks, Protocol):
     # Command prefixes no agent may run on any repo - merging, voting, and the
     # raw API escapes that reach both. Folded together by `denies`.
     denied_commands: tuple[tuple[str, ...], ...]
+    # Requests through the host's raw API client that merge a pull request, which
+    # no command prefix can name: the verb and the path are what make them one.
+    denied_requests: tuple[DeniedRequest, ...]
     # Command prefixes an agent may run to read its own PR. No prefix here may
     # overlap any forge's `denied_commands`; `wiring.allowed_tools` composes the
     # allow-list from them.

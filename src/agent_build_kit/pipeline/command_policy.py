@@ -44,6 +44,33 @@ SEGMENT_SPLIT = re.compile(r"&&|\|\||(?<!>)\||;|\n")
 # looks at the first token.
 WRAPPERS = {"xargs", "env", "sudo", "nohup", "time", "timeout", "command", "nice", "stdbuf"}
 
+# Wrapper options that take a value, which is not the command: `sudo -u root git ...`.
+WRAPPER_VALUED = {
+    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-r", "-t", "-U", "-T"},
+    "env": {"-u", "-C", "-S"},
+    "timeout": {"-s", "-k"},
+    "nice": {"-n"},
+    "xargs": {"-n", "-I", "-d", "-P", "-L", "-s", "-E"},
+    "stdbuf": {"-i", "-o", "-e"},
+}
+
+# The global options of the code host's tools that sit before the subcommand,
+# and the ones of them that take a value as the next word (`--git-dir /w/.git`
+# as well as `--git-dir=/w/.git`). A dash word not listed is skipped as one
+# token, so an unknown flag does not hide the subcommand.
+GLOBAL_VALUED = {
+    "git": {
+        "-C",
+        "-c",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--super-prefix",
+        "--config-env",
+    },
+    "gh": {"-R", "--repo", "--hostname"},
+}
+
 LEASE_ADVICE = (
     "restack pushes must carry an explicit lease: "
     "`git push --force-with-lease=<branch>:<sha you last pushed> origin <branch>`, "
@@ -70,10 +97,11 @@ def _strip_wrappers(tokens: list[str]) -> list[str]:
         head = tokens[0]
         if head in WRAPPERS or ("=" in head and not head.startswith("-")):
             tokens = tokens[1:]
-            # A wrapper's own flags and arguments (xargs -n1, timeout 30s)
-            # sit between it and the real command.
+            valued = WRAPPER_VALUED.get(head, set())
+            # A wrapper's own flags and arguments (xargs -n1, timeout 30s,
+            # sudo -u root) sit between it and the real command.
             while tokens and (tokens[0].startswith("-") or _looks_like_duration(tokens[0])):
-                tokens = tokens[1:]
+                tokens = tokens[2:] if tokens[0] in valued else tokens[1:]
             continue
         return tokens
     return tokens
@@ -81,6 +109,33 @@ def _strip_wrappers(tokens: list[str]) -> list[str]:
 
 def _looks_like_duration(token: str) -> bool:
     return bool(re.fullmatch(r"\d+[smhd]?", token))
+
+
+def split_global_options(tokens: list[str]) -> tuple[list[str], str | None]:
+    """The command with its tool's global options dropped, so the program is
+    followed by its subcommand, and the last `-C` directory dropped.
+
+    Only `git` and the host CLI have global options the rules judge through;
+    any other command is returned as it is.
+    """
+    if not tokens or tokens[0] not in GLOBAL_VALUED:
+        return tokens, None
+    valued = GLOBAL_VALUED[tokens[0]]
+    directory = None
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] in valued and index + 1 < len(tokens):
+            if tokens[index] == "-C":
+                directory = tokens[index + 1]
+            index += 2
+        else:
+            index += 1
+    return [tokens[0], *tokens[index:]], directory
+
+
+def normalize(tokens: list[str]) -> list[str]:
+    """`tokens` as the tool would run them, without its global options."""
+    return split_global_options(tokens)[0]
 
 
 def _is_git(tokens: list[str], *subcommand: str) -> bool:
@@ -125,13 +180,10 @@ def _skips_commit_hooks(tokens: list[str]) -> bool:
     # `git config core.hooksPath …`. Config keys are case-insensitive.
     if any("core.hookspath" in token.lower() for token in tokens):
         return True
-    # Past git's own options (`-C dir`, `-c key=value`) to the subcommand.
-    index = 1
-    while index < len(tokens) and tokens[index].startswith("-"):
-        index += 2 if tokens[index] in ("-C", "-c") else 1
-    if index >= len(tokens) or tokens[index] != "commit":
+    normalized = normalize(tokens)
+    if normalized[1:2] != ["commit"]:
         return False
-    args = iter(tokens[index + 1 :])
+    args = iter(normalized[2:])
     for arg in args:
         # git accepts any unambiguous prefix of a long option.
         if arg.startswith("--no-veri") and "--no-verify".startswith(arg):
@@ -152,6 +204,7 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
     tokens = _strip_wrappers(raw)
     if _switches_gate_off(raw) or _skips_commit_hooks(tokens):
         return Verdict(allowed=False, reason=GATE_REASON)
+    tokens = normalize(tokens)
     if not tokens:
         return Verdict(allowed=True)
 
@@ -296,13 +349,8 @@ BRANCH_LISTING = {"-l", "--list", "-a", "--all", "-r", "--remotes", "-v", "-vv",
 def _git_target(tokens: list[str], current: str | None) -> tuple[str | None, list[str]]:
     """The directory a git command acts on (its `-C`, else the directory last
     `cd`ed to) and its arguments from the subcommand on."""
-    target = current
-    index = 1
-    while index < len(tokens) and tokens[index].startswith("-"):
-        if tokens[index] == "-C" and index + 1 < len(tokens):
-            target = tokens[index + 1]
-        index += 2 if tokens[index] in ("-C", "-c") else 1
-    return target, tokens[index:]
+    normalized, directory = split_global_options(tokens)
+    return directory or current, normalized[1:]
 
 
 def _moves_branches(args: list[str]) -> bool:
