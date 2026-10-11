@@ -118,6 +118,13 @@
   waiting on it is named in `abk status` and in the reason nothing started, with the number
   waiting and a hint to requeue it.
 
+- The usage module is now the only authority on usage. One process refreshes the cached
+  reading at its expiry under a lock, and any other asker is served the last good reading
+  instead of calling the endpoint. A reading from the editor's cache is no longer used past
+  the reset of its window. A leftover usage pause marker no longer shows a tick as paused:
+  only a rate-limit pause does, and it stops new builds only until its deadline, within the
+  same pass. The cache counts its hits, misses, expiries and waits (`abk.usage.cache`).
+
 - A lock file named in a repository's environment lock inputs no longer holds a unit for
   "uncommitted changes" when the environment's sync creates or rewrites it. It is never
   listed as a leftover or discarded. A unit that changed a dependency input commits the

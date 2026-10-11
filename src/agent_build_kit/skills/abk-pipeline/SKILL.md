@@ -48,8 +48,9 @@ what the pipeline is doing, watch the pass, not a single unit.
   and model in its header and the outcome at the end.
 - `docs/unit_graph.md` — the unit graph, regenerated on every state change:
   which unit waits on which, and where each one is.
-- `runs/paused.json` — present while the pipeline is paused for usage; says
-  until when and why.
+- `runs/paused.json` — a record of the last pause, shown by `abk status`; says until when and
+  why. Only a `rate_limit` pause (the model's refusal) holds starts; a usage pause refuses
+  nothing, since the guard is asked again every round.
 - `runs/verified.json` — the outcome of each change's verification.
 - `openspec/changes/<change>/` — the change a unit belongs to; its `tasks.md`
   is ticked as units pass review.
@@ -234,8 +235,8 @@ in the reason — `usage_pause_pct` (in the `session` or `weekly` section of
 scheduled for when the rising threshold would clear the current usage, or
 for the reset. A pause never ends before it was written: a reset already past counts as unknown
 (retry in thirty minutes), and a reading too old to trust pauses for
-`usage_stale_retry_minutes` (five by default) and says it is stale. Times are local. Nothing needs doing; a tick before that time exits without
-work. `abk status` prints each window as `used%/threshold%` with its time to
+`usage_stale_retry_minutes` (five by default) and says it is stale. Times are local. Nothing needs doing; the next tick asks the guard again and starts work
+when it allows, whatever time the pause named. `abk status` prints each window as `used%/threshold%` with its time to
 reset, which is what explains a pause at a percentage the configured floor
 alone doesn't account for. A refusal by the guard pauses only the unit that asked: the
 pass keeps running its rounds, asks the guard again at each, and resumes the unit once it

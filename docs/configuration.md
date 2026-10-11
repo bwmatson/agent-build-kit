@@ -108,7 +108,9 @@ runtimes:                       # one entry per runtime that needs a fact abk
         usage_resume_buffer_pct: 5
       usage_stale_retry_minutes: 5  # how long a start is refused when the only
                                     # reading is too old to trust
-      usage_cache_minutes: 15  # how long a good usage reading answers every reader (the shortest)
+      usage_cache_minutes: 15  # how long a good usage reading answers every reader (the shortest);
+                               # one process refreshes it at expiry under a lock, the rest are
+                               # served the last good reading
       usage_cache_max_minutes: 60  # the most refusals can stretch that to
       usage_fallback_minutes: 30  # how old the last good reading may be to cover a failed call
       usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make

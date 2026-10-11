@@ -60,6 +60,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+from agent_build_kit import telemetry
 from agent_build_kit.config import (
     CLAUDE_CODE,
     ClaudeLimitsConfig,
@@ -69,6 +70,7 @@ from agent_build_kit.config import (
     active_root,
 )
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_calls import (
     CACHE,
@@ -489,6 +491,14 @@ def _load_cache(path: Path) -> dict:
     return cached if isinstance(cached, dict) else {}
 
 
+def _write_cache(path: Path, body: dict) -> None:
+    """Write the cache file whole: a reader outside the lock never sees half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(body, indent=2))
+    temporary.replace(path)
+
+
 def _kept_reading(cached: dict) -> UsageReading | None:
     """The reading kept in the cache file, labelled as what it is: not live."""
     try:
@@ -552,126 +562,153 @@ def read_live_usage(
             return None
         return kept
 
-    if kept is not None and ttl > timedelta(0) and now - kept.observed_at < ttl:
-        if not _past_reset(kept, now):
-            record_call(
-                calls_file,
-                UsageCall(
-                    at=now,
-                    caller=caller,
-                    outcome="cache",
-                    age_seconds=int((now - kept.observed_at).total_seconds()),
-                ),
-            )
-            return kept
-
-    try:
-        cooling = datetime.fromisoformat(cached["cooldown_until"]) > now
-    except (KeyError, TypeError, ValueError):
-        cooling = False
-    if cooling:
-        return last_good()
-
-    given = token
-    token = token or read_oauth_token()
-    if not token:
-        return None
-
-    def ask(bearer: str) -> object:
-        started = time.monotonic()
-        asked = datetime.now(UTC)
-        status: int | None = 200
-        headers: object = None
-        outcome = "ok"
-        read: UsageReading | None = None
+    def _refresh_under_lock() -> UsageReading | None:
+        nonlocal token
         try:
-            answer = fetch(
-                USAGE_URL,
-                {"Authorization": f"Bearer {bearer}", "anthropic-beta": OAUTH_BETA_HEADER},
-            )
-            read = _reading_from_payload(answer, observed_at=asked, source="live")
-            return answer
-        except Exception as error:
+            cooling = datetime.fromisoformat(cached["cooldown_until"]) > now
+        except (KeyError, TypeError, ValueError):
+            cooling = False
+        if cooling:
+            return last_good()
+
+        telemetry.count("abk.usage.cache", 1, event="miss")
+        given = token
+        token = token or read_oauth_token()
+        if not token:
+            return None
+
+        def ask(bearer: str) -> object:
+            started = time.monotonic()
+            asked = datetime.now(UTC)
+            status: int | None = 200
+            headers: object = None
+            outcome = "ok"
+            read: UsageReading | None = None
+            try:
+                answer = fetch(
+                    USAGE_URL,
+                    {"Authorization": f"Bearer {bearer}", "anthropic-beta": OAUTH_BETA_HEADER},
+                )
+                read = _reading_from_payload(answer, observed_at=asked, source="live")
+                return answer
+            except Exception as error:
+                if isinstance(error, urllib.error.HTTPError):
+                    status, headers = error.code, error.headers
+                    outcome = "rate_limited" if error.code == 429 else "error"
+                else:
+                    status = None
+                    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                    outcome = "timeout" if isinstance(reason, TimeoutError) else "error"
+                raise
+            finally:
+                record_call(
+                    calls_file,
+                    UsageCall(
+                        at=asked,
+                        caller=caller,
+                        outcome=outcome,
+                        status=status,
+                        latency_ms=int((time.monotonic() - started) * 1000),
+                        headers=rate_limit_headers(headers),
+                        session_pct=read.session_pct if read else None,
+                        weekly_pct=read.weekly_pct if read else None,
+                    ),
+                )
+
+        def failed(error: Exception) -> UsageReading | None:
             if isinstance(error, urllib.error.HTTPError):
-                status, headers = error.code, error.headers
-                outcome = "rate_limited" if error.code == 429 else "error"
+                cause = f"HTTP {error.code}"
+                if error.code == 429:
+                    until = now + timedelta(seconds=_cooldown_seconds(error))
+                    try:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        _write_cache(cache_path, {**cached, "cooldown_until": until.isoformat()})
+                    except (OSError, TypeError):
+                        pass
             else:
-                status = None
-                reason = error.reason if isinstance(error, urllib.error.URLError) else error
-                outcome = "timeout" if isinstance(reason, TimeoutError) else "error"
-            raise
-        finally:
-            record_call(
-                calls_file,
-                UsageCall(
-                    at=asked,
-                    caller=caller,
-                    outcome=outcome,
-                    status=status,
-                    latency_ms=int((time.monotonic() - started) * 1000),
-                    headers=rate_limit_headers(headers),
-                    session_pct=read.session_pct if read else None,
-                    weekly_pct=read.weekly_pct if read else None,
-                ),
-            )
+                cause = type(error).__name__
+            if cause not in _logged_failures:
+                _logged_failures.add(cause)
+                log.warning(
+                    "the usage endpoint failed (%s); using the last good reading if any", cause
+                )
+            return last_good()
 
-    def failed(error: Exception) -> UsageReading | None:
-        if isinstance(error, urllib.error.HTTPError):
-            cause = f"HTTP {error.code}"
-            if error.code == 429:
-                until = now + timedelta(seconds=_cooldown_seconds(error))
-                try:
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    cache_path.write_text(
-                        json.dumps({**cached, "cooldown_until": until.isoformat()})
-                    )
-                except (OSError, TypeError):
-                    pass
-        else:
-            cause = type(error).__name__
-        if cause not in _logged_failures:
-            _logged_failures.add(cause)
-            log.warning("the usage endpoint failed (%s); using the last good reading if any", cause)
-        return last_good()
-
-    try:
-        payload = ask(token)
-    except Exception as error:
-        rate_limited = isinstance(error, urllib.error.HTTPError) and error.code == 429
-        if rate_limited:
-            return failed(error)
-        # An expired token is the one failure with a known fix; see
-        # `refresh_login`. Only for the saved token, never one passed in, and
-        # whatever the failure was: an expired token is answered with a 401.
-        if given is None and (expired or token_expired)():
-            (refresh or refresh_login)()
-            fresh = read_oauth_token()
-            if not fresh or fresh == token:
+        try:
+            payload = ask(token)
+        except Exception as error:
+            rate_limited = isinstance(error, urllib.error.HTTPError) and error.code == 429
+            if rate_limited:
                 return failed(error)
-            retry_with = fresh
-        elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):
-            # A timeout or a connection error: once more after a short delay.
-            time.sleep(RETRY_DELAY_SECONDS)
-            retry_with = token
-        else:
-            return failed(error)
-        try:
-            payload = ask(retry_with)
-        except Exception as again:
-            return failed(again)
+            # An expired token is the one failure with a known fix; see
+            # `refresh_login`. Only for the saved token, never one passed in, and
+            # whatever the failure was: an expired token is answered with a 401.
+            if given is None and (expired or token_expired)():
+                (refresh or refresh_login)()
+                fresh = read_oauth_token()
+                if not fresh or fresh == token:
+                    return failed(error)
+                retry_with = fresh
+            elif isinstance(error, OSError) and not isinstance(error, urllib.error.HTTPError):
+                # A timeout or a connection error: once more after a short delay.
+                time.sleep(RETRY_DELAY_SECONDS)
+                retry_with = token
+            else:
+                return failed(error)
+            try:
+                payload = ask(retry_with)
+            except Exception as again:
+                return failed(again)
 
-    reading = _reading_from_payload(payload, observed_at=now, source="live")
-    if reading is None:
-        return None
+        reading = _reading_from_payload(payload, observed_at=now, source="live")
+        if reading is None:
+            return None
 
-    if isinstance(payload, dict):
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps({**payload, "fetched_at": now.isoformat()}, indent=2))
-        except (OSError, TypeError):
-            pass  # Caching is an optimization, not a requirement.
+        if isinstance(payload, dict):
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                _write_cache(cache_path, {**payload, "fetched_at": now.isoformat()})
+            except (OSError, TypeError):
+                pass  # Caching is an optimization, not a requirement.
 
-    return reading
+        return reading
+
+    def serve(reading: UsageReading | None) -> UsageReading | None:
+        """The reading kept in the file, when it is within its time and its window."""
+        if reading is None or ttl <= timedelta(0) or now - reading.observed_at >= ttl:
+            return None
+        if _past_reset(reading, now):
+            return None
+        telemetry.count("abk.usage.cache", 1, event="hit")
+        record_call(
+            calls_file,
+            UsageCall(
+                at=now,
+                caller=caller,
+                outcome="cache",
+                age_seconds=int((now - reading.observed_at).total_seconds()),
+            ),
+        )
+        return reading
+
+    if (hit := serve(kept)) is not None:
+        return hit
+    if kept is not None:
+        telemetry.count("abk.usage.cache", 1, event="expiry")
+
+    # One process refreshes: a process that finds the lock held serves the last good reading.
+    with try_file_lock(cache_path.with_name(cache_path.name + ".lock")) as taken:
+        if not taken:
+            telemetry.count("abk.usage.cache", 1, event="wait")
+            # The call is being made by the holder, so the fallback age, which covers a
+            # failed call, does not apply: serve the kept reading while its window stands.
+            return kept if kept is not None and not _past_reset(kept, now) else None
+        # Another process may have refreshed while this one waited to ask.
+        cached = _load_cache(cache_path)
+        kept = _kept_reading(cached)
+        if (hit := serve(kept)) is not None:
+            return hit
+        return _refresh_under_lock()
 
 
 def read_cached_usage(path: Path | None = None) -> UsageReading | None:
@@ -741,14 +778,23 @@ def _noted(reading: UsageReading | None) -> UsageReading | None:
     return reading
 
 
+def _unspent(reading: UsageReading | None) -> UsageReading | None:
+    """The reading, unless a window it describes has reset since it was taken."""
+    if reading is None or _past_reset(reading, datetime.now(UTC)):
+        return None
+    return reading
+
+
 def current_usage() -> UsageReading | None:
     """The best reading available: live if possible, else the local cache."""
-    return _noted(read_live_usage() or read_cached_usage())
+    return _noted(read_live_usage() or _unspent(read_cached_usage()))
 
 
 def held_usage() -> UsageReading | None:
     """The reading held now, from the cache file or Claude Code's own: no call is made."""
-    return _noted(_kept_reading(_load_cache(_cache_file())) or read_cached_usage())
+    return _noted(
+        _unspent(_kept_reading(_load_cache(_cache_file()))) or _unspent(read_cached_usage())
+    )
 
 
 def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:
