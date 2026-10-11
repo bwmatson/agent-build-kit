@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.redaction import redact_text
 
 if TYPE_CHECKING:
     # units imports config, which imports the runtimes, which carry a TranscriptEvent.
@@ -124,6 +125,7 @@ class Transcript:
 
     def record(self, event: TranscriptEvent) -> None:
         """Append `event`, stamped, as one line the moment it arrives."""
+        event = event.model_copy(update={"text": redact_text(event.text)})
         fields: dict[str, Any] = {
             "at": self._clock().isoformat(),
             "unit": self._unit,

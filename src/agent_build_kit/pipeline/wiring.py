@@ -116,6 +116,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import RepeatsTests, SelectsAffectedTests, ToolchainProfile
+from agent_build_kit.redaction import redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -1050,7 +1051,7 @@ def _failure(
     """The command that failed, then where it ran, then the tail of what it printed: a
     bare "tier 1 failed" says nothing about which check or why, and the next fix round's
     selection needs to know which project's tests the identifiers belong to."""
-    printed = f"{result.stdout}\n{result.stderr}".strip()[-4000:]
+    printed = redact_text(f"{result.stdout}\n{result.stderr}".strip())[-4000:]
     header = f"$ {shlex.join(command)} (exit {result.returncode})"
     if where is not None:
         header += f"\n{_failed_in(where)}"
@@ -1750,7 +1751,7 @@ class Tier2Session:
                     elif p:
                         outputs.append(f"$ {' '.join(command)}{label}\n{out[-1500:]}")
 
-        output = "\n\n".join(outputs)
+        output = redact_text("\n\n".join(outputs))
         command = " && ".join(
             " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
             for where, _, commands in entries
@@ -1803,6 +1804,7 @@ class Tier2Session:
 
         output = f"{completed.stdout or ''}{completed.stderr or ''}"
         passed, failed, skipped, duration = self._profile.parse_test_summary(output)
+        output = redact_text(output)
         if completed.returncode and not failed:
             failed = 1
         self.result = Tier2Result(

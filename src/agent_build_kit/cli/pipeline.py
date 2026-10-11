@@ -226,6 +226,7 @@ from agent_build_kit.pipeline.workspaces import (
     worktree_path,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.serve.review import Review, ReviewStore
@@ -239,7 +240,7 @@ def stamp() -> str:
 
 
 def log(message: str, *, at: str | None = None) -> None:
-    print(f"[{at or stamp()}] {message}", flush=True)
+    print(f"[{at or stamp()}] {redact_text(message)}", flush=True)
 
 
 def store_for(inst: Installation) -> UnitStore:

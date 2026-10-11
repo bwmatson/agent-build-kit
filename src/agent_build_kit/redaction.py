@@ -104,3 +104,19 @@ def active() -> Redactor:
 def register(name: str, value: str) -> None:
     """Add a value minted during the run to the active set under `name`."""
     _active.add(name, value)
+
+
+# Stored or posted in place of text that could not be redacted.
+WITHHELD = "[redaction failed: text withheld]"
+
+
+def redact_text(text: str) -> str:
+    """`text` through the active set; when that raises, the notice stands in for it.
+
+    The failure is logged once by its type alone: the exception's message can quote the text.
+    """
+    try:
+        return _active.redact(text)
+    except Exception as error:  # noqa: BLE001 — a protection fails closed for the text, not the run
+        logger.warning("redaction failed (%s); the text was withheld", type(error).__name__)
+        return WITHHELD

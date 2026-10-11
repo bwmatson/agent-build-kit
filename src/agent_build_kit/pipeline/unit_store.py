@@ -47,6 +47,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
 )
 from agent_build_kit.pipeline.work_graph import FLAGS
+from agent_build_kit.redaction import redact_text
 
 # A unit that the latest plan no longer contains. Kept rather than deleted: it
 # may already have an open PR, and the runner needs to see that the plan moved.
@@ -713,6 +714,7 @@ class UnitStore:
         every feedback the pipeline writes itself leaves it False, and so does
         clearing it.
         """
+        feedback = redact_text(feedback)
         self._update(
             unit_id,
             feedback=feedback,
