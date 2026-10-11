@@ -7,7 +7,7 @@ would find nothing.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from enum import StrEnum
 
 from agent_build_kit.forges import Forge, RepoId
@@ -122,7 +122,7 @@ class StateLabels:
         *,
         opened: bool,
         checks_of: ChecksOf | None = None,
-        usage_paused: bool = False,
+        paused: Collection[str] = (),
     ) -> None:
         """Bring a unit's pull request in line with its recorded state.
 
@@ -135,7 +135,7 @@ class StateLabels:
         if opened:
             for member in unit.members():
                 self.tag_change(unit.repo, unit.pr, member.change)
-        state = effective_state(unit, units, checks_of=checks_of, usage_paused=usage_paused)
+        state = effective_state(unit, units, checks_of=checks_of, paused=paused)
         if state in FINISHED:
             self.clear_state(unit.repo, unit.pr)
         else:

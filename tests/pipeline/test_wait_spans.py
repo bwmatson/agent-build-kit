@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.vocabulary import effective_state, state_label
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.conftest import make_installation
 from tests.factories import new_unit, stored_unit
 
@@ -41,7 +42,7 @@ def pause(inst: Installation, kind: str = "usage") -> None:
 def test_a_usage_paused_unit_displays_as_paused_with_its_stored_state_unchanged() -> None:
     unit = stored_unit(state=RUNNING, branch="spec/add-marker/1")
 
-    assert effective_state(unit, [unit], usage_paused=True) == "paused"
+    assert effective_state(unit, [unit], paused={unit.id}) == "paused"
     assert effective_state(unit, [unit]) == RUNNING
     assert unit.state == RUNNING
 
@@ -72,3 +73,24 @@ def test_the_graph_page_draws_it_as_running_once_the_pause_is_over(tmp_path: Pat
     cli.cmd_graph(argparse.Namespace(), inst)
 
     assert "class feature_1 running" in inst.graph_page.read_text()
+
+
+def test_under_a_pause_only_a_running_unit_no_run_holds_is_parked(tmp_path: Path) -> None:
+    inst, store = running_unit(tmp_path)
+    store.upsert([new_unit("other/1")])
+    store.set_state("other/1", RUNNING, branch="spec/other/1")
+    pause(inst)
+
+    with branch_lock("spec/other/1", root=inst.state_dir / "locks"):
+        parked = cli.parked_units(inst, store.all())
+
+    assert parked == {"feature/1"}
+    units = store.all()
+    shown = {u.id: effective_state(u, units, paused=parked) for u in units}
+    assert shown == {"feature/1": "paused", "other/1": "running"}
+
+
+def test_without_a_pause_no_unit_is_parked(tmp_path: Path) -> None:
+    inst, store = running_unit(tmp_path)
+
+    assert cli.parked_units(inst, store.all()) == frozenset()

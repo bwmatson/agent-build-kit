@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -244,7 +244,7 @@ def store_for(inst: Installation) -> UnitStore:
                 units,
                 inst.graph_page,
                 checks_of=recorded_checks(inst.state_dir),
-                usage_paused=pause_in_force(inst.state_dir),
+                paused=parked_units(inst, units),
             )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -268,7 +268,7 @@ def store_for(inst: Installation) -> UnitStore:
             units,
             opened=opened,
             checks_of=recorded_checks(inst.state_dir),
-            usage_paused=pause_in_force(inst.state_dir),
+            paused=parked_units(inst, units),
         )
         drafts.follow(unit, units, opened=opened)
 
@@ -450,13 +450,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     checks_of = recorded_checks(inst.state_dir)
 
     by_state: dict[str, int] = {}
+    paused = parked_units(inst, units)
     for unit in units:
         shown = (
             unit.state
             if unit.state not in (RUNNING, IN_REVIEW)
-            else effective_state(
-                unit, units, checks_of=checks_of, usage_paused=pause_in_force(inst.state_dir)
-            )
+            else effective_state(unit, units, checks_of=checks_of, paused=paused)
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
@@ -583,7 +582,7 @@ def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
         units,
         inst.graph_page,
         checks_of=recorded_checks(inst.state_dir),
-        usage_paused=pause_in_force(inst.state_dir),
+        paused=parked_units(inst, units),
     )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
@@ -1083,11 +1082,14 @@ def run_round(
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
+        units = store.all()
         _record_waits(
             inst,
+            units,
+            only,
             lambda: wait_reasons(
                 inst,
-                store.all(),
+                units,
                 started=set(started),
                 building=set(building),
                 only=only,
@@ -1146,6 +1148,21 @@ def run_round(
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
     _step("sweeping state labels", _sweep_labels, inst, store)
+    if submit and may == "usage":
+        units = store.all()
+        _record_waits(
+            inst,
+            units,
+            only,
+            lambda: wait_reasons(
+                inst,
+                units,
+                started=set(started),
+                building=set(building),
+                only=only,
+                usage_paused=True,
+            ),
+        )
     if not submit or not (admitted or may == "idle"):
         return []
 
@@ -1159,13 +1176,14 @@ def run_round(
     if not admitted:
         _record_waits(
             inst,
+            units,
+            only,
             lambda: wait_reasons(
                 inst,
                 units,
                 started=set(started),
                 building=set(building),
                 only=only,
-                usage_paused=may == "usage",
             ),
         )
         return []
@@ -1197,6 +1215,8 @@ def run_round(
         readmit.charge(ready)
     _record_waits(
         inst,
+        units,
+        only,
         lambda: _waits_in(
             inst,
             units,
@@ -1748,15 +1768,18 @@ def _schedule(
                 if unit.id not in taken:
                     queued.setdefault(unit.id, spans.Mark())
 
-        def sample(in_flight: int) -> None:
-            """One ledger row and the slot gauges for this refresh."""
+        def sample() -> None:
+            """One ledger row and the slot gauges, for a wake once its slots are refilled:
+            what is in flight counts as running though its worker has not yet marked it so."""
             units = store.all()
             states = [unit.state for unit in units]
-            free = max(0, inst.max_concurrent_stacks - in_flight)
+            in_flight = {unit.id for unit in building.values()}
+            running = in_flight | {unit.id for unit in units if unit.state == RUNNING}
+            free = max(0, inst.max_concurrent_stacks - len(building))
             spans.record_sample(
                 spans.Sample(
                     at=spans.clock.now().isoformat(),
-                    running=states.count(RUNNING),
+                    running=len(running),
                     in_review=states.count(IN_REVIEW),
                     blocked=sum(
                         1 for unit in units if unit.state == PLANNED and waiting_on(unit, units)
@@ -1797,13 +1820,13 @@ def _schedule(
                 building.pop(future)
                 if not future.result():
                     failed = True
-            sample(len(building))
             # A build still in flight — or another tick — may already have
             # recorded the model's refusal; its report is not needed to stop
             # here. A usage pause is not one: the round asks the guard again.
             held = is_paused(_paused_marker(inst))
             stopping = failed or bool(held and held.kind == "rate_limit")
             if stopping or refused:
+                sample()
                 continue
 
             in_flight = {unit.id for unit in building.values()}
@@ -1822,8 +1845,10 @@ def _schedule(
                 _log_ready(inst, store, ready, only=only)
                 if _refuse_unconfigured(inst, ready):
                     refused = True
+                    sample()
                     continue
                 submit(ready)
+            sample()
     return 1 if refused else 0
 
 
@@ -1874,6 +1899,19 @@ def branch_head(inst: Installation, unit: StoredUnit) -> str:
         return ""
     ref = f"refs/heads/{unit.branch or branch_name(unit)}"
     return git(path, "rev-parse", "--verify", "-q", ref, check=False).stdout.strip()
+
+
+def parked_units(inst: Installation, units: Sequence[StoredUnit]) -> frozenset[str]:
+    """The running units a pause in force has parked: no run holds their branch, so the
+    pause is what they wait on. A build in flight goes on through a pause until its next
+    agent step, and is not one. Computed once for a view that shows many units."""
+    if not pause_in_force(inst.state_dir):
+        return frozenset()
+    return frozenset(
+        unit.id
+        for unit in units
+        if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
+    )
 
 
 def branch_is_held(inst: Installation, branch: str) -> bool:
@@ -2543,11 +2581,12 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
     """Rewrite the graph page after a poll: the checks it shows may have changed
     with no store write. An unchanged body is skipped. A view, so it never fails the poll."""
     try:
+        units = store.all()
         diagram.write_page(
-            store.all(),
+            units,
             inst.graph_page,
             checks_of=recorded_checks(inst.state_dir),
-            usage_paused=pause_in_force(inst.state_dir),
+            paused=parked_units(inst, units),
         )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -3548,6 +3587,14 @@ def _waits_in(
             continue
         if unit.state == IN_REVIEW:
             waits[unit.id] = Wait(reason=WaitReason.WAITING_REVIEW)
+        elif unit.state == HELD and unit.held_by is HeldBy.DEPTH:
+            # Clears by itself when a merge frees the depth: it waits on work, not a person.
+            parents = tuple(
+                parent.id
+                for parent in view
+                if parent.id in unit.depends_on and parent.state not in (MERGED, CLOSED, SATISFIED)
+            )
+            waits[unit.id] = Wait(reason=WaitReason.BLOCKED, waits_on=parents)
         elif unit.state in (HELD, FAILED):
             waits[unit.id] = Wait(reason=WaitReason.NEEDS_PERSON)
         elif unit.state == PLANNED:
@@ -3593,12 +3640,19 @@ def _planned_wait(
 _RECORDERS: dict[Path, WaitRecorder] = {}
 
 
-def _record_waits(inst: Installation, waits: Callable[[], dict[str, Wait]]) -> None:
-    """Log each unit's reason for waiting where it changed; a pass is never failed by it."""
+def _record_waits(
+    inst: Installation,
+    units: Sequence[StoredUnit],
+    only: frozenset[str],
+    waits: Callable[[], dict[str, Wait]],
+) -> None:
+    """Log each unit's reason for waiting where it changed; a pass is never failed by it.
+    A unit `--only` leaves out is not looked at, so its wait is neither changed nor closed."""
     try:
         path = inst.state_dir / DECISIONS_NAME
         if path not in _RECORDERS:
             _RECORDERS[path] = WaitRecorder(path, log)
-        _RECORDERS[path].record(waits(), tick=_PROCESS_TICK)
+        left_out = [unit.id for unit in units if only and unit.id not in only]
+        _RECORDERS[path].record(waits(), tick=_PROCESS_TICK, keep=left_out)
     except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
         log(f"the decision log is not recording ({type(error).__name__}: {error})")

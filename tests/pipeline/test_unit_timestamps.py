@@ -112,27 +112,33 @@ def pull(number: int, *ids: str) -> PullRequest:
     )
 
 
-def test_only_a_comment_the_pipeline_did_not_post_reports_a_person_answering(
+def test_only_a_new_comment_the_pipeline_did_not_post_reports_a_person_answering(
     tmp_path: Path,
 ) -> None:
-    pulls = [
-        pull(4, "c1", "c2"),  # every comment the pipeline's own
-        pull(5, "c3", "c4"),  # one of them a person's
-        pull(6),  # none
-    ]
+    pulls = [pull(4), pull(5, "c0"), pull(6)]
     own = {4: {"c1", "c2"}, 5: {"c3"}}
     answered: list[int] = []
-
-    Poller(
+    poller = Poller(
         repo="app",
         state_path=tmp_path / "poll.json",
         list_prs=lambda: pulls,
         dispatch=lambda action, number, **_: None,
         ignore=lambda number: own.get(number, set()),
         human_activity=answered.append,
-    ).poll()
+    )
+    poller.poll()
+    assert answered == [], "the first poll only records what is already there"
 
+    pulls[:] = [
+        pull(4, "c1", "c2"),  # every comment the pipeline's own
+        pull(5, "c0", "c3", "c4"),  # a person's new one
+        pull(6),  # none
+    ]
+    poller.poll()
     assert answered == [5]
+
+    poller.poll()
+    assert answered == [5], "the same comment is not reported again"
 
 
 # --- the store as an older release reads it ---------------------------------------------

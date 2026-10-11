@@ -108,6 +108,10 @@ def test_each_refresh_of_the_pass_writes_one_sample_row_with_the_named_counts(ru
     first, last = run.samples()
     assert set(first) >= SAMPLE_COUNTS | {"kind", "at"}
     assert set(last) >= SAMPLE_COUNTS
+    # At the first completion the freed slot is already refilled: what the sample shows is
+    # the pass after the refill, not the instant between one build ending and the next.
+    assert (first["running"], first["in_review"], first["queued"]) == (1, 1, 0)
+    assert (first["free_workers"], first["limit"], first["cap"]) == (0, 50, 1)
     assert (last["running"], last["in_review"], last["blocked"], last["queued"]) == (0, 2, 0, 0)
     assert (last["free_workers"], last["limit"], last["cap"]) == (1, 50, 1)
 
@@ -161,3 +165,20 @@ def test_a_unit_that_waits_for_a_slot_is_stamped_ready_from_when_it_first_could_
     assert first.ready_at == START
     assert second.ready_at == START, "ready when the pass saw it, not when it got a slot"
     assert second.started_at == START + timedelta(seconds=30)
+
+
+def test_the_slot_gauges_describe_the_pass_after_its_slots_are_refilled(
+    run: Pass, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    levels: list[tuple[str, int]] = []
+    real = cli.telemetry.level
+    monkeypatch.setattr(
+        cli.telemetry,
+        "level",
+        lambda name, value, **attributes: (levels.append((name, value)), real(name, value))[1],
+    )
+
+    run.tick()
+
+    assert [value for name, value in levels if name == "abk.slots.free"] == [0, 1]
+    assert [value for name, value in levels if name == "abk.slots.idle_with_ready"] == [0, 0]

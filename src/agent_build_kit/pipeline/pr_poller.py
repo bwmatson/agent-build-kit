@@ -227,8 +227,6 @@ class Poller(BaseModel):
 
             number = str(pull.number)
             current = snapshot(pull, self.ignore(int(number)))
-            if current["comment_ids"]:
-                self.human_activity(int(number))
             if current["mergeable"] is None and number in known:
                 # The host resets its answer to undetermined whenever the base
                 # moves and works it out lazily. Recorded, it would make the
@@ -237,6 +235,9 @@ class Poller(BaseModel):
                 # answer stands.
                 current["mergeable"] = known[number].get("mergeable")
             updated[number] = current
+
+            if not first_run and self._person_answered(known.get(number), current):
+                self.human_activity(int(number))
 
             if first_run:
                 # A fresh state file must not read as a hundred simultaneous
@@ -260,6 +261,17 @@ class Poller(BaseModel):
                 updated[number] = known[number]
 
         PrState.save(self.state_path, updated)
+
+    @staticmethod
+    def _person_answered(before: dict | None, current: dict) -> bool:
+        """Whether this poll found a comment or review not posted by the pipeline that the
+        last poll had not seen. A snapshot from before the ids were kept says nothing of
+        what was there, so it counts for nothing."""
+        if before is None:
+            return bool(current["comment_ids"])
+        if "comment_ids" not in before:
+            return False
+        return bool(set(current["comment_ids"]) - set(before["comment_ids"]))
 
     def _dispatch_terminal(self, number: int, current: dict, pull: PullRequest) -> bool | None:
         """Report a PR we are meeting for the first time if it is done — or if

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -62,9 +62,10 @@ class WaitRecorder:
                 continue
         return current
 
-    def record(self, waits: Mapping[str, Wait], *, tick: str) -> None:
+    def record(self, waits: Mapping[str, Wait], *, tick: str, keep: Collection[str] = ()) -> None:
         """Log what changed since the last call; a unit that left `waits` gets a
-        closing record, and a wait that ended a span if it is one the build path does
+        closing record (unless it is in `keep`: a unit this pass did not look at, whose wait
+        goes on), and a wait that ended a span if it is one the build path does
         not write."""
         now = spans.clock.now()
         for unit, wait in waits.items():
@@ -75,7 +76,7 @@ class WaitRecorder:
                 self._end(unit, before)
             self._current[unit] = (wait, now)
             self._append(now, unit, wait.reason, wait.waits_on, tick)
-        for unit in [unit for unit in self._current if unit not in waits]:
+        for unit in [unit for unit in self._current if unit not in waits and unit not in keep]:
             self._end(unit, self._current.pop(unit))
             self._append(now, unit, ENDED, (), tick)
 

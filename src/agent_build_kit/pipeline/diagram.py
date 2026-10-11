@@ -22,11 +22,11 @@ is no diff.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges
-from agent_build_kit.pipeline.pause import pause_in_force
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
     HELD,
@@ -85,7 +85,7 @@ def render_mermaid(
     *,
     graph: list[StoredUnit] | None = None,
     checks_of: ChecksOf | None = None,
-    usage_paused: bool = False,
+    paused: Collection[str] = (),
 ) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn."""
@@ -101,7 +101,7 @@ def render_mermaid(
     for repo in sorted({unit.repo for unit in units}):
         lines.append(f"    subgraph {repo}")
         for unit in [u for u in ordered if u.repo == repo]:
-            state = effective_state(unit, graph, checks_of=checks_of, usage_paused=usage_paused)
+            state = effective_state(unit, graph, checks_of=checks_of, paused=paused)
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
@@ -130,7 +130,7 @@ def render_mermaid(
         lines.append(f"    classDef {state} {painted}")
 
     for unit in ordered:
-        state = effective_state(unit, graph, checks_of=checks_of, usage_paused=usage_paused)
+        state = effective_state(unit, graph, checks_of=checks_of, paused=paused)
         lines.append(f"    class {_node_id(unit.id)} {state}")
 
     return "\n".join(lines)
@@ -144,7 +144,7 @@ def _pr_url(unit: StoredUnit) -> str:
 
 
 def render_markdown(
-    units: list[StoredUnit], *, checks_of: ChecksOf | None = None, usage_paused: bool = False
+    units: list[StoredUnit], *, checks_of: ChecksOf | None = None, paused: Collection[str] = ()
 ) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
@@ -170,7 +170,7 @@ units it builds on directly. Rewritten whenever a unit changes state; do not
 edit by hand.
 
 ```mermaid
-{render_mermaid(shown, graph=units, checks_of=checks_of, usage_paused=usage_paused)}
+{render_mermaid(shown, graph=units, checks_of=checks_of, paused=paused)}
 ```
 
 ## Legend
@@ -221,14 +221,14 @@ def write_page(
     out: Path,
     *,
     checks_of: ChecksOf | None = None,
-    usage_paused: bool = False,
+    paused: Collection[str] = (),
 ) -> None:
     """Rewrite the page, keeping the old timestamp when nothing else changed.
 
     Called on every store write, so without this each tick would leave a
     one-line diff in a committed file for no change at all.
     """
-    page = render_markdown(units, checks_of=checks_of, usage_paused=usage_paused)
+    page = render_markdown(units, checks_of=checks_of, paused=paused)
     if out.exists() and _body(out.read_text()) == _body(page):
         return
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -244,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
     from pathlib import Path
 
+    from agent_build_kit.cli.pipeline import parked_units
     from agent_build_kit.installation import load_installation
     from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
@@ -259,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         units,
         args.out,
         checks_of=recorded_checks(installation.state_dir),
-        usage_paused=pause_in_force(installation.state_dir),
+        paused=parked_units(installation, units),
     )
     print(f"{args.out}: {len(units)} unit(s)")
     return 0

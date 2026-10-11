@@ -7,7 +7,7 @@ this rather than each keeping a copy that can drift.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import timedelta
 from enum import StrEnum
 
@@ -146,7 +146,7 @@ def effective_state(
     units: list[StoredUnit],
     *,
     checks_of: ChecksOf | None = None,
-    usage_paused: bool = False,
+    paused: Collection[str] = (),
 ) -> str:
     """The key in `STATES` a unit currently reads as.
 
@@ -156,7 +156,7 @@ def effective_state(
     showed a unit as startable while its same-repo parent was still building.
     """
     if unit.state == RUNNING:
-        return "paused" if usage_paused else _running_status(unit)
+        return "paused" if unit.id in paused else _running_status(unit)
     if unit.state == IN_REVIEW and checks_of is not None and _checking(unit, checks_of):
         return "checking"
     if unit.state != PLANNED:
@@ -166,8 +166,8 @@ def effective_state(
     # held at a boundary records a return to planned with a note saying why. A
     # usage pause is not one: the unit stays `running`, interrupted, in its thread.
     if waiting_on(unit, units):
-        paused = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
-        return "paused_rework" if paused else "blocked"
+        reworking = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
+        return "paused_rework" if reworking else "blocked"
     return PLANNED
 
 

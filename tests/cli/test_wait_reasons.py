@@ -18,7 +18,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.vocabulary import WaitReason
@@ -70,6 +70,11 @@ def in_backoff(store: UnitStore, inst: Installation) -> None:
     store.set_state("second/1", PLANNED, note="host unavailable", cause=Cause.HOST_UNAVAILABLE)
 
 
+def depth_held(store: UnitStore, inst: Installation) -> None:
+    store.upsert([new_unit("first/1"), new_unit("second/1", depends_on=("first/1",))])
+    store.set_state("second/1", HELD, note="stack too deep", held_by=HeldBy.DEPTH)
+
+
 def startable(store: UnitStore, inst: Installation) -> None:
     store.upsert([new_unit("second/1")])
 
@@ -81,6 +86,7 @@ CASES = [
     pytest.param(in_review, WaitReason.WAITING_REVIEW, {}, id="in-review"),
     pytest.param(held, WaitReason.NEEDS_PERSON, {}, id="held"),
     pytest.param(failed, WaitReason.NEEDS_PERSON, {}, id="failed"),
+    pytest.param(depth_held, WaitReason.BLOCKED, {}, id="held-for-depth"),
     pytest.param(leased, WaitReason.LEASE, {}, id="leased"),
     pytest.param(in_backoff, WaitReason.BACKOFF, {}, id="backoff"),
     pytest.param(startable, WaitReason.READY, {}, id="startable"),
@@ -233,3 +239,30 @@ def test_a_round_under_the_models_rate_limit_pause_records_usage_pause_for_a_sta
     cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
 
     assert [(r["unit"], r["reason"]) for r in decisions(inst)] == [("second/1", "usage_pause")]
+
+
+def test_a_round_the_usage_guard_refuses_records_usage_pause_for_a_startable_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = installation(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    startable(store, inst)
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session usage at 90%")
+    )
+
+    ready = cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    assert ready == []
+    assert [(r["unit"], r["reason"]) for r in decisions(inst)] == [("second/1", "usage_pause")]
+
+
+def test_a_unit_left_out_by_only_keeps_its_wait_open(tmp_path: Path) -> None:
+    inst = installation(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    leased(store, inst)
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    cli.run_round(inst, store, building=(), only=frozenset({"other/1"}), submit=True)
+
+    assert [r["reason"] for r in decisions(inst) if r["unit"] == "second/1"] == ["lease"]

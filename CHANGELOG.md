@@ -18,15 +18,16 @@
 
 - Every unit that is not running now has one recorded reason (blocked, queue full, slot, usage
   pause, lease, backoff, waiting for review, needs a person, or ready). A decision log in the
-  state directory records a change of reason once, and a wait that ends is one span in the usage
-  ledger. A unit's record gains `ready_at` and `first_human_activity_at`, written only once set,
-  a usage-paused unit shows as `paused`, and each refresh of a running pass adds a `sample` row
-  to the ledger and sets the `abk.slots.free` and `abk.slots.idle_with_ready` gauges. A units
-  store with the two new fields set needs this release to be read. An installation adds
-  `runs/decisions.jsonl` to its planning repo's `.gitignore` (beside `runs/usage-ledger.jsonl`;
-  new ones get it from `abk init`). A rework or adapt round's ledger span says why it ran
-  (`review`, `check` or `conflict`), and a unit that is running while a pause is in force reads
-  as `paused` in status, the graph, labels and the web UI.
+  state directory records a change of reason once, and a wait for a full queue, a lease, a backoff
+  or a person that ends is one span in the usage ledger, beside the slot and usage-pause spans
+  that already were. A unit's record gains `ready_at` and `first_human_activity_at`, written only
+  once set, a unit a usage pause has parked shows as `paused`, and each refresh of a running pass
+  adds a `sample` row to the ledger and sets the `abk.slots.free` and `abk.slots.idle_with_ready`
+  gauges. A units store with the two new fields set needs this release to be read. An installation
+  adds `runs/decisions.jsonl` to its planning repo's `.gitignore` (beside
+  `runs/usage-ledger.jsonl`; new ones get it from `abk init`). A rework or adapt round's ledger
+  span says why it ran (`review`, `check` or `conflict`), and a running unit that a pause in force
+  has parked (no run holds it) reads as `paused` in status, the graph, labels and the web UI.
 
 - The reviewer now searches for an existing equivalent of each new function, constant,
   pattern or test helper in a diff, and for a second copy within it, naming the existing one
