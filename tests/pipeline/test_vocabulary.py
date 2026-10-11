@@ -26,6 +26,7 @@ EVERY_STATE = {
     "rebasing",
     "reworking",
     "paused_rework",
+    "paused",
     "held",
     "in_review",
     "checking",

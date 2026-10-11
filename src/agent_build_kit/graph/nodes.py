@@ -231,6 +231,29 @@ class BuildPath:
         }
         return {node: self._wrapped(node, body) for node, body in bodies.items()}
 
+    def _round_cause(self, node: Node) -> str:
+        """Why a review round runs, for its span: `conflict` for an adapt or a rework a
+        restack started, `check` for a failed check's, `review` for the rest; empty for a
+        node that is not a round. Only a rework reads the unit's record, and a record that
+        cannot be read is not the node's failure."""
+        if node is Node.ADAPT:
+            return "conflict"
+        if node is Node.FIX_CHECKS:
+            return "check"
+        if node is not Node.REWORK:
+            return ""
+        try:
+            source = self.runner.store.get(self.unit.id).feedback_source
+        except Exception:  # noqa: BLE001 — a span's cause is never a run's to lose
+            return "review"
+        match source:
+            case FeedbackSource.CONFLICT:
+                return "conflict"
+            case FeedbackSource.CI | FeedbackSource.TIER1 | FeedbackSource.TIER2:
+                return "check"
+            case _:
+                return "review"
+
     def _wrapped(self, node: Node, body: Callable[[UnitRun], Update]):
         async def run(state: UnitRun) -> Update:
             self._own = node in EDITING_NODES and state.running_node == node.value
@@ -256,6 +279,8 @@ class BuildPath:
             started = time.monotonic()
             mark = spans.Mark()
             outcome = UnitOutcome.ERROR
+            # Before the body: a rework clears the feedback it acts on.
+            cause = self._round_cause(node)
             with span as current:
                 self._node = node.value
                 self._ended = None
@@ -321,6 +346,7 @@ class BuildPath:
                         node=node.value,
                         round_number=_round(node, state),
                         outcome=outcome,
+                        cause=cause,
                     )
                     if current is not None:
                         current.set_attribute("outcome", outcome)

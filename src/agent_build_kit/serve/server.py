@@ -25,6 +25,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import Field, model_validator
 
+from agent_build_kit.cli.pipeline import parked_units
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, unit_graphs_path
 from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.graph.unit import thread_position
@@ -233,14 +234,16 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             raise HTTPException(status_code=404, detail=f"no unit {change}/{number}")
         return unit, units
 
-    def summary(unit: StoredUnit, units: list[StoredUnit]) -> dict[str, Any]:
+    def summary(
+        unit: StoredUnit, units: list[StoredUnit], paused: frozenset[str]
+    ) -> dict[str, Any]:
         return {
             "id": unit.id,
             "title": unit.title,
             "change": unit.change,
             "repo": unit.repo,
             "state": unit.state,
-            "status": effective_state(unit, units),
+            "status": effective_state(unit, units, paused=paused),
             "cause": unit.cause.value if unit.cause else None,
             "held_by": unit.held_by.value,
             "note": unit.note,
@@ -248,10 +251,17 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             "pr": unit.pr,
         }
 
-    def related(ids: tuple[str, ...], units: list[StoredUnit]) -> list[dict[str, str]]:
+    def related(
+        ids: tuple[str, ...], units: list[StoredUnit], paused: frozenset[str]
+    ) -> list[dict[str, str]]:
         index = {u.id: u for u in units}
         return [
-            {"id": uid, "status": effective_state(index[uid], units) if uid in index else "unknown"}
+            {
+                "id": uid,
+                "status": effective_state(index[uid], units, paused=paused)
+                if uid in index
+                else "unknown",
+            }
             for uid in ids
         ]
 
@@ -267,13 +277,15 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
     @app.get("/api/pipeline")
     def pipeline() -> dict[str, Any]:
         units = _read_units(units_path)
-        return {"units": [summary(u, units) for u in units]}
+        paused = parked_units(installation, units)
+        return {"units": [summary(u, units, paused) for u in units]}
 
     @app.get("/api/units/{change}/{number}")
     def one_unit(change: str, number: str) -> dict[str, Any]:
         unit, units = find(change, number)
+        paused = parked_units(installation, units)
         return {
-            **summary(unit, units),
+            **summary(unit, units, paused),
             "history": [
                 {
                     "state": entry.get("state"),
@@ -284,8 +296,8 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
                 for entry in unit.history
             ],
             "base": base_of(unit, units),
-            "depends_on": related(unit.depends_on, units),
-            "merge_gates": related(unit.merge_before, units),
+            "depends_on": related(unit.depends_on, units, paused),
+            "merge_gates": related(unit.merge_before, units, paused),
             "review_round": review_round(installation, unit.id),
             "actions": available_actions(unit, installation),
         }

@@ -24,7 +24,8 @@ import json
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Collection, Mapping
+import uuid
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -66,7 +67,15 @@ from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
-from agent_build_kit.pipeline.pause import Pause, clear_pause, is_paused, pause_line, pause_until
+from agent_build_kit.pipeline.pause import (
+    PAUSE_MARKER,
+    Pause,
+    clear_pause,
+    is_paused,
+    pause_in_force,
+    pause_line,
+    pause_until,
+)
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     in_flight_item,
@@ -142,6 +151,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    depth_of,
     effective_priority,
     in_progress,
     in_progress_label,
@@ -181,7 +191,13 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verify import Verification, VerifyRecord, verify_change
-from agent_build_kit.pipeline.vocabulary import effective_state, state_label, state_label_names
+from agent_build_kit.pipeline.vocabulary import (
+    WaitReason,
+    effective_state,
+    state_label,
+    state_label_names,
+)
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME, Wait, WaitRecorder
 from agent_build_kit.pipeline.wiring import (
     build_close_pr,
     build_on_flake,
@@ -224,7 +240,12 @@ def store_for(inst: Installation) -> UnitStore:
     def refresh_graph(units: list[StoredUnit]) -> None:
         # A view, so it must never take the store write down with it.
         try:
-            diagram.write_page(units, inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+            diagram.write_page(
+                units,
+                inst.graph_page,
+                checks_of=recorded_checks(inst.state_dir),
+                paused=parked_units(inst, units),
+            )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
 
@@ -242,7 +263,13 @@ def store_for(inst: Installation) -> UnitStore:
     drafts = StateDrafts(inst.forge_of, log=log)
 
     def follow(unit: StoredUnit, units: list[StoredUnit], opened: bool) -> None:
-        labels.follow(unit, units, opened=opened, checks_of=recorded_checks(inst.state_dir))
+        labels.follow(
+            unit,
+            units,
+            opened=opened,
+            checks_of=recorded_checks(inst.state_dir),
+            paused=parked_units(inst, units),
+        )
         drafts.follow(unit, units, opened=opened)
 
     return UnitStore(
@@ -253,7 +280,7 @@ def store_for(inst: Installation) -> UnitStore:
 
 
 def _paused_marker(inst: Installation) -> Path:
-    return inst.state_dir / "paused.json"
+    return inst.state_dir / PAUSE_MARKER
 
 
 # --- status / graph -------------------------------------------------------------
@@ -423,11 +450,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     checks_of = recorded_checks(inst.state_dir)
 
     by_state: dict[str, int] = {}
+    paused = parked_units(inst, units)
     for unit in units:
         shown = (
             unit.state
             if unit.state not in (RUNNING, IN_REVIEW)
-            else effective_state(unit, units, checks_of=checks_of)
+            else effective_state(unit, units, checks_of=checks_of, paused=paused)
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
@@ -550,7 +578,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
 def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
     units = UnitStore(inst.state_dir / "units.json").all()
-    diagram.write_page(units, inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+    diagram.write_page(
+        units,
+        inst.graph_page,
+        checks_of=recorded_checks(inst.state_dir),
+        paused=parked_units(inst, units),
+    )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
 
@@ -1049,6 +1082,21 @@ def run_round(
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
+        units = store.all()
+        _record_waits(
+            inst,
+            store,
+            units,
+            only,
+            lambda: wait_reasons(
+                inst,
+                units,
+                started=set(started),
+                building=set(building),
+                only=only,
+                usage_paused=True,
+            ),
+        )
         return []
     # A usage refusal only withholds builds: the round still fetches and polls,
     # so merges and comments are recorded while it lasts. Planning spends a
@@ -1101,6 +1149,22 @@ def run_round(
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
     _step("sweeping state labels", _sweep_labels, inst, store)
+    if submit and may == "usage":
+        units = store.all()
+        _record_waits(
+            inst,
+            store,
+            units,
+            only,
+            lambda: wait_reasons(
+                inst,
+                units,
+                started=set(started),
+                building=set(building),
+                only=only,
+                usage_paused=True,
+            ),
+        )
     if not submit or not (admitted or may == "idle"):
         return []
 
@@ -1112,6 +1176,19 @@ def run_round(
                 f"{int(left.total_seconds())}s remain"
             )
     if not admitted:
+        _record_waits(
+            inst,
+            store,
+            units,
+            only,
+            lambda: wait_reasons(
+                inst,
+                units,
+                started=set(started),
+                building=set(building),
+                only=only,
+            ),
+        )
         return []
     in_flight = set(building)
     if readmit:
@@ -1128,19 +1205,37 @@ def run_round(
         if readmit is None or unit.id not in started or readmit.may_resume(unit.id)
     ][:free]
     resumed = {unit.id for unit in resumable}
-    ready = [
-        *resumable,
-        *_evaluate(
-            inst,
-            units,
-            started=set(started),
-            building=in_flight | resumed,
-            only=only,
-            idle=idle - resumed,
-        ),
-    ]
+    evaluated, view, _excluded = _evaluate_round(
+        inst,
+        units,
+        started=set(started),
+        building=in_flight | resumed,
+        only=only,
+        idle=idle - resumed,
+    )
+    ready = [*resumable, *evaluated]
     if readmit:
         readmit.charge(ready)
+    _record_waits(
+        inst,
+        store,
+        units,
+        only,
+        lambda: _waits_in(
+            inst,
+            units,
+            view,
+            startable={unit.id for unit in evaluated},
+            skipped={
+                *_parked_starts(units, started),
+                *in_flight,
+                *resumed,
+                *(unit.id for unit in ready),
+            },
+            only=only,
+            usage_paused=False,
+        ),
+    )
     return ready
 
 
@@ -1677,9 +1772,38 @@ def _schedule(
             # A unit that stopped being ready restarts its clock when it is again.
             for unit_id in set(queued) - {unit.id for unit in evaluated}:
                 del queued[unit_id]
+            unstamped = {unit.id for unit in units if unit.ready_at is None}
             for unit in evaluated:
+                if unit.id in unstamped:
+                    store.mark_ready(unit.id)
                 if unit.id not in taken:
                     queued.setdefault(unit.id, spans.Mark())
+
+        def sample() -> None:
+            """One ledger row and the slot gauges, for a wake once its slots are refilled:
+            what is in flight counts as running though its worker has not yet marked it so."""
+            units = store.all()
+            states = [unit.state for unit in units]
+            in_flight = {unit.id for unit in building.values()}
+            running = in_flight | {unit.id for unit in units if unit.state == RUNNING}
+            free = max(0, inst.max_concurrent_stacks - len(building))
+            spans.record_sample(
+                spans.Sample(
+                    at=spans.clock.now().isoformat(),
+                    running=len(running),
+                    in_review=states.count(IN_REVIEW),
+                    blocked=sum(
+                        1 for unit in units if unit.state == PLANNED and waiting_on(unit, units)
+                    ),
+                    queued=len(queued),
+                    free_workers=free,
+                    limit=inst.max_units_in_progress,
+                    cap=inst.max_concurrent_stacks,
+                ),
+                log,
+            )
+            telemetry.level("abk.slots.free", free)
+            telemetry.level("abk.slots.idle_with_ready", min(free, len(queued)))
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
@@ -1713,6 +1837,7 @@ def _schedule(
             held = is_paused(_paused_marker(inst))
             stopping = failed or bool(held and held.kind == "rate_limit")
             if stopping or refused:
+                sample()
                 continue
 
             in_flight = {unit.id for unit in building.values()}
@@ -1731,8 +1856,10 @@ def _schedule(
                 _log_ready(inst, store, ready, only=only)
                 if _refuse_unconfigured(inst, ready):
                     refused = True
+                    sample()
                     continue
                 submit(ready)
+            sample()
     return 1 if refused else 0
 
 
@@ -1783,6 +1910,19 @@ def branch_head(inst: Installation, unit: StoredUnit) -> str:
         return ""
     ref = f"refs/heads/{unit.branch or branch_name(unit)}"
     return git(path, "rev-parse", "--verify", "-q", ref, check=False).stdout.strip()
+
+
+def parked_units(inst: Installation, units: Sequence[StoredUnit]) -> frozenset[str]:
+    """The running units a pause in force has parked: no run holds their branch, so the
+    pause is what they wait on. A build in flight goes on through a pause until its next
+    agent step, and is not one. Computed once for a view that shows many units."""
+    if not pause_in_force(inst.state_dir):
+        return frozenset()
+    return frozenset(
+        unit.id
+        for unit in units
+        if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
+    )
 
 
 def branch_is_held(inst: Installation, branch: str) -> bool:
@@ -2434,6 +2574,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
                 review_of=lambda pull, repo=repo: _ui_review_of(inst, store, repo, pull),
             ),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
+            human_activity=lambda number, repo=repo: _note_human_activity(store, repo, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
             log=log,
         ).poll()
@@ -2441,11 +2582,23 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
     _refresh_graph_page(inst, store)
 
 
+def _note_human_activity(store: UnitStore, repo: str, number: int) -> None:
+    """Stamp the unit whose pull request a person has answered, once."""
+    if unit := unit_of(store, repo, number):
+        store.mark_human_activity(unit.id)
+
+
 def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
     """Rewrite the graph page after a poll: the checks it shows may have changed
     with no store write. An unchanged body is skipped. A view, so it never fails the poll."""
     try:
-        diagram.write_page(store.all(), inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+        units = store.all()
+        diagram.write_page(
+            units,
+            inst.graph_page,
+            checks_of=recorded_checks(inst.state_dir),
+            paused=parked_units(inst, units),
+        )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")
 
@@ -3384,3 +3537,151 @@ def register(sub: argparse._SubParsersAction) -> None:
     gate.add_argument("--cache", type=Path, default=None)
     gate.add_argument("--profile", default=None, help="toolchain profile (default: from abk.yaml)")
     gate.set_defaults(func=cmd_gate, needs_installation="optional")
+
+
+# Told in the decision log with each record, so the records of one process read together.
+_PROCESS_TICK = uuid.uuid4().hex[:8]
+
+
+def wait_reasons(
+    inst: Installation,
+    units: list[StoredUnit],
+    *,
+    started: set[str],
+    building: set[str],
+    only: frozenset[str],
+    idle: Collection[str] = (),
+    usage_paused: bool = False,
+) -> dict[str, Wait]:
+    """The one reason each unit that is not running is not, with what it waits on.
+
+    Decided from the facts `_evaluate_round` decides on, so what starts is unchanged:
+    a unit it would start is `ready`, one it leaves out is told by what holds it."""
+    ready, view, _excluded = _evaluate_round(
+        inst,
+        units,
+        started=started,
+        building=building,
+        only=only,
+        idle=idle,
+    )
+    return _waits_in(
+        inst,
+        units,
+        view,
+        startable={unit.id for unit in ready},
+        skipped=_parked_starts(units, started) | building,
+        only=only,
+        usage_paused=usage_paused,
+    )
+
+
+def _waits_in(
+    inst: Installation,
+    units: list[StoredUnit],
+    view: list[Unit],
+    *,
+    startable: set[str],
+    skipped: set[str],
+    only: frozenset[str],
+    usage_paused: bool,
+) -> dict[str, Wait]:
+    """The reasons of `wait_reasons` from an evaluation a pass has already made: a unit
+    in `skipped` is running or started, and one in `startable` is ready."""
+    leases = Leases(lease_dir(inst.state_dir))
+    now = spans.clock.now()
+    waits: dict[str, Wait] = {}
+    # By the stored state: the view shows what a pass leaves out as held.
+    for unit in units:
+        # What `--only` leaves out is not waiting for anything this pass decides.
+        if unit.id in skipped or (only and unit.id not in only):
+            continue
+        if unit.state == IN_REVIEW:
+            waits[unit.id] = Wait(reason=WaitReason.WAITING_REVIEW)
+        elif unit.state == HELD and unit.held_by is HeldBy.DEPTH:
+            # Clears by itself when a merge frees the depth: it waits on work, not a person.
+            parents = tuple(
+                parent.id
+                for parent in view
+                if parent.id in unit.depends_on and parent.state not in (MERGED, CLOSED, SATISFIED)
+            )
+            waits[unit.id] = Wait(reason=WaitReason.BLOCKED, waits_on=parents)
+        elif unit.state in (HELD, FAILED):
+            waits[unit.id] = Wait(reason=WaitReason.NEEDS_PERSON)
+        elif unit.state == PLANNED:
+            waits[unit.id] = _planned_wait(
+                inst, unit, view, leases, now, startable, usage_paused=usage_paused
+            )
+    return waits
+
+
+def _planned_wait(
+    inst: Installation,
+    unit: StoredUnit,
+    view: list[Unit],
+    leases: Leases,
+    now: datetime,
+    startable: set[str],
+    *,
+    usage_paused: bool,
+) -> Wait:
+    if leases.holder(unit.id) is not None:
+        return Wait(reason=WaitReason.LEASE)
+    if backoff_remaining(unit, now) is not None:
+        return Wait(reason=WaitReason.BACKOFF)
+    if parents := waiting_on(unit, view):
+        return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
+    # Not ready for want of work another unit has to finish: a requeue gated on a merge,
+    # or a stack deeper than may be built until what it stacks on merges.
+    if (unit.cause is Cause.GATED and unit.gated_requeue is not None) or (
+        depth_of(unit, view) > inst.stack_depth_build_cap
+    ):
+        return Wait(reason=WaitReason.BLOCKED)
+    if usage_paused:
+        return Wait(reason=WaitReason.USAGE_PAUSE)
+    if unit.id in startable:
+        return Wait(reason=WaitReason.READY)
+    if not in_progress(unit, view) and not start_room(view, inst.max_units_in_progress):
+        return Wait(reason=WaitReason.QUEUE_FULL)
+    return Wait(reason=WaitReason.SLOT)
+
+
+# One recorder for each decision log, so the log is read once when a process first
+# records, not on every refresh.
+_RECORDERS: dict[Path, WaitRecorder] = {}
+
+
+# A unit waiting for these has nothing blocking it: it is ready, whatever holds its start.
+_READY_REASONS = frozenset({WaitReason.READY, WaitReason.SLOT, WaitReason.USAGE_PAUSE})
+
+
+def _parked_starts(units: Sequence[StoredUnit], started: Collection[str]) -> set[str]:
+    """The units this pass started that are stored `planned` again: they wait for the next
+    pass. One started that has since reached review, a hold or a failure is judged by its
+    stored state, so its wait is dated from when it began."""
+    return {unit.id for unit in units if unit.id in started and unit.state == PLANNED}
+
+
+def _record_waits(
+    inst: Installation,
+    store: UnitStore,
+    units: Sequence[StoredUnit],
+    only: frozenset[str],
+    waits: Callable[[], dict[str, Wait]],
+) -> None:
+    """Log each unit's reason for waiting where it changed; a pass is never failed by it.
+    A unit `--only` leaves out is not looked at, so its wait is neither changed nor closed."""
+    try:
+        path = inst.state_dir / DECISIONS_NAME
+        if path not in _RECORDERS:
+            _RECORDERS[path] = WaitRecorder(path, log)
+        left_out = [unit.id for unit in units if only and unit.id not in only]
+        reasons = waits()
+        _RECORDERS[path].record(reasons, tick=_PROCESS_TICK, keep=left_out)
+        # Where reasons are decided, so a tick that starts nothing still dates a unit's readiness.
+        unstamped = {unit.id for unit in units if unit.ready_at is None}
+        for unit_id, wait in reasons.items():
+            if unit_id in unstamped and wait.reason in _READY_REASONS:
+                store.mark_ready(unit_id)
+    except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
+        log(f"the decision log is not recording ({type(error).__name__}: {error})")

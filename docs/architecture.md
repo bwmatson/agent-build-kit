@@ -648,9 +648,10 @@ published when it is `in_review`, written from the same state-change hook; other
 states leave it alone, and a refused write is logged without touching the unit.
 
 A stored `running` unit is shown as `rebasing` (its last event was a conflict or
-a moved base) or `reworking` (it is answering review or check feedback), else
-`running`. These are derived from the unit's record, never stored, and `abk
-status`, the graph and the state label show them.
+a moved base) or `reworking` (it is answering review or check feedback), or `paused` (a
+pause is in force and no run holds the unit), else `running`. These are derived
+from the unit's record, never stored, and `abk status`, the graph and the state
+label show them. A `paused` unit resumes by itself when the pause lifts.
 
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does
@@ -1058,9 +1059,11 @@ outcome and, for a failed check, its kind.
 | `abk.usage.pauses` | counter | kind (usage, rate_limit) |
 | `abk.units.reclaimed` | counter | |
 | `abk.units` | gauge | state |
+| `abk.slots.free` | gauge | |
+| `abk.slots.idle_with_ready` | gauge | |
 | `abk.agent.cost` | counter (USD) | repo, tier, node, role, model, source (measured, estimated) |
 | `abk.node.duration` | histogram (s) | node |
-| `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause) |
+| `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause, queue_full, lease, backoff, needs_person) |
 
 The last four are the usage ledger's figures, exported by the recorder that writes a ledger
 line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds
@@ -1091,6 +1094,7 @@ The planning repo's state directory (`planning.state_dir`, default `runs/`):
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json` | the current pause, until when and why. | one usage check. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below). Gitignored. | the spend history, not the work. |
+| `decisions.jsonl` | the decision log: `{at, unit, reason, waits_on, tick}`, appended only when a waiting unit's reason (`WaitReason`) or what it waits on changes, with a `none` record when the wait ends. Read from its tail when the pipeline starts. Gitignored. | why a unit waited, and for how long. |
 | `usage-cache.json.lock` | the lock one process holds while it refreshes the reading. | never needed. |
 | `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |
 | `tier2.lock`, `locks/` | the tier-2 queue lock; branch, repo and store locks. | nothing; kernel-released. |
@@ -1110,6 +1114,11 @@ root — `~/.local/share/<planning dir>/worktrees` unless configured — and the
 planning repo's `.env` holds machine-local settings.
 
 ### The usage ledger
+
+The ledger also holds `span` lines (a wait is one with `waited` set to its reason and no node;
+a review round carries a `cause` of `review`, `check` or `conflict`) and, each time a running
+pass refreshes, one `sample` line with the counts of units `running`, `in_review`, `blocked` and
+`queued`, the `free_workers`, the `limit` and the `cap`. Readers skip a kind they do not know.
 
 `<state_dir>/usage-ledger.jsonl` gets one line for each agent call a unit's graph makes, when the
 call ends, ok or failed (a Claude Code call cut off by a usage limit included). A line names

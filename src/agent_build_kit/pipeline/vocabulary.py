@@ -7,8 +7,9 @@ this rather than each keeping a copy that can drift.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import timedelta
+from enum import StrEnum
 
 from agent_build_kit.config import active
 from agent_build_kit.forges import Label
@@ -33,6 +34,20 @@ from agent_build_kit.pipeline.units import (
 INSTRUCTION_PREFIX = "agent-"
 
 
+class WaitReason(StrEnum):
+    """Why a unit that is not running is not: one member per cause."""
+
+    BLOCKED = "blocked"
+    QUEUE_FULL = "queue_full"
+    SLOT = spans.SLOT
+    USAGE_PAUSE = spans.USAGE_PAUSE
+    LEASE = "lease"
+    BACKOFF = "backoff"
+    WAITING_REVIEW = "waiting_review"
+    NEEDS_PERSON = "needs_person"
+    READY = "ready"
+
+
 class StateStyle(Frozen):
     """How one state reads: its name, and the three colours the graph paints it
     with. `extra` is any further mermaid style, such as a dashed outline."""
@@ -55,6 +70,7 @@ STATES: Mapping[str, StateStyle] = {
     "blocked": _style("blocked", "#f5f5f4", "#a8a29e", "#44403c", "stroke-dasharray:3 3"),
     RUNNING: _style("running", "#fef3c7", "#d97706", "#451a03"),
     "reworking": _style("reworking", "#fef9c3", "#ca8a04", "#422006"),
+    "paused": _style("paused", "#ede9fe", "#7c3aed", "#2e1065", "stroke-dasharray:3 3"),
     "rebasing": _style("rebasing", "#ccfbf1", "#0d9488", "#042f2e"),
     "paused_rework": _style(
         "paused-rework", "#ffedd5", "#ea580c", "#431407", "stroke-dasharray:3 3"
@@ -80,6 +96,7 @@ _DESCRIPTIONS = {
     "blocked": "Waiting on a unit it depends on",
     "running": "An agent is building this unit",
     "reworking": "An agent is answering review or check feedback on this unit",
+    "paused": "Waiting for the usage window; the run resumes by itself",
     "rebasing": "An agent is moving this unit onto a changed base or resolving a conflict",
     "paused_rework": "Stopped because a unit it depends on went back for rework",
     "held": "A person has taken this over; the pipeline will not touch it",
@@ -125,7 +142,11 @@ ChecksOf = Callable[[StoredUnit], Sequence[Check]]
 
 
 def effective_state(
-    unit: StoredUnit, units: list[StoredUnit], *, checks_of: ChecksOf | None = None
+    unit: StoredUnit,
+    units: list[StoredUnit],
+    *,
+    checks_of: ChecksOf | None = None,
+    paused: Collection[str] = (),
 ) -> str:
     """The key in `STATES` a unit currently reads as.
 
@@ -135,7 +156,7 @@ def effective_state(
     showed a unit as startable while its same-repo parent was still building.
     """
     if unit.state == RUNNING:
-        return _running_status(unit)
+        return "paused" if unit.id in paused else _running_status(unit)
     if unit.state == IN_REVIEW and checks_of is not None and _checking(unit, checks_of):
         return "checking"
     if unit.state != PLANNED:
@@ -145,8 +166,8 @@ def effective_state(
     # held at a boundary records a return to planned with a note saying why. A
     # usage pause is not one: the unit stays `running`, interrupted, in its thread.
     if waiting_on(unit, units):
-        paused = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
-        return "paused_rework" if paused else "blocked"
+        reworking = unit.cause in (Cause.BASE_CHANGED, Cause.UPSTREAM_WENT_BACK)
+        return "paused_rework" if reworking else "blocked"
     return PLANNED
 
 

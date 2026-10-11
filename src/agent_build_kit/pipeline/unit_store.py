@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
     PLANNED,
+    RUNNING,
     Join,
     Member,
     Priority,
@@ -224,6 +225,10 @@ class StoredUnit(Unit):
     step: str = ""
     parked_attempts: int = 0
     history: tuple[dict, ...] = ()
+    # When the unit was first evaluated with nothing blocking it, and when a
+    # person first answered its pull request; None until then.
+    ready_at: datetime | None = None
+    first_human_activity_at: datetime | None = None
 
     @field_validator("flag")
     @classmethod
@@ -239,6 +244,25 @@ class StoredUnit(Unit):
         return self.state == PLANNED and not (
             self.branch or self.pr is not None or self.pushed or self.approved
         )
+
+    @property
+    def started_at(self) -> datetime | None:
+        """When the unit first ran, read from its history."""
+        return self._first_entry(RUNNING)
+
+    @property
+    def review_requested_at(self) -> datetime | None:
+        """When the unit first entered review, read from its history."""
+        return self._first_entry(IN_REVIEW)
+
+    def _first_entry(self, state: str) -> datetime | None:
+        for entry in self.history:
+            if entry.get("state") == state:
+                try:
+                    return datetime.fromisoformat(str(entry.get("at", "")))
+                except ValueError:
+                    continue
+        return None
 
     @property
     def note(self) -> str:
@@ -688,6 +712,22 @@ class UnitStore:
             feedback_source=source if feedback else FeedbackSource.NONE,
         )
 
+    @_exclusive
+    def mark_ready(self, unit_id: str) -> None:
+        """Stamp `ready_at` with the clock's now, unless it is already set."""
+        self._stamp_once(unit_id, "ready_at")
+
+    @_exclusive
+    def mark_human_activity(self, unit_id: str) -> None:
+        """Stamp `first_human_activity_at` with the clock's now, unless it is already set."""
+        self._stamp_once(unit_id, "first_human_activity_at")
+
+    def _stamp_once(self, unit_id: str, field: str) -> None:
+        stored = self._read()
+        if getattr(stored[unit_id], field) is None:
+            stored[unit_id] = stored[unit_id].model_copy(update={field: spans.clock.now()})
+            self._write(stored)
+
     def set_run_log(self, unit_id: str, name: str) -> None:
         """Name the unit's most recent run log. Not a state change."""
         self._update(unit_id, run_log=name)
@@ -748,6 +788,9 @@ def _record(unit: StoredUnit) -> dict:
         del record["priority"]
     if unit.description is None:
         del record["description"]
+    for name in ("ready_at", "first_human_activity_at"):
+        if record[name] is None:
+            del record[name]
     return record
 
 

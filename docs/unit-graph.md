@@ -644,7 +644,8 @@ through `AgentRuntime`.
 The store holds `running` for every unit an agent is working on. The graph, `abk status` and the
 pull request's state label derive a finer name: `rebasing` when the unit was sent back for a
 conflict, a moved base or a restack conflict or deferral, `reworking` when it is answering review
-or check feedback, and `running` otherwise. A pull request is a draft while its unit is `running`
+or check feedback, `paused` when a pause is in force and no run holds it (derived, never stored;
+it resumes by itself when the pause lifts), and `running` otherwise. A pull request is a draft while its unit is `running`
 or `planned` and ready when it is `in_review`.
 
 ## A unit in review follows its predecessor

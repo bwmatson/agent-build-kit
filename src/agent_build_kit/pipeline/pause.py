@@ -32,6 +32,9 @@ from typing import Literal
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock
 
+# The marker's file name in the state directory.
+PAUSE_MARKER = "paused.json"
+
 # Just after the reset, never exactly on it: a resume racing the window
 # boundary finds it still full and pauses again.
 RESUME_GRACE = timedelta(minutes=2)
@@ -74,6 +77,11 @@ def is_paused(marker: Path) -> Pause | None:
         return None
     kind = "rate_limit" if data.get("kind") == "rate_limit" else "usage"
     return Pause(until=until, reason=str(data.get("reason", "")), kind=kind)
+
+
+def pause_in_force(state_dir: Path) -> bool:
+    """Whether a pause is in force in `state_dir`, for what only shows it."""
+    return is_paused(state_dir / PAUSE_MARKER) is not None
 
 
 def resume_deadline(until: datetime | None, *, now: datetime | None = None) -> datetime:

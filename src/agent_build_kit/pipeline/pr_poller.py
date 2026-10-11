@@ -160,6 +160,11 @@ def _keep_unseen(before: dict, after: dict, labels: list[str]) -> None:
     after["labels"] = labels
 
 
+def _new_comment_ids(before: dict, after: dict) -> set:
+    """The comment and review ids in `after` that `before` did not have."""
+    return set(after["comment_ids"]) - set(before["comment_ids"])
+
+
 class Poller(BaseModel):
     """One repo's worth of watching.
 
@@ -176,6 +181,9 @@ class Poller(BaseModel):
     list_prs: ListPrs
     # Comment and review ids the pipeline posted on a PR itself, by number.
     ignore: Callable[[int], set[str]] = lambda number: set()
+    # Told the number of each PR a poll finds a comment or review on that the
+    # pipeline did not post.
+    human_activity: Callable[[int], None] = lambda number: None
     # Takes an instruction label off a PR, answering whether it came off. The
     # default removes nothing: the label then stays as seen, and is acted on
     # once until a person takes it off and adds it again.
@@ -233,6 +241,9 @@ class Poller(BaseModel):
                 current["mergeable"] = known[number].get("mergeable")
             updated[number] = current
 
+            if not first_run and self._person_answered(known.get(number), current):
+                self.human_activity(int(number))
+
             if first_run:
                 # A fresh state file must not read as a hundred simultaneous
                 # events, so the first poll of a repo only records.
@@ -255,6 +266,17 @@ class Poller(BaseModel):
                 updated[number] = known[number]
 
         PrState.save(self.state_path, updated)
+
+    @staticmethod
+    def _person_answered(before: dict | None, current: dict) -> bool:
+        """Whether this poll found a comment or review not posted by the pipeline that the
+        last poll had not seen. A snapshot from before the ids were kept says nothing of
+        what was there, so it counts for nothing."""
+        if before is None:
+            return bool(current["comment_ids"])
+        if "comment_ids" not in before:
+            return False
+        return bool(_new_comment_ids(before, current))
 
     def _dispatch_terminal(self, number: int, current: dict, pull: PullRequest) -> bool | None:
         """Report a PR we are meeting for the first time if it is done — or if
@@ -378,7 +400,7 @@ class Poller(BaseModel):
             )
 
         if "comment_ids" in before:
-            new_comment = bool(set(after["comment_ids"]) - set(before["comment_ids"]))
+            new_comment = bool(_new_comment_ids(before, after))
         else:
             new_comment = after["last_comment"] != before.get("last_comment")
         if new_comment:
