@@ -71,6 +71,7 @@ class ResumeEvent(Frozen):
     feedback: str = ""
     from_person: bool = False  # the feedback is words a person left on the pull request
     feedback_source: FeedbackSource = FeedbackSource.NONE
+    guidance: str = ""  # a person's note from `abk requeue --note`
     requeue: RequeueReason | None = None
     rework: ReworkKind | None = None
     # The ids of every comment the dispatch built that feedback from (the poller's listing and
