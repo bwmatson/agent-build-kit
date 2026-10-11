@@ -109,3 +109,8 @@ class WaitRecorder:
             if not self._told:
                 self._told = True
                 self.say(f"the decision log could not be written: {error}")
+
+
+def trim_decision_log(path: Path, *, limit_mb: float) -> None:
+    """Drop the oldest lines of the log at `path` until it is within `limit_mb`."""
+    raise NotImplementedError

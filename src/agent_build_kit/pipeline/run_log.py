@@ -122,3 +122,9 @@ def remove_change_logs(directory: Path, change: str) -> None:
                 path.unlink(missing_ok=True)
     except OSError:
         return
+
+
+def remove_old_logs(directory: Path, ledger: Path, *, days: int, now: datetime) -> None:
+    """Remove each unit log last written more than `days` before `now` whose unit has a
+    `summary` line in `ledger`; a log whose unit has none is kept."""
+    raise NotImplementedError
