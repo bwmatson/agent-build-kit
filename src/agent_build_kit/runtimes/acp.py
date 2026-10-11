@@ -95,7 +95,7 @@ from agent_build_kit.pipeline.command_policy import (
     check_no_commit,
     check_no_push,
 )
-from agent_build_kit.pipeline.command_spellings import SPELLINGS, Reader
+from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName, probe_rows
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
@@ -146,14 +146,12 @@ STOPPED: dict[StopReason, str] = {
 # plain command for each class the table has none for. The shapes
 # `pipeline.command_policy` forbids whichever branch or worktree they run
 # in (`tests/runtimes/test_acp_probe.py` holds the list to that), so an
-# attempt is unambiguous and harmless even in a throwaway one.
+# attempt is unambiguous even in a throwaway one. The commands are harmless
+# in the probe's checkout, which has no remote; the `gh` rows name a repository
+# and so reach the code host if an agent runs them unasked, where the
+# installation's token has no rights to act.
 PROBE_CLASSES: tuple[tuple[str, str], ...] = (
-    *(
-        (spelling.command, label)
-        for label, spellings in SPELLINGS.items()
-        for spelling in spellings
-        if Reader.PROBE in spelling.readers
-    ),
+    *((spelling.command, label) for label, spelling in probe_rows()),
     ("git commit --no-verify -m probe", "skipping the commit gate"),
     ("git reset --hard HEAD", "a hard reset"),
     ("git clean -fd", "discarding untracked work"),
@@ -1707,7 +1705,7 @@ class AcpRuntime:
         results = tuple(
             SpellingResult(
                 label=label,
-                spelling=spelled.get(command, "plain"),
+                spelling=spelled.get(command, SpellingName.PLAIN.value),
                 command=command,
                 refused=command in tracking.refused,
             )
@@ -1715,7 +1713,9 @@ class AcpRuntime:
         )
         # A plain spelling not refused reads as its class; another names itself.
         unenforced = tuple(
-            result.label if result.spelling == "plain" else f"{result.label} (as {result.command})"
+            result.label
+            if result.spelling == SpellingName.PLAIN
+            else f"{result.label} (as {result.command})"
             for result in results
             if not result.refused
         )

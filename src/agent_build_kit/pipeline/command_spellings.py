@@ -26,9 +26,12 @@ class SpellingName(StrEnum):
     MASTER = "master"
     REPO = "repo"
     REPO_LONG = "repo-long"
+    REPO_EQUALS = "repo-equals"
     API_PUT = "api-put"
     API_METHOD_AFTER = "api-method-after"
     API_METHOD = "api-method"
+    API_QUERY = "api-query"
+    API_TRAILING_SLASH = "api-trailing-slash"
     ENV = "env"
     COMMAND = "command"
     SUDO = "sudo"
@@ -117,6 +120,7 @@ SPELLINGS: dict[str, tuple[Spelling, ...]] = {
         Spelling(name=SpellingName.PLAIN, command="gh pr merge 1"),
         Spelling(name=SpellingName.REPO, command=MERGE),
         Spelling(name=SpellingName.REPO_LONG, command="gh --repo o/r pr merge 1"),
+        Spelling(name=SpellingName.REPO_EQUALS, command="gh --repo=o/r pr merge 1", readers=JUDGE),
         *_wrapped(MERGE),
     ),
     "merging a pull request through the host's raw API": (
@@ -130,6 +134,16 @@ SPELLINGS: dict[str, tuple[Spelling, ...]] = {
             command="gh api --method PUT repos/o/r/pulls/1/merge",
             readers=JUDGE,
         ),
+        Spelling(
+            name=SpellingName.API_QUERY,
+            command="gh api -X PUT repos/o/r/pulls/1/merge?merge_method=squash",
+            readers=JUDGE,
+        ),
+        Spelling(
+            name=SpellingName.API_TRAILING_SLASH,
+            command="gh api repos/o/r/pulls/1/merge/ -X PUT",
+            readers=JUDGE,
+        ),
     ),
     "a hard reset": (
         Spelling(name=SpellingName.DIRECTORY, command="git -C . reset --hard", readers=JUDGE),
@@ -138,3 +152,13 @@ SPELLINGS: dict[str, tuple[Spelling, ...]] = {
         Spelling(name=SpellingName.DIRECTORY, command="git -C . branch -D x", readers=JUDGE),
     ),
 }
+
+
+def probe_rows() -> list[tuple[str, Spelling]]:
+    """The rows the policy check's probe attempts, as (class, spelling), in table order."""
+    return [
+        (label, spelling)
+        for label, spellings in SPELLINGS.items()
+        for spelling in spellings
+        if Reader.PROBE in spelling.readers
+    ]

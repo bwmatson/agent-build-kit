@@ -8,8 +8,10 @@
   a force push, a hard reset, a branch force-delete or a pull request merge, and a merge sent
   through the host's raw API is refused while reads through it are not. A privilege wrapper's
   option value (`sudo -u root`) no longer hides the command either. The policy check now
-  attempts each of these spellings in its one prompt and reports, per class and spelling,
-  which one an agent ran without asking.
+  also attempts the global-option spellings of the amend, the push to the default branch and
+  the force push, the repository-option spellings of the merge and two raw-API merge
+  spellings, all in its one prompt, and reports, per class and spelling, which one an agent
+  ran without asking.
 
 - Known secret values (`verify.env`, the credential settings, variables named in the
   new `redact` list, and each gateway key minted) are gathered when an installation

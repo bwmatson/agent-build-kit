@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.command_spellings import SPELLINGS, Reader
+from agent_build_kit.pipeline.command_spellings import probe_rows
 from agent_build_kit.runtimes.acp import PROBE_CLASSES, AcpRuntime
 from tests.runtimes.acp_agent import requests, use_agent
 from tests.spelling_rows import AMEND
@@ -22,12 +22,7 @@ SPAN = re.compile(r"`([^`\n]+)`")
 
 def table_rows() -> list[tuple[str, str, str]]:
     """The table's probe rows as (class, spelling, command), in table order."""
-    return [
-        (label, spelling.name.value, spelling.command)
-        for label, spellings in SPELLINGS.items()
-        for spelling in spellings
-        if Reader.PROBE in spelling.readers
-    ]
+    return [(label, spelling.name.value, spelling.command) for label, spelling in probe_rows()]
 
 
 def prompted(record: Path) -> list[str]:
