@@ -9,6 +9,7 @@ end-of-turn reason.
 
     python acp_agent.py RECORD [--stop REASON] [--no-additional-dirs] [--linger] [--fail HOW]
                         [--load-session] [--resume] [--list] [--sessions ID,...] [--page-size N]
+                        [--sessions-when NAME] [--watch NAME,...]
 
 Every request and notification the client sends is appended to RECORD as one
 JSON line — `{"method": ..., "params": ...}`, exactly as it arrived on the
@@ -24,9 +25,11 @@ replaying the earlier turn's text as `session/update`s first, as the protocol ha
 agent do; without it the capability is `false` and a load is refused as unknown.
 `--resume` and `--list` declare the `sessionCapabilities` `resume` and `list` and answer
 `session/resume` and `session/list`. `--sessions` names the ids the agent holds: `session/list`
-answers them newest first, `--page-size` at a time with a `nextCursor` while more remain, and
+answers them (only while the variable `--sessions-when` names is set, when given)
+newest first, `--page-size` at a time with a `nextCursor` while more remain, and
 `session/resume` of an id it does not hold, as Hermes does, creates a session of its own and
 answers normally, the response naming no id.
+`--watch` names more variables for the environment line to record, beyond `WATCHED_ENV`.
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
 unadvertised. `--linger` starts a child in the agent's own process group that
 inherits its stderr and sleeps for `HANG_SECONDS`, writing the child's pid to
@@ -293,7 +296,9 @@ class FakeAgent:
         prior_cost: float = 0.0,
         fills: tuple[int | None, ...] = (),
         prior_fill: int = 0,
+        sessions_when: str | None = None,
     ) -> None:
+        self._sessions_when = sessions_when
         self._prior_cost = prior_cost
         self._fills = fills
         self._prior_fill = prior_fill
@@ -406,10 +411,13 @@ class FakeAgent:
             raise RequestError.method_not_found("session/list")
         start = int(cursor) if cursor else 0
         end = start + self._page_size
-        page = self._sessions[start:end]
+        held = (
+            self._sessions if not self._sessions_when or os.environ.get(self._sessions_when) else ()
+        )
+        page = held[start:end]
         return ListSessionsResponse(
             sessions=[SessionInfo(session_id=held, cwd=cwd or self._cwd) for held in page],
-            next_cursor=str(end) if end < len(self._sessions) else None,
+            next_cursor=str(end) if end < len(held) else None,
         )
 
     async def resume_session(
@@ -947,6 +955,8 @@ def command(
     prior_cost: float | None = None,
     fills: tuple[int | None, ...] = (),
     prior_fill: int | None = None,
+    sessions_when: str | None = None,
+    watch: tuple[str, ...] = (),
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -993,6 +1003,10 @@ def command(
         argv += ["--fills", ",".join("none" if f is None else str(f) for f in fills)]
     if prior_fill is not None:
         argv += ["--prior-fill", str(prior_fill)]
+    if sessions_when:
+        argv += ["--sessions-when", sessions_when]
+    if watch:
+        argv += ["--watch", ",".join(watch)]
     return argv
 
 
@@ -1020,6 +1034,8 @@ def use_agent(
     prior_cost: float | None = None,
     fills: tuple[int | None, ...] = (),
     prior_fill: int | None = None,
+    sessions_when: str | None = None,
+    watch: tuple[str, ...] = (),
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -1047,6 +1063,8 @@ def use_agent(
             prior_cost=prior_cost,
             fills=fills,
             prior_fill=prior_fill,
+            sessions_when=sessions_when,
+            watch=watch,
         )
     )
 
@@ -1095,6 +1113,8 @@ def main() -> None:
     parser.add_argument("--prior-cost", type=float, default=0.0)
     parser.add_argument("--fills", default="")
     parser.add_argument("--prior-fill", type=int, default=0)
+    parser.add_argument("--sessions-when")
+    parser.add_argument("--watch", default="")
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -1119,8 +1139,10 @@ def main() -> None:
         prior_cost=args.prior_cost,
         fills=tuple(None if x == "none" else int(x) for x in args.fills.split(",") if x),
         prior_fill=args.prior_fill,
+        sessions_when=args.sessions_when,
     )
-    agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in WATCHED_ENV})
+    watched = (*WATCHED_ENV, *filter(None, args.watch.split(",")))
+    agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in watched})
     # Only the methods these tests drive: the rest answer "method not found".
     asyncio.run(
         run_agent(cast(Agent, agent), observers=[agent.observe], use_unstable_protocol=True)

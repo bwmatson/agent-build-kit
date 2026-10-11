@@ -44,6 +44,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,9 +56,12 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.state import AgentSession, Node, SessionRole, UnitRun
 from agent_build_kit.graph.unit import seed_thread
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from tests.factories import unit
+from tests.runtimes.acp_agent import EARLIER_TURN
 from tests.runtimes.claude_cli import FakeClaude
 
 WAIT = 15
@@ -105,6 +109,21 @@ def record_session(
             await seed_thread(saver, state, as_node=after)
 
     asyncio.run(write())
+
+
+def recorded_acp_session(installation: Installation, session: str) -> None:
+    """What a build run recorded of an ACP session, which is how the page knows of it."""
+    step = Transcript(
+        transcript_dir(installation.state_dir),
+        unit("feature/2", change="feature"),
+        node="implement",
+        round=0,
+        started=datetime(2026, 10, 1, 9, 0, 0, tzinfo=UTC),
+        result_limit=1000,
+        runs_kept=3,
+    )
+    step.record(TranscriptEvent(kind="text", session=session, text=EARLIER_TURN))
+    step.record(TranscriptEvent(kind="stop", session=session, text="end_turn"))
 
 
 def claude_session_file(home: Path, session: str, cwd: Path, *, title: str = "Fix the bug") -> Path:

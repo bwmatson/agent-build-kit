@@ -91,6 +91,7 @@ def spawn(
     cwd: Path | None = None,
     on_event: Callable[[dict], None] | None = None,
     env: dict[str, str] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """The real `claude` process: streamed when there is someone to tell. `env`
     is added to this process's own environment."""

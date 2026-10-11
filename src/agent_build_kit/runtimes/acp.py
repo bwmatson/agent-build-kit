@@ -1600,7 +1600,9 @@ class AcpRuntime:
                 "running on its default"
             )
 
-    def can_resume_session(self, session_id: str, cwd: Path) -> bool:
+    def can_resume_session(
+        self, session_id: str, cwd: Path, *, environment: dict[str, str] | None = None
+    ) -> bool:
         """Whether this session would be resumed in place: the agent advertises both
         `session/resume` and `session/list`, and lists the id for `cwd`, as a run does."""
         command = config.runtime_entry(name=NAME).command or list(self.agent_command)

@@ -126,6 +126,8 @@ class AgentRequest(Frozen):
     fork_session: bool = False
     # Added to the spawned agent's environment: where a per-run gateway key goes.
     env: dict[str, str] = {}
+    # The whole environment the agent starts with, not an addition to ours; None: ours.
+    environment: dict[str, str] | None = None
 
 
 class AgentResult(Frozen):

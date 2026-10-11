@@ -155,8 +155,10 @@ class Chat:
         *,
         units: Callable[[], list[StoredUnit]],
         recorded_session: Callable[[str], AgentSession | None],
+        agent_environment: dict[str, str] | None = None,
     ) -> None:
         self.installation = installation
+        self.agent_environment = agent_environment
         self._units = units
         self._recorded = recorded_session
         self.leases = Leases(lease_dir(installation.state_dir))
@@ -543,8 +545,14 @@ def register(
     *,
     units: Callable[[], list[StoredUnit]],
     recorded_session: Callable[[str], AgentSession | None],
+    agent_environment: dict[str, str] | None = None,
 ) -> None:
-    chat = Chat(installation, units=units, recorded_session=recorded_session)
+    chat = Chat(
+        installation,
+        units=units,
+        recorded_session=recorded_session,
+        agent_environment=agent_environment,
+    )
     # The server's stop calls this before uvicorn waits on its open requests: a turn waiting
     # for an answer and a page's open stream are requests it would wait on for ever.
     app.state.stop_chat = chat.shutdown
