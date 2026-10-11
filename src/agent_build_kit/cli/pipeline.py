@@ -226,6 +226,7 @@ from agent_build_kit.pipeline.workspaces import (
     worktree_path,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.serve.review import Review, ReviewStore
@@ -239,7 +240,7 @@ def stamp() -> str:
 
 
 def log(message: str, *, at: str | None = None) -> None:
-    print(f"[{at or stamp()}] {message}", flush=True)
+    print(f"[{at or stamp()}] {redact_text(message, where='printed output')}", flush=True)
 
 
 def store_for(inst: Installation) -> UnitStore:
@@ -626,7 +627,7 @@ def verify_one(
             held.enter_context(stack_lock(inst.state_dir / "tier2.lock", **options))
         except TimeoutError as error:
             raise StackBusy(str(error)) from error
-        return verify_change(
+        outcome = verify_change(
             change,
             units,
             installation=inst,
@@ -634,6 +635,8 @@ def verify_one(
             run=_run_for_verify,
             env=inst.verify_env(),
         )
+    # Both what is printed and what `verified.json` keeps come from this.
+    return outcome.model_copy(update={"detail": redact_text(outcome.detail, where="verify output")})
 
 
 def _merged_ids(change: str, units: list) -> list[str]:

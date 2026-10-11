@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.redaction import redact_text
 
 # How many runs of one unit are kept; older ones go when a new one is written.
 RUNS_KEPT = 3
@@ -99,6 +100,7 @@ class RunLog:
             self._failed(error)
 
     def emit(self, message: str) -> None:
+        message = redact_text(message, where="run log")
         first, *rest = message.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         self._append("".join(f"{line}\n" for line in [first, *(CONTINUATION + r for r in rest)]))
 

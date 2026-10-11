@@ -116,6 +116,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import RepeatsTests, SelectsAffectedTests, ToolchainProfile
+from agent_build_kit.redaction import redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -943,6 +944,7 @@ def build_tier1(
         if rerun_command is None:
             return
         output = f"{result.stdout}\n{result.stderr}".strip()
+        stored = redact_text(output, where="tier-1 output")
         tests = _failed_ids(toolchain, output)
         if not tests:
             return
@@ -957,7 +959,7 @@ def build_tier1(
                 Flake(
                     test=test,
                     command=shlex.join(command),
-                    output=output[-4000:],
+                    output=stored[-4000:],
                     at=at,
                     directory=str(where),
                 )
@@ -1050,7 +1052,8 @@ def _failure(
     """The command that failed, then where it ran, then the tail of what it printed: a
     bare "tier 1 failed" says nothing about which check or why, and the next fix round's
     selection needs to know which project's tests the identifiers belong to."""
-    printed = f"{result.stdout}\n{result.stderr}".strip()[-4000:]
+    printed = redact_text(f"{result.stdout}\n{result.stderr}".strip(), where="tier-1 output")
+    printed = printed[-4000:]
     header = f"$ {shlex.join(command)} (exit {result.returncode})"
     if where is not None:
         header += f"\n{_failed_in(where)}"
@@ -1720,7 +1723,7 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
-        outputs: list[str] = []
+        outputs: list[tuple[str, str, int | None]] = []  # header, text, how much of it to keep
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -1745,12 +1748,19 @@ class Tier2Session:
                         skipped + s,
                         duration + d,
                     )
+                    header = f"$ {' '.join(command)}{label}"
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append(f"$ {' '.join(command)}{label}\n{out}")
+                        outputs.append((header, out, None))
                     elif p:
-                        outputs.append(f"$ {' '.join(command)}{label}\n{out[-1500:]}")
+                        outputs.append((header, out, 1500))
 
-        output = "\n\n".join(outputs)
+        # Every command's text in one pass, before any cut, so a cut cannot leave half a
+        # value and a failing redaction is logged once.
+        redacted = redact_leaves([out for _, out, _ in outputs], where="tier-2 output")
+        output = "\n\n".join(
+            f"{header}\n{text if keep is None else text[-keep:]}"
+            for (header, _, keep), text in zip(outputs, redacted, strict=True)
+        )
         command = " && ".join(
             " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
             for where, _, commands in entries
@@ -1803,6 +1813,7 @@ class Tier2Session:
 
         output = f"{completed.stdout or ''}{completed.stderr or ''}"
         passed, failed, skipped, duration = self._profile.parse_test_summary(output)
+        output = redact_text(output, where="tier-2 output")
         if completed.returncode and not failed:
             failed = 1
         self.result = Tier2Result(
