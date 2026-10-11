@@ -648,9 +648,10 @@ published when it is `in_review`, written from the same state-change hook; other
 states leave it alone, and a refused write is logged without touching the unit.
 
 A stored `running` unit is shown as `rebasing` (its last event was a conflict or
-a moved base) or `reworking` (it is answering review or check feedback), else
-`running`. These are derived from the unit's record, never stored, and `abk
-status`, the graph and the state label show them.
+a moved base) or `reworking` (it is answering review or check feedback), or `paused` (a
+pause is in force and no run holds the unit), else `running`. These are derived
+from the unit's record, never stored, and `abk status`, the graph and the state
+label show them. A `paused` unit resumes by itself when the pause lifts.
 
 The pipeline's own posts — restack notes, rework replies — carry a hidden
 marker and their ids are recorded in `runs/own-posts.json`, so the poller does

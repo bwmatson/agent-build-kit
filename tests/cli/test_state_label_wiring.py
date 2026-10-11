@@ -95,3 +95,25 @@ def test_the_poll_the_cli_runs_takes_a_rework_label_off_once_it_has_acted(
 
     assert store.get(UNIT).state == PLANNED
     assert "agent-rework" not in forge.on_pr[PR]
+
+
+def test_the_poll_the_cli_runs_stamps_the_unit_whose_pull_request_a_person_answered(
+    inst: Installation, forge: StandInForge
+) -> None:
+    store = cli.store_for(inst)
+    store.upsert([unit(UNIT)])
+    store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
+    cli.poll_all(inst, store=store)
+    assert store.get(UNIT).first_human_activity_at is None
+
+    forge.prs[0] = PullRequest(
+        number=PR,
+        head=f"spec/{UNIT}",
+        base="main",
+        state="open",
+        conversation=("c1",),
+        comment_bodies=("looks odd",),
+    )
+    cli.poll_all(inst, store=store)
+
+    assert store.get(UNIT).first_human_activity_at is not None

@@ -1085,6 +1085,7 @@ def run_round(
         units = store.all()
         _record_waits(
             inst,
+            store,
             units,
             only,
             lambda: wait_reasons(
@@ -1152,6 +1153,7 @@ def run_round(
         units = store.all()
         _record_waits(
             inst,
+            store,
             units,
             only,
             lambda: wait_reasons(
@@ -1176,6 +1178,7 @@ def run_round(
     if not admitted:
         _record_waits(
             inst,
+            store,
             units,
             only,
             lambda: wait_reasons(
@@ -1215,6 +1218,7 @@ def run_round(
         readmit.charge(ready)
     _record_waits(
         inst,
+        store,
         units,
         only,
         lambda: _waits_in(
@@ -1222,7 +1226,12 @@ def run_round(
             units,
             view,
             startable={unit.id for unit in evaluated},
-            skipped={*started, *in_flight, *resumed, *(unit.id for unit in ready)},
+            skipped={
+                *_parked_starts(units, started),
+                *in_flight,
+                *resumed,
+                *(unit.id for unit in ready),
+            },
             only=only,
             usage_paused=False,
         ),
@@ -1763,8 +1772,10 @@ def _schedule(
             # A unit that stopped being ready restarts its clock when it is again.
             for unit_id in set(queued) - {unit.id for unit in evaluated}:
                 del queued[unit_id]
+            unstamped = {unit.id for unit in units if unit.ready_at is None}
             for unit in evaluated:
-                store.mark_ready(unit.id)
+                if unit.id in unstamped:
+                    store.mark_ready(unit.id)
                 if unit.id not in taken:
                     queued.setdefault(unit.id, spans.Mark())
 
@@ -3559,7 +3570,7 @@ def wait_reasons(
         units,
         view,
         startable={unit.id for unit in ready},
-        skipped=started | building,
+        skipped=_parked_starts(units, started) | building,
         only=only,
         usage_paused=usage_paused,
     )
@@ -3640,8 +3651,20 @@ def _planned_wait(
 _RECORDERS: dict[Path, WaitRecorder] = {}
 
 
+# A unit waiting for these has nothing blocking it: it is ready, whatever holds its start.
+_READY_REASONS = frozenset({WaitReason.READY, WaitReason.SLOT, WaitReason.USAGE_PAUSE})
+
+
+def _parked_starts(units: Sequence[StoredUnit], started: Collection[str]) -> set[str]:
+    """The units this pass started that are stored `planned` again: they wait for the next
+    pass. One started that has since reached review, a hold or a failure is judged by its
+    stored state, so its wait is dated from when it began."""
+    return {unit.id for unit in units if unit.id in started and unit.state == PLANNED}
+
+
 def _record_waits(
     inst: Installation,
+    store: UnitStore,
     units: Sequence[StoredUnit],
     only: frozenset[str],
     waits: Callable[[], dict[str, Wait]],
@@ -3653,6 +3676,12 @@ def _record_waits(
         if path not in _RECORDERS:
             _RECORDERS[path] = WaitRecorder(path, log)
         left_out = [unit.id for unit in units if only and unit.id not in only]
-        _RECORDERS[path].record(waits(), tick=_PROCESS_TICK, keep=left_out)
+        reasons = waits()
+        _RECORDERS[path].record(reasons, tick=_PROCESS_TICK, keep=left_out)
+        # Where reasons are decided, so a tick that starts nothing still dates a unit's readiness.
+        unstamped = {unit.id for unit in units if unit.ready_at is None}
+        for unit_id, wait in reasons.items():
+            if unit_id in unstamped and wait.reason in _READY_REASONS:
+                store.mark_ready(unit_id)
     except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
         log(f"the decision log is not recording ({type(error).__name__}: {error})")

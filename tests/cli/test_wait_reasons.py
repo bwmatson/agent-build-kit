@@ -118,6 +118,7 @@ def waits_of(
     setup: Setup,
     *,
     building: Collection[str] = (),
+    started: Collection[str] = (),
     usage_paused: bool = False,
     limits: dict[str, int] | None = None,
 ) -> dict[str, Wait]:
@@ -127,7 +128,7 @@ def waits_of(
     return cli.wait_reasons(
         inst,
         store.all(),
-        started=set(),
+        started=set(started),
         building=set(building),
         only=frozenset(),
         usage_paused=usage_paused,
@@ -266,3 +267,41 @@ def test_a_unit_left_out_by_only_keeps_its_wait_open(tmp_path: Path) -> None:
     cli.run_round(inst, store, building=(), only=frozenset({"other/1"}), submit=True)
 
     assert [r["reason"] for r in decisions(inst) if r["unit"] == "second/1"] == ["lease"]
+
+
+def test_a_started_unit_that_reached_review_is_judged_by_its_stored_state(tmp_path: Path) -> None:
+    waits = waits_of(tmp_path, in_review, started={"second/1"})
+
+    assert waits["second/1"].reason == WaitReason.WAITING_REVIEW
+
+
+def test_a_round_logs_needs_person_for_a_unit_this_pass_started_and_a_hold_ended(
+    tmp_path: Path,
+) -> None:
+    inst = installation(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    held(store, inst)
+    readmit = cli._Readmission()
+    readmit.started["second/1"] = spans.clock.now()
+
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True, readmit=readmit)
+
+    assert [(r["unit"], r["reason"]) for r in decisions(inst)] == [("second/1", "needs_person")]
+
+
+def test_a_round_that_starts_nothing_dates_when_a_unit_became_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = installation(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("first/1"), new_unit("second/1", depends_on=("first/1",))])
+    store.set_state("first/1", FAILED, note="stopped")
+    store.upsert([new_unit("third/1")])
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session usage at 90%")
+    )
+
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    assert store.get("third/1").ready_at is not None
+    assert store.get("second/1").ready_at is None

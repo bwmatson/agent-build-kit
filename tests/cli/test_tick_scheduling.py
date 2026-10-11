@@ -1313,7 +1313,9 @@ def test_a_pause_with_nothing_stranded_leaves_the_store_as_it_was(
 
     assert tick(workspace(tmp_path)) == 0
 
-    assert builder.store.all() == before
+    # Its only change is the readiness stamp a pause still dates.
+    unstamped = [unit.model_copy(update={"ready_at": None}) for unit in builder.store.all()]
+    assert unstamped == before
     assert "session at 88%" in capsys.readouterr().out
 
 
