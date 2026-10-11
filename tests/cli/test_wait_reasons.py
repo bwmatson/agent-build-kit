@@ -6,7 +6,9 @@ The reasons come from the facts the pass already decides on, through `wait_reaso
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Collection
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
@@ -190,6 +193,43 @@ def test_a_round_starts_the_units_it_started_before_reasons_were_computed(
 
     expected = ["second/1"] if reason is WaitReason.READY else []
     assert [unit.id for unit in ready if unit.id == "second/1"] == expected
-    assert cli.wait_reasons(inst, store.all(), started=set(), building=set(), only=frozenset()), (
-        "and every one of them has a reason"
+    logged = [r for r in decisions(inst) if r["unit"] == "second/1"]
+    # What it started has no reason; what it did not is logged under the one reason.
+    assert [r["reason"] for r in logged] == ([] if expected else [reason.value])
+
+
+def decisions(inst: Installation) -> list[dict]:
+    path = inst.state_dir / "decisions.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def test_a_round_that_started_nothing_for_want_of_a_choice_records_no_usage_pause(
+    tmp_path: Path,
+) -> None:
+    inst = installation(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    leased(store, inst)
+    store.upsert([new_unit("other/1")])
+
+    cli.run_round(inst, store, building=(), only=frozenset({"second/1"}), submit=True)
+
+    reasons = {r["unit"]: r["reason"] for r in decisions(inst)}
+    assert reasons == {"second/1": "lease"}, "`other/1` is left out by --only, not paused"
+
+
+def test_a_round_under_the_models_rate_limit_pause_records_usage_pause_for_a_startable_unit(
+    tmp_path: Path,
+) -> None:
+    inst = installation(tmp_path)
+    store = UnitStore(tmp_path / "units.json")
+    startable(store, inst)
+    pause_until(
+        spans.clock.now() + timedelta(hours=3),
+        reason="the model refused",
+        marker=inst.state_dir / PAUSE_MARKER,
+        kind="rate_limit",
     )
+
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+
+    assert [(r["unit"], r["reason"]) for r in decisions(inst)] == [("second/1", "usage_pause")]

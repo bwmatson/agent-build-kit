@@ -67,7 +67,15 @@ from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
-from agent_build_kit.pipeline.pause import Pause, clear_pause, is_paused, pause_line, pause_until
+from agent_build_kit.pipeline.pause import (
+    PAUSE_MARKER,
+    Pause,
+    clear_pause,
+    is_paused,
+    pause_in_force,
+    pause_line,
+    pause_until,
+)
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     in_flight_item,
@@ -143,6 +151,7 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    depth_of,
     effective_priority,
     in_progress,
     in_progress_label,
@@ -231,7 +240,12 @@ def store_for(inst: Installation) -> UnitStore:
     def refresh_graph(units: list[StoredUnit]) -> None:
         # A view, so it must never take the store write down with it.
         try:
-            diagram.write_page(units, inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+            diagram.write_page(
+                units,
+                inst.graph_page,
+                checks_of=recorded_checks(inst.state_dir),
+                usage_paused=pause_in_force(inst.state_dir),
+            )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
 
@@ -249,7 +263,13 @@ def store_for(inst: Installation) -> UnitStore:
     drafts = StateDrafts(inst.forge_of, log=log)
 
     def follow(unit: StoredUnit, units: list[StoredUnit], opened: bool) -> None:
-        labels.follow(unit, units, opened=opened, checks_of=recorded_checks(inst.state_dir))
+        labels.follow(
+            unit,
+            units,
+            opened=opened,
+            checks_of=recorded_checks(inst.state_dir),
+            usage_paused=pause_in_force(inst.state_dir),
+        )
         drafts.follow(unit, units, opened=opened)
 
     return UnitStore(
@@ -260,7 +280,7 @@ def store_for(inst: Installation) -> UnitStore:
 
 
 def _paused_marker(inst: Installation) -> Path:
-    return inst.state_dir / "paused.json"
+    return inst.state_dir / PAUSE_MARKER
 
 
 # --- status / graph -------------------------------------------------------------
@@ -434,7 +454,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         shown = (
             unit.state
             if unit.state not in (RUNNING, IN_REVIEW)
-            else effective_state(unit, units, checks_of=checks_of)
+            else effective_state(
+                unit, units, checks_of=checks_of, usage_paused=pause_in_force(inst.state_dir)
+            )
         )
         by_state[shown] = by_state.get(shown, 0) + 1
     log("units: " + ", ".join(f"{count} {state}" for state, count in sorted(by_state.items())))
@@ -557,7 +579,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
 def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
     units = UnitStore(inst.state_dir / "units.json").all()
-    diagram.write_page(units, inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+    diagram.write_page(
+        units,
+        inst.graph_page,
+        checks_of=recorded_checks(inst.state_dir),
+        usage_paused=pause_in_force(inst.state_dir),
+    )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
 
@@ -1056,6 +1083,17 @@ def run_round(
     may = _may_build(inst, store, spared=spared, quiet=quiet, only=only)
     if may == "rate_limit":
         _step("reconciling notifications", _reconcile_notifications, inst, store)
+        _record_waits(
+            inst,
+            lambda: wait_reasons(
+                inst,
+                store.all(),
+                started=set(started),
+                building=set(building),
+                only=only,
+                usage_paused=True,
+            ),
+        )
         return []
     # A usage refusal only withholds builds: the round still fetches and polls,
     # so merges and comments are recorded while it lasts. Planning spends a
@@ -1127,7 +1165,7 @@ def run_round(
                 started=set(started),
                 building=set(building),
                 only=only,
-                usage_paused=True,
+                usage_paused=may == "usage",
             ),
         )
         return []
@@ -1165,6 +1203,7 @@ def run_round(
             view,
             startable={unit.id for unit in evaluated},
             skipped={*started, *in_flight, *resumed, *(unit.id for unit in ready)},
+            only=only,
             usage_paused=False,
         ),
     )
@@ -2504,7 +2543,12 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
     """Rewrite the graph page after a poll: the checks it shows may have changed
     with no store write. An unchanged body is skipped. A view, so it never fails the poll."""
     try:
-        diagram.write_page(store.all(), inst.graph_page, checks_of=recorded_checks(inst.state_dir))
+        diagram.write_page(
+            store.all(),
+            inst.graph_page,
+            checks_of=recorded_checks(inst.state_dir),
+            usage_paused=pause_in_force(inst.state_dir),
+        )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")
 
@@ -3477,6 +3521,7 @@ def wait_reasons(
         view,
         startable={unit.id for unit in ready},
         skipped=started | building,
+        only=only,
         usage_paused=usage_paused,
     )
 
@@ -3488,6 +3533,7 @@ def _waits_in(
     *,
     startable: set[str],
     skipped: set[str],
+    only: frozenset[str],
     usage_paused: bool,
 ) -> dict[str, Wait]:
     """The reasons of `wait_reasons` from an evaluation a pass has already made: a unit
@@ -3497,7 +3543,8 @@ def _waits_in(
     waits: dict[str, Wait] = {}
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
-        if unit.id in skipped:
+        # What `--only` leaves out is not waiting for anything this pass decides.
+        if unit.id in skipped or (only and unit.id not in only):
             continue
         if unit.state == IN_REVIEW:
             waits[unit.id] = Wait(reason=WaitReason.WAITING_REVIEW)
@@ -3526,6 +3573,12 @@ def _planned_wait(
         return Wait(reason=WaitReason.BACKOFF)
     if parents := waiting_on(unit, view):
         return Wait(reason=WaitReason.BLOCKED, waits_on=tuple(parent.id for parent in parents))
+    # Not ready for want of work another unit has to finish: a requeue gated on a merge,
+    # or a stack deeper than may be built until what it stacks on merges.
+    if (unit.cause is Cause.GATED and unit.gated_requeue is not None) or (
+        depth_of(unit, view) > inst.stack_depth_build_cap
+    ):
+        return Wait(reason=WaitReason.BLOCKED)
     if usage_paused:
         return Wait(reason=WaitReason.USAGE_PAUSE)
     if unit.id in startable:
@@ -3535,9 +3588,17 @@ def _planned_wait(
     return Wait(reason=WaitReason.SLOT)
 
 
+# One recorder for each decision log, so the log is read once when a process first
+# records, not on every refresh.
+_RECORDERS: dict[Path, WaitRecorder] = {}
+
+
 def _record_waits(inst: Installation, waits: Callable[[], dict[str, Wait]]) -> None:
     """Log each unit's reason for waiting where it changed; a pass is never failed by it."""
     try:
-        WaitRecorder(inst.state_dir / DECISIONS_NAME, log).record(waits(), tick=_PROCESS_TICK)
+        path = inst.state_dir / DECISIONS_NAME
+        if path not in _RECORDERS:
+            _RECORDERS[path] = WaitRecorder(path, log)
+        _RECORDERS[path].record(waits(), tick=_PROCESS_TICK)
     except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
         log(f"the decision log is not recording ({type(error).__name__}: {error})")

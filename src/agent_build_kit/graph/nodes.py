@@ -256,6 +256,8 @@ class BuildPath:
             started = time.monotonic()
             mark = spans.Mark()
             outcome = UnitOutcome.ERROR
+            # Before the body: a rework clears the feedback it acts on.
+            cause = _round_cause(node, self.runner.store.get(self.unit.id))
             with span as current:
                 self._node = node.value
                 self._ended = None
@@ -321,6 +323,7 @@ class BuildPath:
                         node=node.value,
                         round_number=_round(node, state),
                         outcome=outcome,
+                        cause=cause,
                     )
                     if current is not None:
                         current.set_attribute("outcome", outcome)
@@ -1981,6 +1984,25 @@ def _round(node: Node, state: UnitRun) -> int:
     if node is Node.REWORK:
         return state.review_round
     return 0
+
+
+def _round_cause(node: Node, stored: StoredUnit) -> str:
+    """Why a review round runs, for its span: `conflict` for an adapt or a rework a restack
+    started, `check` for a failed check's, `review` for the rest; empty for a node that
+    is not a round."""
+    if node is Node.ADAPT:
+        return "conflict"
+    if node is Node.FIX_CHECKS:
+        return "check"
+    if node is not Node.REWORK:
+        return ""
+    match stored.feedback_source:
+        case FeedbackSource.CONFLICT:
+            return "conflict"
+        case FeedbackSource.CI | FeedbackSource.TIER1 | FeedbackSource.TIER2:
+            return "check"
+        case _:
+            return "review"
 
 
 def halted(state: UnitRun) -> Node | None:

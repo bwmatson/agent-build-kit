@@ -1053,7 +1053,7 @@ outcome and, for a failed check, its kind.
 | `abk.slots.idle_with_ready` | gauge | |
 | `abk.agent.cost` | counter (USD) | repo, tier, node, role, model, source (measured, estimated) |
 | `abk.node.duration` | histogram (s) | node |
-| `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause) |
+| `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause, queue_full, lease, backoff, needs_person) |
 
 The last four are the usage ledger's figures, exported by the recorder that writes a ledger
 line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds

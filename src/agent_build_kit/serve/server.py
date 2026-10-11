@@ -31,6 +31,7 @@ from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.environment import repo_artifacts
+from agent_build_kit.pipeline.pause import pause_in_force
 from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -240,7 +241,9 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             "change": unit.change,
             "repo": unit.repo,
             "state": unit.state,
-            "status": effective_state(unit, units),
+            "status": effective_state(
+                unit, units, usage_paused=pause_in_force(installation.state_dir)
+            ),
             "cause": unit.cause.value if unit.cause else None,
             "held_by": unit.held_by.value,
             "note": unit.note,
@@ -248,10 +251,13 @@ def create_app(installation: Installation, static_dir: Path = STATIC_DIR) -> Fas
             "pr": unit.pr,
         }
 
+    def shown(unit: StoredUnit, units: list[StoredUnit]) -> str:
+        return effective_state(unit, units, usage_paused=pause_in_force(installation.state_dir))
+
     def related(ids: tuple[str, ...], units: list[StoredUnit]) -> list[dict[str, str]]:
         index = {u.id: u for u in units}
         return [
-            {"id": uid, "status": effective_state(index[uid], units) if uid in index else "unknown"}
+            {"id": uid, "status": shown(index[uid], units) if uid in index else "unknown"}
             for uid in ids
         ]
 

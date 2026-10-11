@@ -261,7 +261,7 @@ class StoredUnit(Unit):
                 try:
                     return datetime.fromisoformat(str(entry.get("at", "")))
                 except ValueError:
-                    return None
+                    continue
         return None
 
     @property

@@ -70,6 +70,7 @@ STATES: Mapping[str, StateStyle] = {
     "blocked": _style("blocked", "#f5f5f4", "#a8a29e", "#44403c", "stroke-dasharray:3 3"),
     RUNNING: _style("running", "#fef3c7", "#d97706", "#451a03"),
     "reworking": _style("reworking", "#fef9c3", "#ca8a04", "#422006"),
+    "paused": _style("paused", "#ede9fe", "#7c3aed", "#2e1065", "stroke-dasharray:3 3"),
     "rebasing": _style("rebasing", "#ccfbf1", "#0d9488", "#042f2e"),
     "paused_rework": _style(
         "paused-rework", "#ffedd5", "#ea580c", "#431407", "stroke-dasharray:3 3"
@@ -95,6 +96,7 @@ _DESCRIPTIONS = {
     "blocked": "Waiting on a unit it depends on",
     "running": "An agent is building this unit",
     "reworking": "An agent is answering review or check feedback on this unit",
+    "paused": "Waiting for the usage window; the run resumes by itself",
     "rebasing": "An agent is moving this unit onto a changed base or resolving a conflict",
     "paused_rework": "Stopped because a unit it depends on went back for rework",
     "held": "A person has taken this over; the pipeline will not touch it",
