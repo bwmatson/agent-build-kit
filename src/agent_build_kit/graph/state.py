@@ -45,6 +45,7 @@ class AgentSession(Frozen):
     round: int
     head: str
     cumulative_usd: float | None = None  # the session's running cost after its last call
+    spec: str = ""  # hash of the change's spec files as the agent last saw them; empty: unrecorded
 
 
 class Verdict(StrEnum):
