@@ -114,7 +114,9 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   marked `integration` (excluded by default). Tests driving a real agent on
   the host are tier 2: they live under `tests/integration/` too, are marked
   `local_stack`, are excluded by default and run with `uv run pytest -m
-  local_stack`. Mark a test `serial` when it cannot share a process with
+  local_stack`. A `local_stack` test is the only one the guards let start a real
+  agent (the runtime's spawn, a `claude` program); the other guards (login refresh,
+  usage window, `gh`, code host) apply to it too. Mark a test `serial` when it cannot share a process with
   others: `poe test` runs it in a serial pass after the parallel one, and
   `pytest <file>` runs without workers. Test directories carry no `__init__.py`, so test file
   basenames must be unique.
