@@ -21,7 +21,7 @@ from langgraph.graph import END
 from langgraph.types import interrupt
 
 from agent_build_kit import forges, profiles, telemetry
-from agent_build_kit.config import active, models
+from agent_build_kit.config import active, active_root, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
     AgentSession,
@@ -32,7 +32,8 @@ from agent_build_kit.graph.state import (
     UnitRun,
     Verdict,
 )
-from agent_build_kit.pipeline import environment, spans
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import environment, spans, spec_snapshot
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.events import (
@@ -93,6 +94,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    Member,
     Unit,
     UnitState,
     branch_name,
@@ -206,6 +208,8 @@ class BuildPath:
         # The last session an agent call of the running node ended in:
         # (id, runtime, model, the session's cumulative cost after the call).
         self._ended: tuple[str, str, str, float | None] | None = None
+        # The hash of the spec copies taken when the node's last agent call was prompted.
+        self._spec_taken = ""
         # The cumulative cost of each session the running node's calls ended, so a follow-up
         # in the same node starts from the call before it.
         self._totals: dict[str, float] = {}
@@ -287,6 +291,7 @@ class BuildPath:
             with span as current:
                 self._node = node.value
                 self._ended = None
+                self._spec_taken = ""
                 self._totals = {}
                 context = spans.current_unit.set(
                     (self.unit.id, self.unit.change, node.value, _round(node, state))
@@ -389,6 +394,7 @@ class BuildPath:
             round=_round(node, state),
             head=head,
             cumulative_usd=cumulative,
+            spec=self._spec_taken,
         )
         kept: Update = {"sessions": {**state.sessions, role: session}}
         if role is SessionRole.BUILD and not state.build_model:
@@ -575,6 +581,7 @@ class BuildPath:
             # Before the run, so a run killed again still leaves the trace; a session that
             # cannot be continued is counted again as a new one below.
             self._resuming_over_leftovers("resumed")
+            self._save_spec()
             try:
                 return run(
                     *args,
@@ -616,6 +623,7 @@ class BuildPath:
             self._resuming_over_leftovers("new")
             note = LEFTOVERS_NOTE.format(paths=_listed(self._leftovers))
             args = (f"{args[0]}\n\n{note}", *args[1:])
+        self._save_spec()
         return run(
             *args,
             cwd=cwd,
@@ -659,6 +667,9 @@ class BuildPath:
         head = self.runner.head(cwd)
         if session.head and head != session.head:
             follow_up = f"{MOVED_NOTE.format(old=session.head, new=head)}\n\n{follow_up}"
+        if spec_note := self._spec_notice(SESSION_ROLES[Node(self._node)], session):
+            follow_up = f"{spec_note}\n\n{follow_up}"
+        self._save_spec()
         self.say(
             f"continuing the {SESSION_ROLES[Node(self._node)]} session {session.session_id}"
             f" on {session.model or model}"
@@ -678,6 +689,47 @@ class BuildPath:
         # session is counted only as that.
         self._resuming_over_leftovers("resumed")
         return result
+
+    def _spec_places(self) -> tuple[Path, tuple[Member, ...], list[Path]] | None:
+        """The state directory, and the unit's members with their change directories; None
+        when no workspace is loaded."""
+        if (root := active_root()) is None:
+            return None
+        members = self.unit.members()
+        dirs = [Path(self.runner.change_dir(m.change)) for m in members]
+        return Installation(active(), root).state_dir, members, dirs
+
+    def _save_spec(self) -> None:
+        """Keep the spec files the agent call about to be prompted reads; its hash is recorded
+        on the session once the call ends."""
+        role = SESSION_ROLES.get(Node(self._node))
+        if role is None or (places := self._spec_places()) is None:
+            return
+        state_dir, members, dirs = places
+        try:
+            self._spec_taken = spec_snapshot.save(
+                state_dir, self.unit.id, role.value, members, dirs
+            )
+        except (OSError, UnicodeDecodeError) as error:
+            self.say(f"could not keep a copy of the spec — {error}")
+            self._spec_taken = ""
+
+    def _forget_spec(self) -> None:
+        if places := self._spec_places():
+            spec_snapshot.forget(places[0], self.unit.id)
+
+    def _spec_notice(self, role: SessionRole, session: AgentSession) -> str:
+        """What a resumed session is told about spec files edited since it last ran."""
+        if (places := self._spec_places()) is None:
+            return ""
+        state_dir, members, dirs = places
+        try:
+            return spec_snapshot.notice(
+                state_dir, self.unit.id, role.value, session.spec, members, dirs
+            )
+        except (OSError, UnicodeDecodeError) as error:
+            self.say(f"could not compare the spec with its copy — {error}")
+            return ""
 
     def _resuming_over_leftovers(self, session: str) -> None:
         if not self._leftovers:
@@ -1657,6 +1709,7 @@ class BuildPath:
                     unit.id, SATISFIED, note=f"{note}; PR #{stored.pr} not closed — {error}"
                 )
         r.mark_tasks(unit, done=True)
+        self._forget_spec()
         return {
             "status": RunStatus.SATISFIED,
             "detail": "already implemented; tier 1 passed",
@@ -1992,6 +2045,8 @@ class BuildPath:
                 update["base"] = ""
         else:
             update["detail"] = event.kind.value
+            if event.kind in (EventKind.MERGED, EventKind.CLOSED):
+                self._forget_spec()
         return update
 
     @staticmethod

@@ -1484,7 +1484,7 @@ class UnitRunner(BaseModel):
             findings=tuple(f.model_dump() for f in kept),
         )
 
-    def _change_dir(self, change: str) -> str:
+    def change_dir(self, change: str) -> str:
         return CHANGE_DIR.format(planning_repo=self.planning_repo, change=change)
 
     def scope(self, unit: Unit) -> tuple[str, str]:
@@ -1495,7 +1495,7 @@ class UnitRunner(BaseModel):
         one's groups, all as this unit's own work.
         """
         members = unit.members()
-        dirs = [self._change_dir(member.change) for member in members]
+        dirs = [self.change_dir(member.change) for member in members]
         numbers = [", ".join(str(group) for group in member.groups) for member in members]
         if len(members) == 1:
             return dirs[0], numbers[0]
@@ -1507,11 +1507,11 @@ class UnitRunner(BaseModel):
     def mark_tasks(self, unit: Unit, *, done: bool) -> None:
         """Tick or untick each change's groups in that change's own tasks file."""
         for member in unit.members():
-            tasks = Path(self._change_dir(member.change)) / "tasks.md"
+            tasks = Path(self.change_dir(member.change)) / "tasks.md"
             mark_groups(tasks, member.groups, done=done)
 
     def _follow_ups_path(self, unit: Unit) -> Path:
-        return Path(self._change_dir(unit.change)) / FOLLOW_UPS_FILE
+        return Path(self.change_dir(unit.change)) / FOLLOW_UPS_FILE
 
     def follow_ups_note(self, unit: Unit) -> str:
         """What earlier units of this change deferred, for a fresh build to see.
@@ -1520,7 +1520,7 @@ class UnitRunner(BaseModel):
         the pipeline already reads and writes without an injected callable.
         """
         paths = [
-            Path(self._change_dir(member.change)) / FOLLOW_UPS_FILE for member in unit.members()
+            Path(self.change_dir(member.change)) / FOLLOW_UPS_FILE for member in unit.members()
         ]
         texts = [path.read_text().strip() for path in paths if path.exists()]
         content = "\n\n".join(text for text in texts if text)

@@ -18,7 +18,8 @@
   person's instruction that the agent's next run sees first, ahead of any saved failure,
   and that the review of the work that follows is told. With a note, `--rework` no longer
   needs a saved failure. A note with a plain requeue is refused, since a resume would
-  not read it.
+  not read it. An agent session that is continued is also told which of the change's spec
+  files were edited since it last ran, with the diff (cut at 6000 characters).
 
 - After tier 1 passes, the tests a unit added or changed are run again three times under the
   same parallel load, and a failure in any run fails tier 1 with its output, so a flaky new

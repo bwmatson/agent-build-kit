@@ -9,11 +9,11 @@ shows as a callout.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 from pathlib import Path
 
 from agent_build_kit.pipeline.units import Member
+from agent_build_kit.pipeline.work_graph import group_sections
 
 FLAG_FENCE = "spec-conflict"
 
@@ -32,8 +32,6 @@ user to confirm:
 ```
 """
 
-_GROUP = re.compile(r"^## (\d+)\.", re.MULTILINE)
-
 
 def _read(path: Path) -> str:
     try:
@@ -44,14 +42,7 @@ def _read(path: Path) -> str:
 
 def _groups(tasks: str, wanted: Iterable[int]) -> str:
     """The sections of `tasks` for the groups numbered in `wanted`."""
-    starts = [(m.start(), int(m.group(1))) for m in _GROUP.finditer(tasks)]
-    keep = set(wanted)
-    parts = []
-    for index, (start, number) in enumerate(starts):
-        end = starts[index + 1][0] if index + 1 < len(starts) else len(tasks)
-        if number in keep:
-            parts.append(tasks[start:end].strip())
-    return "\n\n".join(parts)
+    return "\n\n".join(section.strip() for section in group_sections(tasks, wanted))
 
 
 def change_context(changes_dir: Path, members: Iterable[Member]) -> str:
@@ -64,8 +55,8 @@ def change_context(changes_dir: Path, members: Iterable[Member]) -> str:
             ("design.md", _read(change / "design.md")),
         ]
         files += [
-            (f"specs/{spec.parent.name}/spec.md", _read(spec))
-            for spec in sorted((change / "specs").glob("*/spec.md"))
+            (spec.relative_to(change).as_posix(), _read(spec))
+            for spec in sorted((change / "specs").glob("**/spec.md"))
         ]
         files.append(("task groups", _groups(_read(change / "tasks.md"), member.groups)))
         body = [f"### {name}\n\n{text}" for name, text in files if text]

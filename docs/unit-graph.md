@@ -536,6 +536,16 @@ chooses between the three ways a node can speak:
    and an instruction to read what changed, never a log or a diff. After
    `adapt`'s reset the old work is under `refs/spec-driven/pre-adapt/<unit>`,
    which the prompt names.
+
+   The prompt also says which of the change's spec files were edited since the
+   session last ran. When a session is prompted, copies of the files it was
+   pointed at are kept under `<state_dir>/spec-snapshots/<unit>/<role>/`: the
+   unit's own groups of `tasks.md` (with the task boxes read as one form, since
+   the pipeline ticks them itself), `design.md`, `proposal.md` and
+   `specs/**/spec.md`, never `follow-ups.md`. A continuation whose files differ
+   begins by naming each changed file and showing a diff, cut at 6000
+   characters with a pointer to the files; a new session gets no notice. The
+   copies are removed when the unit merges, closes or is satisfied.
 3. Otherwise, or when the resume raises `SessionUnavailable` (including a
    context overflow, which Claude Code reports as a prompt too long): a new
    session with the full prompt on the node's model, and a line in the run log
