@@ -606,7 +606,9 @@ by a step of each round, after the poll and the replies (`pipeline/label_sweep.p
 `limits.label_sweep_per_tick` finished units' pull requests per round, lowest number first within
 each repo, each recorded in `labels-swept.json` in the state directory (under a lock, replaced
 atomically; losing it costs one more pass) so it is not visited again. A failed clear is not
-recorded and is retried.
+recorded and is retried. The sweep is a step of a round, and a tick that finds no work
+runs no round, so an idle installation takes its stale labels off when its next work arrives,
+not before; a clear that keeps failing therefore never keeps a tick from going idle.
 Labels are cosmetic and are never read back: the unit store is the source of
 truth, a pull request wearing a stale label does not change its unit, and a
 label that cannot be written is logged and changes nothing about the unit.
