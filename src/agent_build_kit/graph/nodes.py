@@ -21,7 +21,7 @@ from langgraph.graph import END
 from langgraph.types import interrupt
 
 from agent_build_kit import forges, profiles, telemetry
-from agent_build_kit.config import active, models
+from agent_build_kit.config import active, active_root, models
 from agent_build_kit.forges.base import BaseMissing
 from agent_build_kit.graph.state import (
     AgentSession,
@@ -32,7 +32,8 @@ from agent_build_kit.graph.state import (
     UnitRun,
     Verdict,
 )
-from agent_build_kit.pipeline import environment, spans
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import environment, spans, spec_snapshot
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check
 from agent_build_kit.pipeline.events import (
@@ -52,6 +53,7 @@ from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
     ADAPT_FOLLOWUP_PROMPT,
     ADAPT_PROMPT,
+    CHANGE_DIR,
     CHECKS_CONTINUATION,
     CHECKS_PROMPT,
     IMPLEMENTATION_CONTINUATION,
@@ -93,6 +95,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    Member,
     Unit,
     UnitState,
     branch_name,
@@ -389,6 +392,7 @@ class BuildPath:
             round=_round(node, state),
             head=head,
             cumulative_usd=cumulative,
+            spec=self._save_spec(role),
         )
         kept: Update = {"sessions": {**state.sessions, role: session}}
         if role is SessionRole.BUILD and not state.build_model:
@@ -659,6 +663,8 @@ class BuildPath:
         head = self.runner.head(cwd)
         if session.head and head != session.head:
             follow_up = f"{MOVED_NOTE.format(old=session.head, new=head)}\n\n{follow_up}"
+        if spec_note := self._spec_notice(SESSION_ROLES[Node(self._node)], session):
+            follow_up = f"{spec_note}\n\n{follow_up}"
         self.say(
             f"continuing the {SESSION_ROLES[Node(self._node)]} session {session.session_id}"
             f" on {session.model or model}"
@@ -678,6 +684,36 @@ class BuildPath:
         # session is counted only as that.
         self._resuming_over_leftovers("resumed")
         return result
+
+    def _spec_places(self) -> tuple[Path, tuple[Member, ...], list[Path]] | None:
+        """The state directory, and the unit's members with their change directories; None
+        when no workspace is loaded."""
+        if (root := active_root()) is None:
+            return None
+        members = self.unit.members()
+        planning = self.runner.planning_repo
+        dirs = [Path(CHANGE_DIR.format(planning_repo=planning, change=m.change)) for m in members]
+        return Installation(active(), root).state_dir, members, dirs
+
+    def _save_spec(self, role: SessionRole) -> str:
+        """Keep the spec files this agent run was pointed at; the hash that records them."""
+        if (places := self._spec_places()) is None:
+            return ""
+        state_dir, members, dirs = places
+        try:
+            return spec_snapshot.save(state_dir, self.unit.id, role.value, members, dirs)
+        except OSError as error:
+            self.say(f"could not keep a copy of the spec — {error}")
+            return ""
+
+    def _spec_notice(self, role: SessionRole, session: AgentSession) -> str:
+        """What a resumed session is told about spec files edited since it last ran."""
+        if (places := self._spec_places()) is None:
+            return ""
+        state_dir, members, dirs = places
+        return spec_snapshot.notice(
+            state_dir, self.unit.id, role.value, session.spec, members, dirs
+        )
 
     def _resuming_over_leftovers(self, session: str) -> None:
         if not self._leftovers:
@@ -1992,6 +2028,10 @@ class BuildPath:
                 update["base"] = ""
         else:
             update["detail"] = event.kind.value
+            if event.kind in (EventKind.MERGED, EventKind.CLOSED) and (
+                places := self._spec_places()
+            ):
+                spec_snapshot.forget(places[0], unit.id)
         return update
 
     @staticmethod

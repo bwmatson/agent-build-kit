@@ -61,6 +61,11 @@ def append(path: Path, text: str) -> None:
     path.write_text(path.read_text() + text)
 
 
+def add_task(tasks: Path) -> None:
+    """A task in the unit's own group 1."""
+    tasks.write_text(TASKS.replace("- [ ] 1.2", f"{ADDED}\n- [ ] 1.2"))
+
+
 def edited_in_tier1(recorder: Recorder, edit: Callable[[], object]) -> Callable[..., Any]:
     """Tier 1 failing once, the person's edit landing as it runs, then passing."""
     recorder.tier1_results = [(False, FAILING), (True, "")]
@@ -102,9 +107,7 @@ def resumed_fix(tmp_path: Path, edit: Callable[[], object]) -> str:
 
 def test_an_added_task_is_named_and_shown_to_the_resumed_session(tmp_path: Path) -> None:
     tasks = change_dir(tmp_path) / "tasks.md"
-    prompt = resumed_fix(
-        tmp_path, lambda: tasks.write_text(TASKS.replace("- [ ] 1.2", f"{ADDED}\n- [ ] 1.2"))
-    )
+    prompt = resumed_fix(tmp_path, lambda: add_task(tasks))
 
     assert "tasks.md" in prompt
     assert ADDED in prompt
@@ -161,7 +164,7 @@ def test_a_diff_over_the_cut_keeps_the_first_6000_characters_and_points_to_the_f
 def test_a_rework_continuation_is_told_too(tmp_path: Path) -> None:
     write_spec(tmp_path)
     tasks = change_dir(tmp_path) / "tasks.md"
-    runtime = EditedAtReview(lambda: append(tasks, f"{ADDED}\n"))
+    runtime = EditedAtReview(lambda: add_task(tasks))
 
     tick(tmp_path, fresh(tmp_path), **agents(runtime))
 
@@ -199,7 +202,7 @@ def test_a_fresh_session_is_given_no_section_for_the_spec_that_changed(tmp_path:
     tick(
         tmp_path,
         recorder,
-        run_tier1=edited_in_tier1(recorder, lambda: append(tasks, f"{ADDED}\n")),
+        run_tier1=edited_in_tier1(recorder, lambda: add_task(tasks)),
         **agents(runtime),
     )
 
