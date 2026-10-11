@@ -16,7 +16,8 @@ change (tasks.md) ─► plan ─► units ─► build ─► PR ─► human r
 Everything below is a tick (`abk tick`), which a timer runs every few minutes
 in the planning repo. One tick starts with a round, in order: check the usage
 window, fetch and poll each repo's host, plan what is new, reclaim what no run
-holds, verify and archive what has fully merged, and work out what is ready;
+holds, verify and archive what has fully merged, retry the closes and replies owed,
+take stale state labels off finished pull requests, and work out what is ready;
 then it builds that. Every step is idempotent, and a tick with
 nothing to do exits silently before reading usage or calling any host.
 
@@ -226,8 +227,8 @@ again in the same pass, at most twice; anything else the pass started stays
 handed out, which is what lets a pass end. The caps apply to every
 evaluation, and `--only` narrows every one. The tick and each of those
 refreshes run the same round (`run_round`): the usage check, fetch and poll,
-planning, reclaim, the notification reconciliation, verification and archive,
-then readiness. A change added or
+planning, reclaim, the notification reconciliation, verification and archive, the
+closes and replies owed, the state-label sweep, then readiness. A change added or
 edited during a pass is planned by its next refresh (a change whose tasks are
 unchanged costs no model call), a unit sent back is let in again, and a step
 that raises is logged while the others still run. Only the model's own
@@ -600,7 +601,12 @@ itself, and the last two have no pull request of their own to carry one. When a
 unit reaches one of them and has a pull request, every state label comes off it
 (`StateLabels.clear_state`: one `labels_on` read, then only the state labels
 found are removed; change labels and a person's labels stay), so a merged pull
-request does not keep saying `in-review`.
+request does not keep saying `in-review`. Pull requests that were already stale are cleaned
+by a step of each round, after the poll and the replies (`pipeline/label_sweep.py`): at most
+`limits.label_sweep_per_tick` finished units' pull requests per round, lowest number first within
+each repo, each recorded in `labels-swept.json` in the state directory (under a lock, replaced
+atomically; losing it costs one more pass) so it is not visited again. A failed clear is not
+recorded and is retried.
 Labels are cosmetic and are never read back: the unit store is the source of
 truth, a pull request wearing a stale label does not change its unit, and a
 label that cannot be written is logged and changes nothing about the unit.

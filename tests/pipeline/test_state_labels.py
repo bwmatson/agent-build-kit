@@ -123,6 +123,9 @@ class NoLabelsForge(StandInForge):
     def remove_label(self, *args, **kwargs) -> None:
         raise NotImplementedError
 
+    def labels_on(self, *args, **kwargs) -> list[str]:
+        raise NotImplementedError
+
 
 def wired(tmp_path: Path, forge: StandInForge, logged: list[str]) -> UnitStore:
     """A store whose state changes reach the forge, as `cli.store_for` builds it."""
@@ -387,9 +390,10 @@ def test_a_failed_read_or_removal_is_logged_once_and_the_outcome_is_failed(
     assert "failed" in logged[0]
 
 
-def test_a_failed_clear_leaves_the_unit_finished(tmp_path: Path) -> None:
+@pytest.mark.parametrize("failing", ["read", "remove"])
+def test_a_failed_clear_leaves_the_unit_finished(failing: str, tmp_path: Path) -> None:
     logged: list[str] = []
-    forge = StandInForge(label_errors=("read", "remove"))
+    forge = StandInForge(label_errors=(failing,))
     store = wired(tmp_path, forge, logged)
     store.upsert([unit("add-marker/1")])
     store.set_state("add-marker/1", IN_REVIEW, pr=PR, branch="spec/add-marker/1")

@@ -86,6 +86,9 @@ class NoLabelsForge(StandInForge):
     def remove_label(self, *args, **kwargs) -> None:
         raise NotImplementedError
 
+    def labels_on(self, *args, **kwargs) -> list[str]:
+        raise NotImplementedError
+
 
 def test_a_host_without_labels_still_says_so_once(tmp_path: Path) -> None:
     logged: list[str] = []

@@ -62,6 +62,7 @@ from agent_build_kit.pipeline.events import (
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.joins import JoinContext
+from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.metric_records import record_metric
@@ -359,6 +360,17 @@ def _retry_pending_closes(inst: Installation, store: UnitStore) -> None:
         build_close_pr(for_repo=inst.forge_of)(unit, pr, reason)
 
     retry_closes(store, close_pr=close_pr)
+
+
+def _sweep_labels(inst: Installation, store: UnitStore) -> None:
+    sweep_finished(
+        store.all(),
+        labels=StateLabels(inst.forge_of, log=log),
+        state_dir=inst.state_dir,
+        limit=inst.config.limits.label_sweep_per_tick,
+        repo_order=list(inst.repos),
+        log=log,
+    )
 
 
 def _status_reading(args: argparse.Namespace) -> UsageReading | None:
@@ -1083,6 +1095,7 @@ def run_round(
     _step("archiving", archive)
     _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
     _step("posting owed replies", _retry_pending_replies, inst, store)
+    _step("sweeping state labels", _sweep_labels, inst, store)
     if not submit or not (admitted or may == "idle"):
         return []
 
