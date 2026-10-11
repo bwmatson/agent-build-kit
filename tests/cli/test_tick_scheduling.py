@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import json
 import sqlite3
 import threading
 import time
@@ -1837,24 +1836,16 @@ def test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass(
     inst = workspace(tmp_path, max_concurrent=2)
     builder.store.upsert([stored("mid/1"), stored("slow/1", repo="platform"), stored("later/1")])
     monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
+    monkeypatch.setattr(pause, "resume_deadline", lambda until, **_: until)
     marker = tmp_path / "paused.json"
 
     ends: list[datetime] = []
 
     def refused_by_the_model() -> None:
-        # Written whole, as a pause is, but ending in a moment: the grace a recorded
-        # pause adds would outlast the test.
+        # The real writer, with the grace a recorded pause adds removed: it would
+        # outlast the test.
         ends.append(datetime.now(UTC) + timedelta(seconds=0.5))
-        marker.write_text(
-            json.dumps(
-                {
-                    "until": ends[0].isoformat(),
-                    "reason": "the model refused",
-                    "kind": "rate_limit",
-                    "at": datetime.now(UTC).isoformat(),
-                }
-            )
-        )
+        pause.pause_until(ends[0], reason="the model refused", marker=marker, kind="rate_limit")
 
     builder.scripts["mid/1"] = refused_by_the_model
     submitted: list[datetime] = []
