@@ -37,8 +37,8 @@
   has parked (no run holds it) reads as `paused` in status, the graph, labels and the web UI.
   `abk report --waits` shows each unit's wall time by cause, the hours nothing ran (with a full
   queue or with room) and the estimate ratio per kind, by unit or by day; and a change's summary
-  at archive carries its slot, pause and review waits, review split into a person's, the rounds'
-  and the checks'.
+  at archive carries its slot, pause and review waits, review split into a person's and the
+  checks', with the rounds' time beside them.
 
 - The reviewer now searches for an existing equivalent of each new function, constant,
   pattern or test helper in a diff, and for a second copy within it, naming the existing one

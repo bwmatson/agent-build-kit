@@ -31,6 +31,7 @@ SAMPLES = 88
 IDLE_FULL = 17
 IDLE_ROOM = 30
 LIMIT = 3
+REWORKED = 5  # units sent back for a round after their review began
 
 
 class Recorded:
@@ -74,19 +75,23 @@ def worked_example(state: Path) -> Recorded:
         merged = in_review + (3 if i < 28 else 2)  # hours in review
         ready = ran - 1
         t0 = START + timedelta(hours=i)
+        # The first few units are sent back for rework an hour into their review: one hour
+        # of the running time and two of the review time follow it, the totals unchanged.
+        reworked = i < REWORKED
+        stamps = (
+            [("running", ran), ("in_review", ran + 1), ("running", ran + 2)]
+            + [("in_review", ran + 3)]
+            if reworked
+            else [("running", ran), ("in_review", in_review)]
+        )
         units.append(
             stored_unit(
                 uid,
                 change=change,
                 state="merged",
                 ready_at=t0 + timedelta(hours=ready),
-                history=history(
-                    t0,
-                    ("planned", 0),
-                    ("running", ran),
-                    ("in_review", in_review),
-                    ("merged", merged),
-                ),
+                first_human_activity_at=t0 + timedelta(hours=merged - 1),
+                history=history(t0, ("planned", 0), *stamps, ("merged", merged)),
             )
         )
         who = {"unit": uid, "change": change, "repo": "app"}
@@ -105,6 +110,18 @@ def worked_example(state: Path) -> Recorded:
                 duration_ms=HOUR,
             ),
         ]
+        if reworked:
+            ledger.append(
+                span_line(
+                    **who,
+                    at=at(ran + 3, t0),
+                    started=at(ran + 2, t0),
+                    ended=at(ran + 3, t0),
+                    node="rework",
+                    cause="review",
+                    duration_ms=HOUR,
+                )
+            )
         decisions += [
             decision(uid, at(0, t0), "blocked", [f"change-{i - 1}/1"] if i else []),
             decision(uid, at(ready, t0), "slot", []),

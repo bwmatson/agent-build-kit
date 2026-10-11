@@ -128,21 +128,28 @@ The same figures are written to `planning.usage_page` on every store write.
 time from its state history is split into planned-blocked (before its ready stamp, the
 unit's `ready_at` or else the first decision that said it could start), planned-ready
 (waiting for a slot), running in the agent, in checks and in other work, in review for a
-person or in review rounds, paused and failed; the causes sum to the wall time, and one never
-recorded prints as `-`. A planned stretch of a unit with no ready stamp is left out, since
-how it divides was never recorded. A review round is a rework, check-fix or adapt round that
-began after the unit first entered review; it runs while the unit is running or planned, so
-its time comes out of that stretch and counts as in-review-round, and a round before the first
-review is running time. The time in review is a person's up to `first_human_activity_at` (all
-of it when nobody answered, less the rounds), and what is left of it, the checks', is counted
-under running-in-checks. Under the table: the hours of the ledger's samples in which nothing
-ran, split into a full queue (running plus in-review units reaching the limit; failed units and
-ones holding a branch also fill it, but a sample does not carry them, so those hours read as
-room to spare) and room to spare, and the estimate ratio (actual over estimated lines) per kind of merged unit. At archive each
-unit's summary carries `slot_wait_ms`, `pause_wait_ms` and `review_wait_ms`, review split into
-`review_person_ms`, `review_round_ms` and `review_checks_ms`, which sum to `review_wait_ms`;
-the person's figure is the one the report shows. Exit 0, or 2 for a grouping other than
-`unit` or `day`.
+person or in review rounds, paused and failed; the causes sum to the wall time, and one
+never recorded prints as `-`. The `planned`, `in review` and `running` figures under the
+table, and in the JSON total, are the time in those states from the history, whatever the
+causes divide it into. A planned stretch of a unit with no ready stamp is not divided into
+blocked and ready, since that was never recorded; its rounds are still counted.
+
+A review round is a rework, check-fix or adapt round that began after the unit first entered
+review. It runs while the unit is running or planned, so its time comes out of that stretch
+and counts as in-review-round, and a round before the first review is running time. A
+round's own agent and check time are also counted under their causes, so those overlap the
+round. The time in review is a person's up to `first_human_activity_at` (all of it when
+nobody answered), and what is left of it, the checks', is counted under running-in-checks.
+
+Under the table: the hours of the ledger's samples in which nothing ran, split into a full
+queue (running plus in-review units reaching the limit; failed units and ones holding a
+branch also fill it, but a sample does not carry them, so those hours read as room to
+spare) and room to spare, and the estimate ratio (actual over estimated lines) per kind of
+merged unit. At archive each unit's summary carries `slot_wait_ms`, `pause_wait_ms` and
+`review_wait_ms`, the last split into `review_person_ms` and `review_checks_ms`, which sum
+to it. `review_round_ms` is recorded beside them, not as a part of it: the rounds lie
+outside the review stretch. The person's figure is the one the report shows. Exit 0, or 2
+for a grouping other than `unit` or `day`.
 
 `abk report --context` prints the context window's use instead of cost: per step kind the mean
 and 90th percentile of what a call added, the compactions and the end fill as `used / max`

@@ -149,7 +149,8 @@ WAIT_GROUPINGS = ("unit", "day")
 
 
 class WaitRow(Frozen):
-    """One group's wall time by cause, in milliseconds; a cause never recorded is None."""
+    """One group's wall time by cause, and its time in each state, in milliseconds; one
+    never recorded is None."""
 
     key: str
     wall_ms: int | None = None
@@ -163,18 +164,10 @@ class WaitRow(Frozen):
     paused_ms: int | None = None
     failed_ms: int | None = None
 
-    @property
-    def planned_ms(self) -> int | None:
-        return _add(self.planned_blocked_ms, self.planned_ready_ms)  # type: ignore[return-value]
-
-    @property
-    def running_ms(self) -> int | None:
-        both = _add(self.running_agent_ms, self.running_checks_ms)
-        return _add(both, self.running_other_ms)  # type: ignore[return-value]
-
-    @property
-    def in_review_ms(self) -> int | None:
-        return _add(self.in_review_person_ms, self.in_review_round_ms)  # type: ignore[return-value]
+    # The time in each state, whatever the causes divide it into.
+    planned_ms: int | None = None
+    running_ms: int | None = None
+    in_review_ms: int | None = None
 
 
 class IdleHours(Frozen):
@@ -993,34 +986,34 @@ def _round_ms_within(
 
 
 class _ReviewSplit(Frozen):
-    """A unit's time in review stretches, partitioned: rounds first (clipped to the
-    stretches), then a person's, and the checks are what is left."""
+    """A unit's time in review stretches: a person's and the checks', which sum to it, and
+    beside them the time of the rounds after the first review entry, which lie outside it."""
 
     stretch: int
     person: int
-    round: int
     checks: int
+    round: int
 
 
 def _review_split(unit: StoredUnit, rounds: Sequence[tuple[datetime, datetime]]) -> _ReviewSplit:
-    """A person's time runs from entering review to `first_human_activity_at`, or the whole
-    stretch when nobody answered; the round time is that of the rounds after the first
-    review entry, which lie outside the stretches."""
-    stretch = sum(_ms(s, e) for state, s, e in _stretches(unit) if state == IN_REVIEW)
+    """A person's time runs from entering review to `first_human_activity_at`, clipped to
+    the stretches, or is all of them when nobody answered; the checks are the rest."""
+    stretches = _stretches(unit)
+    stretch = sum(_ms(s, e) for state, s, e in stretches if state == IN_REVIEW)
     started, answered = unit.review_requested_at, unit.first_human_activity_at
     person = stretch
     if answered is not None and started is not None:
         person = min(stretch, max(0, _ms(started, answered)))
     taken = sum(
         _round_ms_within(unit, rounds, s, e)
-        for state, s, e in _stretches(unit)
+        for state, s, e in stretches
         if state in (PLANNED, RUNNING)
     )
-    round_ms = min(taken, stretch)
-    person = min(person, stretch - round_ms)
-    return _ReviewSplit(
-        stretch=stretch, person=person, round=round_ms, checks=stretch - round_ms - person
-    )
+    return _ReviewSplit(stretch=stretch, person=person, checks=stretch - person, round=taken)
+
+
+# The figure that holds the whole time in each state.
+_STATE_FIGURES = {PLANNED: "planned_ms", RUNNING: "running_ms", IN_REVIEW: "in_review_ms"}
 
 
 def _unit_waits(
@@ -1029,18 +1022,20 @@ def _unit_waits(
     recorded: dict[str, list[tuple[datetime | None, int]]],
     rounds: Sequence[tuple[datetime, datetime]],
 ) -> list[tuple[datetime, str, int]]:
-    """The unit's wall time as `(when, cause, ms)`. A running stretch holds the rounds
-    after the first review, then the unit's pauses, checks and agent calls, in that order,
-    and the rest is other. A planned stretch with no ready stamp is not told. A review
-    stretch is a person's time up to their answer and the checks' after it."""
+    """The unit's wall time as `(when, cause, ms)`, and its time in each state whole. A
+    running stretch holds the rounds after the first review, then the unit's pauses, checks
+    and agent calls, in that order, and the rest is other; a round's own agent calls are
+    taken out of the running time again, so the round and the calls overlap. A planned
+    stretch with no ready stamp is not divided into blocked and ready, but its rounds are
+    told. A review stretch is a person's time up to their answer and the checks' after it."""
     found: list[tuple[datetime | None, str, int]] = []
     running = 0
     running_at = None
     for state, start, end in _stretches(unit):
-        if state == PLANNED and not ready:
-            continue
         taken = _round_ms_within(unit, rounds, start, end) if state in (PLANNED, RUNNING) else 0
         found.append((start, "in_review_round_ms", taken))
+        if state in _STATE_FIGURES:
+            found.append((start, _STATE_FIGURES[state], _ms(start, end)))
         if state == PLANNED and ready:
             split = min(max(ready, start), end)
             waiting = _ms(split, end)
@@ -1069,7 +1064,8 @@ def _unit_waits(
 
 
 def _wait_row(key: str, sums: dict[str, int]) -> WaitRow:
-    return WaitRow(key=key, wall_ms=sum(sums.values()) if sums else None, **sums)
+    caused = [ms for cause, ms in sums.items() if cause in _WAIT_CAUSES]
+    return WaitRow(key=key, wall_ms=sum(caused) if caused else None, **sums)
 
 
 def _idle_hours(lines: list[str]) -> IdleHours:

@@ -336,3 +336,38 @@ def test_a_unit_ready_at_its_first_slot_decision_starts_waiting_there(tmp_path: 
     (row,) = report.rows
     assert row.planned_blocked_ms == 4 * HOUR
     assert row.planned_ready_ms == 2 * HOUR
+
+
+def test_a_round_in_a_planned_stretch_without_a_ready_stamp_is_still_a_rounds(
+    tmp_path: Path,
+) -> None:
+    unit = stored_unit(
+        "add-marker/1",
+        state="merged",
+        history=history(
+            START,
+            ("planned", 0),
+            ("running", 1),
+            ("in_review", 2),
+            ("planned", 3),
+            ("running", 5),
+            ("merged", 6),
+        ),
+    )
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl",
+        span_line(
+            unit=unit.id,
+            node="adapt",
+            cause="conflict",
+            started=at(3),
+            ended=at(4),
+            duration_ms=HOUR,
+        ),
+    )
+
+    (row,) = build_wait_report(ledger, tmp_path / "decisions.jsonl", [unit]).rows
+
+    assert row.in_review_round_ms == HOUR
+    assert row.planned_blocked_ms is None
+    assert row.planned_ms == 3 * HOUR, "the time in the state is told whole"

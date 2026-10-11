@@ -91,7 +91,9 @@ def test_a_summary_carries_the_slot_pause_and_review_waits(tmp_path: Path) -> No
     assert found["review_wait_ms"] == 6 * HOUR
 
 
-def test_the_review_wait_is_split_into_person_round_and_checks(tmp_path: Path) -> None:
+def test_the_review_wait_is_split_into_person_and_checks_with_the_rounds_beside(
+    tmp_path: Path,
+) -> None:
     ledger = ledger_of(tmp_path)
 
     roll_up_change(ledger, CHANGE, units())
@@ -99,28 +101,21 @@ def test_the_review_wait_is_split_into_person_round_and_checks(tmp_path: Path) -
     found = summaries(ledger)[REVIEWED]
     assert found["review_person_ms"] == 3 * HOUR
     assert found["review_round_ms"] == HOUR
-    assert found["review_checks_ms"] == 2 * HOUR
-    assert (
-        found["review_person_ms"] + found["review_round_ms"] + found["review_checks_ms"]
-        == found["review_wait_ms"]
-    )
+    assert found["review_checks_ms"] == 3 * HOUR
+    assert found["review_person_ms"] + found["review_checks_ms"] == found["review_wait_ms"]
 
 
 def test_a_review_nobody_answered_is_all_the_persons(tmp_path: Path) -> None:
-    """All of what the rounds leave of the stretch, so the three parts still sum to it."""
+    """All of the stretch, whatever rounds ran after the review began: those lie outside it."""
     ledger = ledger_of(tmp_path)
     waiting = units()[0].model_copy(update={"first_human_activity_at": None})
 
     roll_up_change(ledger, CHANGE, [waiting, units()[1]])
 
     found = summaries(ledger)[REVIEWED]
-    assert found["review_person_ms"] == 5 * HOUR
-    assert found["review_round_ms"] == HOUR
+    assert found["review_person_ms"] == found["review_wait_ms"] == 6 * HOUR
     assert found["review_checks_ms"] == 0
-    assert (
-        found["review_person_ms"] + found["review_round_ms"] + found["review_checks_ms"]
-        == found["review_wait_ms"]
-    )
+    assert found["review_round_ms"] == HOUR
 
 
 def test_the_reports_person_time_is_the_summarys(tmp_path: Path) -> None:
