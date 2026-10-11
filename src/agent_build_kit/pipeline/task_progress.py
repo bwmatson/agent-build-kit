@@ -17,6 +17,13 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.file_lock import file_lock
 
+_ANY_BOX = re.compile(r"^(\s*- )\[[ xX]\]( \d+\.\d+ )", re.M)
+
+
+def without_boxes(text: str) -> str:
+    """`text` with every task box set to one form, so ticking is not a change to the text."""
+    return _ANY_BOX.sub(r"\g<1>[ ]\g<2>", text)
+
 
 def mark_groups(tasks: Path, groups: Iterable[int], *, done: bool) -> None:
     """Set every task box in `groups` to done or not done.

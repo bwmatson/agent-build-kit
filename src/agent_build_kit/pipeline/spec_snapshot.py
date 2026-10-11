@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import difflib
 import hashlib
-import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
+from agent_build_kit.pipeline.task_progress import without_boxes
 from agent_build_kit.pipeline.units import Member
+from agent_build_kit.pipeline.work_graph import group_sections
 
 SNAPSHOTS = "spec-snapshots"
 DIFF_LIMIT = 6000
@@ -30,19 +31,13 @@ Read it as it is now; what was added or altered:
 {rest}"""
 REST_CUT = "(The diff is cut at {limit} characters; read the rest in {paths}.)\n"
 
-_GROUP = re.compile(r"^##\s+(\d+)\.")
 
-
-def _own_groups(text: str, groups: Sequence[int]) -> str:
-    """The sections of `tasks.md` that belong to `groups`."""
-    kept: list[str] = []
-    current: int | None = None
-    for line in text.splitlines(keepends=True):
-        if found := _GROUP.match(line):
-            current = int(found.group(1))
-        if current in groups:
-            kept.append(line)
-    return "".join(kept)
+def _compared(name: str, text: str, groups: Sequence[int]) -> str:
+    """The text of a spec file as compared: for `tasks.md`, only the unit's own groups, with
+    their boxes in one form, since the pipeline ticks and unticks those itself."""
+    if name.rsplit("/", 1)[-1] != "tasks.md":
+        return text
+    return without_boxes("".join(group_sections(text, groups)))
 
 
 class _Spec(NamedTuple):
@@ -63,12 +58,17 @@ def _named(members: Sequence[Member], change_dirs: Sequence[Path]) -> dict[str, 
             if not path.is_file():
                 continue
             name = path.relative_to(change_dir).as_posix()
-            text = path.read_text()
-            if name == "tasks.md":
-                text = _own_groups(text, member.groups)
+            text = _compared(name, path.read_text(), member.groups)
             key = f"{member.change}/{name}" if several else name
             found[key] = _Spec(path, text, member.groups)
     return found
+
+
+def _digest(named: dict[str, _Spec]) -> str:
+    digest = hashlib.sha256()
+    for key, spec in sorted(named.items()):
+        digest.update(f"{key}\0{spec.text}\0".encode())
+    return digest.hexdigest()
 
 
 def snapshot_dir(state_dir: Path, unit_id: str, role: str) -> Path:
@@ -90,15 +90,14 @@ def save(
     """Copy the unit's spec files for `role`, replacing the last copies; return their hash."""
     where = snapshot_dir(state_dir, unit_id, role)
     shutil.rmtree(where, ignore_errors=True)
-    digest = hashlib.sha256()
-    for key, spec in sorted(_named(members, change_dirs).items()):
-        digest.update(f"{key}\0{spec.text}\0".encode())
+    named = _named(members, change_dirs)
+    for key, spec in sorted(named.items()):
         copy = where / key
         copy.parent.mkdir(parents=True, exist_ok=True)
         # The whole file is kept; only the compared sections go into the hash and the diff.
         copy.write_text(spec.path.read_text())
     where.mkdir(parents=True, exist_ok=True)
-    return digest.hexdigest()
+    return _digest(named)
 
 
 def notice(
@@ -110,18 +109,19 @@ def notice(
     change_dirs: Sequence[Path],
 ) -> str:
     """What to say to a resumed session about the spec files that differ from its copies;
-    empty when nothing differs, or when no copies were recorded for it."""
-    if not recorded:
-        return ""
+    empty when nothing differs, or when no copies were recorded for it or they are gone."""
     where = snapshot_dir(state_dir, unit_id, role)
+    if not recorded or not where.is_dir():
+        return ""
+    named = _named(members, change_dirs)
+    if _digest(named) == recorded:
+        return ""
     changed: list[str] = []
     places: list[Path] = []
     diffs: list[str] = []
-    for key, spec in sorted(_named(members, change_dirs).items()):
+    for key, spec in sorted(named.items()):
         copy = where / key
-        before = copy.read_text() if copy.is_file() else ""
-        if key.rsplit("/", 1)[-1] == "tasks.md":
-            before = _own_groups(before, spec.groups)
+        before = _compared(key, copy.read_text(), spec.groups) if copy.is_file() else ""
         if before == spec.text:
             continue
         changed.append(key)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from agent_build_kit.config import active
@@ -76,6 +77,24 @@ GROUP_HEADING = re.compile(
     r"(?:\s+\[(?P<flag>[^\]]*)\])?\s+(?P<title>.+?)\s*$"
 )
 ANY_GROUP_HEADING = re.compile(r"^##\s+(?P<rest>.+?)\s*$")
+GROUP_NUMBER = re.compile(r"^##\s+(?P<number>\d+)\.")
+
+
+def group_sections(tasks: str, groups: Iterable[int]) -> list[str]:
+    """The raw sections of a `tasks.md` text for the groups numbered in `groups`, each from its
+    heading to the next numbered heading."""
+    wanted = set(groups)
+    sections: list[str] = []
+    keeping = False
+    for line in tasks.splitlines(keepends=True):
+        if found := GROUP_NUMBER.match(line):
+            keeping = int(found.group("number")) in wanted
+            if keeping:
+                sections.append("")
+        if keeping:
+            sections[-1] += line
+    return sections
+
 
 # "Needs: feature group 2 — why", inside a group: that group cannot pass until
 # a group of *another* change has. The planner orders groups within a change;

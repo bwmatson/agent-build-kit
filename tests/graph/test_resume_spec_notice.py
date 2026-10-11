@@ -16,6 +16,7 @@ import pytest
 
 from agent_build_kit import config as config_module
 from agent_build_kit.graph.state import EventKind, ResumeEvent, SessionRole
+from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from tests.graph.test_session_continuation import (
     CHANGE_PATH,
@@ -146,6 +147,28 @@ def test_only_the_units_own_groups_of_tasks_are_compared(tmp_path: Path) -> None
     assert ELSEWHERE not in prompt
 
 
+def test_ticking_the_units_own_boxes_is_not_an_edit_of_the_spec(tmp_path: Path) -> None:
+    tasks = change_dir(tmp_path) / "tasks.md"
+    prompt = resumed_fix(tmp_path, lambda: mark_groups(tasks, [1], done=True))
+
+    assert "tasks.md" not in prompt
+    assert "1.1" not in prompt
+
+
+def test_an_edit_made_alongside_the_ticks_is_still_shown(tmp_path: Path) -> None:
+    tasks = change_dir(tmp_path) / "tasks.md"
+
+    def edit() -> None:
+        mark_groups(tasks, [1], done=True)
+        tasks.write_text(tasks.read_text().replace("1.2 Register", "1.2 Persist"))
+
+    prompt = resumed_fix(tmp_path, edit)
+
+    assert "tasks.md" in prompt
+    assert "Persist the marker" in prompt
+    assert "[x] 1.1" not in prompt, "the ticks themselves are not shown"
+
+
 def test_a_diff_over_the_cut_keeps_the_first_6000_characters_and_points_to_the_file(
     tmp_path: Path,
 ) -> None:
@@ -213,7 +236,10 @@ def test_a_fresh_session_is_given_no_section_for_the_spec_that_changed(tmp_path:
     assert ADDED not in fix.prompt
 
 
-def test_the_copies_an_agent_run_leaves_are_removed_when_the_unit_merges(tmp_path: Path) -> None:
+@pytest.mark.parametrize("kind", [EventKind.MERGED, EventKind.CLOSED])
+def test_the_copies_an_agent_run_leaves_are_removed_when_the_unit_ends(
+    tmp_path: Path, kind: EventKind
+) -> None:
     write_spec(tmp_path)
     root = config_module.active_root()
     assert root is not None
@@ -223,5 +249,5 @@ def test_the_copies_an_agent_run_leaves_are_removed_when_the_unit_merges(tmp_pat
     tick(tmp_path, recorder, **agents(Sessions()))
 
     assert (kept / "build" / "tasks.md").read_text() == TASKS
-    tick(tmp_path, recorder, event=ResumeEvent(kind=EventKind.MERGED, reason="merged"))
+    tick(tmp_path, recorder, event=ResumeEvent(kind=kind, reason=kind.value))
     assert not kept.exists()
