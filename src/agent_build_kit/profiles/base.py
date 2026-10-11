@@ -121,10 +121,12 @@ class RepeatsTests(Protocol):
     """The optional hook a profile adds to run chosen tests again under the load of a
     test run. A profile without it has no repeat check."""
 
-    def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
-        """`command`, one of the profile's test runs, as a run of exactly `tests`, under
-        the same workers and markers. Each is an identifier the runner selects by, given
-        relative to the directory the command runs in."""
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+        """`command`, one of the profile's test runs, as a run of exactly those of `tests`
+        that it runs, under the same workers and markers. Each is an identifier the runner
+        selects by, given relative to the directory the command runs in. None when none of
+        them is one this command runs (a test of another project belongs to that project's
+        command, in its environment)."""
         ...
 
 

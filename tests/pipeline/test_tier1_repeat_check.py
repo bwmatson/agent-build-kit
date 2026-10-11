@@ -47,14 +47,16 @@ class Runs:
     """Answers lint and the full run with a pass; any other command is a repeat run, which
     exits as `repeats` says, one entry per run, passing once they run out."""
 
-    def __init__(self, repeats: list[int] | None = None, full: list[str] = RUN) -> None:
+    def __init__(
+        self, repeats: list[int] | None = None, full: list[list[str]] | None = None
+    ) -> None:
         self.repeats = list(repeats or [])
-        self.full = full
+        self.full = full or [RUN]
         self.commands: list[list[str]] = []
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.commands.append(command)
-        if command in (LINT, self.full):
+        if command == LINT or command in self.full:
             return subprocess.CompletedProcess(command, 0, "12 passed\n", "")
         exit_code = self.repeats.pop(0) if self.repeats else 0
         output = "1 passed\n" if exit_code == 0 else FAILURE + "\n"
@@ -62,7 +64,7 @@ class Runs:
 
     @property
     def repeat_runs(self) -> list[list[str]]:
-        return [c for c in self.commands if c not in (LINT, self.full)]
+        return [c for c in self.commands if c != LINT and c not in self.full]
 
     def repeating(self, test: str) -> list[list[str]]:
         return [c for c in self.repeat_runs if test in " ".join(c)]
@@ -77,6 +79,7 @@ def checkout(tmp_path: Path, files: dict[str, str]) -> tuple[Path, str]:
     git(repo, "commit", "-qm", "base")
     base = git(repo, "rev-parse", "HEAD").strip()
     for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "unit", "--allow-empty")
@@ -96,6 +99,21 @@ class NodeProfile(Profile):
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
         return [*command, "--", *tests]
+
+
+MEMBERS = [
+    ["uv", "run", "--package", "svc-a", "pytest", "svc-a", "-q"],
+    ["uv", "run", "--package", "svc-b", "pytest", "svc-b", "-q"],
+]
+
+
+class WorkspaceProfile(Profile):
+    """A workspace of two members, each with its own test command."""
+
+    def test_commands(
+        self, repo: Path, changed: list[str], *, root_extras: list[str]
+    ) -> list[list[str]]:
+        return MEMBERS
 
 
 class WithoutRepeat:
@@ -222,7 +240,7 @@ def test_a_profile_whose_nothing_collected_status_is_zero_still_repeats_every_ru
     tmp_path: Path,
 ) -> None:
     repo, base = checkout(tmp_path, {"test_new.py": ADDED})
-    runs = Runs(full=NPM_TEST)
+    runs = Runs(full=[NPM_TEST])
 
     passed, _ = tier1(runs, repo, base, NodeProfile())
 
@@ -260,3 +278,33 @@ def test_a_base_that_cannot_be_resolved_skips_the_check_and_the_pass_stands(
 
     assert (passed, message) == (True, "")
     assert runs.commands == [LINT, RUN]
+
+
+def test_a_test_of_one_member_is_repeated_only_by_that_member_s_command(tmp_path: Path) -> None:
+    repo, base = checkout(tmp_path, {"svc-a/tests/test_x.py": ADDED})
+    runs = Runs(full=MEMBERS)
+
+    passed, _ = tier1(runs, repo, base, WorkspaceProfile())
+
+    assert passed
+    assert (
+        runs.repeat_runs
+        == [
+            ["uv", "run", "--package", "svc-a", "pytest", "-q", "svc-a/tests/test_x.py::test_added"]
+        ]
+        * 3
+    )
+
+
+def test_a_test_method_in_a_source_file_is_not_repeated(tmp_path: Path) -> None:
+    source = "class Client:\n    def test_connection(self):\n        return True\n"
+    repo, base = checkout(tmp_path, {"src/db.py": source, "test_new.py": ADDED})
+    runs = Runs()
+
+    passed, _ = tier1(runs, repo, base)
+
+    assert passed
+    assert len(runs.repeat_runs) == 3
+    for command in runs.repeat_runs:
+        assert command[-1] == "test_new.py::test_added"
+        assert "src/db.py" not in " ".join(command)

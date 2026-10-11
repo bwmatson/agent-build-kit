@@ -24,6 +24,7 @@ def collected(tmp_path: Path, ids: list[str], command: list[str]) -> set[str]:
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
     narrowed = PythonUvProfile().repeat_command(command, ids)
+    assert narrowed is not None
     result = subprocess.run(
         [*narrowed, "--collect-only", "-p", "no:cacheprovider"],
         cwd=tmp_path,
@@ -57,8 +58,31 @@ def test_the_options_of_the_run_stay_and_its_paths_go() -> None:
     command = ["uv", "run", "--package", "svc-a", "pytest", "svc-a"]
     command += ["-n", "auto", "-m", "not serial", "-q"]
 
-    assert PythonUvProfile().repeat_command(command, ["tests/test_a.py::test_x"]) == [
+    assert PythonUvProfile().repeat_command(command, ["svc-a/tests/test_a.py::test_x"]) == [
         *["uv", "run", "--package", "svc-a", "pytest"],
         *["-n", "auto", "-m", "not serial", "-q"],
-        "tests/test_a.py::test_x",
+        "svc-a/tests/test_a.py::test_x",
     ]
+
+
+def test_a_test_of_another_member_selects_nothing() -> None:
+    command = ["uv", "run", "--package", "svc-b", "--isolated", "pytest", "svc-b", "-q"]
+
+    assert PythonUvProfile().repeat_command(command, ["svc-a/tests/test_x.py::test_y"]) is None
+
+
+def test_a_member_command_keeps_only_its_own_ids() -> None:
+    command = ["uv", "run", "--package", "svc-a", "--isolated", "pytest", "svc-a", "-q"]
+    ids = ["svc-a/tests/test_x.py::test_y", "svc-b/tests/test_x.py::test_y", "svc-ab/t.py::t"]
+
+    assert PythonUvProfile().repeat_command(command, ids) == [
+        *["uv", "run", "--package", "svc-a", "--isolated", "pytest", "-q"],
+        "svc-a/tests/test_x.py::test_y",
+    ]
+
+
+def test_a_command_given_no_path_keeps_every_id() -> None:
+    command = ["uv", "run", "pytest", "-n", "auto"]
+    ids = ["a/test_x.py::test_y", "b/test_x.py::test_z"]
+
+    assert PythonUvProfile().repeat_command(command, ids) == [*command, *ids]

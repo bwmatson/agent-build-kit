@@ -850,15 +850,17 @@ def build_tier1(
             if not isinstance(toolchain, RepeatsTests):
                 continue
             # The profile selects by identifier, relative to where its command runs.
+            # Only test files: a `test_*` method in a source file is not collected.
             ids = [
                 f"{relative}::{name}"
                 for path, name in touched
-                if (relative := _under(cwd / path, where)) is not None
+                if toolchain.is_test_path(path)
+                and (relative := _under(cwd / path, where)) is not None
             ]
-            if not ids:
-                continue
-            for command in commands:
+            for command in commands if ids else []:
                 again = toolchain.repeat_command(command, ids)
+                if again is None:
+                    continue
                 for _ in range(runs):
                     result = ran(again, where, toolchain)
                     nothing = (
