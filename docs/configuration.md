@@ -333,7 +333,8 @@ repos:                          # ordered: deploy order is derived from
                                 #   llm_max_age_days: 14      # llm upstreams
                                 #   max_body_bytes: 2097152   # a larger response is not recorded
                                 #   max_directory_mb: 100     # past it nothing more is promoted
-                                #   review_after_runs: 5      # read by the review work to come
+                                #   review_after_runs: 5      # a cassette waiting longer is warned about by
+                                #                             `abk doctor` and by the next run
     checks:
       affected:
         mode: off               # off | profile | command: which tests the check

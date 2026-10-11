@@ -63,6 +63,9 @@ class RequestSummary(Frozen):
     query: str
     body_size: int
     body_hash: str
+    # For a JSON object body: a digest per top-level field, and per element of a list field
+    # (`messages[1]`), so a difference can be named without storing the prompts.
+    parts: dict[str, str] = {}
 
 
 class StoredResponse(Frozen):
@@ -87,6 +90,8 @@ class Cassette(Frozen):
     request: RequestSummary
     response: StoredResponse
     needs_review: bool = False
+    # Why it waits for review; empty when it does not.
+    review_reason: str = ""
 
 
 def _rewritten(text: str, rules: Sequence[Rule]) -> str:
@@ -127,6 +132,27 @@ def request_key(
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _digest(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _parts(body: bytes) -> dict[str, str]:
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    parts: dict[str, str] = {}
+    for name, value in payload.items():
+        if isinstance(value, list):
+            parts.update({f"{name}[{index}]": _digest(item) for index, item in enumerate(value)})
+            parts[f"{name}[]"] = str(len(value))
+        else:
+            parts[name] = _digest(value)
+    return parts
+
+
 def summarise(request: Request) -> RequestSummary:
     return RequestSummary(
         method=request.method,
@@ -134,4 +160,25 @@ def summarise(request: Request) -> RequestSummary:
         query=request.query,
         body_size=len(request.body),
         body_hash=hashlib.sha256(request.body).hexdigest(),
+        parts=_parts(request.body),
     )
+
+
+def describe_difference(held: RequestSummary, asked: RequestSummary) -> str:
+    """Where `asked` differs from `held`: "path differs", "differs at system, messages[1]"."""
+    found = [
+        f"{name} differs"
+        for name in ("method", "path", "query")
+        if getattr(held, name) != getattr(asked, name)
+    ]
+    if held.body_hash != asked.body_hash:
+        if held.parts and asked.parts:
+            names = sorted(
+                name
+                for name in held.parts.keys() | asked.parts.keys()
+                if held.parts.get(name) != asked.parts.get(name) and not name.endswith("[]")
+            )
+        else:
+            names = []
+        found.append(f"differs at {', '.join(names)}" if names else "body differs")
+    return "; ".join(found) or "the key differs (a declared rule or a header)"

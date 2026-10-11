@@ -66,6 +66,7 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
 from agent_build_kit.settings import settings
 
@@ -137,6 +138,24 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
         # different accounts can see that one identity is signing for all of them.
         scope = "repo-local" if identity("email", local=True) else "this machine's global"
         checks.append(_ok(f"repo {name}", f"{path}, commits as {email} ({scope})"))
+    return checks
+
+
+def _cassettes(inst: Installation) -> list[Check]:
+    """Recordings waiting for review, for each repo that records: a note, or a warning when
+    one has waited through more runs than `review_after_runs`."""
+    checks = []
+    for name, (directory, replay) in directories(inst.repos).items():
+        if not (held := len(waiting(directory))):
+            continue
+        limit = replay.review_after_runs
+        detail = f"{held} cassette(s) waiting for review"
+        fix = "run `abk replay review`"
+        if late := overdue(directory, limit):
+            detail += f", {len(late)} through more than {limit} runs"
+            checks.append(_warn(f"replay cassettes {name}", detail, fix))
+        else:
+            checks.append(_info(f"replay cassettes {name}", detail, fix))
     return checks
 
 
@@ -1026,6 +1045,7 @@ def run_doctor(
 
     checks += _repos(inst, run)
     checks += _changelogs(inst)
+    checks += _cassettes(inst)
     checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
     checks += _timers(inst, run, units, which)

@@ -685,9 +685,10 @@ Two markers keep slow tests out of the default suite (`pytest`), and a third kee
 A tier-2 test that asks for the `replay` fixture (`tests/replay/plugin.py`) is given a
 reverse proxy with one loopback listener per upstream in its `ReplayConfig`,
 which a test gives by overriding the `replay_config` fixture. The `repos.<name>.tests.replay`
-section holds the same fields and is accepted by the schema, but nothing reads it yet: the
-default fixture returns an empty `ReplayConfig`, which has no upstream. The code under test is pointed at
-the listener through the variables the upstream names in `env`; `fixture.addresses`
+section holds the same fields and is accepted by the schema. The plugin does not read it yet,
+so the default fixture returns an empty `ReplayConfig`, which has no upstream; `abk status`,
+`abk doctor` and `abk replay review` find a repository's cassettes through its
+`tests.replay.directory`. The code under test is pointed at the listener through the variables the upstream names in `env`; `fixture.addresses`
 and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 
 - A cassette is keyed by the upstream's name, method, path, sorted query, the request
@@ -703,6 +704,35 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
   refused at startup, naming the key.
 - Normalisation is declared per test (`replay_rules`) and stored in the cassette; the
   default is none.
+
+### The report, review and the live refresh
+
+- After a test the plugin keeps what it replayed and what went live. A test that replayed
+  anything gets a `replay` entry in its `user_properties` and a line in the terminal summary,
+  `replayed: N of M external calls replayed, K live`, followed by each live call with where its
+  request differs from the nearest earlier cassette for the same test and call index ("path
+  differs", "differs at system"), the cassettes that matched but were too old, the unused ones
+  and the declared rules that applied. The outcome is unchanged. Billed calls avoided are
+  totalled from the usage figures recorded responses carry, read as `input_tokens` and `output_tokens` under `usage` or `message.usage`; a response without them adds nothing.
+  Counting runs for review and writing `report.json` happen once per pytest session, so replay
+  runs must not use xdist workers: a worker's session skips both.
+- The summary ends with `total: H hit, L live, U unused, A aged out` over the run, a `rule used:`
+  line for each declared rule that applied, and the billed-calls line. The combined report, a
+  `RunReport`, is also written as `report.json` beside `state.json` in each cassette directory,
+  overwritten by every run and ignored by that directory's own `.gitignore`, for whatever
+  reads it by machine.
+- A passing run marks `needs_review`, with a reason, each cassette of the test that no call
+  asked for or that a live call at the same index superseded. Nothing is deleted.
+  `abk replay review` lists them and `--keep` or `--delete` decides each. `abk status` counts the
+  waiting ones and `abk doctor` notes them, warning when one has waited through more than
+  `review_after_runs` runs; the next run prints the same warning and fails nothing. A held
+  recording that a later passing run uses again has its mark cleared and leaves the unreviewed
+  count; one kept by hand is marked again if a later passing run does not ask for it.
+- When each cassette was last used and for how many runs it has waited are kept in
+  `state.json` in the cassette directory, which ignores it (and `report.json`) in its own
+  `.gitignore`, so a run changes no committed file for them.
+- Run in `live` mode whenever the prompt text or the code under test changed, and at least
+  weekly otherwise, so a replayed pass does not stand in for the provider's behaviour that day.
 
 ### How each upstream is pointed at the proxy
 

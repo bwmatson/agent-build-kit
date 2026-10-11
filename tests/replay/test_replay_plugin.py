@@ -6,7 +6,7 @@ import pytest
 
 from agent_build_kit.replay.store import read_cassettes
 from tests.replay.fake_upstream import FakeUpstream
-from tests.replay.support import ENV, UPSTREAM
+from tests.replay.support import ENV, UPSTREAM, run_session
 
 INNER = """
 import httpx
@@ -72,20 +72,15 @@ def run(
     environment: str = "None",
 ) -> tuple[pytest.RunResult, Path]:
     directory = tmp_path / "cassettes"
-    monkeypatch.setenv("ABK_REPLAY_MODE", mode)
-    pytester.makepyfile(
-        test_inner=INNER.format(
-            name=UPSTREAM,
-            url=upstream.url,
-            env=ENV,
-            directory=directory,
-            in_stack=in_stack,
-            environment=environment,
-        )
+    source = INNER.format(
+        name=UPSTREAM,
+        url=upstream.url,
+        env=ENV,
+        directory=directory,
+        in_stack=in_stack,
+        environment=environment,
     )
-    result = pytester.runpytest_inprocess(
-        "-p", "tests.replay.plugin", "-p", "no:cacheprovider", "-k", select
-    )
+    result = run_session(pytester, monkeypatch, mode, "-k", select, test_inner=source)
     return result, directory
 
 
@@ -128,6 +123,7 @@ def test_mode_off_gives_an_empty_environment_and_records_nothing(
 
     result.assert_outcomes(passed=1)
     assert read_cassettes(directory) == []
+    assert not directory.exists()
     assert upstream.seen == []
 
 

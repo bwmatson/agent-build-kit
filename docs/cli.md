@@ -83,7 +83,18 @@ Prints whether the pipeline is paused (until when, why), the usage reading held
 (session %, weekly %, source and age; no call is made, and `--refresh` asks the endpoint for a
 fresh one, no more often than the cache time allows), the count of units by state, and each
 `in_review` unit with its PR. A `no recorded cause:` line lists the units that are `held`
-or `planned` with work on them and no cause on their last history entry. Changes nothing. Exit 0.
+or `planned` with work on them and no cause on their last history entry. A repository with a
+`tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
+Changes nothing. Exit 0.
+
+### `abk replay review [--keep NAME ...] [--delete NAME ...]`
+
+Lists, for each repository with a `tests.replay` section, the recorded calls held for review: a
+recording no passing run asked for, or one a live call at the same test and call index
+superseded. Each is shown with the reason, its request, the request that replaced it and where
+the two differ. `--keep NAME` clears the mark and leaves the file; `--delete NAME` removes it. A
+kept recording is marked again when a later passing run does not ask for it, or a live call
+supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches nothing waiting, or no repository has a `tests.replay` section and a NAME was given; else 0.
 
 ### `abk graph`
 
@@ -480,6 +491,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | `<repo> <tool> version` | | a tool in `pyproject.toml`'s dependency groups is also run from a hook repository with its own `rev` in `.pre-commit-config.yaml`, so two versions can disagree. Only checked for repos with both files |
 | `<repo> <tool> hook` | | a `repo: local`, `language: system` hook runs `uv run <tool>` for a tool absent from the dependency groups, so it fails. Only checked for repos with both files |
 | notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command `abk init` offers), or is `command` and the `show` program is not on PATH. Not listed while the provider is `off` | |
+| replay cassettes `<repo>` | | a recording has waited for review through more than `tests.replay.review_after_runs` runs. A note, not a warning, when some wait but none past the limit. Only checked for repos with a `tests.replay` section |
 | telemetry traces / telemetry metrics | | `ABK_OTEL_ENABLED` is set and the signal has no endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal one), or the endpoint does not answer. Only checked when enabled |
 
 ### `abk config [--show | --path]`

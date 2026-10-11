@@ -30,12 +30,18 @@ from agent_build_kit.replay.models import (
     StoredResponse,
     UpstreamKind,
     applied_rules,
+    describe_difference,
     request_key,
     summarise,
 )
+from agent_build_kit.replay.report import Miss, ReplayedTest, RunReport, usage_tokens
+from agent_build_kit.replay.review import mark, stale, unmark
+from agent_build_kit.replay.state import read_state, write_state
 from agent_build_kit.replay.store import (
+    cassette_name,
     find_cassette,
     load_cassette,
+    test_cassettes,
     test_directory,
     write_cassette,
 )
@@ -92,6 +98,20 @@ class ReplayProxy:
         self._test_id = ""
         self._rules: Sequence[Rule] = ()
         self._calls = 0
+        # What the test in progress did: the cassettes it started with, and what each call
+        # asked for and was answered by.
+        self._held: list[Cassette] = []
+        self._asked: set[str] = set()
+        self._called: set[int] = set()
+        self._missed: set[int] = set()
+        self._hits: list[Cassette] = []
+        self._misses: list[Miss] = []
+        self._aged_out: list[str] = []
+        self._test_rules: list[Rule] = []
+        self._tokens: list[int] = []
+        self._finished: list[ReplayedTest] = []
+        self._avoided_calls = 0
+        self._avoided_tokens = 0
         self._servers: dict[str, ThreadingHTTPServer] = {}
         self._client = httpx.Client(timeout=600)
 
@@ -146,37 +166,90 @@ class ReplayProxy:
             self._test_id = test_id
             self._rules = rules
             self._calls = 0
+            self._held = (
+                []
+                if self.mode is ReplayMode.off
+                else test_cassettes(self.config.directory, test_id)
+            )
+            self._asked, self._called, self._missed = set(), set(), set()
+            self._hits, self._misses, self._aged_out = [], [], []
+            self._test_rules, self._tokens = [], []
         shutil.rmtree(test_directory(self._staging, test_id), ignore_errors=True)
 
     def finish(self, *, passed: bool) -> None:
-        """Promote the staged calls of the test to the cassette directory, or discard them."""
+        """Promote the staged calls of the test to the cassette directory, or discard them,
+        then mark the cassettes the test shows to be stale and note the ones it used."""
+        if self.mode is ReplayMode.off:
+            return
         staged = test_directory(self._staging, self._test_id)
         try:
-            if not passed:
-                return
-            with self._lock:
-                # A client has its answer before the proxy has staged the call.
-                settled = self._lock.wait_for(lambda: self._active == 0, timeout=self._settle)
-            if not settled:
-                self.incomplete.append(self._test_id)
-                return
-            if not staged.exists():
-                return
-            files = sorted(staged.glob("*.json.gz"))
-            if any(self._leaks(load_cassette(path)) for path in files):
-                raise SecretInRecording(f"{self._test_id}: a call holds a configured secret")
-            held = sum(path.stat().st_size for path in self.config.directory.rglob("*.json.gz"))
-            if held + sum(path.stat().st_size for path in files) > (
-                self.config.max_directory_mb * 1024 * 1024
-            ):
-                self.over_size.append(self._test_id)
-                return
-            target = test_directory(self.config.directory, self._test_id)
-            target.mkdir(parents=True, exist_ok=True)
-            for path in files:
-                shutil.move(path, target / path.name)
+            promoted = passed and self._promote(staged)
         finally:
             shutil.rmtree(staged, ignore_errors=True)
+        directory = self.config.directory
+        found = stale(self._held, asked_keys=self._asked, called=self._called, missed=self._missed)
+        self._finished.append(
+            ReplayedTest(
+                test_id=self._test_id,
+                hits=len(self._hits),
+                misses=self._misses,
+                unused=[cassette_name(directory, f.cassette) for f in found if f.unasked],
+                aged_out=self._aged_out,
+                rules=self._test_rules,
+            )
+        )
+        self._avoided_calls += len(self._tokens)
+        self._avoided_tokens += sum(self._tokens)
+        if not promoted:
+            return
+        for each in found:
+            if not each.marked:
+                mark(directory, each)
+        if self._hits:
+            # A recording the run used is in use, whatever an earlier run made of it.
+            names = {cassette_name(directory, hit): hit for hit in self._hits}
+            for hit in names.values():
+                if hit.needs_review:
+                    unmark(directory, hit)
+            state = read_state(directory)
+            runs = {n: c for n, c in state.unreviewed_runs.items() if n not in names}
+            used = {name: self._clock() for name in names}
+            update = {"last_hit_at": state.last_hit_at | used, "unreviewed_runs": runs}
+            write_state(directory, state.model_copy(update=update))
+
+    def _promote(self, staged: Path) -> bool:
+        """Move the staged calls into the cassette directory; False when they were not kept."""
+        with self._lock:
+            # A client has its answer before the proxy has staged the call.
+            settled = self._lock.wait_for(lambda: self._active == 0, timeout=self._settle)
+        if not settled:
+            self.incomplete.append(self._test_id)
+            return False
+        if not staged.exists():
+            return True
+        files = sorted(staged.glob("*.json.gz"))
+        if any(self._leaks(load_cassette(path)) for path in files):
+            raise SecretInRecording(f"{self._test_id}: a call holds a configured secret")
+        held = sum(path.stat().st_size for path in self.config.directory.rglob("*.json.gz"))
+        if held + sum(path.stat().st_size for path in files) > (
+            self.config.max_directory_mb * 1024 * 1024
+        ):
+            self.over_size.append(self._test_id)
+            return False
+        target = test_directory(self.config.directory, self._test_id)
+        target.mkdir(parents=True, exist_ok=True)
+        for path in files:
+            shutil.move(path, target / path.name)
+        return True
+
+    def report(self) -> RunReport:
+        """What the tests finished so far replayed and what went live."""
+        return RunReport(
+            tests=list(self._finished),
+            rules=list(self.rules_used),
+            billed_calls_avoided=self._avoided_calls,
+            tokens_avoided=self._avoided_tokens,
+        )
 
     def _leaks(self, cassette: Cassette) -> bool:
         """Whether a configured secret is in the response body or in the request's address."""
@@ -248,9 +321,14 @@ class ReplayProxy:
         )
         with self._lock:
             self.rules_used.extend(rule for rule in applied if rule not in self.rules_used)
+            self._test_rules.extend(rule for rule in applied if rule not in self._test_rules)
+            self._asked.add(key)
+            self._called.add(index)
         if self.mode is ReplayMode.replay:
             held = find_cassette(self.config.directory, test_id, key)
-            if held is not None and not self._aged(upstream, held):
+            aged = held is not None and self._aged(upstream, held)
+            if held is not None and not aged:
+                self._note_hit(held, usage_tokens(held.response.headers, held.response.chunks))
                 _send(
                     out,
                     request.method,
@@ -259,6 +337,16 @@ class ReplayProxy:
                     held.response.chunks,
                 )
                 return
+            if held is not None:
+                with self._lock:
+                    self._aged_out.append(key)
+                difference = "the recording is too old to answer"
+            else:
+                difference = self._difference(index, request)
+            with self._lock:
+                self._misses.append(Miss(call_index=index, key=key, difference=difference))
+        with self._lock:
+            self._missed.add(index)
         received = self._forward(upstream, request, out)
         if received is None:
             return
@@ -281,6 +369,23 @@ class ReplayProxy:
         )
         with self._lock:
             write_cassette(self._staging, cassette)
+
+    def _note_hit(self, held: Cassette, tokens: int | None) -> None:
+        with self._lock:
+            self._hits.append(held)
+            if tokens is not None:
+                self._tokens.append(tokens)
+
+    def _difference(self, index: int, request: Request) -> str:
+        """Where `request` differs from the latest earlier cassette of this test at `index`."""
+        earlier = max(
+            (c for c in self._held if c.call_index == index),
+            key=lambda c: c.recorded_at,
+            default=None,
+        )
+        if earlier is None:
+            return "no earlier recording at this call"
+        return describe_difference(earlier.request, summarise(request))
 
     def _aged(self, upstream: ReplayUpstream, held: Cassette) -> bool:
         days = (

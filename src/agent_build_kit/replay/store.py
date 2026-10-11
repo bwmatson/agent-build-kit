@@ -22,6 +22,12 @@ def cassette_path(directory: Path, cassette: Cassette) -> Path:
     return test_directory(directory, cassette.test_id) / name
 
 
+def cassette_name(directory: Path, cassette: Cassette) -> str:
+    """The cassette's path under `directory`, with `/` separators: how the state and the
+    report name it."""
+    return cassette_path(directory, cassette).relative_to(directory).as_posix()
+
+
 def write_cassette(directory: Path, cassette: Cassette) -> Path:
     path = cassette_path(directory, cassette)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,6 +45,12 @@ def find_cassette(directory: Path, test_id: str, key: str) -> Cassette | None:
         if (cassette := load_cassette(path)).key == key:
             return cassette
     return None
+
+
+def test_cassettes(directory: Path, test_id: str) -> list[Cassette]:
+    """Every cassette of `test_id`, in call order."""
+    found = [load_cassette(path) for path in test_directory(directory, test_id).glob(f"*{_SUFFIX}")]
+    return sorted((c for c in found if c.test_id == test_id), key=lambda c: c.call_index)
 
 
 def read_cassettes(directory: Path) -> list[Cassette]:

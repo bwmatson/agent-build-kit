@@ -4,17 +4,21 @@ proxy that returns the bytes as they came off the wire, and a reader of the file
 from __future__ import annotations
 
 import gzip
+import hashlib
 import socket
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Imported here so pytester's module snapshot cannot swap out httpx's lazily imported httpcore.
+import httpcore  # noqa: F401
 import httpx
+import pytest
 
 from agent_build_kit.config import ReplayConfig, ReplayUpstream
 from agent_build_kit.model import Frozen
-from agent_build_kit.replay.models import UpstreamKind
+from agent_build_kit.replay.models import Cassette, RequestSummary, StoredResponse, UpstreamKind
 from tests.replay.proxy import ReplayProxy
 
 UPSTREAM = "svc-a"
@@ -73,3 +77,49 @@ def files(directory: Path) -> list[Path]:
 def stored_text(directory: Path) -> str:
     """Everything the cassette files hold, decompressed."""
     return "".join(gzip.decompress(path.read_bytes()).decode() for path in files(directory))
+
+
+def waiting_cassette(
+    test_id: str,
+    call_index: int = 0,
+    *,
+    path: str = "/v1/messages",
+    needs_review: bool = True,
+    reason: str = "no run asked for it",
+    kind: UpstreamKind = UpstreamKind.deterministic,
+) -> Cassette:
+    """A cassette as an earlier recording left it, by default waiting for review."""
+    key = hashlib.sha256(f"{test_id}|{call_index}|{path}".encode()).hexdigest()
+    return Cassette(
+        key=key,
+        upstream=UPSTREAM,
+        kind=kind,
+        recorded_at=START,
+        test_id=test_id,
+        call_index=call_index,
+        request=RequestSummary(
+            method="POST",
+            path=path,
+            query="",
+            body_size=2,
+            body_hash=hashlib.sha256(b"{}").hexdigest(),
+        ),
+        response=StoredResponse(status=200, headers={}, chunks=[b"ok"]),
+        needs_review=needs_review,
+        review_reason=reason if needs_review else "",
+    )
+
+
+def run_session(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    *args: str,
+    **modules: str,
+) -> pytest.RunResult:
+    """An inner pytest session with the replay plugin, in `mode`, over the given modules."""
+    monkeypatch.setenv("ABK_REPLAY_MODE", mode)
+    pytester.makepyfile(**modules)
+    return pytester.runpytest_inprocess(
+        "-p", "tests.replay.plugin", "-p", "no:cacheprovider", *args
+    )
