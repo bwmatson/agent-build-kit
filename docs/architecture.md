@@ -327,10 +327,14 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    show`; nothing that writes) judges the branch against the repo's `CLAUDE.md` and the change,
    told which round this is, how many remain and what running out costs, and
    answers JSON: `approved`, `feedback`, `findings`, `earlier`, `needs_human`,
-   `follow_ups`, `escalate`, `reasoning`. Its prompt names its angles — the
-   enclosing function of each hunk, what each removed line enforced, callers
-   and callees — and an evidence bar: each candidate is re-checked before it is
-   reported. Each finding carries a file, an optional line, a summary, a
+   `follow_ups`, `escalate`, `reasoning` and, on approval, an optional
+   `description` (a summary and core changes, written from the diff in the same
+   reply; a malformed one is ignored and costs no round). An approval stores it
+   on the unit record, a later approval replacing it; the field is omitted when
+   empty, so a release older than this one refuses a record that holds one.
+   Its prompt names its angles — the enclosing function of each hunk, what each
+   removed line enforced, callers and callees — and an evidence bar: each
+   candidate is re-checked before it is reported. Each finding carries a file, an optional line, a summary, a
    consequence, what done looks like and whether it is required; the builder's
    feedback is rendered from the list, required first, with optional findings
    past five left out (logged) and a required one without a consequence marked
@@ -462,11 +466,14 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    body says when the branch no longer sits on its base. The body opens with the
    change's reason (the proposal's `Why`, cut at a paragraph to a ceiling with a
    pointer to the proposal) and what the pull request does (the "Done when"
-   sentence of each of the unit's groups), then the stack position, scope,
-   assumptions and verification, then what is held and left for later, each
-   follow-up once, in its located form (in the body only, the follow-ups file keeps every point; a bare point that names a file an
-   optional finding locates is left out of the body; the review prompt asks the reviewer not
-   to repeat an optional finding as a follow-up). A body over the host's
+   sentence of each of the unit's groups, then the core changes the reviewer
+   last stored, at most six, each capped, shrinking to the first before the goal
+   or any required part gives way; the goal alone when none), then the stack
+   position, scope, assumptions and verification, then what is held and left
+   for later, each follow-up once, in its located form (in the body only, the
+   follow-ups file keeps every point; a bare point that names a file an
+   optional finding locates is left out of the body; the review prompt asks the
+   reviewer not to repeat an optional finding as a follow-up). A body over the host's
    description limit is fitted by weight, not in sequence: the tier 2 output
    (its tail kept, down to the pass or fail line) and the follow-ups (whole
    items and a count of the rest) give up room first, the reason and the goal

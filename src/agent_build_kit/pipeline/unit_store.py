@@ -141,6 +141,13 @@ def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
 
+class Description(Frozen):
+    """What the reviewer says an approved branch does: a summary and its core changes."""
+
+    summary: str = ""
+    changes: tuple[str, ...] = ()
+
+
 class ClosePending(Frozen):
     """A satisfied unit's pull request that is still to be closed: its number and the
     reason to post on it."""
@@ -179,6 +186,9 @@ class StoredUnit(Unit):
     # see the gate before the `push` node. Here, not in the run, because the
     # push gate and `build_restack` read and write it with no run in progress.
     approved: str = ""
+    # What the reviewer said the approved branch does, shown in the pull
+    # request description; None until an approval carried one.
+    description: Description | None = None
     # Whether `feedback` is a person's words, fetched from the pull request when
     # it was requeued, as opposed to anything the pipeline or the host wrote.
     # Set only with the feedback (see `set_feedback`), so it never outlives it.
@@ -433,6 +443,7 @@ class UnitStore:
                 # review asked for, or where a paused unit should pick up.
                 feedback=existing.feedback if existing else "",
                 approved=existing.approved if existing else "",
+                description=existing.description if existing else None,
                 feedback_from_person=existing.feedback_from_person if existing else False,
                 feedback_source=existing.feedback_source if existing else FeedbackSource.NONE,
                 predecessor_note=existing.predecessor_note if existing else "",
@@ -706,9 +717,15 @@ class UnitStore:
         Not a state change: the refusal changes nothing about the unit."""
         self._update(unit_id, stack_refusal=reason)
 
-    def record_approval(self, unit_id: str, sha: str) -> None:
-        """The commit review approved — the only one the runner may push."""
-        self._update(unit_id, approved=sha)
+    def record_approval(
+        self, unit_id: str, sha: str, description: Description | None = None
+    ) -> None:
+        """The commit review approved — the only one the runner may push — and,
+        when the reviewer described the branch, that description in place of any earlier."""
+        if description is None:
+            self._update(unit_id, approved=sha)
+        else:
+            self._update(unit_id, approved=sha, description=description)
 
     def record_check_rerun(self, unit_id: str, head: str, count: int) -> None:
         """That the cancelled checks of commit `head` have been re-run `count` times."""
@@ -729,6 +746,8 @@ def _record(unit: StoredUnit) -> dict:
     record = unit.model_dump(mode="json")
     if unit.priority == Priority.NORMAL:
         del record["priority"]
+    if unit.description is None:
+        del record["description"]
     return record
 
 

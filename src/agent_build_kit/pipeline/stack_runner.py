@@ -43,7 +43,7 @@ from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, Description, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     Unit,
     UnitState,
@@ -358,6 +358,7 @@ class Verdict(Frozen):
     # or declined stays open. Earlier rounds with no ids (the prose shape) have
     # nothing to answer, so a prose-shaped reply still approves over them.
     earlier: tuple[EarlierAnswer, ...] | None = None
+    description: Description | None = None
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:
@@ -415,6 +416,20 @@ def _parse_answers(raw: object) -> tuple[EarlierAnswer, ...] | None:
     return tuple(out)
 
 
+def _parse_description(raw: object) -> Description | None:
+    """The reviewer's description of the branch, blank entries dropped; one that
+    does not parse, or lists no core changes (all the pull request shows), is ignored."""
+    try:
+        described = Description.model_validate(raw) if raw else None
+    except ValueError:
+        return None
+    if described is None:
+        return None
+    summary = described.summary.strip()
+    changes = tuple(change.strip() for change in described.changes if change.strip())
+    return Description(summary=summary, changes=changes) if changes else None
+
+
 def escalates(verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
     """Whether a rejection is a person's call instead of another round.
 
@@ -468,6 +483,7 @@ def parse_verdict(output: str) -> Verdict:
         follow_ups=tuple(follow_ups),
         escalate=Escalation(escalate) if escalate in set(Escalation) else None,
         reasoning=str(payload.get("reasoning") or "").strip(),
+        description=_parse_description(payload.get("description")),
     )
 
 
@@ -1361,7 +1377,7 @@ class UnitRunner(BaseModel):
                 )
                 if p
             )
-            self.store.record_approval(unit.id, judged)
+            self.store.record_approval(unit.id, judged, verdict.description)
             self.log(f"review approved {judged[:9]}")
             if points:
                 self.log(f"deferred {len(points)} follow-up(s) to the change")

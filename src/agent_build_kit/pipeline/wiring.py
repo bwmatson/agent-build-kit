@@ -495,6 +495,12 @@ listed. When an earlier round's findings are shown above, answer each earlier
 required one by id in `earlier` as `fixed`, `open` or `declined` (the builder's
 reason holds); leave none unanswered.
 
+When you approve, also give a `description` of the whole branch, written for
+someone who has not seen the spec and worked out from the diff: a one-sentence
+`summary` and three to six `changes`, each a behaviour the branch adds or alters,
+behaviour first, naming a file only where that helps and saying nothing about
+files the branch does not change. It rides in the same reply; do not run anything extra for it.
+
 Reply with JSON and nothing else:
 {"approved": true|false, "feedback": "anything that is not a finding, empty when approved",
  "findings": [{"file": "path", "line": 12, "summary": "...", "consequence": "...",
@@ -503,7 +509,8 @@ Reply with JSON and nothing else:
  "needs_human": false,
  "follow_ups": [{"kind": "optional|correctness|test_passes_regardless|missing_test|policy",
                  "point": "..."}],
- "escalate": "", "reasoning": ""}
+ "escalate": "", "reasoning": "",
+ "description": {"summary": "...", "changes": ["..."]}}
 """
 
 # Read-only. The reviewer physically cannot edit the branch, so the separation
