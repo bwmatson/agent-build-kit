@@ -34,6 +34,9 @@ class NodeNpmProfile:
             f"the {self.name} toolchain profile is not implemented in this release ({what})"
         )
 
+    def created_files(self, repo: Path) -> list[str]:
+        return []
+
     def lint_command(self, base: str) -> list[str]:
         return self._todo("lint_command")
 

@@ -1469,9 +1469,9 @@ def build_worktree(
                 f"(known: {', '.join(sorted(repos)) or 'none'})"
             )
         options: dict[str, Any] = {"allow_dirty": True} if allow_dirty else {}
-        if locks := lock_paths(repo):
+        if locks := lock_paths(repo, repos[unit.repo]):
             options["locks"] = locks
-        if artifacts := artifact_patterns(repo):
+        if artifacts := artifact_patterns(repo, repos[unit.repo]):
             options["artifacts"] = artifacts
         return prepare(repos[unit.repo], branch_name(unit), base, root, **options)
 
