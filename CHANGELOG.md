@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A unit whose agent run was killed mid-edit now resumes over the edits it left, as
+  intended, instead of failing with a `TypeError` on the worktree request. The wrapper
+  that holds the repository's turn dropped the option that allows a dirty worktree.
+
 - The command rules now judge a command as its tool would run it: git's global options
   (`-C`, `-c`, `--no-pager`, `--git-dir`, `--work-tree`, in both the `=` and two-word forms)
   and the host CLI's repository option no longer hide an amend, a push to the default branch,

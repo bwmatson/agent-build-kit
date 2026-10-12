@@ -2406,9 +2406,9 @@ def build_runner(
     worktree = build_worktree(installation.checkouts, root=installation.worktree_root, repo=repo)
     push = build_push(store)
 
-    def worktree_in_turn(unit: Unit, base: str) -> Path:
+    def worktree_in_turn(unit: Unit, base: str, allow_dirty: bool = False) -> Path:
         with unit_repo_turn():
-            return worktree(unit, base)
+            return worktree(unit, base, allow_dirty)
 
     def push_in_turn(branch: str, *, cwd: Path) -> str:
         with unit_repo_turn():
