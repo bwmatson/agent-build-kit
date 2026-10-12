@@ -41,11 +41,16 @@ from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
     AgentRuntime,
+    Candidate,
+    ModelList,
     PermissionMode,
     PolicyCoverage,
     PolicyReport,
+    Question,
+    Run,
     SessionUnavailable,
     UsageStatus,
+    Which,
     child_environment,
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
@@ -324,6 +329,15 @@ class ClaudeCodeRuntime:
             observed_at=reading.observed_at,
             source=reading.source,
         )
+
+    def detect(self, which: Which, run: Run) -> list[Candidate]:
+        raise NotImplementedError
+
+    def setup_questions(self) -> list[Question]:
+        raise NotImplementedError
+
+    def list_models(self) -> ModelList:
+        raise NotImplementedError
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Answered locally: every policed run registers the hook and passes

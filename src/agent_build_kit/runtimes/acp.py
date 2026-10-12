@@ -105,13 +105,18 @@ from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
     AgentRuntime,
+    Candidate,
+    ModelList,
     PermissionAsk,
     PermissionChoice,
     PolicyCoverage,
     PolicyReport,
+    Question,
+    Run,
     SessionUnavailable,
     SpellingResult,
     ToolPolicy,
+    Which,
     child_environment,
 )
 from agent_build_kit.runtimes.traced import traced
@@ -1262,6 +1267,28 @@ def _model_option(options: list[Any] | None) -> SessionConfigOptionSelect | None
     return None
 
 
+class StartVariant(Frozen):
+    """One way to start a known agent as a protocol server. `marker` is the text
+    its `--help` shows when this is the spelling that version takes; empty for
+    an agent whose spelling does not vary."""
+
+    argv: tuple[str, ...]
+    marker: str = ""
+
+
+class KnownAgent(Frozen):
+    name: str
+    program: str
+    variants: tuple[StartVariant, ...]  # in order of preference
+    needs: str = ""
+    verified: str  # how it was checked, or that it was documented only
+    source: str
+
+
+# The agents abk knows how to start. Product names appear here and nowhere else.
+KNOWN_AGENTS: tuple[KnownAgent, ...] = ()
+
+
 class AcpRuntime:
     name: str = NAME
     implemented: bool = True
@@ -1667,6 +1694,15 @@ class AcpRuntime:
     def get_usage_status(self) -> None:
         """Billed per token, with no window to exhaust (docs/agent-runtimes.md)."""
         return None
+
+    def detect(self, which: Which, run: Run) -> list[Candidate]:
+        raise NotImplementedError
+
+    def setup_questions(self) -> list[Question]:
+        raise NotImplementedError
+
+    def list_models(self) -> ModelList:
+        raise NotImplementedError
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Whether this machine's agent really refuses what abk forbids: a

@@ -9,10 +9,12 @@ role, a working directory, a tool policy) rather than one runtime's CLI flags.
 from __future__ import annotations
 
 import os
+import subprocess
 from collections.abc import Callable
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.transcript import TranscriptEvent
@@ -280,3 +282,93 @@ class AgentRuntime(Protocol):
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Whether the forbidden command classes really are refused here."""
         ...
+
+
+# What a probe is given instead of the host: `shutil.which` and `subprocess.run`.
+Which = Callable[[str], str | None]
+Run = Callable[..., subprocess.CompletedProcess]
+
+
+class Candidate(Frozen):
+    """One way to run an agent that a probe found on this machine."""
+
+    runtime: str
+    command: tuple[str, ...]
+    label: str
+    usable: bool
+    reasons: tuple[str, ...] = ()  # why not, when `usable` is False
+    note: str = ""  # what it needs, shown on a usable candidate too
+    verified: str = ""  # how far its entry has been checked
+
+
+class QuestionKind(StrEnum):
+    ARGV = "argv"
+    NAME = "name"
+    TEXT = "text"
+
+
+# The problem with an answer, or None when it is acceptable.
+Validator = Callable[[str, Which], str | None]
+
+
+class Question(Frozen):
+    """One thing a runtime's setup asks, and where the answer is written."""
+
+    key: str
+    prompt: str
+    default: str
+    kind: QuestionKind
+    validator: Validator
+    writes_to: str
+
+
+class ModelSource(StrEnum):
+    ADVERTISED = "advertised"  # the agent said so when a session opened
+    DOCUMENTED = "documented"  # static names carried in the runtime, not queried
+    NONE = "none"  # the agent lists none
+
+
+class Model(Frozen):
+    name: str
+    current: bool = False
+
+
+class ModelList(Frozen):
+    models: tuple[Model, ...] = ()
+    source: ModelSource = ModelSource.NONE
+    note: str = ""  # says where the list came from, or why there is none
+
+
+def name_validator(known: tuple[str, ...]) -> Validator:
+    """A validator accepting only a name in `known`."""
+    raise NotImplementedError
+
+
+@runtime_checkable
+class Detects(Protocol):
+    def detect(self, which: Which, run: Run) -> list[Candidate]: ...
+
+
+@runtime_checkable
+class AsksQuestions(Protocol):
+    def setup_questions(self) -> list[Question]: ...
+
+
+@runtime_checkable
+class ListsModels(Protocol):
+    def list_models(self) -> ModelList: ...
+
+
+def candidates_of(runtime: AgentRuntime, which: Which, run: Run) -> list[Candidate]:
+    """What `runtime` finds on this machine; none for a runtime without `detect`."""
+    raise NotImplementedError
+
+
+def questions_of(runtime: AgentRuntime) -> list[Question]:
+    """The setup questions `runtime` declares; none for one without them."""
+    raise NotImplementedError
+
+
+def models_of(runtime: AgentRuntime) -> ModelList:
+    """The models `runtime` lists; an empty list saying so for one that cannot."""
+    raise NotImplementedError
