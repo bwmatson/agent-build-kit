@@ -100,8 +100,10 @@ def group_sections(tasks: str, groups: Iterable[int]) -> list[str]:
 # a group of *another* change has. The planner orders groups within a change;
 # across changes it only sees what is already in flight, and its answer is a
 # model's, so a dependency that must hold is written down and applied as code.
-# A single word `merged` straight after the group number makes it wait for the
-# merge; anywhere else the word is part of the reason.
+# A single word `merged` straight after the group number is deprecated and means
+# nothing (the line is a plain dependency); it is recognised so it is not read into
+# the reason, and `merged_needs_warnings` reports it. Anywhere else the word is part
+# of the reason.
 NEEDS_LINE = re.compile(
     r"^Needs:\s*(?P<change>[a-z0-9][a-z0-9-]*)\s+group\s+(?P<group>\d+)\b"
     r"(?:\s+(?P<merged>merged)(?=\s|$))?\s*[—–-]*\s*(?P<reason>.*?)\s*$",
@@ -206,6 +208,7 @@ def validate_tasks(
     priorities: dict[int, int] = {}
     stray_priority: dict[int, int] = {}
 
+    own_merged_lines = {need.line for _, need in merged_needs(path) if names_own_change(need, path)}
     for index, text in enumerate(lines, start=1):
         if TASK_LINE.match(text):
             if tasks_seen:
@@ -237,12 +240,7 @@ def validate_tasks(
                             "one sets the whole group, or the change above its groups",
                         )
                     )
-            if (
-                current is not None
-                and (need := NEEDS_LINE.match(text.strip()))
-                and need["merged"]
-                and need["change"].lower() == path.parent.name.lower()
-            ):
+            if current is not None and index in own_merged_lines:
                 errors.append(
                     ValidationError(
                         line=index,
@@ -513,13 +511,14 @@ class Need(Frozen):
     group: int
     merged: bool = False
     reason: str = ""
+    line: int = 0
 
 
 def group_needs(path: Path) -> dict[int, list[Need]]:
     """Each group's `Needs:` lines with their `merged` qualifier and reason."""
     needs: dict[int, list[Need]] = {}
     current: int | None = None
-    for line in path.read_text().splitlines():
+    for index, line in enumerate(path.read_text().splitlines(), start=1):
         if heading := GROUP_HEADING.match(line):
             current = int(heading["number"])
         elif current is not None and (found := NEEDS_LINE.match(line.strip())):
@@ -529,9 +528,34 @@ def group_needs(path: Path) -> dict[int, list[Need]]:
                     group=int(found["group"]),
                     merged=found["merged"] is not None,
                     reason=found["reason"],
+                    line=index,
                 )
             )
     return needs
+
+
+def names_own_change(need: Need, path: Path) -> bool:
+    """Whether a `Needs:` line names a group of the change whose tasks file `path` is."""
+    return need.change == path.parent.name.lower()
+
+
+def merged_needs(path: Path) -> list[tuple[int, Need]]:
+    """Each `Needs: ... merged` line of a tasks file with the group it sits in."""
+    return [
+        (group, need) for group, found in group_needs(path).items() for need in found if need.merged
+    ]
+
+
+def merged_needs_warnings(path: Path) -> list[str]:
+    """One warning per `Needs: ... merged` line of a tasks file, as `abk tags` and
+    `abk check` print it. A line on the change's own group is left to the error."""
+    return [
+        f"{path}:line {need.line}: warning: group {group}: `Needs: ... merged` is "
+        "deprecated; the dependent now starts on the parent's branch once the "
+        "parent is in review"
+        for group, need in merged_needs(path)
+        if not names_own_change(need, path)
+    ]
 
 
 def tasks_path(change: str, changes_dir: Path) -> Path:

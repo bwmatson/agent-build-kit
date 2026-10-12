@@ -287,7 +287,7 @@ def test_a_unit_of_the_fix_change_does_not_wait_on_itself(installation: Installa
     assert changes(installation) == {"feature", fix}
 
 
-def test_the_needs_line_gates_the_unit_on_the_fix_changes_unit_through_the_existing_link(
+def test_the_needs_line_links_the_unit_to_the_fix_changes_unit_through_the_existing_link(
     installation: Installation,
 ) -> None:
     code_repo(installation)
@@ -300,7 +300,6 @@ def test_the_needs_line_gates_the_unit_on_the_fix_changes_unit_through_the_exist
 
     stored = store.get("feature/1")
     assert stored.depends_on == (f"{fix}/1",)
-    assert stored.merge_before == (f"{fix}/1",), "waits for the merge, not only the build"
 
 
 def test_the_module_is_found_from_the_project_the_test_ran_in(installation: Installation) -> None:

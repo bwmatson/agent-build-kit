@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
-import time
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
@@ -22,9 +21,6 @@ import pytest
 
 from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.cli.pipeline import (
-    plan_all,
-)  # the real one; the autouse stub patches the module
 from agent_build_kit.config import dump
 from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
@@ -37,10 +33,8 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     PLANNED,
     RUNNING,
-    base_of,
 )
 from agent_build_kit.pipeline.usage_guard import Decision
-from agent_build_kit.pipeline.wiring import build_upstream_incomplete
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 
@@ -254,127 +248,10 @@ def test_the_pass_resumes_a_gated_unit_in_its_requeued_mode_once_the_gate_clears
 # --- 1.3 a running unit is told, not disturbed -------------------------------------
 
 
-def test_a_gate_added_to_a_running_unit_changes_neither_its_state_nor_its_base(
-    inst: Installation, store: UnitStore
-) -> None:
-    store.upsert([stored("dep/1"), stored("feature/1")])
-    store.set_state("dep/1", IN_REVIEW, pr=3)
-    store.set_state("feature/1", RUNNING, branch="spec/feature/1")
-    base = base_of(store.get("feature/1"), store.all())
-    write_needs(inst)
-
-    cli.link_needs(inst, store=store)
-
-    running = store.get("feature/1")
-    assert running.state == RUNNING
-    assert running.merge_before == ("dep/1",)
-    assert base_of(running, store.all()) == base, "a merge gate is not a stacking edge"
-
-
-def test_a_gate_added_to_a_running_unit_is_not_an_upstream_change(
-    inst: Installation, store: UnitStore
-) -> None:
-    store.upsert([stored("dep/1"), stored("feature/1")])
-    store.set_state("dep/1", PLANNED)
-    store.set_state("feature/1", RUNNING, branch="spec/feature/1")
-    write_needs(inst)
-
-    cli.link_needs(inst, store=store)
-
-    assert build_upstream_incomplete(store)(store.get("feature/1")) is None
-
-
-def test_the_wait_is_logged_once_across_repeated_ticks(
-    inst: Installation, store: UnitStore, capsys: pytest.CaptureFixture[str]
-) -> None:
-    store.upsert([stored("dep/1"), stored("feature/1")])
-    store.set_state("feature/1", RUNNING, branch="spec/feature/1")
-    write_needs(inst)
-
-    for _ in range(3):
-        cli.link_needs(inst, store=store)
-
-    out = capsys.readouterr().out
-    assert out.count("feature/1: now waits for dep group 1 to merge") == 1
-
-
 # --- 1.4 an in-review unit sent back while gated parks ------------------------------
 
 
-def test_an_in_review_unit_sent_back_while_its_gate_is_unmet_is_gated_until_it_clears(
-    inst: Installation,
-    store: UnitStore,
-    builder: Builder,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    store.upsert([stored("feature/1"), stored("dep/1", repo="platform"), stored("slow/1")])
-    store.set_state("dep/1", HELD)
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    sent: list[int] = []
-
-    def poll(inst, **kwargs) -> None:
-        # The gate is written and a review comment sends the unit back.
-        if store.get("feature/1").state == IN_REVIEW and not sent:
-            sent.append(1)
-            write_needs(inst)  # every round recomputes the gate from tasks.md
-            store.set_dependencies("feature/1", ("dep/1",))
-            store.set_merge_before("feature/1", ("dep/1",))
-            store.set_state("feature/1", PLANNED, note="reworking", cause=Cause.REWORK)
-
-    monkeypatch.setattr(cli, "poll_all", poll)
-    builder.scripts["slow/1"] = lambda: time.sleep(0.4)
-
-    assert tick(inst) == 0
-
-    assert builder.started.count("feature/1") == 1, "not started again while the gate is unmet"
-    after = store.get("feature/1")
-    assert (after.state, after.cause) == (PLANNED, Cause.GATED)
-
-    store.set_state("dep/1", MERGED, pr=3)
-    assert tick(inst) == 0
-
-    assert builder.started.count("feature/1") == 2
-    assert store.get("feature/1").state == IN_REVIEW
-
-
 # --- 1.5 a Needs-only edit is applied without a re-plan ------------------------------
-
-
-@pytest.mark.parametrize("before", ["", "Needs: dep group 1 — it reshapes the runtime\n\n"])
-def test_a_needs_only_edit_is_not_planned_again_and_the_gate_applies_next_tick(
-    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch, before: str
-) -> None:
-    """Writing a gate on a group, or adding `merged` to a dependency it already
-    has, is the whole edit: nothing for the planner to see."""
-    folder = inst.root / "openspec" / "changes" / "feature"
-    folder.mkdir(parents=True)
-    tasks = folder / "tasks.md"
-
-    def text(needs: str) -> str:
-        return (
-            "# Tasks\n\nAcceptance: none — a scheduling rule.\n\n"
-            f"## 1. [app] [tier1] The work\n\n{needs}- [ ] 1.1 Test: it\n- [ ] 1.2 Do it\n"
-        )
-
-    tasks.write_text(text(before))
-    calls: list[str] = []
-
-    def plan_round(**kwargs):
-        calls.append("plan")
-        return SimpleNamespace(units=(stored("feature/1"),), joins=())
-
-    monkeypatch.setattr(cli, "plan_round", plan_round)
-    plan_all(inst, store=store)
-    assert calls == ["plan"]
-    store.upsert([stored("dep/1")])
-    store.set_state("feature/1", RUNNING, branch="spec/feature/1")
-
-    tasks.write_text(text(f"{NEEDS}\n"))
-    plan_all(inst, store=store)
-    cli.link_needs(inst, store=store)
-
-    assert calls == ["plan"], "the edit reached the planner"
-    assert store.get("feature/1").merge_before == ("dep/1",)
 
 
 def test_status_lists_a_gated_unit_as_waiting_on_the_group(

@@ -221,7 +221,9 @@ from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
     check_tags,
     group_needs,
+    merged_needs_warnings,
     specification_text,
+    tasks_path,
     validate_tasks,
 )
 from agent_build_kit.pipeline.workspaces import (
@@ -2052,8 +2054,6 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
         for group in member.groups
     }
     wanted: dict[str, list[str]] = {}
-    gated: dict[str, list[str]] = {}
-    labels: dict[str, str] = {}
     for tasks in inst.tasks_files():
         change = tasks.parent.name
         for group, found in group_needs(tasks).items():
@@ -2071,9 +2071,6 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
                     if (need.change, need.group) in covering:
                         target = covering[(need.change, need.group)]
                         wanted.setdefault(unit.id, []).append(target)
-                        if need.merged:
-                            gated.setdefault(unit.id, []).append(target)
-                            labels[target] = f"{need.change} group {need.group}"
     for unit in units:
         if unit.id not in wanted and not unit.merge_before:
             continue
@@ -2082,18 +2079,10 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
         if linked != unit.depends_on:
             store.set_dependencies(unit.id, linked)
             log(f"{unit.id}: now depends on {', '.join(add)} (Needs: in tasks.md)")
-        # Recomputed from tasks.md, not unioned with what is stored: dropping
-        # `merged` from a Needs: line releases the unit, and that edit does not
-        # change the plan hash, so nothing else would clear it.
-        held = tuple(dict.fromkeys(g for g in gated.get(unit.id, []) if g in linked))
-        if held != unit.merge_before:
-            store.set_merge_before(unit.id, held)
-            # A gate on a unit that has begun is not a no-op the way it is on one
-            # that has not: say so once, when it first applies.
-            if unit.state != UNPLANNED and not unit.unstarted:
-                for target in held:
-                    if target not in unit.merge_before:
-                        log(f"{unit.id}: now waits for {labels[target]} to merge")
+        # A `Needs:` line is a plain dependency: a gate an earlier version stored
+        # from the word `merged` is cleared.
+        if unit.merge_before:
+            store.set_merge_before(unit.id, ())
 
 
 # Units a plan is made around and never changes: their groups are built or being
@@ -3258,6 +3247,9 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     failed = 0
     for change in changes:
         groups, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
+        path = tasks_path(change, inst.changes_dir)
+        for warning in merged_needs_warnings(path) if path.is_file() else []:
+            print(warning)
         for error in errors:
             print(error)
         if errors:
@@ -3277,6 +3269,9 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
 
     ok, output = openspec.check(inst.root)
     print(output, end="")
+    for tasks in inst.tasks_files():
+        for warning in merged_needs_warnings(tasks):
+            print(warning)
     return 0 if ok else 1
 
 

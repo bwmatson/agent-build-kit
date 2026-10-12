@@ -41,7 +41,6 @@ SHARED_HELPERS: frozenset[str] = frozenset(
 # leaves it when its uses are removed, and nothing is added.
 ALLOWLIST: frozenset[str] = frozenset(
     {
-        "cli/test_gated_started_units.py",
         "cli/test_round.py",
         "cli/test_tick_host_outage_backoff.py",
         "cli/test_tick_scheduling.py",
