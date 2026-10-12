@@ -2255,10 +2255,10 @@ ALL_TAKEN = (
 
 
 class PlanResult(Frozen):
-    """What `plan_all` did for one change: `planned`, `failed`, `refused` (the
-    tags are wrong) or `skipped` (nothing asked for a plan)."""
+    """What `plan_all` did for one change: `planned`, `failed`, `waiting` (an outage, no
+    attempt used), `refused` (the tags are wrong) or `skipped` (nothing asked for a plan)."""
 
-    status: Literal["planned", "failed", "refused", "skipped"]
+    status: Literal["planned", "failed", "waiting", "refused", "skipped"]
     dropped_joins: int = 0
     # Recorded as planned without asking: every group is taken, by a started unit or by
     # another change's planned unit.
