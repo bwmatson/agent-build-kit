@@ -109,6 +109,12 @@ def github_host() -> Iterator[FakeGitHub]:
 
 
 @pytest.fixture(scope="module")
+def scratch_ledger(scratch: Scratch) -> Path:
+    """The scratch installation's usage ledger, for the time split of each phase."""
+    return scratch.state / LEDGER_NAME
+
+
+@pytest.fixture(scope="module")
 def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Iterator[Scratch]:
     tmp_path = tmp_path_factory.mktemp("acp-build")
     command = os.environ.get(AGENT_COMMAND, "")
@@ -195,7 +201,7 @@ def tick(scratch: Scratch) -> Ticked:
 
 
 @pytest.fixture(scope="module")
-def built(scratch: Scratch) -> tuple[Scratch, Ticked]:
+def built(scratch: Scratch, scratch_ledger: Path) -> tuple[Scratch, Ticked]:
     ticked = tick(scratch)
     # A later step resumes this session: the agent must list it, or say why not here.
     if ticked.returncode == 0:
