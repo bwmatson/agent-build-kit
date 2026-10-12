@@ -5,6 +5,7 @@
 - A unit whose agent run was killed mid-edit now resumes over the edits it left, as
   intended, instead of failing with a `TypeError` on the worktree request. The wrapper
   that holds the repository's turn dropped the option that allows a dirty worktree.
+
 - The planner is now told which groups a started unit already builds: the change text
   marks each such heading `(built by <unit id>)` and the prompt says never to claim them.
   When a plan is refused, the plan record keeps the unit ids the planner returned and the
