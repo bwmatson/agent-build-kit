@@ -10,6 +10,7 @@ from __future__ import annotations
 from agent_build_kit.pipeline.command_spellings import SPELLINGS, Reader, probe_rows
 from agent_build_kit.runtimes.acp import PROBE_CLASSES
 from agent_build_kit.runtimes.recommended_policy import (
+    GRAPHQL_MERGE,
     KNOWN_FALSE_POSITIVES,
     KNOWN_GAPS,
     RECOMMENDED,
@@ -17,9 +18,8 @@ from agent_build_kit.runtimes.recommended_policy import (
     ClassPolicy,
     matches,
 )
-from tests.spelling_rows import FORCE_PUSH, PUSH
+from tests.spelling_rows import AMEND, FORCE_PUSH, MERGE, PUSH, RAW_MERGE
 
-GRAPHQL = "merging a pull request through the host's GraphQL API"
 # Commands a build run needs, written here so the table is held to a list it did not write.
 NEEDED = (
     "git push --force-with-lease origin spec/main-menu/1",
@@ -73,8 +73,8 @@ def variants(command: str) -> list[str]:
 
 def test_the_table_covers_the_classes_the_recommendation_names() -> None:
     labels = {policy.label for policy in RECOMMENDED}
-    assert {"amending a commit", PUSH, FORCE_PUSH, "merging a pull request"} <= labels
-    assert {"merging a pull request through the host's raw API", GRAPHQL} <= labels
+    assert {AMEND, PUSH, FORCE_PUSH, MERGE} <= labels
+    assert {RAW_MERGE, GRAPHQL_MERGE} <= labels
     assert all(policy.refused_samples and policy.allowed_samples for policy in RECOMMENDED)
 
 
@@ -97,7 +97,7 @@ def test_every_row_the_globs_read_is_a_refused_sample_of_its_class() -> None:
 def test_the_samples_only_a_glob_can_show_are_refused_samples() -> None:
     samples = [s for policy in RECOMMENDED for s in policy.refused_samples]
     graphql = [
-        s for policy in RECOMMENDED if policy.label == GRAPHQL for s in policy.refused_samples
+        s for policy in RECOMMENDED if policy.label == GRAPHQL_MERGE for s in policy.refused_samples
     ]
     assert "git amend" in samples
     assert any("refs/heads/main" in s for s in samples)
