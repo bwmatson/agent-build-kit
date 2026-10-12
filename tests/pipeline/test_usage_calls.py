@@ -496,6 +496,7 @@ def test_a_refusal_doubles_the_time_a_reading_is_kept(host: Host) -> None:
 
 
 def test_a_second_refusal_doubles_it_again_up_to_the_maximum(host: Host) -> None:
+    configure(usage_cache_max_minutes=60)
     host.seed(
         line(since(minutes=3), "rate_limited", status=429),
         line(since(minutes=1), "rate_limited", status=429),
@@ -537,6 +538,7 @@ def test_the_same_time_without_a_refusal_halves_it(host: Host) -> None:
 
 
 def test_a_time_at_the_maximum_halves_once_after_one_quiet(host: Host) -> None:
+    configure(usage_cache_max_minutes=60)
     host.seed(
         line(since(minutes=67), "rate_limited", status=429),
         line(since(minutes=65), "rate_limited", status=429),
