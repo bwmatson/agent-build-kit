@@ -81,3 +81,12 @@ def test_a_plain_string_of_52_characters_is_untouched() -> None:
     assert len(plain) == 52
 
     assert Redactor({}).redact(f"pat {plain}") == f"pat {plain}"
+
+
+def test_found_names_the_values_and_the_token_shape_in_a_text() -> None:
+    token = "ghp_" + "a1" * 20
+
+    found = Redactor({"API_KEY": KEY, "OTHER": OTHER}).found(f"{KEY} and {token}")
+
+    assert found == ("API_KEY", "token-shape")
+    assert Redactor({"API_KEY": KEY}).found("nothing here") == ()

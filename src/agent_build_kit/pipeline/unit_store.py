@@ -24,6 +24,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -363,7 +364,7 @@ def _exclusive(method):
 
     @functools.wraps(method)
     def locked(self: UnitStore, *args, **kwargs):
-        with file_lock(self.path.with_name(f"{self.path.name}.lock")):
+        with self.locked():
             return method(self, *args, **kwargs)
 
     return locked
@@ -394,6 +395,11 @@ class UnitStore:
         self.path = path
         self.on_write = on_write
         self.on_state = on_state
+
+    def locked(self) -> AbstractContextManager[None]:
+        """The lock every change to the store is made under, for a rewrite of the file
+        that is not a change to a unit."""
+        return file_lock(self.path.with_name(f"{self.path.name}.lock"))
 
     def _read(self) -> dict[str, StoredUnit]:
         if not self.path.exists():

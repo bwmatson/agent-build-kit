@@ -474,6 +474,15 @@ verify:
                                 # exit fails the verification
 ```
 
+### `redact`
+
+`redact: [NAME, ...]` lists environment variables whose values are secrets the framework
+has no field for. Each value is read from the process environment and the planning root's
+`.env`, and is replaced by `[redacted:NAME]` wherever the pipeline stores or sends text,
+as the `verify.env` values and the credential settings are. A value under 8 characters is
+not replaced, and `abk doctor` warns, by name, for such a variable and for a name that is
+not set. See "Secrets never leave as text" in `docs/architecture.md`.
+
 ## Environment variables and `.env`
 
 `settings.py` reads these with pydantic-settings: from the process
