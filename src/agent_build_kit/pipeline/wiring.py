@@ -1832,6 +1832,11 @@ class Tier2Session:
         passed = failed = skipped = 0
         duration = 0.0
         timed: list[TestTime] = []
+
+        def labelled(project: str, test: str) -> str:
+            """A test's id as the result names it: with its project, where there is one."""
+            return f"{project}/{test}" if project else test
+
         # header, text, how much of it to keep, the toolchain that read it, its project,
         # and where and with which command it ran
         outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
@@ -1861,7 +1866,7 @@ class Tier2Session:
                         duration + d,
                     )
                     timed += [
-                        e.model_copy(update={"test": f"{project}/{e.test}" if project else e.test})
+                        e.model_copy(update={"test": labelled(project, e.test)})
                         for e in with_split(toolchain.parse_test_durations(out), out)
                     ]
                     header = f"$ {' '.join(command)}{label}"
@@ -1888,9 +1893,15 @@ class Tier2Session:
                 if keep is not None:
                     continue
                 for found in toolchain.parse_test_failures(text):
-                    test = f"{project}/{found.test}" if project else found.test
+                    test = labelled(project, found.test)
                     failures.append(TestFailure(test=test, line=found.line))
                     named_by[test] = (at, toolchain, ran)
+            # A test id is output too, and is redacted as the failures' ids are before it is
+            # posted, stored or recorded.
+            ids = redact_leaves([e.test for e in timed], where="tier-2 output")
+            timed = [
+                e.model_copy(update={"test": test}) for e, test in zip(timed, ids, strict=True)
+            ]
             command = " && ".join(
                 " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
                 for where, _, commands in entries

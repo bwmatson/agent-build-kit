@@ -80,7 +80,6 @@ def record_test_times(entries: list[TestTime], *, unit: str, change: str, marker
 
 
 def _record(entry: TestTime, *, unit: str, change: str, marker: str) -> None:
-    has_split = bool(entry.agent_ms) or entry.checks_ms is not None or entry.other_ms is not None
     record_line(
         TestTimeRow(
             at=spans.clock.now().isoformat(),
@@ -90,7 +89,7 @@ def _record(entry: TestTime, *, unit: str, change: str, marker: str) -> None:
             test=entry.test,
             phase=entry.phase,
             duration_ms=round(entry.seconds * 1000),
-            agent_ms=sum(entry.agent_ms.values()) if has_split else None,
+            agent_ms=sum(entry.agent_ms.values()) if entry.has_split else None,
             checks_ms=entry.checks_ms,
             other_ms=entry.other_ms,
         ),

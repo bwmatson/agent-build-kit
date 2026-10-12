@@ -10,10 +10,19 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig
-from agent_build_kit.pipeline.tier2 import TestTime
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.tier2 import TestTime, build_snapshot
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON_UV
-from tests.tier2_duration_fakes import E2E, durations_output, sixteen_tests
+from tests.redaction_fakes import NAME, SECRET, known
+from tests.tier2_duration_fakes import (
+    E2E,
+    durations_output,
+    recorded_times,
+    run_tier2,
+    sixteen_tests,
+    time_line,
+)
 from tests.tier2_failure_fakes import NO_SUMMARY, NODE_OUTPUT, checkout, gate
 
 NINE_MINUTES = 540.0
@@ -125,3 +134,24 @@ def test_the_result_is_otherwise_as_without_durations(tmp_path: Path) -> None:
     assert plain.result.durations == []
     for field in ("passed", "failed", "skipped", "command"):
         assert getattr(with_durations.result, field) == getattr(plain.result, field)
+
+
+def test_a_test_id_is_redacted_in_the_result_the_listing_and_the_ledger(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    test = f"{E2E}::test_auth[{SECRET}]"
+    split = time_line(test, "call", checks_ms=1000)
+    output = durations_output((30.0, "call", test), lines=(split,))
+
+    with known():
+        result = run_tier2(tmp_path, output)
+    snapshot = build_snapshot(result)
+
+    masked = f"{E2E}::test_auth[[redacted:{NAME}]]"
+    assert [e.test for e in result.durations] == [masked]
+    assert result.durations[0].checks_ms == 1000
+    assert masked in snapshot
+    assert [row["test"] for row in recorded_times(workspace)] == [masked]
+    assert SECRET not in snapshot
+    assert SECRET not in repr(result.durations)
+    assert SECRET not in str(recorded_times(workspace))

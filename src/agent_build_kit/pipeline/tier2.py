@@ -71,6 +71,12 @@ class TestTime(Frozen):
     other_ms: int | None = None
     overlap: bool = False
 
+    @property
+    def has_split(self) -> bool:
+        """Whether the run said where this phase's time went: the table shows figures for it
+        and its ledger row carries them, and neither does otherwise."""
+        return bool(self.agent_ms) or self.checks_ms is not None or self.other_ms is not None
+
 
 class Tier2Classification(Frozen):
     """A failed run's tests by whose they are: the unit's own, or in a file it left alone."""
@@ -275,7 +281,7 @@ def _clock(seconds: float) -> str:
 
 def _split_cells(entry: TestTime) -> str:
     """The agent, checks and other cells of an entry, a dash each when the run gave no split."""
-    if not (entry.agent_ms or entry.checks_ms is not None or entry.other_ms is not None):
+    if not entry.has_split:
         return "- | - | -"
     agent = (
         ", ".join(
