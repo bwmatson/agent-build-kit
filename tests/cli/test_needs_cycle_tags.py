@@ -99,3 +99,33 @@ def test_a_cycle_leaves_the_other_changes_and_their_messages_alone(
     assert sum("Needs: cycle" in line for line in lines) == 2
     assert "own-group: 2 task group(s), all tagged" in lines
     assert "missing-target: 1 task group(s), all tagged" in lines
+
+
+def test_a_chain_and_a_diamond_of_needs_are_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch)
+    run.write("a-base", tasks_md(1))
+    run.write("b-mid", tasks_md(1, needs={1: "a-base group 1"}))
+    run.write("c-mid", tasks_md(1, needs={1: "a-base group 1"}))
+    run.write("d-top", tasks_md(2, needs={1: "b-mid group 1", 2: "c-mid group 1"}))
+    run.write("g-chain", tasks_md(1, needs={1: "d-top group 2"}))
+
+    status = cli.cmd_tags(argparse.Namespace(change=None, all=True), run.inst)
+
+    out = capsys.readouterr().out
+    assert status == 0
+    assert "Needs: cycle" not in out
+
+
+def test_a_cycle_through_a_change_named_with_capitals_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch)
+    run.write("Mixed-Case", tasks_md(1, needs={1: "other group 1"}))
+    run.write("other", tasks_md(1, needs={1: "mixed-case group 1"}))
+
+    status = cli.cmd_tags(argparse.Namespace(change=None, all=True), run.inst)
+
+    assert status == 1
+    assert "Needs: cycle" in capsys.readouterr().out

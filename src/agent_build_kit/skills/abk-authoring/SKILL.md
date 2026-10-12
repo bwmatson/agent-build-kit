@@ -105,6 +105,10 @@ group builds on, so stacking would build against a moving target. It is
 refused on a group of the change's own (`abk tags` rejects it): groups within
 a change are already ordered.
 
+A `Needs:` that makes a cycle across changes (counting the order of each change's
+consecutive groups) is an error: `abk tags` and `abk check` report it under each
+change on the cycle, and the dependency is refused when linked.
+
 ## `Separate:` lines
 
 The planner may join a small group onto an unstarted unit of a related change,

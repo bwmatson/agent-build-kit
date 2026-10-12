@@ -138,3 +138,60 @@ def test_the_ready_queue_report_gives_the_cycle_and_what_waits_on_it_the_reason(
         )
     assert any("w/1" in line and "waits on a/1" in line for line in lines)
     assert any(line.lstrip().startswith("1. free/1") for line in lines)
+    assert "cannot start:" in lines, "the per-unit lines sit under a heading"
+
+
+def test_a_cycle_through_a_unit_that_can_start_is_no_deadlock(
+    builder: Builder,  # noqa: F811
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A same-repo parent in review does not stop its child, so `b/1` can start."""
+    inst = limit_workspace(tmp_path, 2)
+    builder.store.upsert([stored("b/1", depends_on=("a/1",))])
+    open_pr(builder, "a/1", 11, depends_on=("b/1",))
+    open_pr(builder, "rev/1", 12)
+
+    lines = status_lines(inst, capsys)
+
+    assert not any("deadlocked" in line for line in lines)
+    assert any("queue is full" in line for line in lines)
+    assert tick(inst) == 0
+    out = capsys.readouterr().out
+    assert "queue is full" in out
+    assert "deadlocked" not in out
+
+
+def test_a_chain_and_a_diamond_of_planned_units_are_never_deadlocked(
+    builder: Builder,  # noqa: F811
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    inst = limit_workspace(tmp_path, 9)
+    builder.store.upsert(
+        [
+            stored("chain-a/1"),
+            stored("chain-b/1", depends_on=("chain-a/1",)),
+            stored("chain-c/1", depends_on=("chain-b/1",)),
+            stored("dia-a/1"),
+            stored("dia-b/1", depends_on=("dia-a/1",)),
+            stored("dia-c/1", depends_on=("dia-a/1",)),
+            stored("dia-d/1", depends_on=("dia-b/1", "dia-c/1")),
+        ]
+    )
+
+    assert not any("deadlocked" in line for line in status_lines(inst, capsys))
+
+
+def test_a_unit_two_steps_behind_a_cycle_gets_the_reason_too(
+    builder: Builder,  # noqa: F811
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    inst = limit_workspace(tmp_path, 5)
+    two_units_waiting_on_each_other(builder)
+    builder.store.upsert([stored("w/1", depends_on=("a/1",)), stored("v/1", depends_on=("w/1",))])
+
+    lines = status_lines(inst, capsys)
+
+    assert any("v/1" in line and "waits on w/1" in line and "deadlocked" in line for line in lines)

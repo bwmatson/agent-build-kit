@@ -39,11 +39,11 @@ def test_the_prompt_says_an_unstarted_unit_must_not_depend_on_the_change_being_p
     prompt = prompt_with_an_unstarted_unit_in_flight()
 
     rule = [
-        paragraph
-        for paragraph in prompt.split("\n\n")
-        if "unstarted" in paragraph
-        and "must not" in paragraph
-        and "change being planned" in paragraph
+        bullet.split("\n\n")[0].replace("\n  ", " ")
+        for bullet in prompt.split("\n- ")
+        if bullet.startswith("A unit shown below as unstarted")
     ]
     assert rule, "no rule against giving an unstarted unit a dependency on this change"
-    assert "through" in rule[0], "the rule covers a dependency through other units"
+    assert "must not" in rule[0]
+    assert "change being planned" in rule[0]
+    assert "through other units" in rule[0], "the rule covers a dependency through other units"

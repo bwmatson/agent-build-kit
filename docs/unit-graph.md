@@ -679,3 +679,26 @@ has ended with none. The status is derived from the poller's snapshot (`prs-<rep
 stored, and counts as in review for scheduling, queue places and dependents. `abk status`, the graph
 and the pull request's state label show it, and the poll that records a pull request's checks moves
 the label between `in-review` and `checking`. The web UI still shows the stored state.
+
+## Cycles
+
+Units that wait on each other never start, so no cycle is allowed to form and one that exists is
+reported.
+
+- **A planner edge is dropped.** After a plan is parsed and before it is stored, each dependency
+  it proposes is tried against the units not finished: stored dependencies, the plan's own and
+  the ones `Needs:` lines declare. One that would close a cycle is dropped from the plan and
+  logged with the cycle; the rest of the plan stands. A replan clears such a stale edge from a
+  unit that has not started and never changes the dependencies of one that has.
+- **A `Needs:` edge is refused.** `link_needs` does not add a dependency that would close a cycle;
+  the unit keeps its other dependencies, the refusal is logged, and `abk replan` exits non-zero.
+  A tick logs it and carries on.
+- **A `Needs:` cycle is an error before planning.** `abk tags` and `abk check` report a cycle
+  formed by the `Needs:` lines of two or more changes and the order of each change's consecutive
+  groups (an `Independent:` group has no edge to the one before), under each change that has a
+  `Needs:` line on it.
+- **A deadlock already stored is reported.** `abk status` lists each cycle of planned units that
+  wait on each other once as `deadlocked:`, followed by the units and what waits on them; a pass
+  that starts nothing says `nothing can start: deadlocked: …` ahead of any other reason. It is
+  derived from the stored dependencies each time and nothing breaks it automatically: replan, or
+  edit the `Needs:` line.

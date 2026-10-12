@@ -1635,26 +1635,35 @@ def _deadlock_lines(units: list[StoredUnit]) -> list[str]:
 
 
 def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
-    """Each unit in a cycle, and each unit waiting on one, with why it cannot start."""
+    """Each unit in a cycle, and each planned unit waiting on one directly or through
+    others, with why it cannot start, under a heading; none when there is no deadlock."""
     stuck: dict[str, str] = {}
     for cycle in deadlocks(units):
         for unit_id in cycle[:-1]:
             stuck[unit_id] = " -> ".join(cycle)
+    if not stuck:
+        return []
     by_id = {unit.id: unit for unit in units}
     lines = [
         f"  deadlocked: {unit_id} ({by_id[unit_id].repo}) is in the cycle {chain}"
         for unit_id, chain in stuck.items()
     ]
-    for unit in units:
-        if unit.id in stuck or unit.state in FINISHED:
-            continue
-        behind = [parent for parent in unit.depends_on if parent in stuck]
-        if behind:
-            lines.append(
-                f"  {unit.id} ({unit.repo}) waits on {', '.join(behind)}, deadlocked "
-                f"in {stuck[behind[0]]}"
-            )
-    return lines
+    behind: dict[str, str] = dict(stuck)
+    grew = True
+    while grew:
+        grew = False
+        for unit in units:
+            if unit.id in behind or unit.state != PLANNED:
+                continue
+            parents = [p.id for p in waiting_on(unit, units) if p.id in behind]
+            if parents:
+                behind[unit.id] = behind[parents[0]]
+                lines.append(
+                    f"  {unit.id} ({unit.repo}) waits on {', '.join(parents)}, deadlocked "
+                    f"in {behind[parents[0]]}"
+                )
+                grew = True
+    return ["cannot start:", *lines]
 
 
 def _blocked_lines(units: list[StoredUnit]) -> list[str]:
@@ -3416,8 +3425,8 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     cycles = _needs_cycle_problems(inst)
     for change in changes:
         groups, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
-        if change in cycles:
-            errors.append(cycles[change])
+        if change.lower() in cycles:
+            errors.append(cycles[change.lower()])
         path = tasks_path(change, inst.changes_dir)
         for warning in merged_needs_warnings(path) if path.is_file() else []:
             print(warning)
