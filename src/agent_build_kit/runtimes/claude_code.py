@@ -263,6 +263,8 @@ class ClaudeCodeRuntime:
     implemented: bool = True
     # The hook sees every tool call before it runs.
     policy_coverage: PolicyCoverage = "all_calls"
+    # Answered locally, from the hook's own rules.
+    policy_check_prompts_agent: bool = False
     supports_usage_tracking: bool = True
     supports_streaming: bool = True
     # `--resume <id>`, with the id its init event reports.

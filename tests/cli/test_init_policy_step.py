@@ -300,3 +300,25 @@ def test_a_kept_abk_yaml_asks_no_runtime_question_and_applies_the_configured_fix
     assert "stdout was captured" not in capfd.readouterr().out
     assert patched.read_text() == ""
     assert (planning / "abk.yaml").read_bytes() == before
+
+
+def test_an_answer_that_is_not_a_choice_is_asked_again_and_nothing_is_recorded(
+    tmp_path: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    runtime = PolicyFileRuntime(
+        "unknown", policy_file(tmp_path / "policy.txt", AMEND_ROW), log=events
+    )
+    planning = configured(tmp_path, app, monkeypatch, runtime)
+    before = (planning / "abk.yaml").read_text()
+    operator = Operator(capfd, "", "x", "1", log=events)
+    monkeypatch.setattr(init_cmd, "ask", operator)
+
+    main(init_args(planning, app))
+
+    assert len(operator.screens) == 3
+    assert "nothing is chosen" in operator.screens[1]
+    assert (planning / "abk.yaml").read_text() == before

@@ -542,7 +542,25 @@ this machine. `check_policy` establishes the fact.
   supplies, whose contents abk never inspects. This is the shape
   `cli/doctor.py`'s `_forge_access` already uses with `forge.access_fix`.
   Declining leaves the workspace untouched and says which guarantee is
-  missing.
+  missing. A runtime whose check prompts the agent says so by
+  `policy_check_prompts_agent`; init asks before such a check spends tokens,
+  and a refusal records `runtimes.<name>.policy: unchecked`.
+- **Applying a policy fix.** On an existing installation run
+  `abk init --policy-only` (add `--policy-fix ARGV` to supply the fix, and
+  `--yes --run-policy-fix` to run a configured one unattended). It prints the
+  fix and the unrefused classes and spellings first, runs the fix with its
+  output visible, checks again and prints each class and spelling as refused or
+  not, then exits 0, 1 or 2. A fix applies only what its own policy file
+  lists, so a fix that exits 0 and prints `the fix made no change` means the
+  policy content is missing, not that the fix is broken. For an agent with no
+  known fix, relying on abk's own protocol layer is the honest limit: abk
+  applies its command rules to the permission requests the agent sends it, and
+  cannot see what the agent never asks about, so the runtime's coverage stays
+  `agent_flagged`. A known-agent table row says a spelling is covered only when
+  its `spellings` note records a live check that showed it; otherwise it reads
+  UNVERIFIED. `abk doctor` warns on every run for an entry recorded as
+  `unchecked`, without probing it, and goes on warning until that line is
+  removed from `abk.yaml` after a pass.
 - **`abk doctor` fails rather than warns** when a class is unenforced, and
   prints the `policy_fix` command. A probe costs one small agent call, so the
   result is cached in the state directory (`<state_dir>/policy-check.json`, per

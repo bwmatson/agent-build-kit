@@ -317,14 +317,16 @@ def _unknown_agent_choice(planning: Path, name: str) -> bool:
     """No fix is known for this agent, and nothing is guessed: the person chooses to rely on
     abk's own layer, to supply a fix command, or to continue without. True when a fix
     was recorded and is now to be run."""
-    reply = ask(
+    menu = (
         "no fix is known for this agent; choose:\n"
         "  1. rely on abk's own protocol layer, which sees the agent's permission requests"
         " and not what the agent never asks about\n"
         f"  2. supply a fix command (recorded as runtimes.{name}.policy_fix)\n"
         "  3. continue without checking (recorded as unchecked; `abk doctor` warns each run)\n"
         "choice [1-3]: "
-    ).strip()
+    )
+    while (reply := ask(menu).strip()) not in ("1", "2", "3"):
+        print("nothing is chosen until you answer 1, 2 or 3")
     if reply == "3":
         _record_runtime(planning, name, {"policy": PolicyMarker.UNCHECKED.value})
         print(f"recorded runtime {name} as unchecked")
@@ -361,15 +363,19 @@ def _policy_step(
         print(f"runtime {name} is not implemented yet; `abk doctor` says more")
         return False
     supplied = shlex.split(args.policy_fix) if args.policy_fix else None
-    if supplied and (
-        args.yes or yes(ask(f"record {shlex.join(supplied)} as runtimes.{name}.policy_fix? [y/N] "))
-    ):
-        _record_runtime(planning, name, {"policy_fix": supplied})
+    declined = False
+    if supplied:
+        if args.yes or yes(
+            ask(f"record {shlex.join(supplied)} as runtimes.{name}.policy_fix? [y/N] ")
+        ):
+            _record_runtime(planning, name, {"policy_fix": supplied})
+        else:
+            declined = True  # the fix they gave is not to be used, nor another asked for
     entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
     if entry.policy == PolicyMarker.UNCHECKED and not only:
         print(f"runtime {name} is recorded as unchecked; `abk doctor` warns about it")
         return False
-    if getattr(runtime, "policy_check_prompts_agent", False) and not args.yes:
+    if runtime.policy_check_prompts_agent and not args.yes:
         reply = ask(
             f"checking runtime {name} sends the agent a prompt and spends tokens; run it? [y/N] "
         )
@@ -386,7 +392,7 @@ def _policy_step(
     print(f"runtime {name} does not refuse: {policy_check.describe(report)}")
     entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
     if not entry.policy_fix:
-        if args.yes or report.fix:
+        if args.yes or report.fix or declined:
             print(f"  fix: {policy_check.fix_for(name, entry, report)}")
             return False
         if not _unknown_agent_choice(planning, name):
@@ -439,7 +445,14 @@ def _policy_only(planning: Path, args: argparse.Namespace) -> int:
         print(f"abk init: unknown runtime {name!r}", file=sys.stderr)
         return 2
     _activate(planning, loaded)
-    return 0 if _policy_step(planning, args, only=True, name=name) else 1
+    if not _policy_step(planning, args, only=True, name=name):
+        return 1
+    if config_module.runtime_entry(loaded, name=name).policy == PolicyMarker.UNCHECKED:
+        print(
+            f"runtime {name} passes: remove `runtimes.{name}.policy` from abk.yaml so "
+            "`abk doctor` checks it again"
+        )
+    return 0
 
 
 def _update_rules(planning: Path) -> int:
@@ -644,6 +657,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
 
     _activate(planning, applied)
 
+    # Before the agent steps and the commit: what the step records is part of init's commit.
+    _policy_step(planning, args)
+
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)
     print("\n".join(_convention_lines(workspace, done, planned=False)))
@@ -713,8 +729,6 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             print(f"committed: abk init: workspace {', '.join(names)}")
     else:
         print("not committed: the planning repo had uncommitted changes before init ran")
-
-    _policy_step(planning, args)
 
     print(
         "\nNext steps:\n"

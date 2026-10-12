@@ -890,7 +890,7 @@ def _probed(name: str, command: list[str], which: Which, run: Run) -> list[Check
         listed = ", ".join(f"{c.label} ({shlex.join(c.command)})" for c in others)
         checks.append(_info("runtimes", f"other usable runtimes on this machine: {listed}"))
     for candidate in selected:
-        if "documented only" in candidate.verified.lower():
+        if candidate.documented_only:
             checks.append(
                 _warn(
                     "runtime verification",
@@ -957,7 +957,8 @@ def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
             _warn(
                 "runtime policy",
                 "recorded as unchecked: nobody has confirmed the agent refuses what abk forbids",
-                f"run `abk init --policy-only` to check it, or remove `runtimes.{name}.policy`",
+                f"run `abk init --policy-only`, then remove `runtimes.{name}.policy` from abk.yaml "
+                "once it passes",
             )
         )
         return checks

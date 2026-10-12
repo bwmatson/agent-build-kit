@@ -14,7 +14,7 @@ import yaml
 from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.pipeline.command_spellings import SpellingName, probe_rows
-from agent_build_kit.runtimes import PolicyReport
+from agent_build_kit.runtimes import AgentRuntime, PolicyReport
 from tests.cli.test_init import init_args
 from tests.factories import recognised_planning
 from tests.runtimes.selectable import (
@@ -124,8 +124,9 @@ def configured(
     tmp_path: Path,
     app: Path,
     monkeypatch: pytest.MonkeyPatch,
-    runtime: SelectableRuntime,
+    runtime: AgentRuntime,
     *,
+    command: Sequence[str] | None = None,
     policy_fix: Sequence[str] | None = None,
     marker: str | None = None,
 ) -> Path:
@@ -135,6 +136,8 @@ def configured(
     path = planning / "abk.yaml"
     raw = yaml.safe_load(path.read_text())
     entry: dict[str, object] = {}
+    if command:
+        entry["command"] = list(command)
     if policy_fix:
         entry["policy_fix"] = list(policy_fix)
     if marker:

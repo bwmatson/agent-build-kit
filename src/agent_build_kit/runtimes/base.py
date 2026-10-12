@@ -256,6 +256,10 @@ class AgentRuntime(Protocol):
     name: str
     implemented: bool
     policy_coverage: PolicyCoverage
+    # Whether `check_policy` sends the agent a prompt, which spends tokens: `abk init`
+    # asks before running such a check, and `abk doctor` does not run one for an entry
+    # recorded as unchecked.
+    policy_check_prompts_agent: bool
     supports_usage_tracking: bool
     supports_streaming: bool
     # Whether `AgentRequest.resume_session` continues an earlier session; one
@@ -305,6 +309,10 @@ Which = Callable[[str], str | None]
 Run = Callable[..., subprocess.CompletedProcess]
 
 
+# What a `Candidate.verified` note starts with when its entry was only read in documentation.
+DOCUMENTED_ONLY = "documented only"
+
+
 class Candidate(Frozen):
     """One way to run an agent that a probe found on this machine."""
 
@@ -315,6 +323,11 @@ class Candidate(Frozen):
     reasons: tuple[str, ...] = ()  # why not, when `usable` is False
     note: str = ""  # what it needs, shown on a usable candidate too
     verified: str = ""  # how far its entry has been checked
+
+    @property
+    def documented_only(self) -> bool:
+        """Whether its entry was taken from documentation and never run."""
+        return self.verified.startswith(DOCUMENTED_ONLY)
 
 
 class QuestionKind(StrEnum):

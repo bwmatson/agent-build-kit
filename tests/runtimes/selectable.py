@@ -22,6 +22,7 @@ from agent_build_kit.runtimes.base import PolicyCoverage, SpellingResult
 
 
 class SelectableRuntime:
+    policy_check_prompts_agent: bool = False
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
     supports_session_resume: bool = False
@@ -62,7 +63,7 @@ class SelectableRuntime:
         return self.reports[min(len(self.checked), len(self.reports)) - 1]
 
 
-def select(monkeypatch: pytest.MonkeyPatch, runtime: SelectableRuntime) -> SelectableRuntime:
+def select[R: AgentRuntime](monkeypatch: pytest.MonkeyPatch, runtime: R) -> R:
     """Register `runtime` for one test. The built-in runtimes are loaded
     first: the registry fills itself only while it is empty."""
     runtimes.names()

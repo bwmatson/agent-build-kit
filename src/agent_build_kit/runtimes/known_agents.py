@@ -11,7 +11,7 @@ import importlib.util
 import subprocess
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.runtimes.base import Candidate, Run, Which
+from agent_build_kit.runtimes.base import DOCUMENTED_ONLY, Candidate, Run, Which
 
 # The runtime that speaks to these agents, as `runtimes.<name>` names it.
 RUNTIME_NAME = "acp"
@@ -42,7 +42,7 @@ class KnownAgent(Frozen):
 
 
 _DOCS = "the agent's own documentation"
-_DOCS_ONLY = "documented only: not run on the machine that wrote this entry"
+_DOCS_ONLY = f"{DOCUMENTED_ONLY}: not run on the machine that wrote this entry"
 
 # An entry is UNVERIFIED until a person has run it; `verified` says how far each one has been.
 KNOWN_AGENTS: tuple[KnownAgent, ...] = (
@@ -90,7 +90,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
             StartVariant(argv=("gemini", "--acp"), marker="--acp"),
             StartVariant(argv=("gemini", "--experimental-acp"), marker="--experimental-acp"),
         ),
-        verified="documented only: the flag varies by version, chosen from --help",
+        verified=f"{DOCUMENTED_ONLY}: the flag varies by version, chosen from --help",
         source=_DOCS,
     ),
     KnownAgent(
@@ -102,7 +102,7 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
             StartVariant(argv=("kimi", "--experimental-acp"), marker="--experimental-acp"),
             StartVariant(argv=("kimi", "acp"), marker="acp"),
         ),
-        verified="documented only: sources disagree on the spelling, chosen from --help",
+        verified=f"{DOCUMENTED_ONLY}: sources disagree on the spelling, chosen from --help",
         source=_DOCS,
     ),
     KnownAgent(
