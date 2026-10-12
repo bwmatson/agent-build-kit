@@ -20,7 +20,7 @@ from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.usage_guard import decide_start
 from tests.conftest import make_installation
-from tests.usage_host import Host, called, configure, pause_at, payload, refusal
+from tests.usage_host import Host, called, configure, pause_at, payload, refusal, refused
 
 MINUTES = timedelta(minutes=1)
 
@@ -237,19 +237,6 @@ def test_a_refresh_inside_the_interval_makes_no_call(
 
 
 # --- what a refused read still pauses for (the estimate rule leaves these as they were) ---
-
-
-def refused(host: Host, ago: timedelta = 2 * MINUTES) -> None:
-    host.seed(
-        {
-            "at": (datetime.now(UTC) - ago).isoformat(),
-            "caller": "guard",
-            "outcome": "rate_limited",
-            "status": 429,
-            "latency_ms": 100,
-            "headers": {"retry-after": "0"},
-        }
-    )
 
 
 def test_a_live_reading_over_the_threshold_pauses_with_no_estimate(host: Host) -> None:

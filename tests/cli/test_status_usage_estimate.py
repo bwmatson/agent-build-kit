@@ -1,7 +1,6 @@
 """`abk status` prints the usage estimate from the reading it holds, with no call."""
 
-import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -9,7 +8,7 @@ import pytest
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from tests.conftest import make_installation
-from tests.usage_host import Host, payload
+from tests.usage_host import Host, payload, refused
 
 LIMITS = {
     "claude_code": {
@@ -26,19 +25,7 @@ def run_status(
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     host.keep_in(inst.state_dir)
     host.keep_reading(timedelta(minutes=89), payload(session=0.0, weekly=weekly))
-    host.seed(
-        {
-            "at": (datetime.now(UTC) - timedelta(minutes=2)).isoformat(),
-            "caller": "guard",
-            "outcome": "rate_limited",
-            "status": 429,
-            "latency_ms": 100,
-            "headers": {"retry-after": "0"},
-        }
-    )
-    kept = json.loads(host.cache.read_text())
-    until = datetime.now(UTC) + timedelta(minutes=3)
-    host.cache.write_text(json.dumps({**kept, "cooldown_until": until.isoformat()}))
+    refused(host, cooling=timedelta(minutes=3))
 
     assert cli.cmd_status(build_parser().parse_args(["status"]), inst) == 0
 

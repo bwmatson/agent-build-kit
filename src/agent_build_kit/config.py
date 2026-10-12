@@ -242,7 +242,9 @@ class ClaudeLimitsConfig(Frozen):
     @model_validator(mode="before")
     @classmethod
     def _window_allowances(cls, data: object) -> object:
-        """The weekly window's own default allowance, where a window's settings leave it out."""
+        """The weekly window's own default allowance, where a window's settings leave it out.
+        It applies to mapping input (what `abk.yaml` always is); a `UsageWindowConfig` built
+        in code keeps the class default of 10."""
         if not isinstance(data, dict):
             return data
         filled = dict(data)

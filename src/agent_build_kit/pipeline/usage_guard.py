@@ -509,6 +509,20 @@ def _kept_reading(cached: dict) -> UsageReading | None:
     return _reading_from_payload(cached, observed_at=fetched_at, source="cache")
 
 
+def _cooldown_until(cached: dict) -> datetime | None:
+    """When the cool-down kept in the cache file ends, or None when it holds none."""
+    try:
+        return datetime.fromisoformat(cached["cooldown_until"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _cooling(cached: dict, now: datetime) -> bool:
+    """Whether a cool-down kept in the cache file is in force at `now`."""
+    until = _cooldown_until(cached)
+    return until is not None and until > now
+
+
 def _cooldown_seconds(error: urllib.error.HTTPError) -> float:
     try:
         named = float(error.headers.get("Retry-After", ""))
@@ -565,11 +579,7 @@ def read_live_usage(
 
     def _refresh_under_lock() -> UsageReading | None:
         nonlocal token
-        try:
-            cooling = datetime.fromisoformat(cached["cooldown_until"]) > now
-        except (KeyError, TypeError, ValueError):
-            cooling = False
-        if cooling:
+        if _cooling(cached, now):
             return last_good()
 
         telemetry.count("abk.usage.cache", 1, event="miss")
@@ -748,11 +758,8 @@ def forget_logged_failures() -> None:
 
 def rate_limit_note(cache_path: Path | None = None) -> str | None:
     """Words for an endpoint cool-down in force and when it ends, else None."""
-    try:
-        until = datetime.fromisoformat(_load_cache(cache_path or _cache_file())["cooldown_until"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if until <= datetime.now(UTC):
+    until = _cooldown_until(_load_cache(cache_path or _cache_file()))
+    if until is None or until <= datetime.now(UTC):
         return None
     return f"rate limited until {_hhmm(until)}"
 
@@ -768,6 +775,20 @@ def reading_as(caller: str) -> Iterator[None]:
         yield
     finally:
         _caller.reset(token)
+
+
+_starting: ContextVar[str | None] = ContextVar("usage_starting", default=None)
+
+
+@contextmanager
+def starting(unit: str) -> Iterator[None]:
+    """Name the unit (or track) a start is asked for inside the block, so an allowance on an
+    estimate is kept under its id and counted once. An ask outside one starts nothing."""
+    token = _starting.set(unit)
+    try:
+        yield
+    finally:
+        _starting.reset(token)
 
 
 def _noted(reading: UsageReading | None) -> UsageReading | None:
@@ -1124,7 +1145,8 @@ def _decide_on_estimate(
             ),
             resume_at=next_call or now + _stale_retry(),
         )
-    _record_admitted(cache_path, held, unit or f"unnamed-{now.isoformat()}")
+    if unit is not None:
+        _record_admitted(cache_path, held, unit)
     return Decision(may_start=True, reason=f"{text}, allowing starts", resets_at=held.resets_at)
 
 
@@ -1154,11 +1176,7 @@ def held_estimate_line() -> str | None:
     held = _estimable(_kept_reading(cached))
     if held is None or now - held.observed_at < current_cache_interval(calls_file).kept:
         return None
-    try:
-        cooling = datetime.fromisoformat(cached["cooldown_until"]) > now
-    except (KeyError, TypeError, ValueError):
-        cooling = False
-    if not cooling and next_call_at(calls_file, now=now) is None:
+    if not _cooling(cached, now) and next_call_at(calls_file, now=now) is None:
         return None
     estimates = _estimates(held, cached, cache_path, now)
     text = _estimate_text(held, estimates, now)
@@ -1193,6 +1211,7 @@ def decide_start(
     `read` and `decide` stand for `current_usage` and `may_start_unit` where a fresh
     reading is taken, for a caller that has its own.
     """
+    unit = unit or _starting.get()
     read = read or current_usage
     judge = decide or may_start_unit
 

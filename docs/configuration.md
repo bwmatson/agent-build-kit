@@ -109,11 +109,15 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                      # Unused when there is no ramp
         usage_resume_buffer_pct: 5   # room above current usage the threshold
                                      # must offer before a pause lifts
-      weekly:                   # the same four settings, for the week
+        usage_unit_allowance_pct: 10  # points of this window one unit may spend,
+                                      # counted per unit when a start is allowed on
+                                      # an estimate (2 for the week by default)
+      weekly:                   # the same five settings, for the week
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
+        usage_unit_allowance_pct: 2   # points of this window one unit may spend (session: 10)
       usage_stale_retry_minutes: 5  # how long a start is refused when the only
                                     # reading is too old to trust
       usage_cache_minutes: 15  # how long a good usage reading answers every reader (the shortest);
@@ -123,6 +127,8 @@ runtimes:                       # one entry per runtime that needs a fact abk
       usage_fallback_minutes: 30  # how old the last good reading may be to cover a failed call
       usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make
       usage_climb_margin_pct: 2  # points added to what a reading could have gained since
+      usage_headroom_margin_pct: 5  # room an estimate must leave under a threshold to allow a start
+      usage_estimate_max_starts: 3  # units that may start on an estimate for one reading (0: none)
   # acp:                        # an agent speaking the Agent Client Protocol
   #   command: [some-agent, acp]          # how to spawn it
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when

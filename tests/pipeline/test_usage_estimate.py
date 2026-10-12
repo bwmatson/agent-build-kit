@@ -16,9 +16,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from agent_build_kit.pipeline.pause import PAUSE_MARKER
 from agent_build_kit.pipeline.usage_guard import decide_start, next_call_at
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, append_record
-from tests.usage_host import Host, configure, pause_at, payload, refusal
+from tests.usage_host import Host, configure, pause_at, payload, refusal, refused
 
 MINUTE = timedelta(minutes=1)
 HOUR = 60 * MINUTE
@@ -38,29 +39,10 @@ def keep(host: Host, age: timedelta, **body: object) -> None:
     host.keep_reading(age, payload(**body))  # type: ignore[arg-type]
 
 
-def refusal_record(ago: timedelta) -> dict:
-    return {
-        "at": (datetime.now(UTC) - ago).isoformat(),
-        "caller": "guard",
-        "outcome": "rate_limited",
-        "status": 429,
-        "latency_ms": 100,
-        "headers": {"retry-after": "0"},
-    }
-
-
-def refused_ago(host: Host, ago: timedelta = 2 * MINUTE) -> None:
-    """The endpoint answered 429 with a retry time of zero `ago` ago; a cool-down is in force."""
-    host.seed(refusal_record(ago))
-    kept = json.loads(host.cache.read_text())
-    until = datetime.now(UTC) + 3 * MINUTE
-    host.cache.write_text(json.dumps({**kept, "cooldown_until": until.isoformat()}))
-
-
 def observed(host: Host, **body: object) -> None:
     """The reading and the refusal the pipeline was found paused on."""
     keep(host, 89 * MINUTE, **{"session": 0.0, "weekly": 65.0, **body})  # type: ignore[arg-type]
-    refused_ago(host)
+    refused(host, cooling=3 * MINUTE)
 
 
 def spent(host: Host, unit: str, *ago: timedelta) -> None:
@@ -87,12 +69,14 @@ def admit(host: Host, *units: str) -> None:
 def test_a_refused_read_with_headroom_allows_a_start_on_an_estimate_without_a_call(
     host: Host,
 ) -> None:
+    thresholds(usage_fallback_minutes=30)
     observed(host)
 
     decision = decide_start()
 
     assert decision.may_start
     assert host.asked == 0
+    assert not (host.cache.parent / PAUSE_MARKER).exists()
     assert "89m old" in decision.reason
     assert "session ~0% estimated (0% read + 0% spent)" in decision.reason
     assert "weekly ~65% estimated (65% read + 0% spent)" in decision.reason
@@ -150,7 +134,7 @@ def test_one_window_s_room_does_not_offset_the_other(host: Host) -> None:
 def seventy(host: Host) -> None:
     """A session at 70% against 92, read three hours ago, and the refusal."""
     keep(host, 3 * HOUR, session=70.0, weekly=6.0)
-    refused_ago(host)
+    refused(host, cooling=3 * MINUTE)
 
 
 def test_one_unit_that_spent_since_the_reading_adds_its_allowance_and_still_allows(
@@ -235,7 +219,7 @@ def test_a_session_reset_forty_minutes_ago_starts_from_the_reset_and_the_weekly_
 ) -> None:
     """Zero, plus the floor's eight points for forty minutes and the margin of two."""
     keep(host, 2 * HOUR, session=88.0, weekly=65.0, session_resets_in=-40 * MINUTE)
-    refused_ago(host)
+    refused(host, cooling=3 * MINUTE)
 
     decision = decide_start()
 
@@ -247,7 +231,7 @@ def test_a_session_reset_forty_minutes_ago_starts_from_the_reset_and_the_weekly_
 
 def test_a_session_reset_ten_hours_ago_refuses_at_122_points(host: Host) -> None:
     keep(host, 11 * HOUR, session=5.0, weekly=6.0, session_resets_in=-10 * HOUR)
-    refused_ago(host)
+    refused(host, cooling=3 * MINUTE)
 
     decision = decide_start()
 
@@ -261,7 +245,7 @@ def test_a_reading_with_no_open_window_starts_from_zero_with_no_ramp(host: Host)
     kept = json.loads(host.cache.read_text())
     kept["five_hour"]["resets_at"] = None
     host.cache.write_text(json.dumps(kept))
-    refused_ago(host)
+    refused(host, cooling=3 * MINUTE)
 
     decision = decide_start()
 
