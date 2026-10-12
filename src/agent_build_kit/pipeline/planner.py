@@ -28,7 +28,13 @@ from agent_build_kit import runtimes
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
-from agent_build_kit.pipeline.unit_size import Calibration, Kind, applied, calibrated
+from agent_build_kit.pipeline.unit_size import (
+    Calibration,
+    Kind,
+    applied,
+    calibrated,
+    largest_raw,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
 from agent_build_kit.pipeline.work_graph import GROUP_NUMBER, TIERS, TaskGroup, known_repos
@@ -261,7 +267,21 @@ def _check_ceiling(
             f"unit {unit.id} is estimated at {unit.estimated_lines} changed lines"
             f"{_calibration_note(unit, applying[unit.id])}, over "
             f"the ceiling of {ceiling} — its groups must go in more than one unit"
+            f"{_split_advice(unit, applying[unit.id], ceiling, groups)}"
         )
+
+
+def _split_advice(
+    unit: Unit, found: Calibration, ceiling: int, groups: Sequence[TaskGroup] | None
+) -> str:
+    """How to split a unit that is over the ceiling by its kind's ratio; nothing without one."""
+    if found.ratio == 1.0:
+        return ""
+    return (
+        f": split it by group, since a unit of {plan_kind(unit, groups).label} may carry at most "
+        f"{largest_raw(ceiling, found.ratio)} raw estimated lines (the largest raw estimate "
+        f"allowed) and this one carries {len(unit.groups)} groups"
+    )
 
 
 def _calibration_note(unit: Unit, found: Calibration) -> str:
@@ -533,7 +553,7 @@ rejected:
 - neither has started — never name a unit not marked unstarted;
 - no group involved is flagged `[acceptance]`, `[contract]` or `[narrow]`, or
   has a `Separate:` or `Independent:` line;
-- the two estimates together stay at or under {max_lines} changed lines.
+- the two estimates together stay at or under {max_lines} changed lines.{join_raw}
 A unit joined to may be joined to again, in order along the line, while it
 stays under that ceiling.
 
@@ -580,25 +600,77 @@ def _in_flight_line(item: dict) -> str:
     return line
 
 
-def _calibration_section(found: Mapping[Kind, Calibration] | None) -> str:
-    """The ratios the plan check multiplies estimates by, for the kinds above 1; empty when
-    calibration is off or there are none."""
+# What the calibration section may add to the prompt, in characters; examples are dropped
+# first, and kinds are capped by `limits.calibration_kinds_listed`.
+SECTION_MAXIMUM = 2000
+TITLE_MAXIMUM = 80
+
+
+def _listed(found: Mapping[Kind, Calibration] | None) -> list[Kind]:
+    """The kinds the planner is told about: above 1, the most samples first, ties by name."""
     if not active().limits.calibrate_estimates or not found:
-        return ""
+        return []
+    above = sorted(
+        (kind for kind in found if found[kind].ratio > 1.0),
+        key=lambda kind: (-found[kind].samples, kind.label),
+    )
+    return above[: active().limits.calibration_kinds_listed]
+
+
+def _kind_lines(kind: Kind, found: Calibration, shown: Sequence[StoredUnit]) -> list[str]:
+    limits = active().limits
     lines = [
-        f"- {kind.label}: {found[kind].ratio:.2f} from {found[kind].samples} samples"
-        for kind in sorted(found, key=lambda k: (k.repo, k.tier, k.flag))
-        if found[kind].ratio > 1.0
+        f"- {kind.label}: {found.ratio:.2f} from {found.samples} samples; largest raw estimate "
+        f"{largest_raw(limits.max_unit_lines, found.ratio)}, group up to about "
+        f"{largest_raw(limits.min_unit_lines, found.ratio)} raw"
     ]
-    if not lines:
+    lines += [
+        f'    "{unit.title[:TITLE_MAXIMUM]}": estimated {unit.estimated_lines}, '
+        f"landed {unit.actual_lines}"
+        for unit in shown
+    ]
+    return lines
+
+
+def _calibration_section(
+    found: Mapping[Kind, Calibration] | None,
+    examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
+) -> str:
+    """The ratios the plan check multiplies estimates by, for the kinds above 1, each with
+    the largest raw estimate and the newest units behind it; empty when calibration is off
+    or there are none."""
+    listed = _listed(found)
+    if not found or not listed:
         return ""
-    return (
+    omitted = len([kind for kind in found if found[kind].ratio > 1.0]) - len(listed)
+    head = (
         "Estimates are your raw figures. Units of these kinds have landed above their\n"
         "estimates, and the check multiplies a unit's estimate by its kind's ratio before\n"
         "comparing it with the ceiling, so estimate and group with that in mind:\n"
-        + "\n".join(lines)
-        + "\n\n"
     )
+    shown = {kind: list((examples or {}).get(kind, ())) for kind in listed}
+    for count in range(max((len(units) for units in shown.values()), default=0), -1, -1):
+        body = [
+            line for kind in listed for line in _kind_lines(kind, found[kind], shown[kind][:count])
+        ]
+        if omitted > 0:
+            body.append(f"({omitted} more kinds left out)")
+        text = head + "\n".join(body) + "\n\n"
+        if len(text) <= SECTION_MAXIMUM:
+            break
+    return text
+
+
+def _join_raw(found: Mapping[Kind, Calibration] | None) -> str:
+    """The largest raw estimate of each listed kind, beside the ceiling the join text states."""
+    listed = _listed(found)
+    if not found or not listed:
+        return ""
+    ceiling = active().limits.max_unit_lines
+    figures = ", ".join(
+        f"{kind.label}: {largest_raw(ceiling, found[kind].ratio)}" for kind in listed
+    )
+    return f" For a calibrated kind that is the largest raw estimate it may carry ({figures})."
 
 
 def _mark_built(change: str, tasks: str, in_flight: list[dict]) -> str:
@@ -651,7 +723,8 @@ def build_prompt(
         min_lines=workspace.limits.min_unit_lines,
         max_lines=workspace.limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",
-        calibration=_calibration_section(calibrations),
+        calibration=_calibration_section(calibrations, examples),
+        join_raw=_join_raw(calibrations),
         changes=changes_text,
         in_flight=in_flight_text,
     )

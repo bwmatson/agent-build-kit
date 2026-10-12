@@ -77,16 +77,21 @@ def _merged_at(unit: StoredUnit) -> datetime:
     return datetime.min.replace(tzinfo=UTC)
 
 
+def _newest(units: Sequence[StoredUnit], kind: Kind) -> list[StoredUnit]:
+    """The measured merged units of `kind`, the last to merge first, ties by unit id."""
+    by_id = sorted(
+        (unit for unit in units if measured(unit) and kind_of(unit) == kind),
+        key=lambda unit: unit.id,
+    )
+    return sorted(by_id, key=_merged_at, reverse=True)
+
+
 def _samples(units: Sequence[StoredUnit], kind: Kind) -> list[float]:
     """Actual over the planner's own estimate for the newest merged units of `kind`,
     each clamped to the configured range."""
     limits = active().limits
     low, high = limits.calibration_sample_clamp
-    newest = sorted(
-        (unit for unit in units if measured(unit) and kind_of(unit) == kind),
-        key=_merged_at,
-        reverse=True,
-    )[: limits.calibration_window]
+    newest = _newest(units, kind)[: limits.calibration_window]
     return [min(max((unit.actual_lines or 0) / unit.estimated_lines, low), high) for unit in newest]
 
 
@@ -131,9 +136,9 @@ def calibrated(lines: int, ratio: float) -> int:
 
 def largest_raw(limit: int, ratio: float) -> int:
     """The largest raw estimate whose calibrated figure stays within `limit`."""
-    raise NotImplementedError
+    return int(limit // ratio)
 
 
 def recent_examples(units: Sequence[StoredUnit], kind: Kind, n: int) -> list[StoredUnit]:
     """The `n` newest measured merged units of `kind`, ordered as the ratio's samples are."""
-    raise NotImplementedError
+    return _newest(units, kind)[:n]

@@ -141,6 +141,7 @@ from agent_build_kit.pipeline.unit_size import (
     calibrated,
     calibrations,
     over_ceiling,
+    recent_examples,
 )
 from agent_build_kit.pipeline.unit_store import (
     PARKED_CAUSES,
@@ -2435,6 +2436,12 @@ def plan_all(
             # Groups another change's planned unit carries are as claimed.
             plan = plan_round(
                 calibrations=ratios,
+                examples={
+                    kind: recent_examples(
+                        store.all(), kind, config.active().limits.calibration_examples
+                    )
+                    for kind in ratios
+                },
                 changes={change: tasks.read_text()},
                 in_flight=context,
                 groups=task_groups,

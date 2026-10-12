@@ -12,7 +12,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_size import Calibration, Kind, applied, calibrated, kind_of
+from agent_build_kit.pipeline.unit_size import (
+    Calibration,
+    Kind,
+    applied,
+    calibrated,
+    kind_of,
+    largest_raw,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import CLOSED, MERGED, PLANNED, SATISFIED, Join, Member, Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
@@ -139,6 +146,12 @@ def check_joins(
                     else ""
                 )
                 + f" is over the ceiling of {ceiling}"
+                + (
+                    f" (the largest raw estimate for {kind_of(onto).label} is "
+                    f"{largest_raw(ceiling, ratio.ratio)})"
+                    if ratio.ratio != 1.0
+                    else ""
+                )
             )
 
         state[onto.id] = onto.taking(members, estimated_lines=added)

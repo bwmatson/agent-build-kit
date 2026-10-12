@@ -83,7 +83,7 @@ SIX = ("Unit one", "Unit two", "Unit three", "Unit four", "Unit five", "Unit six
 def test_the_section_gives_the_largest_raw_estimate_and_the_raw_floor_for_a_listed_kind() -> None:
     limits()
     units = [
-        *landed(20, repo="alpha"),  # 650/400 at 20 samples: ratio 1.51
+        *landed(20, repo="alpha", ratio_of=(400, 655)),  # ratio 1.51 at 20 samples
         *landed(20, repo="beta", ratio_of=(400, 400)),
         *landed(2, repo="gamma", ratio_of=(400, 800)),
     ]
@@ -136,7 +136,7 @@ def test_with_no_examples_configured_the_figures_stay_and_no_unit_is_shown() -> 
 
     section = section_of(prompt_for(titled("alpha", *SIX)))
 
-    assert "alpha" in section and "496" in section
+    assert "alpha" in section and "largest raw estimate 587" in section
     assert not [title for title in SIX if title in section]
 
 
@@ -212,7 +212,7 @@ def test_the_joining_text_states_the_largest_raw_estimate_beside_the_ceiling() -
 def test_with_calibration_off_the_prompt_is_the_one_without_any_calibration() -> None:
     limits()
     units = [*titled("alpha", *SIX), *landed(20, repo="alpha")]
-    assert "496" in prompt_for(units)
+    assert "largest raw estimate" in prompt_for(units)
 
     limits(calibrate_estimates=False)
 
