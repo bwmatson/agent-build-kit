@@ -67,11 +67,26 @@ class Redactor:
         self._values[name] = value
         self._pattern = self._compile()
 
+    def _by_value(self, text: str) -> str:
+        if self._pattern is None:
+            return text
+        by_value = {value: name for name, value in self._values.items()}
+        return self._pattern.sub(lambda found: f"[redacted:{by_value[found.group()]}]", text)
+
     def redact(self, text: str) -> str:
-        if self._pattern is not None:
-            by_value = {value: name for name, value in self._values.items()}
-            text = self._pattern.sub(lambda found: f"[redacted:{by_value[found.group()]}]", text)
-        return _TOKEN_SHAPE.sub("[redacted:token-shape]", text)
+        return _TOKEN_SHAPE.sub("[redacted:token-shape]", self._by_value(text))
+
+    def found(self, text: str) -> tuple[str, ...]:
+        """The sorted names `redact` would replace in `text`, with `token-shape` when a
+        token-shaped string the set does not hold remains after the values."""
+        names = {
+            name
+            for name, value in self._values.items()
+            if len(value) >= MIN_LENGTH and value in text
+        }
+        if _TOKEN_SHAPE.search(self._by_value(text)):
+            names.add("token-shape")
+        return tuple(sorted(names))
 
     def __repr__(self) -> str:
         return f"Redactor(names={list(self.names)})"

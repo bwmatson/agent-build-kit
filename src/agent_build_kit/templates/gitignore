@@ -20,6 +20,9 @@ runs/usage-ledger.jsonl
 runs/decisions.jsonl
 # One line per use of the usage endpoint, kept a week (same note).
 runs/usage-calls.jsonl
+# The originals `abk redact-history --apply` keeps beside what it rewrites; they hold the
+# secrets (same note).
+runs/**/*.pre-redact
 
 # Local tooling.
 __pycache__/

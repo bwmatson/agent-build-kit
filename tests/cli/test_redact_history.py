@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from agent_build_kit.config import dump
 from agent_build_kit.forges import github
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.run_log import run_log_dir
 from agent_build_kit.pipeline.transcript import transcript_dir
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -77,6 +80,16 @@ def saved_history(inst: Installation) -> dict[str, Path]:
     }
 
 
+def pause(inst: Installation) -> None:
+    """The pipeline paused, as `--apply` requires."""
+    pause_until(
+        datetime.now(UTC) + timedelta(hours=3),
+        reason="redacting history",
+        marker=inst.state_dir / PAUSE_MARKER,
+        kind="rate_limit",
+    )
+
+
 def run(inst: Installation, *argv: str) -> int:
     return main(["--config", str(inst.root / "abk.yaml"), "redact-history", *argv])
 
@@ -108,10 +121,14 @@ def test_apply_replaces_the_value_in_every_saved_file_and_keeps_a_copy(
 ) -> None:
     files = saved_history(inst)
     before = {name: path.read_text() for name, path in files.items()}
+    pause(inst)
 
     assert run(inst, "--apply") == 0
 
-    assert SECRET not in shown_by(capsys)
+    shown = shown_by(capsys)
+    assert SECRET not in shown
+    warning = [line for line in shown.splitlines() if SUFFIX in line and "commit" in line]
+    assert len(warning) == 1
     for name, path in files.items():
         text = path.read_text()
         assert SECRET not in text
@@ -125,6 +142,7 @@ def test_a_second_run_finds_nothing_and_adds_no_copies(
     inst: Installation, no_code_host: MockHost, capsys: pytest.CaptureFixture[str]
 ) -> None:
     files = saved_history(inst)
+    pause(inst)
     assert run(inst, "--apply") == 0
     shown_by(capsys)
     copies = sorted(inst.state_dir.rglob("*" + SUFFIX))
@@ -138,3 +156,39 @@ def test_a_second_run_finds_nothing_and_adds_no_copies(
         assert path.name not in shown
     assert sorted(inst.state_dir.rglob("*" + SUFFIX)) == copies
     assert {name: path.read_text() for name, path in files.items()} == after
+
+
+def test_apply_without_a_pause_in_force_changes_nothing_and_fails(
+    inst: Installation, no_code_host: MockHost, capsys: pytest.CaptureFixture[str]
+) -> None:
+    files = saved_history(inst)
+    before = {name: path.read_text() for name, path in files.items()}
+
+    assert run(inst, "--apply") != 0
+
+    shown = shown_by(capsys)
+    assert "pause" in shown
+    assert SECRET not in shown
+    assert {name: path.read_text() for name, path in files.items()} == before
+    assert not list(inst.state_dir.rglob("*" + SUFFIX))
+
+
+def test_a_file_holding_only_a_token_shaped_string_is_reported_as_token_shape(
+    inst: Installation, no_code_host: MockHost, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log = run_log_dir(inst.state_dir) / "add-marker-01-20260101T100000.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("token ghp_" + "a1" * 20 + "\n")
+
+    assert run(inst) == 0
+
+    shown = shown_by(capsys)
+    assert log.name in shown
+    assert "token-shape" in shown
+    assert NAME not in shown
+
+
+def test_the_planning_template_ignores_the_copies() -> None:
+    template = resources.files("agent_build_kit").joinpath("templates/gitignore").read_text()
+
+    assert "runs/**/*.pre-redact" in template.splitlines()

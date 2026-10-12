@@ -194,7 +194,14 @@ the way in: `units.json`, the run logs, the transcripts and the usage ledger in 
 directory. It builds the same set of known values the pipeline does. A dry run (the default)
 prints, per file, the names found, never a value, and writes nothing. `--apply` replaces
 the values and keeps the original beside each changed file as `<file>.pre-redact`, for the
-operator to delete. A second run reports nothing. It calls no code host: pull request
+operator to delete (they hold the original values, so the planning repo's `.gitignore`
+ignores them and `--apply` says so again). A second run reports nothing. `--apply` refuses,
+with exit 1 and nothing changed, unless a pause is in force: a run log or transcript an
+agent is writing cannot be locked against, so pause the pipeline first. `units.json` and the
+ledger are rewritten under the lock their writers take, written aside and renamed into
+place. Earlier versions of `units.json` in the planning repo's git history still hold the
+values and are not rewritten. A value containing a quote, backslash or non-ASCII character
+is stored escaped in the JSON files and is not found there. It calls no code host: pull request
 descriptions and comments already posted are the operator's to edit by hand. Exit 0.
 
 ### `abk serve [--port PORT]`
