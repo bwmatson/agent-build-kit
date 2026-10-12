@@ -48,11 +48,13 @@
   output holds only the last one. The python profile asks pytest for a short summary
   to read them from; other toolchains list none.
 
-- How long a unit waits for the tier 2 lock is now the setting
-  `limits.tier2_lock_wait_seconds`, a positive whole number of seconds that defaults to
-  5400 (it was a fixed 3600, shorter than a queued full tier 2 run). The tier 2 step and
-  post-merge verification both use it, a bad value is refused when the config loads, and
-  the busy message names the setting.
+- A unit no longer fails for waiting its turn at the tier 2 lock: it waits as long as the
+  holder runs. The wait is logged when it begins and every five minutes, naming the unit
+  that holds the lock and for how long, and is recorded as a `tier2_lock` span. The lock
+  file now names its holder (unit, process, start) and is empty when free; a record left by
+  a process that is gone is reported as stale and overwritten, and a held lock is never
+  broken. `limits.tier2_lock_wait_seconds` (default 5400, a bad value refused at load)
+  now bounds only post-merge verification, whose busy message names it.
 
 - A unit whose agent run was killed mid-edit now resumes over the edits it left, as
   intended, instead of failing with a `TypeError` on the worktree request. The wrapper

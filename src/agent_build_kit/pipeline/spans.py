@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.usage_ledger import record_line
 
 SLOT = "slot"
 USAGE_PAUSE = "usage_pause"
+TIER2_LOCK = "tier2_lock"
 
 
 class Clock(Protocol):
@@ -49,7 +50,7 @@ current_unit: ContextVar[tuple[str, str, str, int]] = ContextVar(
 
 class Span(Frozen):
     """A `span` line of the ledger: a stretch of a unit's time. `waited` names
-    the bucket of a stretch spent waiting (`slot`, `usage_pause`) and is empty
+    the bucket of a stretch spent waiting (`slot`, `usage_pause`, `tier2_lock`) and is empty
     for work; `command` names the tier 1 command a stretch ran."""
 
     kind: str = "span"
