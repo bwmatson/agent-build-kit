@@ -635,11 +635,15 @@ def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     starting. Requeued, it counts again from its next start.
 
     A blocked planned unit (`blocked`, judged against `graph`) does not count
-    however much work it has, and counts again when it is no longer blocked.
+    however much work it has, and counts again when it is no longer blocked. A
+    failed unit that waits on another unit (`failed_waiting`) does not count
+    while it waits, and stays failed.
     """
     if unit.state in (MERGED, CLOSED, SATISFIED, HELD):
         return False
-    if unit.state in (RUNNING, IN_REVIEW, FAILED):
+    if unit.state == FAILED:
+        return not failed_waiting(unit, graph)
+    if unit.state in (RUNNING, IN_REVIEW):
         return True
     return _worked_on(unit) and not blocked(unit, graph)
 
@@ -650,13 +654,13 @@ def uncounted(graph: Sequence[Unit]) -> list[Unit]:
 
 
 def failed_waiting(unit: Unit, graph: Sequence[Unit]) -> bool:
-    """Whether a failed unit waits on another unit, so it holds no place."""
-    raise NotImplementedError
+    """Whether a failed unit waits on another unit (`waiting_on`), so it holds no place."""
+    return unit.state == FAILED and bool(waiting_on(unit, graph))
 
 
 def failed_waiting_units(graph: Sequence[Unit]) -> list[Unit]:
     """The failed units that wait on another unit and so are not counted."""
-    raise NotImplementedError
+    return [unit for unit in graph if failed_waiting(unit, graph)]
 
 
 def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:

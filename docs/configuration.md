@@ -217,7 +217,9 @@ limits:
   max_units_in_progress: 5      # units started and not finished, across all
                                 # repos, at least 1; at it no unit that has
                                 # never started does, while reworks, resumes
-                                # and finishing reviewed work still run
+                                # and finishing reviewed work still run; a
+                                # blocked unit, and a failed unit that waits
+                                # on another unit, do not count
   min_unit_lines: 400           # estimated changed lines before the planner
                                 # stops absorbing the next task group
   max_unit_lines: 750           # estimated changed lines one unit may carry;

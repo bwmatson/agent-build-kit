@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A failed unit that waits on another unit (a prerequisite not yet reviewed or merged, or a
+  predecessor being reworked, failed or held) no longer holds a place under
+  `limits.max_units_in_progress`, so units like it cannot fill the queue and keep the work they
+  wait on from starting. It stays failed and is never requeued by the pipeline; it counts again
+  when the wait ends. The full-queue report says how many are not counted, the status says what
+  each waits on, and the graph labels it `failed, waiting on <units>`.
+
 - A requeued unit now builds on the base the store names, not one its thread remembers, so a
   failed unit whose predecessor has since merged is no longer failed again counting commits
   against a deleted branch. A remembered base that no longer resolves is replaced by the

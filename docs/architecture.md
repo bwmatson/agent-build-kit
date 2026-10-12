@@ -221,7 +221,7 @@ backoff, a lease, a limited tick and a usage pause do not make a unit blocked. O
 unit that has never started is stopped by the limit, and no more of them start than
 leave room; so is a planned unit that was blocked and no longer is (its record carries
 the cause of the wait, or a unit it depends on was outside review and merge since it last
-changed state), which stays planned until the other units in progress are below the limit. A rework, resume, restack, review
+changed state), which stays planned until the other units in progress are below the limit. A failed unit that waits on another unit (`waiting_on`) does not count while it waits either; it stays failed, is never requeued by the pipeline, and counts again when the wait ends. A rework, resume, restack, review
 round, push and a unit paused by a usage pause or interrupted still run, so the count can
 pass it. A blocked unit that had work gives its place to a ready, never-run prerequisite
 it waits on: before the classes below, one prerequisite starts for each blocked unit's

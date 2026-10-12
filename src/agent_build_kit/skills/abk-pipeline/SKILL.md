@@ -219,7 +219,9 @@ reads a draft as "not yet" and a ready pull request as theirs to review.
    starts no more new units than fit under it: the rest stay `planned`, and
    the tick log and `abk status` say "queue is full: N units in progress,
    limit M" with the count in each state, then "N blocked not counted" and a
-   `blocked: <unit> … waits on <unit>` line for each. A planned unit that waits on
+   `blocked: <unit> … waits on <unit>` line for each, and "N failed waiting not
+   counted" for failed units that wait on another unit (they stay failed, and
+   count again when the wait ends). A planned unit that waits on
    another unit is blocked and holds no place however much work it has; the unit it
    waits on starts into that place first, and when the waiter is no longer blocked it
    starts only while there is room. A place frees when a unit's PR is merged or closed, when a

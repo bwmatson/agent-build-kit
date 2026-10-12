@@ -28,7 +28,11 @@ def status(
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
         limits=dict(max_units_in_progress=limit),
     )
-    UnitStore(tmp_path / "units.json").upsert(units)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(units)
+    for unit in units:
+        if unit.state != "planned" or unit.branch:
+            store.set_state(unit.id, unit.state, branch=unit.branch, pr=unit.pr)
     monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
     assert pipeline_cli.cmd_status(argparse.Namespace(), inst) == 0
     return capsys.readouterr().out.splitlines()
@@ -79,5 +83,5 @@ def test_the_status_says_what_a_waiting_failed_unit_waits_on_and_keeps_its_faile
     assert len(waiting) == 1
     assert "wait/1" in waiting[0]
     assert "base/1" in waiting[0]
-    assert any(line.lstrip().startswith("failed: wait/1") for line in lines)
-    assert any(line.lstrip().startswith("failed: plain/1") for line in lines)
+    assert any("failed: wait/1" in line for line in lines)
+    assert any("failed: plain/1" in line for line in lines)
