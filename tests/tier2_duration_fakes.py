@@ -4,13 +4,12 @@ a tier 2 result records the time of each test."""
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.tier2 import TestTime, Tier2Result
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from tests.tier2_failure_fakes import checkout, gate
+from tests.tier2_failure_fakes import checkout, gate, run_returning
 
 # `(seconds, phase, test id)`: what one line of pytest's `slowest durations` section holds.
 Entry = tuple[float, str, str]
@@ -18,13 +17,20 @@ Entry = tuple[float, str, str]
 E2E = "tests/e2e/test_x.py"
 
 
-def durations_output(*entries: Entry, hidden: int = 0, lines: tuple[str, ...] = ()) -> str:
-    """The tail of a pytest run with `--durations=0`: the section in pytest's own layout
-    (`<seconds>s <phase padded to 8> <id>`, slowest first), the note pytest prints when
-    entries under the minimum are left out, then the summary line. `lines` follow the
-    section, as a plugin's terminal summary does."""
+def durations_output(
+    *entries: Entry,
+    hidden: int = 0,
+    lines: tuple[str, ...] = (),
+    before: tuple[str, ...] = (),
+    after: tuple[str, ...] = (),
+) -> str:
+    """The tail of a pytest run with `--durations=0 --durations-min=1.0`: the section in
+    pytest's own layout (`<seconds>s <phase padded to 8> <id>`, slowest first), the note
+    pytest prints when entries under the minimum are left out, then the summary line.
+    `lines` follow the section, as a plugin's terminal summary does; `before` precede it,
+    as the failures' report does, and `after` follow it, as the short summary does."""
     rows = [f"{seconds:.2f}s {phase:<8} {test}" for seconds, phase, test in entries]
-    note = [f"({hidden} durations < 1s hidden.  Use -vv to show these durations.)"] * bool(hidden)
+    note = ["", f"({hidden} durations < 1s hidden.)"] if hidden else []
     section = ["=" * 29 + " slowest durations " + "=" * 29, *rows, *note, *lines]
     passed = len({test for _, phase, test in entries if phase == "call"}) or 1
     return "\n".join(
@@ -32,7 +38,9 @@ def durations_output(*entries: Entry, hidden: int = 0, lines: tuple[str, ...] = 
             "============================= test session starts ==============================",
             f"collected {passed} items",
             "",
+            *before,
             *section,
+            *after,
             f"======================== {passed} passed in {sum(e[0] for e in entries):.2f}s ====",
             "",
         ]
@@ -70,12 +78,9 @@ def run_tier2(tmp_path: Path, output: str, name: str = "first") -> Tier2Result:
     """The result of a tier 2 gate whose one command exits 0 printing `output`, run in a
     checkout of its own under `tmp_path`."""
 
-    def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
-        return subprocess.CompletedProcess(command, 0, output, "")
-
     where = tmp_path / name
     where.mkdir()
-    session = gate(where, run)
+    session = gate(where, run_returning(output, code=0))
     session.run(cwd=checkout(where))
     assert session.result is not None
     return session.result

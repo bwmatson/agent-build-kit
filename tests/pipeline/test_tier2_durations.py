@@ -23,7 +23,7 @@ from tests.tier2_duration_fakes import (
     sixteen_tests,
     time_line,
 )
-from tests.tier2_failure_fakes import NO_SUMMARY, NODE_OUTPUT, checkout, gate
+from tests.tier2_failure_fakes import NO_SUMMARY, NODE_OUTPUT, checkout, gate, run_returning
 
 NINE_MINUTES = 540.0
 FOURTEEN_MINUTES = 840.0
@@ -155,3 +155,53 @@ def test_a_test_id_is_redacted_in_the_result_the_listing_and_the_ledger(
     assert SECRET not in snapshot
     assert SECRET not in repr(result.durations)
     assert SECRET not in str(recorded_times(workspace))
+
+
+def _forty() -> list[tuple[float, str, str]]:
+    return [(90.0 - n, "call", f"{E2E}::test_{n:02d}") for n in range(40)]
+
+
+def _entry_lines(output: str) -> list[str]:
+    return [line for line in output.splitlines() if "s call " in line and "::test_" in line]
+
+
+def test_the_kept_output_of_a_failing_command_leaves_out_the_durations_section(
+    tmp_path: Path,
+) -> None:
+    traceback = (
+        "=================================== FAILURES ===================================",
+        "_________________________________ test_00 ______________________________",
+        f"{E2E}:9: in test_00",
+        "    assert 1 == 2",
+        "E   assert 1 == 2",
+    )
+    summary = (
+        "=========================== short test summary info ============================",
+        f"FAILED {E2E}::test_00 - assert 1 == 2",
+    )
+    output = durations_output(*_forty(), before=traceback, after=summary)
+    root = checkout(tmp_path)
+    session = gate(tmp_path, run_returning(output, code=1))
+
+    ok, snapshot = session.run(cwd=root)
+
+    assert not ok
+    assert session.result is not None
+    assert "E   assert 1 == 2" in session.result.output
+    assert _entry_lines(session.result.output) == []
+    assert "slowest durations" not in session.result.output
+    assert len(session.result.durations) == 40
+    assert "15 of 40 shown" in snapshot.split("<details>")[0]
+
+
+def test_the_kept_output_of_a_passing_command_leaves_out_the_durations_section(
+    tmp_path: Path,
+) -> None:
+    root = checkout(tmp_path)
+    session = gate(tmp_path, run_returning(durations_output(*_forty()), code=0))
+
+    session.run(cwd=root)
+
+    assert session.result is not None
+    assert "passed in" in session.result.output
+    assert _entry_lines(session.result.output) == []

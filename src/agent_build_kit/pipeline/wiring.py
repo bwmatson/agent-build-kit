@@ -1871,10 +1871,13 @@ class Tier2Session:
                     ]
                     header = f"$ {' '.join(command)}{label}"
                     self._keep(header, out)
+                    # The listing carries the durations, so the kept text leaves them out: they
+                    # would fill the cut output and push the failures from it.
+                    kept = toolchain.without_durations(out)
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, out, None, toolchain, project, where, command))
+                        outputs.append((header, kept, None, toolchain, project, where, command))
                     elif p:
-                        outputs.append((header, out, 1500, toolchain, project, where, command))
+                        outputs.append((header, kept, 1500, toolchain, project, where, command))
 
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
@@ -1997,7 +2000,7 @@ class Tier2Session:
                     completed = self._run(command, cwd=tree / at.relative_to(cwd), **self._test_env)
                     text = f"{completed.stdout or ''}{completed.stderr or ''}"
                     commands.append(" ".join(command))
-                    outputs.append(text)
+                    outputs.append(toolchain.without_durations(text))
                     named = toolchain.parse_test_failures(text)
                     failing.update(f"{prefix}{found.test}" for found in named)
         except (subprocess.CalledProcessError, OSError) as error:

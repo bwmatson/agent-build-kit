@@ -93,6 +93,9 @@ class NodeNpmProfile:
     def parse_test_durations(self, output: str) -> list[TestTime]:
         return []
 
+    def without_durations(self, output: str) -> str:
+        return output
+
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")
         return "__tests__" in parts[:-1] or parts[-1].endswith((".test.ts", ".spec.ts", ".test.js"))

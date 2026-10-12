@@ -314,6 +314,21 @@ class PythonUvProfile:
                 found.append(TestTime(test=test.strip(), phase=phase, seconds=float(seconds)))
         return found
 
+    def without_durations(self, output: str) -> str:
+        """`output` without the `slowest durations` section: its header, its entries and the
+        note of those hidden, up to the next `=` rule line."""
+        kept: list[str] = []
+        in_section = False
+        for line in output.splitlines(keepends=True):
+            if DURATIONS_MARK in line:
+                in_section = True
+                continue
+            if in_section and line.startswith("="):
+                in_section = False
+            if not in_section:
+                kept.append(line)
+        return "".join(kept)
+
     def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
         # environment its CI job uses: pytest plus whatever it declares.
