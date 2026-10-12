@@ -3,39 +3,14 @@ holding places, count it apart, and say what it waits on."""
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as pipeline_cli
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED, RUNNING
-from tests.conftest import make_installation
+from tests.conftest import status_lines
 from tests.factories import new_unit
-
-
-def status(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    units: list[StoredUnit],
-    *,
-    limit: int,
-) -> list[str]:
-    inst = make_installation(
-        tmp_path,
-        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
-        limits=dict(max_units_in_progress=limit),
-    )
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(units)
-    for unit in units:
-        if unit.state != "planned" or unit.branch:
-            store.set_state(unit.id, unit.state, branch=unit.branch, pr=unit.pr)
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
-    assert pipeline_cli.cmd_status(argparse.Namespace(), inst) == 0
-    return capsys.readouterr().out.splitlines()
 
 
 def full_queue() -> list[StoredUnit]:
@@ -52,7 +27,7 @@ def full_queue() -> list[StoredUnit]:
 def test_the_queue_line_leaves_a_waiting_failed_unit_out_and_says_how_many_are_not_counted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lines = status(tmp_path, monkeypatch, capsys, full_queue(), limit=2)
+    lines = status_lines(tmp_path, monkeypatch, capsys, full_queue(), limit=2)
 
     queue = next(line for line in lines if "queue is full" in line)
     assert "3 units in progress" in queue
@@ -68,7 +43,7 @@ def test_the_failed_waiting_count_follows_the_blocked_count(
         new_unit("blocked/1", state=PLANNED, branch="spec/blocked/1", depends_on=("base/1",)),
     ]
 
-    lines = status(tmp_path, monkeypatch, capsys, units, limit=2)
+    lines = status_lines(tmp_path, monkeypatch, capsys, units, limit=2)
 
     queue = next(line for line in lines if "queue is full" in line)
     assert "1 blocked not counted; 1 failed waiting not counted" in queue
@@ -77,7 +52,7 @@ def test_the_failed_waiting_count_follows_the_blocked_count(
 def test_the_status_says_what_a_waiting_failed_unit_waits_on_and_keeps_its_failed_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lines = status(tmp_path, monkeypatch, capsys, full_queue(), limit=2)
+    lines = status_lines(tmp_path, monkeypatch, capsys, full_queue(), limit=2)
 
     waiting = [line for line in lines if "failed, waiting on" in line]
     assert len(waiting) == 1
