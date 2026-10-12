@@ -35,6 +35,12 @@ OTHER = "Other / my own configuration"
 Ask = Callable[[str], str]
 
 
+def yes(reply: str, *, default: bool = False) -> bool:
+    """Whether a reply to a yes/no question says yes; an empty one says `default`."""
+    answer = reply.strip().lower()
+    return default if not answer else answer in ("y", "yes")
+
+
 class RuntimeChoiceError(Exception):
     """The choice cannot be made as asked; `abk init` exits 2 having written nothing."""
 
@@ -47,18 +53,23 @@ class Choice(Frozen):
     def fragment(self) -> dict[str, Any]:
         return {"runtime": self.runtime, **self.values}
 
-    def applied_to(self, config: WorkspaceConfig) -> WorkspaceConfig:
-        """`config` with the choice written where each answer says."""
+    def applied_to(self, config: WorkspaceConfig, *, keys_only: bool = False) -> WorkspaceConfig:
+        """`config` with the choice written where each answer says. With `keys_only` only
+        an answer written where abk.yaml has no key is refused: a value not yet in its final
+        shape (an argv still to be split) is let through."""
         update: dict[str, Any] = {}
-        try:
-            for key, value in self.fragment.items():
+        for key, value in self.fragment.items():
+            try:
                 adapter = TypeAdapter(WorkspaceConfig.model_fields[key].annotation)
                 current = adapter.dump_python(getattr(config, key), mode="json", by_alias=True)
                 update[key] = adapter.validate_python(merge_values(current, value, at=key))
-        except (KeyError, ValidationError) as error:
-            raise RuntimeChoiceError(
-                f"an answer is written where abk.yaml has no place: {error}"
-            ) from error
+            except (KeyError, ValidationError) as error:
+                if keys_only and isinstance(error, ValidationError):
+                    if all(e["type"] != "extra_forbidden" for e in error.errors()):
+                        continue
+                raise RuntimeChoiceError(
+                    f"an answer is written where abk.yaml has no place: {error}"
+                ) from error
         return config.model_copy(update=update)
 
 
@@ -199,9 +210,7 @@ def _answers(
 def _ready(candidate: Candidate, ask: Ask) -> bool:
     """Whether what the candidate needs is in place, or the person goes on without it."""
     reply = ask(f"{candidate.label} needs {candidate.note}; is it in place and running? [y/N] ")
-    if reply.strip().lower() in ("y", "yes"):
-        return True
-    return ask("continue anyway? [y/N] ").strip().lower() in ("y", "yes")
+    return yes(reply) or yes(ask("continue anyway? [y/N] "))
 
 
 def _ordered(candidates: list[Candidate]) -> list[Candidate]:
@@ -253,8 +262,11 @@ def _models(runtime_name: str, values: Mapping[str, Any], *, ask: Ask) -> dict[s
     listed = models_of(runtime, command)
     names = [m.name for m in listed.models]
     print(f"  {listed.note}")
-    for model in listed.models:
-        print(f"    {model.name}{' (default)' if model.current else ''}")
+    # The agent's own default first, numbered as `_pick_model` takes them.
+    current = {m.name for m in listed.models if m.current}
+    names.sort(key=lambda name: name not in current)
+    for number, name in enumerate(names, 1):
+        print(f"    {number}. {name}{' (default)' if name in current else ''}")
     per_role = bool(names)
     if names and listed.source == ModelSource.DOCUMENTED:
         menu = ""
@@ -392,11 +404,18 @@ def _fallbacks(
     ):
         candidate = _first_usable(candidates, other)
         reply = ask(f"also configure {candidate.label} as a fallback runtime? [y/N] ")  # type: ignore[union-attr]
-        if reply.strip().lower() not in ("y", "yes"):
+        if not yes(reply):
             continue
         extra = _answers(
-            other, candidate, ask=ask, which=which, base=base, interactive=interactive, given={}
+            other,
+            candidate,
+            ask=ask,
+            which=which,
+            base=base,
+            interactive=interactive,
+            given={},
+            can_go_back=True,
         )
-        assert isinstance(extra, dict)
-        values = merge_values(values, extra)
+        if isinstance(extra, dict):  # BACK: its needs were declined, so it is left out
+            values = merge_values(values, extra)
     return values

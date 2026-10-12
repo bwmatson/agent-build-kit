@@ -90,17 +90,23 @@ class Offering(SelectableRuntime):
 
 
 class Listing(Offering):
-    """An offered runtime whose agent advertises models, the first one current."""
+    """An offered runtime whose agent advertises models, one of them (the first unless
+    `current` says) its current one."""
 
-    def __init__(self, name: str, *, models: Sequence[str], events: list[str]) -> None:
+    def __init__(
+        self, name: str, *, models: Sequence[str], events: list[str], current: int = 0
+    ) -> None:
         super().__init__(name, events=events)
         self.models = tuple(models)
+        self.current = current
         self.listed: list[Sequence[str] | None] = []
 
     def list_models(self, command: Sequence[str] | None = None) -> ModelList:
         self.listed.append(command)
         return ModelList(
-            models=tuple(Model(name=m, current=i == 0) for i, m in enumerate(self.models)),
+            models=tuple(
+                Model(name=m, current=i == self.current) for i, m in enumerate(self.models)
+            ),
             source=ModelSource.ADVERTISED,
             note="the models the agent advertises when a session opens",
         )

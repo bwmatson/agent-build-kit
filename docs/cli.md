@@ -463,8 +463,10 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   exits 2 naming it. Without `--yes` it also asks what a candidate needs and
   which models to use (from what the agent advertises, Claude Code's
   documented aliases, or a typed name; never by asking a model), shows the
-  fragment it will record and writes only on a yes. `--yes` is the
-  confirmation for a fully specified run.
+  fragment it will record and writes only on a yes: declining prints
+  `nothing written` and exits 1. `--yes` is the confirmation for a fully
+  specified run; a usable-runtime problem (none, several without `--runtime`),
+  a bad flag value or an unknown key exits 2, writing nothing.
 - `--update-rules` brings `openspec/config.yaml` up to the framework's rules
   version and does nothing else: it adds, to the end of the `context:`, the
   paragraph each newer version added, and restamps the file. The wording, the

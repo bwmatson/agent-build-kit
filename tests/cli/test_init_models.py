@@ -269,3 +269,46 @@ def test_an_offered_runtime_is_listed_against_the_command_chosen_before_it_is_wr
 
     assert [list(c or []) for c in alpha.listed] == [["wrapper-bin", "--flag"]]
     assert named_models(planning) == {"review": "a-2"}
+
+
+def test_a_fallback_whose_needs_are_declined_is_left_out_and_the_choice_stands(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine(
+        monkeypatch,
+        ("alpha-bin", "beta-bin"),
+        Offering("alpha", events=events),
+        Offering("beta", events=events, note="a running gateway"),
+        events=events,
+    )
+    answering(
+        monkeypatch,
+        Answers("1", by_keyword={"fallback": "y", "continue anyway": "n", "running": "n"}),
+    )
+
+    code = main(init_args(planning, app))
+
+    assert code == 0
+    assert written(planning)["runtime"] == "alpha"
+    assert "beta" not in written(planning)["runtimes"]
+
+
+def test_the_advertised_list_is_numbered_with_the_agents_default_first(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    alpha = Listing("alpha", models=("a-1", "a-2", "a-3"), events=events, current=1)
+    machine(monkeypatch, ("alpha-bin",), alpha, events=events)
+    answering(monkeypatch, ModelAnswers("", "", per_role={"review": "2"}))
+
+    assert main(init_args(planning, app)) == 0
+
+    shown = capsys.readouterr().out
+    assert shown.index("1. a-2 (default)") < shown.index("2. a-1") < shown.index("3. a-3")
+    assert named_models(planning) == {"review": "a-1"}

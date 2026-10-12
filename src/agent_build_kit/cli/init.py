@@ -49,6 +49,7 @@ from agent_build_kit.init.runtime_choice import (
     choose,
     merge_values,
     parse_routes,
+    yes,
 )
 from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
@@ -303,7 +304,7 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
     if not prompts:
         print(f"  fix: run `{fix}` from {planning}")
         return
-    if ask(f"run `{fix}` to enforce them? [y/N] ").strip().lower() not in ("y", "yes"):
+    if not yes(ask(f"run `{fix}` to enforce them? [y/N] ")):
         print(f"not run; still unenforced: {missing}")
         return
     result = (run_fix or subprocess.run)(
@@ -351,11 +352,11 @@ def _notification_provider() -> NotificationProvider:
     if host() is Host.OTHER:
         return NotificationProvider.OFF
     answer = ask("raise desktop notifications when a unit needs you? [y/N] ")
-    if answer.strip().lower() not in ("y", "yes"):
+    if not yes(answer):
         return NotificationProvider.OFF
     command = " ".join(INSTALL_COMMAND)
     print(f"notifications need the BurntToast module: {command}")
-    if ask("install it now? [y/N] ").strip().lower() in ("y", "yes"):
+    if yes(ask("install it now? [y/N] ")):
         result = (run_fix or subprocess.run)(
             INSTALL_COMMAND, capture_output=True, text=True, check=False
         )
@@ -375,6 +376,11 @@ def _choose_runtime(
     named = kept.get("runtime")
     extra = parse_routes(args.set_values or [], args.runtime_config)
     wanted = args.runtime or extra.get("runtime")
+    # A key the schema lacks is refused even when a kept file leaves the choice unchanged.
+    answers = {k: v for k, v in extra.items() if k != "runtime"}
+    Choice(runtime=wanted or named or config.runtime, values=answers).applied_to(
+        config, keys_only=True
+    )
     if keeps and args.yes and not wanted:
         return None  # a kept file is not changed unasked
     if named and (not wanted or wanted == named):
@@ -384,7 +390,7 @@ def _choose_runtime(
         return None
     if named:
         reply = ask(f"abk.yaml already uses {named}; use {wanted} instead? [y/N] ")
-        if reply.strip().lower() not in ("y", "yes"):
+        if not yes(reply):
             return None
     return choose(
         runtimes.candidates(which, probe_run),
@@ -463,7 +469,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         return 2
     if chosen and not args.dry_run and not args.yes:
         print("abk.yaml will record:\n" + yaml.safe_dump(chosen.fragment, sort_keys=False))
-        if ask("write it and proceed? [Y/n] ").strip().lower() in ("n", "no"):
+        if not yes(ask("write it and proceed? [Y/n] "), default=True):
             print("nothing written")
             return 1
 

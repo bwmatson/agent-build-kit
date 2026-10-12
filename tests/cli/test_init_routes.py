@@ -175,3 +175,20 @@ def test_a_dry_run_prints_the_fragment_the_answers_make_and_writes_nothing(
     assert "runtime: alpha" in out
     assert "review: a-2" in out
     assert snapshot(planning, app) == before
+
+
+def test_an_unknown_key_is_refused_even_when_a_kept_file_leaves_its_runtime_alone(
+    tmp_path: Path,
+    app: Path,  # noqa: F811 — fixture
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planning = planning_in(tmp_path, "planning")
+    assert main(init_args(planning, app, "--yes")) == 0
+    before = snapshot(planning, app)
+
+    code = main(init_args(planning, app, "--yes", "--set", "nonsense=1"))
+
+    out = capsys.readouterr()
+    assert code == 2
+    assert "nonsense" in out.out + out.err
+    assert snapshot(planning, app) == before

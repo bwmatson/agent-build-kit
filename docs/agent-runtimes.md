@@ -655,6 +655,40 @@ the wrong failure mode: configuration that cannot work (an unknown runtime, a
 selected runtime with no spawn command) fails at config-load time with a clear
 message.
 
+## Adding an agent
+
+`abk init` offers a protocol agent when it is in the known-agent table, data in
+`runtimes/known_agents.py`. An entry (`KnownAgent`) holds:
+
+- `name`, the label shown in the list, and `program`, the executable looked up
+  on the path.
+- `variants`, the ways to start it as a protocol server in order of
+  preference. Each has an `argv` and, for an agent whose flag spelling varies
+  by version, a `marker`: the text its `--help` shows when that is the
+  spelling it takes. An entry with one variant is never asked to run.
+- `needs`, what the agent wants beyond the program (a running gateway, an API
+  key); shown on a usable candidate and asked about during init.
+- `verified`, how the entry was checked. It is the honest record: say how it
+  was run, or `documented only`; an entry nobody has run is UNVERIFIED, and
+  `abk doctor` repeats that for a selected entry. A spelling counts as covered
+  by the policy check only when the note records a live check that showed it.
+- `source`, where the command came from.
+
+To add one, add the entry and a structural test case; no other framework file
+may name the product. An agent not in the table is configured through "Other /
+my own configuration": its start command is asked, validated as a program on
+the path, and recorded under `runtimes.acp.command`.
+
+**What the models question can and cannot know.** Choosing a model never makes
+a model call. The list comes from what the agent advertises when a session
+opens (`session/new`'s `model` config option, with no prompt sent); the
+`models` session-state form is not read by the pinned library. Claude Code has
+no command that lists models, so its list is the documented aliases carried
+in the runtime and said to be documented, not queried. An agent that advertises
+none gets no list: init says so, leaves the roles empty (the agent's own
+default) and accepts a typed name it cannot check; a wrong name is reported
+later by the run's "agent does not offer model X" notice.
+
 ## Per-runtime status
 
 | Runtime | Invocation model | Policy coverage | Model naming | Streaming | Usage window | Status |
