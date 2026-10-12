@@ -215,4 +215,5 @@ def test_a_flake_fix_for_the_same_test_is_another_change_and_does_not_stand_in(
 
     fix = on_preexisting(first, verdict, failed, wait=True)
 
-    assert fix != flake_fix
+    assert fix is not None and flake_fix is not None and fix != flake_fix
+    assert set(waits_on(installation, "feature")) == {flake_fix, fix}, "waits on both"

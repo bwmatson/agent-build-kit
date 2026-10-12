@@ -89,9 +89,7 @@ def wait_on_fix(inst: Installation, flake: Flake, unit: StoredUnit) -> str | Non
             _write_change(inst, name, flake, unit, earlier=earlier)
         if unit.change == name:
             return None
-        for member in unit.members():
-            for group in member.groups:
-                add_needs(inst, member.change, group, name, f"flaky test {flake.test}")
+        add_needs_to_unit(inst, unit, name, f"flaky test {flake.test}")
         return name
 
 
@@ -134,6 +132,13 @@ def next_fix_name(inst: Installation, test: str, prefix: str) -> str:
 
 
 # --- the Needs: line -------------------------------------------------------------
+
+
+def add_needs_to_unit(inst: Installation, unit: StoredUnit, fix: str, reason: str) -> None:
+    """Give every group of every member of `unit` a `Needs:` line on `fix`."""
+    for member in unit.members():
+        for group in member.groups:
+            add_needs(inst, member.change, group, fix, reason)
 
 
 def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str) -> None:

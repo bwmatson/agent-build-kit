@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.unit_store import FeedbackSource
+from agent_build_kit.graph.state import EventKind, ResumeEvent
+from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
 from tests.graph_driver import fresh, tick
 from tests.tier2_wait_fakes import (
     BROKEN,
@@ -49,7 +50,7 @@ def failed_run(
     return stored.feedback, stored.feedback_source, tier2
 
 
-def test_a_mixed_failure_saves_the_units_own_output_and_names_the_pre_existing_test_once(
+def test_a_mixed_failure_saves_the_units_own_failure_line_and_names_the_pre_existing_test_once(
     tmp_path: Path,
 ) -> None:
     feedback, source, _ = failed_run(
@@ -108,3 +109,32 @@ def test_a_persons_own_words_stay_and_no_untouched_output_is_added_to_them(
     assert OWN in feedback and feedback.count(OLD) == 1
     assert OLD_OUTPUT not in feedback and "assert in test_old" not in feedback
     assert source is FeedbackSource.REVIEW, "still the person's, as for any tier 2 failure"
+
+
+def test_the_prompt_made_from_the_saved_text_holds_none_of_an_untouched_tests_output(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    tier2 = Failing(
+        recorder.events, snapshot_of(OWN, OLD, tail=TAIL), verdict_of(own=(OWN,), old=(OLD,))
+    )
+    overrides = dict(
+        tier="tier2",
+        run_tier2=tier2.run,
+        tier2_verdict=tier2.judged,
+        on_preexisting=Told(),
+    )
+    tick(tmp_path, recorder, **overrides)
+    sent = len(recorder.prompts)
+
+    requeue = ResumeEvent(
+        kind=EventKind.REQUEUE, requeue=RequeueReason.FROM_FAILURE, reason="try again"
+    )
+    tick(tmp_path, recorder, event=requeue, **overrides)
+    tick(tmp_path, recorder, **overrides)
+
+    prompts = recorder.prompts[sent:]
+    fixing = [p for p in prompts if OWN in p]
+    assert fixing, "a prompt was made from the saved failure"
+    for prompt in fixing:
+        assert OLD_OUTPUT not in prompt and "assert in test_old" not in prompt

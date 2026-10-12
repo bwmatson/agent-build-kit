@@ -15,7 +15,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import add_needs, next_fix_name, open_fix_change
+from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
 from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import StoredUnit
 
@@ -95,7 +95,8 @@ def waiting_note(tests: list[str]) -> str:
 def feedback_snapshot(snapshot: str, verdict: Tier2Verdict | None) -> str:
     """The snapshot of a failed run as the agent is given it: without the lines and the
     output of tests that fail on the base too, which are named once as recorded. Output is
-    one cut tail for every test, so it is kept only when no pre-existing test is in it."""
+    one cut tail for every test, so the whole block is dropped whenever a pre-existing test
+    failed, the unit's own tests' output with it; their failure lines stay."""
     if verdict is None or not verdict.pre_existing:
         return snapshot
     old = [failure.test for failure in verdict.pre_existing]
@@ -123,9 +124,7 @@ def wait_on_preexisting(
     if unit.change == fix:
         return None
     if wait:
-        for member in unit.members():
-            for group in member.groups:
-                add_needs(inst, member.change, group, fix, f"failing test {entry.test} on the base")
+        add_needs_to_unit(inst, unit, fix, f"failing test {entry.test} on the base")
     return fix
 
 

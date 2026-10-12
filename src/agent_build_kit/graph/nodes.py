@@ -1285,9 +1285,13 @@ class BuildPath:
         fixes = [r.on_flake(unit, flake) for flake in found.flakes]
         if not any(fixes):
             return None
-        note = waiting_note([flake.test for flake in found.flakes])
+        return self.park_for_fix(waiting_note([flake.test for flake in found.flakes]))
+
+    def park_for_fix(self, note: str) -> Update:
+        """Hold the unit, gated, until the change that fixes what failed has merged, and
+        run the check that found it again then."""
         update = self.hold(PLANNED, note, note, cause=Cause.GATED)
-        r.store.set_gated_requeue(unit.id, RequeueReason.RESUME)
+        self.runner.store.set_gated_requeue(self.unit.id, RequeueReason.RESUME)
         return update
 
     def fix_checks(self, state: UnitRun) -> Update:
@@ -1703,10 +1707,9 @@ class BuildPath:
         ]
         if not wait or not any(fixes):
             return None
-        note = preexisting_waiting_note([failure.test for failure in verdict.pre_existing])
-        update = self.hold(PLANNED, note, note, cause=Cause.GATED)
-        r.store.set_gated_requeue(unit.id, RequeueReason.RESUME)
-        return update
+        return self.park_for_fix(
+            preexisting_waiting_note([failure.test for failure in verdict.pre_existing])
+        )
 
     def satisfied(self, state: UnitRun) -> Update:
         """Nothing of this unit's own on the branch, and what is at the tip passes:
