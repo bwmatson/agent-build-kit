@@ -884,7 +884,7 @@ credits past the plan limit cost money. No new unit starts once a window is
 at its threshold; the reading comes live from the usage endpoint with Claude
 Code's stored OAuth token (kept in `usage-cache.json` for a time that adapts, and never past a
 window's reset). The time starts at `usage_cache_minutes` (fifteen by default); each refusal doubles it up to
-`usage_cache_max_minutes` (an hour by default), a longer retry time a refusal names is respected, and each quiet
+`usage_cache_max_minutes` (thirty minutes by default); a refusal naming a retry time of zero asks for no wait and leaves it alone; a longer retry time a refusal names is respected; and each quiet
 stretch of that time halves it, never below the configured value. It is worked out from `usage-calls.jsonl`, and
 `abk status` shows the time in use and what set it. A rate-limit answer starts a cool-down kept with that file, a timeout is retried
 once, and a failed call uses the last good live reading younger than `usage_fallback_minutes`

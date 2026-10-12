@@ -34,7 +34,9 @@
   `usage_headroom_margin_pct` (5) stay under their thresholds. At most
   `usage_estimate_max_starts` (3) units start on one reading. The reason and
   `abk status` show the estimate, so raising `usage_fallback_minutes` is no longer
-  needed to keep work moving.
+  needed to keep work moving. A refusal that asks for no wait (a retry time of zero)
+  no longer widens the time a reading is kept, and `usage_cache_max_minutes` now
+  defaults to 30 minutes instead of 60.
 
 - A failed tier 2 run now lists every failed or errored test with its first failure
   line above the output that may be cut, so the pull request description and the

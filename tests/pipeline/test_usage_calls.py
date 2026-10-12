@@ -23,16 +23,23 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit import telemetry
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.config import CLAUDE_CODE, WorkspaceConfig
+from agent_build_kit.config import CLAUDE_CODE, ClaudeLimitsConfig, WorkspaceConfig
 from agent_build_kit.pipeline import archive, usage_guard
 from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
     UsageCall,
     derive_rate,
+    interval_line,
     rate_line,
     read_calls,
 )
-from agent_build_kit.pipeline.usage_guard import current_usage, read_live_usage
+from agent_build_kit.pipeline.usage_guard import (
+    DEFAULT_COOLDOWN,
+    current_cache_interval,
+    current_usage,
+    next_call_at,
+    read_live_usage,
+)
 from agent_build_kit.runtimes import claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.serve.metrics import LocalSource, catalogue, metrics_page
@@ -496,6 +503,7 @@ def test_a_refusal_doubles_the_time_a_reading_is_kept(host: Host) -> None:
 
 
 def test_a_second_refusal_doubles_it_again_up_to_the_maximum(host: Host) -> None:
+    configure(usage_cache_max_minutes=60)
     host.seed(
         line(since(minutes=3), "rate_limited", status=429),
         line(since(minutes=1), "rate_limited", status=429),
@@ -537,6 +545,7 @@ def test_the_same_time_without_a_refusal_halves_it(host: Host) -> None:
 
 
 def test_a_time_at_the_maximum_halves_once_after_one_quiet(host: Host) -> None:
+    configure(usage_cache_max_minutes=60)
     host.seed(
         line(since(minutes=67), "rate_limited", status=429),
         line(since(minutes=65), "rate_limited", status=429),
@@ -559,6 +568,106 @@ def test_the_configured_value_is_the_start_when_nothing_was_refused(host: Host) 
 
     assert not asks_the_endpoint(host, timedelta(minutes=4))
     assert asks_the_endpoint(host, timedelta(minutes=6))
+
+
+def kept_minutes(host: Host) -> float:
+    return current_cache_interval(host.calls_file).kept / timedelta(minutes=1)
+
+
+def refused_with(host: Host, **headers: str) -> None:
+    host.answers = [refusal(**headers)]
+    current_usage()
+
+
+def test_a_refusal_with_a_retry_time_of_zero_leaves_the_time_at_the_base(host: Host) -> None:
+    refused_with(host, Retry_After="0")
+
+    interval = current_cache_interval(host.calls_file)
+
+    assert interval.kept == timedelta(minutes=15)
+    assert interval.reason == "configured"
+
+
+def test_a_refusal_without_a_header_doubles_once_and_stops_at_the_default_ceiling(
+    host: Host,
+) -> None:
+    host.seed(line(since(minutes=3), "rate_limited", status=429))
+    assert kept_minutes(host) == 30
+
+    host.seed(
+        line(since(minutes=3), "rate_limited", status=429),
+        line(since(minutes=1), "rate_limited", status=429),
+    )
+
+    assert kept_minutes(host) == 30
+
+
+def test_a_refusal_with_an_unreadable_retry_time_still_doubles(host: Host) -> None:
+    host.seed(line(since(minutes=1), "rate_limited", status=429, headers={"retry-after": "soon"}))
+
+    interval = current_cache_interval(host.calls_file)
+
+    assert interval.kept == timedelta(minutes=30)
+    assert interval.reason == "refusal"
+    assert not interval.no_wait
+
+
+def test_a_longer_named_retry_time_wins_past_the_ceiling(host: Host) -> None:
+    refused_with(host, Retry_After="0")
+    assert kept_minutes(host) == 15
+
+    host.seed(
+        *host.lines(),
+        line(datetime.now(UTC), "rate_limited", status=429, headers={"retry-after": "3600"}),
+    )
+
+    assert kept_minutes(host) == 60
+
+
+@pytest.mark.parametrize("retry_after", ["0", "soon"])
+def test_the_cool_down_after_a_retry_time_of_zero_or_unreadable_is_the_default(
+    host: Host, retry_after: str
+) -> None:
+    before = datetime.now(UTC)
+    refused_with(host, Retry_After=retry_after)
+
+    cooldown = datetime.fromisoformat(json.loads(host.cache.read_text())["cooldown_until"])
+
+    assert abs(cooldown - (before + DEFAULT_COOLDOWN)) < timedelta(seconds=30)
+
+
+def test_the_next_call_after_a_retry_time_of_zero_is_a_base_interval_away(host: Host) -> None:
+    before = datetime.now(UTC)
+    refused_with(host, Retry_After="0")
+
+    allowed = next_call_at(host.calls_file, now=datetime.now(UTC))
+
+    assert allowed is not None
+    assert abs(allowed - (before + timedelta(minutes=15))) < timedelta(seconds=30)
+
+
+def test_a_time_of_thirty_minutes_halves_after_a_quiet_but_a_zero_refusal_does_not_widen(
+    host: Host,
+) -> None:
+    host.seed(line(since(minutes=31), "rate_limited", status=429))
+    assert current_cache_interval(host.calls_file).reason == "quiet"
+    assert kept_minutes(host) == 15
+
+    refused_with(host, Retry_After="0")
+
+    assert kept_minutes(host) == 15
+    assert "did not widen" in interval_line(current_cache_interval(host.calls_file))
+
+
+def test_the_ceiling_defaults_to_thirty_minutes_and_a_configured_value_above_it_is_kept(
+    host: Host,
+) -> None:
+    assert ClaudeLimitsConfig().usage_cache_max_minutes == 30
+
+    configure(usage_cache_max_minutes=90)
+    host.seed(*(line(since(minutes=n), "rate_limited", status=429) for n in (5, 4, 3, 2, 1)))
+
+    assert kept_minutes(host) == 90
 
 
 def status_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *calls: dict) -> list[str]:
