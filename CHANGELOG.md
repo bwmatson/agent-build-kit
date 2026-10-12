@@ -33,7 +33,8 @@
   also attempts the global-option spellings of the amend, the push to the default branch and
   the force push, the repository-option spellings of the merge and two raw-API merge
   spellings, all in its one prompt, and reports, per class and spelling, which one an agent
-  ran without asking.
+  ran without asking. `abk doctor` and `abk init` print an unrefused spelling by class and
+  spelling, with the class's other spellings as refused.
 
 - Known secret values (`verify.env`, the credential settings, variables named in the
   new `redact` list, and each gateway key minted) are gathered when an installation

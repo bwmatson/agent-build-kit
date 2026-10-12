@@ -946,7 +946,7 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
         checks.append(
             _fail(
                 "runtime policy",
-                f"not refused: {', '.join(report.unenforced)}",
+                f"not refused: {policy_check.describe(report)}",
                 policy_check.fix_for(name, entry, report),
             )
         )

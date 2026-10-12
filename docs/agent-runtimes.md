@@ -518,6 +518,16 @@ this machine. `check_policy` establishes the fact.
   holds the list to it), so this names no product, and every attempt is
   harmless in that worktree even if it does run.
 
+  The probe also attempts the spellings of the amend, the push to the default
+  branch, the force push and the merge (git's global options, the host CLI's
+  repository option, a raw-API merge) listed once in
+  `pipeline/command_spellings.py`. They go in the same single prompt, so a
+  check costs one session of as many commands as the table has rows, and is
+  reused for 15 minutes. The table decides what is tried, not the model, and
+  it is a bounded subset: wrappers and directory changes are covered by the
+  rules' own tests, not probed. `abk doctor` and `abk init` print an open
+  spelling by class and spelling, with the class's other spellings as refused.
+
   What the client cannot see: an agent that declines a forbidden command
   before announcing any tool call tells abk nothing, so no refusal line, and
   no layer, can be logged for it. The tier-2 build test does not accept that

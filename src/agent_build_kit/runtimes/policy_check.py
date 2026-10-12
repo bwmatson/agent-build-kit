@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport
+from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RuntimeConfig
@@ -72,6 +72,26 @@ def checked(
 def cache_path(inst: Installation) -> Path:
     """Where `doctor` and `init` alike keep the answer."""
     return inst.state_dir / CACHE_NAME
+
+
+def describe(report: PolicyReport) -> str:
+    """What a report leaves open, one clause per forbidden class: the spellings
+    not refused, then the class's other spellings as refused. A report with no
+    per-spelling results (one cached before they were kept) gives its labels."""
+    classes: dict[str, list[SpellingResult]] = {}
+    for result in report.results:
+        classes.setdefault(result.label, []).append(result)
+    clauses = []
+    for label, results in classes.items():
+        unrefused = [f"`{r.command}`" for r in results if not r.refused]
+        if not unrefused:
+            continue
+        clause = f"{label}: not refused as {', '.join(unrefused)}"
+        refused = [f"`{r.command}`" for r in results if r.refused]
+        if refused:
+            clause += f"; refused as {', '.join(refused)}"
+        clauses.append(clause)
+    return " | ".join(clauses) or ", ".join(report.unenforced)
 
 
 def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
