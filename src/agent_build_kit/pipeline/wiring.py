@@ -79,6 +79,7 @@ from agent_build_kit.pipeline.restack import (
     remote_head,
     resolved_move,
 )
+from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
 from agent_build_kit.pipeline.scratch import run_folder
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
@@ -120,7 +121,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import RepeatsTests, SelectsAffectedTests, ToolchainProfile
-from agent_build_kit.redaction import redact_leaves, redact_text
+from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
@@ -1688,6 +1689,8 @@ class Tier2Session:
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
         projects: list[ProjectConfig] | None = None,
+        output_dir: Path | None = None,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.unit = unit
         self.verdict: Tier2Verdict | None = None
@@ -1712,7 +1715,33 @@ class Tier2Session:
         self._sha = sha or _head_sha
         self._status = status or build_post_status(head=branch_name(unit))
         self._timeout = timeout
+        self._output_dir = output_dir
+        self._now = now
         self.result: Tier2Result | None = None
+        self._started: datetime | None = None
+        self._output_file: Path | None = None
+        self._withheld = False
+
+    def _keep(self, header: str, out: str) -> None:
+        """Append one command's whole output to this run's file, redacted as a whole
+        before it is written so a secret cannot be split across two writes."""
+        if self._output_dir is None:
+            return
+        if self._started is None:
+            self._started = self._now()
+        text = redact_text(f"{header}\n{out}\n", where="tier-2 output file")
+        if text == WITHHELD:
+            self._withheld = True
+            # The notice has no line break of its own: without one the next command's
+            # chunk would run onto its line.
+            text += "\n"
+        self._output_file = append_tier2_output(self._output_dir, self.unit, self._started, text)
+
+    def _kept(self) -> dict[str, Any]:
+        """The result's fields for the file written so far, none when there is none."""
+        if self._output_file is None:
+            return {}
+        return {"output_file": str(self._output_file), "output_withheld": self._withheld}
 
     def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
@@ -1720,6 +1749,9 @@ class Tier2Session:
         each is. Without it, or on the dev stack, nothing is classified."""
         self.verdict = None
         self._on_dev_stack = False
+        self._started = None
+        self._output_file = None
+        self._withheld = False
         if self._dev_stack is not None and (cwd / self._dev_stack).is_file():
             return self._run_on_dev_stack(cwd, self._dev_stack)
         # The same entries tier 1 resolves, over the whole repo: tier 2 has no
@@ -1763,6 +1795,7 @@ class Tier2Session:
                         duration + d,
                     )
                     header = f"$ {' '.join(command)}{label}"
+                    self._keep(header, out)
                     if f or completed.returncode not in (0, nothing):
                         outputs.append((header, out, None, toolchain, project, where, command))
                     elif p:
@@ -1804,6 +1837,7 @@ class Tier2Session:
                 output=output[-4000:],
                 stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
                 failures=failures,
+                **self._kept(),
             )
 
             # Still inside the hold: the base run sees the stack the unit's run saw.
@@ -1920,6 +1954,7 @@ class Tier2Session:
                     self._run(down, cwd=base)
 
         output = f"{completed.stdout or ''}{completed.stderr or ''}"
+        self._keep(f"$ {' '.join(command)}", output)
         passed, failed, skipped, duration = self._profile.parse_test_summary(output)
         output = redact_text(output, where="tier-2 output")
         failures = self._profile.parse_test_failures(output)
@@ -1937,6 +1972,7 @@ class Tier2Session:
             output=output[-4000:],
             stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
             failures=failures,
+            **self._kept(),
         )
         return self.result.ok, build_snapshot(self.result)
 
@@ -2502,6 +2538,7 @@ def build_runner(
         ),
         env=installation.verify_env(),
         projects=repo.projects,
+        output_dir=tier2_output_dir(root),
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a

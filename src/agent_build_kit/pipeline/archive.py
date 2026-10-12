@@ -97,6 +97,7 @@ def archive_ready_changes(
     specs_dir: str = "openspec",
     run_logs: Path | None = None,
     transcripts: Path | None = None,
+    tier2_outputs: Path | None = None,
     usage_ledger: Path | None = None,
     worktrees: Callable[[str], list[Path]] = lambda change: [],
 ) -> list[str]:
@@ -145,6 +146,8 @@ def archive_ready_changes(
                 )
         if run_logs is not None:
             remove_change_logs(run_logs, change)
+        if tier2_outputs is not None:
+            remove_change_logs(tier2_outputs, change)
         if transcripts is not None:
             remove_change_transcripts(transcripts, change)
         # What a killed run left in a unit's scratch folder.

@@ -1379,6 +1379,7 @@ def test_verify_reruns_one_change_by_hand(tmp_path: Path, monkeypatch, capsys) -
         specs_dir="openspec",
         run_logs=None,
         transcripts=None,
+        tier2_outputs=None,
         usage_ledger=None,
         worktrees=lambda change: [],
     ):

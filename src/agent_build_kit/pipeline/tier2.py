@@ -78,6 +78,10 @@ class Tier2Result(Frozen):
     output: str
     stack_versions: dict[str, str] = Field(default_factory=dict)
     failures: list[TestFailure] = Field(default_factory=list)
+    # The file holding the whole output of the run; empty for a result stored without one.
+    output_file: str = ""
+    # Whether redaction failed on the output, so the file holds the notice in its place.
+    output_withheld: bool = False
 
     @property
     def ok(self) -> bool:
@@ -153,6 +157,11 @@ def build_snapshot(result: Tier2Result) -> str:
         listing = "\n".join(f"  - `{f.test}` - {f.line}" for f in result.failures)
         failed = f"- **Failed:** {result.failed} of {total} tests\n{listing}\n"
 
+    kept = ""
+    if result.output_file:
+        withheld = " (withheld: redaction failed)" if result.output_withheld else ""
+        kept = f"- **Full output:** `{result.output_file}`{withheld}\n"
+
     return f"""## Tier 2 results
 
 Tier 2 needs the live local stack, so GitHub Actions cannot run it. This ran
@@ -162,7 +171,7 @@ on the developer host.
 - **Command:** `{result.command}`
 - **Result:** {result.passed} passed, {result.failed} failed, \
 {result.skipped} skipped in {result.duration_seconds}s
-{failed}- **Ran against:**
+{failed}{kept}- **Ran against:**
 {versions}
 
 <details>

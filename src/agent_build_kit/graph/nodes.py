@@ -1656,6 +1656,9 @@ class BuildPath:
         self.say(f"tier 2 {'passed' if ok else 'failed'}")
         if ok:
             return {"snapshot": snapshot}
+        for line in snapshot.splitlines():
+            if "**Full output:**" in line:
+                self.say(line.strip("- ").replace("**", ""))
         # The tail goes to the run log too: the run log is where a failed run is read.
         for line in [line for line in snapshot.splitlines() if line.strip()][-TIER2_LOG_TAIL:]:
             self.say(line)
