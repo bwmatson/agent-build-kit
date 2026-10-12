@@ -14,6 +14,9 @@ from agent_build_kit.config import runtime_entry
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.base import (
     Candidate,
+    Model,
+    ModelList,
+    ModelSource,
     Question,
     QuestionKind,
     Run,
@@ -34,10 +37,12 @@ class Offering(SelectableRuntime):
         *,
         events: list[str],
         questions: Sequence[Question] = (),
+        note: str = "",
     ) -> None:
         super().__init__(name, requires=("command",), log=events)
         self.program = f"{name}-bin"
         self.questions = list(questions)
+        self.note = note
         self.requests: list[AgentRequest] = []
         self.commands: list[list[str]] = []
 
@@ -58,6 +63,7 @@ class Offering(SelectableRuntime):
                 label=self.label,
                 usable=found,
                 reasons=() if found else (f"{self.program} is not on the path",),
+                note=self.note,
                 verified="documented only",
             )
         ]
@@ -81,6 +87,23 @@ class Offering(SelectableRuntime):
         self.commands.append(list(runtime_entry(name=self.name).command or []))
         text = fake_claude(["claude", "-p", request.prompt], cwd=request.cwd)
         return AgentResult(ok=True, text=text)
+
+
+class Listing(Offering):
+    """An offered runtime whose agent advertises models, the first one current."""
+
+    def __init__(self, name: str, *, models: Sequence[str], events: list[str]) -> None:
+        super().__init__(name, events=events)
+        self.models = tuple(models)
+        self.listed: list[Sequence[str] | None] = []
+
+    def list_models(self, command: Sequence[str] | None = None) -> ModelList:
+        self.listed.append(command)
+        return ModelList(
+            models=tuple(Model(name=m, current=i == 0) for i, m in enumerate(self.models)),
+            source=ModelSource.ADVERTISED,
+            note="the models the agent advertises when a session opens",
+        )
 
 
 class Answers:
@@ -139,3 +162,37 @@ def no_model(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.fail("the default model was used")
 
     monkeypatch.setattr(init_cmd, "run_claude", refuse)
+
+
+# The role names a models question is asked about, a longer name before the one it contains.
+ROLES = ("rework_review", "implement", "rework", "review")
+MOST_PROMPTS = 80
+
+
+class ModelAnswers(Answers):
+    """The person answering the models questions: a prompt naming a role is answered from
+    `per_role` (Enter when the role is not there), the first prompts about models that
+    name none from `general` in order, and every other prompt as `Answers` does. A
+    question asked over and over is a test failure, not a hang."""
+
+    def __init__(
+        self,
+        *script: str,
+        per_role: dict[str, str] | None = None,
+        general: Sequence[str] = (),
+        events: list[str] | None = None,
+    ) -> None:
+        super().__init__(*script, events=events)
+        self.per_role = per_role or {}
+        self.general = list(general)
+
+    def __call__(self, prompt: str) -> str:
+        if len(self.prompts) > MOST_PROMPTS:
+            pytest.fail(f"asked {len(self.prompts)} questions; the last was {prompt!r}")
+        words = prompt.lower().replace(" ", "_").replace("-", "_")
+        role = next((r for r in ROLES if r in words), None)
+        if role is None and not (self.general and "model" in words):
+            return super().__call__(prompt)
+        self.events.append("ask")
+        self.prompts.append(prompt)
+        return self.per_role.get(role, "") if role else self.general.pop(0)
