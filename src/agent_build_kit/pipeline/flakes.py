@@ -101,7 +101,7 @@ def flake_record(inst: Installation) -> FlakeRecord:
     return FlakeRecord(inst.state_dir / "flakes.jsonl")
 
 
-def flake_change_name(test: str) -> str:
+def flake_change_name(test: str, prefix: str = "fix-flaky") -> str:
     """The name of the change that fixes `test`, from its identifier: lower-case words
     joined by hyphens, the same for the same test."""
     slug = re.sub(r"[^a-z0-9]+", "-", test.lower()).strip("-")
