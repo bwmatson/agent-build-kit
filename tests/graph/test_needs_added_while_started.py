@@ -20,8 +20,11 @@ from tests.tick_driver import UNIT, Setup
 
 
 def real_checks(graph: Setup) -> None:
+    (graph.inst.root / "tree").mkdir(exist_ok=True)  # the worktree the runner hands the agent
     graph.options["upstream_incomplete"] = build_upstream_incomplete(graph.store)
     graph.options["base_moved"] = build_base_moved(graph.store)
+    # No commit to compare: the tree is not a repository, so only the store speaks.
+    graph.options["base_tip"] = lambda tree, ref: ""
 
 
 def recording_restacks(graph: Setup) -> list[str]:
