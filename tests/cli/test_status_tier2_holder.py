@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -34,7 +35,8 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 
 def tier2_lines(workspace: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
-    return [line for line in capsys.readouterr().out.splitlines() if line.startswith("tier 2")]
+    unstamped = [re.sub(r"^\[[^\]]*\] ", "", line) for line in capsys.readouterr().out.splitlines()]
+    return [line for line in unstamped if line.startswith("tier 2")]
 
 
 def test_status_names_the_holder_and_how_long_it_has_held_the_lock(

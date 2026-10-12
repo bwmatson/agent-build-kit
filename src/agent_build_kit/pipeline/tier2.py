@@ -126,6 +126,34 @@ def _held_for(record: LockRecord) -> float:
         return 0.0
 
 
+def lock_status_line(path: Path) -> str | None:
+    """The `abk status` line for the lock at `path`, None when it is free and has no record.
+
+    Reads the file and probes the lock with a shared, non-blocking `flock` on a separate
+    open that is released at once; the file is never created or changed."""
+    try:
+        handle = path.open("r")
+    except FileNotFoundError:
+        return None
+    with handle:
+        record = read_lock_record(handle.read())
+        try:
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            held = True
+        else:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            held = False
+    if record is None:
+        return "tier 2: held, holder unknown" if held else None
+    if not held:
+        return f"tier 2: free (stale record from {record.unit}, process {record.pid} is gone)"
+    line = f"tier 2: held by {record.unit} for {_age(_held_for(record))} (since {record.since})"
+    if not process_alive(record.pid):
+        line += f"; process {record.pid} is gone but the lock is still held"
+    return line
+
+
 def _waiting_message(record: LockRecord | None, waited: float) -> str:
     if record is None:
         return f"tier 2 is busy: waiting for its holder, waited {_age(waited)}"

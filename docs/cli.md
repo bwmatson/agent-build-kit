@@ -90,6 +90,9 @@ or `planned` with work on them and no cause on their last history entry. A repos
 `tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
 A `flaky:` line lists each flaky test with its count and fix change, and a `pre-existing:`
 line each test that failed tier 2 on the base too, with how many times and its fix change.
+A `tier 2:` line names the unit holding the tier 2 lock and for how long; a record left by a
+process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
+says so, and a free lock with no record prints nothing.
 Changes nothing. Exit 0.
 
 ### `abk replay review [--keep NAME ...] [--delete NAME ...]`

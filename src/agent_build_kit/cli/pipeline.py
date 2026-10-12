@@ -115,7 +115,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitOutcome,
     UnitRunner,
 )
-from agent_build_kit.pipeline.tier2 import LOCK_WAIT_SETTING, stack_lock
+from agent_build_kit.pipeline.tier2 import LOCK_WAIT_SETTING, lock_status_line, stack_lock
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -460,6 +460,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
         if runtime.supports_usage_tracking:
             log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
+
+    if line := lock_status_line(inst.state_dir / "tier2.lock"):
+        log(line)
 
     units = store_for(inst).all()
     if not units:
