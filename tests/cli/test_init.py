@@ -433,15 +433,19 @@ def test_without_a_configured_fix_the_runtime_s_advice_is_printed_and_nothing_ru
 def test_without_a_fix_or_advice_the_key_to_set_is_printed(
     tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The agent is unknown, so the person is asked (relying on abk's own layer is
+    answered here) and the key a fix is recorded under is in what they are shown."""
     planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     select_in(planning, "bare")
     runtime = select(monkeypatch, SelectableRuntime("bare", reports=(UNENFORCED,)))
+    asked: list[str] = []
+    monkeypatch.setattr(init_cmd, "ask", lambda prompt: asked.append(prompt) or "1")
     capsys.readouterr()
 
     main(init_args(planning, app))
 
-    assert "runtimes.bare.policy_fix" in "".join(capsys.readouterr())
+    assert "runtimes.bare.policy_fix" in "".join(asked)
     assert runtime.log == ["check"]
 
 

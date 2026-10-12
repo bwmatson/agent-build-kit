@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from agent_build_kit.runtimes import known_agents
+from agent_build_kit.runtimes.base import DOCUMENTED_ONLY, Candidate
 
 PACKAGE = Path(known_agents.__file__).resolve().parents[1]
 # Not source: caches, and the web UI's build output (git-ignored).
@@ -40,3 +41,16 @@ def test_no_framework_file_outside_the_table_names_a_product_from_it() -> None:
         offenders += [f"{relative}: {found.group()}" for found in named.finditer(text)]
 
     assert offenders == []
+
+
+def test_a_candidate_is_documented_only_by_the_shared_prefix_and_not_by_wording_elsewhere() -> None:
+    documented = [a for a in known_agents.KNOWN_AGENTS if a.verified.startswith(DOCUMENTED_ONLY)]
+    assert documented
+    for agent in known_agents.KNOWN_AGENTS:
+        candidate = Candidate(
+            runtime="acp", command=("x",), label=agent.name, usable=True, verified=agent.verified
+        )
+        assert candidate.documented_only == (agent in documented), agent.name
+    assert not Candidate(
+        runtime="acp", command=("x",), label="x", usable=True, verified="run: not documented only"
+    ).documented_only

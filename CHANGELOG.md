@@ -54,7 +54,16 @@
   called to choose. It shows what it will record and writes only after you confirm.
   Any answer can be given without a prompt with repeatable `--set key=value` or
   `--runtime-config FILE`, an unknown key is refused by name, and `--dry-run` prints
-  the choice it would record.
+  the choice it would record. Its policy step is guided: before a fix runs it prints
+  the fix and each unrefused class and spelling, runs it with its output visible, then
+  checks again and prints what is refused now (a fix that changes nothing says so). A
+  check that prompts the agent says it spends tokens and asks first; an agent with no
+  known fix offers to rely on abk's own layer, take a fix command, or continue without
+  (recorded as `policy: unchecked`). `abk init --policy-only` runs just that step on an
+  existing installation and exits 0, 1 or 2; `--policy-fix ARGV` records the fix and
+  `--run-policy-fix` lets `--yes` run a configured one. `abk doctor` lists other usable
+  runtimes, warns about an entry that is documented only, and for an unchecked one warns
+  without spending a prompt.
 
 - An agent run that ends because the internet or the model service is down no longer
   fails its unit. The unit is parked as `planned`, shown in `abk status` and the graph as

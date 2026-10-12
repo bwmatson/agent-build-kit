@@ -9,6 +9,7 @@ one answer per `check_policy` call — which forbidden classes it refuses.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from agent_build_kit.runtimes.base import PolicyCoverage, SpellingResult
 
 
 class SelectableRuntime:
+    policy_check_prompts_agent: bool = False
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
     supports_session_resume: bool = False
@@ -61,7 +63,7 @@ class SelectableRuntime:
         return self.reports[min(len(self.checked), len(self.reports)) - 1]
 
 
-def select(monkeypatch: pytest.MonkeyPatch, runtime: SelectableRuntime) -> SelectableRuntime:
+def select[R: AgentRuntime](monkeypatch: pytest.MonkeyPatch, runtime: R) -> R:
     """Register `runtime` for one test. The built-in runtimes are loaded
     first: the registry fills itself only while it is empty."""
     runtimes.names()
@@ -75,16 +77,20 @@ AMEND = "amending a commit"
 OPEN_SPELLING = SpellingName.DIRECTORY
 
 
-def spelling_report(*, refused: bool = False) -> PolicyReport:
+def spelling_report(
+    *, refused: bool = False, open_rows: Collection[tuple[str, SpellingName]] | None = None
+) -> PolicyReport:
     """What the probe reports for the whole table: a result per probe row, in
-    table order. Every row is refused but the amend's `-C` spelling, which is
-    run without asking unless `refused`."""
+    table order. Every row is refused but the `open_rows` (class, spelling), which
+    are run without asking: by default the amend's `-C` spelling, none when `refused`."""
+    if open_rows is None:
+        open_rows = set() if refused else {(AMEND, OPEN_SPELLING)}
     results = tuple(
         SpellingResult(
             label=label,
             spelling=spelling.name.value,
             command=spelling.command,
-            refused=refused or not (label == AMEND and spelling.name == OPEN_SPELLING),
+            refused=(label, spelling.name) not in open_rows,
         )
         for label, spelling in probe_rows()
     )

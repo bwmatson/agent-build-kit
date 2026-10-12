@@ -15,6 +15,7 @@ installation's own fix command.
 from __future__ import annotations
 
 import argparse
+import shlex
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,8 @@ from agent_build_kit.config import (
     ConfigError,
     NotificationProvider,
     NotificationsConfig,
+    PolicyMarker,
+    RuntimeConfig,
     WorkspaceConfig,
     dump,
 )
@@ -66,7 +69,7 @@ from agent_build_kit.init.scaffold import (
 from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
-from agent_build_kit.runtimes.base import Run, Which
+from agent_build_kit.runtimes.base import Run, Which, validate_argv
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -273,57 +276,183 @@ def _policy(
         return None
 
 
-def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
-    """Report what the selected runtime does not refuse, and offer the
-    installation's fix: run only once the operator agrees, then checked again.
-    An installation's own command is never run unasked, so `--yes` only
-    prints it."""
-    path = planning / CONFIG_FILENAME
-    try:
-        loaded = load_config(path)
-        inst = Installation(loaded, planning)
-    except ConfigError as error:
-        print(f"abk init: runtime not checked: {error}", file=sys.stderr)
-        return
-    name = config_module.runtime_name(loaded)
-    runtime = runtimes.get(name)
-    if not runtime.implemented:
-        print(f"runtime {name} is not implemented yet; `abk doctor` says more")
-        return
-    cache = policy_check.cache_path(inst)
-    report = _policy(runtime, planning, cache=cache)
-    if report is None or report.ok:
-        return
-    missing = policy_check.describe(report)
-    print(f"runtime {name} does not refuse: {missing}")
-    entry = config_module.runtime_entry(loaded)
-    fix = policy_check.fix_for(name, entry, report)
-    if not entry.policy_fix:
-        print(f"  fix: {fix}")
-        return
-    if not prompts:
-        print(f"  fix: run `{fix}` from {planning}")
-        return
-    if not yes(ask(f"run `{fix}` to enforce them? [y/N] ")):
-        print(f"not run; still unenforced: {missing}")
-        return
-    result = (run_fix or subprocess.run)(
-        entry.policy_fix, cwd=planning, capture_output=True, text=True, check=False
-    )
-    if result.stdout.strip():
-        print(result.stdout.strip())
+def _record_runtime(planning: Path, name: str, fragment: dict) -> None:
+    """Record `fragment` under `runtimes.<name>` in the kept abk.yaml."""
+    record_in_file(planning / CONFIG_FILENAME, {"runtimes": {name: fragment}})
+
+
+def _run_fix(
+    planning: Path,
+    runtime: AgentRuntime,
+    entry: RuntimeConfig,
+    before: PolicyReport,
+    *,
+    cache: Path,
+) -> None:
+    """Run the installation's fix with its output on the terminal, then check again and
+    say, per class and spelling, what is refused now. A pass is never claimed unobserved."""
+    argv = entry.policy_fix or []
+    fix = shlex.join(argv)
+    print(f"running `{fix}` from {planning}", flush=True)
+    result = (run_fix or subprocess.run)(argv, cwd=planning, check=False)
     if result.returncode:
-        print(
-            f"abk init: `{fix}` exited {result.returncode}: {result.stderr.strip()}",
-            file=sys.stderr,
-        )
+        print(f"abk init: `{fix}` exited {result.returncode}", file=sys.stderr)
     after = _policy(runtime, planning, cache=cache, fresh=True)
     if after is None:
         return
+    print(policy_check.describe(after, also=policy_check.classes_of(before)))
     if after.ok:
-        print(f"runtime {name} now refuses every forbidden class")
+        print(f"runtime {runtime.name} now refuses every forbidden class")
+        return
+    open_before = {(r.label, r.spelling) for r in policy_check.unrefused(before)}
+    open_after = policy_check.unrefused(after)
+    if not result.returncode and open_before <= {(r.label, r.spelling) for r in open_after}:
+        commands = ", ".join(f"`{r.command}`" for r in open_after)
+        print(f"the fix made no change; still not refused: {commands}")
     else:
-        print(f"still unenforced: {policy_check.describe(after)}")
+        print(f"still unenforced: {', '.join(sorted(policy_check.classes_of(after)))}")
+
+
+def _unknown_agent_choice(planning: Path, name: str) -> bool:
+    """No fix is known for this agent, and nothing is guessed: the person chooses to rely on
+    abk's own layer, to supply a fix command, or to continue without. True when a fix
+    was recorded and is now to be run."""
+    menu = (
+        "no fix is known for this agent; choose:\n"
+        "  1. rely on abk's own protocol layer, which sees the agent's permission requests"
+        " and not what the agent never asks about\n"
+        f"  2. supply a fix command (recorded as runtimes.{name}.policy_fix)\n"
+        "  3. continue without checking (recorded as unchecked; `abk doctor` warns each run)\n"
+        "choice [1-3]: "
+    )
+    while (reply := ask(menu).strip()) not in ("1", "2", "3"):
+        print("nothing is chosen until you answer 1, 2 or 3")
+    if reply == "3":
+        _record_runtime(planning, name, {"policy": PolicyMarker.UNCHECKED.value})
+        print(f"recorded runtime {name} as unchecked")
+    elif reply == "2":
+        while True:
+            answer = ask("fix command (an existing executable and its arguments): ").strip()
+            problem = validate_argv(answer, shutil.which)
+            if not problem:
+                break
+            print(problem)
+        if yes(ask(f"record it as runtimes.{name}.policy_fix in abk.yaml? [Y/n] "), default=True):
+            _record_runtime(planning, name, {"policy_fix": shlex.split(answer)})
+            return True
+    elif reply == "1":
+        print("relying on abk's own layer: it enforces what the agent asks about")
+    return False
+
+
+def _policy_step(
+    planning: Path, args: argparse.Namespace, *, only: bool = False, name: str | None = None
+) -> bool:
+    """The guided policy step: check, and where a class is not refused offer the fix. True
+    when the check passes after the step. An installation's own command is never run
+    unasked: `--yes` runs a configured fix only given `--run-policy-fix` or `--policy-fix`."""
+    try:
+        loaded = load_config(planning / CONFIG_FILENAME)
+        cache = policy_check.cache_path(Installation(loaded, planning))
+    except ConfigError as error:
+        print(f"abk init: runtime not checked: {error}", file=sys.stderr)
+        return False
+    name = name or config_module.runtime_name(loaded)
+    runtime = runtimes.get(name)
+    if not runtime.implemented:
+        print(f"runtime {name} is not implemented yet; `abk doctor` says more")
+        return False
+    supplied = shlex.split(args.policy_fix) if args.policy_fix else None
+    declined = False
+    if supplied:
+        if args.yes or yes(
+            ask(f"record {shlex.join(supplied)} as runtimes.{name}.policy_fix? [y/N] ")
+        ):
+            _record_runtime(planning, name, {"policy_fix": supplied})
+        else:
+            declined = True  # the fix they gave is not to be used, nor another asked for
+    entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
+    if entry.policy == PolicyMarker.UNCHECKED and not only:
+        print(f"runtime {name} is recorded as unchecked; `abk doctor` warns about it")
+        return False
+    if runtime.policy_check_prompts_agent and not args.yes:
+        reply = ask(
+            f"checking runtime {name} sends the agent a prompt and spends tokens; run it? [y/N] "
+        )
+        if not yes(reply):
+            if not only:
+                _record_runtime(planning, name, {"policy": PolicyMarker.UNCHECKED.value})
+                print(f"recorded runtime {name} as unchecked")
+            return False
+    report = _policy(runtime, planning, cache=cache)
+    if report is None:
+        return False
+    if report.ok:
+        return True
+    print(f"runtime {name} does not refuse: {policy_check.describe(report)}")
+    entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
+    if not entry.policy_fix:
+        if args.yes or report.fix or declined:
+            print(f"  fix: {policy_check.fix_for(name, entry, report)}")
+            return False
+        if not _unknown_agent_choice(planning, name):
+            return False
+        entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
+    fix = shlex.join(entry.policy_fix or [])
+    if args.yes:
+        if not (args.run_policy_fix or supplied):
+            print(f"  fix: run `{fix}` from {planning}, or give --run-policy-fix")
+            return False
+    elif not yes(ask(f"run `{fix}` to enforce them? [y/N] ")):
+        print(f"not run; still unenforced: {policy_check.describe(report)}")
+        return False
+    _run_fix(planning, runtime, entry, report, cache=cache)
+    final = _policy(runtime, planning, cache=cache)
+    return final is not None and final.ok
+
+
+def _policy_only(planning: Path, args: argparse.Namespace) -> int:
+    """`abk init --policy-only`: the policy step alone on an existing installation. Exits 0
+    when the check passes after it, 1 when a class is still not refused, 2 on a usage problem."""
+    clashes = [
+        flag
+        for flag, value in (
+            ("--update-rules", args.update_rules),
+            ("--repo", args.repo),
+            ("--consumes", args.consumes),
+            ("--register-store", args.register_store),
+            ("--agent-command", args.agent_command),
+            ("--set", args.set_values),
+            ("--runtime-config", args.runtime_config),
+            ("--dry-run", args.dry_run),
+            ("--force", args.force),
+        )
+        if value
+    ]
+    if clashes:
+        print(
+            f"abk init: --policy-only cannot be combined with {', '.join(clashes)}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        loaded = load_config(planning / CONFIG_FILENAME)
+    except ConfigError as error:
+        print(f"abk init: --policy-only needs an existing abk.yaml: {error}", file=sys.stderr)
+        return 2
+    name = args.runtime or config_module.runtime_name(loaded)
+    if name not in runtimes.names():
+        print(f"abk init: unknown runtime {name!r}", file=sys.stderr)
+        return 2
+    _activate(planning, loaded)
+    if not _policy_step(planning, args, only=True, name=name):
+        return 1
+    if config_module.runtime_entry(loaded, name=name).policy == PolicyMarker.UNCHECKED:
+        print(
+            f"runtime {name} passes: remove `runtimes.{name}.policy` from abk.yaml so "
+            "`abk doctor` checks it again"
+        )
+    return 0
 
 
 def _update_rules(planning: Path) -> int:
@@ -425,6 +554,13 @@ def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
 
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
+    if args.policy_fix:
+        problem = validate_argv(args.policy_fix, shutil.which)
+        if problem:
+            print(f"abk init: --policy-fix: {problem}", file=sys.stderr)
+            return 2
+    if args.policy_only:
+        return _policy_only(planning, args)
     if args.update_rules:
         return _update_rules(planning)
     try:
@@ -521,6 +657,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
 
     _activate(planning, applied)
 
+    # Before the agent steps and the commit: what the step records is part of init's commit.
+    _policy_step(planning, args)
+
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)
     print("\n".join(_convention_lines(workspace, done, planned=False)))
@@ -590,8 +729,6 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
             print(f"committed: abk init: workspace {', '.join(names)}")
     else:
         print("not committed: the planning repo had uncommitted changes before init ran")
-
-    _check_runtime_policy(planning, prompts=not args.yes)
 
     print(
         "\nNext steps:\n"
@@ -733,6 +870,23 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--runtime-config",
         metavar="FILE",
         help="a YAML fragment of abk.yaml holding the answers, validated like typed ones",
+    )
+    init.add_argument(
+        "--policy-only",
+        action="store_true",
+        help="run only the policy step on an existing installation: no detection, research "
+        "or propose; exits 0 when every class is refused, 1 when not, 2 on a usage problem",
+    )
+    init.add_argument(
+        "--policy-fix",
+        metavar="ARGV",
+        help="the command that makes the agent refuse what abk forbids: recorded as "
+        "`policy_fix` after confirmation and used in this run",
+    )
+    init.add_argument(
+        "--run-policy-fix",
+        action="store_true",
+        help="with --yes, run the configured policy fix unasked",
     )
     init.add_argument("--register-store", metavar="ID", help="register as an OpenSpec store")
     init.set_defaults(func=cmd_init, needs_installation=False)

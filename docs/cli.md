@@ -440,7 +440,7 @@ a usage error.
 
 ## Setting up
 
-### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--runtime NAME] [--agent-command ARGV] [--set KEY=VALUE ...] [--runtime-config FILE] [--register-store ID]`
+### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--runtime NAME] [--agent-command ARGV] [--set KEY=VALUE ...] [--runtime-config FILE] [--policy-only] [--policy-fix ARGV] [--run-policy-fix] [--register-store ID]`
 
 Creates a planning repo for a set of checkouts; the one command that creates
 an installation rather than reading one. Step by step in [init.md](init.md).
@@ -477,20 +477,51 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   points to when the stamp is behind.
 - `--register-store ID` runs `openspec store register --id ID --yes` on the
   planning repo.
-- Last, it asks the selected runtime (`runtime`, or `ABK_RUNTIME`) whether it
-  refuses every command class abk forbids, and prints any it does not. When
-  `runtimes.<name>.policy_fix` is set it asks before running that command
-  from the planning repo, runs it only on a yes, and checks again afterwards;
-  a no changes nothing and names what is still unenforced. With `--yes` the
-  fix is only printed, never run. The answer is reused for 15 minutes
-  (`<state_dir>/policy-check.json`). When the runtime raises instead of
-  answering, init prints the error, caches nothing and carries on; `abk
-  doctor` asks again.
+- The guided policy step runs once `abk.yaml` is written, before research,
+  propose and the commit, so whatever it records is part of init's commit. It
+  asks the selected runtime (`runtime`, or `ABK_RUNTIME`) whether it refuses
+  every command class abk forbids. A check that prompts the agent (the
+  protocol runtime's) spends tokens, so it says so and asks first (`--yes`
+  skips the question); declining records `policy: unchecked` on the entry,
+  and `abk doctor` then warns on every run without sending a prompt. A class
+  not refused is printed by class and spelling. When `runtimes.<name>.policy_fix`
+  is set, the fix command and the unrefused classes are printed, init asks,
+  runs the command only on a yes with its output on your terminal (never
+  captured), checks again and prints each class and spelling as refused or not.
+  A fix that exits non-zero is reported with its status and the check still
+  runs again; one that exits 0 and changes nothing prints `the fix made no
+  change; still not refused: <spellings>`; a pass is only reported when the
+  second check showed it. An agent with no fix offers three choices, none
+  guessed: rely on abk's own protocol layer (it sees what the agent asks
+  about, not what it never asks about), supply a fix command (an existing
+  executable, recorded as `policy_fix`), or continue without
+  (`policy: unchecked`). With `--yes` a configured fix is only printed, never
+  run, unless `--policy-fix` or `--run-policy-fix` is also given. The answer is
+  reused for 15 minutes (`<state_dir>/policy-check.json`). When the runtime
+  raises instead of answering, init prints the error, caches nothing and
+  carries on; `abk doctor` asks again.
+- `--policy-only` runs just that step on an existing installation: it reads
+  `abk.yaml`, detects no repo, runs no research or propose and makes no
+  commit; `--runtime NAME` names another entry already in the file. It writes
+  `runtimes.<name>.policy_fix` or `policy: unchecked` only when you chose to
+  record it in this run. Exit 0 when the check passes after the step, 1 when a
+  class is still not refused or a token-spending check was declined, 2 with no
+  `abk.yaml`, an unknown runtime or a flag that cannot combine with it
+  (`--repo`, `--consumes`, `--update-rules`, `--force`, `--dry-run`, the
+  runtime-answer flags), writing nothing. When it passes on an entry marked
+  `policy: unchecked` it says to remove that line so doctor checks it again.
+- `--policy-fix ARGV` supplies the fix, validated as an existing executable
+  (exit 2 otherwise), recorded as `policy_fix` after a confirmation (`--yes`
+  is the confirmation) and used in this run, with or without `--policy-only`.
+  `--run-policy-fix` lets `--yes` run a configured fix unasked: a fix rewrites
+  the agent's own configuration, so `--yes` alone never runs one and, with a
+  class not refused, names it and exits 1 under `--policy-only`.
 
 Exit 2 when a repo path is not a directory, two repos share a name, or
 `--consumes` names an unknown repo; 1 when the layout fails (git or
 `openspec init`) or a generated change did not validate after its repair
-round (its files are left to finish by hand); 0 otherwise.
+round (its files are left to finish by hand); 0 otherwise. `--policy-only`
+has its own codes, above.
 
 ### `abk install-skills [--repo PATH ...] [--user]`
 

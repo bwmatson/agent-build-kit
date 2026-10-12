@@ -21,6 +21,7 @@ class StandInRuntime:
     name: str = "stand_in"
     implemented: bool = True
     policy_coverage: PolicyCoverage = "all_calls"
+    policy_check_prompts_agent: bool = False
     supports_usage_tracking: bool = False
     supports_streaming: bool = False
     supports_session_resume: bool = False

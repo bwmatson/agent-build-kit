@@ -29,6 +29,7 @@ class _Double:
 
     implemented = True
     policy_coverage: PolicyCoverage = "none"
+    policy_check_prompts_agent = False
     supports_usage_tracking = False
     supports_streaming = False
     supports_session_resume = False
