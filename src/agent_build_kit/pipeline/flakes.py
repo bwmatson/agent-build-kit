@@ -105,7 +105,7 @@ def flake_change_name(test: str, prefix: str = "fix-flaky") -> str:
     """The name of the change that fixes `test`, from its identifier: lower-case words
     joined by hyphens, the same for the same test."""
     slug = re.sub(r"[^a-z0-9]+", "-", test.lower()).strip("-")
-    name = f"fix-flaky-{slug}"
+    name = f"{prefix}-{slug}"
     if len(name) > NAME_LIMIT:
         name = f"{name[: NAME_LIMIT - 9].rstrip('-')}-{hashlib.sha1(test.encode()).hexdigest()[:8]}"
     return name
@@ -131,8 +131,8 @@ def wait_on_fix(inst: Installation, flake: Flake, unit: StoredUnit) -> str | Non
 # --- which change ----------------------------------------------------------------
 
 
-def _candidates(test: str):
-    base = flake_change_name(test)
+def _candidates(test: str, prefix: str = "fix-flaky"):
+    base = flake_change_name(test, prefix)
     yield base
     attempt = 2
     while True:
@@ -144,10 +144,12 @@ def _archived(inst: Installation, name: str) -> bool:
     return any((inst.changes_dir / "archive").glob(f"*-{name}"))
 
 
-def _open_change(inst: Installation, test: str) -> tuple[str | None, str]:
+def _open_change(
+    inst: Installation, test: str, prefix: str = "fix-flaky"
+) -> tuple[str | None, str]:
     """The open change for `test`, or None and the last archived attempt (or "")."""
     earlier = ""
-    for name in _candidates(test):
+    for name in _candidates(test, prefix):
         if (inst.changes_dir / name).is_dir():
             return name, earlier
         if not _archived(inst, name):
@@ -156,8 +158,8 @@ def _open_change(inst: Installation, test: str) -> tuple[str | None, str]:
     raise AssertionError("unreachable")
 
 
-def _next_name(inst: Installation, test: str) -> str:
-    for name in _candidates(test):
+def _next_name(inst: Installation, test: str, prefix: str = "fix-flaky") -> str:
+    for name in _candidates(test, prefix):
         if not (inst.changes_dir / name).exists() and not _archived(inst, name):
             return name
     raise AssertionError("unreachable")
@@ -250,7 +252,7 @@ def _tasks(flake: Flake, unit: StoredUnit) -> str:
         "Acceptance: none — a flaky test is made deterministic; nothing a consumer sees "
         "changes.\n\n"
         f"## 1. [{unit.repo}] [tier1] Make `{flake.test}` deterministic\n\n"
-        "Priority: 2\n\n"
+        "Priority: 1\n\n"
         "Done when the test passes under load every time, and under the repeat check.\n\n"
         f"- [ ] 1.1 Test: reproduce the race in `{flake.test}` deterministically, without "
         "waiting on the clock, so it fails every time before the fix.\n"

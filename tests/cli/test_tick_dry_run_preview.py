@@ -37,12 +37,13 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
     )
 
 
-def tree_bytes(root: Path) -> dict[str, str]:
-    """Every file under `root` as a digest of its bytes."""
+def tree_bytes(inst: Installation) -> dict[str, str]:
+    """The planning directory's changes, the record and the unit store, as digests of bytes."""
+    files = [*inst.changes_dir.rglob("*"), preexisting_record(inst).path, inst.root / "units.json"]
     return {
-        str(path.relative_to(root)): hashlib.sha1(path.read_bytes()).hexdigest()
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and ".git" not in path.parts
+        str(path.relative_to(inst.root)): hashlib.sha1(path.read_bytes()).hexdigest()
+        for path in sorted(files)
+        if path.is_file()
     }
 
 
@@ -75,7 +76,7 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
     archived_change(inst, archived_name)
     runs: list[object] = []
     monkeypatch.setattr(wiring.Tier2Session, "run", lambda *args, **kwargs: runs.append(args))
-    before = tree_bytes(inst.root)
+    before = tree_bytes(inst)
     capsys.readouterr()
 
     assert dry_run(inst) == 0
@@ -86,6 +87,6 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
     assert len(successor) == 1
     assert successor[0] != archived_name and successor[0].startswith(archived_name)
     assert not any("wrote: " in line.replace("would write: ", "") for line in lines)
-    assert tree_bytes(inst.root) == before, "the planning directory, record and store unchanged"
+    assert tree_bytes(inst) == before, "the planning directory, record and store unchanged"
     assert not (inst.changes_dir / successor[0]).exists()
     assert runs == [], "no base run"

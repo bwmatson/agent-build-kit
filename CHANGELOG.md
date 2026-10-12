@@ -7,7 +7,11 @@
   untouched ones once, together, on the base in a clean temporary worktree inside the
   same stack hold. A test the base run also fails is pre-existing; one it passes, lacks
   or does not name is the unit's to fix. `limits.tier2_base_runs` (0 or 1, default 1)
-  turns the base run off.
+  turns the base run off. A pre-existing failure is recorded and listed by `abk status`
+  with its count and fix change; one `fix-failing-…` change per test id is written
+  without a model, previewed as `exists:` or `would write:` (`abk tick --dry-run` prints
+  the same lines and writes nothing), and the change that fixes a flaky test is now
+  written at priority 1 too.
 
 - The full output of each tier 2 run is now kept in a redacted file under the state
   directory's `tier2-output/`, named for the unit and the time. The tier 2 result, the
