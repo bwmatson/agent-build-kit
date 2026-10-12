@@ -1172,11 +1172,12 @@ def _tooling_lost(
     toolchain: ToolchainProfile, command: list[str], result: subprocess.CompletedProcess
 ) -> bool:
     """Whether a command made for the selection's data failed before running a test: no
-    result line at all, so its tooling could not be had and the plain command is the answer."""
+    result line at all, so its tooling could not be had and the plain command is the answer.
+    Collecting nothing is not that: pytest started, so the plugin loaded."""
     return (
         isinstance(toolchain, RecordsSelectionData)
         and toolchain.is_seeded(command)
-        and result.returncode != 0
+        and result.returncode not in (0, toolchain.no_tests_collected_exit)
         and _counted(toolchain, result) == 0
     )
 

@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.scratch import ensure_scratch, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.usage_ledger import forget_told
 from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.fake_clock import FakeClock, install
 
 ID = "tests/test_a.py::test_one"
@@ -300,8 +301,6 @@ def test_the_log_names_the_program_not_the_env_words_before_it(
 def test_the_repos_root_extras_reach_the_profiles_selection(
     tmp_path: Path, clock: FakeClock
 ) -> None:
-    from agent_build_kit.profiles.python_uv import PythonUvProfile
-
     class Asked(PythonUvProfile):
         extras: list[str] | None = None
 
@@ -322,3 +321,48 @@ def test_the_repos_root_extras_reach_the_profiles_selection(
     tier1(cwd=repo, base="main", failed_output=FAILED_OUTPUT)
 
     assert profile.extras == ["httpx"]
+
+
+def test_a_seeded_selection_that_picks_nothing_is_a_pass_the_full_suite_confirms(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    selection_seed(repo).write_bytes(b"recorded")
+    nothing = PythonUvProfile().no_tests_collected_exit
+    runner = Runner(clock, selected=(nothing, 1, "collected 10 items\n\n10 deselected in 0.1s"))
+    log: list[str] = []
+
+    passed, output = tier1_for(repo, runner, log=log)(
+        cwd=repo, base="main", failed_output=FAILED_OUTPUT
+    )
+
+    assert passed, output
+    tests = [c for c in runner.ran if "pytest" in c]
+    assert [Runner.is_selected(c) for c in tests] == [True, False]
+    assert not any("testmon" in w for w in tests[1]) or "--testmon-noselect" in tests[1]
+    assert not any("selection tooling" in line for line in log), log
+
+
+def test_a_seeded_serial_pass_that_collects_nothing_is_run_once_and_says_nothing(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    (repo / "pyproject.toml").write_text('[project]\nname = "x"\ndependencies = ["pytest-xdist"]\n')
+    nothing = PythonUvProfile().no_tests_collected_exit
+
+    class EmptySerialPass(Runner):
+        def __call__(self, command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+            if "pytest" in command and "serial" in command:
+                self.ran.append(command)
+                return subprocess.CompletedProcess(command, nothing, "no tests ran in 0.01s", "")
+            return super().__call__(command, cwd=cwd)
+
+    runner = EmptySerialPass(clock)
+    log: list[str] = []
+
+    passed, output = tier1_for(repo, runner, log=log)(cwd=repo, base="main")
+
+    assert passed, output
+    serial = [c for c in runner.ran if "pytest" in c and "serial" in c]
+    assert len(serial) == 1 and any("testmon" in w for w in serial[0])
+    assert not any("selection tooling" in line for line in log), log
