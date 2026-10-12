@@ -649,6 +649,16 @@ def uncounted(graph: Sequence[Unit]) -> list[Unit]:
     return [unit for unit in graph if blocked(unit, graph) and _worked_on(unit)]
 
 
+def failed_waiting(unit: Unit, graph: Sequence[Unit]) -> bool:
+    """Whether a failed unit waits on another unit, so it holds no place."""
+    raise NotImplementedError
+
+
+def failed_waiting_units(graph: Sequence[Unit]) -> list[Unit]:
+    """The failed units that wait on another unit and so are not counted."""
+    raise NotImplementedError
+
+
 def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
     """Whether a planned unit that was blocked, and no longer is, must wait for
     room: it has work and no pull request, and either its record still carries
