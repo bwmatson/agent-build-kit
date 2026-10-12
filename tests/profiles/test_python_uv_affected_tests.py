@@ -83,8 +83,8 @@ def test_without_seed_data_the_failed_tests_run_first_and_alone(tmp_path: Path) 
         assert "pytest" in command and ID_A in command
         assert command[command.index("--package") + 1] == "svc-a"
         assert not any("testmon" in word for word in command)
-    # The test run is the named one, not the member's whole directory.
-    assert "svc-a" not in words(commands)
+        # The test run is the named one, not the member's whole directory.
+        assert "svc-a" not in command[command.index("pytest") + 1 :]
     assert "svc-b" not in " ".join(words(commands))
 
 

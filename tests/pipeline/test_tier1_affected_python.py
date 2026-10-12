@@ -216,4 +216,4 @@ def test_an_unwritable_ledger_does_not_fail_the_run_and_is_reported_once(
 
     assert first and second
     assert len(runner.selected_runs()) == 2
-    assert sum("ledger" in line for line in log) == 1, log
+    assert sum("usage ledger" in line for line in log) == 1, log

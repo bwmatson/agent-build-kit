@@ -83,6 +83,23 @@ class Sample(Frozen):
     cap: int
 
 
+class AffectedRun(Frozen):
+    """An `affected` line of the ledger: a fix round's selected run. `outcome` is whether the
+    full run that confirmed it `agreed`, `disagreed`, or was `not_run` because the selected
+    run failed; `saved_seconds` is absent when the unit had no full run to compare with."""
+
+    kind: str = "affected"
+    at: str
+    unit: str = ""
+    change: str = ""
+    node: str = ""
+    round: int = 0
+    selected: int
+    total: int | None = None
+    saved_seconds: float | None = None
+    outcome: str
+
+
 class Mark:
     """A moment on `clock`, to measure a span from."""
 
@@ -132,6 +149,11 @@ def record_span(
 def record_sample(sample: Sample, say: Callable[[str], None]) -> None:
     """Record a sample, never raising."""
     record_line(sample, say)
+
+
+def record_affected(run: AffectedRun, say: Callable[[str], None]) -> None:
+    """Record a selected run, never raising."""
+    record_line(run, say)
 
 
 def export_span(span: Span) -> None:

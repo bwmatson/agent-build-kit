@@ -158,6 +158,17 @@ class SelectsAffectedTests(Protocol):
         ...
 
 
+@runtime_checkable
+class RecordsSelectionData(Protocol):
+    """The optional hook a profile adds to keep, in a full run, the data its selection
+    reads. A profile without it records nothing."""
+
+    def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
+        """`command`, a test run, as one that keeps its selection data at `seed`: running
+        all its tests, or only the affected ones when `select`."""
+        ...
+
+
 # Paths that are documentation. Never deploy anything, whatever the profile.
 DOC_SUFFIXES = (".md", ".rst", ".txt")
 

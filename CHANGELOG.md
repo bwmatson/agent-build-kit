@@ -270,7 +270,11 @@
   failing selected run goes straight back to the fixer, and a passing one is confirmed
   by one full run, which alone makes a unit green; the first check, a rework's check
   and every gate stay full, as does a selection that cannot be made or run. The default
-  is `off`, which changes nothing.
+  is `off`, which changes nothing. The Python profile selects by coverage when an earlier
+  full run in the unit's worktree left its data (full runs record it, without
+  selecting), and otherwise runs the failed tests alone; with none named, the full suite
+  runs. Each selected run writes an `affected` line to the usage ledger with the tests
+  selected and in all, the estimated seconds saved and whether the full run agreed.
 
 - An environment's `inputs` are now path patterns, `**` included, so a repository with
   many nested manifests and locks can list them and a new module is no longer missed. A
