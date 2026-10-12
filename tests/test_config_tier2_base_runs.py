@@ -44,9 +44,9 @@ def test_with_the_setting_at_zero_no_base_run_is_made_and_the_unit_fails(
     repo, base = branch(tmp_path, {})
     output = pytest_output(failed={FAILED: "assert 1 == 2"})
     runs = Runs(repo, output, output)
-    gate = session(tmp_path, runs, base)
+    gate = session(tmp_path, runs)
 
-    ok, _ = gate.run(cwd=repo)
+    ok, _ = gate.run(cwd=repo, base=base)
 
     assert not ok
     assert runs.on_base == []

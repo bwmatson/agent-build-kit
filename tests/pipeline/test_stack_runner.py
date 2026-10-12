@@ -115,7 +115,7 @@ class Recorder:
             return self.tier1_results.pop(0)
         return self.tier1_ok, self.tier1_output
 
-    def tier2(self, *, cwd: Path) -> tuple[bool, str]:
+    def tier2(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         self.events.append("tier2")
         return self.tier2_ok, "## Tier 2 results\nfine"
 

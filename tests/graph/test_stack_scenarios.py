@@ -243,7 +243,7 @@ def test_nothing_is_pushed_but_the_commit_review_approved(tmp_path: Path) -> Non
     recorder = fresh(tmp_path, tier="tier2")
     original = recorder.tier2
 
-    def tier2_that_commits(*, cwd: Path) -> tuple[bool, str]:
+    def tier2_that_commits(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         recorder.made += 1
         return original(cwd=cwd)
 

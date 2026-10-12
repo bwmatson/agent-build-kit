@@ -88,7 +88,7 @@ class Runs:
     def __init__(
         self,
         repo: Path,
-        own: str,
+        own: str | dict[tuple[str, ...], str],
         base: str = "",
         *,
         raises: Exception | None = None,
@@ -106,7 +106,8 @@ class Runs:
         self.calls.append((command, cwd))
         self.events.append("unit" if cwd == self.repo else "base")
         if cwd == self.repo:
-            return subprocess.CompletedProcess(command, 1, self.own, "")
+            out = self.own[tuple(command)] if isinstance(self.own, dict) else self.own
+            return subprocess.CompletedProcess(command, 1, out, "")
         assert cwd.is_dir(), "the base run needs a worktree that exists"
         self.trees.append(cwd)
         self.heads.append(git(cwd, "rev-parse", "HEAD").strip())
@@ -123,12 +124,11 @@ class Runs:
         return [command for command, where in self.calls if where != self.repo]
 
 
-def session(tmp_path: Path, run: Runs, base: str, **kwargs) -> Tier2Session:
+def session(tmp_path: Path, run: Runs, **kwargs) -> Tier2Session:
     return Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
         run=run,
         sha=lambda cwd: "abc1234",
-        base=base,
         **kwargs,
     )

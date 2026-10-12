@@ -24,10 +24,10 @@ BESIDE = "tests/live/test_beside.py::test_beside"
 def classified(tmp_path: Path, changed: dict[str, str], *tests: str) -> Tier2Classification:
     repo, base = branch(tmp_path, changed, base_files={"tests/live/test_beside.py": TEST_BODY})
     runs = Runs(repo, "")
-    gate = session(tmp_path, runs, base)
+    gate = session(tmp_path, runs)
     gate.result = result_of(*tests)
 
-    found = gate.classify(cwd=repo)
+    found = gate.classify(cwd=repo, base=base)
 
     assert runs.calls == []
     return found
@@ -61,12 +61,12 @@ def test_a_test_file_beside_a_changed_conftest_is_the_units_own(tmp_path: Path) 
 def test_a_failure_with_no_readable_ids_classifies_nothing(tmp_path: Path) -> None:
     repo, base = branch(tmp_path, {})
     runs = Runs(repo, "Error: the stack did not come up\n")
-    gate = session(tmp_path, runs, base)
+    gate = session(tmp_path, runs)
 
-    ok, _ = gate.run(cwd=repo)
+    ok, _ = gate.run(cwd=repo, base=base)
 
     assert not ok
-    assert gate.classify(cwd=repo) == Tier2Classification()
+    assert gate.classify(cwd=repo, base=base) == Tier2Classification()
     assert gate.verdict is None
     assert runs.on_base == []
 
@@ -78,11 +78,11 @@ def test_a_profile_without_the_hook_classifies_nothing(tmp_path: Path) -> None:
 
     repo, base = branch(tmp_path, {})
     runs = Runs(repo, pytest_output(failed={FAR: "assert 1 == 2"}))
-    gate = session(tmp_path, runs, base, profile=NoHook())
+    gate = session(tmp_path, runs, profile=NoHook())
 
-    gate.run(cwd=repo)
+    gate.run(cwd=repo, base=base)
 
-    assert gate.classify(cwd=repo) == Tier2Classification()
+    assert gate.classify(cwd=repo, base=base) == Tier2Classification()
     assert runs.on_base == []
 
 
@@ -92,12 +92,12 @@ def test_a_dev_stack_run_classifies_nothing(tmp_path: Path) -> None:
     script.parent.mkdir()
     script.write_text("#!/bin/sh\n")
     runs = Runs(repo, pytest_output(failed={FAR: "assert 1 == 2"}))
-    gate = session(tmp_path, runs, base)
+    gate = session(tmp_path, runs)
 
-    ok, _ = gate.run(cwd=repo)
+    ok, _ = gate.run(cwd=repo, base=base)
 
     assert not ok
     assert gate.result is not None and gate.result.failures
-    assert gate.classify(cwd=repo) == Tier2Classification()
+    assert gate.classify(cwd=repo, base=base) == Tier2Classification()
     assert gate.verdict is None
     assert runs.on_base == []

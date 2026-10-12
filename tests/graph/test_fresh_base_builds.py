@@ -179,7 +179,7 @@ def test_tier_two_failing_after_a_clean_move_waits_with_its_output(tmp_path: Pat
     recorder = fresh(tmp_path, tier="tier2")
     moving = Moving(recorder, CLEAN)
     answers = iter([(True, "## before"), (False, "FAILED live_test - trunk renamed the route")])
-    recorder.tier2 = lambda *, cwd: next(answers)  # type: ignore[method-assign]
+    recorder.tier2 = lambda *, cwd, base=None: next(answers)  # type: ignore[method-assign]
 
     def window() -> tuple[bool, str]:
         failed = "trunk renamed the route" in recorder.store.get("add-marker/1").feedback

@@ -1688,10 +1688,8 @@ class Tier2Session:
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
         projects: list[ProjectConfig] | None = None,
-        base: str | None = None,
     ) -> None:
         self.unit = unit
-        self._base = base
         self.verdict: Tier2Verdict | None = None
         self._on_dev_stack = False
         self._projects = projects or []
@@ -1716,7 +1714,12 @@ class Tier2Session:
         self._timeout = timeout
         self.result: Tier2Result | None = None
 
-    def run(self, *, cwd: Path) -> tuple[bool, str]:
+    def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+        """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
+        tests of files the unit left alone are run once on it, and `verdict` says whose
+        each is. Without it, or on the dev stack, nothing is classified."""
+        self.verdict = None
+        self._on_dev_stack = False
         if self._dev_stack is not None and (cwd / self._dev_stack).is_file():
             return self._run_on_dev_stack(cwd, self._dev_stack)
         # The same entries tier 1 resolves, over the whole repo: tier 2 has no
@@ -1731,8 +1734,9 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
-        # header, text, how much of it to keep, the toolchain that read it, its project
-        outputs: list[tuple[str, str, int | None, ToolchainProfile, str]] = []
+        # header, text, how much of it to keep, the toolchain that read it, its project,
+        # and where and with which command it ran
+        outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -1760,9 +1764,9 @@ class Tier2Session:
                     )
                     header = f"$ {' '.join(command)}{label}"
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, out, None, toolchain, project))
+                        outputs.append((header, out, None, toolchain, project, where, command))
                     elif p:
-                        outputs.append((header, out, 1500, toolchain, project))
+                        outputs.append((header, out, 1500, toolchain, project, where, command))
 
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
@@ -1772,14 +1776,18 @@ class Tier2Session:
                 for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
             )
             # Read from the redacted text, so a line is redacted before it is shortened.
-            failures = [
-                TestFailure(
-                    test=f"{project}/{found.test}" if project else found.test, line=found.line
-                )
-                for (_, _, keep, toolchain, project), text in zip(outputs, redacted, strict=True)
-                if keep is None
-                for found in toolchain.parse_test_failures(text)
-            ]
+            failures: list[TestFailure] = []
+            # Which command named each failure, for the base run to repeat that one.
+            named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]] = {}
+            for (_, _, keep, toolchain, project, at, ran), text in zip(
+                outputs, redacted, strict=True
+            ):
+                if keep is not None:
+                    continue
+                for found in toolchain.parse_test_failures(text):
+                    test = f"{project}/{found.test}" if project else found.test
+                    failures.append(TestFailure(test=test, line=found.line))
+                    named_by[test] = (at, toolchain, ran)
             command = " && ".join(
                 " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
                 for where, _, commands in entries
@@ -1799,19 +1807,19 @@ class Tier2Session:
             )
 
             # Still inside the hold: the base run sees the stack the unit's run saw.
-            self.verdict = self._judge(cwd, entries)
+            self.verdict = self._judge(cwd, base, named_by)
         return self.result.ok, build_snapshot(self.result)
 
-    def classify(self, *, cwd: Path) -> Tier2Classification:
+    def classify(self, *, cwd: Path, base: str | None) -> Tier2Classification:
         """The failed tests of the last run, the unit's own and the untouched.
 
         A test is the unit's own when its file is one the branch changed against its base,
         or sits beside a `conftest.py` it changed. Nothing is classified when the run
         named no tests, ran on the dev stack, or there is no base to compare with.
         """
-        if self.result is None or self._base is None or self._on_dev_stack:
+        if self.result is None or base is None or self._on_dev_stack:
             return Tier2Classification()
-        changed = set(_changed_files(cwd, self._base))
+        changed = set(_changed_files(cwd, base))
         own: list[TestFailure] = []
         untouched: list[TestFailure] = []
         for failure in self.result.failures:
@@ -1825,39 +1833,53 @@ class Tier2Session:
     def _judge(
         self,
         cwd: Path,
-        entries: list[tuple[Path, ToolchainProfile, list[list[str]]]],
+        base: str | None,
+        named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]],
     ) -> Tier2Verdict | None:
         """Run the untouched failed tests once on the base and say whose each is.
 
-        Pre-existing only when the base run itself names the test as failed or errored;
-        a test it passes, does not contain or does not name is the unit's to fix.
+        Each failed command is repeated on the base with only its own untouched ids.
+        Pre-existing only when a base run itself names the test as failed or errored; a
+        test it passes, does not contain or does not name is the unit's to fix. A base run
+        that cannot be made (no worktree, a command that cannot start) proves nothing, so
+        every test not yet named there is the unit's, and the unit fails as it would
+        without the base run.
         """
-        if self.result is None or self.result.ok or not active().limits.tier2_base_runs:
+        if (
+            self.result is None
+            or base is None
+            or self.result.ok
+            or not active().limits.tier2_base_runs
+        ):
             return None
-        classified = self.classify(cwd=cwd)
+        classified = self.classify(cwd=cwd, base=base)
         if not classified.untouched:
             return None
+        by_command: dict[tuple[Path, tuple[str, ...]], list[str]] = {}
+        for failure in classified.untouched:
+            at, _, ran = named_by[failure.test]
+            by_command.setdefault((at, tuple(ran)), []).append(failure.test)
         failing: set[str] = set()
-        with worktree_at(cwd, self._base or "HEAD") as tree:
-            for where, toolchain, commands in entries:
-                project = str(where.relative_to(cwd)) if where != cwd else ""
-                prefix = f"{project}/" if project else ""
-                ids = [
-                    f.test.removeprefix(prefix)
-                    for f in classified.untouched
-                    if f.test.startswith(prefix)
-                    and (project or not _in_any_project(f.test, entries, cwd))
-                ]
-                rerun = getattr(toolchain, "serial_rerun_command", None)
-                if not ids or not commands or rerun is None:
-                    continue
-                completed = self._run(
-                    rerun(commands[0], ids), cwd=tree / where.relative_to(cwd), **self._test_env
-                )
-                named = toolchain.parse_test_failures(
-                    f"{completed.stdout or ''}{completed.stderr or ''}"
-                )
-                failing.update(f"{prefix}{found.test}" for found in named)
+        try:
+            with worktree_at(cwd, base) as tree:
+                for (at, ran), tests in by_command.items():
+                    toolchain = named_by[tests[0]][1]
+                    rerun = getattr(toolchain, "serial_rerun_command", None)
+                    if rerun is None:
+                        continue
+                    project = str(at.relative_to(cwd)) if at != cwd else ""
+                    prefix = f"{project}/" if project else ""
+                    completed = self._run(
+                        rerun(list(ran), [t.removeprefix(prefix) for t in tests]),
+                        cwd=tree / at.relative_to(cwd),
+                        **self._test_env,
+                    )
+                    named = toolchain.parse_test_failures(
+                        f"{completed.stdout or ''}{completed.stderr or ''}"
+                    )
+                    failing.update(f"{prefix}{found.test}" for found in named)
+        except (subprocess.CalledProcessError, OSError) as error:
+            logger.warning("tier 2 base run could not be made, so it proves nothing: %s", error)
         return Tier2Verdict(
             own=classified.own,
             broken=[f for f in classified.untouched if f.test not in failing],
@@ -1927,15 +1949,6 @@ class Tier2Session:
                 f"different commit ({self.result.sha[:7]})"
             )
         self._status(self.unit.repo, self.result)
-
-
-def _in_any_project(
-    test: str, entries: list[tuple[Path, ToolchainProfile, list[list[str]]]], cwd: Path
-) -> bool:
-    """Whether the id is prefixed with one of the projects, which the repo's own is not."""
-    return any(
-        where != cwd and test.startswith(f"{where.relative_to(cwd)}/") for where, _, _ in entries
-    )
 
 
 def head_reachable(cwd: Path, head: str) -> bool:

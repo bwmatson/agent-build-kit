@@ -1052,8 +1052,16 @@ approved.
   profile's serial rerun command in a detached temporary worktree of the unit's base,
   inside the hold the unit's own run took. A test the base run names as failed or errored
   is pre-existing; any other is the unit's. Nothing is classified for a dev stack run or
-  when the failed tests cannot be read. `limits.tier2_base_runs: 0` turns it off. Tier 2
-  tests are never repeated or isolated by tier 1's machinery.
+  when the failed tests cannot be read. A base run that cannot be made (the worktree
+  cannot be added, a command cannot start) is logged and proves nothing: the tests it
+  has not named are the unit's, and the unit fails as it would without it. Each failed
+  command is repeated on the base with only its own tests. The node passes the base each
+  run is against, so a restack that moves it is followed. `limits.tier2_base_runs: 0`
+  turns it off. Tier 2 tests are never repeated or isolated by tier 1's machinery.
+  Known limits: ids are read as relative to the repo root (or the configured project), so
+  a workspace member run with `--directory` prints ids relative to the member and a
+  changed file of that member is not recognised as the unit's own; and the cost of the
+  clean base worktree on a large repo's own tier 2 suite was not measured.
 
 ## Telemetry
 

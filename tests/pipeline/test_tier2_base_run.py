@@ -15,7 +15,7 @@ import pytest
 
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.tier2 import TestFailure
-from agent_build_kit.profiles.python_uv import PROFILE
+from agent_build_kit.profiles.python_uv import PROFILE, PythonUvProfile
 from tests.factories import git
 from tests.tier2_base_fakes import TEST_BODY, Runs, branch, pytest_output, session
 
@@ -33,8 +33,8 @@ def names_of(failures: list[TestFailure]) -> list[str]:
 def judged(tmp_path: Path, own: str, base: str):
     repo, base_sha = branch(tmp_path, {})
     runs = Runs(repo, own, base)
-    gate = session(tmp_path, runs, base_sha)
-    gate.run(cwd=repo)
+    gate = session(tmp_path, runs)
+    gate.run(cwd=repo, base=base_sha)
     return gate, runs
 
 
@@ -96,9 +96,9 @@ def test_a_unit_with_a_test_of_its_own_and_a_pre_existing_one_fails(tmp_path: Pa
     base = pytest_output(failed={ONE: REASON})
     repo, base_sha = branch(tmp_path, {"tests/live/test_own.py": TEST_BODY})
     runs = Runs(repo, own, base)
-    gate = session(tmp_path, runs, base_sha)
+    gate = session(tmp_path, runs)
 
-    ok, _ = gate.run(cwd=repo)
+    ok, _ = gate.run(cwd=repo, base=base_sha)
 
     assert not ok
     assert gate.verdict is not None
@@ -114,9 +114,9 @@ def test_the_base_run_is_in_a_detached_worktree_at_the_ref_the_unit_ran_against(
 ) -> None:
     repo, base_sha = branch(tmp_path, {"tests/live/test_own.py": TEST_BODY})
     runs = Runs(repo, pytest_output(failed={ONE: REASON}), pytest_output(failed={ONE: REASON}))
-    gate = session(tmp_path, runs, base_sha)
+    gate = session(tmp_path, runs)
 
-    gate.run(cwd=repo)
+    gate.run(cwd=repo, base=base_sha)
 
     assert len(runs.trees) == 1
     assert runs.trees[0] != repo
@@ -130,17 +130,60 @@ def test_a_base_run_that_raises_leaves_no_worktree_and_the_units_tree_unchanged(
 ) -> None:
     repo, base_sha = branch(tmp_path, {"tests/live/test_own.py": TEST_BODY})
     head = git(repo, "rev-parse", "HEAD").strip()
-    runs = Runs(repo, pytest_output(failed={ONE: REASON}), raises=RuntimeError("stack went away"))
-    gate = session(tmp_path, runs, base_sha)
+    runs = Runs(repo, pytest_output(failed={ONE: REASON}), raises=OSError("stack went away"))
+    gate = session(tmp_path, runs)
 
-    with contextlib.suppress(RuntimeError):
-        gate.run(cwd=repo)
+    ok, _ = gate.run(cwd=repo, base=base_sha)
 
+    assert ok is False
+    assert gate.verdict is not None
+    assert names_of(gate.verdict.broken) == [ONE]
+    assert gate.verdict.pre_existing == []
     assert len(runs.trees) == 1
     assert not runs.trees[0].exists()
     assert len(git(repo, "worktree", "list").splitlines()) == 1
     assert git(repo, "rev-parse", "HEAD").strip() == head
     assert git(repo, "status", "--porcelain").strip() == ""
+
+
+def test_a_base_that_cannot_be_checked_out_leaves_the_unit_failing_as_before(
+    tmp_path: Path,
+) -> None:
+    repo, _ = branch(tmp_path, {})
+    runs = Runs(repo, pytest_output(failed={ONE: REASON}), pytest_output(failed={ONE: REASON}))
+    gate = session(tmp_path, runs)
+
+    ok, snapshot = gate.run(cwd=repo, base="0" * 40)
+
+    assert ok is False
+    assert ONE in snapshot
+    assert gate.verdict is not None
+    assert names_of(gate.verdict.broken) == [ONE]
+    assert runs.on_base == []
+    assert len(git(repo, "worktree", "list").splitlines()) == 1
+
+
+def test_each_failed_command_is_repeated_on_the_base_with_its_own_tests(tmp_path: Path) -> None:
+    first = ["uv", "run", "--directory", "a", "pytest", "-m", "local_stack"]
+    second = ["uv", "run", "--directory", "b", "pytest", "-m", "local_stack"]
+
+    class Members(PythonUvProfile):
+        def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
+            return [first, second]
+
+    repo, base_sha = branch(tmp_path, {})
+    own = {
+        tuple(first): pytest_output(passed=("tests/a/test_a.py::test_a",)),
+        tuple(second): pytest_output(failed={ONE: REASON}),
+    }
+    runs = Runs(repo, own, pytest_output(failed={ONE: REASON}))
+    gate = session(tmp_path, runs, profile=Members())
+
+    gate.run(cwd=repo, base=base_sha)
+
+    assert gate.verdict is not None
+    assert names_of(gate.verdict.pre_existing) == [ONE]
+    assert runs.on_base == [PROFILE.serial_rerun_command(second, [ONE])]
 
 
 def test_the_stack_lock_is_taken_once_for_the_unit_run_and_the_base_run(
@@ -161,8 +204,8 @@ def test_the_stack_lock_is_taken_once_for_the_unit_run_and_the_base_run(
         events.append("release")
 
     monkeypatch.setattr(wiring, "stack_lock", watched)
-    gate = session(tmp_path, runs, base_sha)
+    gate = session(tmp_path, runs)
 
-    gate.run(cwd=repo)
+    gate.run(cwd=repo, base=base_sha)
 
     assert events == ["take", "unit", "base", "release"]
