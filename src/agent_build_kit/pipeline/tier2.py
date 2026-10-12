@@ -43,6 +43,15 @@ DEFAULT_LOCK_TIMEOUT_SECONDS = 3600
 Runner = Callable[[list[str]], str]
 
 
+class TestFailure(Frozen):
+    """One failed or errored test and the first failure line the runner gave it."""
+
+    __test__ = False
+
+    test: str
+    line: str
+
+
 class Tier2Result(Frozen):
     sha: str
     passed: int
@@ -52,6 +61,7 @@ class Tier2Result(Frozen):
     command: str
     output: str
     stack_versions: dict[str, str] = Field(default_factory=dict)
+    failures: list[TestFailure] = Field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -121,6 +131,12 @@ def build_snapshot(result: Tier2Result) -> str:
         or "- (none recorded)"
     )
 
+    failed = ""
+    if result.failures:
+        total = result.passed + result.failed + result.skipped
+        listing = "\n".join(f"  - `{f.test}` - {f.line}" for f in result.failures)
+        failed = f"- **Failed:** {result.failed} of {total} tests\n{listing}\n"
+
     return f"""## Tier 2 results
 
 Tier 2 needs the live local stack, so GitHub Actions cannot run it. This ran
@@ -130,7 +146,7 @@ on the developer host.
 - **Command:** `{result.command}`
 - **Result:** {result.passed} passed, {result.failed} failed, \
 {result.skipped} skipped in {result.duration_seconds}s
-- **Ran against:**
+{failed}- **Ran against:**
 {versions}
 
 <details>

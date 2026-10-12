@@ -443,7 +443,12 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    is declared; it runs each member's directory with no
    collection path, so it collects what the member's own pytest
    configuration (`testpaths`) selects. A stack-versions command that cannot
-   start is logged and records nothing.
+   start is logged and records nothing. The result also lists every failed or
+   errored test with its first failure line (`Tier2Result.failures`, read by the
+   profile's `parse_test_failures` from the redacted output, in the order the
+   runner printed them, a line over 500 characters cut with `…`). The listing
+   sits in the snapshot's fixed part above the cut output, so a description's
+   size limit never shortens it and the saved feedback carries it.
    A run that starts with commits on its branch fetches its repo first (a
    failed fetch is logged, not fatal), then restacks.
 8. **Check the base, address new comments, then push.** Just before the push the repo is fetched

@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
+from agent_build_kit.pipeline.tier2 import TestFailure
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
 
@@ -85,6 +86,9 @@ class NodeNpmProfile:
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         return self._todo("parse_test_summary")
+
+    def parse_test_failures(self, output: str) -> list[TestFailure]:
+        return []
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")

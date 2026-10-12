@@ -24,7 +24,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
-from agent_build_kit.pipeline.tier2 import parse_pytest_summary
+from agent_build_kit.pipeline.tier2 import TestFailure, parse_pytest_summary
 from agent_build_kit.profiles.base import PromptWords
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -37,6 +37,13 @@ XDIST = "pytest-xdist"
 MANIFEST = "pyproject.toml"
 LOCK = "uv.lock"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
+# A FAILED/ERROR line for each failed test, with a short traceback each. `-vv` as well:
+# below it pytest cuts each summary message to the terminal width, and drops it when the
+# test id fills the line.
+SUMMARY_FLAGS = ["-vv", "-rfE", "--tb=short"]
+SUMMARY_MARK = "short test summary info"
+SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
+FAILURE_LINE_LIMIT = 500
 # The lock-freshness and environment-freshness commands a path-source draft's check starts with.
 DRIFT_CHECKS = "uv lock --check && uv sync --check"
 PATH_SOURCES_NOTE = (
@@ -271,6 +278,24 @@ class PythonUvProfile:
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         return parse_pytest_summary(output)
 
+    def parse_test_failures(self, output: str) -> list[TestFailure]:
+        """One entry per `FAILED`/`ERROR` line of pytest's short summary, in the order
+        printed; a line over `FAILURE_LINE_LIMIT` is cut with an ellipsis."""
+        _, found, summary = output.partition(SUMMARY_MARK)
+        if not found:
+            return []
+        failures = []
+        for line in summary.splitlines():
+            matched = SUMMARY_ENTRY.match(line)
+            # A message printed whole spans lines; one that begins with the word
+            # `ERROR` is not an entry unless its id has the shape of a node id.
+            if matched and ("::" in matched.group(1) or matched.group(1).endswith(".py")):
+                first = matched.group(2) or ""
+                if len(first) > FAILURE_LINE_LIMIT:
+                    first = first[: FAILURE_LINE_LIMIT - 1] + "…"
+                failures.append(TestFailure(test=matched.group(1), line=first))
+        return failures
+
     def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
         # environment its CI job uses: pytest plus whatever it declares.
@@ -437,7 +462,7 @@ class PythonUvProfile:
         any member's live tests say so."""
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-m", marker, "-v"]]
+            return [["uv", "run", "pytest", "-m", marker, *SUMMARY_FLAGS]]
         return [
             [
                 "uv",
@@ -450,7 +475,7 @@ class PythonUvProfile:
                 "pytest",
                 "-m",
                 marker,
-                "-v",
+                *SUMMARY_FLAGS,
             ]
             for member in members
             if (repo / member / "tests").is_dir()

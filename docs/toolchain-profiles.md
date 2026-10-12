@@ -38,6 +38,7 @@ implemented.
 | `red_command(files)` | the push gate | run these test files at the tests commit |
 | `interpret_red(output, exit_code)` | the push gate | was that run honestly red, and why not |
 | `parse_test_summary(output)` | tier 2, verify | `(passed, failed, skipped, seconds)` |
+| `parse_test_failures(output)` | tier 2 | `TestFailure(test, line)` for each failed or errored test, in printed order; `[]` when the output has none. The python profile asks pytest for them with `-rfE --tb=short` |
 | `is_test_path(path)` | verify, tier 1 | test paths deploy nothing |
 | `stub_violations(path, content)` | the push gate | why a file is more than a declaration |
 | `members(repo)` | tier 1, tier 2, verify | workspace members; empty for a single-package repo |

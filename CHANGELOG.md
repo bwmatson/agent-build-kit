@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A failed tier 2 run now lists every failed or errored test with its first failure
+  line above the output that may be cut, so the pull request description and the
+  feedback handed back to the builder show each failure even when the tail of the
+  output holds only the last one. The python profile asks pytest for a short summary
+  to read them from; other toolchains list none.
+
 - A unit whose agent run was killed mid-edit now resumes over the edits it left, as
   intended, instead of failing with a `TypeError` on the worktree request. The wrapper
   that holds the repository's turn dropped the option that allows a dirty worktree.

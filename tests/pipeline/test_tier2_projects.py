@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON_UV
 from tests.factories import unit
+from tests.tier2_failure_fakes import checkout as _checkout
 
 PASSED = "3 passed in 4.00s"
 FAILED = "FAILED tests/test_live.py::test_live - assert 0\n1 failed in 1.00s"
@@ -44,14 +45,6 @@ def _session(
         sha=lambda cwd: "abc1234",
         projects=projects,
     )
-
-
-def _checkout(tmp_path: Path, *names: str) -> Path:
-    root = tmp_path / "checkout"
-    root.mkdir()
-    for name in names:
-        (root / name).mkdir()
-    return root
 
 
 def test_a_project_in_a_subdirectory_runs_from_it(tmp_path: Path) -> None:
@@ -85,7 +78,7 @@ def test_each_project_uses_its_own_profile(tmp_path: Path, monkeypatch: pytest.M
 
     assert ok
     assert calls == [
-        (["uv", "run", "pytest", "-m", "local_stack", "-v"], root / "api"),
+        (PYTHON_UV.tier2_commands(root / "api", marker="local_stack")[0], root / "api"),
         (["npm", "run", "local_stack"], root / "web"),
     ]
 
@@ -97,7 +90,7 @@ def test_no_projects_runs_once_from_the_root(tmp_path: Path) -> None:
 
     session.run(cwd=root)
 
-    assert calls == [(["uv", "run", "pytest", "-m", "local_stack", "-v"], root)]
+    assert calls == [(PYTHON_UV.tier2_commands(root, marker="local_stack")[0], root)]
 
 
 def test_projects_run_in_the_order_declared(tmp_path: Path) -> None:
