@@ -15,7 +15,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import untouched_failures
-from agent_build_kit.pipeline.flakes import flake_change_name, wait_on_fix
+from agent_build_kit.pipeline.flakes import fix_change_name, flake_change_name, wait_on_fix
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.untouched_failures import (
     Exists,
@@ -49,18 +49,18 @@ def test_the_change_is_named_from_the_id_with_the_fix_failing_prefix(
 
     name, _ = ensured(installation, unit)
 
-    assert name == flake_change_name(TEST, prefix="fix-failing")
+    assert name == fix_change_name(TEST, "fix-failing")
     assert re.fullmatch(r"fix-failing-[a-z0-9-]+", name)
     assert "test-one" in name
-    assert flake_change_name(TEST, prefix="fix-failing") != flake_change_name(TEST)
+    assert fix_change_name(TEST, "fix-failing") != flake_change_name(TEST)
 
 
 def test_a_long_id_is_capped_with_a_hash_of_the_whole() -> None:
     long = "tests/far/test_" + "very_long_name_" * 10 + "x.py::test_one"
     other = long[:-1] + "y"
 
-    first = flake_change_name(long, prefix="fix-failing")
-    second = flake_change_name(other, prefix="fix-failing")
+    first = fix_change_name(long, "fix-failing")
+    second = fix_change_name(other, "fix-failing")
 
     assert first.startswith("fix-failing-") and len(first) <= 70
     assert first != second, "the hash tells the cut ones apart"
@@ -134,7 +134,7 @@ def test_it_is_a_different_change_from_the_flake_fix_of_the_same_test(
 def test_the_ensure_step_says_would_write_before_it_writes(installation: Installation) -> None:
     unit = change_with_unit(installation, "feature", "feature/1")
     seen: list[tuple[str, bool]] = []
-    name = flake_change_name(TEST, prefix="fix-failing")
+    name = fix_change_name(TEST, "fix-failing")
 
     def say(line: str) -> None:
         seen.append((line, (installation.changes_dir / name).exists()))
@@ -161,7 +161,7 @@ def test_an_open_change_is_reported_as_existing_and_nothing_is_written(
 
 def test_the_preview_reads_the_directory_and_writes_nothing(installation: Installation) -> None:
     unit = change_with_unit(installation, "feature", "feature/1")
-    name = flake_change_name(TEST, prefix="fix-failing")
+    name = fix_change_name(TEST, "fix-failing")
 
     assert preview(installation, TEST) == Write(name=name)
     assert changes(installation) == {"feature"}

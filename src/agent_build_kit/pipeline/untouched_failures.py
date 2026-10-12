@@ -9,80 +9,45 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import _next_name, _open_change
+from agent_build_kit.pipeline.flakes import next_fix_name, open_fix_change
 from agent_build_kit.pipeline.unit_store import StoredUnit
 
 PREFIX = "fix-failing"
 CAPABILITY = "failing-tests"
 
 
-class PreExisting(Frozen):
+class PreExisting(Recorded):
     """One test that failed tier 2 for a unit and failed on the base as well."""
 
-    test: str
     unit: str
     command: str
     line: str
     at: datetime
     base_result: str = "failed"
     base_output: str = ""
-    change: str = ""
 
 
-class PreExistingCount(Frozen):
-    """A pre-existing failing test, how many times it failed on the base and its fix change."""
-
-    test: str
-    count: int
-    change: str
+PreExistingCount = TestCount
 
 
-class PreExistingRecord:
-    """The pre-existing failures found, appended to a file in the state directory."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-
-    def append(self, entry: PreExisting) -> None:
-        with file_lock(self.path.with_suffix(".lock")):
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(entry.model_dump_json() + "\n")
-
-    def entries(self) -> list[PreExisting]:
-        """Every failure recorded, oldest first."""
-        try:
-            lines = self.path.read_text(encoding="utf-8").splitlines()
-        except FileNotFoundError:
-            return []
-        return [PreExisting.model_validate_json(line) for line in lines if line.strip()]
-
-    def counts(self) -> list[PreExistingCount]:
-        """Each test once, with how often it failed on the base and its latest fix change."""
-        counted: dict[str, PreExistingCount] = {}
-        for entry in self.entries():
-            before = counted.get(entry.test)
-            counted[entry.test] = PreExistingCount(
-                test=entry.test,
-                count=(before.count if before else 0) + 1,
-                change=entry.change or (before.change if before else ""),
-            )
-        return list(counted.values())
-
-
-def preexisting_record(inst: Installation) -> PreExistingRecord:
-    return PreExistingRecord(inst.state_dir / "preexisting-failures.jsonl")
+def preexisting_record(inst: Installation) -> FailureRecord[PreExisting]:
+    return FailureRecord(inst.state_dir / "preexisting-failures.jsonl", PreExisting)
 
 
 class Exists(Frozen):
     """The open change that already fixes a test."""
 
     change: str
+
+    @property
+    def line(self) -> str:
+        """What the ensure step and the dry run both report."""
+        return f"exists: {self.change}"
 
 
 class Write(Frozen):
@@ -91,13 +56,18 @@ class Write(Frozen):
     name: str
     earlier: str = ""
 
+    @property
+    def line(self) -> str:
+        """What the ensure step and the dry run both report."""
+        return f"would write: {self.name}"
+
 
 def preview(inst: Installation, test: str) -> Exists | Write:
     """What the ensure step would do for `test`; reads the changes directory only."""
-    name, earlier = _open_change(inst, test, PREFIX)
+    name, earlier = open_fix_change(inst, test, PREFIX)
     if name is not None:
         return Exists(change=name)
-    return Write(name=_next_name(inst, test, PREFIX), earlier=earlier)
+    return Write(name=next_fix_name(inst, test, PREFIX), earlier=earlier)
 
 
 def ensure_fix(
@@ -107,10 +77,9 @@ def ensure_fix(
     `would write: <change>` then `wrote: <change>`. Returns the change's name."""
     with file_lock(inst.state_dir / "preexisting.lock"):
         found = preview(inst, entry.test)
+        say(found.line)
         if isinstance(found, Exists):
-            say(f"exists: {found.change}")
             return found.change
-        say(f"would write: {found.name}")
         _write_change(inst, found, entry, unit)
         say(f"wrote: {found.name}")
         return found.name
@@ -143,7 +112,8 @@ def _proposal(inst: Installation, entry: PreExisting, unit: StoredUnit, earlier:
         f"`{entry.test}` fails on the base as well as on the branches that meet it, so it fails "
         "units that did not touch it.\n"
         f"{again}\n"
-        f"It ran as `{entry.command}` and failed with `{entry.line}`. The base run's output:\n\n"
+        f"It ran as `{entry.command}` and failed with `{entry.line}`. "
+        f"On the base it {entry.base_result}, with this output:\n\n"
         f"```\n{entry.base_output.strip()}\n```\n\n"
         "Units that met it:\n\n" + "\n".join(seen) + "\n\n"
         "## What Changes\n\n"

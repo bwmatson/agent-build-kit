@@ -54,7 +54,10 @@ any other cause waits for the next pass. A refresh whose usage guard refuses
 starts nothing and skips planning, but still fetches, polls and archives (below).
 
 - `--dry-run` runs everything up to the build and reports what is ready
-  without building.
+  without building. For each recorded pre-existing tier 2 failure it also prints
+  `exists: <change>` (the open fix change) or `would write: <change>` (a change, or the
+  successor of an archived one), even when no unit is pending; it writes nothing and runs
+  no base run.
 - `--only UNIT` (repeatable) builds only those units if ready, at every
   readiness check of the pass; polling, planning and archiving still happen.
   For pushing one unit through when usage is tight.
@@ -85,6 +88,8 @@ fresh one, no more often than the cache time allows), the count of units by stat
 `in_review` unit with its PR. A `no recorded cause:` line lists the units that are `held`
 or `planned` with work on them and no cause on their last history entry. A repository with a
 `tests.replay` section adds a `cassettes:` line with the count of recordings waiting for review.
+A `flaky:` line lists each flaky test with its count and fix change, and a `pre-existing:`
+line each test that failed tier 2 on the base too, with how many times and its fix change.
 Changes nothing. Exit 0.
 
 ### `abk replay review [--keep NAME ...] [--delete NAME ...]`

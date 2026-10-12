@@ -12,9 +12,9 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.pipeline.flakes import flake_change_name
+from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.untouched_failures import preexisting_record
+from agent_build_kit.pipeline.untouched_failures import ensure_fix, preexisting_record
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -70,8 +70,8 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
     record = preexisting_record(inst)
     record.append(failing(TEST))
     record.append(failing(ARCHIVED))
-    open_name = flake_change_name(TEST, prefix="fix-failing")
-    archived_name = flake_change_name(ARCHIVED, prefix="fix-failing")
+    open_name = fix_change_name(TEST, "fix-failing")
+    archived_name = fix_change_name(ARCHIVED, "fix-failing")
     open_change(inst, open_name)
     archived_change(inst, archived_name)
     runs: list[object] = []
@@ -90,3 +90,21 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
     assert tree_bytes(inst) == before, "the planning directory, record and store unchanged"
     assert not (inst.changes_dir / successor[0]).exists()
     assert runs == [], "no base run"
+
+
+def test_a_dry_run_with_nothing_pending_still_previews_and_says_what_the_ensure_step_says(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    unit = stored_unit("feature/1", change="feature")
+    preexisting_record(inst).append(failing(TEST))
+    before = tree_bytes(inst)
+    capsys.readouterr()
+
+    assert dry_run(inst) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1, "an idle tick says nothing else"
+    assert tree_bytes(inst) == before
+    said: list[str] = []
+    ensure_fix(inst, failing(TEST), unit, say=said.append)
+    assert lines[0].endswith(said[0]), "the same line the ensure step reports"

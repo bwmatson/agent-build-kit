@@ -1036,6 +1036,20 @@ approved.
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
   has merged: it restacks and runs tier 1 again. A unit of the fix change itself does not
   wait. `abk status` lists each flaky test with its count and fix change.
+- **A pre-existing failure is recorded and fixed once.** A test the base run names as failed
+  is appended to `<state_dir>/preexisting-failures.jsonl` (test, unit, command, first
+  failure line, time, the base run's result and output, and the fix change), through the
+  same `FailureRecord` the flake record uses. `untouched_failures.ensure_fix` makes sure,
+  under `preexisting.lock`, that one open `fix-failing-<slug>` change exists for the test id
+  (name capped with a hash, so a flake of the same test is a different change), and writes
+  it without a model: a proposal, a design stub, one `[tier2]` group with its tests first,
+  `Priority: 1` and an acceptance opt-out, and a spec. A successor (`-2` and on, its spec
+  MODIFIED, the proposal naming the earlier attempt) is written only once the earlier change
+  is merged and archived. It reports `exists: <change>`, or `would write: <change>` then
+  `wrote: <change>`; `abk tick --dry-run` prints the same first line for each recorded test,
+  even when no unit is pending, and writes nothing. The flake fix change is also written at
+  `Priority: 1`: a unit waits on either kind until it merges. `abk status` lists each as
+  `pre-existing:` with its count and fix change.
 - **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
   changed (`tests_changed`) are run `limits.tier1_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the

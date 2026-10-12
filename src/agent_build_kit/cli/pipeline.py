@@ -175,7 +175,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
     waiting_on_me,
 )
-from agent_build_kit.pipeline.untouched_failures import Exists, preexisting_record, preview
+from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
 from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
     derive_rate,
@@ -798,6 +798,9 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     # First, and silently: the timer fires every few minutes whether or not
     # there is anything to do, and an idle tick should cost nothing — not a
     # usage read, not a GitHub call, not a log line each time, not a span.
+    # A dry run says what the recorded failures' fix changes are even when nothing is pending.
+    if args.dry_run:
+        _preview_fixes(inst)
     if not has_work(inst, store_for(inst)):
         return 0
 
@@ -864,8 +867,6 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
     ready = run_round(inst, store, building=(), started=(), only=only, submit=True)
-    if args.dry_run:
-        _preview_fixes(inst)
     if not ready:
         held = is_paused(_paused_marker(inst))
         if held and held.kind == "rate_limit":
@@ -894,10 +895,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
 def _preview_fixes(inst: Installation) -> None:
     """What the fix change of each recorded pre-existing failure is: written, or to be."""
     for test in dict.fromkeys(entry.test for entry in preexisting_record(inst).entries()):
-        found = preview(inst, test)
-        log(
-            f"exists: {found.change}" if isinstance(found, Exists) else f"would write: {found.name}"
-        )
+        log(preview(inst, test).line)
 
 
 def _resume_environment_waiters(inst: Installation, store: UnitStore) -> None:
