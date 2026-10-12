@@ -135,7 +135,7 @@ def calibrated(lines: int, ratio: float) -> int:
 
 
 def largest_raw(limit: int, ratio: float) -> int:
-    """The largest raw estimate whose calibrated figure stays within `limit`."""
+    """`floor(limit / ratio)`: the raw estimate the ceiling allows once the ratio is applied."""
     return int(limit // ratio)
 
 

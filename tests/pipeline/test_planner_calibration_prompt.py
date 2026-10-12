@@ -12,7 +12,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import active
-from agent_build_kit.pipeline.planner import plan_round
+from agent_build_kit.pipeline.planner import SECTION_MAXIMUM, plan_round
 from agent_build_kit.pipeline.unit_size import calibrations, recent_examples
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from tests.calibration_support import (
@@ -26,7 +26,6 @@ from tests.calibration_support import (
 
 OPENS = "Estimates are your raw figures"
 CLOSES = "Changes ready to plan"
-MAXIMUM = 2000
 
 
 def prompt_for(units: list[StoredUnit], *, shown: bool = True) -> str:
@@ -196,7 +195,7 @@ def test_the_section_stays_under_its_maximum_at_the_largest_inputs() -> None:
     section = section_of(prompt_for(units))
 
     assert "repository-" in section
-    assert len(section) <= MAXIMUM
+    assert len(section) <= SECTION_MAXIMUM
 
 
 def test_the_joining_text_states_the_largest_raw_estimate_beside_the_ceiling() -> None:
@@ -241,3 +240,20 @@ def test_a_round_gives_the_planner_the_three_newest_units_of_each_kind_from_the_
     prompt = runtime.requests[0].prompt
     assert '"Unit six": estimated 400, landed 606' in prompt
     assert "Unit four" in prompt and "Unit three" not in prompt
+
+
+def test_with_more_kinds_than_fit_the_fewest_samples_are_left_out_and_counted() -> None:
+    limits(calibration_kinds_listed=25)
+    names = [f"repository-{n:02d}" for n in range(25)]
+    units = [u for n, name in enumerate(names) for u in landed(3 + n, repo=name)]
+
+    prompt = prompt_for(units)
+    section = section_of(prompt)
+
+    assert len(section) <= SECTION_MAXIMUM
+    kept = [name for name in names if name in section]
+    assert kept == names[len(names) - len(kept) :]
+    assert 0 < len(kept) < 25
+    left_out = [line for line in section.splitlines() if "left out" in line]
+    assert len(left_out) == 1 and f"({25 - len(kept)} more" in left_out[0]
+    assert all(name not in joining_of(prompt) for name in names[: 25 - len(kept)])

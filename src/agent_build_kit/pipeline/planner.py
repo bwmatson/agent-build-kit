@@ -632,6 +632,42 @@ def _kind_lines(kind: Kind, found: Calibration, shown: Sequence[StoredUnit]) -> 
     return lines
 
 
+def _fitted(
+    found: Mapping[Kind, Calibration] | None,
+    examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
+) -> tuple[str, list[Kind]]:
+    """The calibration section and the kinds it lists. Over `SECTION_MAXIMUM` the examples go
+    first, the same number from every kind, then the kinds with the fewest samples."""
+    listed = _listed(found)
+    if not found or not listed:
+        return "", []
+    ratios = dict(found)
+    above = len([kind for kind in ratios if ratios[kind].ratio > 1.0])
+    head = (
+        "Estimates are your raw figures. Units of these kinds have landed above their\n"
+        "estimates, and the check multiplies a unit's estimate by its kind's ratio before\n"
+        "comparing it with the ceiling, so estimate and group with that in mind:\n"
+    )
+    shown = {kind: list((examples or {}).get(kind, ())) for kind in listed}
+    most = max(len(units) for units in shown.values())
+
+    def render(kinds: list[Kind], count: int) -> str:
+        body = [
+            line for kind in kinds for line in _kind_lines(kind, ratios[kind], shown[kind][:count])
+        ]
+        if above > len(kinds):
+            body.append(f"({above - len(kinds)} more kinds left out)")
+        return head + "\n".join(body) + "\n\n"
+
+    attempts = [(listed, count) for count in range(most, -1, -1)]
+    attempts += [(listed[:keep], 0) for keep in range(len(listed) - 1, 0, -1)]
+    for kinds, count in attempts:
+        text = render(kinds, count)
+        if len(text) <= SECTION_MAXIMUM:
+            return text, kinds
+    return "", []
+
+
 def _calibration_section(
     found: Mapping[Kind, Calibration] | None,
     examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
@@ -639,36 +675,21 @@ def _calibration_section(
     """The ratios the plan check multiplies estimates by, for the kinds above 1, each with
     the largest raw estimate and the newest units behind it; empty when calibration is off
     or there are none."""
-    listed = _listed(found)
-    if not found or not listed:
-        return ""
-    omitted = len([kind for kind in found if found[kind].ratio > 1.0]) - len(listed)
-    head = (
-        "Estimates are your raw figures. Units of these kinds have landed above their\n"
-        "estimates, and the check multiplies a unit's estimate by its kind's ratio before\n"
-        "comparing it with the ceiling, so estimate and group with that in mind:\n"
-    )
-    shown = {kind: list((examples or {}).get(kind, ())) for kind in listed}
-    for count in range(max((len(units) for units in shown.values()), default=0), -1, -1):
-        body = [
-            line for kind in listed for line in _kind_lines(kind, found[kind], shown[kind][:count])
-        ]
-        if omitted > 0:
-            body.append(f"({omitted} more kinds left out)")
-        text = head + "\n".join(body) + "\n\n"
-        if len(text) <= SECTION_MAXIMUM:
-            break
-    return text
+    return _fitted(found, examples)[0]
 
 
-def _join_raw(found: Mapping[Kind, Calibration] | None) -> str:
-    """The largest raw estimate of each listed kind, beside the ceiling the join text states."""
-    listed = _listed(found)
-    if not found or not listed:
+def _join_raw(
+    found: Mapping[Kind, Calibration] | None,
+    examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
+) -> str:
+    """The largest raw estimate of each kind the section lists, beside the ceiling the join
+    text states."""
+    kinds = _fitted(found, examples)[1]
+    if not found or not kinds:
         return ""
     ceiling = active().limits.max_unit_lines
     figures = ", ".join(
-        f"{kind.label}: {largest_raw(ceiling, found[kind].ratio)}" for kind in listed
+        f"{kind.label}: {largest_raw(ceiling, found[kind].ratio)}" for kind in kinds
     )
     return f" For a calibrated kind that is the largest raw estimate it may carry ({figures})."
 
@@ -724,7 +745,7 @@ def build_prompt(
         max_lines=workspace.limits.max_unit_lines,
         relationships=relationships.strip() or "(independent)",
         calibration=_calibration_section(calibrations, examples),
-        join_raw=_join_raw(calibrations),
+        join_raw=_join_raw(calibrations, examples),
         changes=changes_text,
         in_flight=in_flight_text,
     )

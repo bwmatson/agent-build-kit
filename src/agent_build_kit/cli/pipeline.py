@@ -2421,7 +2421,8 @@ def plan_all(
             if u.state in _STARTED or (u.state == PLANNED and u.change != change)
         ]
         # Once a round: the plan check, the prompt and the figures stored all use one set.
-        ratios = calibrations(store.all())
+        units = store.all()
+        ratios = calibrations(units)
         try:
             catalog = _task_catalog(inst)
             # The groups go in so the plan is checked against the tags, which
@@ -2437,9 +2438,7 @@ def plan_all(
             plan = plan_round(
                 calibrations=ratios,
                 examples={
-                    kind: recent_examples(
-                        store.all(), kind, config.active().limits.calibration_examples
-                    )
+                    kind: recent_examples(units, kind, config.active().limits.calibration_examples)
                     for kind in ratios
                 },
                 changes={change: tasks.read_text()},
