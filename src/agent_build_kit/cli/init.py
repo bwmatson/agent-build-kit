@@ -43,6 +43,7 @@ from agent_build_kit.init.detect import (
 )
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
+from agent_build_kit.init.runtime_choice import Choice, RuntimeChoiceError, choose, merge_values
 from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
     RULES_VERSION,
@@ -50,6 +51,7 @@ from agent_build_kit.init.scaffold import (
     ScaffoldError,
     draft_config,
     fill_missing_environment,
+    record_in_file,
     update_rules,
     write_code_repo_conventions,
     write_planning_repo,
@@ -57,6 +59,7 @@ from agent_build_kit.init.scaffold import (
 from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
+from agent_build_kit.runtimes.base import Run, Which
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -71,6 +74,9 @@ run_claude: RunClaude | None = None
 host: Callable[[], Host] = detect_host
 # Runs a command the operator agreed to: a runtime's `policy_fix` or the notification install.
 run_fix: Callable[..., subprocess.CompletedProcess] | None = None
+# What the runtime probe asks of the machine: which programs are on the path, and a short run.
+which: Which = shutil.which
+probe_run: Run = subprocess.run
 
 
 class InitError(Exception):
@@ -355,6 +361,53 @@ def _notification_provider() -> NotificationProvider:
     return NotificationProvider.WINDOWS
 
 
+def _choose_runtime(
+    config: WorkspaceConfig, args: argparse.Namespace, *, keeps: bool, kept: dict
+) -> Choice | None:
+    """The runtime to use and how it is set up, or None when a kept abk.yaml (`kept`,
+    as parsed) already names one and nothing asks to change it."""
+    named = kept.get("runtime")
+    if keeps and args.yes and not args.runtime:
+        return None  # a kept file is not changed unasked
+    if named and (not args.runtime or args.runtime == named):
+        return None
+    if named and args.yes:
+        print(f"abk.yaml keeps its runtime {named}; --force overrides it with {args.runtime}")
+        return None
+    if named:
+        reply = ask(f"abk.yaml already uses {named}; use {args.runtime} instead? [y/N] ")
+        if reply.strip().lower() not in ("y", "yes"):
+            return None
+    return choose(
+        runtimes.candidates(which, probe_run),
+        ask=ask,
+        which=which,
+        base=merge_values(config.model_dump(by_alias=True, mode="json"), kept),
+        yes=args.yes,
+        runtime=args.runtime,
+        agent_command=args.agent_command,
+    )
+
+
+def _activate(planning: Path, fallback: WorkspaceConfig) -> None:
+    """Make abk.yaml as it now stands the active configuration, so each runtime reads
+    the command and models recorded there; `fallback` when the file does not load."""
+    try:
+        config = load_config(planning / CONFIG_FILENAME)
+    except config_module.ConfigError:
+        config = fallback
+    config_module.activate(config, planning)
+
+
+def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
+    """The runtime the agent steps run on: the one chosen, else the kept file's."""
+    name = chosen.runtime if chosen else kept
+    try:
+        return runtimes.get(name) if name else None
+    except KeyError:
+        return None
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     if args.update_rules:
@@ -404,6 +457,22 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
 
+    try:
+        kept = (_read_yaml(planning / CONFIG_FILENAME) or {}) if keeps else {}
+        chosen = _choose_runtime(config, args, keeps=keeps, kept=kept)
+        if keeps and not chosen and args.agent_command:
+            print(
+                "abk.yaml is kept: its runtime and command are left as they are; "
+                "--runtime (with confirmation) or --force changes them"
+            )
+        applied = chosen.applied_to(config) if chosen else config
+        if not keeps:
+            config = applied
+    except RuntimeChoiceError as error:
+        print(f"abk init: {error}", file=sys.stderr)
+        return 2
+    agent = _agent(chosen, kept.get("runtime"))
+
     # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
     if not args.yes and not keeps:
         config = config.model_copy(
@@ -422,6 +491,11 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("kept abk.yaml (use --force to overwrite)")
         for what in fill_missing_environment(planning / CONFIG_FILENAME, config):
             print(f"filled {what} in abk.yaml")
+        if chosen:
+            record_in_file(planning / CONFIG_FILENAME, chosen.fragment)
+            print(f"recorded runtime {chosen.runtime} in abk.yaml")
+
+    _activate(planning, applied)
 
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)
@@ -440,6 +514,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 built_in=seed.read_text() if seed.exists() else None,
                 output=output,
                 run_claude=run_claude,
+                runtime=agent,
             )
             print(f"wrote {output.relative_to(planning)}")
 
@@ -464,6 +539,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                         kind=kind,
                         run_claude=run_claude,
                         run_openspec=run_openspec,
+                        runtime=agent,
                         repos=tuple(names),
                     )
                     print(f"wrote openspec/changes/{change}/")
@@ -616,6 +692,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         "adding what newer versions added and nothing else",
     )
     init.add_argument("--dry-run", action="store_true", help="print the config and the plan")
+    init.add_argument("--runtime", metavar="NAME", help="the agent runtime to use")
+    init.add_argument(
+        "--agent-command",
+        metavar="ARGV",
+        help="the command that starts the protocol runtime's agent",
+    )
     init.add_argument("--register-store", metavar="ID", help="register as an OpenSpec store")
     init.set_defaults(func=cmd_init, needs_installation=False)
 

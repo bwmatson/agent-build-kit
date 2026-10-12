@@ -22,7 +22,7 @@ import subprocess
 import textwrap
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 
@@ -44,6 +44,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.environment import detect_environment, lock_patterns, unrecognised
+from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 
@@ -171,6 +172,15 @@ def draft_config(
     )
 
 
+def _read_lines(path: Path) -> tuple[dict, list[str]]:
+    """The parsed abk.yaml at `path` and its lines, the last one newline-terminated."""
+    text = path.read_text()
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    return yaml.safe_load(text) or {}, lines
+
+
 def _note(environment: EnvironmentConfig | None) -> str:
     return environment.note if isinstance(environment, DraftedEnvironment) else ""
 
@@ -249,12 +259,8 @@ def fill_missing_environment(
     as text, a block at a time. A part whose place in the file cannot be found
     as a block (a flow-style `limits: {}`) is left for a person. Returns, for
     each part filled (or that would be), its drafted YAML."""
-    text = path.read_text()
-    raw = yaml.safe_load(text) or {}
+    raw, lines = _read_lines(path)
     drafted_raw = yaml.safe_load(dump(drafted)) or {}
-    lines = text.splitlines(keepends=True)
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
     filled: dict[str, str] = {}
 
     # A planning section nothing was recognised for is not added to a file that
@@ -296,6 +302,20 @@ def fill_missing_environment(
     if filled and not dry_run:
         path.write_text("".join(lines))
     return filled
+
+
+def record_in_file(path: Path, fragment: Mapping[str, Any]) -> None:
+    """Lay `fragment` over an abk.yaml that is kept: each top-level key it names is
+    replaced by its merge with the file's, and every other line stays as it is."""
+    raw, lines = _read_lines(path)
+    for key, value in fragment.items():
+        block = _block(key, merge_values(raw.get(key), value, at=key), "")
+        start = next((i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None)
+        if start is None:
+            lines += block
+        else:
+            lines[start : _top_level_end(lines, start)] = block
+    path.write_text("".join(lines))
 
 
 # --- rendering ------------------------------------------------------------------

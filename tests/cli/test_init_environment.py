@@ -13,7 +13,7 @@ from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
 from agent_build_kit.init.detect import Host
-from tests.cli.test_init import fake_claude, fake_openspec
+from tests.cli.test_init import claude_only, fake_claude, fake_openspec
 from tests.factories import git, init_repo
 
 SOURCES = (
@@ -24,6 +24,7 @@ SOURCES = (
 
 @pytest.fixture(autouse=True)
 def stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    claude_only(monkeypatch)
     monkeypatch.setattr(init_cmd, "run_openspec", fake_openspec)
     monkeypatch.setattr(init_cmd, "run_claude", fake_claude)
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: pytest.fail("prompted unexpectedly"))
