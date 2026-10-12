@@ -22,6 +22,7 @@ CALLS_NAME = "usage-calls.jsonl"
 KEPT = timedelta(days=7)
 REFUSED = "rate_limited"
 CACHE = "cache"
+CLAUDE_JSON = "claude-json"
 # A refusal this soon after a successful call means that call's rate was not safe.
 SAFE_MARGIN = timedelta(seconds=60)
 BEFORE_REFUSAL = timedelta(minutes=15)
