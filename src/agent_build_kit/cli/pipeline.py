@@ -192,6 +192,7 @@ from agent_build_kit.pipeline.usage_guard import (
     current_usage,
     decide_start,
     forget_logged_failures,
+    held_estimate_line,
     held_usage,
     may_start_unit,
     reading_as,
@@ -449,6 +450,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"usage: {_usage_line(reading)} ({reading.source}, {age}m old)")
         else:
             log("usage: unknown")
+        if runtime.supports_usage_tracking and (estimate := held_estimate_line()):
+            log(estimate)
         calls = read_calls(inst.state_dir / CALLS_NAME)
         if calls:
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))

@@ -178,7 +178,11 @@ def status(tmp_path: Path, host: Host, *, refresh: bool) -> None:
 
 
 def usage_line(out: str) -> str:
-    (shown,) = [text for text in out.splitlines() if re.match(r"(\[[\d:]+\] )?usage: ", text)]
+    (shown,) = [
+        text
+        for text in out.splitlines()
+        if re.match(r"(\[[\d:]+\] )?usage: (?!reading )", text)  # not the estimate line
+    ]
     return re.sub(r"^\[[\d:]+\] ", "", shown)
 
 

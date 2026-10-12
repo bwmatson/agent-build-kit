@@ -257,7 +257,7 @@ def test_a_session_reset_ten_hours_ago_refuses_at_122_points(host: Host) -> None
 
 def test_a_reading_with_no_open_window_starts_from_zero_with_no_ramp(host: Host) -> None:
     configure(**pause_at(80, usage_pause_ceiling_pct=95))
-    keep(host, 3 * HOUR, session=0.0, weekly=6.0)
+    keep(host, 3 * HOUR, session=0.0, weekly=60.0)
     kept = json.loads(host.cache.read_text())
     kept["five_hour"]["resets_at"] = None
     host.cache.write_text(json.dumps(kept))

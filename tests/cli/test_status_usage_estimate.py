@@ -53,7 +53,8 @@ def test_status_prints_the_estimate_line_from_the_held_reading_and_the_lines_it_
     assert "session ~0% estimated (0% read + 0% spent)" in out
     assert "weekly ~65% estimated (65% read + 0% spent)" in out
     assert "allowing starts" in out
-    assert "(cache, 89m old)" in out
+    assert "89m old)" in out
+    assert "session 0%/92%" in out
     assert "usage calls:" in out
     assert "usage cache: kept" in out
     assert host.asked == 0
