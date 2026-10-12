@@ -363,16 +363,18 @@ def _notification_provider() -> NotificationProvider:
 
 
 def _choose_runtime(
-    planning: Path, config: WorkspaceConfig, args: argparse.Namespace, *, keeps: bool
+    config: WorkspaceConfig, args: argparse.Namespace, *, keeps: bool, named: str | None
 ) -> Choice | None:
     """The runtime to use and how it is set up, or None when a kept abk.yaml already
-    names one and nothing asks to change it."""
-    named = _kept_runtime(planning, keeps)
+    names one (`named`) and nothing asks to change it."""
     if keeps and args.yes and not args.runtime:
         return None  # a kept file is not changed unasked
     if named and (not args.runtime or args.runtime == named):
         return None
-    if named and not args.yes:
+    if named and args.yes:
+        print(f"abk.yaml keeps its runtime {named}; --force overrides it with {args.runtime}")
+        return None
+    if named:
         reply = ask(f"abk.yaml already uses {named}; use {args.runtime} instead? [y/N] ")
         if reply.strip().lower() not in ("y", "yes"):
             return None
@@ -390,6 +392,16 @@ def _choose_runtime(
 def _kept_runtime(planning: Path, keeps: bool) -> str | None:
     """The runtime a kept abk.yaml names."""
     return (_read_yaml(planning / CONFIG_FILENAME) or {}).get("runtime") if keeps else None
+
+
+def _activate(planning: Path, fallback: WorkspaceConfig) -> None:
+    """Make abk.yaml as it now stands the active configuration, so each runtime reads
+    the command and models recorded there; `fallback` when the file does not load."""
+    try:
+        config = load_config(planning / CONFIG_FILENAME)
+    except config_module.ConfigError:
+        config = fallback
+    config_module.activate(config, planning)
 
 
 def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
@@ -453,13 +465,15 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         return 0
 
     try:
-        chosen = _choose_runtime(planning, config, args, keeps=keeps)
-        if chosen and not keeps:
-            config = chosen.applied_to(config)
+        kept = _kept_runtime(planning, keeps)
+        chosen = _choose_runtime(config, args, keeps=keeps, named=kept)
+        applied = chosen.applied_to(config) if chosen else config
+        if not keeps:
+            config = applied
     except RuntimeChoiceError as error:
         print(f"abk init: {error}", file=sys.stderr)
         return 2
-    agent = _agent(chosen, _kept_runtime(planning, keeps))
+    agent = _agent(chosen, kept)
 
     # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
     if not args.yes and not keeps:
@@ -482,6 +496,8 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         if chosen:
             record_in_file(planning / CONFIG_FILENAME, chosen.fragment)
             print(f"recorded runtime {chosen.runtime} in abk.yaml")
+
+    _activate(planning, applied)
 
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)

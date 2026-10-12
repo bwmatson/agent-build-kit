@@ -10,6 +10,7 @@ import pytest
 
 from agent_build_kit import runtimes
 from agent_build_kit.cli import init as init_cmd
+from agent_build_kit.config import runtime_entry
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.base import (
     Candidate,
@@ -38,6 +39,7 @@ class Offering(SelectableRuntime):
         self.program = f"{name}-bin"
         self.questions = list(questions)
         self.requests: list[AgentRequest] = []
+        self.commands: list[list[str]] = []
 
     @property
     def label(self) -> str:
@@ -76,6 +78,7 @@ class Offering(SelectableRuntime):
     def run(self, request: AgentRequest) -> AgentResult:
         self.log.append("run")
         self.requests.append(request)
+        self.commands.append(list(runtime_entry(name=self.name).command or []))
         text = fake_claude(["claude", "-p", request.prompt], cwd=request.cwd)
         return AgentResult(ok=True, text=text)
 

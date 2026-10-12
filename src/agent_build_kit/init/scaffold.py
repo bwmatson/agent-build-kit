@@ -172,6 +172,15 @@ def draft_config(
     )
 
 
+def _read_lines(path: Path) -> tuple[dict, list[str]]:
+    """The parsed abk.yaml at `path` and its lines, the last one newline-terminated."""
+    text = path.read_text()
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    return yaml.safe_load(text) or {}, lines
+
+
 def _note(environment: EnvironmentConfig | None) -> str:
     return environment.note if isinstance(environment, DraftedEnvironment) else ""
 
@@ -250,12 +259,8 @@ def fill_missing_environment(
     as text, a block at a time. A part whose place in the file cannot be found
     as a block (a flow-style `limits: {}`) is left for a person. Returns, for
     each part filled (or that would be), its drafted YAML."""
-    text = path.read_text()
-    raw = yaml.safe_load(text) or {}
+    raw, lines = _read_lines(path)
     drafted_raw = yaml.safe_load(dump(drafted)) or {}
-    lines = text.splitlines(keepends=True)
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
     filled: dict[str, str] = {}
 
     # A planning section nothing was recognised for is not added to a file that
@@ -302,15 +307,9 @@ def fill_missing_environment(
 def record_in_file(path: Path, fragment: Mapping[str, Any]) -> None:
     """Lay `fragment` over an abk.yaml that is kept: each top-level key it names is
     replaced by its merge with the file's, and every other line stays as it is."""
-    text = path.read_text()
-    raw = yaml.safe_load(text) or {}
-    lines = text.splitlines(keepends=True)
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
+    raw, lines = _read_lines(path)
     for key, value in fragment.items():
-        block = yaml.safe_dump(
-            {key: merge_values(raw.get(key), value)}, sort_keys=False, default_flow_style=False
-        ).splitlines(keepends=True)
+        block = _block(key, merge_values(raw.get(key), value), "")
         start = next((i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None)
         if start is None:
             lines += block

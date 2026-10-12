@@ -156,7 +156,7 @@ def _first_usable(candidates: list[Candidate], runtime: str) -> Candidate | None
     return next((c for c in candidates if c.runtime == runtime and c.usable), None)
 
 
-def _pick(ordered: list[Candidate], *, ask: Ask, which: Which) -> Candidate | None:
+def _pick(ordered: list[Candidate], *, ask: Ask) -> Candidate | None:
     """The candidate chosen, or None for the person's own configuration."""
     usable = [c for c in ordered if c.usable]
     default = str(ordered.index(usable[0]) + 1) if len(usable) == 1 else ""
@@ -221,7 +221,7 @@ def choose(
     else:
         ordered = show(candidates)
         while True:
-            picked = _pick(ordered, ask=ask, which=which)
+            picked = _pick(ordered, ask=ask)
             runtime = picked.runtime if picked else _own_runtime(ask=ask, which=which)
             answered = _answers(runtime, picked, given=given, can_go_back=True, **common)
             if isinstance(answered, dict):

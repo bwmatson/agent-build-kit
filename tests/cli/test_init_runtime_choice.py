@@ -118,12 +118,11 @@ def test_the_second_candidate_picked_is_written_with_usable_ones_listed_first(
     code = main(init_args(planning, app))
 
     shown = capsys.readouterr().out
-    first_list = shown
     assert code == 0
-    assert first_list.index("bravo agent") < first_list.index("charlie agent")
-    assert first_list.index("charlie agent") < first_list.index("aardvark agent")
-    assert "aardvark-bin is not on the path" in first_list
-    assert first_list.rindex("Other") > first_list.index("aardvark agent")
+    assert shown.index("bravo agent") < shown.index("charlie agent")
+    assert shown.index("charlie agent") < shown.index("aardvark agent")
+    assert "aardvark-bin is not on the path" in shown
+    assert shown.rindex("Other") > shown.index("aardvark agent")
     assert load(planning / "abk.yaml").runtime == "charlie"
 
 
@@ -259,6 +258,7 @@ def test_a_kept_file_that_names_a_runtime_skips_the_question_and_runtime_overrid
     app: Path,  # noqa: F811 — fixture
     events: list[str],
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     machine(
         monkeypatch,
@@ -278,9 +278,14 @@ def test_a_kept_file_that_names_a_runtime_skips_the_question_and_runtime_overrid
     assert main(init_args(planning, app, "--runtime", "beta")) == 0
     assert load(planning / "abk.yaml").runtime == "alpha"
 
+    before = load(planning / "abk.yaml").model_dump(mode="json")
     answering(monkeypatch, Answers("y"))
     assert main(init_args(planning, app, "--runtime", "beta")) == 0
-    assert load(planning / "abk.yaml").runtime == "beta"
+    config = loaded_quietly(planning, caplog)
+    assert config.runtime == "beta"
+    after = config.model_dump(mode="json")
+    for key in before.keys() - {"runtime", "runtimes"}:
+        assert after[key] == before[key]
 
 
 def test_force_overrides_a_kept_runtime_without_asking(
@@ -288,6 +293,7 @@ def test_force_overrides_a_kept_runtime_without_asking(
     app: Path,  # noqa: F811 — fixture
     events: list[str],
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     machine(
         monkeypatch,
@@ -297,6 +303,11 @@ def test_force_overrides_a_kept_runtime_without_asking(
         events=events,
     )
     assert main(init_args(planning, app, "--yes", "--runtime", "alpha")) == 0
+    kept = (planning / "abk.yaml").read_text()
+
+    assert main(init_args(planning, app, "--yes", "--runtime", "beta")) == 0
+    assert (planning / "abk.yaml").read_text() == kept
+    assert "--force overrides" in capsys.readouterr().out
 
     code = main(init_args(planning, app, "--yes", "--runtime", "beta", "--force"))
 
@@ -315,15 +326,16 @@ def test_research_and_propose_receive_the_chosen_runtime_and_run_after_the_choic
 ) -> None:
     alpha = Offering("alpha", events=events)
     beta = Offering("beta", events=events)
-    machine(monkeypatch, ("alpha-bin", "beta-bin"), alpha, beta, events=events)
+    machine(monkeypatch, ("alpha-bin", "beta-bin", "wrapper-bin"), alpha, beta, events=events)
     no_model(monkeypatch)
-    answering(monkeypatch, Answers("2", events=events))
+    answering(monkeypatch, Answers("2", "wrapper-bin --flag", events=events))
 
     code = main(["init", str(planning), "--repo", str(app)])
 
     assert code == 0
     assert beta.requests
     assert alpha.requests == []
+    assert {tuple(c) for c in beta.commands} == {("wrapper-bin", "--flag")}
     first_run = events.index("run")
     assert "probe" in events[:first_run]
     assert "ask" in events[:first_run]
@@ -344,7 +356,28 @@ def test_a_single_usable_candidate_under_yes_is_chosen_before_any_agent_step(
 
     assert code == 0
     assert alpha.requests
+    assert {tuple(c) for c in alpha.commands} == {("alpha-bin", "acp")}
     assert events.index("probe") < events.index("run")
+
+
+def test_a_kept_file_hands_its_own_recorded_command_to_the_agent_steps(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alpha = Offering("alpha", events=events)
+    machine(monkeypatch, ("alpha-bin", "wrapper-bin"), alpha, events=events)
+    no_model(monkeypatch)
+    args = ["init", str(planning), "--repo", str(app), "--yes"]
+    recorded = ["--runtime", "alpha", "--agent-command", "wrapper-bin --flag"]
+    assert main([*args, *recorded, "--skip-research", "--skip-propose"]) == 0
+    assert alpha.requests == []
+
+    assert main(args) == 0
+
+    assert alpha.requests
+    assert {tuple(c) for c in alpha.commands} == {("wrapper-bin", "--flag")}
 
 
 def test_skipping_research_and_propose_runs_no_agent_step(
