@@ -49,6 +49,7 @@ from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
     ADAPT_FOLLOWUP_PROMPT,
@@ -951,6 +952,19 @@ class BuildPath:
         # Made again: a trip back here may be onto a different base.
         self._tree = None
         tree, ref = self.tree(), self.ref(state)
+        remembered: Update = {}
+        # Exit 1 is git saying the ref is unknown; a worktree it cannot be asked in is not that.
+        if (
+            state.base
+            and tree.is_dir()
+            and git(tree, "rev-parse", "--verify", "-q", ref, check=False).returncode == 1
+        ):
+            # A predecessor that merged takes its branch with it: the store's base is the
+            # one to build on. Where that fails too, counting commits raises, as it must.
+            self.say(f"the remembered base {state.base} no longer exists; using {self.base}")
+            base, remembered = self.base, {"base": ""}
+            state = state.model_copy(update=remembered)
+            ref = self.ref(state)
         # Taken before the restack and any adapt, so a base rewritten during
         # them is caught too: a parent restacked meanwhile keeps its name.
         start = r.base_tip(tree, ref)
@@ -979,7 +993,13 @@ class BuildPath:
                 return {**FRESH, **self.stop(why)}
             if restacked is not None:
                 if restacked.conflict:
-                    return {**FRESH, "start": start, "head": r.head(tree), "conflict": restacked}
+                    return {
+                        **FRESH,
+                        **remembered,
+                        "start": start,
+                        "head": r.head(tree),
+                        "conflict": restacked,
+                    }
                 if restacked.resolved:
                     files = ", ".join(restacked.resolved)
                     self.say(f"restacked onto {base}, resolving {files}")
@@ -996,6 +1016,7 @@ class BuildPath:
                 existing = r.branch_commits(tree, ref)
         return {
             **FRESH,
+            **remembered,
             # A person's note makes the run a rework as saved feedback does, once there is
             # work on the branch to rework; before that the build starts, tests first.
             **self.standing(existing, feedback or (saved.guidance if existing else "")),
@@ -2082,10 +2103,9 @@ class BuildPath:
                 )
             else:
                 update.update(self.fresh_run())
-            if event.kind is EventKind.BASE_MOVED:
-                # The run takes the base the store names when the tick starts
-                # it: the one `verify_base` last recorded is the old one.
-                update["base"] = ""
+            # The run takes the base the store names when the tick starts it: the one
+            # `verify_base` last recorded is the old one, and its branch may be gone.
+            update["base"] = ""
         else:
             update["detail"] = event.kind.value
             if event.kind in (EventKind.MERGED, EventKind.CLOSED):
