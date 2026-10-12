@@ -17,57 +17,91 @@ from tests.runner_fakes import Recorder, make_runner
 
 FIXTURE_LINE = "FileNotFoundError: [Errno 2] No such file or directory: 'svc-a'"
 
-# `pytest -m local_stack -v -rfE --tb=short` over a module whose fixture fails for four
-# tests: the verbose progress lines, the error sections and the short summary.
+# Recorded from pytest 9.1.1 run as `pytest -vv -rfE --tb=short` with COLUMNS=80 and CI
+# unset, over a module whose fixture fails for four tests. Only the paths are edited: the
+# checkout's absolute path and the interpreter's are shortened.
 FOUR_ERRORS = f"""\
 ============================= test session starts ==============================
-platform linux -- Python 3.13.1, pytest-8.3.4, pluggy-1.5.0 -- /usr/bin/python
-cachedir: .pytest_cache
+platform linux -- Python 3.14.6, pytest-9.1.1, pluggy-1.6.0 -- /usr/bin/python
 rootdir: /work/app
-configfile: pyproject.toml
-collecting ... collected 6 items / 0 deselected / 6 selected
+plugins: anyio-4.15.1
+collecting ... collected 6 items
 
-tests/integration/test_unit.py::test_built ERROR                         [ 16%]
-tests/integration/test_unit.py::test_pushed ERROR                        [ 33%]
-tests/integration/test_unit.py::test_refused ERROR                       [ 50%]
-tests/integration/test_unit.py::test_report ERROR                        [ 66%]
-tests/integration/test_unit.py::test_alone PASSED                        [ 83%]
-tests/integration/test_unit.py::test_other PASSED                        [100%]
+tests/integration/test_unit.py::test_built ERROR [ 16%]
+tests/integration/test_unit.py::test_pushed ERROR [ 33%]
+tests/integration/test_unit.py::test_refused ERROR [ 50%]
+tests/integration/test_unit.py::test_report ERROR [ 66%]
+tests/integration/test_unit.py::test_alone PASSED [ 83%]
+tests/integration/test_unit.py::test_other PASSED [100%]
 
 ==================================== ERRORS ====================================
-_______________________ ERROR at setup of test_built ___________________________
-tests/integration/test_unit.py:41: in built
-    run(["svc-a"])
+_________________________ ERROR at setup of test_built _________________________
+tests/integration/test_unit.py:6: in built
+    raise FileNotFoundError("[Errno 2] No such file or directory: 'svc-a'")
+E   {FIXTURE_LINE}
+________________________ ERROR at setup of test_pushed _________________________
+tests/integration/test_unit.py:6: in built
+    raise FileNotFoundError("[Errno 2] No such file or directory: 'svc-a'")
+E   {FIXTURE_LINE}
+________________________ ERROR at setup of test_refused ________________________
+tests/integration/test_unit.py:6: in built
+    raise FileNotFoundError("[Errno 2] No such file or directory: 'svc-a'")
+E   {FIXTURE_LINE}
+________________________ ERROR at setup of test_report _________________________
+tests/integration/test_unit.py:6: in built
+    raise FileNotFoundError("[Errno 2] No such file or directory: 'svc-a'")
 E   {FIXTURE_LINE}
 =========================== short test summary info ============================
 ERROR tests/integration/test_unit.py::test_built - {FIXTURE_LINE}
 ERROR tests/integration/test_unit.py::test_pushed - {FIXTURE_LINE}
 ERROR tests/integration/test_unit.py::test_refused - {FIXTURE_LINE}
 ERROR tests/integration/test_unit.py::test_report - {FIXTURE_LINE}
-=================== 2 passed, 4 errors in 8.31s ===================
+========================= 2 passed, 4 errors in 0.03s ==========================
 """
 
-# Failures and errors mixed, a parametrised id with a space, and a failure whose
-# traceback line also begins with the word FAILED.
+# Recorded the same way: failures and errors mixed, and a parametrised id with a space.
 MIXED = """\
 ============================= test session starts ==============================
+platform linux -- Python 3.14.6, pytest-9.1.1, pluggy-1.6.0 -- /usr/bin/python
+rootdir: /work/app
+plugins: anyio-4.15.1
 collecting ... collected 4 items
 
-tests/live/test_route.py::test_route FAILED                              [ 25%]
-tests/live/test_route.py::test_param[a b] FAILED                         [ 50%]
-tests/live/test_route.py::test_fixture ERROR                             [ 75%]
-tests/live/test_route.py::test_ok PASSED                                 [100%]
+tests/live/test_route.py::test_route FAILED [ 25%]
+tests/live/test_route.py::test_param[a b] FAILED [ 50%]
+tests/live/test_route.py::test_fixture ERROR [ 75%]
+tests/live/test_route.py::test_ok PASSED [100%]
 
+==================================== ERRORS ====================================
+________________________ ERROR at setup of test_fixture ________________________
+tests/live/test_route.py:6: in port
+    raise KeyError("PORT")
+E   KeyError: 'PORT'
 =================================== FAILURES ===================================
-_________________________________ test_route ___________________________________
-tests/live/test_route.py:12: in test_route
-    assert get("/health") == 200
-E   AssertionError: assert 404 == 200
+__________________________________ test_route __________________________________
+tests/live/test_route.py:10: in test_route
+    assert 404 == 200
+E   assert 404 == 200
+_______________________________ test_param[a b] ________________________________
+tests/live/test_route.py:15: in test_param
+    raise ValueError("bad route")
+E   ValueError: bad route
 =========================== short test summary info ============================
-FAILED tests/live/test_route.py::test_route - AssertionError: assert 404 == 200
-ERROR tests/live/test_route.py::test_fixture - KeyError: 'PORT'
+FAILED tests/live/test_route.py::test_route - assert 404 == 200
 FAILED tests/live/test_route.py::test_param[a b] - ValueError: bad route
-============== 2 failed, 1 error, 1 passed in 3.20s ==============
+ERROR tests/live/test_route.py::test_fixture - KeyError: 'PORT'
+===================== 2 failed, 1 passed, 1 error in 0.03s =====================
+"""
+
+# A message of several lines is printed whole under -vv, so its later lines sit among the
+# entries, one of them beginning with the word `ERROR`.
+MULTILINE = """\
+=========================== short test summary info ============================
+FAILED tests/live/test_route.py::test_connect - AssertionError: connect failed
+ERROR connecting to svc-a
+assert 1 == 2
+ERROR tests/live/test_route.py::test_fixture - KeyError: 'PORT'
+========================= 2 failed in 0.03s =========================
 """
 
 NO_SUMMARY = (
@@ -83,6 +117,15 @@ AssertionError: expected 404 to be 200
 """
 
 
+def checkout(tmp_path: Path, *names: str) -> Path:
+    """A checkout directory under `tmp_path` holding one directory per name."""
+    root = tmp_path / "checkout"
+    root.mkdir()
+    for name in names:
+        (root / name).mkdir()
+    return root
+
+
 def run_returning(*answers: str, code: int = 1):
     """A runner that answers its calls with `answers` in order (the last repeats)."""
     calls: list[str] = []
@@ -95,7 +138,10 @@ def run_returning(*answers: str, code: int = 1):
     return run
 
 
-def gate(tmp_path: Path, run, **kwargs) -> Tier2Session:
+def gate(tmp_path: Path, run, *, root: Path | None = None, **kwargs) -> Tier2Session:
+    """The tier 2 gate over a fake runner; with `root`, a project manifest is written there."""
+    if root is not None:
+        (root / "pyproject.toml").write_text("[project]\nname = 'x'\n")
     return Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
@@ -105,8 +151,9 @@ def gate(tmp_path: Path, run, **kwargs) -> Tier2Session:
     )
 
 
-def feedback_after_failing_tier2(tmp_path: Path, snapshot: str) -> str:
-    """The feedback the unit holds after a tier 2 that failed with `snapshot`."""
+def run_failing_tier2(tmp_path: Path, snapshot: str) -> tuple[str, Path]:
+    """Run a tier 2 unit whose tier 2 fails with `snapshot`: the feedback the unit
+    holds afterwards, and the directory of its run logs."""
     logs = tmp_path / "unit-logs"
     tier_two = unit(tier="tier2")
     run_log = RunLog(
@@ -125,4 +172,4 @@ def feedback_after_failing_tier2(tmp_path: Path, snapshot: str) -> str:
             )
 
     asyncio.run(go())
-    return store.get(tier_two.id).feedback
+    return store.get(tier_two.id).feedback, logs

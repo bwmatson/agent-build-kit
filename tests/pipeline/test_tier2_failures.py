@@ -11,8 +11,10 @@ from tests.tier2_failure_fakes import (
     FIXTURE_LINE,
     FOUR_ERRORS,
     MIXED,
+    MULTILINE,
     NO_SUMMARY,
     NODE_OUTPUT,
+    checkout,
     gate,
     run_returning,
 )
@@ -35,10 +37,19 @@ def test_failures_and_errors_are_listed_in_the_order_printed() -> None:
     assert failures == [
         TestFailure(
             test="tests/live/test_route.py::test_route",
-            line="AssertionError: assert 404 == 200",
+            line="assert 404 == 200",
         ),
-        TestFailure(test="tests/live/test_route.py::test_fixture", line="KeyError: 'PORT'"),
         TestFailure(test="tests/live/test_route.py::test_param[a b]", line="ValueError: bad route"),
+        TestFailure(test="tests/live/test_route.py::test_fixture", line="KeyError: 'PORT'"),
+    ]
+
+
+def test_a_continuation_line_of_a_message_is_not_an_entry() -> None:
+    failures = PYTHON.parse_test_failures(MULTILINE)
+
+    assert [failure.test for failure in failures] == [
+        "tests/live/test_route.py::test_connect",
+        "tests/live/test_route.py::test_fixture",
     ]
 
 
@@ -65,17 +76,10 @@ def test_a_node_profile_output_gives_no_entries() -> None:
     assert NODE.parse_test_failures(NODE_OUTPUT) == []
 
 
-def _checkout(tmp_path: Path) -> Path:
-    root = tmp_path / "checkout"
-    for name in ("api", "web"):
-        (root / name).mkdir(parents=True)
-    return root
-
-
 def test_the_gate_merges_the_failures_of_two_projects_in_order_labelled_by_project(
     tmp_path: Path,
 ) -> None:
-    root = _checkout(tmp_path)
+    root = checkout(tmp_path, "api", "web")
     session = gate(
         tmp_path,
         run_returning(MIXED, FOUR_ERRORS),

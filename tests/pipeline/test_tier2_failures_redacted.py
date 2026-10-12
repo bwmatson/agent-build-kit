@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.tier2 import Tier2Result
 from tests.redaction_fakes import NAME, SECRET, known
-from tests.tier2_failure_fakes import feedback_after_failing_tier2, gate, run_returning
+from tests.tier2_failure_fakes import gate, run_failing_tier2, run_returning
 
 REPLACED = f"[redacted:{NAME}]"
 # The value starts a few characters before the fixed length, so a cut first leaves
@@ -16,8 +16,7 @@ OUTPUT = f"=== short test summary info ===\nFAILED tests/t.py::test_a - {LINE}\n
 
 def _run(root: Path) -> tuple[Tier2Result, str]:
     root.mkdir()
-    (root / "pyproject.toml").write_text("[project]\nname = 'x'\n")
-    session = gate(root, run_returning(OUTPUT))
+    session = gate(root, run_returning(OUTPUT), root=root)
     with known():
         _, snapshot = session.run(cwd=root)
     assert session.result is not None
@@ -40,7 +39,7 @@ def test_the_saved_feedback_holds_the_replacement(tmp_path: Path) -> None:
     (tmp_path / "unit").mkdir()
 
     with known():
-        feedback = feedback_after_failing_tier2(tmp_path / "unit", snapshot)
+        feedback, _ = run_failing_tier2(tmp_path / "unit", snapshot)
 
     assert "`tests/t.py::test_a` - RuntimeError: " in feedback
     assert REPLACED in feedback

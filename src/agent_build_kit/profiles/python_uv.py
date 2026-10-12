@@ -37,8 +37,10 @@ XDIST = "pytest-xdist"
 MANIFEST = "pyproject.toml"
 LOCK = "uv.lock"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
-# A FAILED/ERROR line for each failed test, with a short traceback each.
-SUMMARY_FLAGS = ["-rfE", "--tb=short"]
+# A FAILED/ERROR line for each failed test, with a short traceback each. `-vv` as well:
+# below it pytest cuts each summary message to the terminal width, and drops it when the
+# test id fills the line.
+SUMMARY_FLAGS = ["-vv", "-rfE", "--tb=short"]
 SUMMARY_MARK = "short test summary info"
 SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
 FAILURE_LINE_LIMIT = 500
@@ -285,7 +287,9 @@ class PythonUvProfile:
         failures = []
         for line in summary.splitlines():
             matched = SUMMARY_ENTRY.match(line)
-            if matched:
+            # A message printed whole spans lines; one that begins with the word
+            # `ERROR` is not an entry unless its id has the shape of a node id.
+            if matched and ("::" in matched.group(1) or matched.group(1).endswith(".py")):
                 first = matched.group(2) or ""
                 if len(first) > FAILURE_LINE_LIMIT:
                     first = first[: FAILURE_LINE_LIMIT - 1] + "…"
@@ -458,7 +462,7 @@ class PythonUvProfile:
         any member's live tests say so."""
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-m", marker, "-v", *SUMMARY_FLAGS]]
+            return [["uv", "run", "pytest", "-m", marker, *SUMMARY_FLAGS]]
         return [
             [
                 "uv",
@@ -471,7 +475,6 @@ class PythonUvProfile:
                 "pytest",
                 "-m",
                 marker,
-                "-v",
                 *SUMMARY_FLAGS,
             ]
             for member in members

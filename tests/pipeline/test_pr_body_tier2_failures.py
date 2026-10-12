@@ -7,7 +7,7 @@ from agent_build_kit.pipeline.pr_body import build_pr_body
 from agent_build_kit.pipeline.tier2 import TestFailure
 from tests.factories import output_of, snapshot
 from tests.factories import stored_unit as unit
-from tests.tier2_failure_fakes import feedback_after_failing_tier2
+from tests.tier2_failure_fakes import run_failing_tier2
 
 FAILURES = [
     TestFailure(test=f"tests/live/test_module.py::test_case_{n:02d}", line=f"KeyError: 'P{n:02d}'")
@@ -38,7 +38,7 @@ def test_the_saved_feedback_holds_the_listing_when_the_output_does_not_hold_the_
 ) -> None:
     snap = snapshot("only the last lines\n1 failed in 1s", failures=FAILURES[:4])
 
-    feedback = feedback_after_failing_tier2(tmp_path, snap)
+    feedback, _ = run_failing_tier2(tmp_path, snap)
 
     assert "KeyError" not in snap.split("<details>")[1]
     for failure in FAILURES[:4]:

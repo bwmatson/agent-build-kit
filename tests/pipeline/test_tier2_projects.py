@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON_UV
 from tests.factories import unit
+from tests.tier2_failure_fakes import checkout as _checkout
 
 PASSED = "3 passed in 4.00s"
 FAILED = "FAILED tests/test_live.py::test_live - assert 0\n1 failed in 1.00s"
@@ -44,14 +45,6 @@ def _session(
         sha=lambda cwd: "abc1234",
         projects=projects,
     )
-
-
-def _checkout(tmp_path: Path, *names: str) -> Path:
-    root = tmp_path / "checkout"
-    root.mkdir()
-    for name in names:
-        (root / name).mkdir()
-    return root
 
 
 def test_a_project_in_a_subdirectory_runs_from_it(tmp_path: Path) -> None:

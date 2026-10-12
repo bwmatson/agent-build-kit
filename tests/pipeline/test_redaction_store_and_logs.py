@@ -3,7 +3,6 @@ redaction that fails withholds the text."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import subprocess
@@ -14,8 +13,6 @@ import pytest
 
 from agent_build_kit import config
 from agent_build_kit.cli.pipeline import log
-from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-from agent_build_kit.graph.unit import run_unit
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.spans import Span
@@ -33,7 +30,7 @@ from agent_build_kit.pipeline.usage_ledger import (
 from agent_build_kit.pipeline.wiring import Tier2Session, build_tier1
 from tests.factories import stored_unit, unit
 from tests.redaction_fakes import FAILURE_MESSAGE, NAME, NOTICE, SECRET, known
-from tests.runner_fakes import Recorder, make_runner
+from tests.tier2_failure_fakes import gate, run_failing_tier2, run_returning
 
 REPLACED = f"[redacted:{NAME}]"
 START = datetime(2026, 9, 23, 22, 44, 5, tzinfo=UTC)
@@ -77,13 +74,7 @@ def _ledger_path() -> Path:
 
 
 def _tier_two(tmp_path: Path, output: str) -> Tier2Session:
-    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
-    return Tier2Session(
-        unit(tier="tier2"),
-        lock=tmp_path / "t2.lock",
-        run=lambda command, **kw: subprocess.CompletedProcess(command, 1, output, ""),
-        sha=lambda cwd: "abc1234",
-    )
+    return gate(tmp_path, run_returning(output), root=tmp_path)
 
 
 def test_saved_feedback_holds_the_replacement(tmp_path: Path) -> None:
@@ -98,15 +89,7 @@ def test_saved_feedback_holds_the_replacement(tmp_path: Path) -> None:
 
 
 def test_a_failing_tier_two_is_saved_and_said_without_the_value(tmp_path: Path) -> None:
-    logs = tmp_path / "unit-logs"
-    tier_two = unit(tier="tier2")
-    run_log = RunLog(
-        logs, tier_two, step="build", model="m", base="main", started=datetime.now(UTC)
-    )
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([tier_two])
-    recorder = Recorder(store, tier2_ok=False)
-    recorder.tier2_output = build_snapshot(
+    snapshot = build_snapshot(
         Tier2Result(
             sha="abcdef1234567",
             passed=0,
@@ -117,18 +100,10 @@ def test_a_failing_tier_two_is_saved_and_said_without_the_value(tmp_path: Path) 
             output=f"FAILED tests/live/test_it.py - Scratch(env={SECRET})",
         )
     )
-    runner = make_runner(store, recorder, tmp_path)
-
-    async def go() -> None:
-        async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
-            await run_unit(
-                runner, tier_two, base="main", graph=[], saver=saver, run_log=run_log, tracer=None
-            )
 
     with known():
-        asyncio.run(go())
+        feedback, logs = run_failing_tier2(tmp_path, snapshot)
 
-    feedback = store.get(tier_two.id).feedback
     assert SECRET not in feedback
     assert REPLACED in feedback
     written = _only(logs)
