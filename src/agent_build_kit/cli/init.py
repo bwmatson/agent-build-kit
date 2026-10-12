@@ -43,7 +43,13 @@ from agent_build_kit.init.detect import (
 )
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
-from agent_build_kit.init.runtime_choice import Choice, RuntimeChoiceError, choose, merge_values
+from agent_build_kit.init.runtime_choice import (
+    Choice,
+    RuntimeChoiceError,
+    choose,
+    merge_values,
+    parse_routes,
+)
 from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
     RULES_VERSION,
@@ -367,15 +373,17 @@ def _choose_runtime(
     """The runtime to use and how it is set up, or None when a kept abk.yaml (`kept`,
     as parsed) already names one and nothing asks to change it."""
     named = kept.get("runtime")
-    if keeps and args.yes and not args.runtime:
+    extra = parse_routes(args.set_values or [], args.runtime_config)
+    wanted = args.runtime or extra.get("runtime")
+    if keeps and args.yes and not wanted:
         return None  # a kept file is not changed unasked
-    if named and (not args.runtime or args.runtime == named):
+    if named and (not wanted or wanted == named):
         return None
     if named and args.yes:
-        print(f"abk.yaml keeps its runtime {named}; --force overrides it with {args.runtime}")
+        print(f"abk.yaml keeps its runtime {named}; --force overrides it with {wanted}")
         return None
     if named:
-        reply = ask(f"abk.yaml already uses {named}; use {args.runtime} instead? [y/N] ")
+        reply = ask(f"abk.yaml already uses {named}; use {wanted} instead? [y/N] ")
         if reply.strip().lower() not in ("y", "yes"):
             return None
     return choose(
@@ -386,6 +394,7 @@ def _choose_runtime(
         yes=args.yes,
         runtime=args.runtime,
         agent_command=args.agent_command,
+        extra=extra,
     )
 
 
@@ -438,8 +447,31 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 "environment: nothing recognised in the planning repo; add an `environment` "
                 "section with `sync` and `check` to abk.yaml by hand"
             )
+    try:
+        kept = (_read_yaml(planning / CONFIG_FILENAME) or {}) if keeps else {}
+        chosen = _choose_runtime(config, args, keeps=keeps, kept=kept)
+        if keeps and not chosen and (args.agent_command or args.set_values or args.runtime_config):
+            print(
+                "abk.yaml is kept: its runtime and command are left as they are; "
+                "--runtime (with confirmation) or --force changes them"
+            )
+        applied = chosen.applied_to(config) if chosen else config
+        if not keeps:
+            config = applied
+    except RuntimeChoiceError as error:
+        print(f"abk init: {error}", file=sys.stderr)
+        return 2
+    if chosen and not args.dry_run and not args.yes:
+        print("abk.yaml will record:\n" + yaml.safe_dump(chosen.fragment, sort_keys=False))
+        if ask("write it and proceed? [Y/n] ").strip().lower() in ("n", "no"):
+            print("nothing written")
+            return 1
+
     if args.dry_run:
         if keeps:
+            if chosen:
+                print("# abk.yaml is kept; it would record:\n")
+                print(yaml.safe_dump(chosen.fragment, sort_keys=False))
             print("# abk.yaml is kept; what would be filled in it:\n")
             fills = fill_missing_environment(planning / CONFIG_FILENAME, config, dry_run=True)
             for what, block in fills.items():
@@ -457,20 +489,6 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
 
-    try:
-        kept = (_read_yaml(planning / CONFIG_FILENAME) or {}) if keeps else {}
-        chosen = _choose_runtime(config, args, keeps=keeps, kept=kept)
-        if keeps and not chosen and args.agent_command:
-            print(
-                "abk.yaml is kept: its runtime and command are left as they are; "
-                "--runtime (with confirmation) or --force changes them"
-            )
-        applied = chosen.applied_to(config) if chosen else config
-        if not keeps:
-            config = applied
-    except RuntimeChoiceError as error:
-        print(f"abk init: {error}", file=sys.stderr)
-        return 2
     agent = _agent(chosen, kept.get("runtime"))
 
     # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
@@ -697,6 +715,18 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--agent-command",
         metavar="ARGV",
         help="the command that starts the protocol runtime's agent",
+    )
+    init.add_argument(
+        "--set",
+        dest="set_values",
+        action="append",
+        metavar="KEY=VALUE",
+        help="give an answer by the abk.yaml key it is written to (repeatable)",
+    )
+    init.add_argument(
+        "--runtime-config",
+        metavar="FILE",
+        help="a YAML fragment of abk.yaml holding the answers, validated like typed ones",
     )
     init.add_argument("--register-store", metavar="ID", help="register as an OpenSpec store")
     init.set_defaults(func=cmd_init, needs_installation=False)

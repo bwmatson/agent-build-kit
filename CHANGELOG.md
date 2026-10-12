@@ -43,7 +43,13 @@
   after you confirm, or with `--force` (`--yes` alone leaves it). Research and propose
   run with the command and models recorded there. A new start command replaces the one
   already recorded for that runtime, and `--agent-command` on a kept file that is not
-  changed says so.
+  changed says so. It also asks whether what an agent needs (a running gateway, say)
+  is in place, and which models to use, from what the agent advertises when a session
+  opens, Claude Code's documented aliases, or a name you type; no model is ever
+  called to choose. It shows what it will record and writes only after you confirm.
+  Any answer can be given without a prompt with repeatable `--set key=value` or
+  `--runtime-config FILE`, an unknown key is refused by name, and `--dry-run` prints
+  the choice it would record.
 
 - An agent run that ends because the internet or the model service is down no longer
   fails its unit. The unit is parked as `planned`, shown in `abk status` and the graph as
