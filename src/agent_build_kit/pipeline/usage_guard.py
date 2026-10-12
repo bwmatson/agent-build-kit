@@ -980,6 +980,7 @@ def decide_start(
     *,
     read: Callable[[], UsageReading | None] | None = None,
     decide: Callable[..., Decision] | None = None,
+    unit: str | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.

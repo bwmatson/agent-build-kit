@@ -192,6 +192,9 @@ class UsageWindowConfig(Frozen):
     # paused pipeline is woken: enough that a unit which starts can finish,
     # rather than being admitted exactly at the margin.
     usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
+    # Points of this window one unit may spend, counted for each unit that has spent
+    # since the last reading or started on an estimate (stub: the real default differs by window).
+    usage_unit_allowance_pct: int = 0
 
     @property
     def usage_ceiling_pct(self) -> int:
@@ -229,6 +232,10 @@ class ClaudeLimitsConfig(Frozen):
     usage_climb_floor: Annotated[float, Field(ge=0)] = 0.2
     # Percentage points added to the usage a reading could have gained since it was taken.
     usage_climb_margin_pct: Annotated[int, Field(ge=0)] = 2
+    # The room an estimate must leave under a threshold before a start is allowed on it.
+    usage_headroom_margin_pct: int = 0
+    # How many units may start on an estimate for one reading.
+    usage_estimate_max_starts: int = 0
 
 
 class RuntimeConfig(Frozen):

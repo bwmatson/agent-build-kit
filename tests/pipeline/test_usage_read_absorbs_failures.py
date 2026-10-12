@@ -310,7 +310,7 @@ def test_the_fallback_age_is_configurable(host: Host) -> None:
 
 
 def test_nothing_recent_refuses_as_stale_naming_the_editor(host: Host) -> None:
-    host.keep_reading(timedelta(minutes=40))
+    """No kept reading an estimate can rest on, and an editor's reading six hours old."""
     host.editor_reading(timedelta(hours=6))
     host.answers = [TimeoutError("timed out"), TimeoutError("timed out")]
 

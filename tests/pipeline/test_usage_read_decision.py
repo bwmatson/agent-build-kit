@@ -20,7 +20,7 @@ from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.usage_guard import decide_start
 from tests.conftest import make_installation
-from tests.usage_host import Host, called, configure, pause_at, payload
+from tests.usage_host import Host, called, configure, pause_at, payload, refusal
 
 MINUTES = timedelta(minutes=1)
 
@@ -230,3 +230,80 @@ def test_a_refresh_inside_the_interval_makes_no_call(
 
     assert host.asked == 0
     assert "21%" in usage_line(capsys.readouterr().out)
+
+
+# --- what a refused read still pauses for (the estimate rule leaves these as they were) ---
+
+
+def refused(host: Host, ago: timedelta = 2 * MINUTES) -> None:
+    host.seed(
+        {
+            "at": (datetime.now(UTC) - ago).isoformat(),
+            "caller": "guard",
+            "outcome": "rate_limited",
+            "status": 429,
+            "latency_ms": 100,
+            "headers": {"retry-after": "0"},
+        }
+    )
+
+
+def test_a_live_reading_over_the_threshold_pauses_with_no_estimate(host: Host) -> None:
+    host.keep_reading(timedelta(minutes=89), payload(session=80.0))
+    host.answers = [payload(session=95.0)]
+
+    decision = decide_start()
+
+    assert not decision.may_start
+    assert "estimated" not in decision.reason
+
+
+def test_with_no_reading_kept_a_refused_read_pauses_for_the_unknown_retry_interval(
+    host: Host,
+) -> None:
+    host.answers = [refusal(retry_after="0")]
+
+    decision = decide_start()
+
+    assert not decision.may_start
+    assert "unknown" in decision.reason
+    assert decision.resume_at is not None
+
+
+def test_the_editor_s_reading_alone_is_not_the_base_of_an_estimate(host: Host) -> None:
+    host.keep_editor_reading(timedelta(hours=3), session=0)
+    refused(host)
+
+    decision = decide_start()
+
+    assert not decision.may_start
+    assert "estimated" not in decision.reason
+
+
+@pytest.mark.parametrize("fault", ["plan_limit", "window_full"])
+def test_a_kept_reading_that_is_not_a_base_for_an_estimate_still_pauses(
+    host: Host, fault: str
+) -> None:
+    body = payload(session=0.0, weekly=65.0)
+    if fault == "plan_limit":
+        body["extra_usage"]["spend_limit_reached"] = True
+    else:
+        body["five_hour"]["utilization"] = 100.0
+    host.keep_reading(timedelta(minutes=89), body)
+    refused(host)
+
+    decision = decide_start()
+
+    assert not decision.may_start
+    assert "estimated" not in decision.reason
+
+
+def test_a_kept_reading_younger_than_the_fallback_age_is_used_as_read(host: Host) -> None:
+    host.keep_reading(timedelta(minutes=20), payload(session=88.0))
+    host.answers = [TimeoutError("timed out"), TimeoutError("timed out")]
+
+    decision = decide_start()
+
+    assert decision.may_start
+    assert "estimated" not in decision.reason
+    assert "session 88%" in decision.reason
