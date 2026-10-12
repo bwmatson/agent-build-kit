@@ -172,6 +172,13 @@ parked the same way (`gated`, its note names the test) with a `Needs:` line on t
 change the pipeline wrote to fix that test. `abk status` lists each flaky test as `flaky:`
 with its count and fix change; the unit resumes at tier 1 once that change merges.
 
+A test that fails tier 2 on the base as well is pre-existing: it is recorded in
+`preexisting-failures.jsonl` and gets one `fix-failing-<test>` change, written without a
+model (a successor only once the earlier one is merged and archived). `abk status` lists
+each as `pre-existing:` with its count and fix change. The fix changes of both kinds are
+written at `Priority: 1`. `abk tick --dry-run` prints `exists: <change>` or
+`would write: <change>` for each recorded one and writes nothing.
+
 ### What an agent may run on the code host
 
 Only to read its own pull request, by the commands its repo's forge declares

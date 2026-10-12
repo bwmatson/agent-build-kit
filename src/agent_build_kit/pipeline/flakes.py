@@ -14,29 +14,28 @@ from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
 NAME_LIMIT = 70
+# What the name of the change that fixes a flaky test starts with.
+FLAKY_PREFIX = "fix-flaky"
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
 CAPABILITY = "test-determinism"
 
 
-class Flake(Frozen):
+class Flake(Recorded):
     """One test that failed under load and passed alone."""
 
-    test: str
     command: str
     output: str
     at: datetime
     # Set by whoever records it: tier 1 does not know which unit it ran for.
     unit: str = ""
-    # The change that fixes the test, once there is one.
-    change: str = ""
     # Where tier 1 ran it (a project below the repo root, or the root), which its
     # identifier is relative to; empty when unknown.
     directory: str = ""
@@ -56,56 +55,24 @@ class FlakeFound(Exception):
         self.flakes = flakes
 
 
-class FlakeCount(Frozen):
-    """A flaky test, how many times it flaked and the change that fixes it."""
-
-    test: str
-    count: int
-    change: str
+FlakeCount = TestCount
 
 
-class FlakeRecord:
-    """The flakes found, appended to a file in the state directory."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-
-    def append(self, flake: Flake) -> None:
-        with file_lock(self.path.with_suffix(".lock")):
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(flake.model_dump_json() + "\n")
-
-    def entries(self) -> list[Flake]:
-        """Every flake recorded, oldest first."""
-        try:
-            lines = self.path.read_text(encoding="utf-8").splitlines()
-        except FileNotFoundError:
-            return []
-        return [Flake.model_validate_json(line) for line in lines if line.strip()]
-
-    def counts(self) -> list[FlakeCount]:
-        """Each flaky test once, with how often it flaked and its latest fix change."""
-        counted: dict[str, FlakeCount] = {}
-        for flake in self.entries():
-            before = counted.get(flake.test)
-            counted[flake.test] = FlakeCount(
-                test=flake.test,
-                count=(before.count if before else 0) + 1,
-                change=flake.change or (before.change if before else ""),
-            )
-        return list(counted.values())
-
-
-def flake_record(inst: Installation) -> FlakeRecord:
-    return FlakeRecord(inst.state_dir / "flakes.jsonl")
+def flake_record(inst: Installation) -> FailureRecord[Flake]:
+    return FailureRecord(inst.state_dir / "flakes.jsonl", Flake)
 
 
 def flake_change_name(test: str) -> str:
-    """The name of the change that fixes `test`, from its identifier: lower-case words
-    joined by hyphens, the same for the same test."""
+    """The name of the change that fixes the flaky `test`."""
+    return fix_change_name(test, FLAKY_PREFIX)
+
+
+def fix_change_name(test: str, prefix: str) -> str:
+    """The name of the change that fixes `test`, from its identifier: `prefix` and
+    lower-case words joined by hyphens, the same for the same test, cut with a hash of
+    the whole when it is long."""
     slug = re.sub(r"[^a-z0-9]+", "-", test.lower()).strip("-")
-    name = f"fix-flaky-{slug}"
+    name = f"{prefix}-{slug}"
     if len(name) > NAME_LIMIT:
         name = f"{name[: NAME_LIMIT - 9].rstrip('-')}-{hashlib.sha1(test.encode()).hexdigest()[:8]}"
     return name
@@ -116,9 +83,9 @@ def wait_on_fix(inst: Installation, flake: Flake, unit: StoredUnit) -> str | Non
     directory's lock, and give each group of `unit` a `Needs:` line on it. Returns the
     change's name, or None for a unit of that change itself, which waits on nothing."""
     with file_lock(inst.state_dir / "flakes.lock"):
-        name, earlier = _open_change(inst, flake.test)
+        name, earlier = open_fix_change(inst, flake.test, FLAKY_PREFIX)
         if name is None:
-            name = _next_name(inst, flake.test)
+            name = next_fix_name(inst, flake.test, FLAKY_PREFIX)
             _write_change(inst, name, flake, unit, earlier=earlier)
         if unit.change == name:
             return None
@@ -131,8 +98,8 @@ def wait_on_fix(inst: Installation, flake: Flake, unit: StoredUnit) -> str | Non
 # --- which change ----------------------------------------------------------------
 
 
-def _candidates(test: str):
-    base = flake_change_name(test)
+def _candidates(test: str, prefix: str):
+    base = fix_change_name(test, prefix)
     yield base
     attempt = 2
     while True:
@@ -144,10 +111,11 @@ def _archived(inst: Installation, name: str) -> bool:
     return any((inst.changes_dir / "archive").glob(f"*-{name}"))
 
 
-def _open_change(inst: Installation, test: str) -> tuple[str | None, str]:
-    """The open change for `test`, or None and the last archived attempt (or "")."""
+def open_fix_change(inst: Installation, test: str, prefix: str) -> tuple[str | None, str]:
+    """The open change named for `test` under `prefix`, or None and the last archived
+    attempt (or "")."""
     earlier = ""
-    for name in _candidates(test):
+    for name in _candidates(test, prefix):
         if (inst.changes_dir / name).is_dir():
             return name, earlier
         if not _archived(inst, name):
@@ -156,8 +124,10 @@ def _open_change(inst: Installation, test: str) -> tuple[str | None, str]:
     raise AssertionError("unreachable")
 
 
-def _next_name(inst: Installation, test: str) -> str:
-    for name in _candidates(test):
+def next_fix_name(inst: Installation, test: str, prefix: str) -> str:
+    """The name the next change for `test` under `prefix` gets: the first neither open
+    nor archived."""
+    for name in _candidates(test, prefix):
         if not (inst.changes_dir / name).exists() and not _archived(inst, name):
             return name
     raise AssertionError("unreachable")
@@ -250,7 +220,7 @@ def _tasks(flake: Flake, unit: StoredUnit) -> str:
         "Acceptance: none — a flaky test is made deterministic; nothing a consumer sees "
         "changes.\n\n"
         f"## 1. [{unit.repo}] [tier1] Make `{flake.test}` deterministic\n\n"
-        "Priority: 2\n\n"
+        "Priority: 1\n\n"
         "Done when the test passes under load every time, and under the repeat check.\n\n"
         f"- [ ] 1.1 Test: reproduce the race in `{flake.test}` deterministically, without "
         "waiting on the clock, so it fails every time before the fix.\n"
