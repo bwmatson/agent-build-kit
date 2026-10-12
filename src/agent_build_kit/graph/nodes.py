@@ -79,6 +79,7 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
+from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
@@ -101,6 +102,8 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     local_ref,
 )
+from agent_build_kit.pipeline.untouched_failures import feedback_snapshot
+from agent_build_kit.pipeline.untouched_failures import waiting_note as preexisting_waiting_note
 from agent_build_kit.pipeline.usage_guard import starting
 from agent_build_kit.pipeline.usage_ledger import (
     Cost,
@@ -1664,6 +1667,12 @@ class BuildPath:
         # The tail goes to the run log too: the run log is where a failed run is read.
         for line in [line for line in snapshot.splitlines() if line.strip()][-TIER2_LOG_TAIL:]:
             self.say(line)
+        verdict = r.tier2_verdict()
+        if verdict is not None and verdict.pre_existing:
+            parked = self.wait_for_preexisting(verdict)
+            if parked is not None:
+                return parked
+        snapshot = feedback_snapshot(snapshot, verdict)
         # Kept, as tier 1's is: a failure that leaves no trace has to be reproduced by hand.
         if state.moved:
             r.store.set_feedback(
@@ -1681,6 +1690,23 @@ class BuildPath:
             source=FeedbackSource.REVIEW if review else FeedbackSource.TIER2,
         )
         return self.stop("tier 2 failed")
+
+    def wait_for_preexisting(self, verdict: Tier2Verdict) -> Update | None:
+        """Tests that fail on the base too are recorded and each gets its fix change. A unit
+        with nothing else failing then waits, gated, for those fixes and runs tier 2 again
+        once they have merged. None when it does not wait: it has a failure of its own to
+        fix, or it builds the fix itself."""
+        r, unit = self.runner, self.unit
+        wait = not (verdict.own or verdict.broken)
+        fixes = [
+            r.on_preexisting(unit, verdict, failure, wait=wait) for failure in verdict.pre_existing
+        ]
+        if not wait or not any(fixes):
+            return None
+        note = preexisting_waiting_note([failure.test for failure in verdict.pre_existing])
+        update = self.hold(PLANNED, note, note, cause=Cause.GATED)
+        r.store.set_gated_requeue(unit.id, RequeueReason.RESUME)
+        return update
 
     def satisfied(self, state: UnitRun) -> Update:
         """Nothing of this unit's own on the branch, and what is at the tip passes:

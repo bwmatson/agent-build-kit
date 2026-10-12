@@ -1070,6 +1070,15 @@ approved.
   even when no unit is pending, and writes nothing. The flake fix change is also written at
   `Priority: 1`: a unit waits on either kind until it merges. `abk status` lists each as
   `pre-existing:` with its count and fix change.
+- **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
+  tier 2 run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
+  runner's `on_preexisting` (`wiring.build_on_preexisting`), gives each group of the unit a
+  `Needs:` line (`group 1 merged — failing test <id> on the base`) and parks it as `wait_for_fix`
+  does: `PLANNED`, cause `gated`, a `resume` requeue. It resumes restacked at tier 2, which runs
+  in full again. A unit of the fix change, or one with a failure of its own or broken by it, is
+  failed as today; its pre-existing failures are still recorded and fixed, without a `Needs:`
+  line. The feedback saved on a failure drops the lines and output of pre-existing tests
+  (`untouched_failures.feedback_snapshot`) and names them once.
 - **New tests are repeated under load.** After tier 1 passes, the tests the unit added or
   changed (`tests_changed`) are run `limits.tier1_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the

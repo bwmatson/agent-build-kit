@@ -91,7 +91,7 @@ def wait_on_fix(inst: Installation, flake: Flake, unit: StoredUnit) -> str | Non
             return None
         for member in unit.members():
             for group in member.groups:
-                _add_needs(inst, member.change, group, name, flake.test)
+                add_needs(inst, member.change, group, name, f"flaky test {flake.test}")
         return name
 
 
@@ -136,7 +136,8 @@ def next_fix_name(inst: Installation, test: str, prefix: str) -> str:
 # --- the Needs: line -------------------------------------------------------------
 
 
-def _add_needs(inst: Installation, change: str, group: int, fix: str, test: str) -> None:
+def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str) -> None:
+    """Give `group` of `change` a `Needs:` line on group 1 of `fix` being merged, with `reason`."""
     tasks = inst.changes_dir / change / "tasks.md"
     if not tasks.is_file():
         return
@@ -150,7 +151,7 @@ def _add_needs(inst: Installation, change: str, group: int, fix: str, test: str)
             if heading and int(heading["number"]) == group:
                 lines[index + 1 : index + 1] = [
                     "",
-                    f"Needs: {fix} group 1 merged — flaky test {test}",
+                    f"Needs: {fix} group 1 merged — {reason}",
                 ]
                 tasks.write_text("\n".join(lines) + "\n")
                 return

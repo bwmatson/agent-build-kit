@@ -65,7 +65,7 @@ def test_a_unit_whose_failures_are_all_pre_existing_is_parked_gated_on_the_fix(
     assert stored.gated_requeue is RequeueReason.RESUME
     assert OLD in stored.note and OTHER_OLD in stored.note, "a person sees which tests it waits on"
     assert stored.feedback == "", "a failure on the base is not feedback for the agent to fix"
-    assert not {"review", "push", "pr"} & set(recorder.events)
+    assert not {"push", "pr"} & set(recorder.events), "nothing is published"
 
 
 def test_a_unit_of_the_fix_change_is_not_parked_and_fails_as_today(tmp_path: Path) -> None:

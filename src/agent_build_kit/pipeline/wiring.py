@@ -111,6 +111,11 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
+from agent_build_kit.pipeline.untouched_failures import (
+    PreExisting,
+    preexisting_record,
+    wait_on_preexisting,
+)
 from agent_build_kit.pipeline.usage_guard import (
     Decision,
     UsageReading,
@@ -1026,7 +1031,24 @@ def build_on_preexisting(
     """Record a test that failed on the base too and make sure one change fixes it; with
     `wait`, give each group of the unit a `Needs:` line on that change. Returns the
     change, or None for a unit of the change itself, which has nothing to wait on."""
-    raise NotImplementedError
+
+    def on_preexisting(
+        unit: Unit, verdict: Tier2Verdict, failure: TestFailure, *, wait: bool
+    ) -> str | None:
+        met = PreExisting(
+            test=failure.test,
+            unit=unit.id,
+            command=verdict.command,
+            line=failure.line,
+            at=datetime.now(UTC),
+            base_output=verdict.base_output,
+        )
+        fix = wait_on_preexisting(installation, met, store.get(unit.id), wait=wait, say=log)
+        preexisting_record(installation).append(met.model_copy(update={"change": fix or ""}))
+        log(f"{unit.id}: failing test {failure.test} — " + (f"fix {fix}" if fix else "no wait"))
+        return fix
+
+    return on_preexisting
 
 
 def _under(path: Path, where: Path) -> str | None:
@@ -1905,6 +1927,8 @@ class Tier2Session:
             at, _, ran = named_by[failure.test]
             by_command.setdefault((at, tuple(ran)), []).append(failure.test)
         failing: set[str] = set()
+        commands: list[str] = []
+        outputs: list[str] = []
         try:
             with worktree_at(cwd, base) as tree:
                 for (at, ran), tests in by_command.items():
@@ -1914,14 +1938,12 @@ class Tier2Session:
                         continue
                     project = str(at.relative_to(cwd)) if at != cwd else ""
                     prefix = f"{project}/" if project else ""
-                    completed = self._run(
-                        rerun(list(ran), [t.removeprefix(prefix) for t in tests]),
-                        cwd=tree / at.relative_to(cwd),
-                        **self._test_env,
-                    )
-                    named = toolchain.parse_test_failures(
-                        f"{completed.stdout or ''}{completed.stderr or ''}"
-                    )
+                    command = rerun(list(ran), [t.removeprefix(prefix) for t in tests])
+                    completed = self._run(command, cwd=tree / at.relative_to(cwd), **self._test_env)
+                    text = f"{completed.stdout or ''}{completed.stderr or ''}"
+                    commands.append(" ".join(command))
+                    outputs.append(text)
+                    named = toolchain.parse_test_failures(text)
                     failing.update(f"{prefix}{found.test}" for found in named)
         except (subprocess.CalledProcessError, OSError) as error:
             logger.warning("tier 2 base run could not be made, so it proves nothing: %s", error)
@@ -1929,6 +1951,8 @@ class Tier2Session:
             own=classified.own,
             broken=[f for f in classified.untouched if f.test not in failing],
             pre_existing=[f for f in classified.untouched if f.test in failing],
+            command="; ".join(commands),
+            base_output=redact_text("\n".join(outputs)[-4000:], where="tier-2 base output"),
         )
 
     def _run_on_dev_stack(self, cwd: Path, script: Path) -> tuple[bool, str]:
@@ -2639,6 +2663,8 @@ def build_runner(
         ),
         on_flake=build_on_flake(store, installation, log=log),
         run_tier2=tier2.run,
+        tier2_verdict=lambda: tier2.verdict,
+        on_preexisting=build_on_preexisting(store, installation, log=log),
         push=push_in_turn,
         open_pr=build_open_pr(store=store, log=log),
         linear=is_linear,
