@@ -186,8 +186,8 @@ def test_a_second_run_keeps_the_edited_config(tmp_path: Path, app: Path) -> None
 
 def test_repos_are_prompted_for_without_yes(tmp_path: Path, app: Path, monkeypatch) -> None:
     answers = iter(
-        [str(app), "", "", ""]
-    )  # the repo, the end of the list, the runtime and its command
+        [str(app), "", "", "", "", ""]
+    )  # the repo, the end of the list, the runtime, its command, its models, the write
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: next(answers))
     planning = recognised_planning(tmp_path / "planning")
 
@@ -513,7 +513,7 @@ INSTALL = [
 INSTALL_TEXT = " ".join(INSTALL)
 
 
-RUNTIME_PROMPTS = ("Which runtime?", "The claude executable")
+RUNTIME_PROMPTS = ("Which runtime?", "The claude executable", "Models:", "write it and proceed")
 
 
 class Conversation:

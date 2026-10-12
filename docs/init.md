@@ -47,8 +47,49 @@ languages, `consumes`, a `dev_stack` when the script exists, `credentials`
 when the array was found, and one empty deploy rule per service directory
 (`prefix: svc-a/`, `run: []`) for the person to fill.
 
-`--dry-run` prints this `abk.yaml` and the list of what would be generated,
-then exits 0.
+`--dry-run` prints this `abk.yaml` (with the runtime choice below) and the
+list of what would be generated, then exits 0.
+
+### 2a. Choose the runtime
+
+Before anything is written, and before any agent step, init decides which
+agent runtime runs. Nothing in this step calls a model.
+
+- **The probe.** Each runtime reports the candidates it finds on this machine
+  (`detect`): the program on the path, the optional library, and for an agent
+  whose flag varies one `--help` run with a 5 second timeout. The usable ones
+  are listed first, each unusable one with its reason, and the last line is
+  always "Other / my own configuration". With exactly one usable candidate
+  Enter takes it; with several there is no default.
+- **The runtime's own questions** (`setup_questions`), in order, each with a
+  default Enter accepts and a validator that re-asks on a bad answer (a
+  program that is not on the path, an empty command). `back` returns to the
+  list. Init holds no per-runtime code: a runtime added later brings its own
+  questions and their answers are written where each says.
+- **What the agent needs.** A candidate whose table entry says it needs
+  something (a running gateway, an API key) is asked whether that is in place
+  and, if not, whether to continue anyway.
+- **Models.** Asked only without `--yes`, from what needs no model call: the
+  models the agent advertises when a session opens (with its current one
+  marked default and listed first), Claude Code's documented aliases (one
+  question first: `1` the default models, `2` choose per role, `3` type names),
+  or, for an agent that lists none, a typed name that is not checked now. The
+  choice lands under `models:`; an empty role is the agent's own default.
+- **A fallback.** When another runtime is usable, init offers to configure it
+  too under `runtimes:`; `runtime:` still names the first. Declining its needs
+  leaves it out.
+- **The confirmation.** Init prints the `abk.yaml` fragment it will record and
+  asks `[Y/n]`. A no writes nothing and exits 1. `--yes` is the confirmation
+  for a fully specified run.
+
+The same answers can be given without a prompt: `--runtime NAME`,
+`--agent-command ARGV`, repeatable `--set key=value` (the key is where the
+answer is written, e.g. `models.review`) and `--runtime-config FILE` (a YAML
+fragment of `abk.yaml`). Every route is validated like a typed answer and an
+unknown key exits 2 naming it, also on a kept `abk.yaml`. With `--yes`, a
+single usable runtime is taken; none, or several without `--runtime`, exits 2
+and writes nothing. A kept `abk.yaml` that names a runtime skips the step;
+`--runtime` overrides it after a confirmation or with `--force`.
 
 ### 3. Write
 

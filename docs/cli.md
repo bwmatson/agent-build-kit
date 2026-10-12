@@ -440,7 +440,7 @@ a usage error.
 
 ## Setting up
 
-### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--register-store ID]`
+### `abk init [PLANNING_DIR] [--repo PATH ...] [--consumes REPO:CONSUMED[,CONSUMED] ...] [--yes] [--skip-research] [--skip-propose] [--force] [--update-rules] [--dry-run] [--runtime NAME] [--agent-command ARGV] [--set KEY=VALUE ...] [--runtime-config FILE] [--register-store ID]`
 
 Creates a planning repo for a set of checkouts; the one command that creates
 an installation rather than reading one. Step by step in [init.md](init.md).
@@ -453,7 +453,20 @@ an installation rather than reading one. Step by step in [init.md](init.md).
 - `--yes` skips the prompt. `--skip-research` / `--skip-propose` skip the
   model-driven steps. `--force` overwrites `abk.yaml`, `openspec/config.yaml`,
   the recommendation documents and the generated changes. `--dry-run` prints
-  the `abk.yaml` that would be written and the plan, and stops.
+  the `abk.yaml` that would be written, runtime choice included, and the plan,
+  and stops.
+- The runtime is chosen after the repos are detected and before any agent step:
+  `--runtime` and `--agent-command` name it, `--set key=value` (repeatable, the
+  key being where the answer is written in `abk.yaml`, e.g. `models.review`)
+  and `--runtime-config FILE` (a YAML fragment of `abk.yaml`) give any other
+  answer. Every route is validated like a typed answer, and an unknown key
+  exits 2 naming it. Without `--yes` it also asks what a candidate needs and
+  which models to use (from what the agent advertises, Claude Code's
+  documented aliases, or a typed name; never by asking a model), shows the
+  fragment it will record and writes only on a yes: declining prints
+  `nothing written` and exits 1. `--yes` is the confirmation for a fully
+  specified run; a usable-runtime problem (none, several without `--runtime`),
+  a bad flag value or an unknown key exits 2, writing nothing.
 - `--update-rules` brings `openspec/config.yaml` up to the framework's rules
   version and does nothing else: it adds, to the end of the `context:`, the
   paragraph each newer version added, and restamps the file. The wording, the
