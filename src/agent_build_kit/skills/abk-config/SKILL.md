@@ -69,17 +69,21 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                                        # usage_pause_pct, which means no ramp
         usage_relief_fraction: 0.25    # trailing part of the window a ramp spans
         usage_resume_buffer_pct: 5     # room above usage a resume waits for
-      weekly:                 # the 7-day window: the same four
+        usage_unit_allowance_pct: 10   # points one unit may spend, for an estimate
+      weekly:                 # the 7-day window: the same five
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
+        usage_unit_allowance_pct: 2
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
       usage_cache_max_minutes: 60      # the most refusals can stretch that to
       usage_fallback_minutes: 30       # age of the last good reading that covers a failed call
       usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make
       usage_climb_margin_pct: 2  # points added to what a reading could have gained since
+      usage_headroom_margin_pct: 5  # room an estimate must leave under a threshold
+      usage_estimate_max_starts: 3  # units that may start on an estimate per reading (0: none)
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor

@@ -158,6 +158,27 @@ def pause_at(percent: int, **window: object) -> dict:
     }
 
 
+def refused(
+    host: Host, ago: timedelta = timedelta(minutes=2), *, cooling: timedelta | None = None
+) -> None:
+    """The record shows a 429 with a retry time of zero `ago` ago; with `cooling`, a cool-down
+    ending that long from now is kept in the cache file beside the reading."""
+    host.seed(
+        {
+            "at": (datetime.now(UTC) - ago).isoformat(),
+            "caller": "guard",
+            "outcome": "rate_limited",
+            "status": 429,
+            "latency_ms": 100,
+            "headers": {"retry-after": "0"},
+        }
+    )
+    if cooling is not None:
+        kept = json.loads(host.cache.read_text())
+        until = datetime.now(UTC) + cooling
+        host.cache.write_text(json.dumps({**kept, "cooldown_until": until.isoformat()}))
+
+
 def called(host: Host, ago: timedelta, outcome: str = "ok") -> None:
     """The record shows a call to the endpoint `ago` ago."""
     host.seed(

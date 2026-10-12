@@ -15,6 +15,16 @@
   first error is never lost to the cut of the posted output. The last three files of a
   unit are kept, and archiving a change removes its files.
 
+- A refused or unreadable usage read no longer pauses the pipeline while the last good
+  reading leaves ample room. Each window is estimated as that reading plus a flat
+  allowance for every unit that has spent or started since (`usage_unit_allowance_pct`
+  per window, 10 for the session and 2 for the week), a window that has reset is
+  estimated from its reset, and a start is allowed while both estimates plus
+  `usage_headroom_margin_pct` (5) stay under their thresholds. At most
+  `usage_estimate_max_starts` (3) units start on one reading. The reason and
+  `abk status` show the estimate, so raising `usage_fallback_minutes` is no longer
+  needed to keep work moving.
+
 - A failed tier 2 run now lists every failed or errored test with its first failure
   line above the output that may be cut, so the pull request description and the
   feedback handed back to the builder show each failure even when the tail of the

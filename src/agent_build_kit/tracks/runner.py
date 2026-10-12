@@ -66,6 +66,7 @@ from agent_build_kit.pipeline.usage_guard import (
     decide_start,
     may_start_unit,
     reading_as,
+    starting,
 )
 from agent_build_kit.runtimes import AgentInterrupted, AgentRateLimited, AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -803,7 +804,9 @@ def run_track(
     phase would run. `runtime` is what every phase runs on; the active one
     when not given."""
     if not dry_run:
-        if not has_headroom():
+        with starting(f"track:{phase}"):
+            headroom = has_headroom()
+        if not headroom:
             return 0
         if not pull_planning(inst):
             return 1

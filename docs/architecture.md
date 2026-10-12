@@ -888,7 +888,27 @@ window's reset). The time starts at `usage_cache_minutes` (fifteen by default); 
 stretch of that time halves it, never below the configured value. It is worked out from `usage-calls.jsonl`, and
 `abk status` shows the time in use and what set it. A rate-limit answer starts a cool-down kept with that file, a timeout is retried
 once, and a failed call uses the last good live reading younger than `usage_fallback_minutes`
-(thirty by default, source `cache`), then Claude Code's own cache when it is under an hour old. **An unknown reading pauses.**
+(thirty by default, source `cache`) as read, then Claude Code's own cache when it is under an hour old. **An unknown reading pauses.**
+**A refused or unreadable read does not pause while the reading kept leaves ample room.** When
+the endpoint cannot be asked (a refusal, a cool-down, an error, or the minimum interval) and the
+guard's own cache holds a last good reading of any age, each window is estimated as the figure
+read plus `usage_unit_allowance_pct` (ten points for the session, two for the week) for each unit
+that has spent since the reading (a record in the usage ledger at or after it) or been allowed on
+an estimate since (`estimate_units` in the cache file, kept under the refresh lock), counted once
+by unit id. A window that has reset since starts from zero at its reset plus the most it could
+have climbed since (the climb floor and margin), so a long outage stops being covered. A start
+is allowed while, in both windows judged apart, the estimate plus `usage_headroom_margin_pct`
+(five) is under that window's threshold; otherwise it pauses as before, and the reason names the
+estimate. At most `usage_estimate_max_starts` (three) units start on one reading; a good read
+drops the list and the count. A reading at the plan limit, or with credits enabled and a window
+full, and Claude Code's own reading are never the base, and a reading younger than the fallback
+age is used as read with no estimate; a raised `usage_fallback_minutes` is no longer needed to
+keep work moving. Only a start that happens is recorded: the gate before an agent step names its
+unit, a track names itself, and the round's decision, the resume time and `abk status` start
+nothing and record nothing. The risk left is the person's own use of the account, and any other
+consumer the guard cannot see, while the endpoint is out of reach; the margin and the cap bound
+it. `abk status` prints the same estimate line from the reading held, with no call, when that
+reading is older than the time a reading is kept and the endpoint cannot be asked.
 **A pause never ends before it is written:** the grace after a reset is added
 once, in `pause.py`; a reset time already past is treated as unknown (retry
 after thirty minutes); and a reading too old to trust refuses starts for the

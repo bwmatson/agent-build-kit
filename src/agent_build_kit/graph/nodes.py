@@ -101,6 +101,7 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     local_ref,
 )
+from agent_build_kit.pipeline.usage_guard import starting
 from agent_build_kit.pipeline.usage_ledger import (
     Cost,
     CostBasis,
@@ -409,7 +410,8 @@ class BuildPath:
         let finish. The resume asks the guard again, so the interrupt carries
         only what a person reading the thread needs.
         """
-        allowed, why = await asyncio.to_thread(self.runner.may_start)
+        with starting(self.unit.id):
+            allowed, why = await asyncio.to_thread(self.runner.may_start)
         if allowed:
             if self.paused_since is not None:
                 self._node = node.value

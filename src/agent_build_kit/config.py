@@ -192,6 +192,10 @@ class UsageWindowConfig(Frozen):
     # paused pipeline is woken: enough that a unit which starts can finish,
     # rather than being admitted exactly at the margin.
     usage_resume_buffer_pct: Annotated[int, Field(ge=0)] = 5
+    # Points of this window one unit may spend, counted for each unit that has spent since
+    # the last reading or started on an estimate. Unset, the session takes 10 and the
+    # weekly 2: a unit costs a larger share of the five-hour window than of the week.
+    usage_unit_allowance_pct: Annotated[int, Field(ge=0)] = 10
 
     @property
     def usage_ceiling_pct(self) -> int:
@@ -229,6 +233,28 @@ class ClaudeLimitsConfig(Frozen):
     usage_climb_floor: Annotated[float, Field(ge=0)] = 0.2
     # Percentage points added to the usage a reading could have gained since it was taken.
     usage_climb_margin_pct: Annotated[int, Field(ge=0)] = 2
+    # The room an estimate must leave under a threshold before a start is allowed on it:
+    # what the pipeline cannot see (the person's own use) may fill it.
+    usage_headroom_margin_pct: Annotated[int, Field(ge=0)] = 5
+    # How many units may start on an estimate for one reading; 0 never allows one.
+    usage_estimate_max_starts: Annotated[int, Field(ge=0)] = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _window_allowances(cls, data: object) -> object:
+        """The weekly window's own default allowance, where a window's settings leave it out.
+        It applies to mapping input (what `abk.yaml` always is); a `UsageWindowConfig` built
+        in code keeps the class default of 10."""
+        if not isinstance(data, dict):
+            return data
+        filled = dict(data)
+        for name, allowance in (("session", 10), ("weekly", 2)):
+            window = filled.get(name)
+            if window is None:
+                filled[name] = {"usage_unit_allowance_pct": allowance}
+            elif isinstance(window, dict):
+                filled[name] = {"usage_unit_allowance_pct": allowance, **window}
+        return filled
 
 
 class RuntimeConfig(Frozen):

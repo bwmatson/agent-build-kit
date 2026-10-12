@@ -70,7 +70,7 @@ from agent_build_kit.config import (
     active_root,
 )
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import try_file_lock
+from agent_build_kit.pipeline.file_lock import file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_calls import (
     CACHE,
@@ -83,6 +83,7 @@ from agent_build_kit.pipeline.usage_calls import (
     read_calls,
     record_call,
 )
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -508,6 +509,20 @@ def _kept_reading(cached: dict) -> UsageReading | None:
     return _reading_from_payload(cached, observed_at=fetched_at, source="cache")
 
 
+def _cooldown_until(cached: dict) -> datetime | None:
+    """When the cool-down kept in the cache file ends, or None when it holds none."""
+    try:
+        return datetime.fromisoformat(cached["cooldown_until"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _cooling(cached: dict, now: datetime) -> bool:
+    """Whether a cool-down kept in the cache file is in force at `now`."""
+    until = _cooldown_until(cached)
+    return until is not None and until > now
+
+
 def _cooldown_seconds(error: urllib.error.HTTPError) -> float:
     try:
         named = float(error.headers.get("Retry-After", ""))
@@ -564,11 +579,7 @@ def read_live_usage(
 
     def _refresh_under_lock() -> UsageReading | None:
         nonlocal token
-        try:
-            cooling = datetime.fromisoformat(cached["cooldown_until"]) > now
-        except (KeyError, TypeError, ValueError):
-            cooling = False
-        if cooling:
+        if _cooling(cached, now):
             return last_good()
 
         telemetry.count("abk.usage.cache", 1, event="miss")
@@ -747,11 +758,8 @@ def forget_logged_failures() -> None:
 
 def rate_limit_note(cache_path: Path | None = None) -> str | None:
     """Words for an endpoint cool-down in force and when it ends, else None."""
-    try:
-        until = datetime.fromisoformat(_load_cache(cache_path or _cache_file())["cooldown_until"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if until <= datetime.now(UTC):
+    until = _cooldown_until(_load_cache(cache_path or _cache_file()))
+    if until is None or until <= datetime.now(UTC):
         return None
     return f"rate limited until {_hhmm(until)}"
 
@@ -767,6 +775,20 @@ def reading_as(caller: str) -> Iterator[None]:
         yield
     finally:
         _caller.reset(token)
+
+
+_starting: ContextVar[str | None] = ContextVar("usage_starting", default=None)
+
+
+@contextmanager
+def starting(unit: str) -> Iterator[None]:
+    """Name the unit (or track) a start is asked for inside the block, so an allowance on an
+    estimate is kept under its id and counted once. An ask outside one starts nothing."""
+    token = _starting.set(unit)
+    try:
+        yield
+    finally:
+        _starting.reset(token)
 
 
 def _noted(reading: UsageReading | None) -> UsageReading | None:
@@ -964,6 +986,203 @@ def _headroom_holds(held: UsageReading, calls_file: Path, now: datetime) -> bool
     )
 
 
+class WindowEstimate(Frozen):
+    """One window's usage now, estimated from the reading kept: the figure read and the
+    points the reading cannot have seen, judged against the window's threshold."""
+
+    name: Literal["session", "weekly"]
+    read_pct: int
+    spent_pct: float
+    threshold: int
+    margin: int
+
+    @property
+    def estimate(self) -> float:
+        return self.read_pct + self.spent_pct
+
+    @property
+    def ample(self) -> bool:
+        return self.estimate + self.margin < self.threshold
+
+    @property
+    def text(self) -> str:
+        shown = (
+            f"{self.name} ~{round(self.estimate)}% estimated "
+            f"({self.read_pct}% read + {round(self.spent_pct)}% spent)"
+        )
+        if self.ample:
+            return f"{shown} under {self.threshold}%"
+        return f"{shown} is not {self.margin} points under {self.threshold}%"
+
+
+def estimate_usage(
+    held: UsageReading,
+    *,
+    now: datetime,
+    limits: Limits,
+    margin: int,
+    allowances: dict[str, int],
+    units_since: Callable[[datetime], int],
+    climb: Callable[[Literal["session", "weekly"], float], float],
+) -> list[WindowEstimate]:
+    """Each window's estimate now, session first, from the reading `held`.
+
+    A window that has not reset is its figure read plus its allowance for each unit that has
+    spent or started since the reading. One that has reset since starts from zero at the
+    reset, plus `climb` (the most it could have added in the minutes since) and its allowance
+    for each unit since the reset: a reading says nothing about a window it no longer
+    describes. `units_since` counts the units that spent or started since a time.
+    """
+    estimates = []
+    for window in reversed(held.windows):
+        reset = window.resets_at is not None and held.observed_at < window.resets_at <= now
+        if window.resets_at is not None and reset:
+            since = window.resets_at
+            added = climb(window.name, (now - since).total_seconds() / 60)
+            judged = window.model_copy(update={"used_pct": 0, "resets_at": None})
+            read = 0
+        else:
+            since, added, judged, read = held.observed_at, 0.0, window, window.used_pct
+        estimates.append(
+            WindowEstimate(
+                name=window.name,
+                read_pct=read,
+                spent_pct=added + allowances[window.name] * units_since(since),
+                threshold=threshold_at(judged, now=now, limits=limits),
+                margin=margin,
+            )
+        )
+    return estimates
+
+
+def _estimate_text(held: UsageReading, estimates: list[WindowEstimate], now: datetime) -> str:
+    age = int((now - held.observed_at).total_seconds() // 60)
+    return f"usage: reading {age}m old, " + ", ".join(each.text for each in estimates)
+
+
+def _admitted(cached: dict) -> list[str]:
+    units = cached.get("estimate_units")
+    return [u for u in units if isinstance(u, str)] if isinstance(units, list) else []
+
+
+def _estimates(
+    held: UsageReading, cached: dict, cache_path: Path, now: datetime
+) -> list[WindowEstimate]:
+    """The estimate of both windows from the reading kept, the ledger beside the cache file
+    and the units admitted on an estimate since."""
+    limits = _limits()
+    calls = read_calls(cache_path.parent / CALLS_NAME)
+    admitted = set(_admitted(cached))
+    spent: list[tuple[datetime, str]] = []
+    for record in read_ledger(cache_path.parent / LEDGER_NAME):
+        try:
+            spent.append((datetime.fromisoformat(record.at), record.unit))
+        except ValueError:
+            continue
+
+    def units_since(since: datetime) -> int:
+        return len(admitted | {unit for at, unit in spent if at >= since})
+
+    def climb(window: Literal["session", "weekly"], minutes: float) -> float:
+        return most_added(
+            calls,
+            window,
+            minutes=minutes,
+            floor=limits.usage_climb_floor,
+            margin=limits.usage_climb_margin_pct,
+            min_gap=timedelta(minutes=limits.usage_cache_minutes),
+        )
+
+    return estimate_usage(
+        held,
+        now=now,
+        limits=Limits.configured(),
+        margin=limits.usage_headroom_margin_pct,
+        allowances={
+            "session": limits.session.usage_unit_allowance_pct,
+            "weekly": limits.weekly.usage_unit_allowance_pct,
+        },
+        units_since=units_since,
+        climb=climb,
+    )
+
+
+def _estimable(held: UsageReading | None) -> UsageReading | None:
+    """The reading an estimate may rest on: one kept by the guard that is not at the plan limit
+    and, with credits enabled, has no window full."""
+    if held is None or held.spend_limit_reached:
+        return None
+    if held.credits_enabled and max(held.session_pct, held.weekly_pct) >= 100:
+        return None
+    return held
+
+
+def _decide_on_estimate(
+    held: UsageReading,
+    cached: dict,
+    cache_path: Path,
+    *,
+    now: datetime,
+    unit: str | None,
+    next_call: datetime | None,
+) -> Decision:
+    """Whether a unit may start when the endpoint cannot be asked: the estimate, then the cap.
+
+    A refusal carries the estimate's text and, for the cap, the time the endpoint may next be
+    asked. An allowance is recorded in the cache file under its lock."""
+    estimates = _estimates(held, cached, cache_path, now)
+    text = _estimate_text(held, estimates, now)
+    if not all(each.ample for each in estimates):
+        return Decision(may_start=False, reason=text, resume_at=next_call)
+    admitted = _admitted(cached)
+    cap = _limits().usage_estimate_max_starts
+    if (unit is None or unit not in admitted) and len(admitted) >= cap:
+        return Decision(
+            may_start=False,
+            reason=(
+                f"{text}; {len(admitted)} starts have been made on an estimate "
+                f"(at most {cap} for one reading)"
+            ),
+            resume_at=next_call or now + _stale_retry(),
+        )
+    if unit is not None:
+        _record_admitted(cache_path, held, unit)
+    return Decision(may_start=True, reason=f"{text}, allowing starts", resets_at=held.resets_at)
+
+
+def _record_admitted(cache_path: Path, held: UsageReading, unit: str) -> None:
+    """Keep `unit` with the reading as started on an estimate, unless a good read has replaced
+    the reading meanwhile."""
+    try:
+        with file_lock(cache_path.with_name(cache_path.name + ".lock")):
+            cached = _load_cache(cache_path)
+            kept = _kept_reading(cached)
+            if kept is None or kept.observed_at != held.observed_at:
+                return
+            admitted = _admitted(cached)
+            if unit not in admitted:
+                _write_cache(cache_path, {**cached, "estimate_units": [*admitted, unit]})
+    except (OSError, TypeError):
+        pass
+
+
+def held_estimate_line() -> str | None:
+    """The estimate line from the reading held, for `abk status`: no call is made. Only when the
+    reading is older than the time a reading is kept and the endpoint cannot be asked."""
+    now = datetime.now(UTC)
+    cache_path = _cache_file()
+    calls_file = cache_path.parent / CALLS_NAME
+    cached = _load_cache(cache_path)
+    held = _estimable(_kept_reading(cached))
+    if held is None or now - held.observed_at < current_cache_interval(calls_file).kept:
+        return None
+    if not _cooling(cached, now) and next_call_at(calls_file, now=now) is None:
+        return None
+    estimates = _estimates(held, cached, cache_path, now)
+    text = _estimate_text(held, estimates, now)
+    return text + (", allowing starts" if all(each.ample for each in estimates) else "")
+
+
 def _too_soon(allowed: datetime, now: datetime) -> Decision:
     return Decision(
         may_start=False,
@@ -980,6 +1199,7 @@ def decide_start(
     *,
     read: Callable[[], UsageReading | None] | None = None,
     decide: Callable[..., Decision] | None = None,
+    unit: str | None = None,
 ) -> Decision:
     """Whether a unit may start now, asking the endpoint only when a fresh reading
     could change the answer and the minimum interval allows a call.
@@ -991,6 +1211,7 @@ def decide_start(
     `read` and `decide` stand for `current_usage` and `may_start_unit` where a fresh
     reading is taken, for a caller that has its own.
     """
+    unit = unit or _starting.get()
     read = read or current_usage
     judge = decide or may_start_unit
 
@@ -999,9 +1220,32 @@ def decide_start(
             return decision.model_copy(update={"resets_at": reading.resets_at})
         return decision
 
+    def on_estimate(
+        base: UsageReading, refused: Decision, *, next_call: datetime | None
+    ) -> Decision:
+        """The start allowed on an estimate, or the refusal with the estimate's text added."""
+        later = datetime.now(UTC)
+        estimated = _decide_on_estimate(
+            base, _load_cache(cache_path), cache_path, now=later, unit=unit, next_call=next_call
+        )
+        if estimated.may_start:
+            return estimated
+        return refused.model_copy(
+            update={
+                "reason": f"{refused.reason}; {estimated.reason}",
+                "resume_at": refused.resume_at or estimated.resume_at,
+            }
+        )
+
     def fresh() -> Decision:
         reading = read()
-        return carrying(judge(reading), reading)
+        decision = carrying(judge(reading), reading)
+        unusable = reading is None or (not reading.is_live and reading.age > MAX_ANCHOR_AGE)
+        base = _estimable(held)
+        if decision.may_start or not unusable or base is None:
+            return decision
+        # No reading, or one too stale to use: the reading kept may still say there is room.
+        return on_estimate(base, decision, next_call=next_call_at(calls_file, now=now))
 
     now = datetime.now(UTC)
     cache_path = _cache_file()
@@ -1025,7 +1269,9 @@ def decide_start(
             return fresh()
     allowed = next_call_at(calls_file, now=now)
     if allowed is not None:
-        return _too_soon(allowed, now)
+        soon = _too_soon(allowed, now)
+        base = _estimable(held)
+        return soon if base is None else on_estimate(base, soon, next_call=allowed)
     return fresh()
 
 
