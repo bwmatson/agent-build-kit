@@ -302,7 +302,6 @@ def create_app(
             ],
             "base": base_of(unit, units),
             "depends_on": related(unit.depends_on, units, paused),
-            "merge_gates": related(unit.merge_before, units, paused),
             "review_round": review_round(installation, unit.id),
             "actions": available_actions(unit, installation),
         }

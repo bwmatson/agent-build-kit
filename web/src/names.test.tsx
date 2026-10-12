@@ -38,7 +38,7 @@ describe("a unit's route", () => {
     expect(link).toHaveTextContent("feature/6");
   });
 
-  it("is what a dependency or merge gate links to", async () => {
+  it("is what a dependency links to", async () => {
     open("/units/feature/3");
 
     const gate = await screen.findByRole("link", { name: "feature/2" });

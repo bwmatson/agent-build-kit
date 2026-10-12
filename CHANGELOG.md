@@ -94,7 +94,10 @@
   a failed or held unit whose parent is not yet in review leaves it waiting, and it
   resumes restacked onto the parent's branch; the line written for a flaky test no
   longer says `merged`. A running unit now notices a `Needs:` line added since it
-  started and stops at its next check.
+  started and stops at its next check. The merge gate is removed: a store that still
+  carries one loads and drops it, the unit page no longer lists merge gates, and the
+  unit graph draws a `Needs:` dependency as a thick edge labelled `needs` (the
+  planner's own edges stay plain).
 
 - A runtime entry in `abk.yaml` may now carry `policy: unchecked`, recording that the
   agent's policy check was knowingly skipped. The only value is `unchecked`, and a file

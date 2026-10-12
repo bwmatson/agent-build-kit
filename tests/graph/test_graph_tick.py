@@ -354,20 +354,19 @@ def test_a_unit_whose_node_raised_can_be_requeued_and_the_tick_runs_it_from_prep
 
 
 def _gated_after_a_raise(graph: Setup, flags: dict[str, bool]) -> list[dict[str, Any]]:
-    """A unit whose node raised, a merge gate on a dependency still in review
-    written for it, then `abk requeue` in the mode `flags` name. Returns what
+    """A unit whose node raised, a `Needs:` on a dependency in another repo still in
+    review written for it, then `abk requeue` in the mode `flags` name. Returns what
     reaches `resume_thread` from here on, the real one doing the delivery."""
     _raised_in_a_node(graph)
     graph.store.upsert([stored_unit("dep/1", change="dep", repo="platform")])
     graph.store.set_state("dep/1", IN_REVIEW, pr=3)
     graph.store.set_dependencies(UNIT, ("dep/1",))
-    graph.store.set_merge_before(UNIT, ("dep/1",))
-    # Every tick recomputes the gate from tasks.md, so it has to be written there.
+    # Every tick applies the `Needs:` lines from tasks.md, so it has to be written there.
     folder = graph.inst.root / "openspec" / "changes" / "add-marker"
     folder.mkdir(parents=True)
     (folder / "tasks.md").write_text(
         "# Tasks\n\n## 1. [app] [tier1] The work\n\n"
-        "Needs: dep group 1 merged — it reshapes the runtime\n\n- [ ] 1.1 Test: it\n"
+        "Needs: dep group 1 — it reshapes the runtime\n\n- [ ] 1.1 Test: it\n"
     )
     graph.store.set_feedback(UNIT, "the commit step blew up")
     delivered: list[dict[str, Any]] = []

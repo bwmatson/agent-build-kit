@@ -78,8 +78,6 @@ function Status({ unit }: { unit: UnitDetail }) {
       </dl>
       <h2>Dependencies</h2>
       <RelatedList label="Dependencies" items={unit.depends_on} link={false} />
-      <h2>Merge gates</h2>
-      <RelatedList label="Merge gates" items={unit.merge_gates} link />
     </>
   );
 }

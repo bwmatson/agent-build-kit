@@ -425,7 +425,11 @@ class UnitStore:
             # should fail here — naming the field — rather than construct
             # something odd that breaks three steps later.
             try:
-                unit = StoredUnit.model_validate(item)
+                # An earlier version wrote a merge gate beside every record; it is
+                # gone, and the next write leaves the key out.
+                unit = StoredUnit.model_validate(
+                    {k: v for k, v in item.items() if k != "merge_before"}
+                )
             except ValidationError as error:
                 raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
             stored[unit.id] = unit
@@ -785,8 +789,8 @@ class UnitStore:
     def set_gated_requeue(self, unit_id: str, requeue: RequeueReason | None) -> None:
         self._update(unit_id, gated_requeue=requeue)
 
-    def set_merge_before(self, unit_id: str, merge_before: Sequence[str]) -> None:
-        self._update(unit_id, merge_before=tuple(merge_before))
+    def set_needs(self, unit_id: str, needs: Sequence[str]) -> None:
+        self._update(unit_id, needs=tuple(needs))
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""

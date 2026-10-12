@@ -163,9 +163,11 @@ change), when a change gave up planning (the tick logs it, and `abk replan` with
 neighbouring changes' units changed since it was planned. Started work is never
 touched; `--forget` only clears the record and leaves the planning to the next tick.
 
-A unit with a `Needs: … merged` line whose dependency has not merged waits instead:
+A unit with a `Needs:` line whose dependency is not yet in review waits instead:
 `abk requeue` leaves it `planned` with the cause `gated` (shown by `abk status` as
-waiting), and the tick resumes it in the requeued mode once the dependency merges.
+waiting), and the tick resumes it in the requeued mode, restacked onto the dependency's
+branch, once it is in review. The graph draws a `Needs:` dependency as a thick edge
+labelled `needs`.
 
 A test that failed under load and passed twice alone is a flake, not a failure: the unit is
 parked the same way (`gated`, its note names the test) with a `Needs:` line on the one

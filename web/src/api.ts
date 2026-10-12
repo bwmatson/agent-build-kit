@@ -27,7 +27,6 @@ export interface UnitDetail extends UnitSummary {
   history: HistoryEntry[];
   base: string;
   depends_on: Related[];
-  merge_gates: Related[];
   review_round: number | null;
   actions?: UnitAction[];
 }

@@ -132,9 +132,9 @@ def render_mermaid(
             parent = index.get(dependency)
             if parent is None:
                 continue
-            if dependency in unit.merge_before:
-                # Thick: the dependent waits for this one to merge, even in one repo.
-                arrow = "==>|merged|"
+            if dependency in unit.needs:
+                # Thick: the dependency was written as a `Needs:` line, not inferred.
+                arrow = "==>|needs|"
             else:
                 # Dashed across repos: that edge cannot be stacked, only waited on.
                 arrow = "-->" if parent.repo == unit.repo else "-.->"
@@ -196,8 +196,9 @@ edit by hand.
 - **blocked** — waiting on a dependency. A cross-repo dependency (dashed
   edge) must *merge* first; a same-repo one must be through its build/review
   loop, so there is a reviewed branch to stack on. A thick edge labelled
-  `merged` (`==>`) is a dependency its dependent wrote as `Needs: ... merged`:
-  it waits for the merge even in the same repo.
+  `needs` (`==>`) is a dependency its dependent wrote as a `Needs:` line, not
+  one the planner inferred; it releases the dependent once the parent is in
+  review (same repo) or merged (other repo).
 - **running** — in the build/review loop: an agent is working in a worktree,
   or the run is interrupted before an agent step until the usage window allows
   it and the next tick resumes it.

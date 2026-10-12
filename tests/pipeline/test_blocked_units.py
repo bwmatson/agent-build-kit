@@ -85,7 +85,7 @@ def test_a_unit_is_blocked_by_gated_or_upstream_went_back_while_the_wait_holds(
 ) -> None:
     graph = [
         new("base/1", state=RUNNING),
-        worked("one/1", depends_on=("base/1",), merge_before=("base/1",), **caused(cause)),
+        worked("one/1", depends_on=("base/1",), **caused(cause)),
     ]
 
     assert blocked(graph[1], graph)
@@ -101,7 +101,7 @@ def test_a_unit_whose_predecessor_is_back_in_review_is_not_blocked_by_the_old_ca
 def test_a_gated_unit_whose_gate_has_merged_is_not_blocked() -> None:
     graph = [
         new("gate/1", state=MERGED),
-        worked("one/1", depends_on=("gate/1",), merge_before=("gate/1",), **caused(Cause.GATED)),
+        worked("one/1", depends_on=("gate/1",), **caused(Cause.GATED)),
     ]
 
     assert not blocked(graph[1], graph)
@@ -347,8 +347,8 @@ def test_a_rework_proceeds_at_the_limit() -> None:
 
 def test_the_graph_labels_a_gated_unit_that_waits_as_blocked() -> None:
     graph = [
-        new("gate/1", state=IN_REVIEW, pr=2),
-        worked("one/1", depends_on=("gate/1",), merge_before=("gate/1",), **caused(Cause.GATED)),
+        new("gate/1", state=RUNNING),
+        worked("one/1", depends_on=("gate/1",), **caused(Cause.GATED)),
     ]
 
     assert effective_state(graph[1], graph) == "blocked"

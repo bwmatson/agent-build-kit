@@ -98,16 +98,13 @@ def test_a_unit_reports_its_branch_base_and_pull_request(pipeline: httpx.Client)
     assert (never_started["branch"], never_started["pr"]) == ("", None)
 
 
-def test_a_unit_lists_its_dependencies_and_merge_gates_with_their_states(
-    pipeline: httpx.Client,
-) -> None:
-    gated = pipeline.get("/api/units/feature/3").json()
+def test_a_unit_lists_its_dependencies_with_their_states(pipeline: httpx.Client) -> None:
+    waiting = pipeline.get("/api/units/feature/3").json()
     stacked = pipeline.get("/api/units/feature/4").json()
 
-    assert gated["depends_on"] == [{"id": "feature/2", "status": "in_review"}]
-    assert gated["merge_gates"] == [{"id": "feature/2", "status": "in_review"}]
+    assert waiting["depends_on"] == [{"id": "feature/2", "status": "in_review"}]
     assert stacked["depends_on"] == [{"id": "feature/2", "status": "in_review"}]
-    assert stacked["merge_gates"] == []
+    assert "merge_gates" not in waiting
 
 
 def test_the_review_round_comes_from_the_checkpointed_thread(

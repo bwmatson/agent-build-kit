@@ -126,7 +126,6 @@ def test_a_gated_requeue_keeps_the_note_while_it_waits(
     store.upsert([stored_unit("dep/1", change="dep", repo="platform")])
     store.set_state("dep/1", UnitState.IN_REVIEW, pr=3)
     store.set_dependencies(UNIT, ("dep/1",))
-    store.set_merge_before(UNIT, ("dep/1",))
     monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
 
     assert main(["requeue", UNIT, "--rework", "--note", "reword the title"]) == 0

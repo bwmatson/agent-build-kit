@@ -115,7 +115,6 @@ def test_a_stored_unit_without_merge_before_loads_unchanged(tmp_path) -> None:
     store = UnitStore(path)
 
     for loaded in (store.get("add-marker/2"), store.all()[0]):
-        assert loaded.merge_before == ()
         assert loaded.depends_on == ("add-marker/1",)
         assert loaded.groups == (2,)
         assert loaded.repo == "platform"

@@ -38,7 +38,7 @@ EXPECTED: dict[str, tuple[str, str | None, str, str]] = {
 
 def seed_pipeline(installation: Installation) -> UnitStore:
     """Nine `feature` units, one in each state the page tells apart. Number 3 is
-    gated on number 2 merging, and 4 is stacked on 2."""
+    in another repo and waits on number 2 merging, and 4 is stacked on 2."""
     store = UnitStore(installation.state_dir / "units.json")
     store.upsert(
         [
@@ -50,7 +50,6 @@ def seed_pipeline(installation: Installation) -> UnitStore:
                 title="Gated",
                 repo="platform",
                 depends_on=("feature/2",),
-                merge_before=("feature/2",),
             ),
             unit("feature/4", change="feature", title="Stacked", depends_on=("feature/2",)),
             unit("feature/5", change="feature", title="Held"),
