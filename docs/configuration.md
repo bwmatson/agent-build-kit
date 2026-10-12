@@ -185,7 +185,12 @@ environment:                    # how the pipeline's own environment is kept
     lock: [uv.lock]             # also left out of a unit's size, matched by the
                                 # pattern's file name wherever the file sits
     other: []                   # a pattern matching nothing is hashed as missing
-                                # and `abk doctor` reports it
+                                # and `abk doctor` reports it. When every
+                                # dependency and other input is missing the
+                                # environment is pending: no `sync` and no
+                                # `check` run (both would fail for want of
+                                # them) until a file appears and the hash
+                                # changes
   artifacts: [.venv]            # what `sync` and `check` produce, as patterns.
                                 # Never an input or part of the hash, never
                                 # counted as a leftover in a unit's worktree,
@@ -344,6 +349,13 @@ repos:                          # ordered: deploy order is derived from
                                 # which fails outright when the repo root is not
                                 # a project (`uv run pre-commit` cannot resolve
                                 # pre-commit there). Written by `abk init`.
+                                # A project whose directory does not exist in
+                                # the checkout being checked is *pending*: tier
+                                # 1 and tier 2 run nothing in it and name it in
+                                # their output, `abk doctor` lists it as
+                                # information, and none of it fails. It stops
+                                # being pending when the directory exists, so
+                                # the unit that creates it is checked in full.
     languages: []               # e.g. [python]; informs init's research
     description: ""             # one paragraph, for prompts and the
                                 # planning context

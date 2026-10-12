@@ -170,7 +170,8 @@ environment:                  # how the pipeline's own environment is kept curre
                               # warns and goes in the next release); a literal path matches itself
     dependencies: [pyproject.toml]
     lock: [uv.lock]           # matched by file name, and left out of a unit's size
-    other: []
+    other: []                 # inputs that are all absent make the environment pending:
+                              # no sync, no check, until one appears
   artifacts: [.venv]          # what sync and check produce: never an input, a leftover or
                               # a commit; a tracked file under it is ordinary work
 
@@ -196,6 +197,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # records the container listing beside a tier 2
                               # result (init writes it when a compose file or
                               # Dockerfile is in the root)
+    projects: []              # [{path, profile, languages}]: a project whose directory is
+                              # absent from the checkout is pending: tier 1, tier 2 and
+                              # doctor skip it and say so, until a unit creates it
     languages: []             # e.g. [python]
     description: ""           # one paragraph, for prompts and context
     consumes: []              # repos this one depends on: deploy order,

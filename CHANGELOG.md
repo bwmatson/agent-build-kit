@@ -23,6 +23,11 @@
   wait on from starting. It stays failed and is never requeued by the pipeline; it counts again
   when the wait ends. The full-queue report says how many are not counted, the status says what
   each waits on, and the graph labels it `failed, waiting on <units>`.
+- A project registered in `abk.yaml` before its directory exists is now pending, not an
+  error: tier 1 and tier 2 run nothing in it and name it in their output, `abk doctor`
+  lists it as information, and it is checked in full once a unit creates the directory.
+  An `environment` whose inputs are all missing is likewise pending, running no `sync` or
+  `check` until an input appears.
 
 - The kit now carries a recommended command policy for build agents: deny globs for each
   forbidden class (merging a pull request by the CLI, the raw API or GraphQL, amending a

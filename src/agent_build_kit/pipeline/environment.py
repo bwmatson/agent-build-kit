@@ -47,6 +47,16 @@ def matched_inputs(environment: EnvironmentConfig, root: Path) -> dict[str, list
     )
 
 
+def pending(environment: EnvironmentConfig, root: Path) -> bool:
+    """Whether the environment's dependency and other inputs are all absent under `root`:
+    what it would install is not there yet, so a sync would fail and a check would find it
+    unhealthy for want of it. A lock file does not count, since a sync is what makes it."""
+    inputs = environment.inputs
+    named = [*inputs.dependencies, *inputs.other]
+    found = matched_inputs(environment, root)
+    return bool(named) and not any(found[pattern] for pattern in named)
+
+
 def _literal_name(pattern: str) -> str | None:
     """The name a literal pattern matches as, so a file it names alone is not hashed twice."""
     try:
@@ -105,7 +115,7 @@ def problem(root: Path) -> str | None:
     """Why the pipeline's environment is unhealthy now: the output of a failing
     `check`. None when it is healthy, and when no environment is managed."""
     environment = active().environment
-    if environment is None:
+    if environment is None or pending(environment, root):
         return None
     ok, output = _run(environment.check, root)
     return None if ok else output or f"{' '.join(environment.check)} failed"
@@ -309,7 +319,7 @@ def prepare_worktree(repo: RepoConfig | None, tree: Path, base: str) -> Worktree
     inputs' hash differs from the one recorded for this worktree, then `check`. None when
     healthy, or when the repository declares no environment."""
     environment = repo.environment if repo else None
-    if environment is None:
+    if environment is None or pending(environment, tree):
         return None
     record = Path(git_out(tree, "rev-parse", "--absolute-git-dir")) / WORKTREE_RECORD
     digest = inputs_hash(environment, tree)
@@ -342,6 +352,15 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
     with file_lock(inst.state_dir / "environment.lock"):
         previous = read_state(inst.state_dir) or EnvironmentState()
         digest = inputs_hash(environment, inst.root)
+        if pending(environment, inst.root):
+            say("environment pending: its inputs do not exist yet, nothing to sync or check")
+            _write_state(
+                inst.state_dir,
+                EnvironmentState(
+                    hash=previous.hash, healthy=True, since=datetime.now(UTC).isoformat()
+                ),
+            )
+            return True
         hash_ = previous.hash
         synced = ""
 
@@ -384,6 +403,7 @@ __all__ = [
     "lock_paths",
     "matched_inputs",
     "owned_paths",
+    "pending",
     "prepare_worktree",
     "repo_artifacts",
     "problem",
