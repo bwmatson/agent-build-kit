@@ -3533,7 +3533,14 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
         if unit.change in to_plan and unit.state not in (PLANNED, UNPLANNED):
             print(f"kept: {unit.id}, {unit.state.value}")
     # Each was printed above as the plan or the linking logged it.
-    cyclic = bool(refusals) or any(results[change].cycle for change in to_plan)
+    # Only a refusal in a cycle through a change planned here: another change's is left to
+    # the tick that links it, and does not fail this replan.
+    cyclic = any(
+        after[unit_id].change in to_plan
+        for edge in refusals
+        for unit_id in edge.cycle
+        if unit_id in after
+    ) or any(results[change].cycle for change in to_plan)
     return 1 if refused or failed or cyclic else 0
 
 

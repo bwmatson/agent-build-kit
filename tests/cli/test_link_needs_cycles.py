@@ -61,7 +61,7 @@ def test_a_needs_that_closes_a_cycle_is_refused_and_the_rest_of_the_graph_is_lin
     assert len(lines) == 1
 
 
-def test_a_refused_needs_is_logged_once_in_each_pass(
+def test_a_refusal_is_logged_again_by_a_call_that_shares_no_pass_with_the_first(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = diamond_closed_by_its_base(tmp_path, monkeypatch)
@@ -71,6 +71,20 @@ def test_a_refused_needs_is_logged_once_in_each_pass(
 
     lines = [line for line in capsys.readouterr().out.splitlines() if " -> ".join(CYCLE) in line]
     assert len(lines) == 2
+
+
+def test_rounds_sharing_a_pass_set_log_a_refusal_once_and_still_return_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = diamond_closed_by_its_base(tmp_path, monkeypatch)
+    reported: set[tuple[str, str]] = set()
+
+    first = cli.link_needs(run.inst, store=run.store, reported=reported)
+    second = cli.link_needs(run.inst, store=run.store, reported=reported)
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if " -> ".join(CYCLE) in line]
+    assert len(lines) == 1
+    assert first == second != []
 
 
 def test_a_cycle_already_stored_is_left_alone_and_a_needs_closing_a_longer_one_is_refused(

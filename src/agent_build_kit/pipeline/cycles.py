@@ -86,7 +86,8 @@ def drop_cycle_edges(
 
     `declared_needs` maps a unit id to the unit ids its `Needs:` lines name. Stored
     dependencies and declared ones are fixed; the plan's are advisory and tried one at a
-    time in the plan's order. A cycle of fixed edges alone leaves the plan as it is."""
+    time in the plan's order, whether or not the fixed edges hold a cycle. A cycle of fixed
+    edges through one of the plan's units is returned and drops nothing."""
     planning = {unit.change for unit in plan_units}
     graph: dict[str, list[str]] = {}
     for stored in stored_units:
@@ -95,8 +96,17 @@ def drop_cycle_edges(
         graph.setdefault(stored.id, []).extend(stored.depends_on)
     for unit_id, needed in declared_needs.items():
         graph.setdefault(unit_id, []).extend(n for n in needed if n not in graph.get(unit_id, ()))
-    if cycle := find_cycle(graph):
-        return CycleDrops(units=tuple(plan_units), cycle=cycle)
+    # A cycle of fixed edges is this plan's only if it runs through one of its units; one
+    # elsewhere in the store is left to the status, and guards nothing less.
+    cycle = next(
+        (
+            (unit.id, *back)
+            for unit in plan_units
+            for dependency in graph.get(unit.id, ())
+            if (back := path_between(graph, dependency, unit.id))
+        ),
+        (),
+    )
 
     kept: list[Unit] = []
     dropped: list[CycleEdge] = []
@@ -112,4 +122,4 @@ def drop_cycle_edges(
             dependencies.append(dependency)
             graph.setdefault(unit.id, []).append(dependency)
         kept.append(unit.model_copy(update={"depends_on": tuple(dependencies)}))
-    return CycleDrops(units=tuple(kept), dropped=tuple(dropped))
+    return CycleDrops(units=tuple(kept), dropped=tuple(dropped), cycle=cycle)

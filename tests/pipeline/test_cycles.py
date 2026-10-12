@@ -143,3 +143,33 @@ def test_a_finished_unit_closes_no_cycle() -> None:
 
     assert result.units[0].depends_on == ("done/1",)
     assert result.dropped == ()
+
+
+def test_a_cycle_stored_elsewhere_does_not_stop_a_closing_planner_edge_being_dropped() -> None:
+    plan = [unit("add/1", change="add", depends_on=("other/1",))]
+    stored = [
+        new_unit("old-a/1", depends_on=("old-b/1",)),
+        new_unit("old-b/1", depends_on=("old-a/1",)),
+        new_unit("other/1", depends_on=("add/1",)),
+    ]
+
+    result = drop_cycle_edges(plan, stored, {})
+
+    assert result.units[0].depends_on == ()
+    assert [e.cycle for e in result.dropped] == [("add/1", "other/1", "add/1")]
+    assert result.cycle == ()
+
+
+def test_a_cycle_stored_elsewhere_is_not_reported_as_the_plans_own() -> None:
+    plan = [unit("add/1", change="add", depends_on=("other/1",))]
+    stored = [
+        new_unit("old-a/1", depends_on=("old-b/1",)),
+        new_unit("old-b/1", depends_on=("old-a/1",)),
+        new_unit("other/1"),
+    ]
+
+    result = drop_cycle_edges(plan, stored, {})
+
+    assert result.units == tuple(plan)
+    assert result.dropped == ()
+    assert result.cycle == ()
