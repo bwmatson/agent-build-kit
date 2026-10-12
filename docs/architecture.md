@@ -999,6 +999,15 @@ mid-unit with a rate-limit message pauses too; a `claude` killed by a signal
 leaves the unit `running`, and the next tick resumes its thread at the node it
 was in.
 
+A third kind, `network`, is written when a unit parks as `network_unavailable` (never for
+`service_unavailable`), with the reason `network unreachable during <unit>`; a later parking
+while it stands does not move its time. It is the probe's to end: each tick asks the control
+group (the code hosts and `limits.network_control_hosts`) first, and the first tick in which
+a host connects clears the marker, whatever its deadline, while a probe that cannot run counts
+as reachable so a broken probe never holds it. While it stands the tick stops what a usage
+pause stops (starting units and planning) and still polls and records; it logs and `abk
+status` shows `waiting for the network — <reason>`.
+
 **The push gate** (`gate.py`, `commit_order.py`, `red_check.py`,
 `check_runner.py`; `abk gate`). A branch reads as tests-then-implementation
 pairs: the first substantive commit is tests (plus stubs with no logic —

@@ -239,6 +239,15 @@ class NetworkUnavailable(RuntimeError):
         self.port = port
 
 
+class ServiceUnavailable(RuntimeError):
+    """A run ended on an HTTP status of 500 to 599 from the model service, after the
+    CLI's own retries: the CLI's words as the message, and the status."""
+
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class UsageStatus(Frozen):
     """Where an account-level usage window stands, in the vocabulary
     `pipeline/usage_guard.py` already uses (`UsageReading`, trimmed to what a

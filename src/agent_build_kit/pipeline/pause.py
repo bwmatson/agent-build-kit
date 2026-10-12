@@ -44,8 +44,9 @@ RESUME_GRACE = timedelta(minutes=2)
 UNKNOWN_RETRY = timedelta(minutes=30)
 
 # The guard's own refusal, re-checked every tick; or the model's, kept to its
-# deadline.
-PauseKind = Literal["usage", "rate_limit"]
+# deadline; or the network being down, ended by the first tick whose probe reaches a
+# control host, whatever its deadline.
+PauseKind = Literal["usage", "rate_limit", "network"]
 
 
 class Pause(Frozen):
@@ -73,9 +74,11 @@ def is_paused(marker: Path) -> Pause | None:
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
-    if until <= datetime.now(UTC):
+    kind: PauseKind = "usage"
+    if data.get("kind") in ("rate_limit", "network"):
+        kind = data["kind"]
+    if until <= datetime.now(UTC) and kind != "network":
         return None
-    kind = "rate_limit" if data.get("kind") == "rate_limit" else "usage"
     return Pause(until=until, reason=str(data.get("reason", "")), kind=kind)
 
 
@@ -114,6 +117,9 @@ def pause_until(
         existing = is_paused(marker)
         if existing and existing.kind == "rate_limit" and existing.until > deadline:
             return existing
+        # One network pause per outage: a later parking does not push its time out.
+        if existing and existing.kind == "network" and kind == "network":
+            return existing
 
         # Written aside and renamed into place, as `is_paused` reads without
         # the lock and a torn file would read as "not paused".
@@ -143,6 +149,8 @@ def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = Non
 
     The end is never shown earlier than `now`, the moment the line is printed.
     """
+    if pause.kind == "network":
+        return f"waiting for the network — {pause.reason}"
     now = now or datetime.now(UTC)
     end = max(pause.until, now).astimezone()
     return f"{verb} until {end:%H:%M} — {pause.reason}"
@@ -151,7 +159,9 @@ def pause_line(pause: Pause, *, verb: str = "paused", now: datetime | None = Non
 def clear_pause(marker: Path) -> Pause | None:
     """End a pause the guard has found room under.
 
-    A rate-limit pause in force is left alone and returned: it is the model's
+    A network pause is left alone and not returned: only the probe ends it, and
+    what holds a round is the pause the caller read, not this one. A rate-limit
+    pause in force is left alone and returned: it is the model's
     refusal, kept to its deadline, and the caller's own reading said none held,
     so a build has recorded it since. Clearing it would let the pass start
     builds the model has just refused. None means the marker was cleared, or
@@ -161,5 +171,17 @@ def clear_pause(marker: Path) -> Pause | None:
         held = is_paused(marker)
         if held and held.kind == "rate_limit":
             return held
+        if held and held.kind == "network":
+            return None
         marker.unlink(missing_ok=True)
     return None
+
+
+def end_network_pause(marker: Path) -> bool:
+    """End a network pause because the network is back; whether there was one."""
+    with _locked(marker):
+        held = is_paused(marker)
+        if held is None or held.kind != "network":
+            return False
+        marker.unlink(missing_ok=True)
+    return True

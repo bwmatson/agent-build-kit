@@ -120,6 +120,7 @@ from agent_build_kit.runtimes.base import (
     AgentRateLimited,
     AgentResult,
     NetworkUnavailable,
+    ServiceUnavailable,
     SessionUnavailable,
 )
 from agent_build_kit.usage import Context, Usage
@@ -306,6 +307,8 @@ class BuildPath:
                 try:
                     # Off the loop: the callables block on agents and git.
                     update = await asyncio.to_thread(self._step, node, body, state)
+                    # A step that completes ends the row of parkings on the service's status.
+                    self.runner.store.reset_service_attempts(self.unit.id)
                     if update.get("stopped"):
                         # The run ends `failed` for this, and the record names the step.
                         self.record_step(node)
@@ -342,7 +345,7 @@ class BuildPath:
                 except AgentInterrupted:
                     outcome = UnitOutcome.INTERRUPTED
                     raise
-                except NetworkUnavailable:
+                except (NetworkUnavailable, ServiceUnavailable):
                     # Not a failure, but the step it stopped on is what the unit resumes at.
                     outcome = UnitOutcome.INTERRUPTED
                     self.record_step(node)
@@ -974,7 +977,7 @@ class BuildPath:
             r.fetch_quietly(unit)
             try:
                 restacked = r.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
-            except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
+            except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
                 raise
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
@@ -1805,7 +1808,7 @@ class BuildPath:
                 unit=unit,
                 resolve=False,
             )
-        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
+        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
             raise
         except Exception as error:  # noqa: BLE001
             return self.rebase(state, f"moving onto {base} needed resolution: {error}", base=base)

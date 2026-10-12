@@ -86,7 +86,12 @@ from agent_build_kit.pipeline.units import (
 from agent_build_kit.pipeline.wiring import build_tier1
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
-from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, NetworkUnavailable
+from agent_build_kit.runtimes.base import (
+    AgentInterrupted,
+    AgentRateLimited,
+    NetworkUnavailable,
+    ServiceUnavailable,
+)
 
 Log = Callable[[str], None]
 Restack = Callable[..., None]
@@ -1504,17 +1509,27 @@ def build_restack(
                 cause=Cause.RESTACK_CONFLICT,
             )
             return
-        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable) as error:
+        except (
+            AgentRateLimited,
+            AgentInterrupted,
+            NetworkUnavailable,
+            ServiceUnavailable,
+        ) as error:
             # The resolver could not run, which says nothing about the branch.
             # Not raised on: the merge is handled once, and the parent's branch
             # goes next, so the runner's own restack retries it — pausing the
             # tick if the window is still spent.
-            why = (
-                "a rate limit"
-                if isinstance(error, AgentRateLimited)
-                else "a network outage"
-                if isinstance(error, NetworkUnavailable)
-                else "an interrupted run"
+            why = next(
+                (
+                    words
+                    for kind, words in (
+                        (AgentRateLimited, "a rate limit"),
+                        (NetworkUnavailable, "a network outage"),
+                        (ServiceUnavailable, "the model service being unavailable"),
+                    )
+                    if isinstance(error, kind)
+                ),
+                "an interrupted run",
             )
             store.set_state(
                 child.id,

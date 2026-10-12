@@ -394,6 +394,9 @@ class LimitsConfig(Frozen):
     # Bare host names the probe also tries, beside the code hosts, to tell whether the
     # network as a whole is down. Port 443; an empty list leaves the code hosts alone.
     network_control_hosts: tuple[str, ...] = ("one.one.one.one", "dns.google")
+    # How many times in a row a unit is parked because the model service answered 5xx or
+    # 529; the next such failure fails it, as a persistent 5xx can be a real fault.
+    service_unavailable_attempts: Annotated[int, Field(gt=0)] = 5
 
     @field_validator("network_control_hosts")
     @classmethod

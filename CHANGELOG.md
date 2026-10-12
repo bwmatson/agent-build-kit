@@ -71,7 +71,12 @@
   backoff of 1, 2, 5, 10 then 30 minutes. A name that cannot be resolved parks it
   straight away; a refused or timed-out connection is checked with a probe of the model's
   host and a control group. `limits.network_probe_timeout_seconds` and
-  `limits.network_control_hosts` set the probe, and `abk config --show` lists them.
+  `limits.network_control_hosts` set the probe, and `abk config --show` lists them. A
+  model service answering 5xx or 529 parks the unit the same way, without the probe, up to
+  `limits.service_unavailable_attempts` times in a row (default 5); the next such failure
+  fails it with its error text. A parking for the network also writes a `network` pause:
+  while it stands a tick starts no agent run and the status shows it as waiting for the
+  network, and the first tick whose control hosts connect ends it.
 
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge

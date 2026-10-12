@@ -231,6 +231,8 @@ class StoredUnit(Unit):
     # being unavailable has parked it; a success resets the count.
     step: str = ""
     parked_attempts: int = 0
+    # How many times in a row the model service's status has parked it.
+    service_attempts: int = 0
     history: tuple[dict, ...] = ()
     # When the unit was first evaluated with nothing blocking it, and when a
     # person first answered its pull request; None until then.
@@ -665,6 +667,7 @@ class UnitStore:
                 else 0
                 if state in (IN_REVIEW, FAILED)
                 else unit.parked_attempts,
+                "service_attempts": 0 if state in (IN_REVIEW, FAILED) else unit.service_attempts,
                 "history": (
                     *unit.history,
                     {
@@ -678,6 +681,24 @@ class UnitStore:
         )
         self._write(stored)
         return stored[unit_id], list(stored.values()), opened
+
+    def count_service_attempt(self, unit_id: str) -> int:
+        """Count one more parking in a row on the model service's status; the new count."""
+        return self._counted(unit_id, add=True)
+
+    def reset_service_attempts(self, unit_id: str) -> None:
+        """A step completed: the row of parkings on the status starts over."""
+        self._counted(unit_id, add=False)
+
+    @_exclusive
+    def _counted(self, unit_id: str, *, add: bool) -> int:
+        stored = self._read()
+        unit = stored[unit_id]
+        count = unit.service_attempts + 1 if add else 0
+        if count != unit.service_attempts:
+            stored[unit_id] = unit.model_copy(update={"service_attempts": count})
+            self._write(stored)
+        return count
 
     def record_step(self, unit_id: str, step: str) -> None:
         """The step the unit is in when it fails, kept with the failure."""
