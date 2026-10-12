@@ -258,7 +258,10 @@
   in the message, so it is split before it is built, and a group joined onto a unit is held
   to the same figure. The planner is told the ratios, a unit keeps both its own estimate and
   the calibrated figure (listed by `abk status`), and `limits.calibrate_estimates: false`
-  turns it off; the other `limits.calibration_*` keys tune it.
+  turns it off; the other `limits.calibration_*` keys tune it. The planner is also told,
+  per calibrated kind, the largest raw estimate a unit may carry and its few most recent
+  merged units (`calibration_examples`, `calibration_kinds_listed`), and a rejection for
+  size names that figure and how many groups the unit carries, and says to split it by group.
 
 - A repo can now set `checks.affected` so the check after a failed check and a fix runs
   only the tests the change affects, instead of the whole suite again. `profile` asks

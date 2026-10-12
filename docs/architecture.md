@@ -143,9 +143,13 @@ The estimate is checked after being multiplied by a calibration ratio for the un
 (repo, tier and the flag of its first flagged group): the median of what the last
 `limits.calibration_window` merged units of that kind landed at over their estimates, each
 sample clamped, moved toward 1 when there are few, 1 under `calibration_min` samples, and
-never below 1 or above `calibration_max`. The planner's prompt lists the ratios above 1, a join
-is held to the same figure, and a unit records both its own estimate and the calibrated figure
-when it is planned, which `abk status` lists; a sample always uses the raw estimate, so the
+never below 1 or above `calibration_max`. The planner's prompt lists the ratios above 1,
+each with the largest raw estimate the ceiling allows for the kind and its newest merged
+units (title, estimate, landed lines; `calibration_examples`, `calibration_kinds_listed`,
+and at most 2000 characters). A combined unit rejected for size is told that figure and
+its group count, a join is held to the same figure, and a unit records both its own
+estimate and the calibrated figure when it is planned, which `abk status` lists; a sample
+always uses the raw estimate, so the
 correction does not compound. `limits.calibrate_estimates: false` turns it off.
 A single group estimated over the ceiling cannot be fixed by grouping, so the
 change is left unplanned with a message naming the group and saying its tasks

@@ -343,6 +343,10 @@ class LimitsConfig(Frozen):
     calibration_shrink: Annotated[float, Field(ge=0)] = 5
     calibration_sample_clamp: tuple[float, float] = (0.5, 4.0)
     calibration_max: Annotated[float, Field(ge=1)] = 3.0
+    # What the planner is shown of each calibrated kind: how many of its newest merged units
+    # (0 shows none) and how many kinds, the ones with most samples first.
+    calibration_examples: Annotated[int, Field(ge=0)] = 3
+    calibration_kinds_listed: Annotated[int, Field(ge=1)] = 5
     # Path patterns (fnmatch, against the whole path or the file name) of
     # generated files, left out of a unit's actual size.
     generated_files: tuple[str, ...] = ()

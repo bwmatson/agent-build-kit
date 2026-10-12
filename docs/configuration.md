@@ -237,6 +237,10 @@ limits:
                                 # each sample, actual over estimate, is held to
                                 # this range (low in (0, 1], high >= 1)
   calibration_max: 3.0          # the ratio is kept between 1 and this (>= 1)
+  calibration_examples: 3       # newest merged units of each listed kind shown
+                                # to the planner (>= 0; 0 shows none)
+  calibration_kinds_listed: 5   # kinds shown to the planner, most samples
+                                # first (>= 1)
   generated_files: ["*.generated.ts", ...]
                                 # path patterns (whole path or file name) left
                                 # out of a unit's actual size, together with the

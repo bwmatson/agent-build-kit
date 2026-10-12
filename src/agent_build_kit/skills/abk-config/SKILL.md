@@ -134,6 +134,8 @@ limits:
   calibration_shrink: 5       # n samples carry n / (n + shrink) of the gap from 1 (>= 0)
   calibration_sample_clamp: [0.5, 4.0]  # each sample held to this (low in (0, 1], high >= 1)
   calibration_max: 3.0        # the ratio is kept between 1 and this (>= 1)
+  calibration_examples: 3     # newest merged units of each listed kind shown to the planner (>= 0)
+  calibration_kinds_listed: 5 # kinds shown to the planner, most samples first (>= 1)
   generated_files: []         # patterns left out of a unit's actual size; the environments'
                               # lock files are left out as well; init writes the detected ones
   max_review_rounds: 3        # review rounds before a unit fails
