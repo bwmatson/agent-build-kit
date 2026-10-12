@@ -23,7 +23,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     key,
-    redacted_writes,
+    redacted_text,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.shell import git
@@ -192,6 +192,7 @@ class LocalForge:
         shown = git(checkout, "diff", f"{trunk}...refs/heads/{pull['head']}", check=False)
         return None if shown.returncode else shown.stdout
 
+    @redacted_text("body")
     def comment_exists(
         self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
     ) -> str | None:
@@ -207,7 +208,7 @@ class LocalForge:
                 )
         return None
 
-    @redacted_writes("title", "body")
+    @redacted_text("title", "body")
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         checkout = self._checkout(repo)
         tip = _seen(checkout, {"head": head, "base": base})[0] if checkout else ""
@@ -229,7 +230,7 @@ class LocalForge:
 
         return self._change(repo, add)
 
-    @redacted_writes("body")
+    @redacted_text("body")
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
         def update(pulls: list[Stored]) -> None:
             for pull in pulls:
@@ -279,11 +280,11 @@ class LocalForge:
         # The pipeline takes the UI review's notes itself, placed at the branch tip.
         return []
 
-    @redacted_writes("body")
+    @redacted_text("body")
     def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]:
         return self._post(repo, pr, body, note_id)
 
-    @redacted_writes("body")
+    @redacted_text("body")
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
         return self._post(repo, pr, body, None)
 
@@ -313,7 +314,7 @@ class LocalForge:
 
     # --- what has no local meaning --------------------------------------------------
 
-    @redacted_writes("description")
+    @redacted_text("description")
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
     ) -> None:

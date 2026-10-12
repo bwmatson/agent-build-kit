@@ -67,9 +67,10 @@ from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
+from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
-from agent_build_kit.settings import named_value, settings
+from agent_build_kit.settings import settings
 
 Run = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], str | None]
@@ -485,24 +486,12 @@ def _ssh_keys(inst: Installation) -> list[Check]:
     return checks
 
 
-def _weak_secrets(inst: Installation) -> list[Check]:
-    """A secret name the redaction set cannot protect: set to under `MIN_LENGTH`
-    characters, or not set at all. Names only; a value is never printed."""
-    short = []
-    for name, provider in inst.config.verify.env.items():
-        try:
-            if len(_resolve(provider)) < MIN_LENGTH:
-                short.append(f"verify.env {name}")
-        except Exception:  # noqa: BLE001 — _verify_env reports a provider that fails
-            continue
-    unset = []
-    env_file = inst.env_file if inst.env_file.exists() else None
-    for name in inst.config.redact:
-        value = named_value(name, env_file)
-        if not value:
-            unset.append(name)
-        elif len(value) < MIN_LENGTH:
-            short.append(f"redact {name}")
+def _weak_secrets() -> list[Check]:
+    """The secret names the redaction set, built when the installation was activated,
+    cannot protect: set to under `MIN_LENGTH` characters, or not set at all. Names only;
+    a value is never printed."""
+    held = active_redactor()
+    short, unset = held.short, held.unset
     checks = []
     if short:
         checks.append(
@@ -1093,7 +1082,7 @@ def run_doctor(
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
-    checks += _weak_secrets(inst)
+    checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)

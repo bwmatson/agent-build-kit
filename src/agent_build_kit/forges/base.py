@@ -18,6 +18,7 @@ functions here rather than inherited behaviour.
 from __future__ import annotations
 
 import functools
+import inspect
 import subprocess
 from collections.abc import Callable, Collection, Sequence
 from enum import StrEnum
@@ -37,16 +38,21 @@ if TYPE_CHECKING:
 Run = Callable[..., subprocess.CompletedProcess]
 
 
-def redacted_writes[F: Callable[..., Any]](*names: str) -> Callable[[F], F]:
-    """Decorate a forge's write method so the text keyword arguments `names` pass through
-    the known secret values before they reach the host or the store: one line is logged
-    however many of them fail to redact."""
+def redacted_text[F: Callable[..., Any]](*names: str) -> Callable[[F], F]:
+    """Decorate a forge method so the text arguments `names`, however they are passed, go
+    through the known secret values: before they reach the host or the store, and before
+    a body is compared with the one the host holds. One line is logged however many of
+    them fail to redact."""
 
     def decorate(method: F) -> F:
+        signature = inspect.signature(method)
+
         @functools.wraps(method)
         def write(self: Any, *args: Any, **kwargs: Any) -> Any:
-            held = {name: kwargs[name] for name in names if name in kwargs}
-            return method(self, *args, **{**kwargs, **redact_leaves(held, where=method.__name__)})
+            bound = signature.bind(self, *args, **kwargs)
+            held = {name: bound.arguments[name] for name in names if name in bound.arguments}
+            bound.arguments.update(redact_leaves(held, where=method.__name__))
+            return method(*bound.args, **bound.kwargs)
 
         return write  # type: ignore[return-value]
 

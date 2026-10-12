@@ -174,7 +174,7 @@ class TestAzureDevOps:
             )
 
         written = "\n".join(str(call.body) for call in host.writes())
-        assert written
+        assert SAID_REPLACED in written
         assert SECRET not in written
 
     def test_a_failed_redaction_withholds_the_posted_body(
