@@ -1020,6 +1020,15 @@ def build_on_flake(
     return on_flake
 
 
+def build_on_preexisting(
+    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+) -> Callable[..., str | None]:
+    """Record a test that failed on the base too and make sure one change fixes it; with
+    `wait`, give each group of the unit a `Needs:` line on that change. Returns the
+    change, or None for a unit of the change itself, which has nothing to wait on."""
+    raise NotImplementedError
+
+
 def _under(path: Path, where: Path) -> str | None:
     """`path` as seen from the directory `where`, or None when it is not inside it."""
     try:

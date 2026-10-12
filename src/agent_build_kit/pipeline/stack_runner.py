@@ -44,6 +44,7 @@ from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.task_progress import mark_groups
+from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import Cause, Description, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     Unit,
@@ -1294,6 +1295,13 @@ class UnitRunner(BaseModel):
     # unit to wait on (it builds the fix). See `wiring.build_on_flake`.
     on_flake: Callable[..., str | None] = lambda unit, flake: None
     run_tier2: Callable[..., tuple[bool, str]]
+    # What the last tier 2 run found of whose each failed test is (None when nothing was
+    # classified), and what to do with each test that failed on the base too: told the
+    # unit, the verdict, the test and whether the unit waits on the fix, it records the
+    # failure and answers the change that fixes it (None for a unit of that change).
+    # See `wiring.build_on_preexisting`.
+    tier2_verdict: Callable[[], Tier2Verdict | None] = lambda: None
+    on_preexisting: Callable[..., str | None] = lambda unit, verdict, failure, *, wait: None
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]
