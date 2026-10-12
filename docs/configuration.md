@@ -250,6 +250,7 @@ limits:
   tier1_abort_grace_seconds: 10    # how long an aborted command has to exit before it is killed
   tier1_repeat_runs: 3              # times the tests a unit added or changed are run again under load (0: off)
   tier2_base_runs: 1                # run the untouched failed tier 2 tests once on the base (0: off)
+  tier2_lock_wait_seconds: 5400     # longest a unit waits for the tier 2 lock before failing as busy
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under

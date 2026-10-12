@@ -216,6 +216,7 @@ def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=moving.head,
         status=lambda repo, result: statuses.append(result.sha),

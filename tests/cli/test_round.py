@@ -333,7 +333,7 @@ def test_verification_is_skipped_and_logged_while_the_live_stack_is_in_use_then_
     store = UnitStore(tmp_path / "units.json")
     merged_beside_a_build(store)
 
-    with stack_lock(inst.state_dir / "tier2.lock"):
+    with stack_lock(inst.state_dir / "tier2.lock", timeout=5):
         in_a_thread(lambda: run(inst, store, building={"slow/1"}, started={"slow/1"}))
 
         assert verified == []
@@ -363,7 +363,7 @@ def test_a_change_skipped_for_the_live_stack_does_not_archive_on_an_earlier_pass
         Verification(change="done", passed=True, units=["done/1"])
     )
 
-    with stack_lock(inst.state_dir / "tier2.lock"):
+    with stack_lock(inst.state_dir / "tier2.lock", timeout=5):
         in_a_thread(lambda: run(inst, store))
 
         assert verified == []
@@ -383,7 +383,7 @@ def test_a_round_does_not_verify_when_no_change_has_merged(
     store.upsert([unit_of("slow/1", repo="platform")])
     store.set_state("slow/1", RUNNING, branch="spec/slow/1")
 
-    with stack_lock(inst.state_dir / "tier2.lock"):
+    with stack_lock(inst.state_dir / "tier2.lock", timeout=5):
         in_a_thread(lambda: run(inst, store, building={"slow/1"}))
 
     assert verified == []

@@ -21,6 +21,12 @@
   output holds only the last one. The python profile asks pytest for a short summary
   to read them from; other toolchains list none.
 
+- How long a unit waits for the tier 2 lock is now the setting
+  `limits.tier2_lock_wait_seconds`, a positive whole number of seconds that defaults to
+  5400 (it was a fixed 3600, shorter than a queued full tier 2 run). The tier 2 step and
+  post-merge verification both use it, a bad value is refused when the config loads, and
+  the busy message names the setting.
+
 - A unit whose agent run was killed mid-edit now resumes over the edits it left, as
   intended, instead of failing with a `TypeError` on the worktree request. The wrapper
   that holds the repository's turn dropped the option that allows a dirty worktree.

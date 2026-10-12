@@ -145,6 +145,7 @@ def gate(tmp_path: Path, run, *, root: Path | None = None, **kwargs) -> Tier2Ses
     return Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         **kwargs,

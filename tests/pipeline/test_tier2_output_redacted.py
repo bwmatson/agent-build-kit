@@ -20,6 +20,7 @@ def _run(tmp_path: Path, *, broken: bool = False) -> tuple[Tier2Session, str]:
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run_returning(OUTPUT),
         sha=lambda cwd: "abc1234",
         output_dir=tier2_output_dir(tmp_path / "state"),
@@ -57,6 +58,7 @@ def test_each_commands_withheld_notice_stays_on_its_own_line(tmp_path: Path) -> 
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run_returning(OUTPUT),
         sha=lambda cwd: "abc1234",
         projects=[ProjectConfig(path="api"), ProjectConfig(path="web")],

@@ -197,9 +197,9 @@ def test_the_stack_lock_is_taken_once_for_the_unit_run_and_the_base_run(
     real = wiring.stack_lock
 
     @contextlib.contextmanager
-    def watched(path: Path, timeout: float = 0) -> Iterator[None]:
+    def watched(path: Path, timeout: float, setting: str | None = None) -> Iterator[None]:
         events.append("take")
-        with real(path, timeout):
+        with real(path, timeout, setting):
             yield
         events.append("release")
 

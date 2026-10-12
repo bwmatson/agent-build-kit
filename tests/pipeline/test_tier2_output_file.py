@@ -33,6 +33,7 @@ def _session(
     return Tier2Session(
         unit(uid, change=uid.split("/")[0], tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         output_dir=tier2_output_dir(tmp_path / "state"),

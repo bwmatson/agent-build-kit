@@ -1114,6 +1114,7 @@ def _tier_two_with_stack_versions(
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         stack_versions_command=["no-such-tool", "ps"],
@@ -1167,6 +1168,7 @@ def test_a_member_with_no_live_stack_tests_does_not_fail_tier_two(tmp_path: Path
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=lambda command, **k: next(outcomes),
         sha=lambda cwd: "abc1234",
     )
@@ -1187,6 +1189,7 @@ def test_a_failing_member_fails_tier_two_and_says_why(tmp_path: Path) -> None:
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=lambda command, **k: next(outcomes),
         sha=lambda cwd: "abc1234",
     )
@@ -1238,7 +1241,11 @@ def test_tier_two_deploys_the_branch_onto_the_dev_stack_when_the_repo_has_one(
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
     session = Tier2Session(
-        unit(tier="tier2"), lock=tmp_path / "t2.lock", run=run, sha=lambda cwd: "abc1234"
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        timeout=5,
+        run=run,
+        sha=lambda cwd: "abc1234",
     )
     ok, snapshot = session.run(cwd=tmp_path)
 
@@ -1257,7 +1264,11 @@ def test_the_dev_stack_comes_down_even_when_it_fails_to_come_up(tmp_path: Path) 
         return subprocess.CompletedProcess(command, 1 if failed else 0, "", "build failed")
 
     session = Tier2Session(
-        unit(tier="tier2"), lock=tmp_path / "t2.lock", run=run, sha=lambda cwd: "abc1234"
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        timeout=5,
+        run=run,
+        sha=lambda cwd: "abc1234",
     )
     ok, snapshot = session.run(cwd=tmp_path)
 
@@ -1286,6 +1297,7 @@ def test_a_dev_stack_that_attaches_to_another_comes_up_on_top_of_it(tmp_path: Pa
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         under=lambda: base,
@@ -1316,6 +1328,7 @@ def test_when_the_stack_underneath_fails_to_come_up_nothing_is_built_on_it(
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         under=lambda: base,
@@ -1689,6 +1702,7 @@ def test_tier_two_runs_the_live_stack_tests_with_the_verify_env(tmp_path: Path) 
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         env={"ACCEPTANCE_AGENT": "agent acp"},

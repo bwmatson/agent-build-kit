@@ -269,6 +269,7 @@ def test_a_failed_redaction_logs_one_line_for_a_tier_two_of_several_commands(
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=lambda command, **kw: subprocess.CompletedProcess(
             command, 1, f"1 failed in 1.00s {SECRET}", ""
         ),
@@ -340,6 +341,7 @@ def test_a_passing_tier_two_command_is_redacted_before_its_output_is_cut(
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=lambda command, **kw: subprocess.CompletedProcess(command, 0, out, ""),
         sha=lambda cwd: "abc1234",
     )

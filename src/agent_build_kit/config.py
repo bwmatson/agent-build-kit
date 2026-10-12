@@ -332,6 +332,8 @@ class LimitsConfig(Frozen):
     # failure the unit caused from one already there; 0 turns the run off. A switch, not a
     # count: one run answers the question.
     tier2_base_runs: Annotated[int, Field(ge=0, le=1)] = 1
+    # Longest a unit waits for the tier 2 lock before its tier 2 step fails as busy, in seconds.
+    tier2_lock_wait_seconds: Annotated[int, Field(gt=0)] = 5400
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:
