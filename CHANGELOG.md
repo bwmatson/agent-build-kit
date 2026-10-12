@@ -14,6 +14,7 @@
   unit's run log and `abk status` for a unit that failed tier 2 name the file, so the
   first error is never lost to the cut of the posted output. The last three files of a
   unit are kept, and archiving a change removes its files.
+
 - A refused or unreadable usage read no longer pauses the pipeline while the last good
   reading leaves ample room. Each window is estimated as that reading plus a flat
   allowance for every unit that has spent or started since (`usage_unit_allowance_pct`
