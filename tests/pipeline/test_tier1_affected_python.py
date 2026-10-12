@@ -17,6 +17,8 @@ import pytest
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.scratch import ensure_scratch, selection_seed
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.usage_ledger import forget_told
 from agent_build_kit.pipeline.wiring import build_tier1
 from tests.fake_clock import FakeClock, install
@@ -35,7 +37,9 @@ class Runner:
         *,
         full: tuple[int, int, str] = (0, 100, "10 passed in 100.00s"),
         selected: tuple[int, int, str] = (0, 10, "1 passed in 9.00s"),
+        no_plugin: bool = False,
     ) -> None:
+        self.no_plugin = no_plugin
         self.clock = clock
         self.full = full
         self.selected = selected
@@ -45,13 +49,17 @@ class Runner:
         self.ran.append(command)
         if "pytest" not in command:
             return subprocess.CompletedProcess(command, 0, "", "")
+        if self.no_plugin and any("testmon" in word for word in command):
+            return subprocess.CompletedProcess(
+                command, 2, "", "error: No solution found: pytest-testmon"
+            )
         code, seconds, output = self.selected if self.is_selected(command) else self.full
         self.clock.advance(seconds)
         return subprocess.CompletedProcess(command, code, output, "")
 
     @staticmethod
     def is_selected(command: list[str]) -> bool:
-        return any("::" in word for word in command)
+        return "--testmon" in command or any("::" in word for word in command)
 
     def full_runs(self) -> list[list[str]]:
         return [c for c in self.ran if "pytest" in c and not self.is_selected(c)]
@@ -108,7 +116,7 @@ def test_the_first_full_run_records_the_seed_data_in_the_units_worktree(
 
     (recording,) = on.full_runs()
     assert any("testmon" in word for word in recording)
-    assert any(str(repo / ".abk-affected") in word for word in recording)
+    assert any(str(selection_seed(repo)) in word for word in recording)
     (plain,) = off.full_runs()
     assert not any("testmon" in word for word in plain)
 
@@ -217,3 +225,100 @@ def test_an_unwritable_ledger_does_not_fail_the_run_and_is_reported_once(
     assert first and second
     assert len(runner.selected_runs()) == 2
     assert sum("usage ledger" in line for line in log) == 1, log
+
+
+def test_a_seeded_selection_runs_with_the_plugin_and_its_count_reaches_the_ledger(
+    tmp_path: Path, clock: FakeClock, workspace: Installation
+) -> None:
+    repo = repo_at(tmp_path)
+    selection_seed(repo).write_bytes(b"recorded")
+    runner = Runner(clock, selected=(0, 10, "4 passed in 9.00s"))
+
+    passed, _ = tier1_for(repo, runner)(cwd=repo, base="main", failed_output=FAILED_OUTPUT)
+
+    assert passed
+    (selected,) = runner.selected_runs()
+    assert "--testmon" in selected and "--testmon-noselect" not in selected
+    (line,) = affected_lines(workspace)
+    assert line["selected"] == 4
+
+
+def test_the_seed_a_full_run_leaves_is_not_work_the_commit_step_would_stage(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "tree"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    git(repo, "config", "user.email", "a@example.com")
+    git(repo, "config", "user.name", "a")
+    (repo / "x.py").write_text("x = 1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    ensure_scratch(repo)
+
+    seed = selection_seed(repo)
+    for name in (seed.name, f"{seed.name}-wal", f"{seed.name}-shm"):
+        (seed.parent / name).write_bytes(b"sqlite")
+    git(repo, "add", "-A")
+
+    assert git_out(repo, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("with_failure", [False, True])
+def test_a_plugin_that_cannot_be_had_costs_time_and_never_the_unit(
+    tmp_path: Path, clock: FakeClock, with_failure: bool
+) -> None:
+    repo = repo_at(tmp_path)
+    selection_seed(repo).write_bytes(b"recorded")
+    runner = Runner(clock, no_plugin=True)
+    log: list[str] = []
+    tier1 = tier1_for(repo, runner, log=log)
+
+    passed, output = tier1(
+        cwd=repo, base="main", failed_output=FAILED_OUTPUT if with_failure else ""
+    )
+
+    assert passed, output
+    plain = [c for c in runner.full_runs() if not any("testmon" in w for w in c)]
+    assert plain, runner.ran
+    assert any("selection tooling" in line for line in log), log
+
+
+def test_the_log_names_the_program_not_the_env_words_before_it(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    runner = Runner(clock, no_plugin=True)
+    log: list[str] = []
+
+    tier1_for(repo, runner, log=log)(cwd=repo, base="main")
+
+    said = [line for line in log if "selection tooling" in line]
+    assert said and "uv could not" in said[0] and "env" not in said[0]
+
+
+def test_the_repos_root_extras_reach_the_profiles_selection(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    from agent_build_kit.profiles.python_uv import PythonUvProfile
+
+    class Asked(PythonUvProfile):
+        extras: list[str] | None = None
+
+        def affected_test_commands(self, repo, changed_files, failed_ids, *, seed, root_extras):
+            self.extras = root_extras
+            return None
+
+    repo = repo_at(tmp_path)
+    profile = Asked()
+    tier1 = build_tier1(
+        run=Runner(clock),
+        changed=lambda *a: ["tests/test_x.py"],
+        profile=profile,
+        root_extras=["httpx"],
+        repo=RepoConfig(path=repo, changelog=None, checks={"affected": {"mode": "profile"}}),
+    )
+
+    tier1(cwd=repo, base="main", failed_output=FAILED_OUTPUT)
+
+    assert profile.extras == ["httpx"]

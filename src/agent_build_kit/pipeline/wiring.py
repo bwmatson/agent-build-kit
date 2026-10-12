@@ -80,7 +80,7 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
 )
 from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
-from agent_build_kit.pipeline.scratch import run_folder
+from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
@@ -894,7 +894,7 @@ def build_tier1(
                 is_test = index >= len(commands) - tests
                 # A full run keeps the data a later selection reads, without selecting.
                 command = (
-                    toolchain.seeding_command(planned, where / ".abk-affected")
+                    toolchain.seeding_command(planned, selection_seed(where))
                     if is_test
                     and affected is not None
                     and not whole_repo
@@ -903,6 +903,14 @@ def build_tier1(
                 )
                 started = spans.clock.monotonic()
                 result = ran(command, where, toolchain)
+                if command is not planned and _tooling_lost(toolchain, command, result):
+                    _say(
+                        log,
+                        f"affected tests: {_program(command)} could not use the selection "
+                        "tooling, running the tests without it",
+                    )
+                    command = planned
+                    result = ran(command, where, toolchain)
                 if is_test:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
@@ -978,7 +986,11 @@ def build_tier1(
             else:
                 tests = (
                     toolchain.affected_test_commands(
-                        where, files, failed_ids, seed=where / ".abk-affected"
+                        where,
+                        files,
+                        failed_ids,
+                        seed=selection_seed(where),
+                        root_extras=root_extras or [],
                     )
                     if isinstance(toolchain, SelectsAffectedTests)
                     else None
@@ -1003,8 +1015,15 @@ def build_tier1(
                 except OSError as error:
                     _say(
                         log,
-                        f"affected tests: {command[0]} could not run ({error}), "
+                        f"affected tests: {_program(command)} could not run ({error}), "
                         "running the full suite",
+                    )
+                    return None
+                if index > 0 and _tooling_lost(toolchain, command, result):
+                    _say(
+                        log,
+                        f"affected tests: {_program(command)} could not use the selection "
+                        "tooling, running the full suite",
                     )
                     return None
                 if index > 0:
@@ -1138,6 +1157,28 @@ def _under(path: Path, where: Path) -> str | None:
 def _say(log: Callable[[str], None] | None, message: str) -> None:
     if log is not None:
         log(f"  tier 1: {message}")
+
+
+def _program(command: list[str]) -> str:
+    """The program a command runs, after the `VAR=value` words an `env` prefix sets."""
+    words = iter(command)
+    for word in words:
+        if word != "env" and "=" not in word:
+            return word
+    return command[0]
+
+
+def _tooling_lost(
+    toolchain: ToolchainProfile, command: list[str], result: subprocess.CompletedProcess
+) -> bool:
+    """Whether a command made for the selection's data failed before running a test: no
+    result line at all, so its tooling could not be had and the plain command is the answer."""
+    return (
+        isinstance(toolchain, RecordsSelectionData)
+        and toolchain.is_seeded(command)
+        and result.returncode != 0
+        and _counted(toolchain, result) == 0
+    )
 
 
 def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -> int:

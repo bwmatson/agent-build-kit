@@ -13,6 +13,19 @@ from agent_build_kit.profiles.python_uv import PROFILE
 
 ID_A = "svc-a/tests/test_x.py::test_y"
 PLAIN_ID = "tests/test_x.py::test_y"
+ROOT_ID = "tests/test_root.py::test_z"
+
+
+def ask(
+    repo: Path,
+    changed: list[str],
+    ids: list[str],
+    seed: Path,
+    root_extras: list[str] | None = None,
+) -> list[list[str]] | None:
+    return PROFILE.affected_test_commands(
+        repo, changed, ids, seed=seed, root_extras=root_extras or []
+    )
 
 
 def plain_repo(tmp_path: Path) -> Path:
@@ -32,7 +45,7 @@ def workspace_repo(tmp_path: Path) -> Path:
 
 
 def seeded(tmp_path: Path) -> Path:
-    seed = tmp_path / "seed" / ".abk-affected"
+    seed = tmp_path / "seed" / "affected"
     seed.parent.mkdir()
     seed.write_bytes(b"recorded by the first full run")
     return seed
@@ -49,7 +62,7 @@ def test_seed_data_selects_by_changed_source_with_the_plugin_in_the_isolated_env
     repo = workspace_repo(tmp_path)
     seed = seeded(tmp_path)
 
-    commands = PROFILE.affected_test_commands(repo, ["svc-a/src/x.py"], [ID_A], seed=seed)
+    commands = ask(repo, ["svc-a/src/x.py"], [ID_A], seed)
 
     assert commands
     for command in commands:
@@ -66,7 +79,7 @@ def test_seed_data_in_a_repo_that_is_not_a_workspace_selects_by_changed_source(
 ) -> None:
     repo = plain_repo(tmp_path)
 
-    commands = PROFILE.affected_test_commands(repo, ["src/x.py"], [], seed=seeded(tmp_path))
+    commands = ask(repo, ["src/x.py"], [], seeded(tmp_path))
 
     assert "--testmon" in words(commands)
 
@@ -74,9 +87,7 @@ def test_seed_data_in_a_repo_that_is_not_a_workspace_selects_by_changed_source(
 def test_without_seed_data_the_failed_tests_run_first_and_alone(tmp_path: Path) -> None:
     repo = workspace_repo(tmp_path)
 
-    commands = PROFILE.affected_test_commands(
-        repo, ["svc-a/src/x.py"], [ID_A], seed=tmp_path / "missing" / ".abk-affected"
-    )
+    commands = ask(repo, ["svc-a/src/x.py"], [ID_A], tmp_path / "missing" / "affected")
 
     assert commands
     for command in commands:
@@ -93,9 +104,7 @@ def test_without_seed_data_a_repo_that_is_not_a_workspace_runs_the_failed_test_a
 ) -> None:
     repo = plain_repo(tmp_path)
 
-    commands = PROFILE.affected_test_commands(
-        repo, ["src/x.py"], [PLAIN_ID], seed=tmp_path / ".abk-affected"
-    )
+    commands = ask(repo, ["src/x.py"], [PLAIN_ID], tmp_path / "affected")
 
     assert commands and len(commands) == 1
     assert commands[0].count(PLAIN_ID) == 1
@@ -105,6 +114,19 @@ def test_without_seed_data_a_repo_that_is_not_a_workspace_runs_the_failed_test_a
 def test_with_no_identifiers_and_no_seed_data_it_cannot_say(tmp_path: Path) -> None:
     repo = plain_repo(tmp_path)
 
-    commands = PROFILE.affected_test_commands(repo, ["src/x.py"], [], seed=tmp_path / ".abk")
+    assert ask(repo, ["src/x.py"], [], tmp_path / "affected") is None
 
-    assert commands is None
+
+def test_the_root_tests_carry_the_repos_root_extras_seeded_and_not(tmp_path: Path) -> None:
+    repo = workspace_repo(tmp_path)
+    (repo / "tests").mkdir()
+
+    for seed in (seeded(tmp_path), tmp_path / "missing" / "affected"):
+        commands = ask(repo, ["tests/test_root.py"], [ROOT_ID], seed, ["httpx"])
+
+        assert commands
+        root = [c for c in commands if "--package" not in c]
+        assert root, commands
+        for command in root:
+            withs = [command[i + 1] for i, word in enumerate(command) if word == "--with"]
+            assert "httpx" in withs

@@ -274,7 +274,9 @@
   full run in the unit's worktree left its data (full runs record it, without
   selecting), and otherwise runs the failed tests alone; with none named, the full suite
   runs. Each selected run writes an `affected` line to the usage ledger with the tests
-  selected and in all, the estimated seconds saved and whether the full run agreed.
+  selected and in all, the estimated seconds saved and whether the full run agreed. The
+  recorded data lives under the project's git-excluded `.abk/` folder, so a commit never
+  holds it, and when the coverage plugin cannot be installed the tests run without it.
 
 - An environment's `inputs` are now path patterns, `**` included, so a repository with
   many nested manifests and locks can list them and a new module is no longer missed. A

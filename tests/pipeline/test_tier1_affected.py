@@ -50,7 +50,13 @@ class Profile(PythonUvProfile):
         return [["full-tests"]]
 
     def affected_test_commands(
-        self, repo: Path, changed_files: list[str], failed_ids: list[str], *, seed: Path
+        self,
+        repo: Path,
+        changed_files: list[str],
+        failed_ids: list[str],
+        *,
+        seed: Path,
+        root_extras: list[str],
     ) -> list[list[str]] | None:
         self.asked.append((changed_files, failed_ids))
         return self.selected

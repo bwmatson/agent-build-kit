@@ -415,16 +415,25 @@ class PythonUvProfile:
         return [*command[: program + 1], *options, *ids] if ids else None
 
     def affected_test_commands(
-        self, repo: Path, changed_files: list[str], failed_ids: list[str], *, seed: Path
+        self,
+        repo: Path,
+        changed_files: list[str],
+        failed_ids: list[str],
+        *,
+        seed: Path,
+        root_extras: list[str],
     ) -> list[list[str]] | None:
         """The test commands of the change, selecting by the source each test executed when
         the seed data of an earlier full run is there; otherwise the failed tests alone,
         and None when none is named, so that the full suite stands in."""
-        commands = self.test_commands(repo, changed_files, root_extras=[])
+        commands = self.test_commands(repo, changed_files, root_extras=root_extras)
         if seed.is_file():
             return [self.seeding_command(command, seed, select=True) for command in commands]
         alone = [self.repeat_command(command, failed_ids) for command in commands]
         return [command for command in alone if command is not None] or None
+
+    def is_seeded(self, command: list[str]) -> bool:
+        return TESTMON in command
 
     def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
         """`command`, a test run, as one run with the coverage plugin in its isolated

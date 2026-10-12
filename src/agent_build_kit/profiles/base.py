@@ -150,11 +150,18 @@ class SelectsAffectedTests(Protocol):
     without it behaves as one that returns None."""
 
     def affected_test_commands(
-        self, repo: Path, changed_files: list[str], failed_ids: list[str], *, seed: Path
+        self,
+        repo: Path,
+        changed_files: list[str],
+        failed_ids: list[str],
+        *,
+        seed: Path,
+        root_extras: list[str],
     ) -> list[list[str]] | None:
         """The commands that run the tests the change affects: an empty list when none
         is affected, None when the profile cannot say. `failed_ids` are the tests the
-        failed check named; `seed` is a path the profile may keep selection data in."""
+        failed check named; `seed` is a path the profile may keep selection data in;
+        `root_extras` are what the repo's root tests need, as for `test_commands`."""
         ...
 
 
@@ -166,6 +173,11 @@ class RecordsSelectionData(Protocol):
     def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
         """`command`, a test run, as one that keeps its selection data at `seed`: running
         all its tests, or only the affected ones when `select`."""
+        ...
+
+    def is_seeded(self, command: list[str]) -> bool:
+        """Whether `command` is one `seeding_command` made, whose failure with no test result
+        means the selection's tooling could not run."""
         ...
 
 
