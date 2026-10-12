@@ -201,7 +201,7 @@ def tick(scratch: Scratch) -> Ticked:
 
 
 @pytest.fixture(scope="module")
-def built(scratch: Scratch) -> tuple[Scratch, Ticked]:
+def built(scratch: Scratch, scratch_ledger: Path) -> tuple[Scratch, Ticked]:
     ticked = tick(scratch)
     # A later step resumes this session: the agent must list it, or say why not here.
     if ticked.returncode == 0:

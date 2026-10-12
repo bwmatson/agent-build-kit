@@ -1048,7 +1048,7 @@ approved.
   prints at the end of the session one line per phase: `ABK-TIME ` and JSON with `test`,
   `phase`, `agent` (milliseconds by role), `calls` (by role), `checks_ms` (spans with a
   command, environment setup included), `other_ms` (the wall time left, never negative)
-  and `overlap` when the parts sum above the wall time. The tier 2 result merges the
+  and `overlap` (true when the parts sum above the wall time). The tier 2 result merges the
   lines by test and phase and shows them beside the entry; a test without the fixture
   gets no line.
 - **A guard.** `tests/timing_hazards.py` parses the test tree and fails on a bare sleep, a

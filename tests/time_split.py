@@ -6,7 +6,7 @@ the rows appended since the last phase that used that ledger, so a module fixtur
 in the setup of the first test using it. At the end of the session it prints one line per
 phase: the prefix `ABK-TIME` and JSON with the test id, the phase, agent milliseconds and
 calls by role, the commands' milliseconds (`checks_ms`), the remainder of the phase's wall time
-(`other_ms`, never negative) and `overlap` when the parts sum above the wall time. The tier 2
+(`other_ms`, never negative) and `overlap`, true when the parts sum above the wall time. The tier 2
 result reads these lines; a test without the fixture gets none.
 
 The phase's wall time is read from `clock.monotonic()`; a test replaces `clock` with one it moves.

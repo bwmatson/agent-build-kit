@@ -7,6 +7,7 @@ file the generated tests write rows to and a clock the generated tests move.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -194,3 +195,16 @@ def test_the_line_round_trips_through_the_framework_reader_and_a_malformed_line_
     assert merged[0].calls == {"implement": 1}
     assert merged[0].checks_ms == 30000
     assert merged[0].other_ms == 50000
+
+
+@pytest.mark.parametrize("module", ["test_acp_build_unit.py", "test_graph_acp_unit.py"])
+def test_every_test_of_a_live_scratch_module_requests_the_scratch_ledger(
+    pytester: pytest.Pytester, module: str
+) -> None:
+    path = Path(__file__).parent / "integration" / module
+    items, _ = pytester.inline_genitems(str(path))
+
+    assert items
+    functions = [i for i in items if isinstance(i, pytest.Function)]
+    assert len(functions) == len(items)
+    assert [f.nodeid for f in functions if time_split.LEDGER_FIXTURE not in f.fixturenames] == []

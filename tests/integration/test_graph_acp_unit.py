@@ -37,6 +37,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.workspaces import worktree_path
 from tests.agent_home import agent_home, assert_unit_session_listed
 from tests.factories import git, init_repo, scratch_app
@@ -92,6 +93,12 @@ def github_host() -> Iterator[FakeGitHub]:
         # fails here, naming it, even when no test looked.
         missed = server.unrouted()
         assert missed == [], f"the forge called routes the fake host does not serve: {missed}"
+
+
+@pytest.fixture(scope="module")
+def scratch_ledger(scratch: Scratch) -> Path:
+    """The scratch installation's usage ledger, for the time split of each phase."""
+    return scratch.state / LEDGER_NAME
 
 
 @pytest.fixture(scope="module")
@@ -185,6 +192,7 @@ def run_log(scratch: Scratch) -> str:
 
 def test_a_unit_runs_to_review_is_reworked_on_a_comment_and_its_thread_ends_at_merge(
     scratch: Scratch,
+    scratch_ledger: Path,
 ) -> None:
     built = tick(scratch)
     assert built.returncode == 0, built.output
