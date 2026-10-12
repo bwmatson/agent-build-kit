@@ -231,6 +231,8 @@ class StoredUnit(Unit):
     # being unavailable has parked it; a success resets the count.
     step: str = ""
     parked_attempts: int = 0
+    # How many times in a row the model service's status has parked it.
+    service_attempts: int = 0
     history: tuple[dict, ...] = ()
     # When the unit was first evaluated with nothing blocking it, and when a
     # person first answered its pull request; None until then.

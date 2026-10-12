@@ -86,6 +86,7 @@ def _result(
     turns: int = 3,
     ms: int = 81234,
     subtype: str = "success",
+    api_error_status: int | None = None,
 ) -> dict:
     """The closing event. Only a `success` result — a usage-limit refusal
     among them, flagged `is_error` — carries `result`; an error subtype has
@@ -99,6 +100,7 @@ def _result(
         "duration_api_ms": ms - 2100 if ms > 2100 else 0,
         "num_turns": turns,
         **said,
+        "api_error_status": api_error_status,
         "session_id": SESSION,
         "total_cost_usd": 0.0 if is_error else 0.4127,
         "usage": USAGE if not is_error else dict.fromkeys(USAGE, 0) | {"service_tier": None},
@@ -302,10 +304,14 @@ def replied(cwd: Path, answer: str) -> str:
     return stream(_init(cwd), _assistant([{"type": "text", "text": answer}]), _result(answer))
 
 
-def refused(cwd: Path, message: str) -> str:
+def refused(cwd: Path, message: str, *, api_error_status: int | None = None) -> str:
     """A run the account had no room for: the refusal arrives as an error
-    result, before any turn is spent."""
-    return stream(_init(cwd), _result(message, is_error=True, turns=1, ms=412))
+    result, before any turn is spent. `api_error_status` is the HTTP status of the
+    API error that ended the run, `null` in the event when there is none."""
+    return stream(
+        _init(cwd),
+        _result(message, is_error=True, turns=1, ms=412, api_error_status=api_error_status),
+    )
 
 
 class FakeClaude:

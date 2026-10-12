@@ -80,9 +80,10 @@ def build_once(
     store: UnitStore,
     *,
     recorder: Recorder | None = None,
+    config: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> Recorder:
-    inst = make_installation(tmp_path, planning={"state_dir": "."})
+    inst = make_installation(tmp_path, planning={"state_dir": "."}, **(config or {}))
     recorder = recorder or Recorder(store)
     runner = make_runner(store, recorder, tmp_path, **overrides)
     monkeypatch.setattr(cli, "build_runner", lambda u, **kw: runner)

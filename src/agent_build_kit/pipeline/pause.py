@@ -45,7 +45,7 @@ UNKNOWN_RETRY = timedelta(minutes=30)
 
 # The guard's own refusal, re-checked every tick; or the model's, kept to its
 # deadline.
-PauseKind = Literal["usage", "rate_limit"]
+PauseKind = Literal["usage", "rate_limit", "network"]
 
 
 class Pause(Frozen):
