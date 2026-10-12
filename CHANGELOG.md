@@ -7,7 +7,11 @@
   edge the planner proposes is dropped and logged with the cycle it would have made; a
   `Needs:` line that would close one is refused and logged, and `abk replan` exits
   non-zero naming it. A replan also clears such a stale planner edge from a unit that
-  has not started, and never touches the dependencies of one that has.
+  has not started, and never touches the dependencies of one that has. A cycle in the
+  `Needs:` lines of two changes is reported by `abk tags` and `abk check` before any
+  planning, a deadlock already stored is listed once per cycle as `deadlocked:` in
+  `abk status` and named when a pass starts nothing, and the planner is told not to
+  make unstarted work depend on the change it is planning.
 
 - `abk init` now asks which agent runtime to use, before research and propose run on
   it. It looks at what this machine can run without calling a model, lists the usable

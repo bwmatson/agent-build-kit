@@ -487,6 +487,9 @@ Rules the graph must satisfy:
   other establishes.
 - Place new work against what is already in flight below, not against main:
   if an in-flight unit already adds what a new one needs, depend on it.
+- A unit shown below as unstarted must not be made to depend, directly or
+  through other units, on a unit of the change being planned: nothing earlier
+  waits for a unit of this change, and a dependency like that closes a cycle.
 - A group flagged `[contract]` widens a shape another repo consumes. The
   group flagged `[narrow]` removes the old half, so its unit depends on every
   unit that migrates a consumer, and nothing may depend on it. A consumer of
