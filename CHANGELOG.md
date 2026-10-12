@@ -9,6 +9,12 @@
   or does not name is the unit's to fix. `limits.tier2_base_runs` (0 or 1, default 1)
   turns the base run off.
 
+- The full output of each tier 2 run is now kept in a redacted file under the state
+  directory's `tier2-output/`, named for the unit and the time. The tier 2 result, the
+  unit's run log and `abk status` for a unit that failed tier 2 name the file, so the
+  first error is never lost to the cut of the posted output. The last three files of a
+  unit are kept, and archiving a change removes its files.
+
 - A failed tier 2 run now lists every failed or errored test with its first failure
   line above the output that may be cut, so the pull request description and the
   feedback handed back to the builder show each failure even when the tail of the

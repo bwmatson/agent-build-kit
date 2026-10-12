@@ -36,7 +36,8 @@ Every field, with its default. A key at its default can be left out;
 version: 1
 
 planning:
-  state_dir: runs               # pipeline state, run logs and the usage ledger
+  state_dir: runs               # pipeline state, run logs, each tier 2 run's full
+                                # output (tier2-output/) and the usage ledger
                                 # (usage-ledger.jsonl and decisions.jsonl, both
                                 # gitignored; add a line for each if you move
                                 # state_dir; docs/architecture.md).

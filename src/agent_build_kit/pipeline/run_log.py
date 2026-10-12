@@ -33,6 +33,26 @@ def run_log_dir(state_dir: Path) -> Path:
     return state_dir / "unit-logs"
 
 
+def tier2_output_dir(state_dir: Path) -> Path:
+    """The directory of the full output of each tier 2 run, under the state directory."""
+    return state_dir / "tier2-output"
+
+
+def append_tier2_output(directory: Path, unit: Unit, started: datetime, text: str) -> Path:
+    """Append `text` to the unit's file for the tier 2 run begun at `started`, and
+    return it. The files of the unit beyond `RUNS_KEPT` are removed first. The file
+    is a diagnostic copy, so a write that fails is dropped."""
+    path = directory / run_log_name(unit, started, "tier2")
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        _prune(directory, unit, keep=RUNS_KEPT - (0 if path.exists() else 1))
+        with path.open("a") as file:
+            file.write(text)
+    except (OSError, ValueError):
+        pass
+    return path
+
+
 def _unit_prefix(unit: Unit) -> str:
     number = int(unit.id.rsplit("/", 1)[1])
     return f"{unit.change}-{number:02d}-"
@@ -115,8 +135,8 @@ def _unit_logs(directory: Path, prefix: str) -> list[Path]:
     return sorted(path for path in directory.glob(f"{prefix}*") if pattern.match(path.name))
 
 
-def _prune(directory: Path, unit: Unit) -> None:
-    for path in _unit_logs(directory, _unit_prefix(unit))[:-RUNS_KEPT]:
+def _prune(directory: Path, unit: Unit, *, keep: int = RUNS_KEPT) -> None:
+    for path in _unit_logs(directory, _unit_prefix(unit))[: -keep or None]:
         path.unlink(missing_ok=True)
 
 

@@ -21,6 +21,7 @@ import asyncio
 import contextvars
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -104,6 +105,7 @@ from agent_build_kit.pipeline.run_log import (
     remove_change_logs,
     remove_old_logs,
     run_log_dir,
+    tier2_output_dir,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.stack_runner import (
@@ -417,6 +419,16 @@ def _status_reading(args: argparse.Namespace) -> UsageReading | None:
     return held_usage()
 
 
+_FULL_OUTPUT = re.compile(r"\*\*Full output:\*\* `([^`]+)`")
+
+
+def _tier2_output(unit: StoredUnit) -> str:
+    """The file holding the full output of the unit's last tier 2 run. Each failure is added
+    to the feedback already saved, so the last line naming a file is the latest run's."""
+    found = _FULL_OUTPUT.findall(unit.feedback)
+    return found[-1] if found else ""
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
@@ -546,6 +558,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  waiting for the environment: {unit.id} ({unit.repo}) at {step} — {unit.note}")
         elif unit.state == FAILED:
             log(f"  failed: {unit.id} ({unit.repo}) at {step} — {unit.note}")
+            if kept := _tier2_output(unit):
+                log(f"  full tier 2 output: {unit.id} ({unit.repo}) — {kept}")
             if blocked := _blocked_by(unit, units):
                 log(f"  {blocked}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
@@ -733,6 +747,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
         run_logs=run_log_dir(inst.state_dir),
+        tier2_outputs=tier2_output_dir(inst.state_dir),
         transcripts=transcript_dir(inst.state_dir),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
@@ -1167,6 +1182,7 @@ def run_round(
             may_archive=may_archive,
             specs_dir=inst.config.planning.specs_dir,
             run_logs=run_log_dir(inst.state_dir),
+            tier2_outputs=tier2_output_dir(inst.state_dir),
             transcripts=transcript_dir(inst.state_dir),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
@@ -3246,6 +3262,7 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
 
     print(openspec.archive(args.change, cwd=inst.root), end="")
     remove_change_logs(run_log_dir(inst.state_dir), args.change)
+    remove_change_logs(tier2_output_dir(inst.state_dir), args.change)
     remove_change_transcripts(transcript_dir(inst.state_dir), args.change)
     return 0
 
