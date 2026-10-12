@@ -221,6 +221,7 @@ from agent_build_kit.pipeline.work_graph import (
     group_needs,
     merged_needs_warnings,
     specification_text,
+    tasks_path,
     validate_tasks,
 )
 from agent_build_kit.pipeline.workspaces import (
@@ -3223,7 +3224,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     failed = 0
     for change in changes:
         groups, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
-        path = inst.changes_dir / change / "tasks.md"
+        path = tasks_path(change, inst.changes_dir)
         for warning in merged_needs_warnings(path) if path.is_file() else []:
             print(warning)
         for error in errors:

@@ -260,8 +260,9 @@ def test_a_merged_qualifier_is_read_with_its_reason(tmp_path: Path) -> None:
                 group=4,
                 merged=True,
                 reason="it is still reshaping what this wraps",
+                line=2,
             ),
-            Need(change="other-change", group=1, merged=False, reason="why"),
+            Need(change="other-change", group=1, merged=False, reason="why", line=3),
         ]
     }
 
