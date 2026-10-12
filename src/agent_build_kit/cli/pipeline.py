@@ -115,7 +115,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitOutcome,
     UnitRunner,
 )
-from agent_build_kit.pipeline.tier2 import LOCK_WAIT_SETTING, stack_lock
+from agent_build_kit.pipeline.tier2 import LOCK_WAIT_SETTING, lock_status_line, stack_lock
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -461,6 +461,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if runtime.supports_usage_tracking:
             log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
 
+    if line := lock_status_line(inst.tier2_lock):
+        log(line)
+
     units = store_for(inst).all()
     if not units:
         log("no units planned")
@@ -656,9 +659,7 @@ def verify_one(
     with ExitStack() as held:
         try:
             held.enter_context(
-                stack_lock(
-                    inst.state_dir / "tier2.lock", timeout, setting, holder=f"verify {change}"
-                )
+                stack_lock(inst.tier2_lock, timeout, setting, holder=f"verify {change}")
             )
         except TimeoutError as error:
             raise StackBusy(str(error)) from error

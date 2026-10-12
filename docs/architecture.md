@@ -435,7 +435,8 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    stack of its own, that repo's stack from a detached worktree at its
    `origin/<default_branch>` (the local trunk for a repo with no `origin`), never the user's own checkout. Without a dev
    stack the profile's tier-2 commands run against the live stack. Either way
-   under the one `runs/tier2.lock` queue, and the result is recorded with the
+   under the one `runs/tier2.lock` queue (the file names its holder, and `abk status` shows the
+   holder and its age), and the result is recorded with the
    commit, the command, counts and the stack-versions command's output
    (`verify.stack_versions_command`, else the repo's `infra:` profile's; see
    [toolchain-profiles.md](toolchain-profiles.md)) for the PR body. Tier 2 runs in each declared project (`projects:`), from its
