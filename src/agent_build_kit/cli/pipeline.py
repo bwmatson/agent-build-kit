@@ -53,7 +53,9 @@ from agent_build_kit.pipeline.cycles import (
     FINISHED,
     CycleDrops,
     CycleEdge,
+    deadlocks,
     drop_cycle_edges,
+    needs_cycle,
     path_between,
 )
 from agent_build_kit.pipeline.drafts import StateDrafts
@@ -532,6 +534,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for line in _ready_queue_lines(inst, units):
         log(line)
+    for line in _deadlocked_unit_lines(units):
+        log(line)
 
     # Units in flight from before causes were kept: nothing reads their notes, so
     # each is requeued (`abk requeue`) or, for a reviewer's hold, held again from
@@ -544,6 +548,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     ]
     if uncaused:
         log(f"no recorded cause: {', '.join(uncaused)}")
+
+    for line in _deadlock_lines(units):
+        log(line)
 
     for unit in units:
         if (
@@ -1618,6 +1625,38 @@ def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     return line
 
 
+def _deadlock_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each cycle of units waiting on each other, which can never start."""
+    return [
+        f"deadlocked: {' -> '.join(cycle)} ({len(cycle) - 1} units wait on each other "
+        "and cannot start)"
+        for cycle in deadlocks(units)
+    ]
+
+
+def _deadlocked_unit_lines(units: list[StoredUnit]) -> list[str]:
+    """Each unit in a cycle, and each unit waiting on one, with why it cannot start."""
+    stuck: dict[str, str] = {}
+    for cycle in deadlocks(units):
+        for unit_id in cycle[:-1]:
+            stuck[unit_id] = " -> ".join(cycle)
+    by_id = {unit.id: unit for unit in units}
+    lines = [
+        f"  deadlocked: {unit_id} ({by_id[unit_id].repo}) is in the cycle {chain}"
+        for unit_id, chain in stuck.items()
+    ]
+    for unit in units:
+        if unit.id in stuck or unit.state in FINISHED:
+            continue
+        behind = [parent for parent in unit.depends_on if parent in stuck]
+        if behind:
+            lines.append(
+                f"  {unit.id} ({unit.repo}) waits on {', '.join(behind)}, deadlocked "
+                f"in {stuck[behind[0]]}"
+            )
+    return lines
+
+
 def _blocked_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each blocked unit that has work and so is not counted, with what it waits on."""
     lines = []
@@ -1714,7 +1753,12 @@ def _nothing_started_reason(
     inst: Installation, units: list[StoredUnit], *, only: frozenset[str]
 ) -> str:
     """Why a pass starts nothing: the limit, when lifting it would start a
-    unit, and otherwise that nothing is ready."""
+    unit, and otherwise that nothing is ready. A deadlock comes first."""
+    cycles = deadlocks(units)
+    if cycles:
+        return "nothing can start: " + "; ".join(
+            f"deadlocked: {' -> '.join(cycle)}" for cycle in cycles
+        )
     full = _queue_full_line(inst, units)
     if full and _evaluate(
         inst,
@@ -3349,6 +3393,18 @@ def resume_thread(
 # --- tags / gate / check / archive / openspec ----------------------------------------
 
 
+def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
+    """The message for each change that has a `Needs:` line on a cycle of the changes' groups."""
+    cycle = needs_cycle(inst.tasks_files())
+    if not cycle:
+        return {}
+    chain = " -> ".join(f"{change} group {group}" for change, group in cycle)
+    crossing = {
+        before[0] for before, after in zip(cycle, cycle[1:], strict=False) if before[0] != after[0]
+    }
+    return {change: f"{change}: Needs: cycle {chain}" for change in crossing}
+
+
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's)."""
     changes = [t.parent.name for t in inst.tasks_files()] if args.all else [args.change]
@@ -3357,8 +3413,11 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         print(f"no changes in {inst.changes_dir}")
         return 0
     failed = 0
+    cycles = _needs_cycle_problems(inst)
     for change in changes:
         groups, errors = check_tags(change, inst.changes_dir, repos=tuple(inst.repos))
+        if change in cycles:
+            errors.append(cycles[change])
         path = tasks_path(change, inst.changes_dir)
         for warning in merged_needs_warnings(path) if path.is_file() else []:
             print(warning)
@@ -3384,7 +3443,10 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
     for tasks in inst.tasks_files():
         for warning in merged_needs_warnings(tasks):
             print(warning)
-    return 0 if ok else 1
+    problems = _needs_cycle_problems(inst)
+    for message in problems.values():
+        print(message)
+    return 0 if ok and not problems else 1
 
 
 def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:

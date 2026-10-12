@@ -4,6 +4,7 @@ status and in the reason a pass starts nothing (spec: planned-dependencies-never
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,9 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 def status_lines(inst: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
     capsys.readouterr()
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
-    return capsys.readouterr().out.splitlines()
+    return [
+        re.sub(r"^\[\d\d:\d\d:\d\d\] ", "", line) for line in capsys.readouterr().out.splitlines()
+    ]
 
 
 def two_units_waiting_on_each_other(builder: Builder) -> None:  # noqa: F811

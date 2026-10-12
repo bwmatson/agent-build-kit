@@ -7,7 +7,11 @@
   edge the planner proposes is dropped and logged with the cycle it would have made; a
   `Needs:` line that would close one is refused and logged, and `abk replan` exits
   non-zero naming it. A replan also clears such a stale planner edge from a unit that
-  has not started, and never touches the dependencies of one that has.
+  has not started, and never touches the dependencies of one that has. A cycle in the
+  `Needs:` lines of two changes is reported by `abk tags` and `abk check` before any
+  planning, a deadlock already stored is listed once per cycle as `deadlocked:` in
+  `abk status` and named when a pass starts nothing, and the planner is told not to
+  make unstarted work depend on the change it is planning.
 
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge
