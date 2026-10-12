@@ -119,6 +119,8 @@ class Unit(Frozen):
     depends_on: tuple[str, ...] = ()
     # The subset of `depends_on` that must merge before this unit starts.
     merge_before: tuple[str, ...] = ()
+    # The subset of `depends_on` a `Needs:` line asked for; only the graph reads it.
+    needs: tuple[str, ...] = ()
     estimated_lines: int = 0
     state: UnitState = PLANNED
     issue: int | None = None
