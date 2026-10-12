@@ -57,8 +57,16 @@ def fake_claude(argv, *, cwd=None):
     return ""
 
 
+def claude_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A machine whose path holds `claude` and no other known agent."""
+    monkeypatch.setattr(
+        init_cmd, "which", lambda program: "/bin/claude" if program == "claude" else None
+    )
+
+
 @pytest.fixture(autouse=True)
 def stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    claude_only(monkeypatch)
     monkeypatch.setattr(init_cmd, "run_openspec", fake_openspec)
     monkeypatch.setattr(init_cmd, "run_claude", fake_claude)
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: pytest.fail("prompted unexpectedly"))
@@ -177,7 +185,9 @@ def test_a_second_run_keeps_the_edited_config(tmp_path: Path, app: Path) -> None
 
 
 def test_repos_are_prompted_for_without_yes(tmp_path: Path, app: Path, monkeypatch) -> None:
-    answers = iter([str(app), ""])
+    answers = iter(
+        [str(app), "", "", ""]
+    )  # the repo, the end of the list, the runtime and its command
     monkeypatch.setattr(init_cmd, "ask", lambda prompt: next(answers))
     planning = recognised_planning(tmp_path / "planning")
 
@@ -503,6 +513,9 @@ INSTALL = [
 INSTALL_TEXT = " ".join(INSTALL)
 
 
+RUNTIME_PROMPTS = ("Which runtime?", "The claude executable")
+
+
 class Conversation:
     """Answers the questions in order, noting what had been printed when each was asked."""
 
@@ -514,6 +527,8 @@ class Conversation:
         self.ran: list[list[str]] = []
 
     def ask(self, prompt: str) -> str:
+        if prompt.startswith(RUNTIME_PROMPTS):
+            return ""  # the runtime question and its setup: Enter takes the default
         self.prompts.append(prompt)
         self.printed_before.append(self.capsys.readouterr().out)
         return next(self.answers)

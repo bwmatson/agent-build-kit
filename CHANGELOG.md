@@ -8,6 +8,14 @@
   `Needs:` line that would close one is refused and logged, and `abk replan` exits
   non-zero naming it. A replan also clears such a stale planner edge from a unit that
   has not started, and never touches the dependencies of one that has.
+- `abk init` now asks which agent runtime to use, before research and propose run on
+  it. It looks at what this machine can run without calling a model, lists the usable
+  candidates first and each unusable one with its reason, and always offers your own
+  configuration; the runtime's own setup questions follow, and the choice is recorded
+  in `abk.yaml` (a second usable runtime may be added as a fallback). `--yes` takes
+  the only usable runtime and otherwise exits 2 without writing anything; `--runtime`
+  and `--agent-command` name the choice, and `--force` overrides the runtime of a kept
+  file.
 
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge

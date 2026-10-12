@@ -43,6 +43,7 @@ from agent_build_kit.init.detect import (
 )
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
+from agent_build_kit.init.runtime_choice import Choice, RuntimeChoiceError, choose
 from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
     RULES_VERSION,
@@ -50,6 +51,7 @@ from agent_build_kit.init.scaffold import (
     ScaffoldError,
     draft_config,
     fill_missing_environment,
+    record_in_file,
     update_rules,
     write_code_repo_conventions,
     write_planning_repo,
@@ -58,6 +60,7 @@ from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 from agent_build_kit.runtimes.base import Run, Which
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -359,6 +362,47 @@ def _notification_provider() -> NotificationProvider:
     return NotificationProvider.WINDOWS
 
 
+def _choose_runtime(
+    planning: Path, config: WorkspaceConfig, args: argparse.Namespace, *, keeps: bool
+) -> Choice | None:
+    """The runtime to use and how it is set up, or None when a kept abk.yaml already
+    names one and nothing asks to change it."""
+    named = _kept_runtime(planning, keeps)
+    if keeps and args.yes and not args.runtime:
+        return None  # a kept file is not changed unasked
+    if named and (not args.runtime or args.runtime == named):
+        return None
+    if named and not args.yes:
+        reply = ask(f"abk.yaml already uses {named}; use {args.runtime} instead? [y/N] ")
+        if reply.strip().lower() not in ("y", "yes"):
+            return None
+    return choose(
+        runtimes.candidates(which, probe_run),
+        ask=ask,
+        which=which,
+        base=config.model_dump(by_alias=True, mode="json"),
+        yes=args.yes,
+        runtime=args.runtime,
+        agent_command=args.agent_command,
+    )
+
+
+def _kept_runtime(planning: Path, keeps: bool) -> str | None:
+    """The runtime a kept abk.yaml names."""
+    return (_read_yaml(planning / CONFIG_FILENAME) or {}).get("runtime") if keeps else None
+
+
+def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
+    """The runtime the agent steps run on: the one chosen, else the kept file's."""
+    name = chosen.runtime if chosen else kept
+    try:
+        agent = runtimes.get(name) if name else None
+    except KeyError:
+        return None
+    # `run_claude` stands in for the real executable, so Claude Code runs over it.
+    return None if run_claude is not None and isinstance(agent, ClaudeCodeRuntime) else agent
+
+
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
     planning = Path(args.planning_dir).expanduser().resolve()
     if args.update_rules:
@@ -408,6 +452,15 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("\n".join(_convention_lines(workspace, planned, planned=True)))
         return 0
 
+    try:
+        chosen = _choose_runtime(planning, config, args, keeps=keeps)
+        if chosen and not keeps:
+            config = chosen.applied_to(config)
+    except RuntimeChoiceError as error:
+        print(f"abk init: {error}", file=sys.stderr)
+        return 2
+    agent = _agent(chosen, _kept_runtime(planning, keeps))
+
     # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
     if not args.yes and not keeps:
         config = config.model_copy(
@@ -426,6 +479,9 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         print("kept abk.yaml (use --force to overwrite)")
         for what in fill_missing_environment(planning / CONFIG_FILENAME, config):
             print(f"filled {what} in abk.yaml")
+        if chosen:
+            record_in_file(planning / CONFIG_FILENAME, chosen.fragment)
+            print(f"recorded runtime {chosen.runtime} in abk.yaml")
 
     workspace = _conventions_config(planning, config, args)
     done = write_code_repo_conventions(workspace)
@@ -444,6 +500,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                 built_in=seed.read_text() if seed.exists() else None,
                 output=output,
                 run_claude=run_claude,
+                runtime=agent,
             )
             print(f"wrote {output.relative_to(planning)}")
 
@@ -468,6 +525,7 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
                         kind=kind,
                         run_claude=run_claude,
                         run_openspec=run_openspec,
+                        runtime=agent,
                         repos=tuple(names),
                     )
                     print(f"wrote openspec/changes/{change}/")

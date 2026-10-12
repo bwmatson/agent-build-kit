@@ -22,7 +22,7 @@ import subprocess
 import textwrap
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 
@@ -44,6 +44,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.environment import detect_environment, lock_patterns, unrecognised
+from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 
@@ -296,6 +297,26 @@ def fill_missing_environment(
     if filled and not dry_run:
         path.write_text("".join(lines))
     return filled
+
+
+def record_in_file(path: Path, fragment: Mapping[str, Any]) -> None:
+    """Lay `fragment` over an abk.yaml that is kept: each top-level key it names is
+    replaced by its merge with the file's, and every other line stays as it is."""
+    text = path.read_text()
+    raw = yaml.safe_load(text) or {}
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    for key, value in fragment.items():
+        block = yaml.safe_dump(
+            {key: merge_values(raw.get(key), value)}, sort_keys=False, default_flow_style=False
+        ).splitlines(keepends=True)
+        start = next((i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None)
+        if start is None:
+            lines += block
+        else:
+            lines[start : _top_level_end(lines, start)] = block
+    path.write_text("".join(lines))
 
 
 # --- rendering ------------------------------------------------------------------

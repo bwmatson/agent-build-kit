@@ -118,7 +118,7 @@ def test_the_second_candidate_picked_is_written_with_usable_ones_listed_first(
     code = main(init_args(planning, app))
 
     shown = capsys.readouterr().out
-    first_list = shown[: shown.index("charlie start command")]
+    first_list = shown
     assert code == 0
     assert first_list.index("bravo agent") < first_list.index("charlie agent")
     assert first_list.index("charlie agent") < first_list.index("aardvark agent")
