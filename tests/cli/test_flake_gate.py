@@ -7,12 +7,12 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import wait_on_fix
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from tests.factories import stored_unit
 from tests.pipeline.test_flake_fix_change import change_with_unit, code_repo, flaked
 
 
-def test_the_gate_holds_while_the_fix_change_has_no_unit_and_until_it_has_merged(
+def test_the_gate_holds_while_the_fix_change_has_no_unit_and_until_it_is_in_review(
     installation: Installation,
 ) -> None:
     code_repo(installation)
@@ -34,10 +34,7 @@ def test_the_gate_holds_while_the_fix_change_has_no_unit_and_until_it_has_merged
 
     store.upsert([stored_unit(f"{fix}/1", change=fix, groups=(1,))])
     store.set_state(f"{fix}/1", IN_REVIEW, pr=3)
-    assert parked() == held, "planned and in review is not merged"
-
-    store.set_state(f"{fix}/1", MERGED, pr=3)
-    assert parked()[2] is None, "released once the fix has merged"
+    assert parked()[2] is None, "released once the fix is in review"
 
 
 def test_a_gate_on_a_change_that_is_no_longer_open_is_met(installation: Installation) -> None:

@@ -250,7 +250,6 @@ def test_a_thread_joined_with_a_timeout_is_joined(tmp_path: Path) -> None:
 # sign that a new hazard is being silenced instead of removed.
 ALLOWLIST_CEILING = frozenset(
     {
-        "cli/test_gated_started_units.py",
         "cli/test_round.py",
         "cli/test_tick_host_outage_backoff.py",
         "cli/test_tick_scheduling.py",

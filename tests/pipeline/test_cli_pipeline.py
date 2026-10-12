@@ -1133,11 +1133,10 @@ def test_a_needs_line_links_the_unit_to_the_other_change_s_unit(
     assert store.get("feature/5").depends_on == ("feature/4", "sample-change/2")
 
 
-def test_a_merged_needs_line_is_recorded_as_merge_before(
+def test_a_merged_needs_line_is_recorded_as_a_plain_dependency(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The qualified dependency is in depends_on like any other, and also in
-    merge_before; an unqualified one is not."""
+    """The qualified dependency is in depends_on like any other and sets no gate."""
     change = tmp_path / "openspec" / "changes" / "feature"
     change.mkdir(parents=True)
     (change / "tasks.md").write_text(
@@ -1160,42 +1159,28 @@ def test_a_merged_needs_line_is_recorded_as_merge_before(
 
     unit = store.get("feature/5")
     assert unit.depends_on == ("sample-change/2", "other-change/1")
-    assert unit.merge_before == ("sample-change/2",)
-    assert store.get("sample-change/2").merge_before == ()
+    assert unit.merge_before == ()
 
 
-def test_merge_before_is_recomputed_across_every_group_a_unit_carries(
+def test_a_stored_merge_gate_is_cleared_by_the_next_pass(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Two groups on one unit each gate on a different dependency: both are
-    held after one pass, and dropping `merged` releases them."""
     change = tmp_path / "openspec" / "changes" / "feature"
     change.mkdir(parents=True)
-    tasks = change / "tasks.md"
-    tasks.write_text(
+    (change / "tasks.md").write_text(
         "# Tasks\n\n## 5. [platform] [tier1] A\n\n"
-        "Needs: x group 1 merged — reshapes it\n\n- [ ] 5.1 Test: a\n\n"
-        "## 6. [platform] [tier1] B\n\n"
-        "Needs: y group 2 merged — reshapes it\n\n- [ ] 6.1 Test: b\n"
+        "Needs: x group 1 merged — reshapes it\n\n- [ ] 5.1 Test: a\n"
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert(
-        [
-            stored("x/1", change="x", groups=(1,)),
-            stored("y/2", change="y", groups=(2,)),
-            stored("feature/5", change="feature", groups=(5, 6)),
-        ]
+        [stored("x/1", change="x", groups=(1,)), stored("feature/5", change="feature", groups=(5,))]
     )
+    store.set_merge_before("feature/5", ("x/1",))
 
-    cli.link_needs(inst, store=store)
-
-    assert store.get("feature/5").merge_before == ("x/1", "y/2")
-
-    tasks.write_text(tasks.read_text().replace(" merged ", " "))
     cli.link_needs(inst, store=store)
 
     assert store.get("feature/5").merge_before == ()
-    assert store.get("feature/5").depends_on == ("x/1", "y/2")
+    assert store.get("feature/5").depends_on == ("x/1",)
 
 
 def test_adding_a_needs_line_does_not_re_plan_the_change(tmp_path: Path) -> None:

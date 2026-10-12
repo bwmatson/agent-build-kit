@@ -100,8 +100,10 @@ def group_sections(tasks: str, groups: Iterable[int]) -> list[str]:
 # a group of *another* change has. The planner orders groups within a change;
 # across changes it only sees what is already in flight, and its answer is a
 # model's, so a dependency that must hold is written down and applied as code.
-# A single word `merged` straight after the group number makes it wait for the
-# merge; anywhere else the word is part of the reason.
+# A single word `merged` straight after the group number is deprecated and means
+# nothing (the line is a plain dependency); it is recognised so it is not read into
+# the reason, and `merged_needs_warnings` reports it. Anywhere else the word is part
+# of the reason.
 NEEDS_LINE = re.compile(
     r"^Needs:\s*(?P<change>[a-z0-9][a-z0-9-]*)\s+group\s+(?P<group>\d+)\b"
     r"(?:\s+(?P<merged>merged)(?=\s|$))?\s*[—–-]*\s*(?P<reason>.*?)\s*$",
@@ -532,6 +534,28 @@ def group_needs(path: Path) -> dict[int, list[Need]]:
                 )
             )
     return needs
+
+
+def merged_needs_warnings(path: Path) -> list[str]:
+    """One warning per `Needs: ... merged` line of a tasks file, as `abk tags` and
+    `abk check` print it. A line on the change's own group is left to the error."""
+    warnings: list[str] = []
+    current: int | None = None
+    for index, line in enumerate(path.read_text().splitlines(), start=1):
+        if heading := GROUP_HEADING.match(line):
+            current = int(heading["number"])
+        elif (
+            current is not None
+            and (found := NEEDS_LINE.match(line.strip()))
+            and found["merged"]
+            and found["change"].lower() != path.parent.name.lower()
+        ):
+            warnings.append(
+                f"{path}:line {index}: warning: group {current}: `Needs: ... merged` is "
+                "deprecated; the dependent now starts on the parent's branch once the "
+                "parent is in review"
+            )
+    return warnings
 
 
 def tasks_path(change: str, changes_dir: Path) -> Path:
