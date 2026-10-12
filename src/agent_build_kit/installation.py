@@ -61,6 +61,10 @@ class Installation:
         return self.specs_dir / "changes"
 
     @property
+    def tier2_lock(self) -> Path:
+        return self.state_dir / "tier2.lock"
+
+    @property
     def graph_page(self) -> Path:
         return self._under_root(self.config.planning.graph_page)
 

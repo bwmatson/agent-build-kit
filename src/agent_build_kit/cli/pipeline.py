@@ -461,7 +461,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if runtime.supports_usage_tracking:
             log(interval_line(current_cache_interval(inst.state_dir / CALLS_NAME)))
 
-    if line := lock_status_line(inst.state_dir / "tier2.lock"):
+    if line := lock_status_line(inst.tier2_lock):
         log(line)
 
     units = store_for(inst).all()
@@ -659,9 +659,7 @@ def verify_one(
     with ExitStack() as held:
         try:
             held.enter_context(
-                stack_lock(
-                    inst.state_dir / "tier2.lock", timeout, setting, holder=f"verify {change}"
-                )
+                stack_lock(inst.tier2_lock, timeout, setting, holder=f"verify {change}")
             )
         except TimeoutError as error:
             raise StackBusy(str(error)) from error

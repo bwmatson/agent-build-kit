@@ -61,7 +61,7 @@
   now bounds only post-merge verification, whose busy message names it. `abk status` shows
   `tier 2: held by <unit> for <age>` while the lock is held, a record left by a process that
   is gone as stale, and a held lock whose recorded process is gone as held, and says nothing
-  when the lock is free; it never takes the lock or changes the file.
+  when the lock is free; it only probes the lock, never leaves it held, and never changes the file.
 
 - A unit whose agent run was killed mid-edit now resumes over the edits it left, as
   intended, instead of failing with a `TypeError` on the worktree request. The wrapper

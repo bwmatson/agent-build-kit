@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import re
 from pathlib import Path
@@ -98,6 +99,19 @@ def test_status_says_a_held_locks_recorded_process_is_gone(
     assert "held" in lines[0] and "other/1" in lines[0]
     assert "gone" in lines[0]
     assert "stale" not in lines[0]
+
+
+def test_status_says_a_held_lock_with_no_record_yet_is_held(
+    workspace: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lock = workspace.state_dir / "tier2.lock"
+    lock.write_text("")
+    with lock.open("r+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        lines = tier2_lines(workspace, capsys)
+
+    assert len(lines) == 1
+    assert "held" in lines[0]
 
 
 def test_reading_the_status_leaves_the_lock_free_for_the_next_holder(

@@ -2593,7 +2593,7 @@ def build_runner(
     record_for = (unit, transcript_dir(root), datetime.now(UTC))
     tier2 = Tier2Session(
         unit,
-        lock=root / "tier2.lock",
+        lock=installation.tier2_lock,
         log=log,
         under=dev_stack_underneath(unit, installation),
         profile=profile,

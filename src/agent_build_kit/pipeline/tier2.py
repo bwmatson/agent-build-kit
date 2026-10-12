@@ -129,21 +129,23 @@ def _held_for(record: LockRecord) -> float:
 def lock_status_line(path: Path) -> str | None:
     """The `abk status` line for the lock at `path`, None when it is free and has no record.
 
-    Reads the file and probes the lock with a shared, non-blocking `flock` on a separate
-    open that is released at once; the file is never created or changed."""
+    Probes the lock with a shared, non-blocking `flock` on a separate open that is released
+    at once, reading the record under it when it is free; the file is never created or changed."""
     try:
         handle = path.open("r")
     except FileNotFoundError:
         return None
     with handle:
-        record = read_lock_record(handle.read())
         try:
             fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
             held = True
+            record = read_lock_record(handle.read())
         else:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            # Under the shared lock no holder can rewrite the record, so it is read whole.
             held = False
+            record = read_lock_record(handle.read())
+            fcntl.flock(handle, fcntl.LOCK_UN)
     if record is None:
         return "tier 2: held, holder unknown" if held else None
     if not held:
