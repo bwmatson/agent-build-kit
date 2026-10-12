@@ -85,6 +85,7 @@ from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
     TestFailure,
+    TestTime,
     Tier2Classification,
     Tier2Result,
     Tier2Verdict,
@@ -94,6 +95,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
+from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
@@ -1829,6 +1831,7 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
+        timed: list[TestTime] = []
         # header, text, how much of it to keep, the toolchain that read it, its project,
         # and where and with which command it ran
         outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
@@ -1857,6 +1860,10 @@ class Tier2Session:
                         skipped + s,
                         duration + d,
                     )
+                    timed += [
+                        e.model_copy(update={"test": f"{project}/{e.test}" if project else e.test})
+                        for e in with_split(toolchain.parse_test_durations(out), out)
+                    ]
                     header = f"$ {' '.join(command)}{label}"
                     self._keep(header, out)
                     if f or completed.returncode not in (0, nothing):
@@ -1900,7 +1907,14 @@ class Tier2Session:
                 output=output[-4000:],
                 stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
                 failures=failures,
+                durations=sorted(timed, key=lambda e: e.seconds, reverse=True),
                 **self._kept(),
+            )
+            record_test_times(
+                self.result.durations,
+                unit=self.unit.id,
+                change=self.unit.change,
+                marker=self._marker,
             )
 
             # Still inside the hold: the base run sees the stack the unit's run saw.

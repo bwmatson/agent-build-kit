@@ -41,6 +41,10 @@ WORKERS = ["-n", "auto", "--maxprocesses=8"]
 # below it pytest cuts each summary message to the terminal width, and drops it when the
 # test id fills the line.
 SUMMARY_FLAGS = ["-vv", "-rfE", "--tb=short"]
+# Every phase of every test that took a second or more, slowest first, in one section.
+DURATION_FLAGS = ["--durations=0", "--durations-min=1.0"]
+DURATIONS_MARK = "slowest durations"
+DURATION_ENTRY = re.compile(r"^(\d+(?:\.\d+)?)s +(setup|call|teardown) +(\S.*)$")
 SUMMARY_MARK = "short test summary info"
 SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
 FAILURE_LINE_LIMIT = 500
@@ -297,7 +301,18 @@ class PythonUvProfile:
         return failures
 
     def parse_test_durations(self, output: str) -> list[TestTime]:
-        raise NotImplementedError
+        """One entry per line of pytest's `slowest durations` section, in the order printed."""
+        found: list[TestTime] = []
+        in_section = False
+        for line in output.splitlines():
+            if DURATIONS_MARK in line:
+                in_section = True
+            elif in_section and line.startswith("="):
+                break
+            elif in_section and (matched := DURATION_ENTRY.match(line)):
+                seconds, phase, test = matched.groups()
+                found.append(TestTime(test=test.strip(), phase=phase, seconds=float(seconds)))
+        return found
 
     def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
@@ -465,7 +480,7 @@ class PythonUvProfile:
         any member's live tests say so."""
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-m", marker, *SUMMARY_FLAGS]]
+            return [["uv", "run", "pytest", "-m", marker, *SUMMARY_FLAGS, *DURATION_FLAGS]]
         return [
             [
                 "uv",
@@ -479,6 +494,7 @@ class PythonUvProfile:
                 "-m",
                 marker,
                 *SUMMARY_FLAGS,
+                *DURATION_FLAGS,
             ]
             for member in members
             if (repo / member / "tests").is_dir()

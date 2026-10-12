@@ -91,7 +91,7 @@ class NodeNpmProfile:
         return []
 
     def parse_test_durations(self, output: str) -> list[TestTime]:
-        raise NotImplementedError
+        return []
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")

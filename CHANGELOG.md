@@ -8,6 +8,13 @@
   `Needs:` line that would close one is refused and logged, and `abk replan` exits
   non-zero naming it. A replan also clears such a stale planner edge from a unit that
   has not started, and never touches the dependencies of one that has.
+- The tier 2 result now records how long each test took, so a slow test can be told
+  from a hung one. The command asks for every duration, and the posted result opens
+  with the three slowest entries and lists the slowest `limits.tier2_durations_shown`
+  (15 by default, 0 for all) above the output, so a small description never cuts the
+  listing. Each entry also becomes a `test_time` ledger row and feeds the
+  `abk.tier2.test.duration` and `abk.tier2.test.time` histograms, whose attributes are
+  never a unit, change or test name.
 
 - `abk init` now asks which agent runtime to use, before research and propose run on
   it. It looks at what this machine can run without calling a model, lists the usable

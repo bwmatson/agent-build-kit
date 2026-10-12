@@ -31,6 +31,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -267,6 +268,47 @@ def parse_pytest_summary(output: str) -> tuple[int, int, int, float]:
     )
 
 
+def _clock(seconds: float) -> str:
+    minutes, rest = divmod(round(seconds), 60)
+    return f"{minutes}m{rest:02d}s" if minutes else f"{rest}s"
+
+
+def _split_cells(entry: TestTime) -> str:
+    """The agent, checks and other cells of an entry, a dash each when the run gave no split."""
+    if not (entry.agent_ms or entry.checks_ms is not None or entry.other_ms is not None):
+        return "- | - | -"
+    agent = (
+        ", ".join(
+            f"{role} {_clock(ms / 1000)} x{entry.calls.get(role, 1)}"
+            for role, ms in entry.agent_ms.items()
+        )
+        or "-"
+    )
+    checks = "-" if entry.checks_ms is None else _clock(entry.checks_ms / 1000)
+    other = "-" if entry.other_ms is None else _clock(entry.other_ms / 1000)
+    return f"{agent} | {checks} | {other}{' (overlap)' if entry.overlap else ''}"
+
+
+def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
+    """The line naming the three slowest entries, and the table of the slowest ones, both
+    empty when the run timed nothing."""
+    if not durations:
+        return "", ""
+    ranked = sorted(durations, key=lambda e: e.seconds, reverse=True)
+    limit = active().limits.tier2_durations_shown
+    shown = ranked[:limit] if limit else ranked
+    head = "; ".join(f"`{e.test}` {e.phase} {_clock(e.seconds)}" for e in ranked[:3])
+    rows = "\n".join(
+        f"| `{e.test}` | {e.phase} | {_clock(e.seconds)} | {_split_cells(e)} |" for e in shown
+    )
+    table = (
+        f"\n**Time by test** (slowest first, {len(shown)} of {len(ranked)} shown)\n\n"
+        "| Test | Phase | Time | Agent | Checks | Other |\n|---|---|---|---|---|---|\n"
+        f"{rows}\n"
+    )
+    return f"- **Slowest:** {head}\n", table
+
+
 def build_snapshot(result: Tier2Result) -> str:
     """The "Tier 2 results" section of a PR description.
 
@@ -290,6 +332,8 @@ def build_snapshot(result: Tier2Result) -> str:
         withheld = " (withheld: redaction failed)" if result.output_withheld else ""
         kept = f"- **Full output:** `{result.output_file}`{withheld}\n"
 
+    slowest, table = _durations_listing(result.durations)
+
     return f"""## Tier 2 results
 
 Tier 2 needs the live local stack, so GitHub Actions cannot run it. This ran
@@ -299,9 +343,9 @@ on the developer host.
 - **Command:** `{result.command}`
 - **Result:** {result.passed} passed, {result.failed} failed, \
 {result.skipped} skipped in {result.duration_seconds}s
-{failed}{kept}- **Ran against:**
+{failed}{kept}{slowest}- **Ran against:**
 {versions}
-
+{table}
 <details>
 <summary>Full output</summary>
 
