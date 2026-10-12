@@ -624,6 +624,7 @@ def build_prompt(
     changes: dict[str, str],
     in_flight: list[dict],
     calibrations: Mapping[Kind, Calibration] | None = None,
+    examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
 ) -> str:
     changes_text = (
         "\n\n".join(
@@ -677,6 +678,7 @@ def plan_round(
     known: set[str] | None = None,
     context: JoinContext | None = None,
     calibrations: Mapping[Kind, Calibration] | None = None,
+    examples: Mapping[Kind, Sequence[StoredUnit]] | None = None,
     run_claude: RunClaude | None = None,
     runtime: AgentRuntime | None = None,
 ) -> Plan:
@@ -686,7 +688,7 @@ def plan_round(
     Joins the planner proposes are checked against `context` and returned with
     the units; a caller that passes no `context` accepts none.
     """
-    prompt = build_prompt(changes, in_flight, calibrations)
+    prompt = build_prompt(changes, in_flight, calibrations, examples)
     answer = run_claude(prompt) if run_claude else _ask(prompt, runtime)
     return parse_plan(
         answer,

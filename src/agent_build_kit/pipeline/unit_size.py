@@ -127,3 +127,13 @@ def applied(found: Mapping[Kind, Calibration] | None, kind: Kind) -> Calibration
 
 def calibrated(lines: int, ratio: float) -> int:
     return round(lines * ratio)
+
+
+def largest_raw(limit: int, ratio: float) -> int:
+    """The largest raw estimate whose calibrated figure stays within `limit`."""
+    raise NotImplementedError
+
+
+def recent_examples(units: Sequence[StoredUnit], kind: Kind, n: int) -> list[StoredUnit]:
+    """The `n` newest measured merged units of `kind`, ordered as the ratio's samples are."""
+    raise NotImplementedError
