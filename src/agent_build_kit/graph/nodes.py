@@ -49,7 +49,6 @@ from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
-from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
     ADAPT_FOLLOWUP_PROMPT,
@@ -953,21 +952,17 @@ class BuildPath:
         self._tree = None
         tree, ref = self.tree(), self.ref(state)
         remembered: Update = {}
-        # Exit 1 is git saying the ref is unknown; a worktree it cannot be asked in is not that.
-        if (
-            state.base
-            and tree.is_dir()
-            and git(tree, "rev-parse", "--verify", "-q", ref, check=False).returncode == 1
-        ):
+        # Taken before the restack and any adapt, so a base rewritten during
+        # them is caught too: a parent restacked meanwhile keeps its name.
+        start = r.base_tip(tree, ref)
+        if state.base and not start:
             # A predecessor that merged takes its branch with it: the store's base is the
             # one to build on. Where that fails too, counting commits raises, as it must.
             self.say(f"the remembered base {state.base} no longer exists; using {self.base}")
             base, remembered = self.base, {"base": ""}
             state = state.model_copy(update=remembered)
             ref = self.ref(state)
-        # Taken before the restack and any adapt, so a base rewritten during
-        # them is caught too: a parent restacked meanwhile keeps its name.
-        start = r.base_tip(tree, ref)
+            start = r.base_tip(tree, ref)
         existing = r.branch_commits(tree, ref)
         self.say(
             f"on {base}, {existing} commit(s) on the branch"
@@ -990,7 +985,7 @@ class BuildPath:
                     from_person=stored.feedback_from_person,
                     source=stored.feedback_source,
                 )
-                return {**FRESH, **self.stop(why)}
+                return {**FRESH, **remembered, **self.stop(why)}
             if restacked is not None:
                 if restacked.conflict:
                     return {

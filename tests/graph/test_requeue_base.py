@@ -15,7 +15,7 @@ import pytest
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.unit_store import RequeueReason
 from agent_build_kit.pipeline.units import FAILED
-from agent_build_kit.pipeline.wiring import branch_commits
+from agent_build_kit.pipeline.wiring import branch_commits, tip
 from tests.factories import git, unit
 from tests.graph.test_outside_commits_prompt import branch, drive, land
 from tests.graph_driver import tick
@@ -42,7 +42,7 @@ def stacked(tmp_path: Path) -> tuple[Recorder, dict[str, Any], Path]:
     git(repo, "branch", PREDECESSOR)
     land(repo, "Own work", {"src/own.py": "OWN = 1\n"})
     recorder, _, overrides = drive(tmp_path)
-    return recorder, {**overrides, "branch_commits": branch_commits}, repo
+    return recorder, {**overrides, "branch_commits": branch_commits, "base_tip": tip}, repo
 
 
 def said(recorder: Recorder, text: str) -> bool:
@@ -64,6 +64,7 @@ def test_a_requeue_after_the_predecessor_merged_counts_against_the_trunk(
     tick(tmp_path, recorder, base="main", **overrides)
 
     assert said(recorder, "on main, 1 commit(s) on the branch")
+    assert not said(recorder, "no longer exists"), "the requeue cleared it, not the fallback"
 
 
 def test_a_requeued_unit_still_stacked_takes_the_predecessor_the_store_names(
