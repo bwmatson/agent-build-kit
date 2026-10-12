@@ -1046,6 +1046,15 @@ approved.
   background actor repairs, and expose a step for timer code. A change that introduces such a
   use is a required finding, since the test passes alone and fails under load.
 
+- **Tier 2 failures are classified and checked on the base.** After a failed tier 2 run
+  each failed test is the unit's own (its file changed on the branch, or a `conftest.py`
+  beside it did) or untouched. The untouched ones are run once, together, with the
+  profile's serial rerun command in a detached temporary worktree of the unit's base,
+  inside the hold the unit's own run took. A test the base run names as failed or errored
+  is pre-existing; any other is the unit's. Nothing is classified for a dev stack run or
+  when the failed tests cannot be read. `limits.tier2_base_runs: 0` turns it off. Tier 2
+  tests are never repeated or isolated by tier 1's machinery.
+
 ## Telemetry
 
 With `ABK_OTEL_ENABLED` set (docs/configuration.md) a tick that has work exports traces and

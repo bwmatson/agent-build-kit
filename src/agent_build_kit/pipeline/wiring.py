@@ -48,6 +48,7 @@ from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, S
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
+from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.environment import (
@@ -1692,6 +1693,7 @@ class Tier2Session:
         self.unit = unit
         self._base = base
         self.verdict: Tier2Verdict | None = None
+        self._on_dev_stack = False
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
         # a merge. Without it a unit's tier 2 ran them with none of it, and a
@@ -1762,42 +1764,105 @@ class Tier2Session:
                     elif p:
                         outputs.append((header, out, 1500, toolchain, project))
 
-        # Every command's text in one pass, before any cut, so a cut cannot leave half a
-        # value and a failing redaction is logged once.
-        redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
-        output = "\n\n".join(
-            f"{header}\n{text if keep is None else text[-keep:]}"
-            for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
-        )
-        # Read from the redacted text, so a line is redacted before it is shortened.
-        failures = [
-            TestFailure(test=f"{project}/{found.test}" if project else found.test, line=found.line)
-            for (_, _, keep, toolchain, project), text in zip(outputs, redacted, strict=True)
-            if keep is None
-            for found in toolchain.parse_test_failures(text)
-        ]
-        command = " && ".join(
-            " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
-            for where, _, commands in entries
-            for c in commands
-        )
+            # Every command's text in one pass, before any cut, so a cut cannot leave half a
+            # value and a failing redaction is logged once.
+            redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
+            output = "\n\n".join(
+                f"{header}\n{text if keep is None else text[-keep:]}"
+                for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
+            )
+            # Read from the redacted text, so a line is redacted before it is shortened.
+            failures = [
+                TestFailure(
+                    test=f"{project}/{found.test}" if project else found.test, line=found.line
+                )
+                for (_, _, keep, toolchain, project), text in zip(outputs, redacted, strict=True)
+                if keep is None
+                for found in toolchain.parse_test_failures(text)
+            ]
+            command = " && ".join(
+                " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
+                for where, _, commands in entries
+                for c in commands
+            )
 
-        self.result = Tier2Result(
-            sha=sha,
-            passed=passed,
-            failed=failed,
-            skipped=skipped,
-            duration_seconds=duration,
-            command=command,
-            output=output[-4000:],
-            stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
-            failures=failures,
-        )
+            self.result = Tier2Result(
+                sha=sha,
+                passed=passed,
+                failed=failed,
+                skipped=skipped,
+                duration_seconds=duration,
+                command=command,
+                output=output[-4000:],
+                stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
+                failures=failures,
+            )
+
+            # Still inside the hold: the base run sees the stack the unit's run saw.
+            self.verdict = self._judge(cwd, entries)
         return self.result.ok, build_snapshot(self.result)
 
     def classify(self, *, cwd: Path) -> Tier2Classification:
-        """The failed tests of the last run, the unit's own and the untouched."""
-        raise NotImplementedError
+        """The failed tests of the last run, the unit's own and the untouched.
+
+        A test is the unit's own when its file is one the branch changed against its base,
+        or sits beside a `conftest.py` it changed. Nothing is classified when the run
+        named no tests, ran on the dev stack, or there is no base to compare with.
+        """
+        if self.result is None or self._base is None or self._on_dev_stack:
+            return Tier2Classification()
+        changed = set(_changed_files(cwd, self._base))
+        own: list[TestFailure] = []
+        untouched: list[TestFailure] = []
+        for failure in self.result.failures:
+            path = Path(failure.test.partition("::")[0])
+            is_own = (
+                path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
+            )
+            (own if is_own else untouched).append(failure)
+        return Tier2Classification(own=own, untouched=untouched)
+
+    def _judge(
+        self,
+        cwd: Path,
+        entries: list[tuple[Path, ToolchainProfile, list[list[str]]]],
+    ) -> Tier2Verdict | None:
+        """Run the untouched failed tests once on the base and say whose each is.
+
+        Pre-existing only when the base run itself names the test as failed or errored;
+        a test it passes, does not contain or does not name is the unit's to fix.
+        """
+        if self.result is None or self.result.ok or not active().limits.tier2_base_runs:
+            return None
+        classified = self.classify(cwd=cwd)
+        if not classified.untouched:
+            return None
+        failing: set[str] = set()
+        with worktree_at(cwd, self._base or "HEAD") as tree:
+            for where, toolchain, commands in entries:
+                project = str(where.relative_to(cwd)) if where != cwd else ""
+                prefix = f"{project}/" if project else ""
+                ids = [
+                    f.test.removeprefix(prefix)
+                    for f in classified.untouched
+                    if f.test.startswith(prefix)
+                    and (project or not _in_any_project(f.test, entries, cwd))
+                ]
+                rerun = getattr(toolchain, "serial_rerun_command", None)
+                if not ids or not commands or rerun is None:
+                    continue
+                completed = self._run(
+                    rerun(commands[0], ids), cwd=tree / where.relative_to(cwd), **self._test_env
+                )
+                named = toolchain.parse_test_failures(
+                    f"{completed.stdout or ''}{completed.stderr or ''}"
+                )
+                failing.update(f"{prefix}{found.test}" for found in named)
+        return Tier2Verdict(
+            own=classified.own,
+            broken=[f for f in classified.untouched if f.test not in failing],
+            pre_existing=[f for f in classified.untouched if f.test in failing],
+        )
 
     def _run_on_dev_stack(self, cwd: Path, script: Path) -> tuple[bool, str]:
         """Deploy this branch onto the dev stack, test against it, take it down.
@@ -1808,6 +1873,7 @@ class Tier2Session:
         is that, and cannot touch the live one. It is torn down whatever
         happens, so the next unit starts from its own branch.
         """
+        self._on_dev_stack = True
         sha = self._sha(cwd)
         up = [str(script), "up"]
         test = [str(script), "test"]
@@ -1861,6 +1927,15 @@ class Tier2Session:
                 f"different commit ({self.result.sha[:7]})"
             )
         self._status(self.unit.repo, self.result)
+
+
+def _in_any_project(
+    test: str, entries: list[tuple[Path, ToolchainProfile, list[list[str]]]], cwd: Path
+) -> bool:
+    """Whether the id is prefixed with one of the projects, which the repo's own is not."""
+    return any(
+        where != cwd and test.startswith(f"{where.relative_to(cwd)}/") for where, _, _ in entries
+    )
 
 
 def head_reachable(cwd: Path, head: str) -> bool:

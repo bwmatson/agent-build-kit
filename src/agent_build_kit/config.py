@@ -328,6 +328,10 @@ class LimitsConfig(Frozen):
     # How many times the tests a unit added or changed are run again, under the same
     # load, after tier 1 passes; 0 turns the check off.
     tier1_repeat_runs: Annotated[int, Field(ge=0)] = 3
+    # Whether the untouched tests that fail tier 2 are run once on the base, to tell a
+    # failure the unit caused from one already there; 0 turns the run off. A switch, not a
+    # count: one run answers the question.
+    tier2_base_runs: Annotated[int, Field(ge=0, le=1)] = 1
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

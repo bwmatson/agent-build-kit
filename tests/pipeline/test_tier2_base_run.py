@@ -122,7 +122,7 @@ def test_the_base_run_is_in_a_detached_worktree_at_the_ref_the_unit_ran_against(
     assert runs.trees[0] != repo
     assert runs.heads == [base_sha]
     assert not runs.trees[0].exists()
-    assert git(repo, "worktree", "list").count("\n") == 1
+    assert len(git(repo, "worktree", "list").splitlines()) == 1
 
 
 def test_a_base_run_that_raises_leaves_no_worktree_and_the_units_tree_unchanged(
@@ -138,7 +138,7 @@ def test_a_base_run_that_raises_leaves_no_worktree_and_the_units_tree_unchanged(
 
     assert len(runs.trees) == 1
     assert not runs.trees[0].exists()
-    assert git(repo, "worktree", "list").count("\n") == 1
+    assert len(git(repo, "worktree", "list").splitlines()) == 1
     assert git(repo, "rev-parse", "HEAD").strip() == head
     assert git(repo, "status", "--porcelain").strip() == ""
 
