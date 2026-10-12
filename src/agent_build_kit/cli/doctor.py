@@ -39,6 +39,7 @@ from agent_build_kit.config import (
     ConfigError,
     EnvironmentConfig,
     NotificationProvider,
+    PolicyMarker,
     WorkspaceConfig,
 )
 from agent_build_kit.forges.transport import (
@@ -878,7 +879,29 @@ def _python_tools(inst: Installation) -> list[Check]:
     return checks
 
 
-def _runtime(inst: Installation, which: Which) -> list[Check]:
+def _probed(name: str, command: list[str], which: Which, run: Run) -> list[Check]:
+    """What the probe `abk init` uses finds: the other runtimes usable on this machine,
+    and a warning when the selected entry is only documented, not verified."""
+    found = runtimes.candidates(which, run)
+    selected = [c for c in found if c.runtime == name and list(c.command) == command]
+    others = [c for c in found if c.usable and c not in selected]
+    checks = []
+    if others:
+        listed = ", ".join(f"{c.label} ({shlex.join(c.command)})" for c in others)
+        checks.append(_info("runtimes", f"other usable runtimes on this machine: {listed}"))
+    for candidate in selected:
+        if "documented only" in candidate.verified.lower():
+            checks.append(
+                _warn(
+                    "runtime verification",
+                    f"{candidate.label} is documented only: {candidate.verified}",
+                    "run `abk init --policy-only` to check what it refuses",
+                )
+            )
+    return checks
+
+
+def _runtime(inst: Installation, which: Which, run: Run) -> list[Check]:
     """Which runtime the pipeline runs on, whether it can start, how much it
     interposes on, and whether it refuses what abk forbids."""
     name = config.runtime_name(inst.config)
@@ -905,6 +928,8 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
             )
         ]
 
+    checks += _probed(name, command, which, run)
+
     if runtime.policy_coverage == "all_calls":
         checks.append(_ok("runtime coverage", "all_calls: every tool call reaches the policy"))
     else:
@@ -923,6 +948,16 @@ def _runtime(inst: Installation, which: Which) -> list[Check]:
                 "runtime policy",
                 f"not checked: the agent command {command[0]} does not resolve",
                 "fix the runtime check above, then run `abk doctor` again",
+            )
+        )
+        return checks
+    if entry.policy == PolicyMarker.UNCHECKED:
+        # The person declined the check, which for some agents costs tokens: no probe.
+        checks.append(
+            _warn(
+                "runtime policy",
+                "recorded as unchecked: nobody has confirmed the agent refuses what abk forbids",
+                f"run `abk init --policy-only` to check it, or remove `runtimes.{name}.policy`",
             )
         )
         return checks
@@ -1075,7 +1110,7 @@ def run_doctor(
     checks += _merge_guards(inst, run)
     checks += _timers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
-    checks += _runtime(inst, which)
+    checks += _runtime(inst, which, run)
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)

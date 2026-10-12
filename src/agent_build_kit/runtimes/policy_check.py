@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -74,24 +75,38 @@ def cache_path(inst: Installation) -> Path:
     return inst.state_dir / CACHE_NAME
 
 
-def describe(report: PolicyReport) -> str:
+def describe(report: PolicyReport, *, also: Collection[str] = ()) -> str:
     """What a report leaves open, one clause per forbidden class: the spellings
-    not refused, then the class's other spellings as refused. A report with no
-    per-spelling results (one cached before they were kept) gives its labels."""
+    not refused, then the class's other spellings as refused. `also` names classes
+    to give even when every spelling is refused, so a fix's effect shows on the
+    ones it closed. A report with no per-spelling results (one cached before they
+    were kept) gives its labels."""
     classes: dict[str, list[SpellingResult]] = {}
     for result in report.results:
         classes.setdefault(result.label, []).append(result)
     clauses = []
     for label, results in classes.items():
         unrefused = [f"`{r.command}`" for r in results if not r.refused]
-        if not unrefused:
+        if not unrefused and label not in also:
             continue
-        clause = f"{label}: not refused as {', '.join(unrefused)}"
         refused = [f"`{r.command}`" for r in results if r.refused]
+        clause = f"{label}:"
+        if unrefused:
+            clause += f" not refused as {', '.join(unrefused)}"
         if refused:
-            clause += f"; refused as {', '.join(refused)}"
+            clause += f"{';' if unrefused else ''} refused as {', '.join(refused)}"
         clauses.append(clause)
     return " | ".join(clauses) or ", ".join(report.unenforced)
+
+
+def unrefused(report: PolicyReport) -> list[SpellingResult]:
+    """The spellings a report found not refused, in table order."""
+    return [r for r in report.results if not r.refused]
+
+
+def classes_of(report: PolicyReport) -> set[str]:
+    """The classes with a spelling not refused."""
+    return {r.label for r in unrefused(report)}
 
 
 def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
