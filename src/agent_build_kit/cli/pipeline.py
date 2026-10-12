@@ -49,6 +49,7 @@ from agent_build_kit.pipeline.archive import (
     archive_ready_changes,
     is_ready_to_archive,
 )
+from agent_build_kit.pipeline.cycles import CycleEdge
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.events import (
     build_claim,
@@ -2043,12 +2044,13 @@ def _create_thread_store(inst: Installation) -> None:
     asyncio.run(create())
 
 
-def link_needs(inst: Installation, *, store: UnitStore) -> None:
+def link_needs(inst: Installation, *, store: UnitStore) -> list[CycleEdge]:
     """Apply every change's `Needs:` lines as unit dependencies.
 
     Every tick, after planning: a re-plan takes each unit's dependencies from
     the plan, which knows nothing of these, so linking once would not last.
-    Idempotent — a dependency already there is left alone.
+    Idempotent — a dependency already there is left alone. The dependencies
+    refused because they would close a cycle are returned.
     """
     units = store.all()
     covering = {
@@ -2088,6 +2090,7 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
         # from the word `merged` is cleared.
         if unit.merge_before:
             store.set_merge_before(unit.id, ())
+    return []
 
 
 # Units a plan is made around and never changes: their groups are built or being
@@ -2109,6 +2112,9 @@ class PlanResult(Frozen):
     # Recorded as planned without asking: every group is taken, by a started unit or by
     # another change's planned unit.
     recorded_only: bool = False
+    # A cycle of `Needs:` and stored dependencies alone, which no planner edge could be
+    # dropped from: the plan stands and this names it.
+    cycle: tuple[str, ...] = ()
 
 
 def _carried(store: UnitStore, change: str, keep: Callable[[StoredUnit], bool]) -> set[int]:
