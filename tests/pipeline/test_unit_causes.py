@@ -56,6 +56,8 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "closed",
         "failed",
         "host_unavailable",
+        "network_unavailable",
+        "service_unavailable",
         "environment",
     }
 

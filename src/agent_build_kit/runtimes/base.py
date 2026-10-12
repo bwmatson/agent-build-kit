@@ -226,6 +226,19 @@ class AgentRateLimited(RuntimeError):
         self.resets_at = resets_at
 
 
+class NetworkUnavailable(RuntimeError):
+    """A run ended on a failure to reach the network or the model's host: the
+    CLI's words as the message, how sure the signature is, and the host and port called."""
+
+    def __init__(
+        self, message: str, *, strength: Literal["strong", "weak"], host: str, port: int = 443
+    ) -> None:
+        super().__init__(message)
+        self.strength = strength
+        self.host = host
+        self.port = port
+
+
 class UsageStatus(Frozen):
     """Where an account-level usage window stands, in the vocabulary
     `pipeline/usage_guard.py` already uses (`UsageReading`, trimmed to what a
@@ -269,9 +282,11 @@ class AgentRuntime(Protocol):
     def run(self, request: AgentRequest) -> AgentResult:
         """Run one prompt to completion and report the result.
 
-        Raises `AgentInterrupted` or `AgentRateLimited` for those two cases;
-        any other non-zero/refused outcome is `AgentResult(ok=False, ...)`,
-        never a bare exception a caller has to guess the meaning of.
+        Raises `AgentInterrupted` or `AgentRateLimited` for those two cases, and
+        `NetworkUnavailable` (carrying `strength` and `host`) for a run that ended
+        on a network or model-host failure; any other non-zero/refused outcome is
+        `AgentResult(ok=False, ...)`, never a bare exception a caller has to
+        guess the meaning of.
         """
         ...
 

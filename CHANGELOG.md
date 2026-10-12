@@ -34,6 +34,14 @@
   already recorded for that runtime, and `--agent-command` on a kept file that is not
   changed says so.
 
+- An agent run that ends because the internet or the model service is down no longer
+  fails its unit. The unit is parked as `planned`, shown in `abk status` and the graph as
+  waiting for the network or for the model service, and resumes at the same step after a
+  backoff of 1, 2, 5, 10 then 30 minutes. A name that cannot be resolved parks it
+  straight away; a refused or timed-out connection is checked with a probe of the model's
+  host and a control group. `limits.network_probe_timeout_seconds` and
+  `limits.network_control_hosts` set the probe, and `abk config --show` lists them.
+
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge
   (a parent in another repository still has to merge). The word `merged` after a

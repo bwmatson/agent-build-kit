@@ -10,6 +10,7 @@ from agent_build_kit.runtimes.base import (
     AgentResult,
     AgentRuntime,
     Candidate,
+    NetworkUnavailable,
     PolicyReport,
     Run,
     ToolPolicy,
@@ -82,6 +83,7 @@ def _load_builtin() -> None:
 __all__ = [
     "AgentInterrupted",
     "AgentRateLimited",
+    "NetworkUnavailable",
     "AgentRequest",
     "AgentResult",
     "AgentRuntime",

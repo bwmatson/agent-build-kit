@@ -43,7 +43,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.notify.build import build_notifier
 from agent_build_kit.notify.reconcile import reconcile as reconcile_notifications
 from agent_build_kit.notify.store import NotificationStore
-from agent_build_kit.pipeline import diagram, environment, spans, usage_report
+from agent_build_kit.pipeline import diagram, environment, network_probe, spans, usage_report
 from agent_build_kit.pipeline.archive import (
     _already_archived,
     archive_ready_changes,
@@ -143,6 +143,7 @@ from agent_build_kit.pipeline.unit_size import (
     over_ceiling,
 )
 from agent_build_kit.pipeline.unit_store import (
+    PARKED_CAUSES,
     UNPLANNED,
     Cause,
     HeldBy,
@@ -153,6 +154,7 @@ from agent_build_kit.pipeline.unit_store import (
     backoff_remaining,
     feedback_source_of,
     guidance_excerpt,
+    waiting_for,
 )
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -247,6 +249,7 @@ from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
+from agent_build_kit.runtimes import NetworkUnavailable
 from agent_build_kit.serve.review import Review, ReviewStore
 
 if TYPE_CHECKING:
@@ -596,7 +599,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 log(f"  {blocked}")
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
             log(
-                f"  waiting for the code host: {unit.id} ({unit.repo}) at {step}, "
+                f"  {waiting_for(unit)}: {unit.id} ({unit.repo}) at {step}, "
                 f"{int(left.total_seconds())}s remain — {unit.note}"
             )
         if unit.state == PLANNED and unit.cause is Cause.GATED:
@@ -1280,7 +1283,8 @@ def run_round(
     for unit in units:
         if (left := backoff_remaining(unit, spans.clock.now())) is not None:
             log(
-                f"{unit.id}: waiting for the code host, parked at {unit.step or 'a step'}; "
+                f"{unit.id}: {waiting_for(unit)}, "
+                f"parked at {unit.step or 'a step'}; "
                 f"{int(left.total_seconds())}s remain"
             )
     if not admitted:
@@ -1852,7 +1856,7 @@ def _sent_back(
             out.add(unit.id)
         elif (
             unit.state == PLANNED
-            and unit.cause is Cause.HOST_UNAVAILABLE
+            and unit.cause in PARKED_CAUSES
             and backoff_remaining(unit, spans.clock.now()) is None
         ):
             out.add(unit.id)
@@ -1860,7 +1864,7 @@ def _sent_back(
             skipped is not None
             and unit.cause is not None
             # Readmitted by a later round once its backoff is over.
-            and unit.cause is not Cause.HOST_UNAVAILABLE
+            and unit.cause not in PARKED_CAUSES
             and (unit.id, str(last.get("at"))) not in skipped
         ):
             skipped.add((unit.id, str(last.get("at"))))
@@ -2977,6 +2981,20 @@ class _Run:
     outcome = UnitOutcome.INTERRUPTED
 
 
+def _outage_cause(inst: Installation, error: NetworkUnavailable) -> Cause | None:
+    """The cause a unit parks with for `error`, or None when the run failed for another
+    reason. A strong sign is evidence enough; a weak one parks as the probe sorts it."""
+    if error.strength == "strong":
+        return Cause.NETWORK_UNAVAILABLE
+    limits = inst.config.limits
+    return network_probe.classify_reachability(
+        error.host,
+        network_probe.control_group(inst),
+        timeout=limits.network_probe_timeout_seconds,
+        api_port=error.port,
+    )
+
+
 def build_unit(
     inst: Installation, unit: Unit, *, store: UnitStore, queued: spans.Mark | None = None
 ) -> bool:
@@ -3072,6 +3090,25 @@ def _build_unit(
         run.outcome = outcome
         say(message)
 
+    def park(error: Exception, cause: Cause) -> None:
+        """The work is fine and the thread stays at the step: the unit is `planned` with
+        `cause`, and the pass readmits it after a backoff, resuming at that step."""
+        end(f"parked, {error}", UnitOutcome.INTERRUPTED)
+        try:
+            store.set_state(unit.id, PLANNED, note=str(error), cause=cause)
+        except Exception as second:  # noqa: BLE001
+            say(f"could not be recorded as parked — {second}")
+
+    def fail(error: Exception) -> None:
+        end(f"failed, {type(error).__name__}: {error}", UnitOutcome.FAILED)
+        # The error's type and text, and the step it came from, are on the
+        # unit's record, not only in a tick log someone would have to find.
+        note = f"{type(error).__name__}: {error}"
+        try:
+            store.set_state(unit.id, UnitState.FAILED, note=note, cause=Cause.FAILED)
+        except Exception as second:  # noqa: BLE001
+            say(f"could not be recorded as failed — {second}")
+
     try:
         try:
             with ExitStack() as held:
@@ -3103,7 +3140,7 @@ def _build_unit(
                 # A step recorded by an earlier run belongs to that run. A parked unit
                 # resumes at its node, which never passes `prepare`, so it is marked
                 # running here.
-                if unit.state == PLANNED and unit.cause is Cause.HOST_UNAVAILABLE:
+                if unit.state == PLANNED and unit.cause in PARKED_CAUSES:
                     store.set_state(unit.id, RUNNING, branch=unit.branch or None)
                 store.record_step(unit.id, "")
                 if queued is not None:
@@ -3176,23 +3213,19 @@ def _build_unit(
             end(f"skipped, {error}", UnitOutcome.SKIPPED)
             return True
         except HostUnavailable as error:
-            # The work is fine and the thread stays at the step: parked, and the pass
-            # readmits it after a backoff, resuming at that step.
-            end(f"parked, {error}", UnitOutcome.INTERRUPTED)
-            try:
-                store.set_state(unit.id, PLANNED, note=str(error), cause=Cause.HOST_UNAVAILABLE)
-            except Exception as second:  # noqa: BLE001
-                say(f"could not be recorded as parked — {second}")
+            park(error, Cause.HOST_UNAVAILABLE)
+            return True
+        except NetworkUnavailable as error:
+            # The work is fine: the network or the model's host is down. A strong sign
+            # parks on its own evidence; a weak one as the probe sorts it, and a failure
+            # the probe does not call an outage is a failure like any other.
+            if (cause := _outage_cause(inst, error)) is None:
+                fail(error)
+                return True
+            park(error, cause)
             return True
         except Exception as error:  # noqa: BLE001 — see the docstring.
-            end(f"failed, {type(error).__name__}: {error}", UnitOutcome.FAILED)
-            # The error's type and text, and the step it came from, are on the
-            # unit's record, not only in a tick log someone would have to find.
-            note = f"{type(error).__name__}: {error}"
-            try:
-                store.set_state(unit.id, UnitState.FAILED, note=note, cause=Cause.FAILED)
-            except Exception as second:  # noqa: BLE001
-                say(f"could not be recorded as failed — {second}")
+            fail(error)
             return True
 
         end(f"{outcome.status} — {outcome.detail}", outcome.status)

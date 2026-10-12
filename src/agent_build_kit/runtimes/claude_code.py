@@ -15,6 +15,7 @@ import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from agent_build_kit import config
 from agent_build_kit.config import ModelsConfig
@@ -31,6 +32,7 @@ from agent_build_kit.pipeline.claude_stream import (
     stream_run,
 )
 from agent_build_kit.pipeline.usage_guard import (
+    USAGE_URL,
     UsageReading,
     read_cached_usage,
     read_live_usage,
@@ -45,6 +47,7 @@ from agent_build_kit.runtimes.base import (
     Model,
     ModelList,
     ModelSource,
+    NetworkUnavailable,
     PermissionMode,
     PolicyCoverage,
     PolicyReport,
@@ -58,7 +61,9 @@ from agent_build_kit.runtimes.base import (
     validate_argv,
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
+from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
+from agent_build_kit.settings import named_value
 from agent_build_kit.usage import Context, ContextBasis, context_of
 
 # (argv, *, cwd, on_event) -> the finished process: `claude_stream.stream_run`'s
@@ -112,6 +117,37 @@ def spawn(
 
 
 NAME = "claude_code"
+
+# The host the CLI calls, which the probe looks at when a run ends on a connection failure.
+API_HOST = urlparse(USAGE_URL).hostname or ""
+
+# The variable the CLI reads for the address it calls, in place of the default host.
+BASE_URL_VARIABLE = "ANTHROPIC_BASE_URL"
+
+# The port the default host is called on.
+API_PORT = 443
+
+
+def _api_endpoint(request: AgentRequest) -> tuple[str, int]:
+    """The host and port this run called: the base-URL override it was started with, from
+    the request, else the environment the CLI inherits; the default host otherwise."""
+    if BASE_URL_VARIABLE in request.env:
+        override = request.env[BASE_URL_VARIABLE]
+    elif request.environment is not None:
+        override = request.environment.get(BASE_URL_VARIABLE, "")
+    else:
+        # The process environment alone: it is what the CLI inherits, and a `.env` value is
+        # never exported to it.
+        override = named_value(BASE_URL_VARIABLE, None)
+    parsed = urlparse(override)
+    if not override or not parsed.hostname:
+        return API_HOST, API_PORT
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    return parsed.hostname, port or (80 if parsed.scheme == "http" else API_PORT)
+
 
 # What starts the agent when `runtimes.claude_code.command` is not set.
 AGENT_COMMAND: tuple[str, ...] = ("claude",)
@@ -304,11 +340,15 @@ class ClaudeCodeRuntime:
                 **_spent(ended),
                 context=_context(result.stdout, ended, request.model),
             )
-            if failure.kind == "rate_limited":
+            strength = network_failure(said) if failure.kind != "rate_limited" else None
+            if failure.kind == "rate_limited" or strength:
                 # Raised, so `_run` never sees it: the spend of a call cut off
-                # by the limit is told here.
+                # is told here.
                 if request.on_result is not None:
                     request.on_result(failed.model_copy(update={"error": said}))
+                if strength:
+                    host, port = _api_endpoint(request)
+                    raise NetworkUnavailable(said, strength=strength, host=host, port=port)
                 raise AgentRateLimited(
                     said or "claude reported a usage limit", resets_at=failure.resets_at
                 )

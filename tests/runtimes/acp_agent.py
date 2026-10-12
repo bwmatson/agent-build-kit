@@ -39,7 +39,8 @@ inherits its stderr and sleeps for `HANG_SECONDS`, writing the child's pid to
 closes: an agent that is gone while something it started still holds stderr.
 `--fail` breaks the prompt partway through, after the preamble:
 `exit` writes `STDERR_LINE` to stderr and exits 3, `kill` sends the agent
-SIGKILL, `error` answers the prompt with an internal error, and `hang` closes
+SIGKILL, `error` answers the prompt with an internal error, `dns` answers it with
+one naming a host that could not be resolved, and `hang` closes
 its stdout, writes `STDERR_LINE` to stderr and lingers for `HANG_SECONDS`
 without exiting, as an agent whose stdio loop died while its process did not.
 `orphan` first starts a child that inherits its stderr and sleeps for
@@ -538,6 +539,10 @@ class FakeAgent:
             os.kill(os.getpid(), signal.SIGKILL)
         if self._fail == "error":
             raise RequestError.internal_error({"details": "the model endpoint went away"})
+        if self._fail == "dns":
+            raise RequestError.internal_error(
+                {"details": "getaddrinfo EAI_AGAIN gateway.example.test"}
+            )
         if self._linger or self._fail in ("orphan", "detach"):
             self._leave_child(new_session=self._fail == "detach")
         if self._fail in ("hang", "orphan", "detach"):
@@ -1131,6 +1136,7 @@ def main() -> None:
             "exit",
             "kill",
             "error",
+            "dns",
             "hang",
             "orphan",
             "detach",

@@ -485,6 +485,21 @@ once its backoff has passed (1, 2, 5, 10, then 30 minutes by consecutive parking
 when it was parked) and logs how long remains until then; a success resets the count.
 Any other exception fails the unit and records its type, text and step.
 
+An agent run that ends because the network or the model service is down parks the unit
+the same way, with the cause `network_unavailable` or `service_unavailable`, on the same
+backoff table. The runtime raises `NetworkUnavailable`. A strong sign (a name that cannot
+be resolved, a network that is unreachable) parks it as `network_unavailable` on that
+evidence. A weak sign (a refused or timed-out connection, "Can't reach the API server")
+parks it by a connectivity probe, which makes no model call: the host the run called and a
+control group (the code hosts and `limits.network_control_hosts`) are each looked up and
+connected to. Both failing is `network_unavailable`; only the called host failing is
+`service_unavailable`; the called host connecting, or a probe that errors, fails the unit.
+No review, rework or check round is charged, a session the step was continuing is continued
+on resume, and the unit keeps its place in `in_progress`. The status says `waiting for the
+network` or `waiting for the model service`, beside `waiting for the code host`, and the
+graph labels the unit the same way, with the step and the time it may run again. The probe
+connects to the host the run called on the port it called, and to the control group on 443.
+
 On a fresh start `prepare` notes whether the approved commit is the pushed head
 (`pushed_head`) and whether a pull request exists (`opened`). With the former, and no
 pull request or unposted replies (owed replies count only when no feedback is saved, so a

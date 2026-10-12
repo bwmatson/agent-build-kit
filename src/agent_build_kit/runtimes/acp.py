@@ -111,6 +111,7 @@ from agent_build_kit.runtimes.base import (
     Model,
     ModelList,
     ModelSource,
+    NetworkUnavailable,
     PermissionAsk,
     PermissionChoice,
     PolicyCoverage,
@@ -125,6 +126,7 @@ from agent_build_kit.runtimes.base import (
     child_environment,
     validate_argv,
 )
+from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.usage import ContextBasis, Usage, context_of
 
@@ -1312,6 +1314,9 @@ class AcpRuntime:
         result = self._attempt(request)
         if request.on_result is not None:
             request.on_result(result)
+        if not result.ok and network_failure(result.error) == "strong":
+            # The gateway's host is not known from its command line, so none is named.
+            raise NetworkUnavailable(result.error, strength="strong", host="")
         return result
 
     def _attempt(self, request: AgentRequest) -> AgentResult:
@@ -1412,7 +1417,8 @@ class AcpRuntime:
             return AgentResult(
                 ok=False,
                 text="",
-                error=f"the agent answered an error: {exc}",
+                # The agent's own words are in the data, not in the code's name.
+                error=f"the agent answered an error: {exc}{f' ({exc.data})' if exc.data else ''}",
                 raw="\n".join(raw_lines),
                 **_spent(None, session),
             )
