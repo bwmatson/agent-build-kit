@@ -73,17 +73,21 @@ def test_the_pass_resumes_the_gated_unit_restacked_onto_the_parents_branch_once_
     graph: Setup,
 ) -> None:
     held_then_needing(graph)
+    graph.store.set_state("parent/1", HELD, branch="spec/parent/1")
     assert requeue(graph) == 0
     assert graph.store.get(UNIT).cause is Cause.GATED
     restacked: list[dict[str, Any]] = []
-    retargeted: list[tuple[str, str]] = []
+    pr_bases: list[str] = []
+
+    def open_pr(unit: Any, *, base: str, **kw: Any) -> int:
+        pr_bases.append(base)
+        return graph.recorder.open_pr(unit, base=base, **kw)
+
     graph.options["restack_onto"] = lambda **kw: restacked.append(kw)
-    graph.patch.setattr(
-        cli, "build_retarget", lambda: lambda u, base: retargeted.append((u.id, base))
-    )
+    graph.options["open_pr"] = open_pr
 
     assert graph.tick() == 0
-    assert graph.store.get(UNIT).state == PLANNED, "the parent is not reviewed yet"
+    assert graph.store.get(UNIT).state == PLANNED, "the parent is held, not reviewed"
 
     graph.store.set_state("parent/1", IN_REVIEW, branch="spec/parent/1", pr=9)
     assert graph.tick() == 0
@@ -91,7 +95,7 @@ def test_the_pass_resumes_the_gated_unit_restacked_onto_the_parents_branch_once_
     assert graph.store.get(UNIT).state == IN_REVIEW
     assert graph.next() == (Node.AWAIT_REVIEW,)
     assert any(str(call["base"]).endswith("spec/parent/1") for call in restacked)
-    assert retargeted == [(UNIT, "spec/parent/1")], "its pull request moved to the parent's branch"
+    assert pr_bases[-1] == "spec/parent/1", "its pull request is updated onto the parent's branch"
 
 
 def test_a_cross_repo_parent_in_review_still_holds_the_unit_until_it_has_merged(

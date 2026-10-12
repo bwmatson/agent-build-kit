@@ -555,16 +555,9 @@ def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     return unit.state == PLANNED and bool(waiting_on(unit, graph))
 
 
-def unmet_gates(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
-    """The dependencies `unit` must wait to see merged that have not: the
-    entries of `waiting_on` its `merge_before` names. A same-repo parent that
-    only has to be back in review is not one."""
-    return [parent for parent in waiting_on(unit, graph) if parent.id in unit.merge_before]
-
-
 def merge_wait(units: Sequence[Unit]) -> str:
-    """What a unit held by these merge gates is waiting for, in a person's words."""
-    return f"waiting for {group_names(units)} to merge"
+    """What a unit held by these dependencies is waiting for, in a person's words."""
+    return f"waiting for {group_names(units)}"
 
 
 def group_names(units: Sequence[Unit]) -> str:

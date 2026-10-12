@@ -73,9 +73,9 @@ def changes(inst: Installation) -> set[str]:
 
 
 def waits_on(inst: Installation, change: str) -> list[str]:
-    """The changes a change's group 1 has `Needs:` lines on, each as `merged`."""
+    """The changes a change's group 1 has `Needs:` lines on, each unqualified."""
     needs = group_needs(inst.changes_dir / change / "tasks.md").get(1, [])
-    assert all(need.merged and need.group == 1 for need in needs)
+    assert all(not need.merged and need.group == 1 for need in needs)
     return [need.change for need in needs]
 
 
