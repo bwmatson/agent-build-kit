@@ -85,6 +85,7 @@ from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
     TestFailure,
+    TestTime,
     Tier2Classification,
     Tier2Result,
     Tier2Verdict,
@@ -94,6 +95,7 @@ from agent_build_kit.pipeline.tier2 import (
 from agent_build_kit.pipeline.tier2 import (
     post_status as tier2_post_status,
 )
+from agent_build_kit.pipeline.tier2_times import record_test_times, with_split
 from agent_build_kit.pipeline.transcript import Transcript, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, over_ceiling
@@ -1829,6 +1831,12 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
+        timed: list[TestTime] = []
+
+        def labelled(project: str, test: str) -> str:
+            """A test's id as the result names it: with its project, where there is one."""
+            return f"{project}/{test}" if project else test
+
         # header, text, how much of it to keep, the toolchain that read it, its project,
         # and where and with which command it ran
         outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
@@ -1857,12 +1865,19 @@ class Tier2Session:
                         skipped + s,
                         duration + d,
                     )
+                    timed += [
+                        e.model_copy(update={"test": labelled(project, e.test)})
+                        for e in with_split(toolchain.parse_test_durations(out), out)
+                    ]
                     header = f"$ {' '.join(command)}{label}"
                     self._keep(header, out)
+                    # The listing carries the durations, so the kept text leaves them out: they
+                    # would fill the cut output and push the failures from it.
+                    kept = toolchain.without_durations(out)
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, out, None, toolchain, project, where, command))
+                        outputs.append((header, kept, None, toolchain, project, where, command))
                     elif p:
-                        outputs.append((header, out, 1500, toolchain, project, where, command))
+                        outputs.append((header, kept, 1500, toolchain, project, where, command))
 
             # Every command's text in one pass, before any cut, so a cut cannot leave half a
             # value and a failing redaction is logged once.
@@ -1881,9 +1896,15 @@ class Tier2Session:
                 if keep is not None:
                     continue
                 for found in toolchain.parse_test_failures(text):
-                    test = f"{project}/{found.test}" if project else found.test
+                    test = labelled(project, found.test)
                     failures.append(TestFailure(test=test, line=found.line))
                     named_by[test] = (at, toolchain, ran)
+            # A test id is output too, and is redacted as the failures' ids are before it is
+            # posted, stored or recorded.
+            ids = redact_leaves([e.test for e in timed], where="tier-2 output")
+            timed = [
+                e.model_copy(update={"test": test}) for e, test in zip(timed, ids, strict=True)
+            ]
             command = " && ".join(
                 " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
                 for where, _, commands in entries
@@ -1900,7 +1921,14 @@ class Tier2Session:
                 output=output[-4000:],
                 stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
                 failures=failures,
+                durations=sorted(timed, key=lambda e: e.seconds, reverse=True),
                 **self._kept(),
+            )
+            record_test_times(
+                self.result.durations,
+                unit=self.unit.id,
+                change=self.unit.change,
+                marker=self._marker,
             )
 
             # Still inside the hold: the base run sees the stack the unit's run saw.
@@ -1972,7 +2000,8 @@ class Tier2Session:
                     completed = self._run(command, cwd=tree / at.relative_to(cwd), **self._test_env)
                     text = f"{completed.stdout or ''}{completed.stderr or ''}"
                     commands.append(" ".join(command))
-                    outputs.append(text)
+                    # Covers a toolchain whose rerun keeps its flags, and so prints durations.
+                    outputs.append(toolchain.without_durations(text))
                     named = toolchain.parse_test_failures(text)
                     failing.update(f"{prefix}{found.test}" for found in named)
         except (subprocess.CalledProcessError, OSError) as error:

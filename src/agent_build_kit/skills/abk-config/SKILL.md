@@ -147,6 +147,7 @@ limits:
   tier1_repeat_runs: 3              # times the tests a unit added or changed are run again under load (0: off)
   tier2_base_runs: 1                # run the untouched failed tier 2 tests once on the base (0: off)
   tier2_lock_wait_seconds: 5400     # longest post-merge verification waits for the tier 2 lock before reporting it busy
+  tier2_durations_shown: 15         # slowest tier 2 test entries the posted result lists (0 = all)
 
 environment:                  # how the pipeline's own environment is kept current;
                               # leave it out and nothing is managed (`abk doctor` warns)

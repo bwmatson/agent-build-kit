@@ -31,6 +31,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from agent_build_kit.config import active
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -52,6 +53,29 @@ class TestFailure(Frozen):
 
     test: str
     line: str
+
+
+class TestTime(Frozen):
+    """The time of one phase (`setup`, `call` or `teardown`) of one test, and where the
+    time went when the run said so: agent milliseconds by role with the calls made, the
+    scratch pipeline's commands, and the rest. A figure the run did not give is None."""
+
+    __test__ = False
+
+    test: str
+    phase: str
+    seconds: float
+    agent_ms: dict[str, int] = Field(default_factory=dict)
+    calls: dict[str, int] = Field(default_factory=dict)
+    checks_ms: int | None = None
+    other_ms: int | None = None
+    overlap: bool = False
+
+    @property
+    def has_split(self) -> bool:
+        """Whether the run said where this phase's time went: the table shows figures for it
+        and its ledger row carries them, and neither does otherwise."""
+        return bool(self.agent_ms) or self.checks_ms is not None or self.other_ms is not None
 
 
 class Tier2Classification(Frozen):
@@ -83,6 +107,8 @@ class Tier2Result(Frozen):
     output: str
     stack_versions: dict[str, str] = Field(default_factory=dict)
     failures: list[TestFailure] = Field(default_factory=list)
+    # Every phase of every test the run timed, slowest first; empty for a result stored without.
+    durations: list[TestTime] = Field(default_factory=list)
     # The file holding the whole output of the run; empty for a result stored without one.
     output_file: str = ""
     # Whether redaction failed on the output, so the file holds the notice in its place.
@@ -248,6 +274,47 @@ def parse_pytest_summary(output: str) -> tuple[int, int, int, float]:
     )
 
 
+def _split_cells(entry: TestTime) -> str:
+    """The agent, checks and other cells of an entry, a dash each when the run gave no split."""
+    if not entry.has_split:
+        return "- | - | -"
+    agent = (
+        ", ".join(
+            f"{role} {_age(ms / 1000)} x{entry.calls.get(role, 1)}"
+            for role, ms in entry.agent_ms.items()
+        )
+        or "-"
+    )
+    checks = "-" if entry.checks_ms is None else _age(entry.checks_ms / 1000)
+    other = "-" if entry.other_ms is None else _age(entry.other_ms / 1000)
+    return f"{agent} | {checks} | {other}{' (overlap)' if entry.overlap else ''}"
+
+
+def _cell(text: str) -> str:
+    """`text` as the content of a markdown table cell: a `|` in it would split the row."""
+    return text.replace("|", "\\|")
+
+
+def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
+    """The line naming the three slowest entries, and the table of the slowest ones, both
+    empty when the run timed nothing."""
+    if not durations:
+        return "", ""
+    ranked = sorted(durations, key=lambda e: e.seconds, reverse=True)
+    limit = active().limits.tier2_durations_shown
+    shown = ranked[:limit] if limit else ranked
+    head = "; ".join(f"`{e.test}` {e.phase} {_age(e.seconds)}" for e in ranked[:3])
+    rows = "\n".join(
+        f"| `{_cell(e.test)}` | {e.phase} | {_age(e.seconds)} | {_split_cells(e)} |" for e in shown
+    )
+    table = (
+        f"\n**Time by test** (slowest first, {len(shown)} of {len(ranked)} shown)\n\n"
+        "| Test | Phase | Time | Agent | Checks | Other |\n|---|---|---|---|---|---|\n"
+        f"{rows}\n"
+    )
+    return f"- **Slowest:** {head}\n", table
+
+
 def build_snapshot(result: Tier2Result) -> str:
     """The "Tier 2 results" section of a PR description.
 
@@ -271,6 +338,8 @@ def build_snapshot(result: Tier2Result) -> str:
         withheld = " (withheld: redaction failed)" if result.output_withheld else ""
         kept = f"- **Full output:** `{result.output_file}`{withheld}\n"
 
+    slowest, table = _durations_listing(result.durations)
+
     return f"""## Tier 2 results
 
 Tier 2 needs the live local stack, so GitHub Actions cannot run it. This ran
@@ -280,9 +349,9 @@ on the developer host.
 - **Command:** `{result.command}`
 - **Result:** {result.passed} passed, {result.failed} failed, \
 {result.skipped} skipped in {result.duration_seconds}s
-{failed}{kept}- **Ran against:**
+{failed}{kept}{slowest}- **Ran against:**
 {versions}
-
+{table}
 <details>
 <summary>Full output</summary>
 

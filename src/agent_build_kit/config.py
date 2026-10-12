@@ -369,6 +369,8 @@ class LimitsConfig(Frozen):
     tier2_base_runs: Annotated[int, Field(ge=0, le=1)] = 1
     # Longest a unit waits for the tier 2 lock before its tier 2 step fails as busy, in seconds.
     tier2_lock_wait_seconds: Annotated[int, Field(gt=0)] = 5400
+    # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
+    tier2_durations_shown: Annotated[int, Field(ge=0)] = 15
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

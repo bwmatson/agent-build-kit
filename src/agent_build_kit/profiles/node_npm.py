@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
-from agent_build_kit.pipeline.tier2 import TestFailure
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
 
@@ -89,6 +89,12 @@ class NodeNpmProfile:
 
     def parse_test_failures(self, output: str) -> list[TestFailure]:
         return []
+
+    def parse_test_durations(self, output: str) -> list[TestTime]:
+        return []
+
+    def without_durations(self, output: str) -> str:
+        return output
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")

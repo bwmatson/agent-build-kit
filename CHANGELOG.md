@@ -13,6 +13,15 @@
   `abk status` and named when a pass starts nothing, and the planner is told not to
   make unstarted work depend on the change it is planning.
 
+- The tier 2 result now records how long each phase of each test took (a second or
+  more), so a slow test can be told from a hung one. The command asks for the
+  durations, the kept output leaves pytest's durations section out so it cannot push
+  the failures from it, and the posted result opens with the three slowest entries and
+  lists the slowest `limits.tier2_durations_shown` (15 by default, 0 for all) above the
+  output, so a small description never cuts the listing. Each entry also becomes a `test_time` ledger row and feeds the
+  `abk.tier2.test.duration` and `abk.tier2.test.time` histograms, whose attributes are
+  never a unit, change or test name.
+
 - `abk init` now asks which agent runtime to use, before research and propose run on
   it. It looks at what this machine can run without calling a model, lists the usable
   candidates first and each unusable one with its reason, and always offers your own

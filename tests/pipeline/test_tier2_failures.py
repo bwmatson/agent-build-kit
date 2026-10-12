@@ -101,5 +101,9 @@ def test_the_gate_merges_the_failures_of_two_projects_in_order_labelled_by_proje
     # the result is otherwise as before
     result = session.result
     assert (result.passed, result.failed) == (1 + 2, 2 + 1 + 4)
-    assert result.output.count("$ ") == 2
+    # The output keeps its last 4000 characters, and the duration flags in the first command's
+    # header push the front of it out: its project label is what is left of it.
+    assert "(in api)" in result.output
+    assert "$ " in result.output.split("(in api)")[1]
+    assert "(in web)" in result.output
     assert FIXTURE_LINE in result.output

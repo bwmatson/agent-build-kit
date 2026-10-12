@@ -13,7 +13,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.tier2 import TestFailure
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime
 
 
 class ProfileUnsupported(NotImplementedError):
@@ -107,6 +107,17 @@ class ToolchainProfile(Protocol):
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]: ...
 
     def parse_test_failures(self, output: str) -> list[TestFailure]: ...
+
+    def parse_test_durations(self, output: str) -> list[TestTime]:
+        """One entry per phase of each test the runner timed, in the order printed; an
+        output with no durations, or a toolchain that prints none, gives `[]`."""
+        ...
+
+    def without_durations(self, output: str) -> str:
+        """`output` without the section `parse_test_durations` reads, for the text a result
+        keeps: the listing carries it, and it would push the failures out of a cut output.
+        A toolchain that prints none returns it unchanged."""
+        ...
 
     def is_test_path(self, path: str) -> bool: ...
 

@@ -24,7 +24,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
-from agent_build_kit.pipeline.tier2 import TestFailure, parse_pytest_summary
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, parse_pytest_summary
 from agent_build_kit.profiles.base import PromptWords
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -41,6 +41,10 @@ WORKERS = ["-n", "auto", "--maxprocesses=8"]
 # below it pytest cuts each summary message to the terminal width, and drops it when the
 # test id fills the line.
 SUMMARY_FLAGS = ["-vv", "-rfE", "--tb=short"]
+# Every phase of every test that took a second or more, slowest first, in one section.
+DURATION_FLAGS = ["--durations=0", "--durations-min=1.0"]
+DURATIONS_RULE = re.compile(r"^=+ slowest (?:\d+ )?durations =+\s*$")
+DURATION_ENTRY = re.compile(r"^(\d+(?:\.\d+)?)s +(setup|call|teardown) +(\S.*)$")
 SUMMARY_MARK = "short test summary info"
 SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
 FAILURE_LINE_LIMIT = 500
@@ -63,6 +67,17 @@ _FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
 # hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
 # change, the id is what a hook is called in the config, so the id decides.
 _HOOK_FAILED = re.compile(r"^\S.*?\.{3,}Failed[ \t]*\n- hook id: (?P<id>\S+)[ \t]*$", re.MULTILINE)
+
+
+def _durations_section(lines: list[str]) -> tuple[int, int, list[str]]:
+    """`(start, end, body)` of pytest's `slowest durations` section in `lines`: the last
+    `=` rule whose title is the header (captured output may quote one earlier), through
+    the line before the next `=` rule. An output with none gives `(len, len, [])`."""
+    start = next(
+        (i for i in range(len(lines) - 1, -1, -1) if DURATIONS_RULE.match(lines[i])), len(lines)
+    )
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("=")), len(lines))
+    return start, end, lines[start + 1 : end]
 
 
 def _normalize(name: str) -> str:
@@ -296,6 +311,22 @@ class PythonUvProfile:
                 failures.append(TestFailure(test=matched.group(1), line=first))
         return failures
 
+    def parse_test_durations(self, output: str) -> list[TestTime]:
+        """One entry per line of pytest's `slowest durations` section, in the order printed."""
+        found: list[TestTime] = []
+        for line in _durations_section(output.splitlines(keepends=True))[2]:
+            if matched := DURATION_ENTRY.match(line):
+                seconds, phase, test = matched.groups()
+                found.append(TestTime(test=test.strip(), phase=phase, seconds=float(seconds)))
+        return found
+
+    def without_durations(self, output: str) -> str:
+        """`output` without the `slowest durations` section: its header, its entries and the
+        note of those hidden, up to the next `=` rule line."""
+        lines = output.splitlines(keepends=True)
+        start, end, _ = _durations_section(lines)
+        return "".join(lines[:start] + lines[end:])
+
     def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
         # environment its CI job uses: pytest plus whatever it declares.
@@ -462,7 +493,7 @@ class PythonUvProfile:
         any member's live tests say so."""
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-m", marker, *SUMMARY_FLAGS]]
+            return [["uv", "run", "pytest", "-m", marker, *SUMMARY_FLAGS, *DURATION_FLAGS]]
         return [
             [
                 "uv",
@@ -476,6 +507,7 @@ class PythonUvProfile:
                 "-m",
                 marker,
                 *SUMMARY_FLAGS,
+                *DURATION_FLAGS,
             ]
             for member in members
             if (repo / member / "tests").is_dir()

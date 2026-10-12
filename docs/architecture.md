@@ -1147,13 +1147,16 @@ outcome and, for a failed check, its kind.
 | `abk.units` | gauge | state |
 | `abk.slots.free` | gauge | |
 | `abk.slots.idle_with_ready` | gauge | |
+| `abk.tier2.test.duration` | histogram (s) | marker, file (the test id up to `::`), phase (setup, call, teardown) |
+| `abk.tier2.test.time` | histogram (s) | marker, file, cause (agent, checks, other), role (agent time only, else empty) |
 | `abk.agent.cost` | counter (USD) | repo, tier, node, role, model, source (measured, estimated) |
 | `abk.node.duration` | histogram (s) | node |
 | `abk.wait.duration` | histogram (s) | bucket (slot, usage_pause, queue_full, lease, backoff, needs_person) |
 
-The last four are the usage ledger's figures, exported by the recorder that writes a ledger
+The last three are the usage ledger's figures, exported by the recorder that writes a ledger
 line: an agent record adds its cost and tokens, a span its time. A figure a record lacks adds
-nothing, and with telemetry off nothing is exported.
+nothing, and with telemetry off nothing is exported. The two tier 2 histograms are exported
+when a tier 2 run writes its `test_time` rows.
 
 `abk telemetry push-dashboard` pushes the packaged dashboard to the Grafana at `ABK_GRAFANA_URL`.
 `ABK_GRAFANA_TOKEN` is optional: set, every call carries it as a bearer token; unset, the calls
@@ -1222,6 +1225,16 @@ The ledger also holds `span` lines (a wait is one with `waited` set to its reaso
 a review round carries a `cause` of `review`, `check` or `conflict`) and, each time a running
 pass refreshes, one `sample` line with the counts of units `running`, `in_review`, `blocked` and
 `queued`, the `free_workers`, the `limit` and the `cap`. Readers skip a kind they do not know.
+
+A tier 2 run also writes one `test_time` line for each phase of each test its toolchain timed
+(`unit`, `change`, `marker`, the full `test` id, `phase`, `duration_ms`, and `agent_ms`,
+`checks_ms` and `other_ms` when a test suite reported the split). The toolchain profile asks
+for the durations (`parse_test_durations`; none for a toolchain that prints none), and a line
+of the form `ABK-TIME {json}` with `test`, `phase`, `agent` (milliseconds by role), `calls`,
+`checks_ms` and `other_ms` is merged onto the entry of its test and phase. `Tier2Result.durations`
+holds the entries slowest first; the posted result opens with the three slowest and lists the
+first `limits.tier2_durations_shown` of them (0 lists all) above the output, so cutting the
+output never drops the listing.
 
 `<state_dir>/usage-ledger.jsonl` gets one line for each agent call a unit's graph makes, when the
 call ends, ok or failed (a Claude Code call cut off by a usage limit included). A line names
