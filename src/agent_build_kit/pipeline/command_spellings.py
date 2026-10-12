@@ -44,6 +44,7 @@ class Reader(StrEnum):
 
     JUDGE = "judge"
     PROBE = "probe"
+    GLOB = "glob"
 
 
 class Spelling(Frozen):
