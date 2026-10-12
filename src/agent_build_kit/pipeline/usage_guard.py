@@ -814,39 +814,39 @@ def current_usage() -> UsageReading | None:
     return _noted(read_live_usage() or _unspent(read_cached_usage()))
 
 
-def _fresh_claude_block(held: UsageReading | None, calls_file: Path) -> UsageReading | None:
-    """The block in Claude Code's own cache, labelled with its age, when it is fresh enough to
-    decide from: younger than `usage_claude_cache_minutes` (at most `MAX_ANCHOR_AGE`), no window
-    reset, and fresher than the reading `held` while that is itself fresh (a tie is the guard's)."""
-    window = min(timedelta(minutes=_limits().usage_claude_cache_minutes), MAX_ANCHOR_AGE)
-    block = _unspent(read_cached_usage())
-    if block is None or block.age >= window:
+def _fresh_claude_block(held: UsageReading | None) -> UsageReading | None:
+    """The block in Claude Code's own cache, when it is fresh enough to decide from: younger than
+    `usage_claude_cache_minutes` (at most `MAX_ANCHOR_AGE`), no window reset, and fresher than the
+    reading `held` whatever its age (a tie is the guard's). Off, it does not read the file."""
+    minutes = _limits().usage_claude_cache_minutes
+    if minutes <= 0:
         return None
-    now = datetime.now(UTC)
+    block = _unspent(read_cached_usage())
+    if block is None or block.age >= min(timedelta(minutes=minutes), MAX_ANCHOR_AGE):
+        return None
     if (
         held is not None
-        and not _past_reset(held, now)
-        and now - held.observed_at < current_cache_interval(calls_file).kept
+        and not _past_reset(held, datetime.now(UTC))
         and block.observed_at <= held.observed_at
     ):
         return None
-    minutes = int(block.age.total_seconds() // 60)
-    return block.model_copy(update={"source": f"{block.source}, {minutes}m old"})
+    return block
 
 
 def _labelled(decision: Decision, reading: UsageReading) -> Decision:
-    """The reason with the source, and for a block its age, in a parenthesis of its own."""
+    """The reason with the source and the reading's age in a parenthesis of its own."""
     ending = f", {reading.source})"
     if not decision.reason.endswith(ending):
         return decision
-    reason = f"{decision.reason.removesuffix(ending)}) ({reading.source})"
+    age = int(reading.age.total_seconds() // 60)
+    reason = f"{decision.reason.removesuffix(ending)}) ({reading.source}, {age}m old)"
     return decision.model_copy(update={"reason": reason})
 
 
 def held_usage() -> UsageReading | None:
     """The reading held now, from the cache file or Claude Code's own: no call is made."""
     kept = _unspent(_kept_reading(_load_cache(_cache_file())))
-    block = _fresh_claude_block(kept, _cache_file().parent / CALLS_NAME)
+    block = _fresh_claude_block(kept)
     return _noted(block or kept or _unspent(read_cached_usage()))
 
 
@@ -864,7 +864,7 @@ def refreshed_usage() -> UsageReading | None:
     """A fresh reading when the interval allows a call, else the one held."""
     calls_file = _cache_file().parent / CALLS_NAME
     kept = _unspent(_kept_reading(_load_cache(_cache_file())))
-    if (block := _fresh_claude_block(kept, calls_file)) is not None:
+    if (block := _fresh_claude_block(kept)) is not None:
         return _noted(block)
     if next_call_at(calls_file, now=datetime.now(UTC)) is None:
         return current_usage()
@@ -1286,7 +1286,7 @@ def decide_start(
     cache_path = _cache_file()
     calls_file = cache_path.parent / CALLS_NAME
     held = _kept_reading(_load_cache(cache_path))
-    if (block := _fresh_claude_block(held, calls_file)) is not None:
+    if (block := _fresh_claude_block(held)) is not None:
         # A reading of Claude Code's own: it settles the decision without a call, even inside the
         # minimum interval, and is written nowhere.
         record_call(

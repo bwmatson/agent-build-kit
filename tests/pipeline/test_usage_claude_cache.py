@@ -144,11 +144,29 @@ def test_a_window_above_the_stale_age_does_not_use_a_block_older_than_it(host: H
     assert host.asked == 1
     assert "claude.json" not in decision.reason
 
-    old_guard_reading(host)  # the call above kept a new reading, fresher than this block
+    # The call above kept a new reading, fresher than this block; this one is older than it.
+    host.keep_reading(55 * MINUTE, payload(session=90.0, session_resets_in=timedelta(hours=3)))
     host.keep_editor_reading(50 * MINUTE)
     asked = host.asked
     assert decide_start().reason.endswith("(claude.json, 50m old)")
     assert host.asked == asked
+
+
+def test_a_block_older_than_the_guard_s_reading_is_not_used_whatever_the_cache_time(
+    host: Host,
+) -> None:
+    """Usage only rises within a window: the older, lower block is not a later truth."""
+    configure(**pause_at(92), usage_claude_cache_minutes=30)
+    host.keep_reading(20 * MINUTE, payload(session=90.0, session_resets_in=timedelta(hours=3)))
+    host.keep_editor_reading(25 * MINUTE, session=50)
+    host.answers = [payload(session=95.0)]
+
+    decision = decide_start()
+
+    assert not decision.may_start
+    assert host.asked == 1
+    assert "claude.json" not in decision.reason
+    assert not [each for each in host.lines() if each["outcome"] == "claude-json"]
 
 
 # --- 1.3 the fresher of the two ---------------------------------------------------------
