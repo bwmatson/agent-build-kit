@@ -51,7 +51,9 @@ def _lock_path(branch: str, root: Path) -> Path:
     return root / f"{re.sub(r'[^A-Za-z0-9]', '_', branch)}.lock"
 
 
-def _process_alive(pid: int) -> bool:
+def process_alive(pid: int) -> bool:
+    """Whether a process with this id exists: another user's counts as alive. Branch locks
+    and the tier 2 lock both judge a recorded holder by it."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -75,7 +77,7 @@ def lock_holder_gone(branch: str, *, root: Path) -> bool | None:
     pid = parsed.get("pid") if isinstance(parsed, dict) else None
     if not isinstance(pid, int):
         return None
-    return not _process_alive(pid)
+    return not process_alive(pid)
 
 
 @contextmanager
@@ -97,7 +99,7 @@ def branch_lock(branch: str, *, root: Path):
             holder = {}
 
         pid = holder.get("pid")
-        if isinstance(pid, int) and _process_alive(pid):
+        if isinstance(pid, int) and process_alive(pid):
             raise BranchBusy(
                 f"{branch} is held by pid {pid} since {holder.get('at', 'an unknown time')}"
             )

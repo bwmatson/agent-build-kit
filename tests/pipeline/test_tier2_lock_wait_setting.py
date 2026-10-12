@@ -7,10 +7,6 @@ the clock the wait reads is replaced, so no test sleeps.
 
 from __future__ import annotations
 
-import fcntl
-import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -28,43 +24,14 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline import tier2
 from tests.conftest import make_installation
+from tests.tier2_lock_fakes import SleepingTime, held, install_clock
 
 SETTING = "limits.tier2_lock_wait_seconds"
 
 
-class WaitClock:
-    """Stands in for the `time` module `stack_lock` reads: sleeping moves it on."""
-
-    def __init__(self) -> None:
-        self.now = 1000.0
-
-    def monotonic(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.now += max(seconds, 0.5)
-
-    def strftime(self, *args):
-        return time.strftime(*args)
-
-
 @pytest.fixture
-def clock(monkeypatch: pytest.MonkeyPatch) -> WaitClock:
-    fake = WaitClock()
-    monkeypatch.setattr(tier2, "time", fake)
-    return fake
-
-
-@contextmanager
-def held(path: Path) -> Iterator[None]:
-    """The tier 2 lock taken by someone else."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+def clock(monkeypatch: pytest.MonkeyPatch) -> SleepingTime:
+    return install_clock(monkeypatch)
 
 
 def write_yaml(tmp_path: Path, value: str) -> Path:
@@ -92,7 +59,7 @@ def test_a_value_that_cannot_be_a_wait_fails_to_load_naming_the_key(
 
 
 def test_verify_one_uses_the_configured_wait_unless_given_its_own(
-    tmp_path: Path, clock: WaitClock
+    tmp_path: Path, clock: SleepingTime
 ) -> None:
     inst = make_installation(tmp_path, limits={"tier2_lock_wait_seconds": 9})
     waited = []
@@ -108,7 +75,7 @@ def test_verify_one_uses_the_configured_wait_unless_given_its_own(
 
 
 def test_the_busy_message_names_the_setting_only_for_the_configured_wait(
-    tmp_path: Path, clock: WaitClock
+    tmp_path: Path, clock: SleepingTime
 ) -> None:
     inst = make_installation(tmp_path, limits={"tier2_lock_wait_seconds": 2})
     messages = []
@@ -125,7 +92,7 @@ def test_the_busy_message_names_the_setting_only_for_the_configured_wait(
     assert SETTING not in messages[1]
 
 
-def test_stack_lock_names_the_setting_it_is_given(tmp_path: Path, clock: WaitClock) -> None:
+def test_stack_lock_names_the_setting_it_is_given(tmp_path: Path, clock: SleepingTime) -> None:
     lock = tmp_path / "tier2.lock"
 
     with held(lock), pytest.raises(TimeoutError) as busy:

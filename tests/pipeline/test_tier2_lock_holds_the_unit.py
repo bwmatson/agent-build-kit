@@ -48,7 +48,6 @@ class Ran:
     def __init__(self, lock: Path) -> None:
         self.lock = lock
         self.record_seen: str | None = None
-        self.at: float | None = None
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         if self.record_seen is None:
@@ -124,8 +123,12 @@ def test_the_wait_is_logged_at_once_and_at_each_interval_with_the_holder_and_its
     waiting = [line for line in log if BUSY in line]
     # at once, then after five minutes and after ten
     assert len(waiting) == 3
-    assert all("other/1" in line and "held for" in line for line in waiting)
-    assert len(set(waiting)) == 3
+    assert all("other/1" in line for line in waiting)
+    for line, held_for, waited in zip(
+        waiting, ("40m 0s", "45m 0s", "50m 0s"), ("0m 0s", "5m 0s", "10m 0s"), strict=True
+    ):
+        assert f"held for {held_for})" in line
+        assert line.endswith(f"waited {waited}")
 
 
 def test_a_wait_that_ends_records_one_span_with_the_seconds_waited(

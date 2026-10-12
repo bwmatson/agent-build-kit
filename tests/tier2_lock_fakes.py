@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import fcntl
 import json
-import subprocess
-import sys
-import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 
@@ -44,9 +42,6 @@ class SleepingTime:
             self.due.remove(entry)
             entry[1]()
 
-    def strftime(self, *args):
-        return time.strftime(*args)
-
     def release_at(self, seconds: float, action: Callable[[], None]) -> None:
         """Run `action` when the clock has moved `seconds` past where the test began."""
         self.due.append((seconds, action))
@@ -59,10 +54,8 @@ def install_clock(monkeypatch: pytest.MonkeyPatch) -> SleepingTime:
 
 
 def dead_pid() -> int:
-    """The id of a process that has ended."""
-    ended = subprocess.Popen([sys.executable, "-c", "pass"])
-    ended.wait()
-    return ended.pid
+    """A process id no process can have: past the largest the kernel hands out."""
+    return int(Path("/proc/sys/kernel/pid_max").read_text()) + 1
 
 
 def record_line(unit: str, pid: int, age: float = 0.0) -> str:
@@ -87,3 +80,13 @@ class Foreign:
         if not self.handle.closed:
             fcntl.flock(self.handle, fcntl.LOCK_UN)
             self.handle.close()
+
+
+@contextmanager
+def held(path: Path) -> Iterator[Foreign]:
+    """The lock taken by someone else for the length of the block."""
+    other = Foreign(path)
+    try:
+        yield other
+    finally:
+        other.release()

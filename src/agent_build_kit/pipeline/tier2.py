@@ -34,6 +34,7 @@ from pydantic import Field
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.workspaces import process_alive
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
@@ -107,16 +108,6 @@ def read_lock_record(text: str) -> LockRecord | None:
         return LockRecord.model_validate_json(text)
     except ValueError:
         return None
-
-
-def process_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 def _age(seconds: float) -> str:
