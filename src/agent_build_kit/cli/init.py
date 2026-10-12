@@ -43,7 +43,7 @@ from agent_build_kit.init.detect import (
 )
 from agent_build_kit.init.propose import Kind, ProposeError, change_name, propose
 from agent_build_kit.init.research import research
-from agent_build_kit.init.runtime_choice import Choice, RuntimeChoiceError, choose
+from agent_build_kit.init.runtime_choice import Choice, RuntimeChoiceError, choose, merge_values
 from agent_build_kit.init.scaffold import (
     RULES_CHANGES,
     RULES_VERSION,
@@ -60,7 +60,6 @@ from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
 from agent_build_kit.runtimes.base import Run, Which
-from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -363,10 +362,11 @@ def _notification_provider() -> NotificationProvider:
 
 
 def _choose_runtime(
-    config: WorkspaceConfig, args: argparse.Namespace, *, keeps: bool, named: str | None
+    config: WorkspaceConfig, args: argparse.Namespace, *, keeps: bool, kept: dict
 ) -> Choice | None:
-    """The runtime to use and how it is set up, or None when a kept abk.yaml already
-    names one (`named`) and nothing asks to change it."""
+    """The runtime to use and how it is set up, or None when a kept abk.yaml (`kept`,
+    as parsed) already names one and nothing asks to change it."""
+    named = kept.get("runtime")
     if keeps and args.yes and not args.runtime:
         return None  # a kept file is not changed unasked
     if named and (not args.runtime or args.runtime == named):
@@ -382,16 +382,11 @@ def _choose_runtime(
         runtimes.candidates(which, probe_run),
         ask=ask,
         which=which,
-        base=config.model_dump(by_alias=True, mode="json"),
+        base=merge_values(config.model_dump(by_alias=True, mode="json"), kept),
         yes=args.yes,
         runtime=args.runtime,
         agent_command=args.agent_command,
     )
-
-
-def _kept_runtime(planning: Path, keeps: bool) -> str | None:
-    """The runtime a kept abk.yaml names."""
-    return (_read_yaml(planning / CONFIG_FILENAME) or {}).get("runtime") if keeps else None
 
 
 def _activate(planning: Path, fallback: WorkspaceConfig) -> None:
@@ -408,11 +403,9 @@ def _agent(chosen: Choice | None, kept: str | None) -> AgentRuntime | None:
     """The runtime the agent steps run on: the one chosen, else the kept file's."""
     name = chosen.runtime if chosen else kept
     try:
-        agent = runtimes.get(name) if name else None
+        return runtimes.get(name) if name else None
     except KeyError:
         return None
-    # `run_claude` stands in for the real executable, so Claude Code runs over it.
-    return None if run_claude is not None and isinstance(agent, ClaudeCodeRuntime) else agent
 
 
 def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
@@ -465,15 +458,20 @@ def cmd_init(args: argparse.Namespace, _inst: Installation | None) -> int:
         return 0
 
     try:
-        kept = _kept_runtime(planning, keeps)
-        chosen = _choose_runtime(config, args, keeps=keeps, named=kept)
+        kept = (_read_yaml(planning / CONFIG_FILENAME) or {}) if keeps else {}
+        chosen = _choose_runtime(config, args, keeps=keeps, kept=kept)
+        if keeps and not chosen and args.agent_command:
+            print(
+                "abk.yaml is kept: its runtime and command are left as they are; "
+                "--runtime (with confirmation) or --force changes them"
+            )
         applied = chosen.applied_to(config) if chosen else config
         if not keeps:
             config = applied
     except RuntimeChoiceError as error:
         print(f"abk init: {error}", file=sys.stderr)
         return 2
-    agent = _agent(chosen, kept)
+    agent = _agent(chosen, kept.get("runtime"))
 
     # A kept abk.yaml is only filled, so a choice made now would be dropped: ask nothing.
     if not args.yes and not keeps:

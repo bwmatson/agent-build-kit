@@ -15,6 +15,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.cli import main
 from agent_build_kit.config import load
+from agent_build_kit.init.runtime_choice import RuntimeChoiceError, choose
 from agent_build_kit.runtimes.base import Question, QuestionKind
 from tests.cli.init_choice_fakes import Answers, Offering, answering, machine, no_model
 from tests.cli.test_init import app, init_args, stubs  # noqa: F401 — fixtures
@@ -169,6 +170,70 @@ def test_going_back_shows_the_list_again_and_another_runtime_can_be_chosen(
     assert code == 0
     assert capsys.readouterr().out.count("alpha agent") >= 2
     assert load(planning / "abk.yaml").runtime == "beta"
+
+
+def test_a_wrapper_for_a_runtime_the_kept_file_already_configures_replaces_its_command(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine(
+        monkeypatch,
+        ("alpha-bin", "beta-bin", "wrapper-bin"),
+        Offering("alpha", events=events),
+        Offering("beta", events=events),
+        events=events,
+    )
+    assert main(init_args(planning, app, "--yes", "--runtime", "alpha")) == 0
+    answering(monkeypatch, Answers("y"))
+    assert main(init_args(planning, app, "--runtime", "beta")) == 0
+
+    answers = answering(monkeypatch, Answers("y"))
+    code = main(
+        init_args(planning, app, "--runtime", "alpha", "--agent-command", "wrapper-bin --flag")
+    )
+
+    config = load(planning / "abk.yaml")
+    assert code == 0
+    assert config.runtime == "alpha"
+    assert config.runtimes["alpha"].command == ["wrapper-bin", "--flag"]
+    assert config.runtimes["beta"].command == ["beta-bin", "acp"]
+    # beta is already configured in the file: it is not offered again as a fallback.
+    assert not any("fallback" in prompt for prompt in answers.prompts)
+
+
+def test_an_agent_command_left_unrecorded_by_a_kept_file_is_said_so(
+    planning: Path,
+    app: Path,  # noqa: F811 — fixture
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    machine(
+        monkeypatch,
+        ("alpha-bin", "wrapper-bin"),
+        Offering("alpha", events=events),
+        events=events,
+    )
+    assert main(init_args(planning, app, "--yes", "--runtime", "alpha")) == 0
+    kept = (planning / "abk.yaml").read_text()
+    capsys.readouterr()
+
+    assert main(init_args(planning, app, "--agent-command", "wrapper-bin --flag")) == 0
+
+    assert (planning / "abk.yaml").read_text() == kept
+    assert "left as they are" in capsys.readouterr().out
+
+
+def test_a_question_default_is_used_when_no_candidate_offers_one(
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine(monkeypatch, (), Offering("alpha", events=events), events=events)
+
+    with pytest.raises(RuntimeChoiceError, match="alpha-bin is not on the path"):
+        choose([], ask=Answers(), which=lambda _: None, base={}, yes=True, runtime="alpha")
 
 
 def test_a_wrapper_given_for_the_current_runtime_is_recorded(

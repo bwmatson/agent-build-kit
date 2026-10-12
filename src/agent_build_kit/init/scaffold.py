@@ -309,7 +309,7 @@ def record_in_file(path: Path, fragment: Mapping[str, Any]) -> None:
     replaced by its merge with the file's, and every other line stays as it is."""
     raw, lines = _read_lines(path)
     for key, value in fragment.items():
-        block = _block(key, merge_values(raw.get(key), value), "")
+        block = _block(key, merge_values(raw.get(key), value, at=key), "")
         start = next((i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None)
         if start is None:
             lines += block

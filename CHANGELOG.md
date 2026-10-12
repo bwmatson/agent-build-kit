@@ -16,7 +16,8 @@
   the only usable runtime and otherwise exits 2 without writing anything; `--runtime`
   and `--agent-command` name the choice, and a kept file's runtime is overridden only
   after you confirm, or with `--force` (`--yes` alone leaves it). Research and propose
-  run with the command and models recorded there.
+  run with the command and models recorded there. A new start command replaces the one already recorded for
+  that runtime, and `--agent-command` on a kept file that is not changed says so.
 
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge

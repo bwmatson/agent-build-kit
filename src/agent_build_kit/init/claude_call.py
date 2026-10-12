@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 from agent_build_kit import runtimes
 from agent_build_kit.runtimes import AgentResult, AgentRuntime
-from agent_build_kit.runtimes.claude_code import through
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, through
 
 # (argv, *, cwd=None) -> the model's text output.
 RunClaude = Callable[..., str]
@@ -22,11 +22,13 @@ RunClaude = Callable[..., str]
 
 def runtime_for(run_claude: RunClaude | None, runtime: AgentRuntime | None) -> AgentRuntime:
     """The runtime a step runs on: the one it was given, else Claude Code over
-    the given `RunClaude`, else the active one."""
-    if runtime is not None:
-        return runtime
+    the given `RunClaude` (which stands in for the real executable, so it also
+    takes the place of a Claude Code runtime that was handed in), else the
+    active one."""
     if run_claude is None:
-        return runtimes.active()
+        return runtime or runtimes.active()
+    if runtime is not None and not isinstance(runtime, ClaudeCodeRuntime):
+        return runtime
 
     def run(argv: list[str], *, cwd=None) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(argv, 0, run_claude(argv, cwd=cwd), "")

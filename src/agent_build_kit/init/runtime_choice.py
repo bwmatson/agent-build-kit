@@ -50,7 +50,7 @@ class Choice(Frozen):
             for key, value in self.fragment.items():
                 adapter = TypeAdapter(WorkspaceConfig.model_fields[key].annotation)
                 current = adapter.dump_python(getattr(config, key), mode="json", by_alias=True)
-                update[key] = adapter.validate_python(merge_values(current, value))
+                update[key] = adapter.validate_python(merge_values(current, value, at=key))
         except (KeyError, ValidationError) as error:
             raise RuntimeChoiceError(
                 f"an answer is written where abk.yaml has no place: {error}"
@@ -58,11 +58,28 @@ class Choice(Frozen):
         return config.model_copy(update=update)
 
 
-def merge_values(base: Any, new: Any) -> Any:
-    """`new` laid over `base`: mappings merge, lists gain what they lack, else `new` wins."""
+def _argv_paths() -> frozenset[str]:
+    """Where each registered runtime's argv answers are written in abk.yaml."""
+    return frozenset(
+        question.writes_to
+        for name in runtimes.names()
+        for question in questions_of(runtimes.get(name))
+        if question.kind == QuestionKind.ARGV
+    )
+
+
+def merge_values(base: Any, new: Any, *, at: str = "") -> Any:
+    """`new` laid over `base` (`at` is where they sit in abk.yaml): mappings merge, an
+    argv is replaced outright, other lists gain what they lack, else `new` wins."""
     if isinstance(base, Mapping) and isinstance(new, Mapping):
-        return {**base, **{k: merge_values(base.get(k), v) for k, v in new.items()}}
-    if isinstance(base, list) and isinstance(new, list):
+        return {
+            **base,
+            **{
+                k: merge_values(base.get(k), v, at=f"{at}.{k}" if at else str(k))
+                for k, v in new.items()
+            },
+        }
+    if isinstance(base, list) and isinstance(new, list) and at not in _argv_paths():
         return [*base, *(item for item in new if item not in base)]
     return new
 
@@ -105,9 +122,9 @@ def _answers(
     values: dict[str, Any] = {}
     for question in questions_of(runtimes.get(runtime_name)):
         default = ""
-        if candidate is not None:
-            default = shlex.join(candidate.command) if question.key == "command" else ""
-            default = default or question.default
+        if candidate is not None and question.key == "command":
+            default = shlex.join(candidate.command)
+        default = default or question.default
         shown = f"{question.prompt} [{default}]: " if default else f"{question.prompt}: "
         while True:
             if question.key in given:
@@ -245,7 +262,12 @@ def _fallbacks(
     interactive: bool,
 ) -> dict[str, Any]:
     """Offer each other usable runtime as a fallback, configured beside the chosen one."""
-    for other in dict.fromkeys(c.runtime for c in candidates if c.usable and c.runtime != chosen):
+    configured = base.get("runtimes") or {}
+    for other in dict.fromkeys(
+        c.runtime
+        for c in candidates
+        if c.usable and c.runtime != chosen and c.runtime not in configured
+    ):
         candidate = _first_usable(candidates, other)
         reply = ask(f"also configure {candidate.label} as a fallback runtime? [y/N] ")  # type: ignore[union-attr]
         if reply.strip().lower() not in ("y", "yes"):
