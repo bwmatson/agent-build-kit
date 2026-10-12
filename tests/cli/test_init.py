@@ -297,10 +297,11 @@ def init_args(planning: Path, app: Path, *extra: str) -> list[str]:
     return ["init", str(planning), "--repo", str(app), "--skip-research", "--skip-propose", *extra]
 
 
-@pytest.fixture
-def loose(tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch) -> SelectableRuntime:
-    """A laid-out planning repo whose abk.yaml selects a runtime that does not
-    refuse a pull-request merge until the installation's fix has run."""
+def loosened(
+    tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch, report: PolicyReport
+) -> SelectableRuntime:
+    """A laid-out planning repo whose abk.yaml selects a runtime that answers
+    `report` until the installation's fix has run, then refuses everything."""
     planning = recognised_planning(tmp_path / "planning")
     assert main([*init_args(planning, app), "--yes"]) == 0
     with (planning / "abk.yaml").open("a") as config:
@@ -308,9 +309,13 @@ def loose(tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch) -> Selecta
             "runtime: loose\nruntimes:\n  loose:\n"
             "    policy_fix: [scripts/constrain-agent.sh, --strict]\n"
         )
-    return select(
-        monkeypatch, SelectableRuntime("loose", reports=(UNENFORCED, PolicyReport(ok=True)))
-    )
+    return select(monkeypatch, SelectableRuntime("loose", reports=(report, PolicyReport(ok=True))))
+
+
+@pytest.fixture
+def loose(tmp_path: Path, app: Path, monkeypatch: pytest.MonkeyPatch) -> SelectableRuntime:
+    """A runtime that does not refuse a pull-request merge until the fix has run."""
+    return loosened(tmp_path, app, monkeypatch, UNENFORCED)
 
 
 def test_an_unenforced_class_is_reported_and_the_fix_run_only_once_confirmed(

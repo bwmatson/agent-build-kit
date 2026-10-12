@@ -2,51 +2,45 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli.doctor import run_doctor
-from tests.factories import init_repo
-from tests.runtimes.selectable import (
-    AMEND,
-    AMEND_REFUSED,
-    AMEND_UNREFUSED,
-    SelectableRuntime,
-    select,
-    spelling_report,
+from tests.cli.test_doctor import (  # noqa: F401 — fixture
+    Answers,
+    by_name,
+    select_runtime,
+    which_all,
+    workspace,
 )
-
-
-def answer(argv, **kwargs):
-    if argv[0] == "git":
-        return subprocess.run(argv, **kwargs)
-    return subprocess.CompletedProcess(argv, 0, "1.0.0\n", "")
-
-
-def which_all(name: str) -> str | None:
-    return f"/usr/bin/{name}"
+from tests.runtimes.selectable import SelectableRuntime, amend_finding, select, spelling_report
 
 
 def test_an_unrefused_spelling_fails_naming_the_class_and_the_spelling(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    workspace: Path,  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     select(monkeypatch, SelectableRuntime("loose", reports=(spelling_report(),)))
-    planning = init_repo(tmp_path / "planning")
-    (planning / "abk.yaml").write_text(
-        "repos: {}\n"
-        + "runtime: loose\nruntimes:\n  loose:\n"
-        + "    policy_fix: [scripts/constrain-agent.sh, --strict]\n"
-    )
+    select_runtime(workspace, "loose", "    policy_fix: [scripts/constrain-agent.sh, --strict]\n")
 
-    checks = run_doctor(planning / "abk.yaml", run=answer, which=which_all)
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
 
-    policy = next(check for check in checks if check.name == "runtime policy")
+    policy = checks["runtime policy"]
     assert policy.status == "FAIL"
-    assert AMEND in policy.detail
-    assert AMEND_UNREFUSED in policy.detail
-    # The class's other spellings are grouped with it, as refused.
-    for refused in AMEND_REFUSED:
-        assert refused in policy.detail
+    # Only the class with a spelling let through is listed; the others are not.
+    assert policy.detail == f"not refused: {amend_finding()}"
+    assert "merging a pull request" not in policy.detail
     assert "scripts/constrain-agent.sh --strict" in policy.fix
+
+
+def test_every_spelling_refused_passes(
+    workspace: Path,  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    select(monkeypatch, SelectableRuntime("tight", reports=(spelling_report(refused=True),)))
+    select_runtime(workspace, "tight")
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    assert checks["runtime policy"].status == "ok"

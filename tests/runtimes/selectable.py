@@ -15,6 +15,7 @@ import pytest
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import ModelsConfig
+from agent_build_kit.pipeline.command_spellings import SpellingName, probe_rows
 from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime, PolicyReport
 from agent_build_kit.runtimes.base import PolicyCoverage, SpellingResult
 
@@ -71,16 +72,36 @@ def select(monkeypatch: pytest.MonkeyPatch, runtime: SelectableRuntime) -> Selec
 _: AgentRuntime = SelectableRuntime("typed")
 
 AMEND = "amending a commit"
-AMEND_UNREFUSED = "git -C . commit --amend --no-edit"
-AMEND_REFUSED = ("git commit --amend --no-edit", "git --no-pager commit --amend --no-edit")
+OPEN_SPELLING = SpellingName.DIRECTORY
 
 
-def spelling_report() -> PolicyReport:
-    """A report that leaves one spelling of one class unrefused: the amend is
-    refused plain and behind `--no-pager`, and runs through `-C .`."""
-    results = (
-        SpellingResult(label=AMEND, spelling="plain", command=AMEND_REFUSED[0], refused=True),
-        SpellingResult(label=AMEND, spelling="directory", command=AMEND_UNREFUSED, refused=False),
-        SpellingResult(label=AMEND, spelling="no-pager", command=AMEND_REFUSED[1], refused=True),
+def spelling_report(*, refused: bool = False) -> PolicyReport:
+    """What the probe reports for the whole table: a result per probe row, in
+    table order. Every row is refused but the amend's `-C` spelling, which is
+    run without asking unless `refused`."""
+    results = tuple(
+        SpellingResult(
+            label=label,
+            spelling=spelling.name.value,
+            command=spelling.command,
+            refused=refused or not (label == AMEND and spelling.name == OPEN_SPELLING),
+        )
+        for label, spelling in probe_rows()
     )
-    return PolicyReport(ok=False, unenforced=(f"{AMEND} (as {AMEND_UNREFUSED})",), results=results)
+    unenforced = tuple(
+        result.label
+        if result.spelling == SpellingName.PLAIN
+        else f"{result.label} (as {result.command})"
+        for result in results
+        if not result.refused
+    )
+    return PolicyReport(ok=not unenforced, unenforced=unenforced, results=results)
+
+
+def amend_finding() -> str:
+    """The rendering of `spelling_report()` that `describe` owes: the amend
+    class alone, its open spelling first and the others after, in table order."""
+    rows = [(s.name, s.command) for label, s in probe_rows() if label == AMEND]
+    open_ = [f"`{c}`" for n, c in rows if n == OPEN_SPELLING]
+    shut = [f"`{c}`" for n, c in rows if n != OPEN_SPELLING]
+    return f"{AMEND}: not refused as {', '.join(open_)}; refused as {', '.join(shut)}"
