@@ -144,6 +144,7 @@ def test_a_window_above_the_stale_age_does_not_use_a_block_older_than_it(host: H
     assert host.asked == 1
     assert "claude.json" not in decision.reason
 
+    old_guard_reading(host)  # the call above kept a new reading, fresher than this block
     host.keep_editor_reading(50 * MINUTE)
     asked = host.asked
     assert decide_start().reason.endswith("(claude.json, 50m old)")

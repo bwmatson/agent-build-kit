@@ -78,6 +78,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
         usage_unit_allowance_pct: 2
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
+      usage_claude_cache_minutes: 15   # freshness of Claude Code's own usage block that decides
+                                       # with no call; unset follows usage_cache_minutes, 0 is off
       usage_cache_max_minutes: 30      # the most refusals can stretch that to
       usage_fallback_minutes: 30       # age of the last good reading that covers a failed call
       usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make

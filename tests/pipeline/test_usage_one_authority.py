@@ -149,7 +149,7 @@ def test_the_held_reading_is_not_the_cache_files_past_the_reset_of_its_window(ho
 
     reading = held_usage()
     assert reading is not None
-    assert (reading.source, reading.session_pct) == ("claude.json", 20)
+    assert (reading.source, reading.session_pct) == ("claude.json, 5m old", 20)
 
 
 # --- a running step is not judged by the threshold ---------------------------------------

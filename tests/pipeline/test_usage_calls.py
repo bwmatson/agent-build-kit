@@ -314,7 +314,10 @@ def test_nothing_recorded_reads_as_no_calls() -> None:
 
 # --- the status line and the metric ----------------------------------------------
 
-STATUS_LINE = "usage calls: 5 in the last hour, 1 refused, 20% from the cache, safe interval 600s"
+STATUS_LINE = (
+    "usage calls: 5 in the last hour, 1 refused, 20% from the cache, "
+    "0% from claude.json, safe interval 600s"
+)
 
 
 def hour_of_calls(now: datetime) -> list[dict]:
@@ -332,7 +335,8 @@ def test_the_status_line_gives_the_hour_the_refusals_the_cache_share_and_the_int
 
     assert rate_line(rate) == STATUS_LINE
     assert rate_line(derive_rate([], now=NOW)) == (
-        "usage calls: 0 in the last hour, 0 refused, 0% from the cache, safe interval none"
+        "usage calls: 0 in the last hour, 0 refused, 0% from the cache, "
+        "0% from claude.json, safe interval none"
     )
 
 

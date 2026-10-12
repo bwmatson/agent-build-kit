@@ -75,9 +75,11 @@ from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_calls import (
     CACHE,
     CALLS_NAME,
+    CLAUDE_JSON,
     CacheInterval,
     UsageCall,
     cache_interval,
+    is_endpoint_call,
     most_added,
     rate_limit_headers,
     read_calls,
@@ -812,17 +814,46 @@ def current_usage() -> UsageReading | None:
     return _noted(read_live_usage() or _unspent(read_cached_usage()))
 
 
+def _fresh_claude_block(held: UsageReading | None, calls_file: Path) -> UsageReading | None:
+    """The block in Claude Code's own cache, labelled with its age, when it is fresh enough to
+    decide from: younger than `usage_claude_cache_minutes` (at most `MAX_ANCHOR_AGE`), no window
+    reset, and fresher than the reading `held` while that is itself fresh (a tie is the guard's)."""
+    window = min(timedelta(minutes=_limits().usage_claude_cache_minutes), MAX_ANCHOR_AGE)
+    block = _unspent(read_cached_usage())
+    if block is None or block.age >= window:
+        return None
+    now = datetime.now(UTC)
+    if (
+        held is not None
+        and not _past_reset(held, now)
+        and now - held.observed_at < current_cache_interval(calls_file).kept
+        and block.observed_at <= held.observed_at
+    ):
+        return None
+    minutes = int(block.age.total_seconds() // 60)
+    return block.model_copy(update={"source": f"{block.source}, {minutes}m old"})
+
+
+def _labelled(decision: Decision, reading: UsageReading) -> Decision:
+    """The reason with the source, and for a block its age, in a parenthesis of its own."""
+    ending = f", {reading.source})"
+    if not decision.reason.endswith(ending):
+        return decision
+    reason = f"{decision.reason.removesuffix(ending)}) ({reading.source})"
+    return decision.model_copy(update={"reason": reason})
+
+
 def held_usage() -> UsageReading | None:
     """The reading held now, from the cache file or Claude Code's own: no call is made."""
-    return _noted(
-        _unspent(_kept_reading(_load_cache(_cache_file()))) or _unspent(read_cached_usage())
-    )
+    kept = _unspent(_kept_reading(_load_cache(_cache_file())))
+    block = _fresh_claude_block(kept, _cache_file().parent / CALLS_NAME)
+    return _noted(block or kept or _unspent(read_cached_usage()))
 
 
 def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:
     """When the endpoint may next be asked, or None when it may be asked now: no sooner than
     the cache interval after the last call."""
-    asked = [c.at for c in read_calls(calls_file) if c.outcome != CACHE]
+    asked = [c.at for c in read_calls(calls_file) if is_endpoint_call(c)]
     if not asked:
         return None
     allowed = max(asked) + current_cache_interval(calls_file).kept
@@ -831,7 +862,11 @@ def next_call_at(calls_file: Path, *, now: datetime) -> datetime | None:
 
 def refreshed_usage() -> UsageReading | None:
     """A fresh reading when the interval allows a call, else the one held."""
-    if next_call_at(_cache_file().parent / CALLS_NAME, now=datetime.now(UTC)) is None:
+    calls_file = _cache_file().parent / CALLS_NAME
+    kept = _unspent(_kept_reading(_load_cache(_cache_file())))
+    if (block := _fresh_claude_block(kept, calls_file)) is not None:
+        return _noted(block)
+    if next_call_at(calls_file, now=datetime.now(UTC)) is None:
         return current_usage()
     return held_usage()
 
@@ -1251,6 +1286,19 @@ def decide_start(
     cache_path = _cache_file()
     calls_file = cache_path.parent / CALLS_NAME
     held = _kept_reading(_load_cache(cache_path))
+    if (block := _fresh_claude_block(held, calls_file)) is not None:
+        # A reading of Claude Code's own: it settles the decision without a call, even inside the
+        # minimum interval, and is written nowhere.
+        record_call(
+            calls_file,
+            UsageCall(
+                at=now,
+                caller=_caller.get(),
+                outcome=CLAUDE_JSON,
+                age_seconds=int(block.age.total_seconds()),
+            ),
+        )
+        return _labelled(carrying(judge(block, trust_age=True), block), block)
     if held is not None and not _past_reset(held, now):
         decision = carrying(judge(held, trust_age=True), held)
         if not decision.may_start or _headroom_holds(held, calls_file, now):
