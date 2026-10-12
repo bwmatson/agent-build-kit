@@ -824,7 +824,9 @@ def test_a_started_unit_that_carries_a_group_is_shown_to_the_planner_as_building
 
     run.plan()
 
-    lines = [line for line in run.runtime.request.prompt.splitlines() if "base/1" in line]
+    lines = [
+        line for line in run.runtime.request.prompt.splitlines() if line.startswith("- base/1")
+    ]
     assert lines, "the unit in review is not in the prompt"
     assert all("feature group(s) 1" in line for line in lines)
     assert not any("unstarted" in line for line in lines)

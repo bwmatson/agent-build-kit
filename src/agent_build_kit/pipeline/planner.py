@@ -31,7 +31,7 @@ from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_size import Calibration, Kind, applied, calibrated
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
-from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
+from agent_build_kit.pipeline.work_graph import GROUP_NUMBER, TIERS, TaskGroup, known_repos
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 
@@ -41,7 +41,12 @@ JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 
 class PlannerError(Exception):
-    """The proposed graph can't be trusted, so the round stops here."""
+    """The proposed graph can't be trusted, so the round stops here.
+
+    `units` holds the ids the planner returned when the refusal came after reading them.
+    """
+
+    units: tuple[str, ...] = ()
 
 
 class GroupTooLarge(PlannerError):
@@ -107,66 +112,70 @@ def parse_plan(
     units: list[Unit] = []
     seen: set[str] = set()
 
-    for index, raw in enumerate(raw_units):
-        if not isinstance(raw, dict):
-            raise PlannerError(f"unit {index} is not an object")
+    # Whatever refuses the reply, the ids read so far are kept on the error as evidence.
+    try:
+        for index, raw in enumerate(raw_units):
+            if not isinstance(raw, dict):
+                raise PlannerError(f"unit {index} is not an object")
 
-        missing = {"id", "change", "title", "repo", "tier"} - raw.keys()
-        if missing:
-            raise PlannerError(f"unit {index} is missing {', '.join(sorted(missing))}")
+            missing = {"id", "change", "title", "repo", "tier"} - raw.keys()
+            if missing:
+                raise PlannerError(f"unit {index} is missing {', '.join(sorted(missing))}")
 
-        repos = known_repos()
-        if repos and raw["repo"] not in repos:
-            raise PlannerError(
-                f"unit {raw['id']} has unknown repo {raw['repo']!r} "
-                f"(expected one of {', '.join(repos)})"
-            )
-        if raw["tier"] not in TIERS:
-            raise PlannerError(
-                f"unit {raw['id']} has unknown tier {raw['tier']!r} "
-                f"(expected one of {', '.join(TIERS)})"
-            )
-        if raw["id"] in seen:
-            raise PlannerError(f"duplicate unit id {raw['id']!r}")
-        seen.add(raw["id"])
+            repos = known_repos()
+            if repos and raw["repo"] not in repos:
+                raise PlannerError(
+                    f"unit {raw['id']} has unknown repo {raw['repo']!r} "
+                    f"(expected one of {', '.join(repos)})"
+                )
+            if raw["tier"] not in TIERS:
+                raise PlannerError(
+                    f"unit {raw['id']} has unknown tier {raw['tier']!r} "
+                    f"(expected one of {', '.join(TIERS)})"
+                )
+            if raw["id"] in seen:
+                raise PlannerError(f"duplicate unit id {raw['id']!r}")
+            seen.add(raw["id"])
 
-        units.append(
-            Unit(
-                id=raw["id"],
-                change=raw["change"],
-                title=raw["title"],
-                repo=raw["repo"],
-                tier=raw["tier"],
-                depends_on=tuple(raw.get("depends_on") or ()),
-                estimated_lines=int(raw.get("estimated_lines") or 0),
-                groups=tuple(raw.get("groups") or ()),
+            units.append(
+                Unit(
+                    id=raw["id"],
+                    change=raw["change"],
+                    title=raw["title"],
+                    repo=raw["repo"],
+                    tier=raw["tier"],
+                    depends_on=tuple(raw.get("depends_on") or ()),
+                    estimated_lines=int(raw.get("estimated_lines") or 0),
+                    groups=tuple(raw.get("groups") or ()),
+                )
             )
-        )
-
-    joins = _read_joins(payload.get("joins"))
-    _check_dependencies(units, known or set())
-    if groups is not None:
-        carried = {number for join in joins if not join.unit for number in join.groups}
-        _check_groups(units, groups, built or set(), carried)
-        _check_acceptance(units, groups)
-        _check_independent(units, groups)
-    _check_ceiling(units, groups, calibrations)
-    if joins:
-        if context is None:
-            raise PlannerError("the planner proposed a join, and none is expected here")
-        try:
-            check_joins(
-                joins,
-                context=context,
-                plan=units,
-                change=change,
-                groups=groups or [],
-                built=built or set(),
-                ceiling=active().limits.max_unit_lines,
-                calibrations=calibrations,
-            )
-        except JoinRefused as error:
-            raise PlannerError(str(error)) from error
+        joins = _read_joins(payload.get("joins"))
+        _check_dependencies(units, known or set())
+        if groups is not None:
+            carried = {number for join in joins if not join.unit for number in join.groups}
+            _check_groups(units, groups, built or set(), carried)
+            _check_acceptance(units, groups)
+            _check_independent(units, groups)
+        _check_ceiling(units, groups, calibrations)
+        if joins:
+            if context is None:
+                raise PlannerError("the planner proposed a join, and none is expected here")
+            try:
+                check_joins(
+                    joins,
+                    context=context,
+                    plan=units,
+                    change=change,
+                    groups=groups or [],
+                    built=built or set(),
+                    ceiling=active().limits.max_unit_lines,
+                    calibrations=calibrations,
+                )
+            except JoinRefused as error:
+                raise PlannerError(str(error)) from error
+    except PlannerError as error:
+        error.units = tuple(u.id for u in units)
+        raise
     return Plan(units=tuple(units), joins=tuple(joins))
 
 
@@ -448,7 +457,9 @@ Rules the graph must satisfy:
   tag. Putting one repo's group in another repo's unit is the most common
   mistake here and is rejected outright.
 - Every group in the change must be claimed by exactly one unit: none left
-  out, none in two units.
+  out, none in two units. The exception is a group whose heading is marked
+  `(built by <unit id>)`: it is taken, so never claim it and return no unit
+  for it. Dependencies on the unit that builds it stay valid.
 - Group consecutive task groups **in the same repo** together until the
   estimate reaches about {min_lines} changed lines, so a chain of small groups
   doesn't become a stack of trivial PRs. Groups in different repos are never
@@ -538,6 +549,7 @@ def in_flight_item(unit: StoredUnit) -> dict:
         "tier": unit.tier,
         "estimated_lines": unit.estimated_lines,
         "depends_on": list(unit.depends_on),
+        "taken": [[member.change, list(member.groups)] for member in unit.members()],
         "builds": "; ".join(
             f"{member.change} group(s) {', '.join(str(n) for n in member.groups)}"
             for member in unit.members()
@@ -581,13 +593,35 @@ def _calibration_section(found: Mapping[Kind, Calibration] | None) -> str:
     )
 
 
+def _mark_built(change: str, tasks: str, in_flight: list[dict]) -> str:
+    """`tasks` with `(built by <unit id>)` on the heading of each group a started unit builds."""
+    built = {
+        number: item["id"]
+        for item in in_flight
+        if not item.get("unstarted")
+        for name, numbers in item.get("taken", ())
+        if name == change
+        for number in numbers
+    }
+
+    def mark(line: str) -> str:
+        found = GROUP_NUMBER.match(line)
+        unit_id = built.get(int(found["number"])) if found else None
+        return f"{line} (built by {unit_id})" if unit_id else line
+
+    return "\n".join(mark(line) for line in tasks.split("\n"))
+
+
 def build_prompt(
     changes: dict[str, str],
     in_flight: list[dict],
     calibrations: Mapping[Kind, Calibration] | None = None,
 ) -> str:
     changes_text = (
-        "\n\n".join(f"### {name}\n{tasks}" for name, tasks in changes.items()) or "(none)"
+        "\n\n".join(
+            f"### {name}\n{_mark_built(name, tasks, in_flight)}" for name, tasks in changes.items()
+        )
+        or "(none)"
     )
     in_flight_text = "\n".join(_in_flight_line(item) for item in in_flight) or "(none)"
 

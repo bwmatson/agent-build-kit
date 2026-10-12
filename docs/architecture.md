@@ -116,7 +116,11 @@ change — and again only when the change's specification changes (its
 `runs/planned.json`) — the planner (`pipeline/planner.py`) sends the change,
 the units already in flight and `abk.yaml`'s `relationships`/`consumes` prose
 to a model and gets the whole graph back as JSON: id (`<change>/<n>`), repo,
-tier, `depends_on`, `estimated_lines`, `groups`.
+tier, `depends_on`, `estimated_lines`, `groups`. The change text it is sent marks the
+heading of each group a started unit builds `(built by <unit id>)`, and the prompt says
+such groups are taken and never claimed; a plan that claims one is still refused. A
+refused plan keeps the unit ids returned and the reason in the plan record, which a bare
+`abk replan` shows.
 
 A model is used because the parts that matter are judgements — which groups
 touch the same files, what depends on what across changes, how many small

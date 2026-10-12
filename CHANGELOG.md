@@ -6,6 +6,11 @@
   intended, instead of failing with a `TypeError` on the worktree request. The wrapper
   that holds the repository's turn dropped the option that allows a dirty worktree.
 
+- The planner is now told which groups a started unit already builds: the change text
+  marks each such heading `(built by <unit id>)` and the prompt says never to claim them.
+  When a plan is refused, the plan record keeps the unit ids the planner returned and the
+  reason, and a bare `abk replan` shows the reason beside the plan state.
+
 - The command rules now judge a command as its tool would run it: git's global options
   (`-C`, `-c`, `--no-pager`, `--git-dir`, `--work-tree`, in both the `=` and two-word forms)
   and the host CLI's repository option no longer hide an amend, a push to the default branch,

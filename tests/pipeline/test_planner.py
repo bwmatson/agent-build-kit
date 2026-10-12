@@ -278,8 +278,10 @@ def test_a_built_group_cannot_be_silently_rebuilt() -> None:
     on a branch based on a main that already contains it."""
     output = graph_json([planned(id="c/2", repo="platform", groups=[1])])
 
-    with pytest.raises(PlannerError, match="already"):
+    with pytest.raises(PlannerError, match="already") as refused:
         parse_graph(output, groups=GROUPS, built={1})
+
+    assert refused.value.units == ("c/2",)
 
 
 def test_a_dependency_on_an_in_flight_unit_is_not_unknown() -> None:
