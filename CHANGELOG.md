@@ -8,15 +8,13 @@
   `Needs:` line that would close one is refused and logged, and `abk replan` exits
   non-zero naming it. A replan also clears such a stale planner edge from a unit that
   has not started, and never touches the dependencies of one that has.
-- The tier 2 result now records how long each test took, so a slow test can be told
-  from a hung one. The command asks for every duration, and the posted result opens
+
 - The tier 2 result now records how long each phase of each test took (a second or
   more), so a slow test can be told from a hung one. The command asks for the
   durations, the kept output leaves pytest's durations section out so it cannot push
-  the failures from it, and the posted result opens
-  with the three slowest entries and lists the slowest `limits.tier2_durations_shown`
-  (15 by default, 0 for all) above the output, so a small description never cuts the
-  listing. Each entry also becomes a `test_time` ledger row and feeds the
+  the failures from it, and the posted result opens with the three slowest entries and
+  lists the slowest `limits.tier2_durations_shown` (15 by default, 0 for all) above the
+  output, so a small description never cuts the listing. Each entry also becomes a `test_time` ledger row and feeds the
   `abk.tier2.test.duration` and `abk.tier2.test.time` histograms, whose attributes are
   never a unit, change or test name.
 
