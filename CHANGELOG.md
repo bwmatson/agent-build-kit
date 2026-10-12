@@ -32,6 +32,11 @@
   (pull request titles and descriptions, comments, replies, statuses) and the prompt a rework
   agent is given are redacted the same way. `abk doctor` warns, by name, about a `verify.env` or
   `redact` variable whose value is under 8 characters and a `redact` name that is not set.
+  History already saved is not rewritten by the pipeline: the temporary `abk redact-history`
+  reports (dry run) or, with `--apply`, replaces known values in the unit store, run logs,
+  transcripts and ledger, keeping a `.pre-redact` copy of each changed file. It is removed
+  once installations have run it. A secret already sent to a provider cannot be recalled;
+  whether to rotate it is the operator's decision.
 
 - Editing the text of a change's groups once every group belongs to a started unit no longer asks
   the planner: the edit is recorded and a requeued unit reads it from `tasks.md`. A changed repo,

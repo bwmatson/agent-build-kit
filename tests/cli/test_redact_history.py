@@ -4,6 +4,7 @@ boundaries existed (spec: secrets-never-reach-stored-or-posted-output)."""
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ import pytest
 from agent_build_kit import forges
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
+from agent_build_kit.forges import github
+from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.run_log import run_log_dir
 from agent_build_kit.pipeline.transcript import transcript_dir
@@ -18,6 +21,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.conftest import make_installation
 from tests.factories import new_unit
+from tests.forges.mock_host import MockHost, ok
 from tests.ledger_lines import agent_line
 from tests.redaction_fakes import known
 
@@ -40,12 +44,14 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 
 
 @pytest.fixture
-def no_code_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise AssertionError("redact-history reached for a code host")
-
-    monkeypatch.setattr(forges, "get", refuse)
-    monkeypatch.setattr(Installation, "forge_of", refuse)
+def no_code_host() -> Iterator[MockHost]:
+    """A code host that records every request; the command must send none."""
+    host = MockHost(ok({"message": "Not Found"}, 404))
+    forges.names()  # load the built-ins before one is replaced
+    forges.register(GitHubForge(http=host))
+    yield host
+    assert host.requests == []
+    forges.register(github.FORGE)
 
 
 def saved_history(inst: Installation) -> dict[str, Path]:
@@ -81,7 +87,7 @@ def shown_by(capsys: pytest.CaptureFixture[str]) -> str:
 
 
 def test_a_dry_run_reports_files_and_names_and_writes_nothing(
-    inst: Installation, no_code_host: None, capsys: pytest.CaptureFixture[str]
+    inst: Installation, no_code_host: MockHost, capsys: pytest.CaptureFixture[str]
 ) -> None:
     files = saved_history(inst)
     before = {name: path.read_text() for name, path in files.items()}
@@ -98,7 +104,7 @@ def test_a_dry_run_reports_files_and_names_and_writes_nothing(
 
 
 def test_apply_replaces_the_value_in_every_saved_file_and_keeps_a_copy(
-    inst: Installation, no_code_host: None, capsys: pytest.CaptureFixture[str]
+    inst: Installation, no_code_host: MockHost, capsys: pytest.CaptureFixture[str]
 ) -> None:
     files = saved_history(inst)
     before = {name: path.read_text() for name, path in files.items()}
@@ -116,7 +122,7 @@ def test_apply_replaces_the_value_in_every_saved_file_and_keeps_a_copy(
 
 
 def test_a_second_run_finds_nothing_and_adds_no_copies(
-    inst: Installation, no_code_host: None, capsys: pytest.CaptureFixture[str]
+    inst: Installation, no_code_host: MockHost, capsys: pytest.CaptureFixture[str]
 ) -> None:
     files = saved_history(inst)
     assert run(inst, "--apply") == 0

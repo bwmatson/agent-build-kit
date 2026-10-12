@@ -1094,6 +1094,22 @@ Unit ids and change names are on spans only, never on a metric. Tokens are recor
 runtime's output carries them: Claude Code's result event, and the `usage` of an `acp` agent's
 prompt response when it sends one.
 
+## Secrets never leave as text
+
+The set of known secret values (`verify.env`, the credential settings, the `redact` list,
+each gateway key minted) is gathered when an installation is activated and held in memory
+only. Text is redacted at the last step before it is stored or sent, not in each caller:
+the unit store's `set_feedback`, the run log, the transcript (before a tool result is
+cut), printed output (so the journal is redacted too), the usage ledger's strings, tier-1
+and tier-2 output (before the 4000-character cut), the forge's write methods, and the
+rework prompt as it is assembled. A value is replaced by `[redacted:<NAME>]`; one under
+8 characters is not. If redaction raises, the text is replaced by `[redaction failed: text
+withheld]` and one line logs the failure's type and place, never the text. The token
+shapes (`sk-`, `ghp_`, `github_pat_`, `Bearer`) are heuristics for a secret nobody
+configured: they miss a key with no recognisable prefix and can match a harmless string.
+A secret split across two transcript events is not found. Text already saved is not
+rewritten by the pipeline; the temporary `abk redact-history` does it.
+
 ## State on disk
 
 The planning repo's state directory (`planning.state_dir`, default `runs/`):

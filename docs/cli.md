@@ -186,6 +186,17 @@ output before applying it.
 the state directory first, rewrites the ledger atomically, and does nothing (no copy either)
 when no row or summary needs changing, so a second run is a no-op. Exit 0.
 
+### `abk redact-history [--apply]`
+
+**Temporary: removed once every installation with stored history has run it and a second
+dry run finds nothing.** Redacts what was saved before known secret values were redacted on
+the way in: `units.json`, the run logs, the transcripts and the usage ledger in the state
+directory. It builds the same set of known values the pipeline does. A dry run (the default)
+prints, per file, the names found, never a value, and writes nothing. `--apply` replaces
+the values and keeps the original beside each changed file as `<file>.pre-redact`, for the
+operator to delete. A second run reports nothing. It calls no code host: pull request
+descriptions and comments already posted are the operator's to edit by hand. Exit 0.
+
 ### `abk serve [--port PORT]`
 
 Serves the pipeline's state over HTTP on the loopback address only (`127.0.0.1`, port
