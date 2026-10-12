@@ -73,7 +73,15 @@ def test_init_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     git(app, "commit", "-q", "-m", "code")
     planning = recognised_planning(tmp_path / "planning")
 
-    code = main(["init", str(planning), "--repo", str(app), "--yes"])
+    # The runtime is named and `claude` pretended to be on the path, so the run does not
+    # depend on which agents this machine has.
+    monkeypatch.setattr(init_cmd, "which", lambda program: f"/fake/{program}")
+    code = main(
+        [
+            *("init", str(planning), "--repo", str(app), "--yes"),
+            *("--runtime", "claude_code", "--agent-command", "claude"),
+        ]
+    )
 
     assert code == 0
     assert load(planning / "abk.yaml").repos["app"].slug == "example/app"
