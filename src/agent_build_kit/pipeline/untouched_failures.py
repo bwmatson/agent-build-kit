@@ -7,6 +7,7 @@ change exists or would be written.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import datetime
 
@@ -14,7 +15,8 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import next_fix_name, open_fix_change
+from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
+from agent_build_kit.pipeline.tier2 import Tier2Verdict
 from agent_build_kit.pipeline.unit_store import StoredUnit
 
 PREFIX = "fix-failing"
@@ -83,6 +85,47 @@ def ensure_fix(
         _write_change(inst, found, entry, unit)
         say(f"wrote: {found.name}")
         return found.name
+
+
+def waiting_note(tests: list[str]) -> str:
+    """What a unit parked for these failing tests is waiting for, in a person's words."""
+    return f"waiting for the fix of the failing test {', '.join(tests)} on the base"
+
+
+def feedback_snapshot(snapshot: str, verdict: Tier2Verdict | None) -> str:
+    """The snapshot of a failed run as the agent is given it: without the lines and the
+    output of tests that fail on the base too, which are named once as recorded. Output is
+    one cut tail for every test, so the whole block is dropped whenever a pre-existing test
+    failed, the unit's own tests' output with it; their failure lines stay."""
+    if verdict is None or not verdict.pre_existing:
+        return snapshot
+    old = [failure.test for failure in verdict.pre_existing]
+    lines = [
+        line
+        for line in snapshot.splitlines()
+        if not any(line.startswith(f"  - `{test}` -") for test in old)
+    ]
+    text = re.sub(r"<details>.*?</details>\n?", "", "\n".join(lines), flags=re.DOTALL)
+    return f"{text.rstrip()}\n\nalso failing on the base, recorded: {', '.join(old)}\n"
+
+
+def wait_on_preexisting(
+    inst: Installation,
+    entry: PreExisting,
+    unit: StoredUnit,
+    *,
+    wait: bool,
+    say: Callable[[str], None],
+) -> str | None:
+    """Make sure one open change fixes `entry.test` and, when `wait`, give each group of
+    `unit` a `Needs:` line on it. Returns the change, or None for a unit of that change
+    itself, which waits on nothing."""
+    fix = ensure_fix(inst, entry, unit, say=say)
+    if unit.change == fix:
+        return None
+    if wait:
+        add_needs_to_unit(inst, unit, fix, f"failing test {entry.test} on the base")
+    return fix
 
 
 def _write_change(inst: Installation, found: Write, entry: PreExisting, unit: StoredUnit) -> None:

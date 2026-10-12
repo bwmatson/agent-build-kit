@@ -65,6 +65,9 @@ class Tier2Verdict(Frozen):
     own: list[TestFailure] = Field(default_factory=list)
     broken: list[TestFailure] = Field(default_factory=list)
     pre_existing: list[TestFailure] = Field(default_factory=list)
+    # The command the base run made and the tail of its output, kept for the record.
+    command: str = ""
+    base_output: str = ""
 
 
 class Tier2Result(Frozen):

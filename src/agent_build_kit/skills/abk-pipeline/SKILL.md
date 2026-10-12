@@ -177,7 +177,10 @@ A test that fails tier 2 on the base as well is pre-existing: it is recorded in
 model (a successor only once the earlier one is merged and archived). `abk status` lists
 each as `pre-existing:` with its count and fix change. The fix changes of both kinds are
 written at `Priority: 1`. `abk tick --dry-run` prints `exists: <change>` or
-`would write: <change>` for each recorded one and writes nothing.
+`would write: <change>` for each recorded one and writes nothing. A unit whose tier 2
+failures are all pre-existing is parked `gated` on those fix changes (a `Needs:` line on each
+group) and runs tier 2 again, restacked, once they merge; a unit with a failure of its own
+fails as before and is shown only its own failures.
 
 ### What an agent may run on the code host
 

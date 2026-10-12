@@ -18,7 +18,11 @@
   with its count and fix change, gets one `fix-failing-…` change per test id written
   without a model, previewed as `exists:` or `would write:` (`abk tick --dry-run` prints
   the same lines and writes nothing), and the change that fixes a flaky test is now
-  written at priority 1 too.
+  written at priority 1 too. A unit whose every tier 2 failure is pre-existing no longer
+  fails: it waits, gated, on the fix changes and runs tier 2 again once they merge (the
+  fix change's own unit does not wait). A unit with a failure of its own still fails, and
+  the feedback it is given holds only its own failures, with the pre-existing tests named
+  once as recorded.
 
 - The full output of each tier 2 run is now kept in a redacted file under the state
   directory's `tier2-output/`, named for the unit and the time. The tier 2 result, the

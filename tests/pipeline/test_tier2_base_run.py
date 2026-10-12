@@ -17,6 +17,7 @@ from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.tier2 import TestFailure
 from agent_build_kit.profiles.python_uv import PROFILE, PythonUvProfile
 from tests.factories import git
+from tests.redaction_fakes import NAME, SECRET, known
 from tests.tier2_base_fakes import TEST_BODY, Runs, branch, pytest_output, session
 
 OWN = "tests/live/test_own.py::test_route"
@@ -209,3 +210,25 @@ def test_the_stack_lock_is_taken_once_for_the_unit_run_and_the_base_run(
     gate.run(cwd=repo, base=base_sha)
 
     assert events == ["take", "unit", "base", "release"]
+
+
+def test_the_verdict_keeps_the_base_command_and_the_base_runs_output(tmp_path: Path) -> None:
+    base = pytest_output(failed={ONE: REASON})
+
+    gate, runs = judged(tmp_path, pytest_output(failed={ONE: REASON}), base)
+
+    assert gate.verdict is not None
+    assert gate.verdict.command == " ".join(PROFILE.serial_rerun_command(runs.on_unit[0], [ONE]))
+    assert gate.verdict.base_output == base
+
+
+def test_the_base_output_is_redacted_and_kept_to_its_last_4000_characters(tmp_path: Path) -> None:
+    base = "x" * 5000 + f"\ntoken={SECRET}\n" + pytest_output(failed={ONE: REASON})
+
+    with known():
+        gate, _ = judged(tmp_path, pytest_output(failed={ONE: REASON}), base)
+
+    assert gate.verdict is not None
+    assert f"[redacted:{NAME}]" in gate.verdict.base_output
+    assert SECRET not in gate.verdict.base_output
+    assert len(gate.verdict.base_output) <= 4000 + len(f"[redacted:{NAME}]")
