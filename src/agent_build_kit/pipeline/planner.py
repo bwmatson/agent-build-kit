@@ -154,8 +154,7 @@ def parse_plan(
         if groups is not None:
             carried = {number for join in joins if not join.unit for number in join.groups}
             _check_groups(units, groups, built or set(), carried)
-            _check_acceptance(units, groups)
-            _check_independent(units, groups)
+            check_flagged_groups(units, groups)
         _check_ceiling(units, groups, calibrations)
         if joins:
             if context is None:
@@ -327,6 +326,12 @@ def _check_groups(
             f"no unit builds group(s) {', '.join(str(n) for n in unbuilt)} — "
             "that work would be dropped from the change while its spec is archived as done"
         )
+
+
+def check_flagged_groups(units: list[Unit], groups: list[TaskGroup]) -> None:
+    """The acceptance and independence checks of a plan, for a caller that changed its edges."""
+    _check_acceptance(units, groups)
+    _check_independent(units, groups)
 
 
 def _check_acceptance(units: list[Unit], groups: list[TaskGroup]) -> None:
