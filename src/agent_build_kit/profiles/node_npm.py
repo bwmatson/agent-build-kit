@@ -88,7 +88,7 @@ class NodeNpmProfile:
         return self._todo("parse_test_summary")
 
     def parse_test_failures(self, output: str) -> list[TestFailure]:
-        raise NotImplementedError
+        return []
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")

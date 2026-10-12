@@ -28,11 +28,11 @@ def test_the_listing_and_the_result_hold_the_replacement(tmp_path: Path) -> None
     result, snapshot = _run(tmp_path / "run")
 
     (failure,) = result.failures
-    assert REPLACED in failure.line
+    assert REPLACED[:5] in failure.line, "the cut falls inside the replacement"
     for text in (failure.line, snapshot, result.model_dump_json()):
         assert SECRET[:8] not in text
         assert SECRET[-8:] not in text
-    assert REPLACED in snapshot.split("<details>")[0]
+    assert REPLACED[:5] in snapshot.split("<details>")[0]
 
 
 def test_the_saved_feedback_holds_the_replacement(tmp_path: Path) -> None:

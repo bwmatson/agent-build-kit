@@ -83,6 +83,7 @@ from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
+    TestFailure,
     Tier2Result,
     build_snapshot,
     stack_lock,
@@ -1723,7 +1724,8 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
-        outputs: list[tuple[str, str, int | None]] = []  # header, text, how much of it to keep
+        # header, text, how much of it to keep, the toolchain that read it, its project
+        outputs: list[tuple[str, str, int | None, ToolchainProfile, str]] = []
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -1731,7 +1733,8 @@ class Tier2Session:
             for where, toolchain, commands in entries:
                 # A project's output is labelled with it; a repo with no
                 # projects has nothing to say about where.
-                label = f" (in {where.relative_to(cwd)})" if where != cwd else ""
+                project = str(where.relative_to(cwd)) if where != cwd else ""
+                label = f" (in {project})" if project else ""
                 for command in commands:
                     completed = self._run(command, cwd=where, **self._test_env)
                     out = f"{completed.stdout or ''}{completed.stderr or ''}"
@@ -1750,17 +1753,24 @@ class Tier2Session:
                     )
                     header = f"$ {' '.join(command)}{label}"
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, out, None))
+                        outputs.append((header, out, None, toolchain, project))
                     elif p:
-                        outputs.append((header, out, 1500))
+                        outputs.append((header, out, 1500, toolchain, project))
 
         # Every command's text in one pass, before any cut, so a cut cannot leave half a
         # value and a failing redaction is logged once.
-        redacted = redact_leaves([out for _, out, _ in outputs], where="tier-2 output")
+        redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
         output = "\n\n".join(
             f"{header}\n{text if keep is None else text[-keep:]}"
-            for (header, _, keep), text in zip(outputs, redacted, strict=True)
+            for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
         )
+        # Read from the redacted text, so a line is redacted before it is shortened.
+        failures = [
+            TestFailure(test=f"{project}/{found.test}" if project else found.test, line=found.line)
+            for (_, _, keep, toolchain, project), text in zip(outputs, redacted, strict=True)
+            if keep is None
+            for found in toolchain.parse_test_failures(text)
+        ]
         command = " && ".join(
             " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
             for where, _, commands in entries
@@ -1776,6 +1786,7 @@ class Tier2Session:
             command=command,
             output=output[-4000:],
             stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
+            failures=failures,
         )
         return self.result.ok, build_snapshot(self.result)
 
@@ -1814,6 +1825,7 @@ class Tier2Session:
         output = f"{completed.stdout or ''}{completed.stderr or ''}"
         passed, failed, skipped, duration = self._profile.parse_test_summary(output)
         output = redact_text(output, where="tier-2 output")
+        failures = self._profile.parse_test_failures(output)
         if completed.returncode and not failed:
             failed = 1
         self.result = Tier2Result(
@@ -1827,6 +1839,7 @@ class Tier2Session:
             else f"{script} up (failed)",
             output=output[-4000:],
             stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
+            failures=failures,
         )
         return self.result.ok, build_snapshot(self.result)
 

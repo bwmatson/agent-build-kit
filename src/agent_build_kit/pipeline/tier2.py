@@ -131,6 +131,12 @@ def build_snapshot(result: Tier2Result) -> str:
         or "- (none recorded)"
     )
 
+    failed = ""
+    if result.failures:
+        total = result.passed + result.failed + result.skipped
+        listing = "\n".join(f"  - `{f.test}` - {f.line}" for f in result.failures)
+        failed = f"- **Failed:** {result.failed} of {total} tests\n{listing}\n"
+
     return f"""## Tier 2 results
 
 Tier 2 needs the live local stack, so GitHub Actions cannot run it. This ran
@@ -140,7 +146,7 @@ on the developer host.
 - **Command:** `{result.command}`
 - **Result:** {result.passed} passed, {result.failed} failed, \
 {result.skipped} skipped in {result.duration_seconds}s
-- **Ran against:**
+{failed}- **Ran against:**
 {versions}
 
 <details>

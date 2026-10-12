@@ -85,7 +85,7 @@ def test_each_project_uses_its_own_profile(tmp_path: Path, monkeypatch: pytest.M
 
     assert ok
     assert calls == [
-        (["uv", "run", "pytest", "-m", "local_stack", "-v"], root / "api"),
+        (PYTHON_UV.tier2_commands(root / "api", marker="local_stack")[0], root / "api"),
         (["npm", "run", "local_stack"], root / "web"),
     ]
 
@@ -97,7 +97,7 @@ def test_no_projects_runs_once_from_the_root(tmp_path: Path) -> None:
 
     session.run(cwd=root)
 
-    assert calls == [(["uv", "run", "pytest", "-m", "local_stack", "-v"], root)]
+    assert calls == [(PYTHON_UV.tier2_commands(root, marker="local_stack")[0], root)]
 
 
 def test_projects_run_in_the_order_declared(tmp_path: Path) -> None:

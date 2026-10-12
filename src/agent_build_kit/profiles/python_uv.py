@@ -37,6 +37,11 @@ XDIST = "pytest-xdist"
 MANIFEST = "pyproject.toml"
 LOCK = "uv.lock"
 WORKERS = ["-n", "auto", "--maxprocesses=8"]
+# A FAILED/ERROR line for each failed test, with a short traceback each.
+SUMMARY_FLAGS = ["-rfE", "--tb=short"]
+SUMMARY_MARK = "short test summary info"
+SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
+FAILURE_LINE_LIMIT = 500
 # The lock-freshness and environment-freshness commands a path-source draft's check starts with.
 DRIFT_CHECKS = "uv lock --check && uv sync --check"
 PATH_SOURCES_NOTE = (
@@ -272,7 +277,20 @@ class PythonUvProfile:
         return parse_pytest_summary(output)
 
     def parse_test_failures(self, output: str) -> list[TestFailure]:
-        raise NotImplementedError
+        """One entry per `FAILED`/`ERROR` line of pytest's short summary, in the order
+        printed; a line over `FAILURE_LINE_LIMIT` is cut with an ellipsis."""
+        _, found, summary = output.partition(SUMMARY_MARK)
+        if not found:
+            return []
+        failures = []
+        for line in summary.splitlines():
+            matched = SUMMARY_ENTRY.match(line)
+            if matched:
+                first = matched.group(2) or ""
+                if len(first) > FAILURE_LINE_LIMIT:
+                    first = first[: FAILURE_LINE_LIMIT - 1] + "…"
+                failures.append(TestFailure(test=matched.group(1), line=first))
+        return failures
 
     def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
@@ -440,7 +458,7 @@ class PythonUvProfile:
         any member's live tests say so."""
         members = self.members(repo)
         if not members:
-            return [["uv", "run", "pytest", "-m", marker, "-v"]]
+            return [["uv", "run", "pytest", "-m", marker, "-v", *SUMMARY_FLAGS]]
         return [
             [
                 "uv",
@@ -454,6 +472,7 @@ class PythonUvProfile:
                 "-m",
                 marker,
                 "-v",
+                *SUMMARY_FLAGS,
             ]
             for member in members
             if (repo / member / "tests").is_dir()

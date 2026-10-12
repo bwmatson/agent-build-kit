@@ -1074,7 +1074,7 @@ def test_tier_two_runs_each_member_on_its_own_as_tier_one_does(tmp_path: Path) -
         assert command[command.index("--package") + 1] == package
         assert "--isolated" in command
         after_pytest = command[command.index("pytest") + 1 :]
-        assert after_pytest == ["-m", "local_stack", "-v"]
+        assert after_pytest[:3] == ["-m", "local_stack", "-v"]
 
 
 def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
@@ -1092,9 +1092,8 @@ def test_tier_two_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
 def test_tier_two_without_members_runs_once_from_the_root(tmp_path: Path) -> None:
     from agent_build_kit.profiles.python_uv import PROFILE
 
-    assert PROFILE.tier2_commands(tmp_path, marker="local_stack") == [
-        ["uv", "run", "pytest", "-m", "local_stack", "-v"]
-    ]
+    (command,) = PROFILE.tier2_commands(tmp_path, marker="local_stack")
+    assert command[:6] == ["uv", "run", "pytest", "-m", "local_stack", "-v"]
 
 
 def _tier_two_with_stack_versions(
