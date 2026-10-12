@@ -61,7 +61,9 @@ def test_a_value_the_active_set_knows_is_absent_from_the_record(run: Replan) -> 
 
 
 def test_a_refusal_keeps_the_units_it_returned_and_its_reason_redacted(run: Replan) -> None:
-    run.runtime.answer = answer(planned("feature/1", (1,)) | {"repo": SECRET})
+    # The first unit is read before the second is refused, so its id is kept.
+    second = planned("feature/2", (1,)) | {"repo": SECRET}
+    run.runtime.answer = answer(planned("feature/1", (1,)), second)
 
     with known({NAME: SECRET}):
         cli.plan_all(run.inst, store=run.store)

@@ -481,6 +481,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if line := lock_status_line(inst.tier2_lock):
         log(line)
 
+    for change, record in _planned_hashes(inst).items():
+        if record.get("waiting") in PLAN_WAITS:
+            log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
+
     units = store_for(inst).all()
     if not units:
         log("no units planned")
@@ -1000,14 +1004,39 @@ def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
     )
 
 
+def _plan_waiting(record: Mapping, now: datetime) -> bool:
+    """Whether a change's recorded plan waits for an outage and its next try is ahead."""
+    if not record.get("waiting"):
+        return False
+    try:
+        return datetime.fromisoformat(record["until"]) > now
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _release_network_waits(inst: Installation) -> None:
+    """The network is back: every plan waiting for it is due now, whatever its next try."""
+    now = spans.clock.now().isoformat()
+    due = {
+        change: record | {"until": now}
+        for change, record in _planned_hashes(inst).items()
+        if record.get("waiting") == "network"
+    }
+    if due:
+        record_plans(inst, due)
+
+
 def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     """Whether some change would be planned now: planning is a model call, so a round that
     has some to do is one the usage guard has to be asked about."""
     planned = _planned_hashes(inst)
+    now = spans.clock.now()
     for tasks in inst.tasks_files():
         digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
         record = planned.get(tasks.parent.name) or {}
         if _plan_is_current(record, digest, inst.max_plan_attempts):
+            continue
+        if record.get("hash") == digest and _plan_waiting(record, now):
             continue
         groups, errors = validate_tasks(tasks, repos=tuple(inst.repos))
         # A change whose groups are all taken is recorded with no model call.
@@ -1088,6 +1117,7 @@ def _may_build(
             _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return "usage"
         end_network_pause(_paused_marker(inst))
+        _release_network_waits(inst)
         log("the network is back; resuming")
         paused = None
 
@@ -2354,10 +2384,53 @@ def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) ->
     return lines
 
 
+REASON_LIMIT = 300
+
+
+def _failure_reason(error: Exception) -> str:
+    """What a plan record keeps of why an attempt failed: the first line of the error,
+    its type named unless the planner refused the plan, with secrets removed and at most
+    `REASON_LIMIT` characters."""
+    text = str(error) if isinstance(error, PlannerError) else f"{type(error).__name__}: {error}"
+    first = text.strip().splitlines()[0] if text.strip() else type(error).__name__
+    return redact_text(first, where="plan record")[:REASON_LIMIT]
+
+
 def _refusal(error: PlannerError) -> dict:
     """What a plan record keeps of a refused plan: the unit ids the planner returned
     and why it was refused, never its full reply."""
-    return {"units": list(error.units), "reason": str(error)}
+    return {"units": list(error.units), "reason": _failure_reason(error)}
+
+
+PLAN_WAITS = {"network": "the network", "service": "the model service"}
+
+
+def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple[str, dict] | None:
+    """The kind of wait an outage error makes of a plan, and the fields of the record
+    that says so, or None when the failure counts as an attempt: a weak sign the probe
+    does not confirm, or a run of statuses longer than `limits.service_unavailable_attempts`."""
+    waited = previous.get("waits", 0) if previous.get("waiting") else 0
+    if isinstance(error, ServiceUnavailable):
+        if waited >= inst.config.limits.service_unavailable_attempts:
+            return None
+        kind = "service"
+    elif isinstance(error, NetworkUnavailable):
+        cause = _outage_cause(inst, error)
+        if cause is None:
+            return None
+        kind = "network" if cause is Cause.NETWORK_UNAVAILABLE else "service"
+    else:
+        return None
+    now = spans.clock.now()
+    waits = waited + 1
+    return kind, {
+        "attempts": previous.get("attempts", 0),
+        "waiting": kind,
+        "waits": waits,
+        "since": previous["since"] if waited else now.isoformat(),
+        "until": (now + PARK_BACKOFF[min(waits, len(PARK_BACKOFF)) - 1]).isoformat(),
+        "reason": _failure_reason(error),
+    }
 
 
 def plan_all(
@@ -2392,7 +2465,9 @@ def plan_all(
 
         # Attempts are counted against the content, not the change, so editing
         # tasks.md — which is the actual fix — starts them over.
-        if _plan_is_current(record, digest, max_attempts):
+        if _plan_is_current(record, digest, max_attempts) or (
+            record.get("hash") == digest and _plan_waiting(record, spans.clock.now())
+        ):
             results[change] = PlanResult(status="skipped")
             continue
 
@@ -2494,10 +2569,29 @@ def plan_all(
             results[change] = PlanResult(status="failed")
             continue
         except Exception as error:  # noqa: BLE001
-            attempts = (record.get("attempts", 0) if record.get("hash") == digest else 0) + 1
+            previous = record if record.get("hash") == digest else {}
+            if (wait := _plan_wait(inst, error, previous)) is not None:
+                kind, fields = wait
+                record_plans(inst, {change: {"hash": digest, "ok": False, **fields}})
+                if kind == "network":
+                    pause_until(
+                        datetime.now(UTC) + PARK_BACKOFF[0],
+                        reason=f"network unreachable while planning {change}",
+                        marker=_paused_marker(inst),
+                        kind="network",
+                    )
+                log(
+                    f"planning {change} is waiting for {PLAN_WAITS[kind]}, no attempt used — "
+                    f"next try {_shown_time(fields['until'])} — {fields['reason']}"
+                )
+                results[change] = PlanResult(status="waiting")
+                continue
+            attempts = previous.get("attempts", 0) + 1
             failure = {"hash": digest, "attempts": attempts, "ok": False}
             if isinstance(error, PlannerError):
                 failure |= _refusal(error)
+            else:
+                failure["reason"] = _failure_reason(error)
             record_plans(inst, {change: failure})
             giving_up = (
                 " — giving up until tasks.md changes or `abk replan` is run"
@@ -2567,7 +2661,8 @@ def plan_all(
                 status="planned", dropped_joins=len(dropped), cycle=drops.cycle
             )
             continue
-        record_plans(inst, {change: {"hash": digest, "attempts": 0, "ok": True}})
+        kept = record.get("attempts", 0) if record.get("waiting") else 0
+        record_plans(inst, {change: {"hash": digest, "attempts": kept, "ok": True}})
         results[change] = PlanResult(status="planned", cycle=drops.cycle)
     return results
 
@@ -3671,11 +3766,19 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     after = {unit.id: unit for unit in store.all()}
 
     failed = [change for change in to_plan if results[change].status != "planned"]
+    stored = _planned_hashes(inst)
     for change in to_plan:
         if results[change].recorded_only:
             print(f"{change}: nothing was asked of the planner; {ALL_TAKEN}; the plan is recorded")
     for change in failed:
-        print(f"{change}: the plan failed — see above")
+        if results[change].status == "waiting":
+            record = stored[change]
+            print(
+                f"{change}: waiting for {PLAN_WAITS[record['waiting']]} — no attempt used; "
+                f"next try {_shown_time(record['until'])}"
+            )
+        else:
+            print(f"{change}: the plan failed — see above")
     for change in to_plan:
         if results[change].dropped_joins:
             print(f"{change}: {results[change].dropped_joins} join(s) dropped, a unit started")
@@ -3704,8 +3807,22 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
     if record.get("ok"):
         return "planned"
     attempts = record.get("attempts", 0)
-    state = "given up" if attempts >= max_attempts else f"failing {attempts}/{max_attempts}"
+    if record.get("waiting") in PLAN_WAITS:
+        return (
+            f"waiting for {PLAN_WAITS[record['waiting']]} since {_shown_time(record['since'])}, "
+            f"next try {_shown_time(record['until'])} (attempts {attempts}/{max_attempts}, "
+            "not used)"
+        )
+    if attempts >= max_attempts:
+        reason = f": {record['reason']}" if record.get("reason") else ""
+        return f"given up{reason} — run `abk replan --failed`, or edit tasks.md"
+    state = f"failing {attempts}/{max_attempts}"
     return f"{state}: {record['reason']}" if record.get("reason") else state
+
+
+def _shown_time(moment: str) -> str:
+    """A recorded time as a person reads it: local, to the minute."""
+    return f"{datetime.fromisoformat(moment).astimezone():%H:%M}"
 
 
 def _replan_differences(

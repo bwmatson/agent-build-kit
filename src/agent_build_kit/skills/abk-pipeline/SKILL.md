@@ -162,6 +162,9 @@ unit waits on a dependency it no longer needs (a `Needs:` line changed in anothe
 change), when a change gave up planning (the tick logs it, and `abk replan` with no selector lists each change's plan state), or when
 neighbouring changes' units changed since it was planned. Started work is never
 touched; `--forget` only clears the record and leaves the planning to the next tick.
+A plan state of `waiting for the network` or `waiting for the model service` is an outage,
+not a failure: no attempt is used and the tick plans it again after its next try (or when
+the network pause clears); nothing needs running. `given up` names `abk replan --failed`.
 
 A unit with a `Needs: … merged` line whose dependency has not merged waits instead:
 `abk requeue` leaves it `planned` with the cause `gated` (shown by `abk status` as

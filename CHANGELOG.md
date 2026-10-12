@@ -83,7 +83,12 @@
   `limits.service_unavailable_attempts` times in a row (default 5); the next such failure
   fails it with its error text. A parking for the network also writes a `network` pause:
   while it stands a tick starts no agent run and the status shows it as waiting for the
-  network, and the first tick whose control hosts connect ends it.
+  network, and the first tick whose control hosts connect ends it. Planning is the same:
+  a planner call that meets an outage no longer spends one of a change's three attempts.
+  The change waits (the same backoff, ended early when the network pause clears), `abk
+  replan` and `abk status` show it as waiting for the network or the model service, and a
+  plan that is given up names `abk replan --failed`. Every failed plan now keeps the first
+  line of its reason, at most 300 characters and redacted.
 
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge

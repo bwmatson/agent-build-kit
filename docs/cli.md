@@ -418,7 +418,11 @@ says how many model calls it will make.
   (`feature/2`) is mapped to the change that carries it, and the command says so.
   `--all` is every active change; `--failed` every change whose last plan failed
   or gave up. With none, the command lists each change with the state of its plan
-  (`planned`, `failing 2/3`, `given up`, `never planned`), plans nothing and exits 2.
+  (`planned`, `failing 2/3: <reason>`, `given up` with `abk replan --failed` to plan it
+  again, `waiting for the network` or `waiting for the model service` with the time of
+  the next try and the attempts, which a wait does not use, `never planned`), plans
+  nothing and exits 2. A change that meets the outage again prints that it is waiting
+  and that no attempt was used, and exits 1. `--failed` selects a waiting change.
   A plan that was refused shows the reason after its state (`failing 1/3: unit
   feature/2 claims group 1, which a merged unit has already built …`).
 - **`--forget`** clears the records and stops: no model call, and the next tick
