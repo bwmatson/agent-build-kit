@@ -24,7 +24,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.red_check import REPORT_MARK, judge_red, split_report
-from agent_build_kit.pipeline.tier2 import TestFailure, parse_pytest_summary
+from agent_build_kit.pipeline.tier2 import TestFailure, TestTime, parse_pytest_summary
 from agent_build_kit.profiles.base import PromptWords
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -295,6 +295,9 @@ class PythonUvProfile:
                     first = first[: FAILURE_LINE_LIMIT - 1] + "…"
                 failures.append(TestFailure(test=matched.group(1), line=first))
         return failures
+
+    def parse_test_durations(self, output: str) -> list[TestTime]:
+        raise NotImplementedError
 
     def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same

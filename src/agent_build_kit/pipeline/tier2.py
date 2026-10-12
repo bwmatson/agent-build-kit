@@ -54,6 +54,23 @@ class TestFailure(Frozen):
     line: str
 
 
+class TestTime(Frozen):
+    """The time of one phase (`setup`, `call` or `teardown`) of one test, and where the
+    time went when the run said so: agent milliseconds by role with the calls made, the
+    scratch pipeline's commands, and the rest. A figure the run did not give is None."""
+
+    __test__ = False
+
+    test: str
+    phase: str
+    seconds: float
+    agent_ms: dict[str, int] = Field(default_factory=dict)
+    calls: dict[str, int] = Field(default_factory=dict)
+    checks_ms: int | None = None
+    other_ms: int | None = None
+    overlap: bool = False
+
+
 class Tier2Classification(Frozen):
     """A failed run's tests by whose they are: the unit's own, or in a file it left alone."""
 
@@ -83,6 +100,8 @@ class Tier2Result(Frozen):
     output: str
     stack_versions: dict[str, str] = Field(default_factory=dict)
     failures: list[TestFailure] = Field(default_factory=list)
+    # Every phase of every test the run timed, slowest first; empty for a result stored without.
+    durations: list[TestTime] = Field(default_factory=list)
     # The file holding the whole output of the run; empty for a result stored without one.
     output_file: str = ""
     # Whether redaction failed on the output, so the file holds the notice in its place.
