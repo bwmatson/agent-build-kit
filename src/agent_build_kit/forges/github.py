@@ -45,6 +45,7 @@ from agent_build_kit.forges.base import (
     StackRefused,
     failing_names,
     key,
+    redacted_text,
 )
 from agent_build_kit.forges.github_models import (
     CheckNode,
@@ -322,6 +323,7 @@ class GitHubForge:
         pulls = _items(found, NumberDoc, "GET pulls")
         return pulls[0].number if pulls else None
 
+    @redacted_text("body")
     def comment_exists(
         self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
     ) -> str | None:
@@ -344,6 +346,7 @@ class GitHubForge:
             (c.node_id for c in comments if c.body == body and marker in body and c.node_id), None
         )
 
+    @redacted_text("title", "body")
     def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
         try:
             with self._on(repo) as gh:
@@ -370,6 +373,7 @@ class GitHubForge:
             raise
         return _parse(made, NumberDoc, "POST pulls").number
 
+    @redacted_text("body")
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
         """Change a PR's base or body, never raising.
 
@@ -421,6 +425,7 @@ class GitHubForge:
             # 409: another request is changing the same stack right now.
             raise StackRefused(_reason(error), concurrent=error.status == 409) from error
 
+    @redacted_text("description")
     def post_status(
         self, repo: RepoId, *, sha: str, ok: bool, context: str, description: str, head: str = ""
     ) -> None:
@@ -506,6 +511,7 @@ class GitHubForge:
         ]
         return notes
 
+    @redacted_text("body")
     def post_reply(self, repo: RepoId, pr: int, *, note_id: str, body: str) -> list[str]:
         """Answer one review comment, and report what the poller will see.
 
@@ -538,6 +544,7 @@ class GitHubForge:
                 log.warning("could not read the review a reply to %s made: %s", note_id, error)
         return [i for i in ids if i]
 
+    @redacted_text("body")
     def post_comment(self, repo: RepoId, pr: int, *, body: str) -> list[str]:
         try:
             with self._on(repo) as gh:

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Protocol
 
 import pytest
+from pydantic import Field
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
@@ -58,7 +59,7 @@ class AgentHome(Frozen):
 
     path: Path | None
     linked: tuple[str, ...]
-    env: dict[str, str]
+    env: dict[str, str] = Field(repr=False)
 
     def apply(self, patch: pytest.MonkeyPatch) -> None:
         """Set `env` in this process, for an agent the test process starts itself or asks (the

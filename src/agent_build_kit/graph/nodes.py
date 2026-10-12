@@ -110,6 +110,7 @@ from agent_build_kit.pipeline.usage_ledger import (
     session_spend,
 )
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
+from agent_build_kit.redaction import redact_text
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
@@ -1293,7 +1294,7 @@ class BuildPath:
         if r.head(tree) == state.head:
             # The model that wrote the code fixes it, whatever the configuration says now.
             model = state.build_model or models().implement
-            feedback = r.store.get(unit.id).feedback
+            feedback = redact_text(r.store.get(unit.id).feedback, where="fix prompt")
             note = person_guidance(r.store.get(unit.id).guidance)
             self.say(f"fix the failing checks ({model}), round {attempt}")
             outside = self.outside_note(state, tree)
@@ -1438,7 +1439,9 @@ class BuildPath:
         build_boundary, _ = r.boundary_notes(unit, self.graph)
         stored = r.store.get(unit.id)
         guidance = stored.guidance
-        feedback = stored.feedback or (WHOLE_ASK if guidance else "")
+        feedback = redact_text(
+            stored.feedback or (WHOLE_ASK if guidance else ""), where="rework prompt"
+        )
         failed_check = stored.feedback_source in (FeedbackSource.TIER1, FeedbackSource.TIER2)
         in_loop = state.verdict is Verdict.CHANGES
         note = person_guidance(guidance)

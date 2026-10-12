@@ -137,6 +137,24 @@ class Settings(BaseSettings):
 # its field name.
 CREDENTIAL_FIELDS: tuple[str, ...] = ("gh_token", "ado_pat", "gateway_master_key", "grafana_token")
 
+# The fields whose names end like a credential's but that hold none.
+NOT_SECRET_FIELDS: tuple[str, ...] = ()
+
+
+def unclassified_secret_fields(model: type[BaseSettings]) -> tuple[str, ...]:
+    """The sorted names of `model`'s fields that end in `token`, `key`, `pat` or `secret`
+    and are neither in `CREDENTIAL_FIELDS` nor in `NOT_SECRET_FIELDS`."""
+    return tuple(
+        sorted(
+            name
+            for name in model.model_fields
+            if name.endswith(("token", "key", "pat", "secret"))
+            and name not in CREDENTIAL_FIELDS
+            and name not in NOT_SECRET_FIELDS
+        )
+    )
+
+
 settings = Settings()
 
 

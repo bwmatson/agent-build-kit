@@ -17,13 +17,16 @@ functions here rather than inherited behaviour.
 
 from __future__ import annotations
 
+import functools
+import inspect
 import subprocess
 from collections.abc import Callable, Collection, Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from agent_build_kit.budget import cut_head
 from agent_build_kit.model import Frozen
+from agent_build_kit.redaction import redact_leaves
 
 if TYPE_CHECKING:
     # config imports this package to check a repo's forge at load.
@@ -33,6 +36,27 @@ if TYPE_CHECKING:
 # Injected so a check can be tested against recorded answers, the way
 # `tier2.post_status` and the `wiring.build_*` factories already take one.
 Run = Callable[..., subprocess.CompletedProcess]
+
+
+def redacted_text[F: Callable[..., Any]](*names: str) -> Callable[[F], F]:
+    """Decorate a forge method so the text arguments `names`, however they are passed, go
+    through the known secret values: before they reach the host or the store, and before
+    a body is compared with the one the host holds. One line is logged however many of
+    them fail to redact."""
+
+    def decorate(method: F) -> F:
+        signature = inspect.signature(method)
+
+        @functools.wraps(method)
+        def write(self: Any, *args: Any, **kwargs: Any) -> Any:
+            bound = signature.bind(self, *args, **kwargs)
+            held = {name: bound.arguments[name] for name in names if name in bound.arguments}
+            bound.arguments.update(redact_leaves(held, where=method.__name__))
+            return method(*bound.args, **bound.kwargs)
+
+        return write  # type: ignore[return-value]
+
+    return decorate
 
 
 DESCRIPTION_CUT_NOTE = "_Description cut to fit the host's limit._"

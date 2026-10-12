@@ -60,6 +60,7 @@ from agent_build_kit.forges.base import (
     Stack,
     StackRefused,
     failing_names,
+    redacted_text,
 )
 from agent_build_kit.forges.transport import (
     AZURE_CLI_SOURCE,
@@ -494,6 +495,7 @@ class AzureDevOpsForge:
         )
         return found[0].pull_request_id if found else None
 
+    @redacted_text("body")
     def comment_exists(
         self,
         repo: RepoId,
@@ -517,6 +519,7 @@ class AzureDevOpsForge:
                     return f"{thread.id}.{comment.id}"
         return None
 
+    @redacted_text("title", "body")
     def create_pr(
         self,
         repo: RepoId,
@@ -552,6 +555,7 @@ class AzureDevOpsForge:
             raise
         return _parse(made, PullRequestDoc, "POST pullrequests").pull_request_id
 
+    @redacted_text("body")
     def update_pr(
         self,
         repo: RepoId,
@@ -651,6 +655,7 @@ class AzureDevOpsForge:
         """
         return _notes(self._threads(repo, pr, run=run))
 
+    @redacted_text("body")
     def post_reply(
         self, repo: RepoId, pr: int, *, note_id: str, body: str, run: Run | None = None
     ) -> list[str]:
@@ -675,6 +680,7 @@ class AzureDevOpsForge:
             return []
         return [f"{thread}.{made['id']}"]
 
+    @redacted_text("body")
     def post_comment(
         self, repo: RepoId, pr: int, *, body: str, run: Run | None = None
     ) -> list[str]:
@@ -695,6 +701,7 @@ class AzureDevOpsForge:
         comments = made.get("comments") or [{}]
         return [f"{made['id']}.{comments[0].get('id', 1)}"]
 
+    @redacted_text("description")
     def post_status(
         self,
         repo: RepoId,

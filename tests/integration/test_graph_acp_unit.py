@@ -29,6 +29,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from pydantic import Field
 
 from agent_build_kit import config
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -78,7 +79,7 @@ class Scratch(Frozen):
     remote: Path
     state: Path
     host: FakeGitHub
-    env: dict[str, str]
+    env: dict[str, str] = Field(repr=False)
     command: list[str]
 
 

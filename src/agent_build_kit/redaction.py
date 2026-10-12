@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from agent_build_kit import settings as settings_module
 
@@ -33,10 +33,22 @@ _TOKEN_SHAPE = re.compile(
 
 
 class Redactor:
-    """The known secret values by name; its repr and str show names only."""
+    """The known secret values by name; its repr and str show names only.
 
-    def __init__(self, values: Mapping[str, str]) -> None:
+    `short` and `unset` name (never value) the configured sources the set cannot protect:
+    a `verify.env` or `redact` value under `MIN_LENGTH`, and a `redact` name with no value.
+    """
+
+    def __init__(
+        self,
+        values: Mapping[str, str],
+        *,
+        short: Sequence[str] = (),
+        unset: Sequence[str] = (),
+    ) -> None:
         self._values = dict(values)
+        self.short = tuple(short)
+        self.unset = tuple(unset)
         self._pattern = self._compile()
 
     def _compile(self) -> re.Pattern[str] | None:
@@ -68,27 +80,50 @@ class Redactor:
 _active = Redactor({})
 
 
-def gather(installation: Installation) -> Redactor:
-    """The set the installation's configuration and the settings name."""
+class Source(NamedTuple):
+    """One place a secret comes from: `value` is None when it cannot be had."""
+
+    name: str
+    value: str | None
+    origin: str
+
+
+def sources(installation: Installation) -> list[Source]:
+    """Every source of a known value, resolved once: the one enumeration `gather` builds
+    the set from."""
     from agent_build_kit.installation import _resolve
 
-    values: dict[str, str] = {}
-    failed: list[str] = []
+    found: list[Source] = []
     for name, provider in installation.config.verify.env.items():
         try:
-            values[name] = _resolve(provider)
+            found.append(Source(name, _resolve(provider), "verify.env"))
         except Exception:
-            failed.append(name)
+            found.append(Source(name, None, "verify.env"))
     for field in settings_module.CREDENTIAL_FIELDS:
-        values[field] = str(getattr(settings_module.settings, field))
+        found.append(Source(field, str(getattr(settings_module.settings, field)), "settings"))
     env_file = installation.env_file if installation.env_file.exists() else None
     for name in installation.config.redact:
         value = settings_module.named_value(name, env_file)
-        if value:
-            values[name] = value
+        found.append(Source(name, value or None, "redact"))
+    return found
+
+
+def gather(installation: Installation) -> Redactor:
+    """The set the installation's configuration and the settings name."""
+    values: dict[str, str] = {}
+    failed: list[str] = []
+    short: list[str] = []
+    unset: list[str] = []
+    for source in sources(installation):
+        if source.value is None:
+            (failed if source.origin == "verify.env" else unset).append(source.name)
+            continue
+        values[source.name] = source.value
+        if source.origin != "settings" and len(source.value) < MIN_LENGTH:
+            short.append(f"{source.origin} {source.name}")
     if failed:
         logger.warning("redaction: no value for %s; they are not redacted", ", ".join(failed))
-    return Redactor(values)
+    return Redactor(values, short=short, unset=unset)
 
 
 def activate(redactor: Redactor) -> None:

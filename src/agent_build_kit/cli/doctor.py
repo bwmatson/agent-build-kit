@@ -66,6 +66,8 @@ from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
+from agent_build_kit.redaction import MIN_LENGTH
+from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
 from agent_build_kit.settings import settings
@@ -481,6 +483,32 @@ def _ssh_keys(inst: Installation) -> list[Check]:
                     f"ssh key {name}", f"{key} does not exist", "fix `deploy.ssh_key` in abk.yaml"
                 )
             )
+    return checks
+
+
+def _weak_secrets() -> list[Check]:
+    """The secret names the redaction set, built when the installation was activated,
+    cannot protect: set to under `MIN_LENGTH` characters, or not set at all. Names only;
+    a value is never printed."""
+    held = active_redactor()
+    short, unset = held.short, held.unset
+    checks = []
+    if short:
+        checks.append(
+            _warn(
+                "secrets too short",
+                f"{', '.join(short)}: under {MIN_LENGTH} characters, so never redacted",
+                "use a longer value, or accept that it can appear in stored output",
+            )
+        )
+    if unset:
+        checks.append(
+            _warn(
+                "secrets not set",
+                f"redact: {', '.join(unset)} not set, so nothing is redacted for it",
+                "set the variable in the environment or the planning repo's .env",
+            )
+        )
     return checks
 
 
@@ -1054,6 +1082,7 @@ def run_doctor(
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
     checks += _verify_env(inst, run)
+    checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)
