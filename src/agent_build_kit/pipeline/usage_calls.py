@@ -189,6 +189,7 @@ class CacheInterval(Frozen):
 
     kept: timedelta
     reason: str
+    no_wait: bool = False
 
 
 def cache_interval(
@@ -214,23 +215,31 @@ def cache_interval(
     )
     for refusal in refusals:
         settle(refusal.at)
+        if _retry_after_header(refusal) == 0:
+            continue
         kept = min(kept * 2, maximum)
         since = refusal.at
         reason = "refusal"
     settle(now)
     if refusals and now - refusals[-1].at < _retry_after(refusals[-1]):
         kept = max(kept, _retry_after(refusals[-1]))
-    return CacheInterval(kept=kept, reason=reason)
+    no_wait = bool(refusals) and _retry_after_header(refusals[-1]) == 0
+    return CacheInterval(kept=kept, reason=reason, no_wait=no_wait)
 
 
-def _retry_after(call: UsageCall) -> timedelta:
+def _retry_after_header(call: UsageCall) -> float | None:
+    """The retry time in seconds a refusal names, or None when it names none."""
     for name, value in call.headers.items():
         if name.lower() == "retry-after":
             try:
-                return timedelta(seconds=max(0.0, float(value)))
+                return max(0.0, float(value))
             except ValueError:
-                return timedelta(0)
-    return timedelta(0)
+                return None
+    return None
+
+
+def _retry_after(call: UsageCall) -> timedelta:
+    return timedelta(seconds=_retry_after_header(call) or 0.0)
 
 
 def most_added(
@@ -271,7 +280,10 @@ def interval_line(interval: CacheInterval) -> str:
         "quiet": "lowered after a quiet spell",
         "configured": "the configured time",
     }[interval.reason]
-    return f"usage cache: kept {minutes} minutes, {why}"
+    line = f"usage cache: kept {minutes} minutes, {why}"
+    if interval.no_wait:
+        line += "; the last refusal asked for no wait and did not widen it"
+    return line
 
 
 def rate_line(rate: CallRate) -> str:

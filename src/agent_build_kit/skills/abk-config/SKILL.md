@@ -78,7 +78,7 @@ runtimes:                     # only for a runtime needing a fact abk cannot
         usage_unit_allowance_pct: 2
       usage_stale_retry_minutes: 5     # refusal length when the reading is too old
       usage_cache_minutes: 15          # how long a good usage reading is reused (the shortest)
-      usage_cache_max_minutes: 60      # the most refusals can stretch that to
+      usage_cache_max_minutes: 30      # the most refusals can stretch that to
       usage_fallback_minutes: 30       # age of the last good reading that covers a failed call
       usage_climb_floor: 0.2  # slowest climb, in points a minute, a window is assumed to make
       usage_climb_margin_pct: 2  # points added to what a reading could have gained since

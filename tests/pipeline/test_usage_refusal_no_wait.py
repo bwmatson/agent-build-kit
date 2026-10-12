@@ -31,14 +31,14 @@ def refused_with(host: Host, **headers: str) -> None:
     current_usage()
 
 
-def quiet_refusal(at: datetime) -> dict:
+def quiet_refusal(at: datetime, **headers: str) -> dict:
     return {
         "at": at.isoformat(),
         "caller": "guard",
         "outcome": "rate_limited",
         "status": 429,
         "latency_ms": 120,
-        "headers": {},
+        "headers": headers,
         "age_seconds": None,
     }
 
@@ -68,7 +68,7 @@ def test_a_longer_named_retry_time_wins_past_the_ceiling(host: Host) -> None:
     refused_with(host, Retry_After="0")
     assert kept_minutes(host) == 15
 
-    refused_with(host, Retry_After="3600")
+    host.seed(*host.lines(), quiet_refusal(datetime.now(UTC), **{"retry-after": "3600"}))
 
     assert kept_minutes(host) == 60
 

@@ -226,7 +226,7 @@ class ClaudeLimitsConfig(Frozen):
     # How long a good live usage reading answers every reader before the endpoint is asked again.
     usage_cache_minutes: Annotated[int, Field(gt=0)] = 15
     # The longest a good reading is kept once refusals have doubled the time.
-    usage_cache_max_minutes: Annotated[int, Field(gt=0)] = 60
+    usage_cache_max_minutes: Annotated[int, Field(gt=0)] = 30
     # How old the last good live reading may be and still stand in for a failed call.
     usage_fallback_minutes: Annotated[int, Field(gt=0)] = 30
     # The slowest climb, in percentage points a minute, a window is assumed to make.
