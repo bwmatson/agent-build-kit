@@ -46,6 +46,7 @@ from agent_build_kit.runtimes.base import (
     AgentRateLimited,
     AgentRuntime,
     NetworkUnavailable,
+    ServiceUnavailable,
 )
 
 Runner = Callable[[list[str]], str]
@@ -314,7 +315,7 @@ def move_branch_onto(
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
         resolve(prompt, cwd=repo)
-    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
+    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
         # Not a conflict nobody could resolve: the account is out of room, the
         # network is down, or the run was killed. The branch goes back where it was, to be moved
         # again once the tick can run.

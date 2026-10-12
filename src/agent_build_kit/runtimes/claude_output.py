@@ -24,8 +24,9 @@ RATE_LIMIT_STATUS = 429
 # already retried them when it closes on one.
 SERVICE_STATUSES = range(500, 600)
 
-# What the CLI prints for an API error when its event carries no status.
-_API_ERROR_STATUS = re.compile(r"API Error: (\d{3})\b")
+# What the CLI prints for an API error when its event carries no status: the status
+# follows the words, and a word may come first ("Repeated 529 Overloaded errors").
+_API_ERROR_STATUS = re.compile(r"API Error: (?:\D{0,40}?)(\d{3})\b")
 
 FailureKind = Literal["none", "rate_limited", "service_unavailable", "session_unavailable", "other"]
 

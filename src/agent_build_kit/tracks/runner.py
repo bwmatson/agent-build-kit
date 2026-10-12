@@ -73,6 +73,7 @@ from agent_build_kit.runtimes import (
     AgentRateLimited,
     AgentRequest,
     NetworkUnavailable,
+    ServiceUnavailable,
 )
 from agent_build_kit.runtimes.base import AgentRuntime
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, build_argv
@@ -640,7 +641,7 @@ def claude_phase(
     before = record_planning(inst)
     try:
         result = agent.run(request)
-    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable) as error:
+    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable) as error:
         log(f"[{project.name}] {name} phase stopped — {error}. Continuing regardless.")
         if before is not None and not settle_planning(inst, before, project, name):
             return STOPPED

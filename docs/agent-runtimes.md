@@ -583,6 +583,16 @@ ordinary. A failure that carries an HTTP status, a usage limit, a model refusal 
 permission or tool failure are never an outage: they return `AgentResult(ok=False)` as
 before. The pipeline decides what a weak sign means (`pipeline/network_probe.py`).
 
+## A failing model service is a typed error
+
+A claude run whose closing event carries an `api_error_status` of 500 to 599 (an overloaded
+529 among them) raises `ServiceUnavailable`, with the status and the CLI's words, after
+reporting the call's spend through `on_result`. When the status is null the CLI's own words
+`API Error: <status>` are read instead, a word before the number allowed. A 4xx (401, 403,
+404 and the rest), a 429 (still `AgentRateLimited`), a model refusal and an ending with no
+status in the event or the words stay `AgentResult(ok=False)`. The pipeline parks the unit
+and caps a row of them at `limits.service_unavailable_attempts`.
+
 ## Usage tracking is optional
 
 `get_usage_status()` returns `None` for two different reasons, and callers

@@ -260,3 +260,8 @@ alone doesn't account for. A refusal by the guard pauses only the unit that aske
 pass keeps running its rounds, asks the guard again at each, and resumes the unit once it
 allows. Only a pause written because the model refused a build holds every start until its
 deadline.
+
+A `network` pause is written when a unit parks for the network (never for the model
+service) and `abk status` shows it as `waiting for the network — <reason>`. It ignores its
+deadline: only a tick whose control hosts connect ends it, and until then no unit starts and
+nothing is planned. Nothing needs doing.

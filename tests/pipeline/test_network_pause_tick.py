@@ -1,6 +1,6 @@
 """A tick under a `network` pause starts no agent run until the control group answers.
 
-The probe is replaced at the seam the parking reads it through. The marker ends on the
+The connect is replaced below the control-group check. The marker ends on the
 first tick whose probe reaches a control host, whatever time it was given, and on nothing
 else: not a deadline, and not a usage reading that allows work. Usage and rate-limit pauses
 never consult the probe.
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.network_probe import Reachability
+from agent_build_kit.pipeline import network_probe
 from agent_build_kit.pipeline.pause import pause_until
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
@@ -29,20 +29,37 @@ from tests.pipeline.test_cli_pipeline import (  # noqa: F401 — fixtures
     isolated,
     stored,
 )
-from tests.pipeline.test_network_outage_parking import Probe
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 REASON = "network unreachable during add-marker/1"
-DOWN = Reachability(api=True, control=False)
-UP = Reachability(api=True, control=True)
+
+
+class Control:
+    """The control group as the network gives it: reachable or not, and how many rounds asked."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.up = False
+        self.asked: list[str] = []
+        real = network_probe.control_reachable
+
+        def asked(*args: object, **kwargs: object) -> bool:
+            self.asked.append("round")
+            return real(*args, **kwargs)  # type: ignore[arg-type]
+
+        def connect(host: str, port: int, timeout: float) -> object:
+            if not self.up:
+                raise OSError(f"cannot reach {host}")
+            return None
+
+        monkeypatch.setattr(network_probe, "resolve_name", lambda host: None)
+        monkeypatch.setattr(network_probe, "connect_tcp", connect)
+        monkeypatch.setattr(network_probe, "control_reachable", asked)
 
 
 @pytest.fixture
-def probe(monkeypatch: pytest.MonkeyPatch) -> Probe:
-    reached = Probe(monkeypatch)
-    reached.answer = DOWN
-    return reached
+def probe(monkeypatch: pytest.MonkeyPatch) -> Control:
+    return Control(monkeypatch)
 
 
 def write_marker(tmp_path: Path, *, until: datetime) -> None:
@@ -71,7 +88,7 @@ def test_a_tick_whose_control_group_is_down_starts_nothing_and_says_so_once(
     healthy,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    probe: Probe,
+    probe: Control,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     store = UnitStore(tmp_path / "units.json")
@@ -102,7 +119,7 @@ def test_a_marker_whose_time_has_passed_stays_while_the_control_group_is_down(
     healthy,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    probe: Probe,
+    probe: Control,
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
     write_marker(tmp_path, until=datetime.now(UTC) - timedelta(hours=1))
@@ -117,12 +134,12 @@ def test_a_reachable_control_host_clears_the_marker_whatever_its_time_and_work_s
     healthy,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    probe: Probe,
+    probe: Control,
 ) -> None:
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored(), stored("add-marker/2")])
     store.set_state("add-marker/1", PLANNED, note="HTTP 529", cause=Cause.SERVICE_UNAVAILABLE)
-    probe.answer = UP
+    probe.up = True
     pause_until(
         datetime.now(UTC) + timedelta(hours=3),
         reason=REASON,
@@ -150,7 +167,7 @@ def test_a_usage_reading_that_allows_work_does_not_clear_the_marker(
     healthy,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    probe: Probe,
+    probe: Control,
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
     write_marker(tmp_path, until=datetime.now(UTC) + timedelta(hours=1))
@@ -164,7 +181,7 @@ def test_a_usage_reading_that_allows_work_does_not_clear_the_marker(
 def test_a_usage_or_rate_limit_pause_never_asks_the_probe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    probe: Probe,
+    probe: Control,
     kind: str,
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
@@ -195,7 +212,7 @@ def test_a_usage_or_rate_limit_pause_never_asks_the_probe(
 def test_status_shows_the_pause_as_waiting_for_the_network_with_its_reason(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    probe: Probe,
+    probe: Control,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
@@ -211,3 +228,24 @@ def test_status_shows_the_pause_as_waiting_for_the_network_with_its_reason(
     assert REASON in shown[0]
     assert probe.asked == [], "status only reads"
     assert (tmp_path / "paused.json").exists()
+
+
+def test_a_probe_that_breaks_under_a_network_marker_ends_it_and_work_starts(
+    healthy,  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A lookup that raises something other than a connection failure (a host label too long
+    for the resolver) cannot say the network is down, so it must not hold the pause."""
+
+    def broken(host: str) -> object:
+        raise ValueError("label too long")
+
+    monkeypatch.setattr(network_probe, "resolve_name", broken)
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    write_marker(tmp_path, until=datetime.now(UTC) - timedelta(hours=1))
+
+    built = tick(monkeypatch)
+
+    assert built == ["add-marker/1"]
+    assert not (tmp_path / "paused.json").exists()

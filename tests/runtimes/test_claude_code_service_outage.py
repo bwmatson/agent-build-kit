@@ -70,6 +70,13 @@ def test_a_null_status_with_the_words_of_a_529_raises_with_that_status(tmp_path:
     assert len(told) == 1
 
 
+def test_a_word_before_the_status_in_the_cli_words_is_skipped(tmp_path: Path) -> None:
+    with pytest.raises(ServiceUnavailable) as caught:
+        _run(tmp_path, "API Error: Repeated 529 Overloaded errors", None, [])
+
+    assert caught.value.status == 529
+
+
 def test_the_structured_status_is_read_before_the_words(tmp_path: Path) -> None:
     with pytest.raises(ServiceUnavailable) as caught:
         _run(tmp_path, "API Error: 400 bad request", 503, [])

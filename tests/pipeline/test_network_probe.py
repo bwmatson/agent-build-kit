@@ -11,10 +11,12 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline import network_probe as network_probe_module
 from agent_build_kit.pipeline.network_probe import (
     Reachability,
     classify_reachability,
     control_group,
+    control_reachable,
     probe_reachability,
 )
 from agent_build_kit.pipeline.unit_store import Cause
@@ -177,3 +179,33 @@ def test_the_control_group_is_the_forge_hosts_then_the_configured_ones(
     monkeypatch.setattr(settings, "github_api_url", "https://ghe.example.test/api/v3")
 
     assert control_group(inst) == ("ghe.example.test", "ping.example.test")
+
+
+def test_the_control_group_is_reachable_when_a_host_connects_and_not_when_none_does(
+    tmp_path: Path,
+) -> None:
+    inst = make_installation(tmp_path, limits={"network_control_hosts": ["ping.example.test"]})
+    group = set(control_group(inst))
+    up = Network(resolves=group, connects={"ping.example.test"})
+    down = Network(resolves=group, connects=set())
+
+    assert control_reachable(inst, resolve=up.resolve, connect=up.connect) is True
+    assert control_reachable(inst, resolve=down.resolve, connect=down.connect) is False
+
+
+def test_a_probe_that_raises_something_else_counts_as_reachable(tmp_path: Path) -> None:
+    inst = make_installation(tmp_path, limits={"network_control_hosts": ["ping.example.test"]})
+
+    def breaks(host: str) -> object:
+        raise ValueError("label too long")
+
+    assert control_reachable(inst, resolve=breaks) is True
+
+
+def test_no_control_group_counts_as_reachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = make_installation(tmp_path)
+    monkeypatch.setattr(network_probe_module, "control_group", lambda installation: ())
+
+    assert control_reachable(inst) is True

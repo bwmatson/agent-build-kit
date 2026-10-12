@@ -53,6 +53,18 @@ def control_group(installation: Installation) -> tuple[str, ...]:
     return tuple(hosts)
 
 
+def host_connects(
+    host: str, port: int, *, timeout: float, resolve: Resolve, connect: Connect
+) -> bool:
+    """A lookup then a TCP connect; False only for the failures a down network produces."""
+    try:
+        resolve(host)
+        connect(host, port, timeout)
+    except OSError:
+        return False
+    return True
+
+
 def probe_reachability(
     api_host: str,
     control_hosts: Sequence[str],
@@ -66,12 +78,7 @@ def probe_reachability(
     control host, on 443."""
 
     def reached(host: str, port: int) -> bool:
-        try:
-            resolve(host)
-            connect(host, port, timeout)
-        except OSError:
-            return False
-        return True
+        return host_connects(host, port, timeout=timeout, resolve=resolve, connect=connect)
 
     if not control_hosts:
         return Reachability(api=True, control=False)
@@ -107,21 +114,30 @@ def classify_reachability(
 
 
 def control_reachable(
-    installation: Installation, *, probe: Callable[..., Reachability] | None = None
+    installation: Installation,
+    *,
+    resolve: Resolve | None = None,
+    connect: Connect | None = None,
 ) -> bool:
     """Whether any host of the control group connects: the network as a whole is up.
 
-    True when there is no group to ask and when the probe errors, so a pause that only this
-    ends is never held by a probe that cannot answer."""
+    True when there is no group to ask and when the probing raises anything but a failure
+    to connect, so a pause that only this ends is never held by a probe that cannot answer.
+    """
     hosts = control_group(installation)
     if not hosts:
         return True
+    timeout = installation.config.limits.network_probe_timeout_seconds
     try:
-        reached = (probe or probe_reachability)(
-            hosts[0],
-            hosts,
-            timeout=installation.config.limits.network_probe_timeout_seconds,
+        return any(
+            host_connects(
+                host,
+                PORT,
+                timeout=timeout,
+                resolve=resolve or resolve_name,
+                connect=connect or connect_tcp,
+            )
+            for host in hosts
         )
     except Exception:  # noqa: BLE001
         return True
-    return reached.control

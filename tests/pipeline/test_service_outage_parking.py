@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.network_probe import Reachability
 from agent_build_kit.pipeline.unit_store import FeedbackSource, UnitStore
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED
@@ -25,8 +26,9 @@ from tests.pipeline.test_network_outage_parking import (
     fresh_store,
     outage,
     raises_in_implement,
+    thread_state,
 )
-from tests.runner_fakes import Recorder
+from tests.runner_fakes import Recorder, rejecting
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -75,13 +77,42 @@ def test_a_status_parks_the_unit_without_asking_the_probe(
 def test_the_status_that_parks_the_unit_is_not_counted_as_a_failed_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: Probe
 ) -> None:
-    store = fresh_store(tmp_path)
+    """The status comes on the second fix of the checks a rework broke, after one review round."""
+    outcomes: list[str] = []
+    real_record = cli.record_metric
 
-    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(overloaded(503), ""))
+    def record(name: str, value: float, log: Any, **labels: Any) -> None:
+        if name == "abk.unit.duration":
+            outcomes.append(labels["outcome"])
+        real_record(name, value, log, **labels)
+
+    monkeypatch.setattr(cli, "record_metric", record)
+    store = fresh_store(tmp_path)
+    recorder = Recorder(store)
+    recorder.tier1_results = [
+        (True, ""),
+        (False, "E501 line too long"),
+        (False, "E302 blank lines"),
+    ]
+    recorder.verdicts = [rejecting("rename it")]
+
+    def down(prompt: str, **kwargs: Any) -> str:
+        if step_of(prompt) != "fix_checks" or "claude:fix_checks" not in recorder.events:
+            return recorder.claude(prompt, **kwargs)
+        raise overloaded(503)
+
+    build_once(tmp_path, monkeypatch, store, recorder=recorder, run=down)
 
     stored = store.get(UNIT)
-    assert stored.state != FAILED
+    assert (stored.state, stored.cause, stored.step) == (
+        PLANNED,
+        "service_unavailable",
+        "fix_checks",
+    )
     assert stored.service_attempts == 1
+    thread = thread_state(tmp_path)
+    assert (thread.fix_rounds, thread.review_round, len(thread.review_rounds)) == (1, 1, 1)
+    assert outcomes == ["interrupted"], "not recorded as a failed run"
 
 
 def test_the_attempt_after_the_cap_fails_the_unit_with_its_text_and_step(

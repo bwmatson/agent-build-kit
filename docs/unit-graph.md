@@ -495,7 +495,12 @@ control group (the code hosts and `limits.network_control_hosts`) are each looke
 connected to. Both failing is `network_unavailable`; only the called host failing is
 `service_unavailable`; the called host connecting, or a probe that errors, fails the unit.
 No review, rework or check round is charged, a session the step was continuing is continued
-on resume, and the unit keeps its place in `in_progress`. The status says `waiting for the
+on resume, and the unit keeps its place in `in_progress`. A run that ends on an HTTP status
+of 500 to 599 raises `ServiceUnavailable` and parks the unit as `service_unavailable` on that
+evidence, without the probe. Such parkings are counted in a row (`service_attempts`) and at
+`limits.service_unavailable_attempts` (default 5) the next one fails the unit with its error
+text and step; a completed step or a move to review starts the count again. Parkings the probe
+sorted are neither counted nor capped. The status says `waiting for the
 network` or `waiting for the model service`, beside `waiting for the code host`, and the
 graph labels the unit the same way, with the step and the time it may run again. The probe
 connects to the host the run called on the port it called, and to the control group on 443.

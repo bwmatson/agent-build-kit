@@ -977,7 +977,7 @@ class BuildPath:
             r.fetch_quietly(unit)
             try:
                 restacked = r.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
-            except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
+            except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
                 raise
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
@@ -1808,7 +1808,7 @@ class BuildPath:
                 unit=unit,
                 resolve=False,
             )
-        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
+        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
             raise
         except Exception as error:  # noqa: BLE001
             return self.rebase(state, f"moving onto {base} needed resolution: {error}", base=base)
