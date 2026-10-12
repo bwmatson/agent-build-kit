@@ -11,18 +11,19 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from agent_build_kit.runtimes import AgentRequest, NetworkUnavailable, ServiceUnavailable
+from tests.pipeline.test_network_outage_parking import outage
+from tests.pipeline.test_service_outage_parking import overloaded
 
-API = "api.example.test"
-WORDS = "API Error: Can't reach the API server — check your internet or DNS (EAI_AGAIN)"
 MINUTE = timedelta(minutes=1)
 
 
 def network(strength: str = "strong") -> NetworkUnavailable:
-    return NetworkUnavailable(WORDS, strength=strength, host=API)  # type: ignore[arg-type]
+    """The unit-parking tests' network error, strong unless said otherwise."""
+    return outage(strength)
 
 
 def service(status: int = 529) -> ServiceUnavailable:
-    return ServiceUnavailable(f"API Error: {status} Overloaded", status=status)
+    return overloaded(status)
 
 
 def raises(error: Exception) -> Callable[[AgentRequest], None]:

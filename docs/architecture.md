@@ -129,7 +129,8 @@ unit's agent run is) is a wait, not an attempt: the record keeps its `attempts` 
 minutes by consecutive waits). A wait is skipped, and not counted as work to plan, until
 `until` passes; a network wait is due at once on the tick whose control probe clears the
 `network` pause, which a network wait also writes and a tick under it plans nothing for.
-A status wait is capped by `limits.service_unavailable_attempts`; an ordinary failure, a
+Waits by HTTP status are counted apart (`service_waits`) and capped by
+`limits.service_unavailable_attempts`; waits the probe found are not capped and not counted; an ordinary failure, a
 success, an edit of `tasks.md` and `abk replan --forget` end a wait.
 
 A model is used because the parts that matter are judgements — which groups

@@ -150,3 +150,14 @@ def test_status_lists_the_waiting_change_by_cause(
     shown = [line for line in capsys.readouterr().out.splitlines() if CHANGE in line]
     assert any("waiting for the model service" in line for line in shown)
     assert not any("failing" in line or "given up" in line for line in shown)
+
+
+def test_a_waiting_record_missing_its_times_is_still_listed(
+    run: Replan, clock: FakeClock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run.record(CHANGE, ok=False, attempts=1, waiting="network")
+
+    code, out = run.run(capsys)
+
+    assert code == 2
+    assert line_of(out) == "feature: waiting for the network (attempts 1/3, not used)"

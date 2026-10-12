@@ -229,3 +229,41 @@ def test_a_service_wait_writes_no_pause(run: Replan, clock: FakeClock) -> None:
 
     assert run.records[CHANGE]["waiting"] == "service"
     assert not (run.inst.state_dir / "paused.json").exists()
+
+
+def test_waits_the_network_made_do_not_count_toward_the_status_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: FakeClock, probe: Probe
+) -> None:
+    run = Replan(tmp_path, monkeypatch, limits=CAP, feature=tasks_md(1))
+    for _ in range(4):
+        assert plan(run, network()).status == "waiting"
+        clock.advance(31 * 60)
+    for _ in range(3):
+        assert plan(run, service()).status == "waiting"
+        clock.advance(31 * 60)
+    record = run.records[CHANGE]
+    assert (record["waiting"], record["attempts"], record["waits"]) == ("service", 0, 7)
+
+    assert plan(run, service()).status == "failed"
+
+    record = run.records[CHANGE]
+    assert record["attempts"] == 1
+    assert not any(field in record for field in WAIT_FIELDS)
+
+
+def test_a_network_wait_leaves_the_other_changes_for_the_tick_that_clears_the_pause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: FakeClock
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(1))
+
+    results = plan_all_of(run, network())
+
+    assert sorted(results) == ["feature", "other"]
+    assert sorted(r.status for r in results.values()) == ["skipped", "waiting"]
+    assert run.calls == 1
+    assert len(run.records) == 1
+
+
+def plan_all_of(run: Replan, error: Exception) -> dict[str, cli.PlanResult]:
+    run.runtime.act = raises(error)
+    return cli.plan_all(run.inst, store=run.store)

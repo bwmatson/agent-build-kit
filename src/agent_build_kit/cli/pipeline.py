@@ -1017,13 +1017,14 @@ def _plan_waiting(record: Mapping, now: datetime) -> bool:
 def _release_network_waits(inst: Installation) -> None:
     """The network is back: every plan waiting for it is due now, whatever its next try."""
     now = spans.clock.now().isoformat()
-    due = {
-        change: record | {"until": now}
-        for change, record in _planned_hashes(inst).items()
-        if record.get("waiting") == "network"
-    }
-    if due:
-        record_plans(inst, due)
+    update_plans(
+        inst,
+        lambda records: {
+            change: record | {"until": now}
+            for change, record in records.items()
+            if record.get("waiting") == "network"
+        },
+    )
 
 
 def _needs_planning(inst: Installation, store: UnitStore) -> bool:
@@ -2409,10 +2410,14 @@ def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple
     """The kind of wait an outage error makes of a plan, and the fields of the record
     that says so, or None when the failure counts as an attempt: a weak sign the probe
     does not confirm, or a run of statuses longer than `limits.service_unavailable_attempts`."""
-    waited = previous.get("waits", 0) if previous.get("waiting") else 0
+    waiting = bool(previous.get("waiting"))
+    waited = previous.get("waits", 0) if waiting else 0
+    # Only statuses are capped: waits the probe found are not, and do not count.
+    statuses = previous.get("service_waits", 0) if waiting else 0
     if isinstance(error, ServiceUnavailable):
-        if waited >= inst.config.limits.service_unavailable_attempts:
+        if statuses >= inst.config.limits.service_unavailable_attempts:
             return None
+        statuses += 1
         kind = "service"
     elif isinstance(error, NetworkUnavailable):
         cause = _outage_cause(inst, error)
@@ -2427,7 +2432,8 @@ def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple
         "attempts": previous.get("attempts", 0),
         "waiting": kind,
         "waits": waits,
-        "since": previous["since"] if waited else now.isoformat(),
+        "service_waits": statuses,
+        "since": (previous.get("since") if waited else None) or now.isoformat(),
         "until": (now + PARK_BACKOFF[min(waits, len(PARK_BACKOFF)) - 1]).isoformat(),
         "reason": _failure_reason(error),
     }
@@ -2455,10 +2461,14 @@ def plan_all(
     planned = _planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
     results: dict[str, PlanResult] = {}
+    network_down = False
 
     for tasks in inst.tasks_files():
         change = tasks.parent.name
         if only is not None and change not in only:
+            continue
+        if network_down:
+            results[change] = PlanResult(status="skipped")
             continue
         digest = hashlib.sha256(specification(tasks).encode()).hexdigest()
         record = {} if force else planned.get(change) or {}
@@ -2582,9 +2592,12 @@ def plan_all(
                     )
                 log(
                     f"planning {change} is waiting for {PLAN_WAITS[kind]}, no attempt used — "
-                    f"next try {_shown_time(fields['until'])} — {fields['reason']}"
+                    f"next try {_shown_time(fields['until']) or 'later'} — {fields['reason']}"
                 )
                 results[change] = PlanResult(status="waiting")
+                # The rest would meet the same outage; the pause now stands and they are
+                # planned on the tick that clears it. A replan asked for them, so it tries.
+                network_down = network_down or (kind == "network" and not force)
                 continue
             attempts = previous.get("attempts", 0) + 1
             failure = {"hash": digest, "attempts": attempts, "ok": False}
@@ -2802,7 +2815,15 @@ def _planned_hashes(inst: Installation) -> dict[str, dict]:
 
 
 def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None:
-    """Set (or, for None, remove) recorded plans by change, under a lock, atomically.
+    """Set (or, for None, remove) recorded plans by change, under a lock, atomically."""
+    update_plans(inst, lambda _: updates)
+
+
+def update_plans(
+    inst: Installation, updates: Callable[[dict[str, dict]], Mapping[str, dict | None]]
+) -> None:
+    """Set (or, for None, remove) recorded plans by change, as `updates` says of the
+    records read under the lock, atomically.
 
     Read, changed and written whole under one lock, and the file replaced in one
     step, so a command beside a planning pass loses neither's update.
@@ -2810,7 +2831,7 @@ def record_plans(inst: Installation, updates: Mapping[str, dict | None]) -> None
     path = inst.state_dir / "planned.json"
     with file_lock(inst.state_dir / "planned.lock"):
         records = _planned_hashes(inst)
-        for change, record in updates.items():
+        for change, record in updates(records).items():
             if record is None:
                 records.pop(change, None)
             else:
@@ -3775,7 +3796,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             record = stored[change]
             print(
                 f"{change}: waiting for {PLAN_WAITS[record['waiting']]} — no attempt used; "
-                f"next try {_shown_time(record['until'])}"
+                f"next try {_shown_time(record.get('until')) or 'later'}"
             )
         else:
             print(f"{change}: the plan failed — see above")
@@ -3809,9 +3830,8 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
     attempts = record.get("attempts", 0)
     if record.get("waiting") in PLAN_WAITS:
         return (
-            f"waiting for {PLAN_WAITS[record['waiting']]} since {_shown_time(record['since'])}, "
-            f"next try {_shown_time(record['until'])} (attempts {attempts}/{max_attempts}, "
-            "not used)"
+            f"waiting for {PLAN_WAITS[record['waiting']]}{_since(record.get('since'))}"
+            f"{_next_try(record.get('until'))} (attempts {attempts}/{max_attempts}, not used)"
         )
     if attempts >= max_attempts:
         reason = f": {record['reason']}" if record.get("reason") else ""
@@ -3820,9 +3840,21 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
     return f"{state}: {record['reason']}" if record.get("reason") else state
 
 
-def _shown_time(moment: str) -> str:
-    """A recorded time as a person reads it: local, to the minute."""
-    return f"{datetime.fromisoformat(moment).astimezone():%H:%M}"
+def _shown_time(moment: object) -> str | None:
+    """A recorded time as a person reads it: local, to the minute; None when it is
+    missing or unreadable."""
+    try:
+        return f"{datetime.fromisoformat(str(moment)).astimezone():%H:%M}"
+    except ValueError:
+        return None
+
+
+def _since(moment: object) -> str:
+    return f" since {shown}" if (shown := _shown_time(moment)) else ""
+
+
+def _next_try(moment: object) -> str:
+    return f", next try {shown}" if (shown := _shown_time(moment)) else ""
 
 
 def _replan_differences(
