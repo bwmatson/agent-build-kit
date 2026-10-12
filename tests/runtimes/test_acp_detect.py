@@ -63,13 +63,13 @@ def test_a_program_without_the_library_is_unusable_and_the_reason_names_the_libr
 
 def test_the_variant_the_help_shows_is_the_command(monkeypatch: pytest.MonkeyPatch) -> None:
     table(monkeypatch, VARYING)
-    older = Host((VARYING.program,), helps={"svc-b": "usage: svc-b [--experimental-serve]"})
+    older = Host((VARYING.program,), helps={"svc-b": "usage: svc-b [--legacy-serve]"})
     newer = Host((VARYING.program,), helps={"svc-b": "usage: svc-b serve"})
 
     [from_older] = acp.RUNTIME.detect(older.which, older.run)
     [from_newer] = acp.RUNTIME.detect(newer.which, newer.run)
 
-    assert (from_older.usable, from_older.command) == (True, ("svc-b", "--experimental-serve"))
+    assert (from_older.usable, from_older.command) == (True, ("svc-b", "--legacy-serve"))
     assert (from_newer.usable, from_newer.command) == (True, ("svc-b", "serve"))
 
 

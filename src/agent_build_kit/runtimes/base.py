@@ -9,6 +9,7 @@ role, a working directory, a tool policy) rather than one runtime's CLI flags.
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from collections.abc import Callable
 from datetime import datetime
@@ -341,7 +342,23 @@ class ModelList(Frozen):
 
 def name_validator(known: tuple[str, ...]) -> Validator:
     """A validator accepting only a name in `known`."""
-    raise NotImplementedError
+
+    def validate(answer: str, which: Which) -> str | None:
+        del which
+        return None if answer in known else f"{answer!r} is not one of: {', '.join(known)}"
+
+    return validate
+
+
+def validate_argv(answer: str, which: Which) -> str | None:
+    """An answer that is a command whose program is on the path."""
+    try:
+        argv = shlex.split(answer)
+    except ValueError as exc:
+        return f"not a command: {exc}"
+    if not argv:
+        return "enter a command"
+    return None if which(argv[0]) else f"{argv[0]} is not on the path"
 
 
 @runtime_checkable
@@ -361,14 +378,16 @@ class ListsModels(Protocol):
 
 def candidates_of(runtime: AgentRuntime, which: Which, run: Run) -> list[Candidate]:
     """What `runtime` finds on this machine; none for a runtime without `detect`."""
-    raise NotImplementedError
+    return runtime.detect(which, run) if isinstance(runtime, Detects) else []
 
 
 def questions_of(runtime: AgentRuntime) -> list[Question]:
     """The setup questions `runtime` declares; none for one without them."""
-    raise NotImplementedError
+    return runtime.setup_questions() if isinstance(runtime, AsksQuestions) else []
 
 
 def models_of(runtime: AgentRuntime) -> ModelList:
     """The models `runtime` lists; an empty list saying so for one that cannot."""
-    raise NotImplementedError
+    if isinstance(runtime, ListsModels):
+        return runtime.list_models()
+    return ModelList(note="this runtime does not list its models")

@@ -42,16 +42,20 @@ from agent_build_kit.runtimes.base import (
     AgentResult,
     AgentRuntime,
     Candidate,
+    Model,
     ModelList,
+    ModelSource,
     PermissionMode,
     PolicyCoverage,
     PolicyReport,
     Question,
+    QuestionKind,
     Run,
     SessionUnavailable,
     UsageStatus,
     Which,
     child_environment,
+    validate_argv,
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
 from agent_build_kit.runtimes.traced import traced
@@ -111,6 +115,10 @@ NAME = "claude_code"
 
 # What starts the agent when `runtimes.claude_code.command` is not set.
 AGENT_COMMAND: tuple[str, ...] = ("claude",)
+
+
+# The model aliases Claude Code documents, since it cannot be asked.
+MODEL_ALIASES: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
 
 
 def command() -> list[str]:
@@ -331,13 +339,38 @@ class ClaudeCodeRuntime:
         )
 
     def detect(self, which: Which, run: Run) -> list[Candidate]:
-        raise NotImplementedError
+        del run
+        program = AGENT_COMMAND[0]
+        found = which(program) is not None
+        return [
+            Candidate(
+                runtime=NAME,
+                command=AGENT_COMMAND,
+                label="Claude Code",
+                usable=found,
+                reasons=() if found else (f"{program} is not on the path",),
+            )
+        ]
 
     def setup_questions(self) -> list[Question]:
-        raise NotImplementedError
+        return [
+            Question(
+                key="command",
+                prompt="The claude executable (a path, or a wrapper with its arguments)",
+                default=" ".join(AGENT_COMMAND),
+                kind=QuestionKind.ARGV,
+                validator=validate_argv,
+                writes_to=f"runtimes.{NAME}.command",
+            )
+        ]
 
     def list_models(self) -> ModelList:
-        raise NotImplementedError
+        return ModelList(
+            models=tuple(Model(name=alias) for alias in MODEL_ALIASES),
+            source=ModelSource.DOCUMENTED,
+            note="Claude Code has no command that lists models: these are its documented "
+            "aliases, not queried",
+        )
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Answered locally: every policed run registers the hook and passes

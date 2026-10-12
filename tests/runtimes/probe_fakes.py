@@ -26,8 +26,8 @@ VARYING = KnownAgent(
     name="svc-b",
     program="svc-b",
     variants=(
-        StartVariant(argv=("svc-b", "serve"), marker="serve"),
-        StartVariant(argv=("svc-b", "--experimental-serve"), marker="--experimental-serve"),
+        StartVariant(argv=("svc-b", "serve"), marker="svc-b serve"),
+        StartVariant(argv=("svc-b", "--legacy-serve"), marker="--legacy-serve"),
     ),
     verified="documented only",
     source="https://example.test/svc-b",

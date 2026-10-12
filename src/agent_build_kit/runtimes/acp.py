@@ -40,6 +40,8 @@ routes through the client, with a throwaway probe worktree of its own.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import importlib.util
 import itertools
 import json
 import os
@@ -106,18 +108,22 @@ from agent_build_kit.runtimes.base import (
     AgentResult,
     AgentRuntime,
     Candidate,
+    Model,
     ModelList,
+    ModelSource,
     PermissionAsk,
     PermissionChoice,
     PolicyCoverage,
     PolicyReport,
     Question,
+    QuestionKind,
     Run,
     SessionUnavailable,
     SpellingResult,
     ToolPolicy,
     Which,
     child_environment,
+    validate_argv,
 )
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.usage import ContextBasis, Usage, context_of
@@ -1285,8 +1291,134 @@ class KnownAgent(Frozen):
     source: str
 
 
-# The agents abk knows how to start. Product names appear here and nowhere else.
-KNOWN_AGENTS: tuple[KnownAgent, ...] = ()
+_DOCS = "the agent's own documentation"
+_DOCS_ONLY = "documented only: not run on the machine that wrote this entry"
+
+# The agents abk knows how to start. Product names appear here and nowhere else. An entry
+# is UNVERIFIED until a person has run it; `verified` says how far each one has been.
+KNOWN_AGENTS: tuple[KnownAgent, ...] = (
+    KnownAgent(
+        name="Hermes",
+        program="hermes",
+        variants=(StartVariant(argv=("hermes", "acp")),),
+        needs="its own configuration and credentials",
+        verified="run where it was installed: session/new returned a session id and modes only",
+        source="run on a machine where the agent was installed",
+    ),
+    KnownAgent(
+        name="OpenClaw",
+        program="openclaw",
+        variants=(StartVariant(argv=("openclaw", "acp")),),
+        needs="a running gateway, maybe a password",
+        verified="its --help only (an ACP bridge backed by the Gateway)",
+        source="the program's own --help",
+    ),
+    KnownAgent(
+        name="OpenCode",
+        program="opencode",
+        variants=(StartVariant(argv=("opencode", "acp")),),
+        verified=_DOCS_ONLY,
+        source=_DOCS,
+    ),
+    KnownAgent(
+        name="Goose",
+        program="goose",
+        variants=(StartVariant(argv=("goose", "acp")),),
+        verified=_DOCS_ONLY,
+        source=_DOCS,
+    ),
+    KnownAgent(
+        name="Qwen Code",
+        program="qwen",
+        variants=(StartVariant(argv=("qwen", "--acp")),),
+        verified=_DOCS_ONLY,
+        source=_DOCS,
+    ),
+    KnownAgent(
+        name="Gemini CLI",
+        program="gemini",
+        variants=(
+            StartVariant(argv=("gemini", "--acp"), marker="--acp"),
+            StartVariant(argv=("gemini", "--experimental-acp"), marker="--experimental-acp"),
+        ),
+        verified="documented only: the flag varies by version, chosen from --help",
+        source=_DOCS,
+    ),
+    KnownAgent(
+        name="Kimi CLI",
+        program="kimi",
+        # The older spelling first: its help names `acp` too, so the newer marker alone
+        # would also match it.
+        variants=(
+            StartVariant(argv=("kimi", "--experimental-acp"), marker="--experimental-acp"),
+            StartVariant(argv=("kimi", "acp"), marker="acp"),
+        ),
+        verified="documented only: sources disagree on the spelling, chosen from --help",
+        source=_DOCS,
+    ),
+    KnownAgent(
+        name="Codex",
+        program="codex-acp",
+        variants=(StartVariant(argv=("codex-acp",)),),
+        needs="an API key or a login",
+        verified=_DOCS_ONLY,
+        source="the adapter's package documentation",
+    ),
+    KnownAgent(
+        name="Claude via an adapter",
+        program="claude-agent-acp",
+        variants=(StartVariant(argv=("claude-agent-acp",)),),
+        verified="UNVERIFIED: the standalone run command is not confirmed",
+        source="the adapter's package documentation",
+    ),
+)
+
+
+# How long a probe waits on a program's `--help`.
+HELP_TIMEOUT = 5
+
+
+def _candidate(agent: KnownAgent, which: Which, run: Run) -> Candidate:
+    """What a probe finds of one known agent: the program on the path, the library and,
+    where its spelling varies, the variant its help shows. Stops at the first that fails."""
+
+    def found(command: tuple[str, ...], reasons: tuple[str, ...] = ()) -> Candidate:
+        return Candidate(
+            runtime=NAME,
+            command=command,
+            label=agent.name,
+            usable=not reasons,
+            reasons=reasons,
+            note=agent.needs,
+            verified=agent.verified,
+        )
+
+    def unusable(reason: str) -> Candidate:
+        return found(agent.variants[0].argv, (reason,))
+
+    if which(agent.program) is None:
+        return unusable(f"{agent.program} is not on the path")
+    if importlib.util.find_spec("acp") is None:
+        return unusable("the acp extra is not installed")
+    if len(agent.variants) == 1:
+        return found(agent.variants[0].argv)
+    try:
+        helped = run(
+            [agent.program, "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=HELP_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return unusable(f"{agent.program} --help timed out after {HELP_TIMEOUT} seconds")
+    except OSError as exc:
+        return unusable(f"{agent.program} --help could not run: {exc}")
+    shown = f"{helped.stdout}\n{helped.stderr}"
+    chosen = next((v for v in agent.variants if v.marker and v.marker in shown), None)
+    if chosen is None:
+        return unusable(f"{agent.program} --help shows none of the start commands abk knows")
+    return found(chosen.argv)
 
 
 class AcpRuntime:
@@ -1659,50 +1791,56 @@ class AcpRuntime:
         self, command: list[str], session_id: str, cwd: str, environment: dict[str, str] | None
     ) -> bool:
         try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=child_environment(environment, {}),
-                limit=LINE_LIMIT,
-                start_new_session=True,
-            )
-        except OSError:
-            return False
-        assert process.stdin is not None and process.stdout is not None
-        assert process.stderr is not None
-        stderr = _Drained(process.stderr)
-        conn = connect_to_agent(
-            cast(Client, _Session(None)), process.stdin, process.stdout, observers=[]
-        )
-        try:
-            initialized = await conn.initialize(
-                protocol_version=PROTOCOL_VERSION,
-                client_capabilities=_capabilities(None),
-                client_info=Implementation(
-                    name="abk", title="agent-build-kit", version=__version__
-                ),
-            )
-            return _resumes(initialized) and await self._listed(conn, session_id, cwd)
+            async with _bare_connection(command, environment) as conn:
+                initialized = await _initialize(conn)
+                return _resumes(initialized) and await self._listed(conn, session_id, cwd)
         except Exception:  # noqa: BLE001 — an agent that will not answer cannot be loaded from
             return False
-        finally:
-            await conn.close()
-            await _ended(process, stderr)
+
+    async def _advertised_models(self, command: list[str]) -> ModelList:
+        """What the agent offers when a session opens, in a temporary directory. No prompt
+        is sent. Only the `model` config option is read: the pinned library's
+        `session/new` answer has no `models` state to read."""
+        try:
+            async with _bare_connection(command, None) as conn:
+                await _initialize(conn)
+                with tempfile.TemporaryDirectory(prefix="abk-models-") as scratch:
+                    opened = await conn.new_session(cwd=scratch, mcp_servers=[])
+        except Exception as exc:  # noqa: BLE001 — an agent that will not open a session lists none
+            return ModelList(note=f"the agent did not open a session to list its models: {exc}")
+        option = _model_option(opened.config_options)
+        if option is None or not (names := _offered(option)):
+            return ModelList(note="this agent does not list its models; it will use its own")
+        return ModelList(
+            models=tuple(Model(name=n, current=n == option.current_value) for n in names),
+            source=ModelSource.ADVERTISED,
+            note="the models the agent advertises when a session opens",
+        )
 
     def get_usage_status(self) -> None:
         """Billed per token, with no window to exhaust (docs/agent-runtimes.md)."""
         return None
 
     def detect(self, which: Which, run: Run) -> list[Candidate]:
-        raise NotImplementedError
+        return [_candidate(agent, which, run) for agent in KNOWN_AGENTS]
 
     def setup_questions(self) -> list[Question]:
-        raise NotImplementedError
+        return [
+            Question(
+                key="command",
+                prompt="The command that starts the agent as a protocol server",
+                default="",
+                kind=QuestionKind.ARGV,
+                validator=validate_argv,
+                writes_to=f"runtimes.{NAME}.command",
+            )
+        ]
 
     def list_models(self) -> ModelList:
-        raise NotImplementedError
+        command = config.runtime_entry(name=NAME).command or list(self.agent_command)
+        if not command:
+            return ModelList(note=f"runtimes.{NAME}.command is not set, so no agent was asked")
+        return asyncio.run(self._advertised_models(command))
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Whether this machine's agent really refuses what abk forbids: a
@@ -1756,6 +1894,40 @@ class AcpRuntime:
             if not result.refused
         )
         return PolicyReport(ok=not unenforced, unenforced=unenforced, results=results)
+
+
+@contextlib.asynccontextmanager
+async def _bare_connection(command: list[str], environment: dict[str, str] | None):
+    """A connection to the agent started from `command`, for a question that sends no
+    prompt; the agent is ended when it closes."""
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=child_environment(environment, {}),
+        limit=LINE_LIMIT,
+        start_new_session=True,
+    )
+    assert process.stdin is not None and process.stdout is not None
+    assert process.stderr is not None
+    stderr = _Drained(process.stderr)
+    conn = connect_to_agent(
+        cast(Client, _Session(None)), process.stdin, process.stdout, observers=[]
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+        await _ended(process, stderr)
+
+
+async def _initialize(conn: Any) -> InitializeResponse:
+    return await conn.initialize(
+        protocol_version=PROTOCOL_VERSION,
+        client_capabilities=_capabilities(None),
+        client_info=Implementation(name="abk", title="agent-build-kit", version=__version__),
+    )
 
 
 def _resumes(initialized: InitializeResponse) -> bool:
