@@ -80,7 +80,7 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
 )
 from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
-from agent_build_kit.pipeline.scratch import run_folder
+from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
@@ -126,7 +126,12 @@ from agent_build_kit.pipeline.usage_guard import (
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
-from agent_build_kit.profiles.base import RepeatsTests, SelectsAffectedTests, ToolchainProfile
+from agent_build_kit.profiles.base import (
+    RecordsSelectionData,
+    RepeatsTests,
+    SelectsAffectedTests,
+    ToolchainProfile,
+)
 from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
 from agent_build_kit.runtimes.base import Role, SessionUnavailable
@@ -787,6 +792,8 @@ def build_tier1(
     affected = (
         repo.checks.affected if repo is not None and repo.checks.affected.mode != "off" else None
     )
+    # Per unit: the test time and count of its last full run.
+    last_full: dict[str, tuple[float, int]] = {}
 
     def tier1(
         *, cwd: Path, base: str, whole_repo: bool = False, failed_output: str = ""
@@ -801,12 +808,17 @@ def build_tier1(
             plan = selection(base, work, failed_output)
         if plan is None:
             return full(cwd, base, work, whole_repo, lint=True)
-        selected = run_selection(plan)
+        earlier = last_full.get(spans.current_unit.get()[0])
+        figures: list[tuple[float, int]] = []
+        selected = run_selection(plan, figures)
         if selected is not None and not selected[0]:
+            record_selected(figures, "not_run", earlier)
             return selected
         # A selected pass is not the green: the full tests confirm it, and lint runs again
         # unless the selection got through it for every project.
         confirmed = full(cwd, base, work, whole_repo, lint=selected is None)
+        if selected is not None:
+            record_selected(figures, "agreed" if confirmed[0] else "disagreed", earlier)
         if selected is not None and not confirmed[0]:
             _say(
                 log,
@@ -815,6 +827,29 @@ def build_tier1(
             )
         return confirmed
 
+    def record_selected(
+        figures: list[tuple[float, int]], outcome: str, earlier: tuple[float, int] | None
+    ) -> None:
+        """Write the ledger line of a selected run: the saving is the last full run's time
+        less this one's, never below zero, and absent with no full run to compare with."""
+        unit, change, node, round_number = spans.current_unit.get()
+        seconds = sum(taken for taken, _ in figures)
+        latest = last_full.get(unit)
+        spans.record_affected(
+            spans.AffectedRun(
+                at=spans.clock.now().isoformat(),
+                unit=unit,
+                change=change,
+                node=node,
+                round=round_number,
+                selected=sum(count for _, count in figures),
+                total=latest[1] if latest else None,
+                saved_seconds=max(0.0, earlier[0] - seconds) if earlier else None,
+                outcome=outcome,
+            ),
+            log or (lambda message: None),
+        )
+
     def full(
         cwd: Path,
         base: str,
@@ -822,6 +857,26 @@ def build_tier1(
         whole_repo: bool,
         *,
         lint: bool,
+    ) -> tuple[bool, str]:
+        """The unit's tier 1 in full; its test time and count are kept, as what a later
+        selected run is compared with."""
+        figures: list[tuple[float, int]] = []
+        try:
+            return run_full(cwd, base, work, whole_repo, lint, figures)
+        finally:
+            if figures:
+                last_full[spans.current_unit.get()[0]] = (
+                    sum(taken for taken, _ in figures),
+                    sum(count for _, count in figures),
+                )
+
+    def run_full(
+        cwd: Path,
+        base: str,
+        work: list[tuple[Path, ToolchainProfile, list[str]]],
+        whole_repo: bool,
+        lint: bool,
+        figures: list[tuple[float, int]],
     ) -> tuple[bool, str]:
         extra = profile.extra_checks(repo) if repo is not None else []
         ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
@@ -833,8 +888,31 @@ def build_tier1(
                 lint_command = toolchain.lint_command(base)
                 test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
 
-            for command in [*([lint_command] if lint else []), *test_commands]:
+            tests = len(test_commands)
+            commands = [*([lint_command] if lint else []), *test_commands]
+            for index, planned in enumerate(commands):
+                is_test = index >= len(commands) - tests
+                # A full run keeps the data a later selection reads, without selecting.
+                command = (
+                    toolchain.seeding_command(planned, selection_seed(where))
+                    if is_test
+                    and affected is not None
+                    and not whole_repo
+                    and isinstance(toolchain, RecordsSelectionData)
+                    else planned
+                )
+                started = spans.clock.monotonic()
                 result = ran(command, where, toolchain)
+                if command is not planned and _tooling_lost(toolchain, command, result):
+                    _say(
+                        log,
+                        f"affected tests: {_program(command)} could not use the selection "
+                        "tooling, running the tests without it",
+                    )
+                    command = planned
+                    result = ran(command, where, toolchain)
+                if is_test:
+                    figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
                     isolate(command, result, where, toolchain)
                     return False, _failure(command, result, where)
@@ -908,7 +986,11 @@ def build_tier1(
             else:
                 tests = (
                     toolchain.affected_test_commands(
-                        where, files, failed_ids, seed=where / ".abk-affected"
+                        where,
+                        files,
+                        failed_ids,
+                        seed=selection_seed(where),
+                        root_extras=root_extras or [],
                     )
                     if isinstance(toolchain, SelectsAffectedTests)
                     else None
@@ -921,19 +1003,31 @@ def build_tier1(
 
     def run_selection(
         plan: list[tuple[Path, ToolchainProfile, list[list[str]]]],
+        figures: list[tuple[float, int]],
     ) -> tuple[bool, str] | None:
-        """(passed, what failed), or None when a command could not start."""
+        """(passed, what failed), or None when a command could not start. The time and
+        test count of each selected test command are added to `figures`."""
         for where, toolchain, commands in plan:
             for index, command in enumerate(commands):
+                started = spans.clock.monotonic()
                 try:
                     result = ran(command, where, toolchain)
                 except OSError as error:
                     _say(
                         log,
-                        f"affected tests: {command[0]} could not run ({error}), "
+                        f"affected tests: {_program(command)} could not run ({error}), "
                         "running the full suite",
                     )
                     return None
+                if index > 0 and _tooling_lost(toolchain, command, result):
+                    _say(
+                        log,
+                        f"affected tests: {_program(command)} could not use the selection "
+                        "tooling, running the full suite",
+                    )
+                    return None
+                if index > 0:
+                    figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
@@ -1063,6 +1157,35 @@ def _under(path: Path, where: Path) -> str | None:
 def _say(log: Callable[[str], None] | None, message: str) -> None:
     if log is not None:
         log(f"  tier 1: {message}")
+
+
+def _program(command: list[str]) -> str:
+    """The program a command runs, after the `VAR=value` words an `env` prefix sets."""
+    words = iter(command)
+    for word in words:
+        if word != "env" and "=" not in word:
+            return word
+    return command[0]
+
+
+def _tooling_lost(
+    toolchain: ToolchainProfile, command: list[str], result: subprocess.CompletedProcess
+) -> bool:
+    """Whether a command made for the selection's data failed before running a test: no
+    result line at all, so its tooling could not be had and the plain command is the answer.
+    Collecting nothing is not that: pytest started, so the plugin loaded."""
+    return (
+        isinstance(toolchain, RecordsSelectionData)
+        and toolchain.is_seeded(command)
+        and result.returncode not in (0, toolchain.no_tests_collected_exit)
+        and _counted(toolchain, result) == 0
+    )
+
+
+def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -> int:
+    """How many tests a test run's output says it ran."""
+    passed, failed, skipped, _ = toolchain.parse_test_summary(f"{result.stdout}\n{result.stderr}")
+    return passed + failed + skipped
 
 
 def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:

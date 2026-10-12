@@ -166,6 +166,10 @@ def _pytest_program(command: list[str]) -> int | None:
     )
 
 
+# The plugin that records, for each test, the source it executed, and selects by it.
+TESTMON = "pytest-testmon"
+
+
 class PythonUvProfile:
     name: str = "python-uv"
     detect_markers: tuple[str, ...] = ("uv.lock", "pyproject.toml")
@@ -409,6 +413,45 @@ class PythonUvProfile:
             or any(test.split("::", 1)[0] == p or test.startswith(f"{p}/") for p in paths)
         ]
         return [*command[: program + 1], *options, *ids] if ids else None
+
+    def affected_test_commands(
+        self,
+        repo: Path,
+        changed_files: list[str],
+        failed_ids: list[str],
+        *,
+        seed: Path,
+        root_extras: list[str],
+    ) -> list[list[str]] | None:
+        """The test commands of the change, selecting by the source each test executed when
+        the seed data of an earlier full run is there; otherwise the failed tests alone,
+        and None when none is named, so that the full suite stands in."""
+        commands = self.test_commands(repo, changed_files, root_extras=root_extras)
+        if seed.is_file():
+            return [self.seeding_command(command, seed, select=True) for command in commands]
+        alone = [self.repeat_command(command, failed_ids) for command in commands]
+        return [command for command in alone if command is not None] or None
+
+    def is_seeded(self, command: list[str]) -> bool:
+        return TESTMON in command
+
+    def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
+        """`command`, a test run, as one run with the coverage plugin in its isolated
+        environment, keeping its data at `seed`: it selects the tests the change affects
+        when `select`, and otherwise runs them all and records what each executed."""
+        program = _pytest_program(command)
+        if program is None:
+            return command
+        flag = "--testmon" if select else "--testmon-noselect"
+        return [
+            "env",
+            f"TESTMON_DATAFILE={seed}",
+            *command[:program],
+            *["--with", TESTMON],
+            *command[program : program + 1],
+            flag,
+            *command[program + 1 :],
+        ]
 
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.

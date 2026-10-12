@@ -19,6 +19,9 @@ from agent_build_kit.pipeline.shell import git_out
 
 SCRATCH = Path(".abk") / "out"
 EXCLUDE_LINE = ".abk/"
+# Where a project keeps the data its affected-tests selection reads: under the folder git
+# excludes, beside the scratch folder and outside it, which a run's end empties.
+SELECTION_SEED = Path(".abk") / "affected"
 
 # A file in a run's folder is cut to this much of its tail.
 MAX_BYTES = 5_000_000
@@ -49,6 +52,13 @@ def output_convention() -> str:
 
 def scratch_folder(worktree: Path) -> Path:
     return worktree / SCRATCH
+
+
+def selection_seed(project: Path) -> Path:
+    """The file a project's selection data is kept in, its folder made."""
+    seed = project / SELECTION_SEED
+    seed.parent.mkdir(parents=True, exist_ok=True)
+    return seed
 
 
 def carries_scratch(checkout: Path) -> bool:
