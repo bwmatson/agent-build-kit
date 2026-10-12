@@ -36,6 +36,7 @@ class KnownAgent(Frozen):
     needs: str = ""
     verified: str  # how it was checked, or that it was documented only
     source: str
+    spellings: str = ""  # which forbidden-command spellings a live check showed it refuses
 
 
 _DOCS = "the agent's own documentation"
