@@ -84,7 +84,9 @@ from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktre
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     TestFailure,
+    Tier2Classification,
     Tier2Result,
+    Tier2Verdict,
     build_snapshot,
     stack_lock,
 )
@@ -1685,8 +1687,11 @@ class Tier2Session:
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
         projects: list[ProjectConfig] | None = None,
+        base: str | None = None,
     ) -> None:
         self.unit = unit
+        self._base = base
+        self.verdict: Tier2Verdict | None = None
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
         # a merge. Without it a unit's tier 2 ran them with none of it, and a
@@ -1789,6 +1794,10 @@ class Tier2Session:
             failures=failures,
         )
         return self.result.ok, build_snapshot(self.result)
+
+    def classify(self, *, cwd: Path) -> Tier2Classification:
+        """The failed tests of the last run, the unit's own and the untouched."""
+        raise NotImplementedError
 
     def _run_on_dev_stack(self, cwd: Path, script: Path) -> tuple[bool, str]:
         """Deploy this branch onto the dev stack, test against it, take it down.
