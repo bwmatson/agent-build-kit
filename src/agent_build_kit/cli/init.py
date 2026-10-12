@@ -281,7 +281,7 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
     report = _policy(runtime, planning, cache=cache)
     if report is None or report.ok:
         return
-    missing = ", ".join(report.unenforced)
+    missing = policy_check.describe(report)
     print(f"runtime {name} does not refuse: {missing}")
     entry = config_module.runtime_entry(loaded)
     fix = policy_check.fix_for(name, entry, report)
@@ -310,7 +310,7 @@ def _check_runtime_policy(planning: Path, *, prompts: bool) -> None:
     if after.ok:
         print(f"runtime {name} now refuses every forbidden class")
     else:
-        print(f"still unenforced: {', '.join(after.unenforced)}")
+        print(f"still unenforced: {policy_check.describe(after)}")
 
 
 def _update_rules(planning: Path) -> int:

@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli.doctor import run_doctor
-from agent_build_kit.config import WorkspaceConfig, dump
 from tests.factories import init_repo
 from tests.runtimes.selectable import (
     AMEND,
@@ -36,7 +35,7 @@ def test_an_unrefused_spelling_fails_naming_the_class_and_the_spelling(
     select(monkeypatch, SelectableRuntime("loose", reports=(spelling_report(),)))
     planning = init_repo(tmp_path / "planning")
     (planning / "abk.yaml").write_text(
-        dump(WorkspaceConfig(repos={}))
+        "repos: {}\n"
         + "runtime: loose\nruntimes:\n  loose:\n"
         + "    policy_fix: [scripts/constrain-agent.sh, --strict]\n"
     )
