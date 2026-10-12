@@ -410,6 +410,11 @@ class PythonUvProfile:
         ]
         return [*command[: program + 1], *options, *ids] if ids else None
 
+    def affected_test_commands(
+        self, repo: Path, changed_files: list[str], failed_ids: list[str], *, seed: Path
+    ) -> list[list[str]] | None:
+        raise NotImplementedError
+
     def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.
         # No tests/ at all is intentional too — the satisfied verdict then
