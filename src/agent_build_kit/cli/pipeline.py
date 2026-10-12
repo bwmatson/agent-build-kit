@@ -78,6 +78,7 @@ from agent_build_kit.pipeline.pause import (
 )
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
+    PlannerError,
     in_flight_item,
     plan_kind,
     plan_round,
@@ -2291,7 +2292,10 @@ def plan_all(
             continue
         except Exception as error:  # noqa: BLE001
             attempts = (record.get("attempts", 0) if record.get("hash") == digest else 0) + 1
-            record_plans(inst, {change: {"hash": digest, "attempts": attempts, "ok": False}})
+            failure = {"hash": digest, "attempts": attempts, "ok": False}
+            if isinstance(error, PlannerError) and error.units:
+                failure |= {"units": list(error.units), "reason": str(error)}
+            record_plans(inst, {change: failure})
             giving_up = (
                 " — giving up until tasks.md changes or `abk replan` is run"
                 if attempts >= max_attempts
@@ -3384,9 +3388,8 @@ def _plan_state(record: dict | None, max_attempts: int) -> str:
     if record.get("ok"):
         return "planned"
     attempts = record.get("attempts", 0)
-    if attempts >= max_attempts:
-        return "given up"
-    return f"failing {attempts}/{max_attempts}"
+    state = "given up" if attempts >= max_attempts else f"failing {attempts}/{max_attempts}"
+    return f"{state}: {record['reason']}" if record.get("reason") else state
 
 
 def _replan_differences(

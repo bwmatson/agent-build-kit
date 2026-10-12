@@ -393,6 +393,8 @@ says how many model calls it will make.
   `--all` is every active change; `--failed` every change whose last plan failed
   or gave up. With none, the command lists each change with the state of its plan
   (`planned`, `failing 2/3`, `given up`, `never planned`), plans nothing and exits 2.
+  A plan that was refused shows the reason after its state (`failing 1/3: unit
+  feature/2 claims group 1, which a merged unit has already built …`).
 - **`--forget`** clears the records and stops: no model call, and the next tick
   plans them.
 - **Started work is left alone.** A unit that is running, in review, failed, held,
