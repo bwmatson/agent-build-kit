@@ -29,6 +29,8 @@ answers them (only while the variable `--sessions-when` names is set, when given
 newest first, `--page-size` at a time with a `nextCursor` while more remain, and
 `session/resume` of an id it does not hold, as Hermes does, creates a session of its own and
 answers normally, the response naming no id.
+`--fail session` stalls `session/new` for `HANG_SECONDS`, as a bridge whose backend is not running.
+`--models A,B,C` makes it offer those models, the first current (`none`: no model option at all).
 `--watch` names more variables for the environment line to record, beyond `WATCHED_ENV`.
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
 unadvertised. `--linger` starts a child in the agent's own process group that
@@ -255,6 +257,25 @@ OUTPUT_LIMIT = 64 * 1024
 CANCEL_WAIT = 2.0
 
 
+def _model_options(current: str, models: tuple[str, ...]) -> list[SessionConfigOptionSelect]:
+    """The `model` config option an agent offering `models` sends: none at all for an agent
+    that offers none, the two named options when it is the default pair."""
+    if not models:
+        return []
+    if models != MODELS:
+        return [
+            SessionConfigOptionSelect(
+                type="select",
+                id="model",
+                name="Model",
+                category="model",
+                current_value=current,
+                options=[SessionConfigSelectOption(value=m, name=m.title()) for m in models],
+            )
+        ]
+    return [_model_option(current)]
+
+
 def _model_option(current: str) -> SessionConfigOptionSelect:
     return SessionConfigOptionSelect(
         type="select",
@@ -297,7 +318,9 @@ class FakeAgent:
         fills: tuple[int | None, ...] = (),
         prior_fill: int = 0,
         sessions_when: str | None = None,
+        models: tuple[str, ...] = MODELS,
     ) -> None:
+        self._models = models
         self._sessions_when = sessions_when
         self._prior_cost = prior_cost
         self._fills = fills
@@ -321,7 +344,7 @@ class FakeAgent:
         self._only = only
         self._split = split
         self._offer = offer
-        self._model = DEFAULT_MODEL
+        self._model = models[0] if models else ""
         self._client: Client | None = None
         self._cwd = str(Path.cwd())
         self._calls = 0
@@ -372,6 +395,8 @@ class FakeAgent:
         self, cwd: str, additional_directories=None, mcp_servers=None, **kwargs: Any
     ) -> NewSessionResponse:
         self._cwd = cwd
+        if self._fail == "session":
+            await asyncio.sleep(HANG_SECONDS)
         return NewSessionResponse(
             session_id=SESSION,
             modes=SessionModeState(
@@ -381,7 +406,7 @@ class FakeAgent:
                     SessionMode(id="yolo", name="Unattended", description="Asks for nothing."),
                 ],
             ),
-            config_options=[_model_option(self._model)],
+            config_options=_model_options(self._model, self._models),
         )
 
     async def load_session(
@@ -402,7 +427,7 @@ class FakeAgent:
         await client.session_update(
             session_id=session_id, update=update_agent_message_text(EARLIER_TURN)
         )
-        return LoadSessionResponse(config_options=[_model_option(self._model)])
+        return LoadSessionResponse(config_options=_model_options(self._model, self._models))
 
     async def list_sessions(
         self, cwd: str | None = None, cursor: str | None = None, **kwargs: Any
@@ -449,16 +474,18 @@ class FakeAgent:
                 ),
             )
         # Held or not, the answer is the same and names no session.
-        return ResumeSessionResponse(config_options=[_model_option(self._model)])
+        return ResumeSessionResponse(config_options=_model_options(self._model, self._models))
 
     async def set_config_option(
         self, config_id: str, session_id: str, value: str | bool, **kwargs: Any
     ) -> SetSessionConfigOptionResponse:
         if config_id == "model" and self._fail == "set_model":
             raise RequestError.internal_error({"details": "the model is not available to select"})
-        if config_id == "model" and value in MODELS:
+        if config_id == "model" and value in self._models:
             self._model = str(value)
-        return SetSessionConfigOptionResponse(config_options=[_model_option(self._model)])
+        return SetSessionConfigOptionResponse(
+            config_options=_model_options(self._model, self._models)
+        )
 
     async def set_session_mode(self, session_id: str, mode_id: str, **kwargs: Any) -> None:
         return None
@@ -957,6 +984,7 @@ def command(
     prior_fill: int | None = None,
     sessions_when: str | None = None,
     watch: tuple[str, ...] = (),
+    models: tuple[str, ...] | None = None,
 ) -> list[str]:
     """The argv that starts this agent, as `runtimes.acp.command` names one.
     `act`'s actions are written beside `record`, where `--act` reads them."""
@@ -1007,6 +1035,8 @@ def command(
         argv += ["--sessions-when", sessions_when]
     if watch:
         argv += ["--watch", ",".join(watch)]
+    if models is not None:
+        argv += ["--models", ",".join(models) or "none"]
     return argv
 
 
@@ -1036,6 +1066,7 @@ def use_agent(
     prior_fill: int | None = None,
     sessions_when: str | None = None,
     watch: tuple[str, ...] = (),
+    models: tuple[str, ...] | None = None,
 ) -> None:
     """Point the active workspace's `runtimes.acp.command` at this agent,
     answering every prompt with `stop`."""
@@ -1065,6 +1096,7 @@ def use_agent(
             prior_fill=prior_fill,
             sessions_when=sessions_when,
             watch=watch,
+            models=models,
         )
     )
 
@@ -1094,7 +1126,18 @@ def main() -> None:
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
     parser.add_argument("--linger", action="store_true")
     parser.add_argument(
-        "--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach", "set_model", "load"]
+        "--fail",
+        choices=[
+            "exit",
+            "kill",
+            "error",
+            "hang",
+            "orphan",
+            "detach",
+            "set_model",
+            "load",
+            "session",
+        ],
     )
     parser.add_argument("--act", type=Path)
     parser.add_argument("--probe", choices=["terminal", "ask"])
@@ -1115,6 +1158,7 @@ def main() -> None:
     parser.add_argument("--prior-fill", type=int, default=0)
     parser.add_argument("--sessions-when")
     parser.add_argument("--watch", default="")
+    parser.add_argument("--models", default=",".join(MODELS))
     args = parser.parse_args()
     agent = FakeAgent(
         args.record,
@@ -1140,6 +1184,7 @@ def main() -> None:
         fills=tuple(None if x == "none" else int(x) for x in args.fills.split(",") if x),
         prior_fill=args.prior_fill,
         sessions_when=args.sessions_when,
+        models=tuple(m for m in args.models.split(",") if m and m != "none"),
     )
     watched = (*WATCHED_ENV, *filter(None, args.watch.split(",")))
     agent._write(ENVIRONMENT, {name: os.environ.get(name) for name in watched})

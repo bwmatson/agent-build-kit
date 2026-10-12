@@ -40,6 +40,7 @@ routes through the client, with a throwaway probe worktree of its own.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
 import json
 import os
@@ -48,7 +49,7 @@ import signal
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -99,25 +100,38 @@ from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName, 
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
+from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRequest,
     AgentResult,
     AgentRuntime,
+    Candidate,
+    Model,
+    ModelList,
+    ModelSource,
     PermissionAsk,
     PermissionChoice,
     PolicyCoverage,
     PolicyReport,
+    Question,
+    QuestionKind,
+    Run,
     SessionUnavailable,
     SpellingResult,
     ToolPolicy,
+    Which,
     child_environment,
+    validate_argv,
 )
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.usage import ContextBasis, Usage, context_of
 
-NAME = "acp"
+NAME = known_agents.RUNTIME_NAME
+
+# The longest listing an agent's models waits on it to start, initialize and open a session.
+LISTING_TIMEOUT = 20
 
 # A JSON-RPC message is one line; a file's contents can make that line far
 # longer than asyncio's 64 KiB default.
@@ -1632,41 +1646,66 @@ class AcpRuntime:
         self, command: list[str], session_id: str, cwd: str, environment: dict[str, str] | None
     ) -> bool:
         try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=child_environment(environment, {}),
-                limit=LINE_LIMIT,
-                start_new_session=True,
-            )
-        except OSError:
-            return False
-        assert process.stdin is not None and process.stdout is not None
-        assert process.stderr is not None
-        stderr = _Drained(process.stderr)
-        conn = connect_to_agent(
-            cast(Client, _Session(None)), process.stdin, process.stdout, observers=[]
-        )
-        try:
-            initialized = await conn.initialize(
-                protocol_version=PROTOCOL_VERSION,
-                client_capabilities=_capabilities(None),
-                client_info=Implementation(
-                    name="abk", title="agent-build-kit", version=__version__
-                ),
-            )
-            return _resumes(initialized) and await self._listed(conn, session_id, cwd)
+            async with _bare_connection(command, environment) as conn:
+                initialized = await _initialize(conn)
+                return _resumes(initialized) and await self._listed(conn, session_id, cwd)
         except Exception:  # noqa: BLE001 — an agent that will not answer cannot be loaded from
             return False
-        finally:
-            await conn.close()
-            await _ended(process, stderr)
+
+    async def _opened(self, command: list[str]) -> Any:
+        async with _bare_connection(command, None) as conn:
+            await _initialize(conn)
+            with tempfile.TemporaryDirectory(prefix="abk-models-") as scratch:
+                return await conn.new_session(cwd=scratch, mcp_servers=[])
+
+    async def _advertised_models(self, command: list[str]) -> ModelList:
+        """What the agent offers when a session opens, in a temporary directory. No prompt
+        is sent. Only the `model` config option is read: the pinned library's
+        `session/new` answer has no `models` state to read."""
+        try:
+            opened = await asyncio.wait_for(self._opened(command), timeout=LISTING_TIMEOUT)
+        except TimeoutError:
+            return ModelList(
+                note=f"the agent did not answer within {LISTING_TIMEOUT} seconds, "
+                "so its models are not known"
+            )
+        except Exception as exc:  # noqa: BLE001 — an agent that will not open a session lists none
+            return ModelList(note=f"the agent did not open a session to list its models: {exc}")
+        option = _model_option(opened.config_options)
+        if option is None or not (names := _offered(option)):
+            return ModelList(note="this agent does not list its models; it will use its own")
+        return ModelList(
+            models=tuple(Model(name=n, current=n == option.current_value) for n in names),
+            source=ModelSource.ADVERTISED,
+            note="the models the agent advertises when a session opens",
+        )
 
     def get_usage_status(self) -> None:
         """Billed per token, with no window to exhaust (docs/agent-runtimes.md)."""
         return None
+
+    def detect(self, which: Which, run: Run) -> list[Candidate]:
+        return known_agents.probe(which, run)
+
+    def setup_questions(self) -> list[Question]:
+        return [
+            Question(
+                key="command",
+                prompt="The command that starts the agent as a protocol server",
+                default="",
+                kind=QuestionKind.ARGV,
+                validator=validate_argv,
+                writes_to=f"runtimes.{NAME}.command",
+            )
+        ]
+
+    def list_models(self, command: Sequence[str] | None = None) -> ModelList:
+        """The agent's models; `command` is the one to ask, for one not yet written to
+        abk.yaml, and the configured entry's when not given."""
+        command = list(command or config.runtime_entry(name=NAME).command or self.agent_command)
+        if not command:
+            return ModelList(note=f"runtimes.{NAME}.command is not set, so no agent was asked")
+        return asyncio.run(self._advertised_models(command))
 
     def check_policy(self, cwd: Path) -> PolicyReport:
         """Whether this machine's agent really refuses what abk forbids: a
@@ -1720,6 +1759,40 @@ class AcpRuntime:
             if not result.refused
         )
         return PolicyReport(ok=not unenforced, unenforced=unenforced, results=results)
+
+
+@contextlib.asynccontextmanager
+async def _bare_connection(command: list[str], environment: dict[str, str] | None):
+    """A connection to the agent started from `command`, for a question that sends no
+    prompt; the agent is ended when it closes."""
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=child_environment(environment, {}),
+        limit=LINE_LIMIT,
+        start_new_session=True,
+    )
+    assert process.stdin is not None and process.stdout is not None
+    assert process.stderr is not None
+    stderr = _Drained(process.stderr)
+    conn = connect_to_agent(
+        cast(Client, _Session(None)), process.stdin, process.stdout, observers=[]
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+        await _ended(process, stderr)
+
+
+async def _initialize(conn: Any) -> InitializeResponse:
+    return await conn.initialize(
+        protocol_version=PROTOCOL_VERSION,
+        client_capabilities=_capabilities(None),
+        client_info=Implementation(name="abk", title="agent-build-kit", version=__version__),
+    )
 
 
 def _resumes(initialized: InitializeResponse) -> bool:

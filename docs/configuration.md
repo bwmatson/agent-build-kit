@@ -134,6 +134,9 @@ runtimes:                       # one entry per runtime that needs a fact abk
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when
   #                                       # the agent does not refuse what the
   #                                       # command policy forbids
+  #   policy: unchecked                   # the only value: carried on without
+  #                                       # confirming the agent refuses what
+  #                                       # the command policy forbids
   #   models: {implement: "..."}          # only when a second runtime's model
   #                                       # names must coexist with the block
   #                                       # below

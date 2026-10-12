@@ -9,6 +9,10 @@
   about each such line, and a gate stored by an earlier version is cleared on the next
   tick.
 
+- A runtime entry in `abk.yaml` may now carry `policy: unchecked`, recording that the
+  agent's policy check was knowingly skipped. The only value is `unchecked`, and a file
+  without the key loads as before.
+
 - A failed tier 2 run now sorts its failed tests into the unit's own (in a file the
   branch changed, or beside a changed `conftest.py`) and untouched ones, and runs the
   untouched ones once, together, on the base in a clean temporary worktree inside the

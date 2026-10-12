@@ -17,7 +17,6 @@ import shutil
 import socket
 import subprocess
 import tomllib
-from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -70,10 +69,8 @@ from agent_build_kit.redaction import MIN_LENGTH
 from agent_build_kit.redaction import active as active_redactor
 from agent_build_kit.replay.review import directories, overdue, waiting
 from agent_build_kit.runtimes import policy_check
+from agent_build_kit.runtimes.base import Run, Which
 from agent_build_kit.settings import settings
-
-Run = Callable[..., subprocess.CompletedProcess]
-Which = Callable[[str], str | None]
 
 Status = Literal["ok", "info", "warn", "FAIL"]
 

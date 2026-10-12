@@ -87,6 +87,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
   #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor
+  #   policy: unchecked                   # the only value: carried on without
+  #                                       # confirming the agent refuses what abk forbids
   #   models: {review: "..."}             # this runtime's names for roles;
   #                                       # a role left out keeps models:'s
 
