@@ -951,9 +951,18 @@ class BuildPath:
         # Made again: a trip back here may be onto a different base.
         self._tree = None
         tree, ref = self.tree(), self.ref(state)
+        remembered: Update = {}
         # Taken before the restack and any adapt, so a base rewritten during
         # them is caught too: a parent restacked meanwhile keeps its name.
         start = r.base_tip(tree, ref)
+        if state.base and not start:
+            # A predecessor that merged takes its branch with it: the store's base is the
+            # one to build on. Where that fails too, counting commits raises, as it must.
+            self.say(f"the remembered base {state.base} no longer exists; using {self.base}")
+            base, remembered = self.base, {"base": ""}
+            state = state.model_copy(update=remembered)
+            ref = self.ref(state)
+            start = r.base_tip(tree, ref)
         existing = r.branch_commits(tree, ref)
         self.say(
             f"on {base}, {existing} commit(s) on the branch"
@@ -976,10 +985,16 @@ class BuildPath:
                     from_person=stored.feedback_from_person,
                     source=stored.feedback_source,
                 )
-                return {**FRESH, **self.stop(why)}
+                return {**FRESH, **remembered, **self.stop(why)}
             if restacked is not None:
                 if restacked.conflict:
-                    return {**FRESH, "start": start, "head": r.head(tree), "conflict": restacked}
+                    return {
+                        **FRESH,
+                        **remembered,
+                        "start": start,
+                        "head": r.head(tree),
+                        "conflict": restacked,
+                    }
                 if restacked.resolved:
                     files = ", ".join(restacked.resolved)
                     self.say(f"restacked onto {base}, resolving {files}")
@@ -996,6 +1011,7 @@ class BuildPath:
                 existing = r.branch_commits(tree, ref)
         return {
             **FRESH,
+            **remembered,
             # A person's note makes the run a rework as saved feedback does, once there is
             # work on the branch to rework; before that the build starts, tests first.
             **self.standing(existing, feedback or (saved.guidance if existing else "")),
@@ -2082,10 +2098,9 @@ class BuildPath:
                 )
             else:
                 update.update(self.fresh_run())
-            if event.kind is EventKind.BASE_MOVED:
-                # The run takes the base the store names when the tick starts
-                # it: the one `verify_base` last recorded is the old one.
-                update["base"] = ""
+            # The run takes the base the store names when the tick starts it: the one
+            # `verify_base` last recorded is the old one, and its branch may be gone.
+            update["base"] = ""
         else:
             update["detail"] = event.kind.value
             if event.kind in (EventKind.MERGED, EventKind.CLOSED):

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A requeued unit now builds on the base the store names, not one its thread remembers, so a
+  failed unit whose predecessor has since merged is no longer failed again counting commits
+  against a deleted branch. A remembered base that no longer resolves is replaced by the
+  store's, and the run log says so.
+
 - A fresh usage reading in Claude Code's own cache (`~/.claude.json`) now decides a start
   before the usage endpoint is asked, so interactive use of the account is seen without a
   call that may be refused. It is used when fetched within the new

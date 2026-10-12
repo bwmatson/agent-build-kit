@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.stack_runner import PauseInfo, Restacked, RunStatus
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -19,7 +21,8 @@ from agent_build_kit.pipeline.wiring import Tier2Session
 from tests.factories import unit
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_remaining_paths import fresh
-from tests.graph_driver import position
+from tests.graph.test_requeue_base import GONE, stacked
+from tests.graph_driver import position, tick
 from tests.runner_fakes import Recorder
 
 MOVED = "moved-sha"
@@ -235,3 +238,12 @@ def test_a_tier_two_unit_moved_cleanly_posts_its_status_for_the_moved_commit(
     assert recorder.store.get("add-marker/1").state == IN_REVIEW
     assert ran.count("test") == 2, "tier 2 ran before the move and again after it"
     assert statuses == [MOVED], "the status is for the commit that was pushed and re-tested"
+
+
+def test_a_store_base_that_does_not_resolve_raises_and_is_not_counted_as_no_commits(
+    tmp_path: Path,
+) -> None:
+    recorder, overrides, _ = stacked(tmp_path)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        tick(tmp_path, recorder, base=GONE, **overrides)

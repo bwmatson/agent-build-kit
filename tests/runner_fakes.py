@@ -182,6 +182,7 @@ def make_runner(
         run_rework_review=recorder.review,
         commit=recorder.commit,
         branch_commits=recorder.branch_commits,
+        base_tip=lambda tree, ref: ref,  # every base resolves, as `wiring.tip` finds one that does
         head=recorder.head,
         upstream_incomplete=lambda u: None,
         restack_onto=lambda **kw: None,
