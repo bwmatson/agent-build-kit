@@ -8,6 +8,7 @@
   wait on from starting. It stays failed and is never requeued by the pipeline; it counts again
   when the wait ends. The full-queue report says how many are not counted, the status says what
   each waits on, and the graph labels it `failed, waiting on <units>`.
+
 - The kit now carries a recommended command policy for build agents: deny globs for each
   forbidden class (merging a pull request by the CLI, the raw API or GraphQL, amending a
   commit, pushing or force pushing to the default branch), checked against the spellings the
