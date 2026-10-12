@@ -51,7 +51,7 @@ def patch_id(repo: Path, sha: str) -> str | None:
 
 
 @contextmanager
-def _worktree_at(repo: Path, sha: str):
+def worktree_at(repo: Path, sha: str):
     """A detached worktree at `sha`, removed however the block exits.
 
     Cleanup matters more than it looks: a leaked worktree makes every later
@@ -75,7 +75,7 @@ def run_at_commit(repo: Path, sha: str, commands: list[str]) -> list[CommandResu
     """
     results: list[CommandResult] = []
 
-    with _worktree_at(repo, sha) as tree:
+    with worktree_at(repo, sha) as tree:
         for command in commands:
             try:
                 completed = subprocess.run(

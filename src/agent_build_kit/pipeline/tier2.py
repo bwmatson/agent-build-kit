@@ -52,6 +52,22 @@ class TestFailure(Frozen):
     line: str
 
 
+class Tier2Classification(Frozen):
+    """A failed run's tests by whose they are: the unit's own, or in a file it left alone."""
+
+    own: list[TestFailure] = Field(default_factory=list)
+    untouched: list[TestFailure] = Field(default_factory=list)
+
+
+class Tier2Verdict(Frozen):
+    """What a failed run's tests are once the untouched ones have been run on the base:
+    the unit's own, broken by the unit's change, or failing on the base too."""
+
+    own: list[TestFailure] = Field(default_factory=list)
+    broken: list[TestFailure] = Field(default_factory=list)
+    pre_existing: list[TestFailure] = Field(default_factory=list)
+
+
 class Tier2Result(Frozen):
     sha: str
     passed: int

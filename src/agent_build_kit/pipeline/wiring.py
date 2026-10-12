@@ -48,6 +48,7 @@ from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, S
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
+from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.environment import (
@@ -84,7 +85,9 @@ from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktre
 from agent_build_kit.pipeline.tier2 import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     TestFailure,
+    Tier2Classification,
     Tier2Result,
+    Tier2Verdict,
     build_snapshot,
     stack_lock,
 )
@@ -1687,6 +1690,8 @@ class Tier2Session:
         projects: list[ProjectConfig] | None = None,
     ) -> None:
         self.unit = unit
+        self.verdict: Tier2Verdict | None = None
+        self._on_dev_stack = False
         self._projects = projects or []
         # `verify.env`: what the live-stack tests need, the same here as after
         # a merge. Without it a unit's tier 2 ran them with none of it, and a
@@ -1709,7 +1714,12 @@ class Tier2Session:
         self._timeout = timeout
         self.result: Tier2Result | None = None
 
-    def run(self, *, cwd: Path) -> tuple[bool, str]:
+    def run(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
+        """Run tier 2 on `cwd`. `base` is the ref this run is against: with it, the failed
+        tests of files the unit left alone are run once on it, and `verdict` says whose
+        each is. Without it, or on the dev stack, nothing is classified."""
+        self.verdict = None
+        self._on_dev_stack = False
         if self._dev_stack is not None and (cwd / self._dev_stack).is_file():
             return self._run_on_dev_stack(cwd, self._dev_stack)
         # The same entries tier 1 resolves, over the whole repo: tier 2 has no
@@ -1724,8 +1734,9 @@ class Tier2Session:
         sha = self._sha(cwd)
         passed = failed = skipped = 0
         duration = 0.0
-        # header, text, how much of it to keep, the toolchain that read it, its project
-        outputs: list[tuple[str, str, int | None, ToolchainProfile, str]] = []
+        # header, text, how much of it to keep, the toolchain that read it, its project,
+        # and where and with which command it ran
+        outputs: list[tuple[str, str, int | None, ToolchainProfile, str, Path, list[str]]] = []
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
@@ -1753,42 +1764,127 @@ class Tier2Session:
                     )
                     header = f"$ {' '.join(command)}{label}"
                     if f or completed.returncode not in (0, nothing):
-                        outputs.append((header, out, None, toolchain, project))
+                        outputs.append((header, out, None, toolchain, project, where, command))
                     elif p:
-                        outputs.append((header, out, 1500, toolchain, project))
+                        outputs.append((header, out, 1500, toolchain, project, where, command))
 
-        # Every command's text in one pass, before any cut, so a cut cannot leave half a
-        # value and a failing redaction is logged once.
-        redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
-        output = "\n\n".join(
-            f"{header}\n{text if keep is None else text[-keep:]}"
-            for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
-        )
-        # Read from the redacted text, so a line is redacted before it is shortened.
-        failures = [
-            TestFailure(test=f"{project}/{found.test}" if project else found.test, line=found.line)
-            for (_, _, keep, toolchain, project), text in zip(outputs, redacted, strict=True)
-            if keep is None
-            for found in toolchain.parse_test_failures(text)
-        ]
-        command = " && ".join(
-            " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
-            for where, _, commands in entries
-            for c in commands
-        )
+            # Every command's text in one pass, before any cut, so a cut cannot leave half a
+            # value and a failing redaction is logged once.
+            redacted = redact_leaves([out for _, out, *_ in outputs], where="tier-2 output")
+            output = "\n\n".join(
+                f"{header}\n{text if keep is None else text[-keep:]}"
+                for (header, _, keep, *_), text in zip(outputs, redacted, strict=True)
+            )
+            # Read from the redacted text, so a line is redacted before it is shortened.
+            failures: list[TestFailure] = []
+            # Which command named each failure, for the base run to repeat that one.
+            named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]] = {}
+            for (_, _, keep, toolchain, project, at, ran), text in zip(
+                outputs, redacted, strict=True
+            ):
+                if keep is not None:
+                    continue
+                for found in toolchain.parse_test_failures(text):
+                    test = f"{project}/{found.test}" if project else found.test
+                    failures.append(TestFailure(test=test, line=found.line))
+                    named_by[test] = (at, toolchain, ran)
+            command = " && ".join(
+                " ".join(c) + (f" (in {where.relative_to(cwd)})" if where != cwd else "")
+                for where, _, commands in entries
+                for c in commands
+            )
 
-        self.result = Tier2Result(
-            sha=sha,
-            passed=passed,
-            failed=failed,
-            skipped=skipped,
-            duration_seconds=duration,
-            command=command,
-            output=output[-4000:],
-            stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
-            failures=failures,
-        )
+            self.result = Tier2Result(
+                sha=sha,
+                passed=passed,
+                failed=failed,
+                skipped=skipped,
+                duration_seconds=duration,
+                command=command,
+                output=output[-4000:],
+                stack_versions=_stack_versions(self._stack_versions_command, run=self._run),
+                failures=failures,
+            )
+
+            # Still inside the hold: the base run sees the stack the unit's run saw.
+            self.verdict = self._judge(cwd, base, named_by)
         return self.result.ok, build_snapshot(self.result)
+
+    def classify(self, *, cwd: Path, base: str | None) -> Tier2Classification:
+        """The failed tests of the last run, the unit's own and the untouched.
+
+        A test is the unit's own when its file is one the branch changed against its base,
+        or sits beside a `conftest.py` it changed. Nothing is classified when the run
+        named no tests, ran on the dev stack, or there is no base to compare with.
+        """
+        if self.result is None or base is None or self._on_dev_stack:
+            return Tier2Classification()
+        changed = set(_changed_files(cwd, base))
+        own: list[TestFailure] = []
+        untouched: list[TestFailure] = []
+        for failure in self.result.failures:
+            path = Path(failure.test.partition("::")[0])
+            is_own = (
+                path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
+            )
+            (own if is_own else untouched).append(failure)
+        return Tier2Classification(own=own, untouched=untouched)
+
+    def _judge(
+        self,
+        cwd: Path,
+        base: str | None,
+        named_by: dict[str, tuple[Path, ToolchainProfile, list[str]]],
+    ) -> Tier2Verdict | None:
+        """Run the untouched failed tests once on the base and say whose each is.
+
+        Each failed command is repeated on the base with only its own untouched ids.
+        Pre-existing only when a base run itself names the test as failed or errored; a
+        test it passes, does not contain or does not name is the unit's to fix. A base run
+        that cannot be made (no worktree, a command that cannot start) proves nothing, so
+        every test not yet named there is the unit's, and the unit fails as it would
+        without the base run.
+        """
+        if (
+            self.result is None
+            or base is None
+            or self.result.ok
+            or not active().limits.tier2_base_runs
+        ):
+            return None
+        classified = self.classify(cwd=cwd, base=base)
+        if not classified.untouched:
+            return None
+        by_command: dict[tuple[Path, tuple[str, ...]], list[str]] = {}
+        for failure in classified.untouched:
+            at, _, ran = named_by[failure.test]
+            by_command.setdefault((at, tuple(ran)), []).append(failure.test)
+        failing: set[str] = set()
+        try:
+            with worktree_at(cwd, base) as tree:
+                for (at, ran), tests in by_command.items():
+                    toolchain = named_by[tests[0]][1]
+                    rerun = getattr(toolchain, "serial_rerun_command", None)
+                    if rerun is None:
+                        continue
+                    project = str(at.relative_to(cwd)) if at != cwd else ""
+                    prefix = f"{project}/" if project else ""
+                    completed = self._run(
+                        rerun(list(ran), [t.removeprefix(prefix) for t in tests]),
+                        cwd=tree / at.relative_to(cwd),
+                        **self._test_env,
+                    )
+                    named = toolchain.parse_test_failures(
+                        f"{completed.stdout or ''}{completed.stderr or ''}"
+                    )
+                    failing.update(f"{prefix}{found.test}" for found in named)
+        except (subprocess.CalledProcessError, OSError) as error:
+            logger.warning("tier 2 base run could not be made, so it proves nothing: %s", error)
+        return Tier2Verdict(
+            own=classified.own,
+            broken=[f for f in classified.untouched if f.test not in failing],
+            pre_existing=[f for f in classified.untouched if f.test in failing],
+        )
 
     def _run_on_dev_stack(self, cwd: Path, script: Path) -> tuple[bool, str]:
         """Deploy this branch onto the dev stack, test against it, take it down.
@@ -1799,6 +1895,7 @@ class Tier2Session:
         is that, and cannot touch the live one. It is torn down whatever
         happens, so the next unit starts from its own branch.
         """
+        self._on_dev_stack = True
         sha = self._sha(cwd)
         up = [str(script), "up"]
         test = [str(script), "test"]

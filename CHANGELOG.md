@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A failed tier 2 run now sorts its failed tests into the unit's own (in a file the
+  branch changed, or beside a changed `conftest.py`) and untouched ones, and runs the
+  untouched ones once, together, on the base in a clean temporary worktree inside the
+  same stack hold. A test the base run also fails is pre-existing; one it passes, lacks
+  or does not name is the unit's to fix. `limits.tier2_base_runs` (0 or 1, default 1)
+  turns the base run off.
+
 - A failed tier 2 run now lists every failed or errored test with its first failure
   line above the output that may be cut, so the pull request description and the
   feedback handed back to the builder show each failure even when the tail of the

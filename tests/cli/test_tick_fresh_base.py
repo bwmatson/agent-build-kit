@@ -79,7 +79,7 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
             base_moved=build_base_moved(store),
             restack_onto=lambda *, tree, branch, base, unit, resolve=True: moved_onto.append(base),
             run_tier1=lambda *, cwd, base, whole_repo=False: (True, ""),
-            run_tier2=lambda *, cwd: (True, ""),
+            run_tier2=lambda *, cwd, base=None: (True, ""),
             push=lambda branch, *, cwd: "pushed",
             open_pr=open_pr,
             post_status=lambda sha, ok: None,

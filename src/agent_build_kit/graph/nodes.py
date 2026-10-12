@@ -1652,7 +1652,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         base = state.base or self.base
         self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
-        ok, snapshot = r.run_tier2(cwd=self.tree())
+        ok, snapshot = r.run_tier2(cwd=self.tree(), base=base)
         self.say(f"tier 2 {'passed' if ok else 'failed'}")
         if ok:
             return {"snapshot": snapshot}
