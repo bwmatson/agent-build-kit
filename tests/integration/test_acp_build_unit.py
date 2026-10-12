@@ -109,6 +109,12 @@ def github_host() -> Iterator[FakeGitHub]:
 
 
 @pytest.fixture(scope="module")
+def scratch_ledger(scratch: Scratch) -> Path:
+    """The scratch installation's usage ledger, for the time split of each phase."""
+    return scratch.state / LEDGER_NAME
+
+
+@pytest.fixture(scope="module")
 def scratch(tmp_path_factory: pytest.TempPathFactory, github_host: FakeGitHub) -> Iterator[Scratch]:
     tmp_path = tmp_path_factory.mktemp("acp-build")
     command = os.environ.get(AGENT_COMMAND, "")

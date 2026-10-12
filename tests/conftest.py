@@ -38,7 +38,7 @@ from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
 from tests.usage_host import Host
 
-pytest_plugins = ["pytester", "tests.replay.plugin", "tests.time_limit"]
+pytest_plugins = ["pytester", "tests.replay.plugin", "tests.time_limit", "tests.time_split"]
 
 
 @pytest.fixture(autouse=True)

@@ -1041,6 +1041,16 @@ approved.
   seconds) for a test without the `local_stack` marker, `--tier2-test-time-limit` (thirty
   minutes) for one with it, zero turning either off. The failure names the limit and its kind;
   the run goes on (see `docs/agent-runtimes.md`, Test markers).
+- **A test time split.** `tests/time_split.py` reports where a `local_stack` test's time went.
+  For each phase of a test that requests the `scratch_ledger` fixture (the scratch
+  installation's usage ledger) it reads the rows appended since the last phase on that
+  ledger, so a module fixture's rows fall in the setup of the first test using it, and
+  prints at the end of the session one line per phase: `ABK-TIME ` and JSON with `test`,
+  `phase`, `agent` (milliseconds by role), `calls` (by role), `checks_ms` (spans with a
+  command, environment setup included), `other_ms` (the wall time left, never negative)
+  and `overlap` when the parts sum above the wall time. The tier 2 result merges the
+  lines by test and phase and shows them beside the entry; a test without the fixture
+  gets no line.
 - **A guard.** `tests/timing_hazards.py` parses the test tree and fails on a bare sleep, a
   function that makes a thread and neither joins nor signals it, or a fixed port, except in
   the shared helpers and the files on its allowlist. The allowlist may only shrink: a file
