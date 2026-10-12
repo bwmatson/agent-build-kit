@@ -31,7 +31,7 @@ from agent_build_kit.pipeline.joins import JoinContext, JoinRefused, check_joins
 from agent_build_kit.pipeline.unit_size import Calibration, Kind, applied, calibrated
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Join, Priority, Unit
-from agent_build_kit.pipeline.work_graph import TIERS, TaskGroup, known_repos
+from agent_build_kit.pipeline.work_graph import GROUP_NUMBER, TIERS, TaskGroup, known_repos
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 
@@ -112,43 +112,43 @@ def parse_plan(
     units: list[Unit] = []
     seen: set[str] = set()
 
-    for index, raw in enumerate(raw_units):
-        if not isinstance(raw, dict):
-            raise PlannerError(f"unit {index} is not an object")
-
-        missing = {"id", "change", "title", "repo", "tier"} - raw.keys()
-        if missing:
-            raise PlannerError(f"unit {index} is missing {', '.join(sorted(missing))}")
-
-        repos = known_repos()
-        if repos and raw["repo"] not in repos:
-            raise PlannerError(
-                f"unit {raw['id']} has unknown repo {raw['repo']!r} "
-                f"(expected one of {', '.join(repos)})"
-            )
-        if raw["tier"] not in TIERS:
-            raise PlannerError(
-                f"unit {raw['id']} has unknown tier {raw['tier']!r} "
-                f"(expected one of {', '.join(TIERS)})"
-            )
-        if raw["id"] in seen:
-            raise PlannerError(f"duplicate unit id {raw['id']!r}")
-        seen.add(raw["id"])
-
-        units.append(
-            Unit(
-                id=raw["id"],
-                change=raw["change"],
-                title=raw["title"],
-                repo=raw["repo"],
-                tier=raw["tier"],
-                depends_on=tuple(raw.get("depends_on") or ()),
-                estimated_lines=int(raw.get("estimated_lines") or 0),
-                groups=tuple(raw.get("groups") or ()),
-            )
-        )
-
+    # Whatever refuses the reply, the ids read so far are kept on the error as evidence.
     try:
+        for index, raw in enumerate(raw_units):
+            if not isinstance(raw, dict):
+                raise PlannerError(f"unit {index} is not an object")
+
+            missing = {"id", "change", "title", "repo", "tier"} - raw.keys()
+            if missing:
+                raise PlannerError(f"unit {index} is missing {', '.join(sorted(missing))}")
+
+            repos = known_repos()
+            if repos and raw["repo"] not in repos:
+                raise PlannerError(
+                    f"unit {raw['id']} has unknown repo {raw['repo']!r} "
+                    f"(expected one of {', '.join(repos)})"
+                )
+            if raw["tier"] not in TIERS:
+                raise PlannerError(
+                    f"unit {raw['id']} has unknown tier {raw['tier']!r} "
+                    f"(expected one of {', '.join(TIERS)})"
+                )
+            if raw["id"] in seen:
+                raise PlannerError(f"duplicate unit id {raw['id']!r}")
+            seen.add(raw["id"])
+
+            units.append(
+                Unit(
+                    id=raw["id"],
+                    change=raw["change"],
+                    title=raw["title"],
+                    repo=raw["repo"],
+                    tier=raw["tier"],
+                    depends_on=tuple(raw.get("depends_on") or ()),
+                    estimated_lines=int(raw.get("estimated_lines") or 0),
+                    groups=tuple(raw.get("groups") or ()),
+                )
+            )
         joins = _read_joins(payload.get("joins"))
         _check_dependencies(units, known or set())
         if groups is not None:
@@ -604,11 +604,12 @@ def _mark_built(change: str, tasks: str, in_flight: list[dict]) -> str:
         for number in numbers
     }
 
-    def mark(found: re.Match[str]) -> str:
-        unit_id = built.get(int(found["number"]))
-        return f"{found[0]} (built by {unit_id})" if unit_id else found[0]
+    def mark(line: str) -> str:
+        found = GROUP_NUMBER.match(line)
+        unit_id = built.get(int(found["number"])) if found else None
+        return f"{line} (built by {unit_id})" if unit_id else line
 
-    return re.sub(r"^## (?P<number>\d+)\..*$", mark, tasks, flags=re.MULTILINE)
+    return "\n".join(mark(line) for line in tasks.split("\n"))
 
 
 def build_prompt(

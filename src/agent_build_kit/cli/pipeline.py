@@ -2164,6 +2164,12 @@ def _tag_problems(store: UnitStore, change: str, groups: Sequence[TaskGroup]) ->
     return lines
 
 
+def _refusal(error: PlannerError) -> dict:
+    """What a plan record keeps of a refused plan: the unit ids the planner returned
+    and why it was refused, never its full reply."""
+    return {"units": list(error.units), "reason": str(error)}
+
+
 def plan_all(
     inst: Installation,
     *,
@@ -2286,15 +2292,16 @@ def plan_all(
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at
             # once, so the change waits for that edit instead of re-asking.
-            record_plans(inst, {change: {"hash": digest, "attempts": max_attempts, "ok": False}})
+            failure = {"hash": digest, "attempts": max_attempts, "ok": False}
+            record_plans(inst, {change: failure | _refusal(error)})
             log(f"not planning {change}: {error}")
             results[change] = PlanResult(status="failed")
             continue
         except Exception as error:  # noqa: BLE001
             attempts = (record.get("attempts", 0) if record.get("hash") == digest else 0) + 1
             failure = {"hash": digest, "attempts": attempts, "ok": False}
-            if isinstance(error, PlannerError) and error.units:
-                failure |= {"units": list(error.units), "reason": str(error)}
+            if isinstance(error, PlannerError):
+                failure |= _refusal(error)
             record_plans(inst, {change: failure})
             giving_up = (
                 " — giving up until tasks.md changes or `abk replan` is run"

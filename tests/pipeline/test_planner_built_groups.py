@@ -34,3 +34,12 @@ def test_only_the_heading_of_a_group_a_started_unit_builds_is_marked() -> None:
         "## 1. [app] [tier1] Group one (built by feature/1)"
     ]
     assert "## 2. [app] [tier1] Group two" in headings
+
+
+def test_a_heading_the_validator_reads_with_extra_whitespace_is_marked_too() -> None:
+    tasks = TASKS.replace("## 2. [app]", "##  2. [app]")
+    unit = stored_unit("feature/2", change="feature", groups=(2,), state=FAILED)
+
+    prompt = build_prompt({"feature": tasks}, [in_flight_item(unit)])
+
+    assert "##  2. [app] [tier1] Group two (built by feature/2)" in prompt.splitlines()

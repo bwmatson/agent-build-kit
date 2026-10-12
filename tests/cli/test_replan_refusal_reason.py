@@ -94,3 +94,47 @@ def test_a_record_only_plan_clears_the_reason(
     assert run.calls == calls
     assert run.records["feature"]["ok"] is True
     assert "reason" not in run.records["feature"]
+
+
+def test_a_reply_with_no_units_keeps_a_reason_naming_the_unclaimed_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(2))
+
+    code, _ = run.run(capsys, "feature", reply=answer())
+
+    assert code == 1
+    record = run.records["feature"]
+    assert record["units"] == []
+    assert "group(s) 1, 2" in record["reason"]
+    _, out = run.run(capsys)
+    line = next(line for line in out.splitlines() if line.startswith("feature:"))
+    assert record["reason"] in line
+
+
+def test_a_unit_read_wrongly_keeps_a_reason_and_the_ids_read_so_far(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(2))
+    second = planned("feature/2", (2,)) | {"repo": "nowhere"}
+
+    code, _ = run.run(capsys, "feature", reply=answer(planned("feature/1", (1,)), second))
+
+    assert code == 1
+    assert run.records["feature"]["units"] == ["feature/1"]
+    assert "nowhere" in run.records["feature"]["reason"]
+
+
+def test_a_group_too_large_keeps_its_reason_and_the_listing_shows_it_after_given_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1))
+
+    code, _ = run.run(capsys, "feature", reply=answer(planned("feature/1", (1,), lines=100000)))
+
+    assert code == 1
+    reason = run.records["feature"]["reason"]
+    assert "split" in reason
+    _, out = run.run(capsys)
+    line = next(line for line in out.splitlines() if line.startswith("feature:"))
+    assert f"given up: {reason}" in line
