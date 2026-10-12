@@ -115,7 +115,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitOutcome,
     UnitRunner,
 )
-from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.tier2 import LOCK_WAIT_SETTING, stack_lock
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -634,12 +634,15 @@ def verify_one(
     inst: Installation, change: str, units: list, *, wait: float | None = None
 ) -> Verification:
     """Deploy one merged change and run its live tests — under the stack
-    lock, since both touch the one live stack tier 2 also uses. Waits for the
-    lock, or `wait` seconds when given, then raises `StackBusy`."""
-    options = {} if wait is None else {"timeout": wait}
+    lock, since both touch the one live stack tier 2 also uses. Waits
+    `limits.tier2_lock_wait_seconds` for the lock, or `wait` seconds when given,
+    then raises `StackBusy`."""
+    # A wait the caller chose is its own; only the configured one names the setting.
+    timeout = inst.config.limits.tier2_lock_wait_seconds if wait is None else wait
+    setting = LOCK_WAIT_SETTING if wait is None else None
     with ExitStack() as held:
         try:
-            held.enter_context(stack_lock(inst.state_dir / "tier2.lock", **options))
+            held.enter_context(stack_lock(inst.state_dir / "tier2.lock", timeout, setting))
         except TimeoutError as error:
             raise StackBusy(str(error)) from error
         outcome = verify_change(

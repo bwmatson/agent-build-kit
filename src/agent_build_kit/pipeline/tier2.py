@@ -36,9 +36,8 @@ from agent_build_kit.model import Frozen
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
 
-# Long enough for a queue of real tier 2 runs to drain, short enough that a
-# wedged run surfaces the same day.
-DEFAULT_LOCK_TIMEOUT_SECONDS = 3600
+# The config key the tier 2 lock wait is read from; the busy message names it.
+LOCK_WAIT_SETTING = "limits.tier2_lock_wait_seconds"
 
 Runner = Callable[[list[str]], str]
 
@@ -89,11 +88,12 @@ class Tier2Result(Frozen):
 
 
 @contextmanager
-def stack_lock(path: Path, timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS):
+def stack_lock(path: Path, timeout: float, setting: str | None = None):
     """Hold the one-and-only tier 2 lock, waiting for it if need be.
 
     `flock` rather than a PID file: the kernel releases it when the process
-    dies, so a crashed run can't wedge the tier for everything after it.
+    dies, so a crashed run can't wedge the tier for everything after it. `setting`
+    names the config key `timeout` came from, so the busy message can say so.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout
@@ -105,8 +105,9 @@ def stack_lock(path: Path, timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS):
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
+                    named = f" ({setting})" if setting else ""
                     raise TimeoutError(
-                        f"tier 2 is busy: waited {timeout:.0f}s for {path}"
+                        f"tier 2 is busy: waited {timeout:.0f}s for {path}{named}"
                     ) from None
                 time.sleep(0.05)
 

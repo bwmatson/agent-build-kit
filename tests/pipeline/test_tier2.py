@@ -33,14 +33,14 @@ def test_a_second_run_waits_for_the_first(tmp_path: Path) -> None:
     order: list[str] = []
 
     def hold() -> None:
-        with stack_lock(lock):
+        with stack_lock(lock, timeout=5):
             order.append("first-in")
             time.sleep(0.2)
             order.append("first-out")
 
     def wait() -> None:
         time.sleep(0.05)
-        with stack_lock(lock):
+        with stack_lock(lock, timeout=5):
             order.append("second-in")
 
     threads = [threading.Thread(target=hold), threading.Thread(target=wait)]
@@ -57,7 +57,7 @@ def test_waiting_too_long_gives_up_rather_than_hanging(tmp_path: Path) -> None:
     crashed one, and holds its worktree the whole time."""
     lock = tmp_path / "tier2.lock"
 
-    with stack_lock(lock):
+    with stack_lock(lock, timeout=5):
         with pytest.raises(TimeoutError):
             with stack_lock(lock, timeout=0.1):
                 pass
@@ -68,7 +68,7 @@ def test_the_lock_is_released_when_a_run_blows_up(tmp_path: Path) -> None:
     lock = tmp_path / "tier2.lock"
 
     with pytest.raises(ValueError):  # noqa: PT012 — the raise is the point
-        with stack_lock(lock):
+        with stack_lock(lock, timeout=5):
             raise ValueError("boom")
 
     with stack_lock(lock, timeout=0.1):

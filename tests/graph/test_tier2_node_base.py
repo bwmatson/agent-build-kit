@@ -22,7 +22,11 @@ def test_an_untouched_failing_test_is_rerun_on_the_base_the_node_runs_against(
     output = pytest_output(failed={FAILED: "assert 1 == 2"})
     runs = Runs(repo, output, output)
     gate = Tier2Session(
-        unit(tier="tier2"), lock=tmp_path / "t2.lock", run=runs, sha=lambda cwd: "abc1234"
+        unit(tier="tier2"),
+        lock=tmp_path / "t2.lock",
+        timeout=5,
+        run=runs,
+        sha=lambda cwd: "abc1234",
     )
     recorder = fresh(tmp_path, tier="tier2")
 

@@ -41,6 +41,7 @@ def _session(
     return Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         projects=projects,
@@ -187,6 +188,7 @@ def test_real_pytest_in_a_project_collects_only_its_testpaths(tmp_path: Path) ->
     session = Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",
+        timeout=5,
         run=run,
         sha=lambda cwd: "abc1234",
         projects=[ProjectConfig(path="api")],
