@@ -14,14 +14,14 @@ def doctor(tmp_path: Path, *, present: bool) -> list[Check]:
     planning = init_repo(tmp_path / "planning")
     app = init_repo(tmp_path / "app")
     if present:
-        (app / "agent-assessment").mkdir()
+        (app / "svc-a").mkdir()
     config = WorkspaceConfig(
         repos={
             "app": RepoConfig(
                 path=app,
                 slug="example/app",
                 changelog=None,
-                projects=[ProjectConfig(path="agent-assessment")],
+                projects=[ProjectConfig(path="svc-a")],
             )
         }
     )
@@ -30,7 +30,7 @@ def doctor(tmp_path: Path, *, present: bool) -> list[Check]:
 
 
 def mentioning(checks: list[Check]) -> list[Check]:
-    return [c for c in checks if "agent-assessment" in c.name + c.detail + c.fix]
+    return [c for c in checks if "svc-a" in c.name + c.detail + c.fix]
 
 
 def test_a_pending_project_is_information_with_its_missing_path(tmp_path: Path) -> None:

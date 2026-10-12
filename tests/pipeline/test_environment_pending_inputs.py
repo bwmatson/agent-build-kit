@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.environment import ensure, read_state
+from agent_build_kit.pipeline.environment import ensure, prepare_worktree, problem, read_state
 from tests.conftest import make_installation
-from tests.environment_fakes import FakeEnvironment
+from tests.environment_fakes import FakeEnvironment, repo_config
 
 
 def installation(tmp_path: Path, env: FakeEnvironment) -> Installation:
@@ -45,6 +45,27 @@ def test_an_input_that_appears_changes_the_hash_and_the_sync_runs(tmp_path: Path
     state = read_state(inst.state_dir)
     assert state is not None and recorded is not None
     assert state.hash != recorded.hash
+
+
+def test_problem_is_none_while_the_inputs_are_pending(tmp_path: Path) -> None:
+    env = FakeEnvironment(tmp_path / "control", inputs=("web/manifest.toml",))
+    env.break_it()
+    inst = installation(tmp_path, env)
+
+    assert problem(inst.root) is None
+    assert "check" not in env.calls()
+
+
+def test_a_worktree_with_only_missing_inputs_runs_no_sync_and_no_check(tmp_path: Path) -> None:
+    env = FakeEnvironment(tmp_path / "control", inputs=("web/manifest.toml",))
+    env.fail_sync()
+    tree = tmp_path / "tree"
+    tree.mkdir()
+
+    fault = prepare_worktree(repo_config(tmp_path / "meta", env), tree, "main")
+
+    assert fault is None
+    assert env.calls() == []
 
 
 def test_a_check_over_only_missing_inputs_reports_pending_not_unhealthy(tmp_path: Path) -> None:

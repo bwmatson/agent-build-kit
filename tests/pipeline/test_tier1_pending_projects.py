@@ -76,6 +76,22 @@ def test_the_project_the_unit_creates_is_not_pending_and_is_checked_in_it(
     assert pending_lines(log, "api")
 
 
+def test_a_unit_that_produced_nothing_does_not_pass_on_pending_projects(tmp_path: Path) -> None:
+    commands = Commands()
+
+    ok, output = build_tier1(
+        run=commands,
+        changed=lambda *a: [],
+        profile=Profile(),
+        projects=[ProjectConfig(path="web")],
+    )(cwd=tmp_path, base="main", whole_repo=True)
+
+    assert not ok
+    assert "web" in output
+    assert "produced nothing" in output
+    assert commands.directories == []
+
+
 def test_a_repo_of_only_pending_projects_runs_nothing_passes_and_says_so(tmp_path: Path) -> None:
     ok, directories, log = tier1(
         tmp_path, ["docs/a.md"], [ProjectConfig(path="api"), ProjectConfig(path="web")]

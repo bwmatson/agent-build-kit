@@ -351,7 +351,6 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
         return True
     with file_lock(inst.state_dir / "environment.lock"):
         previous = read_state(inst.state_dir) or EnvironmentState()
-        digest = inputs_hash(environment, inst.root)
         if pending(environment, inst.root):
             say("environment pending: its inputs do not exist yet, nothing to sync or check")
             _write_state(
@@ -361,6 +360,7 @@ def ensure(inst: Installation, *, say: Callable[[str], None]) -> bool:
                 ),
             )
             return True
+        digest = inputs_hash(environment, inst.root)
         hash_ = previous.hash
         synced = ""
 

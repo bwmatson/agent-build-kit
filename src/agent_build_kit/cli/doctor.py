@@ -147,6 +147,7 @@ def _pending_projects(inst: Installation) -> list[Check]:
     return [
         _info(f"project {name}/{project.path}", describe(project))
         for name, repo in inst.repos.items()
+        if repo.path.expanduser().is_dir()  # a missing repo is already a failure
         for project in pending_projects(repo.path.expanduser(), repo.projects)
     ]
 

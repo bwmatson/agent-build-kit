@@ -809,8 +809,16 @@ def build_tier1(
             _say(log, describe(project))
         work = _work(cwd, base, whole_repo, projects, profile, changed)
         if projects and not work:
-            _say(log, "every project is pending, nothing ran")
-            return True, ""
+            _say(log, "every project is pending, nothing ran in a project")
+            if whole_repo:
+                # No diff to be judged by: a unit that produced nothing for the declared
+                # projects to check is not satisfied by their absence.
+                names = ", ".join(p.path for p in pending_projects(cwd, projects))
+                return False, (
+                    f"every declared project is pending ({names}) and the unit produced "
+                    "nothing for them to judge"
+                )
+            return root_checks(cwd)
         plan = None
         if affected is not None and not whole_repo and failed_output.strip():
             plan = selection(base, work, failed_output)
@@ -886,7 +894,6 @@ def build_tier1(
         lint: bool,
         figures: list[tuple[float, int]],
     ) -> tuple[bool, str]:
-        extra = profile.extra_checks(repo) if repo is not None else []
         ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
         for where, toolchain, files in work:
             if whole_repo:
@@ -925,14 +932,19 @@ def build_tier1(
                     isolate(command, result, where, toolchain)
                     return False, _failure(command, result, where)
             ran_tests.append((where, toolchain, test_commands))
-        # Once per checkout, in its root: these look at the repo, not at a project.
+        passed, output = root_checks(cwd)
+        if not passed or whole_repo:
+            return passed, output
+        return repeat(cwd, base, ran_tests)
+
+    def root_checks(cwd: Path) -> tuple[bool, str]:
+        """Once per checkout, in its root: these look at the repo, not at a project."""
+        extra = profile.extra_checks(repo) if repo is not None else []
         for command in extra:
             result = ran(command, cwd, profile)
             if not profile.tolerates_exit(command, result.returncode):
                 return False, _failure(command, result)
-        if whole_repo:
-            return True, ""
-        return repeat(cwd, base, ran_tests)
+        return True, ""
 
     def repeat(
         cwd: Path, base: str, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]]
