@@ -22,6 +22,7 @@ CALLS_NAME = "usage-calls.jsonl"
 KEPT = timedelta(days=7)
 REFUSED = "rate_limited"
 CACHE = "cache"
+CLAUDE_JSON = "claude-json"
 # A refusal this soon after a successful call means that call's rate was not safe.
 SAFE_MARGIN = timedelta(seconds=60)
 BEFORE_REFUSAL = timedelta(minutes=15)
@@ -32,7 +33,7 @@ class UsageCall(Frozen):
 
     at: datetime
     caller: str
-    outcome: str  # ok, rate_limited, timeout, error or cache
+    outcome: str  # ok, rate_limited, timeout, error, cache or claude-json
     status: int | None = None
     latency_ms: int = 0
     headers: dict[str, str] = {}
@@ -52,6 +53,7 @@ class CallWindow(Frozen):
     by_outcome: dict[str, int]
     by_caller: dict[str, int]
     cache_share: float
+    claude_json_share: float
     refusals: tuple[Refusal, ...]
 
 
@@ -60,6 +62,11 @@ class CallRate(Frozen):
     day: CallWindow
     last_refusal_at: datetime | None
     safe_interval_seconds: int | None
+
+
+def is_endpoint_call(call: UsageCall) -> bool:
+    """Whether the line is a call to the endpoint, not a reading answered from a cache."""
+    return call.outcome not in (CACHE, CLAUDE_JSON)
 
 
 def rate_limit_headers(headers: object) -> dict[str, str]:
@@ -128,7 +135,7 @@ def _window(calls: list[UsageCall], since: datetime) -> CallWindow:
     for c in inside:
         by_outcome[c.outcome] = by_outcome.get(c.outcome, 0) + 1
         by_caller[c.caller] = by_caller.get(c.caller, 0) + 1
-    endpoint = [c for c in calls if c.outcome != CACHE]
+    endpoint = [c for c in calls if is_endpoint_call(c)]
     refusals = []
     for index, c in enumerate(endpoint):
         if c.outcome != REFUSED or c.at <= since:
@@ -146,6 +153,7 @@ def _window(calls: list[UsageCall], since: datetime) -> CallWindow:
         by_outcome=by_outcome,
         by_caller=by_caller,
         cache_share=by_outcome.get(CACHE, 0) / len(inside) if inside else 0.0,
+        claude_json_share=by_outcome.get(CLAUDE_JSON, 0) / len(inside) if inside else 0.0,
         refusals=tuple(refusals),
     )
 
@@ -175,7 +183,7 @@ def derive_rate(calls: list[UsageCall], *, now: datetime) -> CallRate:
     ordered = sorted((c for c in calls if c.at <= now), key=lambda c: c.at)
     day_since = now - timedelta(days=1)
     day = _window(ordered, day_since)
-    in_day = [c for c in ordered if c.at > day_since and c.outcome != CACHE]
+    in_day = [c for c in ordered if c.at > day_since and is_endpoint_call(c)]
     return CallRate(
         hour=_window(ordered, now - timedelta(hours=1)),
         day=day,
@@ -291,5 +299,6 @@ def rate_line(rate: CallRate) -> str:
     shown = "none" if interval is None else f"{interval}s"
     return (
         f"usage calls: {rate.hour.calls} in the last hour, {len(rate.hour.refusals)} refused, "
-        f"{round(rate.hour.cache_share * 100)}% from the cache, safe interval {shown}"
+        f"{round(rate.hour.cache_share * 100)}% from the cache, "
+        f"{round(rate.hour.claude_json_share * 100)}% from claude.json, safe interval {shown}"
     )

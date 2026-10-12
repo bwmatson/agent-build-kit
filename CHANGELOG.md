@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A fresh usage reading in Claude Code's own cache (`~/.claude.json`) now decides a start
+  before the usage endpoint is asked, so interactive use of the account is seen without a
+  call that may be refused. It is used when fetched within the new
+  `usage_claude_cache_minutes` (default `usage_cache_minutes`, 0 turns it off), no window has
+  reset and it is fresher than the guard's own reading. The reason says
+  `(claude.json, 6m old)`, the call record counts it as `claude-json`, and the status
+  call-rate line gains a `% from claude.json` share.
+
 - A dependency that would close a cycle with units already stored is no longer applied,
   so two changes can no longer leave planned units waiting on each other forever. An
   edge the planner proposes is dropped and logged with the cycle it would have made; a

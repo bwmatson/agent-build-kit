@@ -921,6 +921,16 @@ after thirty minutes); and a reading too old to trust refuses starts for the
 stale-retry interval (`usage_stale_retry_minutes`, five by default) without
 borrowing its window. A reading served from the cache file has its own source,
 so it is not mistaken for a live one.
+**Claude Code's own cache is read before the endpoint is asked.** When the block
+`cachedUsageUtilization` in `~/.claude.json` was fetched (its `fetchedAtMs`, never the file's
+modification time) within `usage_claude_cache_minutes` (the cache time unless set; 0 turns the step
+off; never more than an hour), describes both windows, has none past its reset, and is fresher than the
+guard's own kept reading while that is fresh (a tie is the guard's), the guard decides from it with no
+call, even inside the minimum interval, and `abk status` shows it. The reason ends
+`(claude.json, 6m old)`. It is only a reading: never written to the guard's cache, never an
+estimate's base, no cool-down. The block carries no credits state, so the credits rule does not
+apply to it; the thresholds decide. Only interactive Claude Code use refreshes it (which actions do has not been
+established beyond that), so headless runs find it old and the order is unchanged. Past its window it remains the stale fallback for a failed call.
 **The usage module is the only authority.** Every run (tick, pass round, gate, tracks, status)
 asks it, and it alone decides whether to call the endpoint. At the expiry of the cached reading
 one process refreshes, reading the cache, calling and writing under a non-blocking lock on
@@ -936,10 +946,11 @@ with an `event` of `hit`, `miss`, `expiry` or `wait`.
 **Every use of the endpoint is recorded** (`usage_calls.py`) in `usage-calls.jsonl`, beside the
 cache in the state directory and gitignored: one line per call or cache answer with the time, the
 caller (`guard`, `status` for the runtime's usage status, `cli-status` for the status command, `tracks`), the outcome (`ok`,
-`rate_limited`, `timeout`, `error` or `cache`), the status, the latency, the rate-limit and retry
-headers of the answer and, for the cache, the reading's age. It holds no token, keeps a week, and
+`rate_limited`, `timeout`, `error`, `cache` or `claude-json`, the last for a decision answered from
+Claude Code's own block and not a call to the endpoint), the status, the latency, the rate-limit and
+retry headers of the answer and, for the cache and the block, the reading's age. It holds no token, keeps a week, and
 archiving a change leaves it. From it `abk status` prints one line (calls in the hour, refusals,
-the cache's share and the shortest interval between successful calls that no refusal followed
+the cache's share, the block's share and the shortest interval between successful calls that no refusal followed
 within a minute), and the figures are exported as `abk.usage.calls` by outcome and caller and the
 gauge `abk.usage.safe_interval` in whole seconds, drawn from the record when the metrics store is
 down.

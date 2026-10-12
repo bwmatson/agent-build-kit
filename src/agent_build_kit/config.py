@@ -225,6 +225,9 @@ class ClaudeLimitsConfig(Frozen):
     usage_stale_retry_minutes: Annotated[int, Field(gt=0)] = 5
     # How long a good live usage reading answers every reader before the endpoint is asked again.
     usage_cache_minutes: Annotated[int, Field(gt=0)] = 15
+    # How long a block in Claude Code's own cache answers a decision before the endpoint is asked.
+    # Unset follows `usage_cache_minutes`; 0 turns the step off.
+    usage_claude_cache_minutes: Annotated[int, Field(ge=0)] = 15
     # The longest a good reading is kept once refusals have doubled the time.
     usage_cache_max_minutes: Annotated[int, Field(gt=0)] = 30
     # How old the last good live reading may be and still stand in for a failed call.
@@ -238,6 +241,15 @@ class ClaudeLimitsConfig(Frozen):
     usage_headroom_margin_pct: Annotated[int, Field(ge=0)] = 5
     # How many units may start on an estimate for one reading; 0 never allows one.
     usage_estimate_max_starts: Annotated[int, Field(ge=0)] = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _claude_cache_follows_cache(cls, data: object) -> object:
+        """`usage_claude_cache_minutes` is `usage_cache_minutes` where it is not set."""
+        if not isinstance(data, dict) or data.get("usage_claude_cache_minutes") is not None:
+            return data
+        default = cls.model_fields["usage_cache_minutes"].default
+        return {**data, "usage_claude_cache_minutes": data.get("usage_cache_minutes", default)}
 
     @model_validator(mode="before")
     @classmethod
