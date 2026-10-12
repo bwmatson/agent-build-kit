@@ -49,12 +49,12 @@ export function Overview() {
   );
 }
 
-function RelatedList({ label, items, link }: { label: string; items: Related[]; link: boolean }) {
+function RelatedList({ label, items }: { label: string; items: Related[] }) {
   return (
     <ul aria-label={label}>
       {items.map((item) => (
         <li key={item.id}>
-          {link ? <Link to={unitPath(item.id)}>{item.id}</Link> : item.id} {item.status}
+          <Link to={unitPath(item.id)}>{item.id}</Link> {item.status}
         </li>
       ))}
     </ul>
@@ -77,7 +77,7 @@ function Status({ unit }: { unit: UnitDetail }) {
         <dd>{unit.pr === null ? "—" : `#${unit.pr}`}</dd>
       </dl>
       <h2>Dependencies</h2>
-      <RelatedList label="Dependencies" items={unit.depends_on} link={false} />
+      <RelatedList label="Dependencies" items={unit.depends_on} />
     </>
   );
 }

@@ -8,9 +8,9 @@ import json
 
 import pytest
 
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, waiting_on
-from tests.factories import unit
+from tests.factories import stored_unit, unit
 
 
 def with_old_gate(path, uid: str, gate: list[str]) -> None:
@@ -49,3 +49,11 @@ def test_a_unit_with_a_stored_gate_waits_on_its_dependency_alone(tmp_path) -> No
     reloaded = UnitStore(path)
 
     assert waiting_on(reloaded.get("add-marker/2"), reloaded.all()) == []
+
+
+def test_a_record_carrying_a_merge_gate_validates_without_the_store() -> None:
+    """The server reads records without the store; it drops the key the same way."""
+    record = stored_unit("add-marker/2", depends_on=("add-marker/1",)).model_dump(mode="json")
+    record["merge_before"] = ["add-marker/1"]
+
+    assert StoredUnit.model_validate(record).depends_on == ("add-marker/1",)

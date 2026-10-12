@@ -101,9 +101,9 @@ def test_an_absent_store_is_simply_empty(tmp_path) -> None:
     assert UnitStore(tmp_path / "units.json").all() == []
 
 
-def test_a_stored_unit_without_merge_before_loads_unchanged(tmp_path) -> None:
-    """Records written before the field existed are still on disk in every
-    installation; the field is optional so they keep loading."""
+def test_a_stored_unit_without_newer_optional_fields_loads_unchanged(tmp_path) -> None:
+    """Records written before an optional field existed are still on disk in
+    every installation; they keep loading."""
     path = tmp_path / "units.json"
     UnitStore(path).upsert([unit("add-marker/2", depends_on=("add-marker/1",), groups=(2,))])
     raw = json.loads(path.read_text())

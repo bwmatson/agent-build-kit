@@ -222,8 +222,8 @@ class StoredUnit(Unit):
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
     held_base: str = ""
-    # How a requeue that found its merge gate unmet is delivered once the gate
-    # clears (see `Cause.GATED`); None when no requeue is waiting.
+    # How a requeue that found a dependency it waits on unmet is delivered once
+    # it is met (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None
@@ -309,7 +309,7 @@ class StoredUnit(Unit):
         """
         if not isinstance(data, dict):
             return data
-        item = dict(data)
+        item = {k: v for k, v in data.items() if k not in REMOVED_FIELDS}
         unit_id = item.get("id", "?")
         for field in OLD_ENGINE_FIELDS:
             if field in item and item[field] == _WRITTEN_EMPTY.get(field):
@@ -338,6 +338,11 @@ class StoredUnit(Unit):
                 )
         return item
 
+
+# Fields an earlier release wrote that no longer exist, dropped whatever their value.
+# `merge_before` was the merge gate, removed when a `Needs` dependency began to start on
+# its parent's branch; the next write leaves the key out.
+REMOVED_FIELDS = ("merge_before",)
 
 # The in-run fields a unit carried before its progress moved into its thread. A store
 # that still holds one is refused: that work must be finished or requeued first.
@@ -425,11 +430,7 @@ class UnitStore:
             # should fail here — naming the field — rather than construct
             # something odd that breaks three steps later.
             try:
-                # An earlier version wrote a merge gate beside every record; it is
-                # gone, and the next write leaves the key out.
-                unit = StoredUnit.model_validate(
-                    {k: v for k, v in item.items() if k != "merge_before"}
-                )
+                unit = StoredUnit.model_validate(item)
             except ValidationError as error:
                 raise ValueError(f"{corrupt_store_message(self.path)}: {error}") from error
             stored[unit.id] = unit
