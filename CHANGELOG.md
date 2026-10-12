@@ -6,12 +6,6 @@
   failed unit whose predecessor has since merged is no longer failed again counting commits
   against a deleted branch. A remembered base that no longer resolves is replaced by the
   store's, and the run log says so.
-- A model service answering 5xx or 529 now parks the unit as `service_unavailable` and
-  resumes it after the usual backoff, instead of failing it, up to
-  `limits.service_unavailable_attempts` times in a row (default 5, the next failure then
-  fails the unit with its error text). A parking for the network also writes a `network`
-  pause: while it stands a tick starts no agent run and `abk status` shows it as waiting
-  for the network, and the first tick whose control hosts connect ends it.
 
 - A fresh usage reading in Claude Code's own cache (`~/.claude.json`) now decides a start
   before the usage endpoint is asked, so interactive use of the account is seen without a
