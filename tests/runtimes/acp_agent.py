@@ -29,6 +29,7 @@ answers them (only while the variable `--sessions-when` names is set, when given
 newest first, `--page-size` at a time with a `nextCursor` while more remain, and
 `session/resume` of an id it does not hold, as Hermes does, creates a session of its own and
 answers normally, the response naming no id.
+`--fail session` stalls `session/new` for `HANG_SECONDS`, as a bridge whose backend is not running.
 `--models A,B,C` makes it offer those models, the first current (`none`: no model option at all).
 `--watch` names more variables for the environment line to record, beyond `WATCHED_ENV`.
 `--no-additional-dirs` leaves the `additionalDirectories` session capability
@@ -394,6 +395,8 @@ class FakeAgent:
         self, cwd: str, additional_directories=None, mcp_servers=None, **kwargs: Any
     ) -> NewSessionResponse:
         self._cwd = cwd
+        if self._fail == "session":
+            await asyncio.sleep(HANG_SECONDS)
         return NewSessionResponse(
             session_id=SESSION,
             modes=SessionModeState(
@@ -1123,7 +1126,18 @@ def main() -> None:
     parser.add_argument("--no-additional-dirs", dest="additional_dirs", action="store_false")
     parser.add_argument("--linger", action="store_true")
     parser.add_argument(
-        "--fail", choices=["exit", "kill", "error", "hang", "orphan", "detach", "set_model", "load"]
+        "--fail",
+        choices=[
+            "exit",
+            "kill",
+            "error",
+            "hang",
+            "orphan",
+            "detach",
+            "set_model",
+            "load",
+            "session",
+        ],
     )
     parser.add_argument("--act", type=Path)
     parser.add_argument("--probe", choices=["terminal", "ask"])

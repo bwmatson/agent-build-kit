@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import importlib.util
 import itertools
 import json
 import os
@@ -50,7 +49,7 @@ import signal
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -101,6 +100,7 @@ from agent_build_kit.pipeline.command_spellings import SPELLINGS, SpellingName, 
 from agent_build_kit.pipeline.scratch import carries_scratch
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.transcript import TranscriptEvent
+from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.acp_output import denied_call, output_of, refusal_line, text_of
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -128,7 +128,10 @@ from agent_build_kit.runtimes.base import (
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.usage import ContextBasis, Usage, context_of
 
-NAME = "acp"
+NAME = known_agents.RUNTIME_NAME
+
+# The longest listing an agent's models waits on it to start, initialize and open a session.
+LISTING_TIMEOUT = 20
 
 # A JSON-RPC message is one line; a file's contents can make that line far
 # longer than asyncio's 64 KiB default.
@@ -1273,154 +1276,6 @@ def _model_option(options: list[Any] | None) -> SessionConfigOptionSelect | None
     return None
 
 
-class StartVariant(Frozen):
-    """One way to start a known agent as a protocol server. `marker` is the text
-    its `--help` shows when this is the spelling that version takes; empty for
-    an agent whose spelling does not vary."""
-
-    argv: tuple[str, ...]
-    marker: str = ""
-
-
-class KnownAgent(Frozen):
-    name: str
-    program: str
-    variants: tuple[StartVariant, ...]  # in order of preference
-    needs: str = ""
-    verified: str  # how it was checked, or that it was documented only
-    source: str
-
-
-_DOCS = "the agent's own documentation"
-_DOCS_ONLY = "documented only: not run on the machine that wrote this entry"
-
-# The agents abk knows how to start. Product names appear here and nowhere else. An entry
-# is UNVERIFIED until a person has run it; `verified` says how far each one has been.
-KNOWN_AGENTS: tuple[KnownAgent, ...] = (
-    KnownAgent(
-        name="Hermes",
-        program="hermes",
-        variants=(StartVariant(argv=("hermes", "acp")),),
-        needs="its own configuration and credentials",
-        verified="run where it was installed: session/new returned a session id and modes only",
-        source="run on a machine where the agent was installed",
-    ),
-    KnownAgent(
-        name="OpenClaw",
-        program="openclaw",
-        variants=(StartVariant(argv=("openclaw", "acp")),),
-        needs="a running gateway, maybe a password",
-        verified="its --help only (an ACP bridge backed by the Gateway)",
-        source="the program's own --help",
-    ),
-    KnownAgent(
-        name="OpenCode",
-        program="opencode",
-        variants=(StartVariant(argv=("opencode", "acp")),),
-        verified=_DOCS_ONLY,
-        source=_DOCS,
-    ),
-    KnownAgent(
-        name="Goose",
-        program="goose",
-        variants=(StartVariant(argv=("goose", "acp")),),
-        verified=_DOCS_ONLY,
-        source=_DOCS,
-    ),
-    KnownAgent(
-        name="Qwen Code",
-        program="qwen",
-        variants=(StartVariant(argv=("qwen", "--acp")),),
-        verified=_DOCS_ONLY,
-        source=_DOCS,
-    ),
-    KnownAgent(
-        name="Gemini CLI",
-        program="gemini",
-        variants=(
-            StartVariant(argv=("gemini", "--acp"), marker="--acp"),
-            StartVariant(argv=("gemini", "--experimental-acp"), marker="--experimental-acp"),
-        ),
-        verified="documented only: the flag varies by version, chosen from --help",
-        source=_DOCS,
-    ),
-    KnownAgent(
-        name="Kimi CLI",
-        program="kimi",
-        # The older spelling first: its help names `acp` too, so the newer marker alone
-        # would also match it.
-        variants=(
-            StartVariant(argv=("kimi", "--experimental-acp"), marker="--experimental-acp"),
-            StartVariant(argv=("kimi", "acp"), marker="acp"),
-        ),
-        verified="documented only: sources disagree on the spelling, chosen from --help",
-        source=_DOCS,
-    ),
-    KnownAgent(
-        name="Codex",
-        program="codex-acp",
-        variants=(StartVariant(argv=("codex-acp",)),),
-        needs="an API key or a login",
-        verified=_DOCS_ONLY,
-        source="the adapter's package documentation",
-    ),
-    KnownAgent(
-        name="Claude via an adapter",
-        program="claude-agent-acp",
-        variants=(StartVariant(argv=("claude-agent-acp",)),),
-        verified="UNVERIFIED: the standalone run command is not confirmed",
-        source="the adapter's package documentation",
-    ),
-)
-
-
-# How long a probe waits on a program's `--help`.
-HELP_TIMEOUT = 5
-
-
-def _candidate(agent: KnownAgent, which: Which, run: Run) -> Candidate:
-    """What a probe finds of one known agent: the program on the path, the library and,
-    where its spelling varies, the variant its help shows. Stops at the first that fails."""
-
-    def found(command: tuple[str, ...], reasons: tuple[str, ...] = ()) -> Candidate:
-        return Candidate(
-            runtime=NAME,
-            command=command,
-            label=agent.name,
-            usable=not reasons,
-            reasons=reasons,
-            note=agent.needs,
-            verified=agent.verified,
-        )
-
-    def unusable(reason: str) -> Candidate:
-        return found(agent.variants[0].argv, (reason,))
-
-    if which(agent.program) is None:
-        return unusable(f"{agent.program} is not on the path")
-    if importlib.util.find_spec("acp") is None:
-        return unusable("the acp extra is not installed")
-    if len(agent.variants) == 1:
-        return found(agent.variants[0].argv)
-    try:
-        helped = run(
-            [agent.program, "--help"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=HELP_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        return unusable(f"{agent.program} --help timed out after {HELP_TIMEOUT} seconds")
-    except OSError as exc:
-        return unusable(f"{agent.program} --help could not run: {exc}")
-    shown = f"{helped.stdout}\n{helped.stderr}"
-    chosen = next((v for v in agent.variants if v.marker and v.marker in shown), None)
-    if chosen is None:
-        return unusable(f"{agent.program} --help shows none of the start commands abk knows")
-    return found(chosen.argv)
-
-
 class AcpRuntime:
     name: str = NAME
     implemented: bool = True
@@ -1797,15 +1652,23 @@ class AcpRuntime:
         except Exception:  # noqa: BLE001 — an agent that will not answer cannot be loaded from
             return False
 
+    async def _opened(self, command: list[str]) -> Any:
+        async with _bare_connection(command, None) as conn:
+            await _initialize(conn)
+            with tempfile.TemporaryDirectory(prefix="abk-models-") as scratch:
+                return await conn.new_session(cwd=scratch, mcp_servers=[])
+
     async def _advertised_models(self, command: list[str]) -> ModelList:
         """What the agent offers when a session opens, in a temporary directory. No prompt
         is sent. Only the `model` config option is read: the pinned library's
         `session/new` answer has no `models` state to read."""
         try:
-            async with _bare_connection(command, None) as conn:
-                await _initialize(conn)
-                with tempfile.TemporaryDirectory(prefix="abk-models-") as scratch:
-                    opened = await conn.new_session(cwd=scratch, mcp_servers=[])
+            opened = await asyncio.wait_for(self._opened(command), timeout=LISTING_TIMEOUT)
+        except TimeoutError:
+            return ModelList(
+                note=f"the agent did not answer within {LISTING_TIMEOUT} seconds, "
+                "so its models are not known"
+            )
         except Exception as exc:  # noqa: BLE001 — an agent that will not open a session lists none
             return ModelList(note=f"the agent did not open a session to list its models: {exc}")
         option = _model_option(opened.config_options)
@@ -1822,7 +1685,7 @@ class AcpRuntime:
         return None
 
     def detect(self, which: Which, run: Run) -> list[Candidate]:
-        return [_candidate(agent, which, run) for agent in KNOWN_AGENTS]
+        return known_agents.probe(which, run)
 
     def setup_questions(self) -> list[Question]:
         return [
@@ -1836,8 +1699,10 @@ class AcpRuntime:
             )
         ]
 
-    def list_models(self) -> ModelList:
-        command = config.runtime_entry(name=NAME).command or list(self.agent_command)
+    def list_models(self, command: Sequence[str] | None = None) -> ModelList:
+        """The agent's models; `command` is the one to ask, for one not yet written to
+        abk.yaml, and the configured entry's when not given."""
+        command = list(command or config.runtime_entry(name=NAME).command or self.agent_command)
         if not command:
             return ModelList(note=f"runtimes.{NAME}.command is not set, so no agent was asked")
         return asyncio.run(self._advertised_models(command))

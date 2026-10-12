@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import runtimes
 from agent_build_kit.runtimes import acp
 from tests.runtimes.acp_agent import use_agent
 from tests.runtimes.probe_fakes import (
@@ -47,18 +48,21 @@ def test_a_missing_program_is_unusable_and_the_reason_names_it(
     assert any("svc-a" in reason and "path" in reason for reason in candidate.reasons)
 
 
-def test_a_program_without_the_library_is_unusable_and_the_reason_names_the_library(
+def test_a_program_without_the_extra_is_still_listed_unusable_naming_the_extra(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    table(monkeypatch, PLAIN)
+    """On a machine without the extra the protocol runtime is not registered at all, so
+    the probe is asked of every runtime and the known agents come back from it alone."""
+    table(monkeypatch, PLAIN, OTHER)
     without_library(monkeypatch)
     host = Host((PLAIN.program,))
 
-    [candidate] = acp.RUNTIME.detect(host.which, host.run)
+    found = {c.label: c for c in runtimes.candidates(host.which, host.run)}
 
-    assert candidate.usable is False
-    assert any("acp" in reason for reason in candidate.reasons)
-    assert not any("path" in reason for reason in candidate.reasons)
+    assert "acp" not in runtimes.names()
+    assert found["svc-a"].usable is False
+    assert any("acp" in reason and "extra" in reason for reason in found["svc-a"].reasons)
+    assert any("path" in reason for reason in found["svc-c"].reasons)
 
 
 def test_the_variant_the_help_shows_is_the_command(monkeypatch: pytest.MonkeyPatch) -> None:

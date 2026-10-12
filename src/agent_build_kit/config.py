@@ -257,6 +257,12 @@ class ClaudeLimitsConfig(Frozen):
         return filled
 
 
+class PolicyMarker(StrEnum):
+    """What the person said about the runtime's policy check (`runtimes.<name>.policy`)."""
+
+    UNCHECKED = "unchecked"  # carried on without the check; doctor says so rather than probing
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -266,6 +272,9 @@ class RuntimeConfig(Frozen):
     # runtime's policy check finds a class unenforced. abk only runs it when
     # asked to, and never interprets it.
     policy_fix: list[str] | None = None
+    # `unchecked`: the person carried on without confirming the agent refuses what abk
+    # forbids. Unset for every runtime whose check was run or is yet to be.
+    policy: PolicyMarker | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
     # The context window, in tokens, of each model, for when the agent does not say
     # (read by the Claude Code runtime only).

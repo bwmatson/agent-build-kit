@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -373,7 +373,7 @@ class AsksQuestions(Protocol):
 
 @runtime_checkable
 class ListsModels(Protocol):
-    def list_models(self) -> ModelList: ...
+    def list_models(self, command: Sequence[str] | None = None) -> ModelList: ...
 
 
 def candidates_of(runtime: AgentRuntime, which: Which, run: Run) -> list[Candidate]:
@@ -386,8 +386,9 @@ def questions_of(runtime: AgentRuntime) -> list[Question]:
     return runtime.setup_questions() if isinstance(runtime, AsksQuestions) else []
 
 
-def models_of(runtime: AgentRuntime) -> ModelList:
-    """The models `runtime` lists; an empty list saying so for one that cannot."""
+def models_of(runtime: AgentRuntime, command: Sequence[str] | None = None) -> ModelList:
+    """The models `runtime` lists, asking `command` when given and the configured one
+    otherwise; an empty list saying so for a runtime that cannot."""
     if isinstance(runtime, ListsModels):
-        return runtime.list_models()
+        return runtime.list_models(command)
     return ModelList(note="this runtime does not list its models")

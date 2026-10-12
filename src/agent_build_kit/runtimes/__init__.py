@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRequest,
     AgentResult,
     AgentRuntime,
+    Candidate,
     PolicyReport,
+    Run,
     ToolPolicy,
     UsageStatus,
+    Which,
+    candidates_of,
 )
 
 _REGISTRY: dict[str, AgentRuntime] = {}
@@ -45,6 +50,16 @@ def names() -> list[str]:
     return sorted(_REGISTRY)
 
 
+def candidates(which: Which, run: Run) -> list[Candidate]:
+    """What every runtime finds on this machine, with no model call. The known protocol
+    agents are listed even where the protocol runtime is not registered for want of its
+    extra, each unusable with that reason, so the person learns what installing it adds."""
+    found = [c for name in names() for c in candidates_of(get(name), which, run)]
+    if known_agents.RUNTIME_NAME not in names():
+        found += known_agents.probe(which, run)
+    return found
+
+
 def _load_builtin() -> None:
     if _REGISTRY:
         return
@@ -74,6 +89,7 @@ __all__ = [
     "ToolPolicy",
     "UsageStatus",
     "active",
+    "candidates",
     "get",
     "names",
     "register",

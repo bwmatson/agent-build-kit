@@ -3,14 +3,15 @@
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
+import sys
 from typing import Any
 
 import pytest
 
-from agent_build_kit.runtimes import acp
-from agent_build_kit.runtimes.acp import KnownAgent, StartVariant
+from agent_build_kit import runtimes
+from agent_build_kit.runtimes import known_agents
+from agent_build_kit.runtimes.known_agents import KnownAgent, StartVariant
 
 # Neutral stand-ins for the known-agent table: one spelling, one that varies by
 # version and is chosen from the help, and one more to show the probe goes on.
@@ -66,14 +67,13 @@ class Host:
 
 
 def table(monkeypatch: pytest.MonkeyPatch, *agents: KnownAgent) -> None:
-    monkeypatch.setattr(acp, "KNOWN_AGENTS", agents)
+    monkeypatch.setattr(known_agents, "KNOWN_AGENTS", agents)
 
 
 def without_library(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The `acp` extra not installed, as the import system answers it."""
-    real = importlib.util.find_spec
-
-    def find_spec(name: str, *args: Any, **kwargs: Any):
-        return None if name == "acp" else real(name, *args, **kwargs)
-
-    monkeypatch.setattr(importlib.util, "find_spec", find_spec)
+    """The `acp` extra not installed, as the import system reports it: the library
+    cannot be imported, so the protocol runtime is not registered."""
+    monkeypatch.setattr(runtimes, "_REGISTRY", {})
+    monkeypatch.setitem(sys.modules, "acp", None)
+    monkeypatch.delitem(sys.modules, "agent_build_kit.runtimes.acp", raising=False)
+    monkeypatch.delattr(runtimes, "acp", raising=False)

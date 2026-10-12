@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -364,7 +364,8 @@ class ClaudeCodeRuntime:
             )
         ]
 
-    def list_models(self) -> ModelList:
+    def list_models(self, command: Sequence[str] | None = None) -> ModelList:
+        del command  # nothing is asked: the list is documented
         return ModelList(
             models=tuple(Model(name=alias) for alias in MODEL_ALIASES),
             source=ModelSource.DOCUMENTED,
