@@ -212,11 +212,22 @@ def status_lines(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     units: list[StoredUnit],
+    *,
+    limit: int | None = None,
 ) -> list[str]:
+    """`abk status` over `units`. `upsert` drops a unit's state, branch and pull request, so
+    those are recorded after it; `limit` is `limits.max_units_in_progress`."""
+    limits = {} if limit is None else dict(limits=dict(max_units_in_progress=limit))
     workspace = make_installation(
-        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+        tmp_path,
+        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
+        **limits,
     )
-    UnitStore(tmp_path / "units.json").upsert(units)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(units)
+    for unit in units:
+        if unit.state != "planned" or unit.branch:
+            store.set_state(unit.id, unit.state, branch=unit.branch, pr=unit.pr)
     monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
     assert pipeline_cli.cmd_status(argparse.Namespace(), workspace) == 0
     return capsys.readouterr().out.splitlines()

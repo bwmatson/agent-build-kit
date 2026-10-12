@@ -213,7 +213,9 @@ def test_a_restacked_unit_with_a_pull_request_starts_at_the_limit() -> None:
 # --- 1.4 a paused unit and a failed unit each hold a place -------------------------
 
 
-def test_with_four_started_units_one_failed_and_a_limit_of_five_one_new_unit_starts() -> None:
+def test_four_started_units_one_failed_with_no_wait_and_a_limit_of_five_start_one_new_unit() -> (
+    None
+):
     graph = [
         at_review("a/1", 1),
         at_review("b/1", 2),
@@ -229,7 +231,7 @@ def test_with_four_started_units_one_failed_and_a_limit_of_five_one_new_unit_sta
     assert [uid for uid in started if uid.startswith("n/")] == ["n/1"]
 
 
-def test_a_failed_unit_holds_a_place() -> None:
+def test_a_failed_unit_that_does_not_wait_holds_a_place() -> None:
     graph = [at_review("a/1", 1), failed("b/1"), new("c/1")]
 
     assert ready(graph, limit=2) == []

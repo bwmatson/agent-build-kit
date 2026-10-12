@@ -140,7 +140,7 @@ def test_a_unit_no_longer_blocked_counts_again() -> None:
     assert start_room(graph, 2) == 0
 
 
-def test_running_review_and_failed_units_count_and_a_held_unit_does_not() -> None:
+def test_running_review_and_failed_units_with_no_wait_count_and_a_held_unit_does_not() -> None:
     graph = [
         new("a/1", state=RUNNING),
         review("b/1"),

@@ -178,6 +178,7 @@ from agent_build_kit.pipeline.units import (
     dependency_wait,
     depth_of,
     effective_priority,
+    failed_waiting_units,
     in_progress,
     in_progress_label,
     local_ref,
@@ -526,7 +527,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
-    for line in _blocked_lines(units):
+    for line in [*_blocked_lines(units), *_failed_waiting_lines(units)]:
         log(line)
 
     urgency = [
@@ -1642,6 +1643,8 @@ def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     waiting = _blocked_lines(units)
     if waiting:
         line += f"; {len(waiting)} blocked not counted"
+    if failed := failed_waiting_units(units):
+        line += f"; {len(failed)} failed waiting not counted"
     return line
 
 
@@ -1693,6 +1696,15 @@ def _blocked_lines(units: list[StoredUnit]) -> list[str]:
         waits = [parent.id for parent in waiting_on(unit, units)]
         lines.append(f"  blocked: {unit.id} ({unit.repo}) waits on {', '.join(waits)}")
     return lines
+
+
+def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
+    """One line for each failed unit that waits on another unit, with what it waits on."""
+    return [
+        f"  failed, waiting on {', '.join(parent.id for parent in waiting_on(unit, units))}: "
+        f"{unit.id} ({unit.repo})"
+        for unit in failed_waiting_units(units)
+    ]
 
 
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
