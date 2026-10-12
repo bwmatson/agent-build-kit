@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.tier2 import TestFailure
 
 
 class ProfileUnsupported(NotImplementedError):
@@ -104,6 +105,8 @@ class ToolchainProfile(Protocol):
     def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]: ...
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]: ...
+
+    def parse_test_failures(self, output: str) -> list[TestFailure]: ...
 
     def is_test_path(self, path: str) -> bool: ...
 

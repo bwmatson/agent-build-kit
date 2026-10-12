@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.shell import git_out as git
-from agent_build_kit.pipeline.tier2 import Tier2Result, build_snapshot
+from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result, build_snapshot
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit, ready_units
 
@@ -151,16 +151,17 @@ def output_of(size: int) -> str:
     return text + "\n" + "TAIL FAILED tests/test_bar.py::test_bar".ljust(39)
 
 
-def snapshot(output: str) -> str:
+def snapshot(output: str, *, failures: list[TestFailure] | None = None) -> str:
     return build_snapshot(
         Tier2Result(
             sha="abcdef0123",
             passed=3,
-            failed=1,
+            failed=len(failures) if failures else 1,
             skipped=0,
             duration_seconds=1.5,
             command="uv run pytest -m local_stack",
             output=output,
+            failures=failures or [],
         )
     )
 

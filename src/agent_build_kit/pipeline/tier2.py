@@ -43,6 +43,15 @@ DEFAULT_LOCK_TIMEOUT_SECONDS = 3600
 Runner = Callable[[list[str]], str]
 
 
+class TestFailure(Frozen):
+    """One failed or errored test and the first failure line the runner gave it."""
+
+    __test__ = False
+
+    test: str
+    line: str
+
+
 class Tier2Result(Frozen):
     sha: str
     passed: int
@@ -52,6 +61,7 @@ class Tier2Result(Frozen):
     command: str
     output: str
     stack_versions: dict[str, str] = Field(default_factory=dict)
+    failures: list[TestFailure] = Field(default_factory=list)
 
     @property
     def ok(self) -> bool:
