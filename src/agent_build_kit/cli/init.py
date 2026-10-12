@@ -57,6 +57,7 @@ from agent_build_kit.init.scaffold import (
 from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
+from agent_build_kit.runtimes.base import Run, Which
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -71,6 +72,9 @@ run_claude: RunClaude | None = None
 host: Callable[[], Host] = detect_host
 # Runs a command the operator agreed to: a runtime's `policy_fix` or the notification install.
 run_fix: Callable[..., subprocess.CompletedProcess] | None = None
+# What the runtime probe asks of the machine: which programs are on the path, and a short run.
+which: Which = shutil.which
+probe_run: Run = subprocess.run
 
 
 class InitError(Exception):
@@ -616,6 +620,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         "adding what newer versions added and nothing else",
     )
     init.add_argument("--dry-run", action="store_true", help="print the config and the plan")
+    init.add_argument("--runtime", metavar="NAME", help="the agent runtime to use")
+    init.add_argument(
+        "--agent-command",
+        metavar="ARGV",
+        help="the command that starts the protocol runtime's agent",
+    )
     init.add_argument("--register-store", metavar="ID", help="register as an OpenSpec store")
     init.set_defaults(func=cmd_init, needs_installation=False)
 
