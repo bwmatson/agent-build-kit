@@ -49,6 +49,13 @@ from agent_build_kit.pipeline.archive import (
     archive_ready_changes,
     is_ready_to_archive,
 )
+from agent_build_kit.pipeline.cycles import (
+    FINISHED,
+    CycleDrops,
+    CycleEdge,
+    drop_cycle_edges,
+    path_between,
+)
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.events import (
     build_claim,
@@ -80,6 +87,7 @@ from agent_build_kit.pipeline.pause import (
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     PlannerError,
+    check_flagged_groups,
     in_flight_item,
     plan_kind,
     plan_round,
@@ -218,6 +226,7 @@ from agent_build_kit.pipeline.wiring import (
     follow_predecessors,
 )
 from agent_build_kit.pipeline.work_graph import (
+    Need,
     TaskGroup,
     check_tags,
     group_needs,
@@ -879,7 +888,16 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     only = frozenset(getattr(args, "only", None) or ())
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
-    ready = run_round(inst, store, building=(), started=(), only=only, submit=True)
+    readmission = _Readmission()
+    ready = run_round(
+        inst,
+        store,
+        building=(),
+        started=(),
+        only=only,
+        submit=True,
+        refused_needs=readmission.refused,
+    )
     if not ready:
         held = is_paused(_paused_marker(inst))
         if held and held.kind == "rate_limit":
@@ -902,7 +920,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         tick.outcome = "refused"
         return 1
 
-    return _schedule(inst, ready, store=store, only=only)
+    return _schedule(inst, ready, store=store, only=only, readmission=readmission)
 
 
 def _preview_fixes(inst: Installation) -> None:
@@ -1093,6 +1111,8 @@ class _Readmission:
         self.rebuilt: dict[str, int] = {}
         self.readmitted: set[str] = set()
         self.skipped: set[tuple[str, str]] = set()
+        # The `Needs:` lines refused for a cycle that the pass has already logged.
+        self.refused: set[tuple[str, str]] = set()
 
     def admit(self, units: list[StoredUnit], in_flight: set[str]) -> None:
         """A unit this pass built and that has since been put back — sent
@@ -1132,6 +1152,7 @@ def run_round(
     submit: bool,
     readmit: _Readmission | None = None,
     quiet: bool = False,
+    refused_needs: set[tuple[str, str]] | None = None,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
     beside builds in flight. Returns the units to start when `submit`.
@@ -1186,7 +1207,13 @@ def run_round(
     _step("creating the thread store", _create_thread_store, inst)
     if admitted:
         _step("planning", plan_all, inst, store=store)
-    _step("linking needs", link_needs, inst, store=store)
+    _step(
+        "linking needs",
+        link_needs,
+        inst,
+        store=store,
+        reported=refused_needs,
+    )
     _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     _step("following predecessors", park_dependents, inst, store)
     _step("gating sent-back units", gate_sent_back, store)
@@ -1794,6 +1821,7 @@ def _schedule(
     *,
     store: UnitStore,
     only: frozenset[str],
+    readmission: _Readmission,
 ) -> int:
     """Keep the build slots full until nothing more is ready.
 
@@ -1819,7 +1847,6 @@ def _schedule(
     are still awaited and the pass exits 1, as it does when the check fails
     at the start.
     """
-    readmission = _Readmission()
     started = readmission.started
     building: dict[Future[bool], Unit] = {}
     # Units that could build but for the slots, from when they were first seen so.
@@ -1923,6 +1950,7 @@ def _schedule(
                 submit=True,
                 readmit=readmission,
                 quiet=True,
+                refused_needs=readmission.refused,
             )
             units = store.all()
             note_queued(units, ready, in_flight)
@@ -2043,18 +2071,74 @@ def _create_thread_store(inst: Installation) -> None:
     asyncio.run(create())
 
 
-def link_needs(inst: Installation, *, store: UnitStore) -> None:
+def link_needs(
+    inst: Installation,
+    *,
+    store: UnitStore,
+    reported: set[tuple[str, str]] | None = None,
+) -> list[CycleEdge]:
     """Apply every change's `Needs:` lines as unit dependencies.
 
     Every tick, after planning: a re-plan takes each unit's dependencies from
     the plan, which knows nothing of these, so linking once would not last.
-    Idempotent — a dependency already there is left alone.
+    Idempotent — a dependency already there is left alone. The dependencies
+    refused because they would close a cycle are returned and logged, but not again
+    for a pair already in `reported`, which a pass keeps across its rounds.
     """
     units = store.all()
+    live = [unit for unit in units if unit.state != UNPLANNED]
+    wanted = declared_needs(
+        inst,
+        live,
+        missing=lambda change, group, need: log(
+            f"{change} group {group} needs {need.change} group {need.group}, not planned yet"
+        ),
+    )
+    graph = {u.id: list(u.depends_on) for u in units if u.state not in FINISHED}
+    refused: list[CycleEdge] = []
+    for unit in units:
+        if unit.id not in wanted and not unit.merge_before:
+            continue
+        added: list[str] = []
+        for target in dict.fromkeys(wanted.get(unit.id, [])):
+            if target in unit.depends_on:
+                continue
+            if back := path_between(graph, target, unit.id):
+                edge = CycleEdge(unit=unit.id, dependency=target, cycle=(unit.id, *back))
+                if reported is None or (unit.id, target) not in reported:
+                    log(
+                        f"{unit.id}: Needs: {target} refused, it would close the cycle "
+                        f"{' -> '.join(edge.cycle)}"
+                    )
+                if reported is not None:
+                    reported.add((unit.id, target))
+                refused.append(edge)
+                continue
+            added.append(target)
+            graph.setdefault(unit.id, []).append(target)
+        linked = (*unit.depends_on, *added)
+        if added:
+            store.set_dependencies(unit.id, linked)
+            log(f"{unit.id}: now depends on {', '.join(added)} (Needs: in tasks.md)")
+        # A `Needs:` line is a plain dependency: a gate an earlier version stored
+        # from the word `merged` is cleared.
+        if unit.merge_before:
+            store.set_merge_before(unit.id, ())
+    return refused
+
+
+def declared_needs(
+    inst: Installation,
+    units: Sequence[Unit],
+    *,
+    missing: Callable[[str, int, Need], object] | None = None,
+) -> dict[str, list[str]]:
+    """The unit ids each unit's `Needs:` lines name, for the `units` that cover the groups.
+
+    A line naming a group none of them covers adds nothing; `missing` hears of it."""
     covering = {
         (member.change, group): unit.id
         for unit in units
-        if unit.state != UNPLANNED
         for member in unit.members()
         for group in member.groups
     }
@@ -2062,32 +2146,17 @@ def link_needs(inst: Installation, *, store: UnitStore) -> None:
     for tasks in inst.tasks_files():
         change = tasks.parent.name
         for group, found in group_needs(tasks).items():
-            for missing in (n for n in found if (n.change, n.group) not in covering):
-                log(
-                    f"{change} group {group} needs {missing.change} group {missing.group}, "
-                    "not planned yet"
-                )
+            for need in found:
+                if (need.change, need.group) not in covering and missing:
+                    missing(change, group, need)
             for unit in units:
-                if unit.state == UNPLANNED or not any(
-                    member.change == change and group in member.groups for member in unit.members()
-                ):
-                    continue
-                for need in found:
-                    if (need.change, need.group) in covering:
-                        target = covering[(need.change, need.group)]
-                        wanted.setdefault(unit.id, []).append(target)
-    for unit in units:
-        if unit.id not in wanted and not unit.merge_before:
-            continue
-        add = wanted.get(unit.id, [])
-        linked = tuple(dict.fromkeys((*unit.depends_on, *add)))
-        if linked != unit.depends_on:
-            store.set_dependencies(unit.id, linked)
-            log(f"{unit.id}: now depends on {', '.join(add)} (Needs: in tasks.md)")
-        # A `Needs:` line is a plain dependency: a gate an earlier version stored
-        # from the word `merged` is cleared.
-        if unit.merge_before:
-            store.set_merge_before(unit.id, ())
+                if any(m.change == change and group in m.groups for m in unit.members()):
+                    wanted.setdefault(unit.id, []).extend(
+                        covering[(n.change, n.group)]
+                        for n in found
+                        if (n.change, n.group) in covering
+                    )
+    return wanted
 
 
 # Units a plan is made around and never changes: their groups are built or being
@@ -2109,6 +2178,9 @@ class PlanResult(Frozen):
     # Recorded as planned without asking: every group is taken, by a started unit or by
     # another change's planned unit.
     recorded_only: bool = False
+    # A cycle of `Needs:` and stored dependencies alone, which no planner edge could be
+    # dropped from: the plan stands and this names it.
+    cycle: tuple[str, ...] = ()
 
 
 def _carried(store: UnitStore, change: str, keep: Callable[[StoredUnit], bool]) -> set[int]:
@@ -2322,6 +2394,7 @@ def plan_all(
                     },
                 ),
             )
+            drops = _drop_cycle_edges(inst, store, change, plan.units, task_groups)
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at
             # once, so the change waits for that edit instead of re-asking.
@@ -2348,7 +2421,17 @@ def plan_all(
             results[change] = PlanResult(status="failed")
             continue
 
-        units = list(plan.units)
+        units = list(drops.units)
+        for edge in drops.dropped:
+            log(
+                f"{edge.unit}: planner edge to {edge.dependency} dropped, it would close "
+                f"the cycle {' -> '.join(edge.cycle)}"
+            )
+        if drops.cycle:
+            log(
+                f"{change}: cannot be ordered, a cycle of Needs: and stored dependencies: "
+                f"{' -> '.join(drops.cycle)}"
+            )
         before = {u.id: u for u in store.all()}
         store.upsert(units, change=change)
         dropped = [join for join in plan.joins if not _write_join(inst, store, join)]
@@ -2390,11 +2473,35 @@ def plan_all(
             # ignored it) is removed so the next tick does not skip it.
             record_plans(inst, {change: None})
             log(f"{change}: {len(dropped)} join(s) dropped, a unit started since the plan")
-            results[change] = PlanResult(status="planned", dropped_joins=len(dropped))
+            results[change] = PlanResult(
+                status="planned", dropped_joins=len(dropped), cycle=drops.cycle
+            )
             continue
         record_plans(inst, {change: {"hash": digest, "attempts": 0, "ok": True}})
-        results[change] = PlanResult(status="planned")
+        results[change] = PlanResult(status="planned", cycle=drops.cycle)
     return results
+
+
+def _drop_cycle_edges(
+    inst: Installation,
+    store: UnitStore,
+    change: str,
+    plan_units: Sequence[Unit],
+    groups: list[TaskGroup],
+) -> CycleDrops:
+    """The plan without the dependencies that would close a cycle with stored work, and
+    its acceptance and independence checks run again on what is left."""
+    stored = store.all()
+    # What the plan replaces covers no group: the plan's units do.
+    kept = [
+        u
+        for u in stored
+        if u.state != UNPLANNED and not (u.change == change and u.state == PLANNED)
+    ]
+    drops = drop_cycle_edges(plan_units, stored, declared_needs(inst, [*kept, *plan_units]))
+    if drops.dropped:
+        check_flagged_groups(list(drops.units), groups)
+    return drops
 
 
 def _record_calibration(
@@ -3407,7 +3514,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     print(f"planning {', '.join(to_plan)}: {len(to_plan)} model call(s)")
     before = {unit.id: unit for unit in store.all()}
     results = plan_all(inst, store=store, only=set(to_plan), force=True)
-    link_needs(inst, store=store)
+    refusals = link_needs(inst, store=store)
     after = {unit.id: unit for unit in store.all()}
 
     failed = [change for change in to_plan if results[change].status != "planned"]
@@ -3425,7 +3532,16 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     for unit in after.values():
         if unit.change in to_plan and unit.state not in (PLANNED, UNPLANNED):
             print(f"kept: {unit.id}, {unit.state.value}")
-    return 1 if refused or failed else 0
+    # Each was printed above as the plan or the linking logged it.
+    # Only a refusal in a cycle through a change planned here: another change's is left to
+    # the tick that links it, and does not fail this replan.
+    cyclic = any(
+        after[unit_id].change in to_plan
+        for edge in refusals
+        for unit_id in edge.cycle
+        if unit_id in after
+    ) or any(results[change].cycle for change in to_plan)
+    return 1 if refused or failed or cyclic else 0
 
 
 def _plan_state(record: dict | None, max_attempts: int) -> str:

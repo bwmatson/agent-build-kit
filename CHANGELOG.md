@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A dependency that would close a cycle with units already stored is no longer applied,
+  so two changes can no longer leave planned units waiting on each other forever. An
+  edge the planner proposes is dropped and logged with the cycle it would have made; a
+  `Needs:` line that would close one is refused and logged, and `abk replan` exits
+  non-zero naming it. A replan also clears such a stale planner edge from a unit that
+  has not started, and never touches the dependencies of one that has.
+
 - A `Needs: <change> group <n>` line is now only a dependency: the dependent starts on
   the parent's branch once the parent is in review, instead of waiting for it to merge
   (a parent in another repository still has to merge). The word `merged` after a
