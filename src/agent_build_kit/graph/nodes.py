@@ -119,6 +119,7 @@ from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
     AgentResult,
+    NetworkUnavailable,
     SessionUnavailable,
 )
 from agent_build_kit.usage import Context, Usage
@@ -340,6 +341,11 @@ class BuildPath:
                     raise
                 except AgentInterrupted:
                     outcome = UnitOutcome.INTERRUPTED
+                    raise
+                except NetworkUnavailable:
+                    # Not a failure, but the step it stopped on is what the unit resumes at.
+                    outcome = UnitOutcome.INTERRUPTED
+                    self.record_step(node)
                     raise
                 except BaseException as error:
                     if isinstance(error, Exception):
@@ -959,7 +965,7 @@ class BuildPath:
             r.fetch_quietly(unit)
             try:
                 restacked = r.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
-            except (AgentRateLimited, AgentInterrupted):
+            except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
                 raise
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
@@ -1783,7 +1789,7 @@ class BuildPath:
                 unit=unit,
                 resolve=False,
             )
-        except (AgentRateLimited, AgentInterrupted):
+        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
             raise
         except Exception as error:  # noqa: BLE001
             return self.rebase(state, f"moving onto {base} needed resolution: {error}", base=base)

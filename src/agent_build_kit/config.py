@@ -371,6 +371,22 @@ class LimitsConfig(Frozen):
     tier2_lock_wait_seconds: Annotated[int, Field(gt=0)] = 5400
     # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
     tier2_durations_shown: Annotated[int, Field(ge=0)] = 15
+    # Longest the connectivity probe waits to connect to one host, in seconds (a name lookup
+    # waits on the system resolver instead). The probe tells a network
+    # outage from a model service outage when an agent run ends on a failure to connect.
+    network_probe_timeout_seconds: Annotated[int, Field(gt=0)] = 5
+    # Bare host names the probe also tries, beside the code hosts, to tell whether the
+    # network as a whole is down. Port 443; an empty list leaves the code hosts alone.
+    network_control_hosts: tuple[str, ...] = ("one.one.one.one", "dns.google")
+
+    @field_validator("network_control_hosts")
+    @classmethod
+    def _bare_host_names(cls, hosts: tuple[str, ...]) -> tuple[str, ...]:
+        """A host name and nothing else: no scheme, path, port or space."""
+        for host in hosts:
+            if not host or any(mark in host for mark in ("/", ":", " ")):
+                raise ValueError(f"{host!r} is not a bare host name")
+        return hosts
 
     @model_validator(mode="after")
     def _ceiling_above_floor(self) -> LimitsConfig:

@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import forges
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import StoredUnit, backoff_ends, waiting_for
 from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
@@ -46,6 +46,17 @@ def _carried(unit: StoredUnit) -> str:
         f"{member.change}: {', '.join(str(g) for g in member.groups)}<br/>"
         for member in unit.joined
     )
+
+
+def _waiting(unit: StoredUnit) -> str:
+    """What a parked unit waits for, the step it stopped at and when it may run again: a
+    clock time, not a countdown, so an unchanged graph is not rewritten each time it is drawn."""
+    if not (why := waiting_for(unit)):
+        return ""
+    at = f" at {unit.step}" if unit.step else ""
+    ends = backoff_ends(unit)
+    retry = f", retry after {ends:%H:%M} UTC" if ends else ""
+    return f" · {why}{at}{retry}"
 
 
 def _node_id(unit_id: str) -> str:
@@ -106,7 +117,8 @@ def render_mermaid(
             name = STATES[state].name
             head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
             urgency = f" · priority {unit.priority}" if unit.priority != Priority.NORMAL else ""
-            label = f"{head}<small>{unit.tier} · {name}{pr}{urgency}</small>"
+            waiting = _waiting(unit)
+            label = f"{head}<small>{unit.tier} · {name}{waiting}{pr}{urgency}</small>"
             lines.append(f'        {_node_id(unit.id)}["{label}"]')
         lines.append("    end")
 

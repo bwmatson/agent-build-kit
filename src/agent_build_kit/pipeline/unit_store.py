@@ -94,6 +94,8 @@ class Cause(StrEnum):
     CLOSED = "closed"
     FAILED = "failed"
     HOST_UNAVAILABLE = "host_unavailable"
+    NETWORK_UNAVAILABLE = "network_unavailable"
+    SERVICE_UNAVAILABLE = "service_unavailable"
     ENVIRONMENT = "environment"
 
 
@@ -656,10 +658,10 @@ class UnitStore:
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
                 # before it); any other state forgets it.
-                "step": unit.step if state == FAILED or cause is Cause.HOST_UNAVAILABLE else "",
+                "step": unit.step if state == FAILED or cause in PARKED_CAUSES else "",
                 # Parked again, or the count of parkings in a row starts over.
                 "parked_attempts": unit.parked_attempts + 1
-                if cause is Cause.HOST_UNAVAILABLE
+                if cause in PARKED_CAUSES
                 else 0
                 if state in (IN_REVIEW, FAILED)
                 else unit.parked_attempts,
@@ -832,8 +834,25 @@ def _now() -> str:
     return spans.clock.now().isoformat()
 
 
-# How long a unit parked for the host being unavailable waits, by consecutive parking.
-HOST_BACKOFF = (
+# The causes of a unit parked because something outside it is down: it resumes at its
+# step once `PARK_BACKOFF` has elapsed.
+PARKED_CAUSES = (Cause.HOST_UNAVAILABLE, Cause.NETWORK_UNAVAILABLE, Cause.SERVICE_UNAVAILABLE)
+
+# What each parked cause waits for, as the status, the log and the graph say it.
+_WAITING_FOR = {
+    Cause.HOST_UNAVAILABLE: "waiting for the code host",
+    Cause.NETWORK_UNAVAILABLE: "waiting for the network",
+    Cause.SERVICE_UNAVAILABLE: "waiting for the model service",
+}
+
+
+def waiting_for(unit: StoredUnit) -> str:
+    """What a unit parked for an outage waits for, or "" for any other unit."""
+    return _WAITING_FOR.get(unit.cause, "") if unit.cause else ""
+
+
+# How long a parked unit waits, by consecutive parking.
+PARK_BACKOFF = (
     timedelta(minutes=1),
     timedelta(minutes=2),
     timedelta(minutes=5),
@@ -842,15 +861,22 @@ HOST_BACKOFF = (
 )
 
 
-def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
-    """How long until a unit parked for the host being unavailable may run again,
-    or None when it is not parked, or the wait is over."""
-    if unit.state != PLANNED or unit.cause is not Cause.HOST_UNAVAILABLE:
+def backoff_ends(unit: StoredUnit) -> datetime | None:
+    """When a unit parked for the host, the network or the model service may run again, or
+    None when it is not parked."""
+    if unit.state != PLANNED or unit.cause not in PARKED_CAUSES:
         return None
     try:
         parked = datetime.fromisoformat(str(unit.history[-1].get("at", "")))
     except ValueError:
         return None
-    wait = HOST_BACKOFF[min(max(unit.parked_attempts, 1), len(HOST_BACKOFF)) - 1]
-    left = parked + wait - now
+    return parked + PARK_BACKOFF[min(max(unit.parked_attempts, 1), len(PARK_BACKOFF)) - 1]
+
+
+def backoff_remaining(unit: StoredUnit, now: datetime) -> timedelta | None:
+    """How long until a unit parked for the host, the network or the model service being
+    unavailable may run again, or None when it is not parked, or the wait is over."""
+    if (ends := backoff_ends(unit)) is None:
+        return None
+    left = ends - now
     return left if left > timedelta(0) else None

@@ -41,7 +41,12 @@ from agent_build_kit.pipeline.git_output import (
 )
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
 from agent_build_kit.runtimes import AgentRequest
-from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited, AgentRuntime
+from agent_build_kit.runtimes.base import (
+    AgentInterrupted,
+    AgentRateLimited,
+    AgentRuntime,
+    NetworkUnavailable,
+)
 
 Runner = Callable[[list[str]], str]
 
@@ -309,9 +314,9 @@ def move_branch_onto(
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
         resolve(prompt, cwd=repo)
-    except (AgentRateLimited, AgentInterrupted):
-        # Not a conflict nobody could resolve: the account is out of room, or
-        # the run was killed. The branch goes back where it was, to be moved
+    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable):
+        # Not a conflict nobody could resolve: the account is out of room, the
+        # network is down, or the run was killed. The branch goes back where it was, to be moved
         # again once the tick can run.
         git(repo, "rebase", "--abort", check=False)
         raise

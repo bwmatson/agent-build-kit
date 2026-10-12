@@ -15,6 +15,7 @@ from agent_build_kit.runtimes.base import (
     AgentRateLimited,
     AgentRequest,
     AgentResult,
+    NetworkUnavailable,
 )
 
 # A review by the rework model is still a review: the model attribute says
@@ -39,6 +40,9 @@ def traced(runtime: str, request: AgentRequest, call: Callable[[], AgentResult])
             raise
         except AgentRateLimited:
             outcome = "rate_limited"
+            raise
+        except NetworkUnavailable:
+            outcome = "network_unavailable"
             raise
         except Exception:
             telemetry.failed(span)

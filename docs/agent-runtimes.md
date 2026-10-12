@@ -283,9 +283,12 @@ class AgentRuntime(Protocol):
     def run(self, request: AgentRequest) -> AgentResult:
         """Run one prompt to completion and report the result.
 
-        Raises `AgentInterrupted` or `AgentRateLimited` for those two cases;
-        any other non-zero/refused outcome is `AgentResult(ok=False, ...)`,
-        never a bare exception a caller has to guess the meaning of.
+        Raises `AgentInterrupted` or `AgentRateLimited` for those two cases, and
+        `NetworkUnavailable` (carrying `strength` and `host`) for a run that ended
+        on a network or model-host failure; any other non-zero/refused outcome is
+        `AgentResult(ok=False, ...)`, never a bare exception a caller has to
+        guess the meaning of.
+        See "Network outages are a typed error".
         """
         ...
 
@@ -549,6 +552,18 @@ this machine. `check_policy` establishes the fact.
   printed note in init, and is never cached; one skipped because the agent
   command does not resolve is a doctor warning, as the `runtime` check has
   already failed for that cause.
+
+## Network outages are a typed error
+
+A run that ends because the network is down raises `NetworkUnavailable`, carrying the
+CLI's words, how sure the sign is (`strong` or `weak`, from `runtimes/network.py`) and the
+host and port the run called (the base URL it was started with, else the default host on
+443). The claude runtime raises it for a non-zero exit whose words carry
+the sign, after reporting the call's spend through `on_result`; the ACP runtime raises it
+for a failed result with a strong sign, and names no host, so its weak failures stay
+ordinary. A failure that carries an HTTP status, a usage limit, a model refusal and a
+permission or tool failure are never an outage: they return `AgentResult(ok=False)` as
+before. The pipeline decides what a weak sign means (`pipeline/network_probe.py`).
 
 ## Usage tracking is optional
 

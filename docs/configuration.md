@@ -261,6 +261,8 @@ limits:
   tier2_base_runs: 1                # run the untouched failed tier 2 tests once on the base (0: off)
   tier2_lock_wait_seconds: 5400     # longest post-merge verification waits for the tier 2 lock before reporting it busy
   tier2_durations_shown: 15         # slowest tier 2 test entries the posted result lists (0 = all)
+  network_probe_timeout_seconds: 5  # longest the outage probe waits to connect to one host
+  network_control_hosts: [one.one.one.one, dns.google]  # bare host names tried beside the code hosts to tell a network outage from a model service outage
 
 tracks:                         # the scheduled tracks (docs/tracks.md); their
                                 # model and tool lists stay here, not under
