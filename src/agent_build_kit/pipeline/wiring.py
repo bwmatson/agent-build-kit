@@ -2569,7 +2569,9 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
     def upstream_incomplete(unit: Unit) -> tuple[Cause, str] | None:
         known = list(store.all())
         index = {u.id: u for u in known}
-        for dep in through_satisfied(unit, known):
+        # The stored unit, not the one the run started with: a `Needs:` line linked
+        # since is a dependency of the unit it is running as.
+        for dep in through_satisfied(index.get(unit.id, unit), known):
             parent = index.get(dep)
             if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
                 return (
@@ -2685,7 +2687,8 @@ def build_base_moved(store: UnitStore) -> Callable[..., tuple[Cause, str] | None
     """
 
     def base_moved(unit: Unit, base: str, *, tree: Path, start: str) -> tuple[Cause, str] | None:
-        now = base_of(unit, store.all())
+        known = store.all()
+        now = base_of(next((u for u in known if u.id == unit.id), unit), known)
         if now != base:
             return Cause.BASE_CHANGED, f"its base moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or

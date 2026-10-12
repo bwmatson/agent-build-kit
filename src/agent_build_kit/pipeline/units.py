@@ -555,7 +555,7 @@ def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     return unit.state == PLANNED and bool(waiting_on(unit, graph))
 
 
-def merge_wait(units: Sequence[Unit]) -> str:
+def dependency_wait(units: Sequence[Unit]) -> str:
     """What a unit held by these dependencies is waiting for, in a person's words."""
     return f"waiting for {group_names(units)}"
 

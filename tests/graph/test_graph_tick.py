@@ -28,12 +28,7 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 from tests.factories import stored_unit, unit
 from tests.runner_fakes import Killed
-from tests.tick_driver import OTHER, UNIT, Setup, make_setup
-
-
-@pytest.fixture
-def graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
-    return make_setup(tmp_path, monkeypatch)
+from tests.tick_driver import OTHER, UNIT, Setup
 
 
 def test_a_tick_builds_a_unit_on_its_thread_and_it_waits_for_review(graph: Setup) -> None:

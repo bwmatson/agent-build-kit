@@ -9,7 +9,6 @@ parent's branch. The line is linked as every tick links it; the thread is the re
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,17 +18,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED
 from tests.factories import new_unit
-from tests.tick_driver import UNIT, Setup, make_setup
-
-TASKS = (
-    "# Tasks\n\n## 1. [app] [tier1] Do the work\n\nNeeds: parent group 1 — a reason\n\n"
-    "- [ ] 1.1 Test: it works\n- [ ] 1.2 Make it work\n"
-)
-
-
-@pytest.fixture
-def graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
-    return make_setup(tmp_path, monkeypatch)
+from tests.tick_driver import UNIT, Setup
 
 
 def held_then_needing(graph: Setup, *, repo: str = "app") -> None:
@@ -38,11 +27,8 @@ def held_then_needing(graph: Setup, *, repo: str = "app") -> None:
     graph.tick()
     assert graph.poll(("hold", {})) == [True]
     assert graph.store.get(UNIT).state == HELD
-    tasks = graph.inst.changes_dir / "add-marker" / "tasks.md"
-    tasks.parent.mkdir(parents=True)
-    tasks.write_text(TASKS)
     graph.store.upsert([new_unit("parent/1", repo=repo)])
-    cli.link_needs(graph.inst, store=graph.store)
+    graph.need_parent()
     assert graph.store.get(UNIT).depends_on == ("parent/1",)
 
 

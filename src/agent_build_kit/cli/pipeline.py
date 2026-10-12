@@ -173,12 +173,12 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    dependency_wait,
     depth_of,
     effective_priority,
     in_progress,
     in_progress_label,
     local_ref,
-    merge_wait,
     ready_units,
     stack_age_source,
     start_room,
@@ -605,7 +605,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == PLANNED and unit.cause is Cause.GATED:
             waits = waiting_on(unit, units)
             if waits:
-                log(f"  {unit.id} ({unit.repo}) {merge_wait(waits)}")
+                log(f"  {unit.id} ({unit.repo}) {dependency_wait(waits)}")
         if unit.close_pending:
             log(
                 f"  close pending: {unit.id} ({unit.repo}) #{unit.close_pending.pr} is "
@@ -1416,8 +1416,9 @@ def reconcile_running(
 
 
 def gate_sent_back(store: UnitStore) -> None:
-    """Park a unit a poll sent back for rework while a dependency it must wait
-    for has not merged: it is `gated`, so the readmission rule leaves it for the
+    """Park a unit a poll sent back for rework while a dependency in another
+    repository has not merged (only those; a same-repo parent is waited for by
+    `waiting_on` alone): it is `gated`, so the readmission rule leaves it for the
     pass that finds the gate clear, instead of starting it again."""
     units = store.all()
     for unit in units:
@@ -1425,8 +1426,8 @@ def gate_sent_back(store: UnitStore) -> None:
             continue
         waits = [parent for parent in waiting_on(unit, units) if parent.repo != unit.repo]
         if waits:
-            store.set_state(unit.id, PLANNED, note=merge_wait(waits), cause=Cause.GATED)
-            log(f"{unit.id}: {merge_wait(waits)}")
+            store.set_state(unit.id, PLANNED, note=dependency_wait(waits), cause=Cause.GATED)
+            log(f"{unit.id}: {dependency_wait(waits)}")
 
 
 def deliver_committed(inst: Installation, store: UnitStore) -> None:
@@ -3807,29 +3808,26 @@ def requeue(
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
-    waits = [
-        parent
-        for parent in waiting_on(known[unit_id], list(known.values()))
-        if known[parent.id].cause not in READMITTED_CAUSES
-    ]
+    waits = waiting_on(known[unit_id], list(known.values()))
     # What the history entry of a requeue says of a note: its first 200 characters.
     said = guidance_excerpt(note)
     # With no saved failure the person's note is what the rework is from.
     saved = bool(known[unit_id].feedback)
     source = "the saved failure" if saved else "the person's note"
     if waits and has_thread(inst, unit_id):
-        # The gate is unmet: the thread is left where it stopped, and the pass
-        # delivers the event in this mode once the dependency has merged.
+        # A dependency is unmet: the thread is left where it stopped, and the pass
+        # delivers the event in this mode once nothing the unit waits on is left (a
+        # same-repo parent in review, a cross-repo parent merged).
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: {merge_wait(waits)}{said}",
+            note=f"requeued: {dependency_wait(waits)}{said}",
             cause=Cause.GATED,
         )
         if note:
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
-        say(f"{unit_id} requeued ({mode}), {merge_wait(waits)}")
+        say(f"{unit_id} requeued ({mode}), {dependency_wait(waits)}")
         return 0
     try:
         delivered = resume_thread(

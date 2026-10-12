@@ -289,8 +289,12 @@ def test_a_unit_sent_back_while_its_stacking_parent_reworks_is_not_gated(
     assert store.get("feature/1").cause is Cause.REWORK
 
 
-def test_a_failed_child_requeued_while_its_parent_reworks_resumes_instead_of_waiting_to_merge(
-    store: UnitStore, thread: Thread, capsys: pytest.CaptureFixture[str]
+def test_a_failed_child_requeued_while_its_parent_reworks_waits_until_the_parent_is_back_in_review(
+    inst: Installation,
+    store: UnitStore,
+    thread: Thread,
+    builder: Builder,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     store.upsert([stored("dep/1"), stored("feature/1", depends_on=("dep/1",))])
     store.set_state("dep/1", PLANNED, note="reworking", cause=Cause.REWORK)
@@ -298,7 +302,16 @@ def test_a_failed_child_requeued_while_its_parent_reworks_resumes_instead_of_wai
 
     assert main(["requeue", "feature/1"]) == 0
 
+    after = store.get("feature/1")
+    assert (after.state, after.cause) == (PLANNED, Cause.GATED)
+    assert thread.delivered == []
+    out = capsys.readouterr().out
+    assert "dep group 1" in out
+    assert "to merge" not in out
+
+    store.set_state("dep/1", IN_REVIEW, pr=3)
+    assert tick(inst) == 0
+
     (call,) = thread.delivered
+    assert call["unit"] == "feature/1"
     assert call["requeue"] is RequeueReason.RESUME
-    assert store.get("feature/1").cause is not Cause.GATED
-    assert "to merge" not in capsys.readouterr().out

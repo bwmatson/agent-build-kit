@@ -26,6 +26,10 @@ from tests.runner_fakes import Recorder, make_runner
 UNIT = "add-marker/1"
 OTHER = "add-marker/2"
 real_poll_all = cli.poll_all
+NEEDING_PARENT = (
+    "# Tasks\n\n## 1. [app] [tier1] Do the work\n\nNeeds: parent group 1 — a reason\n\n"
+    "- [ ] 1.1 Test: it works\n- [ ] 1.2 Make it work\n"
+)
 
 
 class Setup:
@@ -48,6 +52,14 @@ class Setup:
                 return (await thread_position(saver, unit_id)).next
 
         return asyncio.run(look())
+
+    def need_parent(self) -> None:
+        """Group 1 of the unit's change gains `Needs: parent group 1`, and the line is
+        linked as every tick links it."""
+        tasks = self.inst.changes_dir / "add-marker" / "tasks.md"
+        tasks.parent.mkdir(parents=True, exist_ok=True)
+        tasks.write_text(NEEDING_PARENT)
+        cli.link_needs(self.inst, store=self.store)
 
     def poll(self, *events: tuple[str, dict[str, Any]], pr: int = 7) -> list[bool]:
         """Report `events` for pull request `pr` as the poller does, and return

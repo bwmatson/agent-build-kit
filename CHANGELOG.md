@@ -81,7 +81,8 @@
   tick. A `Needs:` line added to a unit that has started works the same way: requeueing
   a failed or held unit whose parent is not yet in review leaves it waiting, and it
   resumes restacked onto the parent's branch; the line written for a flaky test no
-  longer says `merged`.
+  longer says `merged`. A running unit now notices a `Needs:` line added since it
+  started and stops at its next check.
 
 - A runtime entry in `abk.yaml` may now carry `policy: unchecked`, recording that the
   agent's policy check was knowingly skipped. The only value is `unchecked`, and a file
