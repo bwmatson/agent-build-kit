@@ -8,9 +8,8 @@ the stack as it actually runs on this host, on fixed ports.
 There is one of each, so **tier 2 runs are serialized**. Unlike the per-branch
 locks, which fail fast because contention there means a scheduling bug, this
 lock is a queue: a second unit's tests are perfectly valid, they simply can't
-run yet. It waits, with a timeout, because an unattended run that blocks
-forever is indistinguishable from a crashed one and holds its worktree the
-whole time.
+run yet. It waits without a deadline, because failing a unit for queueing is a
+fault of the queue, not of the unit; the wait is logged and recorded instead.
 
 Tier 2 gates the push (docs/architecture.md). The order is: tests
 pass locally, the branch is pushed, then the status is posted for the commit
@@ -22,16 +21,19 @@ again.
 from __future__ import annotations
 
 import fcntl
+import os
 import re
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import Field
 
 from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 
 # Shown on the PR beside the Actions checks.
 STATUS_CONTEXT = "local/tier2"
@@ -87,6 +89,61 @@ class Tier2Result(Frozen):
         return self.failed == 0
 
 
+# How often a waiter says it is still waiting.
+LOCK_LOG_INTERVAL_SECONDS = 300.0
+
+
+class LockRecord(Frozen):
+    """What the holder of the tier 2 lock writes into its file."""
+
+    unit: str
+    pid: int
+    since: str
+
+
+def read_lock_record(text: str) -> LockRecord | None:
+    """The record in the lock file's text; None when it is empty or not one."""
+    try:
+        return LockRecord.model_validate_json(text)
+    except ValueError:
+        return None
+
+
+def process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _age(seconds: float) -> str:
+    minutes, rest = divmod(int(max(seconds, 0)), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m {rest}s" if hours else f"{minutes}m {rest}s"
+
+
+def _held_for(record: LockRecord) -> float:
+    try:
+        return (spans.clock.now() - datetime.fromisoformat(record.since)).total_seconds()
+    except ValueError:
+        return 0.0
+
+
+def _waiting_message(record: LockRecord | None, waited: float) -> str:
+    if record is None:
+        return f"tier 2 is busy: waiting for its holder, waited {_age(waited)}"
+    message = (
+        f"tier 2 is busy: waiting for {record.unit} "
+        f"(held for {_age(_held_for(record))}), waited {_age(waited)}"
+    )
+    if not process_alive(record.pid):
+        message += f"; process {record.pid} of {record.unit} is gone but the lock is still held"
+    return message
+
+
 @contextmanager
 def stack_lock(
     path: Path,
@@ -94,18 +151,23 @@ def stack_lock(
     setting: str | None = None,
     *,
     holder: str = "",
-    on_wait: Callable[..., None] | None = None,
+    on_wait: Callable[[str], None] | None = None,
+    on_stale: Callable[[str], None] | None = None,
 ):
     """Hold the one-and-only tier 2 lock, waiting for it if need be.
 
     `flock` rather than a PID file: the kernel releases it when the process
     dies, so a crashed run can't wedge the tier for everything after it. `setting`
-    names the config key `timeout` came from, so the busy message can say so.
+    names the config key `timeout` came from, so the busy message can say so; a
+    `timeout` of None waits without a deadline. While held, the file holds a
+    `LockRecord` of `holder`. `on_wait` is told who holds the lock when the wait
+    begins and at each interval; `on_stale` is told of a record left by a process
+    that is gone.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    if timeout is None:
-        raise NotImplementedError
-    deadline = time.monotonic() + timeout
+    began = time.monotonic()
+    deadline = None if timeout is None else began + timeout
+    next_say = began
 
     with path.open("a+") as handle:
         while True:
@@ -113,20 +175,33 @@ def stack_lock(
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
-                if time.monotonic() >= deadline:
+                now = time.monotonic()
+                if deadline is not None and now >= deadline:
                     named = f" ({setting})" if setting else ""
                     raise TimeoutError(
                         f"tier 2 is busy: waited {timeout:.0f}s for {path}{named}"
                     ) from None
+                if on_wait is not None and now >= next_say:
+                    handle.seek(0)
+                    on_wait(_waiting_message(read_lock_record(handle.read()), now - began))
+                    next_say = now + LOCK_LOG_INTERVAL_SECONDS
                 time.sleep(0.05)
 
         try:
             handle.seek(0)
+            left = read_lock_record(handle.read())
+            if left is not None and on_stale is not None and not process_alive(left.pid):
+                on_stale(
+                    f"tier 2 lock record from {left.unit} (process {left.pid}) is stale, ignored"
+                )
+            handle.seek(0)
             handle.truncate()
-            handle.write(f"held since {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n")
+            record = LockRecord(unit=holder, pid=os.getpid(), since=spans.clock.now().isoformat())
+            handle.write(record.model_dump_json() + "\n")
             handle.flush()
             yield
         finally:
+            handle.truncate(0)
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 

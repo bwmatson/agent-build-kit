@@ -25,8 +25,8 @@ import re
 import shlex
 import subprocess
 import time
-from collections.abc import Callable, Mapping
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -84,7 +84,6 @@ from agent_build_kit.pipeline.scratch import run_folder
 from agent_build_kit.pipeline.shell import git, git_out, has_origin
 from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.tier2 import (
-    LOCK_WAIT_SETTING,
     TestFailure,
     Tier2Classification,
     Tier2Result,
@@ -1681,8 +1680,9 @@ class Tier2Session:
         run: Run | None = None,
         sha: Callable[[Path], str] | None = None,
         status: Callable[..., None] | None = None,
-        timeout: float,
+        timeout: float | None = None,
         timeout_setting: str | None = None,
+        log: Callable[[str], None] = print,
         under: Callable[[], Path] | None = None,
         profile: ToolchainProfile | None = None,
         marker: str = "local_stack",
@@ -1717,12 +1717,42 @@ class Tier2Session:
         self._status = status or build_post_status(head=branch_name(unit))
         self._timeout = timeout
         self._timeout_setting = timeout_setting
+        self._log = log
         self._output_dir = output_dir
         self._now = now
         self.result: Tier2Result | None = None
         self._started: datetime | None = None
         self._output_file: Path | None = None
         self._withheld = False
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Hold the tier 2 lock as this unit: the wait is logged, and recorded as a span."""
+        mark = spans.Mark()
+        waited = False
+
+        def waiting(message: str) -> None:
+            nonlocal waited
+            waited = True
+            self._log(message)
+
+        with stack_lock(
+            self.lock,
+            self._timeout,
+            self._timeout_setting,
+            holder=self.unit.id,
+            on_wait=waiting,
+            on_stale=self._log,
+        ):
+            if waited:
+                spans.record_span(
+                    mark,
+                    self._log,
+                    unit=self.unit.id,
+                    change=self.unit.change,
+                    waited=spans.TIER2_LOCK,
+                )
+            yield
 
     def _keep(self, header: str, out: str) -> None:
         """Append one command's whole output to this run's file, redacted as a whole
@@ -1774,7 +1804,7 @@ class Tier2Session:
 
         # A queue, not a fail-fast lock: a second unit's tier 2 tests are
         # perfectly valid, there is simply one local stack to run them on.
-        with stack_lock(self.lock, self._timeout, self._timeout_setting):
+        with self._locked():
             for where, toolchain, commands in entries:
                 # A project's output is labelled with it; a repo with no
                 # projects has nothing to say about where.
@@ -1936,7 +1966,7 @@ class Tier2Session:
         up = [str(script), "up"]
         test = [str(script), "test"]
         down = [str(script), "down"]
-        with stack_lock(self.lock, self._timeout, self._timeout_setting):
+        with self._locked():
             base = self._under() if self._under else None
             try:
                 beneath = self._run(up, cwd=base) if base else None
@@ -2531,8 +2561,7 @@ def build_runner(
     tier2 = Tier2Session(
         unit,
         lock=root / "tier2.lock",
-        timeout=installation.config.limits.tier2_lock_wait_seconds,
-        timeout_setting=LOCK_WAIT_SETTING,
+        log=log,
         under=dev_stack_underneath(unit, installation),
         profile=profile,
         marker=repo.tests.tier2_marker,

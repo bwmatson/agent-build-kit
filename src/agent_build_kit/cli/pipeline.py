@@ -655,7 +655,11 @@ def verify_one(
     setting = LOCK_WAIT_SETTING if wait is None else None
     with ExitStack() as held:
         try:
-            held.enter_context(stack_lock(inst.state_dir / "tier2.lock", timeout, setting))
+            held.enter_context(
+                stack_lock(
+                    inst.state_dir / "tier2.lock", timeout, setting, holder=f"verify {change}"
+                )
+            )
         except TimeoutError as error:
             raise StackBusy(str(error)) from error
         outcome = verify_change(

@@ -27,10 +27,7 @@ from agent_build_kit.config import (
     load,
 )
 from agent_build_kit.pipeline import tier2
-from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.wiring import build_runner
 from tests.conftest import make_installation
-from tests.factories import unit
 
 SETTING = "limits.tier2_lock_wait_seconds"
 
@@ -92,26 +89,6 @@ def test_a_value_that_cannot_be_a_wait_fails_to_load_naming_the_key(
         load(write_yaml(tmp_path, value))
 
     assert SETTING in str(refused.value)
-
-
-def test_a_configured_wait_is_what_the_tier_2_runner_waits(
-    tmp_path: Path, clock: WaitClock
-) -> None:
-    inst = make_installation(
-        tmp_path,
-        planning={"worktree_root": str(tmp_path.parent / "trees")},
-        limits={"tier2_lock_wait_seconds": 7},
-    )
-    runner = build_runner(
-        unit(repo="app"), store=UnitStore(tmp_path / "units.json"), installation=inst
-    )
-    cwd = tmp_path / "tree"
-    cwd.mkdir()
-
-    with held(inst.state_dir / "tier2.lock"), pytest.raises(TimeoutError) as busy:
-        runner.run_tier2(cwd=cwd)
-
-    assert f"waited 7s for {inst.state_dir / 'tier2.lock'} ({SETTING})" in str(busy.value)
 
 
 def test_verify_one_uses_the_configured_wait_unless_given_its_own(
