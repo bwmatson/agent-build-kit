@@ -289,6 +289,34 @@ def test_a_unit_sent_back_while_its_stacking_parent_reworks_is_not_gated(
     assert store.get("feature/1").cause is Cause.REWORK
 
 
+def test_a_unit_sent_back_while_a_parent_in_another_repo_is_unmerged_waits_for_the_merge(
+    inst: Installation,
+    store: UnitStore,
+    builder: Builder,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_needs(inst)
+    store.upsert(
+        [
+            stored("dep/1", repo="platform"),
+            stored("feature/1", depends_on=("dep/1",), merge_before=("dep/1",)),
+        ]
+    )
+    store.set_state("dep/1", IN_REVIEW, pr=3)
+    store.set_state("feature/1", PLANNED, note="reworking", cause=Cause.REWORK)
+
+    cli.gate_sent_back(store)
+
+    gated = store.get("feature/1")
+    assert (gated.state, gated.cause) == (PLANNED, Cause.GATED)
+    assert "dep group 1" in gated.note
+    assert "to merge" in gated.note
+
+    store.set_state("dep/1", MERGED, pr=3)
+    assert tick(inst) == 0
+    assert "feature/1" in builder.started
+
+
 def test_a_failed_child_requeued_while_its_parent_reworks_waits_until_the_parent_is_back_in_review(
     inst: Installation,
     store: UnitStore,

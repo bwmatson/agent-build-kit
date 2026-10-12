@@ -13,7 +13,7 @@ import pytest
 
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, UnitState
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, UnitState
 from agent_build_kit.pipeline.wiring import build_base_moved, build_upstream_incomplete
 from tests.factories import new_unit
 from tests.tick_driver import UNIT, Setup
@@ -48,10 +48,13 @@ def test_a_running_unit_finishes_its_step_then_stops_and_resumes_onto_the_parent
     real_checks(graph)
     bases = recording_restacks(graph)
     steps: list[str] = []
+    seen: list[tuple[UnitState, Cause | None]] = []
 
     def agent(prompt: str, **kw: Any) -> str:
         if not steps:
             graph.need_parent()
+            now = graph.store.get(UNIT)
+            seen.append((now.state, now.cause))
         steps.append(prompt)
         return graph.recorder.claude(prompt, **kw)
 
@@ -60,8 +63,11 @@ def test_a_running_unit_finishes_its_step_then_stops_and_resumes_onto_the_parent
     assert graph.tick() == 0
 
     stopped = graph.store.get(UNIT)
-    assert steps, "the step in progress ran to its end"
-    assert cause.value in [entry.get("cause") for entry in stopped.history], "it stopped"
+    assert seen == [(RUNNING, seen[0][1])], "linking the line left the running unit alone"
+    assert seen[0][1] not in (Cause.UPSTREAM_WENT_BACK, Cause.BASE_CHANGED)
+    causes = [entry.get("cause") for entry in stopped.history]
+    assert cause.value in causes, "it stopped"
+    assert len(steps) == 1, "the step in progress was the last one before the check"
     if parent_state == HELD:
         assert stopped.state == PLANNED
     assert graph.tick() == 0

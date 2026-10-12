@@ -555,9 +555,14 @@ def blocked(unit: Unit, graph: Sequence[Unit]) -> bool:
     return unit.state == PLANNED and bool(waiting_on(unit, graph))
 
 
-def dependency_wait(units: Sequence[Unit]) -> str:
-    """What a unit held by these dependencies is waiting for, in a person's words."""
-    return f"waiting for {group_names(units)}"
+def dependency_wait(units: Sequence[Unit], *, repo: str) -> str:
+    """What a unit of `repo` held by these dependencies is waiting for, in a person's words.
+
+    A dependency in another repository is waited for until it has merged, so it is
+    named as such; a same-repo one only until it is in review.
+    """
+    names = [group_names([unit]) + (" to merge" if unit.repo != repo else "") for unit in units]
+    return f"waiting for {', '.join(names)}"
 
 
 def group_names(units: Sequence[Unit]) -> str:

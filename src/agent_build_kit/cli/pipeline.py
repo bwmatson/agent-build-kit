@@ -605,7 +605,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == PLANNED and unit.cause is Cause.GATED:
             waits = waiting_on(unit, units)
             if waits:
-                log(f"  {unit.id} ({unit.repo}) {dependency_wait(waits)}")
+                log(f"  {unit.id} ({unit.repo}) {dependency_wait(waits, repo=unit.repo)}")
         if unit.close_pending:
             log(
                 f"  close pending: {unit.id} ({unit.repo}) #{unit.close_pending.pr} is "
@@ -1426,8 +1426,10 @@ def gate_sent_back(store: UnitStore) -> None:
             continue
         waits = [parent for parent in waiting_on(unit, units) if parent.repo != unit.repo]
         if waits:
-            store.set_state(unit.id, PLANNED, note=dependency_wait(waits), cause=Cause.GATED)
-            log(f"{unit.id}: {dependency_wait(waits)}")
+            store.set_state(
+                unit.id, PLANNED, note=dependency_wait(waits, repo=unit.repo), cause=Cause.GATED
+            )
+            log(f"{unit.id}: {dependency_wait(waits, repo=unit.repo)}")
 
 
 def deliver_committed(inst: Installation, store: UnitStore) -> None:
@@ -3821,13 +3823,13 @@ def requeue(
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: {dependency_wait(waits)}{said}",
+            note=f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}{said}",
             cause=Cause.GATED,
         )
         if note:
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
-        say(f"{unit_id} requeued ({mode}), {dependency_wait(waits)}")
+        say(f"{unit_id} requeued ({mode}), {dependency_wait(waits, repo=known[unit_id].repo)}")
         return 0
     try:
         delivered = resume_thread(
