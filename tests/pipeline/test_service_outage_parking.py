@@ -97,7 +97,7 @@ def test_the_attempt_after_the_cap_fails_the_unit_with_its_text_and_step(
     park_once(tmp_path, monkeypatch, store, overloaded())
 
     failed = store.get(UNIT)
-    assert (failed.state, failed.cause, failed.step) == (FAILED, "failed", "implement")
+    assert (failed.state, failed.cause, failed.step) == (FAILED, "failed", "tests")
     assert "overloaded_error" in failed.note
 
 

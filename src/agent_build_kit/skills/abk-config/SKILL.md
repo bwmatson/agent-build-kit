@@ -156,6 +156,7 @@ limits:
   tier2_durations_shown: 15         # slowest tier 2 test entries the posted result lists (0 = all)
   network_probe_timeout_seconds: 5  # longest the outage probe waits to connect to one host
   network_control_hosts: [one.one.one.one, dns.google]  # bare host names tried beside the code hosts to tell a network outage from a model service outage
+  service_unavailable_attempts: 5   # times in a row a 5xx or 529 from the model service parks a unit before the next fails it
 
 environment:                  # how the pipeline's own environment is kept current;
                               # leave it out and nothing is managed (`abk doctor` warns)

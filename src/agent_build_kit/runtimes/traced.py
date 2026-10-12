@@ -16,6 +16,7 @@ from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
     NetworkUnavailable,
+    ServiceUnavailable,
 )
 
 # A review by the rework model is still a review: the model attribute says
@@ -43,6 +44,9 @@ def traced(runtime: str, request: AgentRequest, call: Callable[[], AgentResult])
             raise
         except NetworkUnavailable:
             outcome = "network_unavailable"
+            raise
+        except ServiceUnavailable:
+            outcome = "service_unavailable"
             raise
         except Exception:
             telemetry.failed(span)

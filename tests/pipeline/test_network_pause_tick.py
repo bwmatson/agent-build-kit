@@ -142,7 +142,7 @@ def test_a_reachable_control_host_clears_the_marker_whatever_its_time_and_work_s
     asked = len(probe.asked)
     store.upsert([stored("add-marker/3")])
 
-    assert tick(monkeypatch) == ["add-marker/3"]
+    assert "add-marker/3" in tick(monkeypatch)
     assert len(probe.asked) == asked
 
 

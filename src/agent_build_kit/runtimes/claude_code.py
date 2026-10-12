@@ -54,6 +54,7 @@ from agent_build_kit.runtimes.base import (
     Question,
     QuestionKind,
     Run,
+    ServiceUnavailable,
     SessionUnavailable,
     UsageStatus,
     Which,
@@ -342,12 +343,18 @@ class ClaudeCodeRuntime:
                 **_spent(ended),
                 context=_context(result.stdout, ended, request.model),
             )
-            strength = network_failure(said) if failure.kind != "rate_limited" else None
-            if failure.kind == "rate_limited" or strength:
+            strength = (
+                network_failure(said)
+                if failure.kind not in ("rate_limited", "service_unavailable")
+                else None
+            )
+            if failure.kind in ("rate_limited", "service_unavailable") or strength:
                 # Raised, so `_run` never sees it: the spend of a call cut off
                 # is told here.
                 if request.on_result is not None:
                     request.on_result(failed.model_copy(update={"error": said}))
+                if failure.kind == "service_unavailable" and failure.status is not None:
+                    raise ServiceUnavailable(said, status=failure.status)
                 if strength:
                     host, port = _api_endpoint(request)
                     raise NetworkUnavailable(said, strength=strength, host=host, port=port)

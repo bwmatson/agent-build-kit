@@ -81,6 +81,7 @@ from agent_build_kit.pipeline.pause import (
     PAUSE_MARKER,
     Pause,
     clear_pause,
+    end_network_pause,
     is_paused,
     pause_in_force,
     pause_line,
@@ -144,6 +145,7 @@ from agent_build_kit.pipeline.unit_size import (
     recent_examples,
 )
 from agent_build_kit.pipeline.unit_store import (
+    PARK_BACKOFF,
     PARKED_CAUSES,
     UNPLANNED,
     Cause,
@@ -250,7 +252,7 @@ from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
-from agent_build_kit.runtimes import NetworkUnavailable
+from agent_build_kit.runtimes import NetworkUnavailable, ServiceUnavailable
 from agent_build_kit.serve.review import Review, ReviewStore
 
 if TYPE_CHECKING:
@@ -1077,6 +1079,17 @@ def _may_build(
     paused = is_paused(_paused_marker(inst))
     if paused and paused.kind == "rate_limit":
         return _held_by_the_model(inst, store, paused, spared=spared)
+    if paused and paused.kind == "network":
+        if not network_probe.control_reachable(inst):
+            # Held like a usage refusal: the round polls and records, and starts and
+            # plans nothing, which costs no model call.
+            if not quiet:
+                log(pause_line(paused))
+            _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+            return "usage"
+        end_network_pause(_paused_marker(inst))
+        log("the network is back; resuming")
+        paused = None
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
     # the account's window says nothing about an on-demand agent. Its own
@@ -3100,6 +3113,13 @@ def _build_unit(
         """The work is fine and the thread stays at the step: the unit is `planned` with
         `cause`, and the pass readmits it after a backoff, resuming at that step."""
         end(f"parked, {error}", UnitOutcome.INTERRUPTED)
+        if cause is Cause.NETWORK_UNAVAILABLE:
+            pause_until(
+                datetime.now(UTC) + PARK_BACKOFF[0],
+                reason=f"network unreachable during {unit.id}",
+                marker=_paused_marker(inst),
+                kind="network",
+            )
         try:
             store.set_state(unit.id, PLANNED, note=str(error), cause=cause)
         except Exception as second:  # noqa: BLE001
@@ -3220,6 +3240,15 @@ def _build_unit(
             return True
         except HostUnavailable as error:
             park(error, Cause.HOST_UNAVAILABLE)
+            return True
+        except ServiceUnavailable as error:
+            # A status is evidence on its own, so the probe is not asked; a row of them
+            # longer than the limit is a fault of the request, not an outage.
+            row = store.count_service_attempt(unit.id)
+            if row > inst.config.limits.service_unavailable_attempts:
+                fail(error)
+            else:
+                park(error, Cause.SERVICE_UNAVAILABLE)
             return True
         except NetworkUnavailable as error:
             # The work is fine: the network or the model's host is down. A strong sign

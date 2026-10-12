@@ -104,3 +104,24 @@ def classify_reachability(
     if reached.api:
         return None
     return Cause.SERVICE_UNAVAILABLE if reached.control else Cause.NETWORK_UNAVAILABLE
+
+
+def control_reachable(
+    installation: Installation, *, probe: Callable[..., Reachability] | None = None
+) -> bool:
+    """Whether any host of the control group connects: the network as a whole is up.
+
+    True when there is no group to ask and when the probe errors, so a pause that only this
+    ends is never held by a probe that cannot answer."""
+    hosts = control_group(installation)
+    if not hosts:
+        return True
+    try:
+        reached = (probe or probe_reachability)(
+            hosts[0],
+            hosts,
+            timeout=installation.config.limits.network_probe_timeout_seconds,
+        )
+    except Exception:  # noqa: BLE001
+        return True
+    return reached.control

@@ -65,10 +65,10 @@ def test_a_second_parking_while_the_pause_stands_does_not_replace_its_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: Probe
 ) -> None:
     store = fresh_store(tmp_path)
-    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong")))
+    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong"), ""))
     first = marker(tmp_path)
 
-    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong")))
+    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong"), ""))
 
     assert store.get(UNIT).parked_attempts == 2
     assert marker(tmp_path)["until"] == first["until"]
@@ -78,12 +78,12 @@ def test_parking_for_the_model_service_writes_no_pause(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: Probe
 ) -> None:
     store = fresh_store(tmp_path)
-    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong")))
+    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong"), ""))
     assert marker(tmp_path)["kind"] == "network"
     (tmp_path / "paused.json").unlink()
     probe.answer = Reachability(api=False, control=True)
 
-    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("weak")))
+    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("weak"), ""))
 
     assert store.get(UNIT).cause == "service_unavailable"
     assert not (tmp_path / "paused.json").exists()
@@ -93,7 +93,7 @@ def test_a_unit_that_runs_while_the_pause_stands_and_fails_for_its_own_reason_fa
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: Probe
 ) -> None:
     store = fresh_store(tmp_path)
-    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong")))
+    build_once(tmp_path, monkeypatch, store, run=raises_in_implement(outage("strong"), ""))
     assert marker(tmp_path)["kind"] == "network"
     assert store.get(UNIT).state == PLANNED
 
@@ -101,7 +101,7 @@ def test_a_unit_that_runs_while_the_pause_stands_and_fails_for_its_own_reason_fa
         tmp_path,
         monkeypatch,
         store,
-        run=raises_in_implement(RuntimeError("the build script exited 2")),
+        run=raises_in_implement(RuntimeError("the build script exited 2"), ""),
     )
 
     failed = store.get(UNIT)
