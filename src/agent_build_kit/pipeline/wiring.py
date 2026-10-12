@@ -25,7 +25,7 @@ import re
 import shlex
 import subprocess
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -2569,7 +2569,7 @@ def build_upstream_incomplete(store: UnitStore) -> Callable[..., tuple[Cause, st
     def upstream_incomplete(unit: Unit) -> tuple[Cause, str] | None:
         known = list(store.all())
         index = {u.id: u for u in known}
-        for dep in through_satisfied(unit, known):
+        for dep in through_satisfied(as_stored(unit, known), known):
             parent = index.get(dep)
             if parent and parent.repo == unit.repo and parent.state not in REVIEWED:
                 return (
@@ -2672,6 +2672,12 @@ def tip(tree: Path, ref: str) -> str:
     return git(tree, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False).stdout.strip()
 
 
+def as_stored(unit: Unit, known: Sequence[Unit]) -> Unit:
+    """The unit as the store has it now, else as the run started with it: a `Needs:`
+    line linked since the run began is a dependency of the unit it is running as."""
+    return next((u for u in known if u.id == unit.id), unit)
+
+
 def build_base_moved(store: UnitStore) -> Callable[..., tuple[Cause, str] | None]:
     """Why a unit's base is no longer the one its run started on, if it isn't.
 
@@ -2685,7 +2691,8 @@ def build_base_moved(store: UnitStore) -> Callable[..., tuple[Cause, str] | None
     """
 
     def base_moved(unit: Unit, base: str, *, tree: Path, start: str) -> tuple[Cause, str] | None:
-        now = base_of(unit, store.all())
+        known = store.all()
+        now = base_of(as_stored(unit, known), known)
         if now != base:
             return Cause.BASE_CHANGED, f"its base moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or

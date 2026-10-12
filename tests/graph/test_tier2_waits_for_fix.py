@@ -201,7 +201,7 @@ def test_the_needs_line_names_the_failing_test_on_the_base(installation: Install
 
     assert fix is not None
     tasks = (installation.changes_dir / "feature" / "tasks.md").read_text()
-    assert f"Needs: {fix} group 1 merged — failing test {RECORDED} on the base" in tasks
+    assert f"Needs: {fix} group 1 — failing test {RECORDED} on the base" in tasks
 
 
 def test_a_flake_fix_for_the_same_test_is_another_change_and_does_not_stand_in(

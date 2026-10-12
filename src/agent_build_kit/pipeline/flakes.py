@@ -142,7 +142,7 @@ def add_needs_to_unit(inst: Installation, unit: StoredUnit, fix: str, reason: st
 
 
 def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str) -> None:
-    """Give `group` of `change` a `Needs:` line on group 1 of `fix` being merged, with `reason`."""
+    """Give `group` of `change` a `Needs:` line on group 1 of `fix`, with `reason`."""
     tasks = inst.changes_dir / change / "tasks.md"
     if not tasks.is_file():
         return
@@ -156,7 +156,7 @@ def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str
             if heading and int(heading["number"]) == group:
                 lines[index + 1 : index + 1] = [
                     "",
-                    f"Needs: {fix} group 1 merged — {reason}",
+                    f"Needs: {fix} group 1 — {reason}",
                 ]
                 tasks.write_text("\n".join(lines) + "\n")
                 return

@@ -2099,7 +2099,8 @@ class BuildPath:
             else:
                 update.update(self.fresh_run())
             # The run takes the base the store names when the tick starts it: the one
-            # `verify_base` last recorded is the old one, and its branch may be gone.
+            # `verify_base` last recorded is the old one, its branch may be gone, and
+            # a requeue may follow a dependency gained since.
             update["base"] = ""
         else:
             update["detail"] = event.kind.value

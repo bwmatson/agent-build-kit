@@ -173,18 +173,17 @@ from agent_build_kit.pipeline.units import (
     UnitState,
     base_of,
     branch_name,
+    dependency_wait,
     depth_of,
     effective_priority,
     in_progress,
     in_progress_label,
     local_ref,
-    merge_wait,
     ready_units,
     stack_age_source,
     start_room,
     trunk_of,
     uncounted,
-    unmet_gates,
     waiting_on,
     waiting_on_me,
 )
@@ -604,9 +603,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"{int(left.total_seconds())}s remain — {unit.note}"
             )
         if unit.state == PLANNED and unit.cause is Cause.GATED:
-            waits = unmet_gates(unit, units)
+            waits = waiting_on(unit, units)
             if waits:
-                log(f"  {unit.id} ({unit.repo}) {merge_wait(waits)}")
+                log(f"  {unit.id} ({unit.repo}) {dependency_wait(waits, repo=unit.repo)}")
         if unit.close_pending:
             log(
                 f"  close pending: {unit.id} ({unit.repo}) #{unit.close_pending.pr} is "
@@ -1417,17 +1416,20 @@ def reconcile_running(
 
 
 def gate_sent_back(store: UnitStore) -> None:
-    """Park a unit a poll sent back for rework while a dependency it must wait
-    for has not merged: it is `gated`, so the readmission rule leaves it for the
+    """Park a unit a poll sent back for rework while a dependency in another
+    repository has not merged (only those; a same-repo parent is waited for by
+    `waiting_on` alone): it is `gated`, so the readmission rule leaves it for the
     pass that finds the gate clear, instead of starting it again."""
     units = store.all()
     for unit in units:
         if unit.state != PLANNED or unit.cause not in READMITTED_CAUSES:
             continue
-        waits = unmet_gates(unit, units)
+        waits = [parent for parent in waiting_on(unit, units) if parent.repo != unit.repo]
         if waits:
-            store.set_state(unit.id, PLANNED, note=merge_wait(waits), cause=Cause.GATED)
-            log(f"{unit.id}: {merge_wait(waits)}")
+            store.set_state(
+                unit.id, PLANNED, note=dependency_wait(waits, repo=unit.repo), cause=Cause.GATED
+            )
+            log(f"{unit.id}: {dependency_wait(waits, repo=unit.repo)}")
 
 
 def deliver_committed(inst: Installation, store: UnitStore) -> None:
@@ -1445,7 +1447,7 @@ def deliver_committed(inst: Installation, store: UnitStore) -> None:
 
 
 def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> list[str]:
-    """The `Needs: … merged` lines of the unit's groups whose target is an open change
+    """The `Needs:` lines of the unit's groups whose target is an open change
     with no planned unit yet, as `change group N`: nothing exists to wait on, so a gate
     that looked only at units would find it clear. A target that is no longer an open
     change has been archived, which is merged."""
@@ -1464,7 +1466,7 @@ def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUn
         for group in member.groups:
             for need in group_needs(tasks).get(group, []):
                 target = inst.changes_dir / need.change / "tasks.md"
-                if need.merged and (need.change, need.group) not in planned and target.is_file():
+                if (need.change, need.group) not in planned and target.is_file():
                     waiting.append(f"{need.change} group {need.group}")
     return waiting
 
@@ -3808,25 +3810,26 @@ def requeue(
             "--restart starts it over, a plain requeue resumes it"
         )
         return 1
-    waits = unmet_gates(known[unit_id], list(known.values()))
+    waits = waiting_on(known[unit_id], list(known.values()))
     # What the history entry of a requeue says of a note: its first 200 characters.
     said = guidance_excerpt(note)
     # With no saved failure the person's note is what the rework is from.
     saved = bool(known[unit_id].feedback)
     source = "the saved failure" if saved else "the person's note"
     if waits and has_thread(inst, unit_id):
-        # The gate is unmet: the thread is left where it stopped, and the pass
-        # delivers the event in this mode once the dependency has merged.
+        # A dependency is unmet: the thread is left where it stopped, and the pass
+        # delivers the event in this mode once nothing the unit waits on is left (a
+        # same-repo parent in review, a cross-repo parent merged).
         store.set_state(
             unit_id,
             PLANNED,
-            note=f"requeued: {merge_wait(waits)}{said}",
+            note=f"requeued: {dependency_wait(waits, repo=known[unit_id].repo)}{said}",
             cause=Cause.GATED,
         )
         if note:
             store.set_guidance(unit_id, note)
         store.set_gated_requeue(unit_id, why)
-        say(f"{unit_id} requeued ({mode}), {merge_wait(waits)}")
+        say(f"{unit_id} requeued ({mode}), {dependency_wait(waits, repo=known[unit_id].repo)}")
         return 0
     try:
         delivered = resume_thread(
