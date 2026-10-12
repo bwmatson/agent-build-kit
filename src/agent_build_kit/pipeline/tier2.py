@@ -274,25 +274,25 @@ def parse_pytest_summary(output: str) -> tuple[int, int, int, float]:
     )
 
 
-def _clock(seconds: float) -> str:
-    minutes, rest = divmod(round(seconds), 60)
-    return f"{minutes}m{rest:02d}s" if minutes else f"{rest}s"
-
-
 def _split_cells(entry: TestTime) -> str:
     """The agent, checks and other cells of an entry, a dash each when the run gave no split."""
     if not entry.has_split:
         return "- | - | -"
     agent = (
         ", ".join(
-            f"{role} {_clock(ms / 1000)} x{entry.calls.get(role, 1)}"
+            f"{role} {_age(ms / 1000)} x{entry.calls.get(role, 1)}"
             for role, ms in entry.agent_ms.items()
         )
         or "-"
     )
-    checks = "-" if entry.checks_ms is None else _clock(entry.checks_ms / 1000)
-    other = "-" if entry.other_ms is None else _clock(entry.other_ms / 1000)
+    checks = "-" if entry.checks_ms is None else _age(entry.checks_ms / 1000)
+    other = "-" if entry.other_ms is None else _age(entry.other_ms / 1000)
     return f"{agent} | {checks} | {other}{' (overlap)' if entry.overlap else ''}"
+
+
+def _cell(text: str) -> str:
+    """`text` as the content of a markdown table cell: a `|` in it would split the row."""
+    return text.replace("|", "\\|")
 
 
 def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
@@ -303,9 +303,9 @@ def _durations_listing(durations: list[TestTime]) -> tuple[str, str]:
     ranked = sorted(durations, key=lambda e: e.seconds, reverse=True)
     limit = active().limits.tier2_durations_shown
     shown = ranked[:limit] if limit else ranked
-    head = "; ".join(f"`{e.test}` {e.phase} {_clock(e.seconds)}" for e in ranked[:3])
+    head = "; ".join(f"`{e.test}` {e.phase} {_age(e.seconds)}" for e in ranked[:3])
     rows = "\n".join(
-        f"| `{e.test}` | {e.phase} | {_clock(e.seconds)} | {_split_cells(e)} |" for e in shown
+        f"| `{_cell(e.test)}` | {e.phase} | {_age(e.seconds)} | {_split_cells(e)} |" for e in shown
     )
     table = (
         f"\n**Time by test** (slowest first, {len(shown)} of {len(ranked)} shown)\n\n"

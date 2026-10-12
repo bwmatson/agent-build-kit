@@ -2000,6 +2000,7 @@ class Tier2Session:
                     completed = self._run(command, cwd=tree / at.relative_to(cwd), **self._test_env)
                     text = f"{completed.stdout or ''}{completed.stderr or ''}"
                     commands.append(" ".join(command))
+                    # Covers a toolchain whose rerun keeps its flags, and so prints durations.
                     outputs.append(toolchain.without_durations(text))
                     named = toolchain.parse_test_failures(text)
                     failing.update(f"{prefix}{found.test}" for found in named)

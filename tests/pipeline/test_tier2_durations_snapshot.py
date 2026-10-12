@@ -48,12 +48,21 @@ def test_the_three_slowest_entries_lead_with_their_phase_and_time() -> None:
     snapshot = build_snapshot(_result(*entries))
 
     (slowest,) = [line for line in _listing(snapshot).splitlines() if "Slowest" in line]
-    first = slowest.index(f"`{E2E}::test_a` call 14m02s")
-    second = slowest.index(f"`{E2E}::test_b` setup 9m31s")
-    third = slowest.index(f"`{E2E}::test_c` call 6m14s")
+    first = slowest.index(f"`{E2E}::test_a` call 14m 2s")
+    second = slowest.index(f"`{E2E}::test_b` setup 9m 31s")
+    third = slowest.index(f"`{E2E}::test_c` call 6m 14s")
     assert first < second < third
     assert "test_d" not in slowest
     assert snapshot.index("Slowest") < snapshot.index("Ran against")
+
+
+def test_a_pipe_in_a_test_id_does_not_split_its_row() -> None:
+    test = f"{E2E}::test_x[a|b]"
+
+    (row,) = _rows(build_snapshot(_result(timed(5.0, test))))
+
+    assert f"`{E2E}::test_x[a\\|b]`" in row
+    assert row.replace("\\|", "").count("|") == 7
 
 
 def test_the_listing_is_slowest_first_whatever_the_order_given() -> None:
@@ -108,7 +117,7 @@ def test_an_entry_shows_its_split_and_one_without_shows_a_dash() -> None:
 
     with_split = next(row for row in rows if "test_a" in row)
     without = next(row for row in rows if "test_b" in row)
-    for shown in ("2m00s", "1m30s", "1m00s"):
+    for shown in ("2m 0s", "1m 30s", "1m 0s"):
         assert shown in with_split
     assert "- | - | -" in without.replace("  ", " ")
 

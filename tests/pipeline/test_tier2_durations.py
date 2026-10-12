@@ -69,6 +69,23 @@ def test_an_id_with_a_space_in_its_parameters_is_kept_whole() -> None:
     assert [t.test for t in found] == [test]
 
 
+def test_a_durations_section_quoted_in_captured_output_is_not_the_runs_own() -> None:
+    inner = f"{E2E}::test_inner"
+    captured = (
+        "----------------------------- Captured stdout call -----------------------------",
+        "=" * 29 + " slowest durations " + "=" * 29,
+        f"4.00s call     {inner}",
+        "-" * 80,
+    )
+    output = durations_output((9.0, "call", f"{E2E}::test_outer"), before=captured)
+
+    assert [t.test for t in PYTHON_UV.parse_test_durations(output)] == [f"{E2E}::test_outer"]
+    kept = PYTHON_UV.without_durations(output)
+    assert all(line in kept for line in captured)
+    assert "test_outer" not in kept
+    assert kept.count("slowest durations") == 1
+
+
 def test_an_output_with_no_durations_section_gives_no_entries() -> None:
     assert PYTHON_UV.parse_test_durations(NO_SUMMARY) == []
     assert PYTHON_UV.parse_test_durations("") == []
