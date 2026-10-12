@@ -88,7 +88,14 @@ class Tier2Result(Frozen):
 
 
 @contextmanager
-def stack_lock(path: Path, timeout: float, setting: str | None = None):
+def stack_lock(
+    path: Path,
+    timeout: float | None = None,
+    setting: str | None = None,
+    *,
+    holder: str = "",
+    on_wait: Callable[..., None] | None = None,
+):
     """Hold the one-and-only tier 2 lock, waiting for it if need be.
 
     `flock` rather than a PID file: the kernel releases it when the process
@@ -96,6 +103,8 @@ def stack_lock(path: Path, timeout: float, setting: str | None = None):
     names the config key `timeout` came from, so the busy message can say so.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    if timeout is None:
+        raise NotImplementedError
     deadline = time.monotonic() + timeout
 
     with path.open("a+") as handle:
