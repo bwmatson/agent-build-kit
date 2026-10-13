@@ -142,6 +142,7 @@ from agent_build_kit.profiles.base import (
     RepeatsTests,
     SelectsAffectedTests,
     ToolchainProfile,
+    is_doc_path,
 )
 from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
@@ -910,6 +911,7 @@ def build_tier1(
             return None
         if not outcome[0]:
             return outcome
+        record_selected(figures, "moved", earlier)
         counts = [count for _, count in figures]
         own = sum(sum(counts[start : start + length]) for start, length in owned)
         total = f" of {earlier[1]}" if earlier else ""
@@ -935,6 +937,12 @@ def build_tier1(
             touched = touched_tests(cwd, base)
         except (subprocess.CalledProcessError, OSError) as error:
             return None, [], f"the unit's tests could not be listed ({error})"
+        if projects:
+            held = {where for where, _, _ in work}
+            for name in incoming:
+                owner = owning_project(projects, name)
+                if (owner is None or cwd / owner.path not in held) and not is_doc_path(name):
+                    return None, [], f"{name} was brought in outside the unit's projects"
         plan: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
         owned: list[tuple[int, int]] = []
         position = 0
@@ -955,13 +963,15 @@ def build_tier1(
                 root_extras=root_extras or [],
             )
             if selected is None:
-                return None, [], f"the profile cannot say which tests {label} is affected in"
-            ids = [
-                f"{relative}::{name}"
-                for path, name in touched
-                if toolchain.is_test_path(path)
-                and (relative := _under(cwd / path, where)) is not None
-            ]
+                hint = (
+                    "" if affected is not None else "; checks.affected is off, so no data is kept"
+                )
+                return (
+                    None,
+                    [],
+                    f"the profile cannot say which tests {label} is affected in{hint}",
+                )
+            ids = _ids_for(touched, cwd, where, toolchain)
             own = []
             if ids and isinstance(toolchain, RepeatsTests):
                 for command in toolchain.test_commands(where, files, root_extras=root_extras or []):

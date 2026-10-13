@@ -12,31 +12,8 @@ from pathlib import Path
 
 from agent_build_kit.config import RestackCheck
 from agent_build_kit.pipeline.moved_base import MoveScope, moved_base_scope, scope_of
-from tests.factories import git, init_repo
-
-
-def commit(repo: Path, files: dict[str, str], message: str) -> None:
-    for name, text in files.items():
-        (repo / name).write_text(text)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", message, "--allow-empty")
-
-
-def moved(
-    tmp_path: Path, *, own: dict[str, str], incoming: dict[str, str], at: Path | None = None
-) -> tuple[Path, str]:
-    """A repo whose branch changes `own` and whose `main` moved on by `incoming`, the
-    branch replayed onto it. Returns the repo, on the branch, and the old base."""
-    repo = init_repo(at or tmp_path / "repo")
-    commit(repo, {"a.py": "a = 1\n", "b.py": "b = 1\n", "c.py": "c = 1\n"}, "base")
-    old_base = git(repo, "rev-parse", "HEAD").strip()
-    git(repo, "checkout", "-q", "-b", "spec/feature/1")
-    commit(repo, own, "unit")
-    git(repo, "checkout", "-q", "main")
-    commit(repo, incoming, "main moves")
-    git(repo, "checkout", "-q", "spec/feature/1")
-    git(repo, "rebase", "-q", "main")
-    return repo, old_base
+from tests.factories import git
+from tests.moved_base_fakes import commit, moved
 
 
 def scope(

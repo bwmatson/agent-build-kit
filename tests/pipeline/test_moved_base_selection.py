@@ -16,44 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit import profiles
-from agent_build_kit.config import ProjectConfig
+from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.wiring import build_tier1
 from tests.conftest import make_installation
-from tests.factories import git, init_repo
-from tests.moved_base_fakes import Profile
+from tests.moved_base_fakes import Profile, moved
 
 LINE = "moved base:"
 OWN_TEST = "def test_six():\n    assert True\n"
-BASE_FILES = {"a.py": "a = 1\n", "b.py": "b = 1\n", "c.py": "c = 1\n"}
-
-
-def commit(repo: Path, files: dict[str, str], message: str) -> None:
-    for name, text in files.items():
-        (repo / name).parent.mkdir(parents=True, exist_ok=True)
-        (repo / name).write_text(text)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", message, "--allow-empty")
-
-
-def moved(
-    tmp_path: Path,
-    *,
-    own: dict[str, str],
-    incoming: dict[str, str],
-    base: dict[str, str] | None = None,
-) -> tuple[Path, str]:
-    """A repo whose branch changes `own` and whose `main` moved on by `incoming`, the
-    branch replayed onto it. Returns the repo, on the branch, and the old base."""
-    repo = init_repo(tmp_path / "repo")
-    commit(repo, BASE_FILES if base is None else base, "base")
-    old_base = git(repo, "rev-parse", "HEAD").strip()
-    git(repo, "checkout", "-q", "-b", "spec/feature/1")
-    commit(repo, own, "unit")
-    git(repo, "checkout", "-q", "main")
-    commit(repo, incoming, "main moves")
-    git(repo, "checkout", "-q", "spec/feature/1")
-    git(repo, "rebase", "-q", "main")
-    return repo, old_base
 
 
 class Selecting(Profile):
@@ -145,14 +114,23 @@ def run_moved(
     base: dict[str, str] | None = None,
     projects: list[ProjectConfig] | None = None,
     after_full: bool = False,
+    records_data: bool = False,
 ) -> tuple[bool, list[str]]:
     """Tier 1 on a unit moved onto a base that gained `incoming`; with `after_full`, a full
     run on the same runner comes first, as the unit's earlier check. Returns the verdict and
-    what was logged by the moved run."""
+    what was logged by the moved run. `records_data` is the repo's `checks.affected` mode
+    `profile`, under which full runs keep the data a selection reads."""
     make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
     repo, old_base = moved(tmp_path, own=own, incoming=incoming, base=base)
     logged: list[str] = []
-    tier1 = build_tier1(profile=profile, run=runner, log=logged.append, projects=projects)
+    repo_config = (
+        RepoConfig(path=repo, changelog=None, checks={"affected": {"mode": "profile"}})
+        if records_data
+        else None
+    )
+    tier1 = build_tier1(
+        profile=profile, run=runner, log=logged.append, projects=projects, repo=repo_config
+    )
     if after_full:
         assert tier1(cwd=repo, base="main")[0]
     logged.clear()
@@ -368,3 +346,107 @@ def test_an_empty_selection_is_a_pass_with_zero_tests_and_is_logged(tmp_path: Pa
     assert passed
     assert ["tests"] not in runner.ran
     assert moved_base_lines(logged) == ["moved base: ran 0 tests (own 0, affected 0)"]
+
+
+PROJECT_BASE = {"svc-a/m.py": "m = 1\n", "svc-b/m.py": "m = 1\n", "README.md": "x\n"}
+TWO_PROJECTS = [ProjectConfig(path="svc-a"), ProjectConfig(path="svc-b")]
+
+
+def moved_in_projects(tmp_path: Path, incoming: dict[str, str]) -> tuple[Runner, list[str]]:
+    """A unit changing `svc-a/m.py` moved over `incoming`; what ran and the line logged."""
+    runner = Runner()
+    profile = Selecting([["affected"]])
+    with profiles.registered(profile):
+        passed, logged = run_moved(
+            tmp_path,
+            profile,
+            runner,
+            base=PROJECT_BASE,
+            own={"svc-a/m.py": "m = 2\n"},
+            incoming=incoming,
+            projects=TWO_PROJECTS,
+        )
+    assert passed
+    return runner, moved_base_lines(logged)
+
+
+def test_a_file_outside_every_project_that_is_not_a_document_runs_the_full_suite(
+    tmp_path: Path,
+) -> None:
+    runner, (line,) = moved_in_projects(tmp_path, {"deps.lock": "pinned\n"})
+
+    assert ["tests"] in runner.ran
+    assert line.startswith("moved base: ran the full suite (") and "deps.lock" in line
+    assert "outside the unit's projects" in line
+
+
+def test_a_file_in_a_project_the_unit_did_not_touch_runs_the_full_suite(tmp_path: Path) -> None:
+    runner, (line,) = moved_in_projects(tmp_path, {"svc-b/m.py": "m = 3\n"})
+
+    assert ["tests"] in runner.ran
+    assert line.startswith("moved base: ran the full suite (") and "svc-b/m.py" in line
+
+
+def test_a_document_outside_every_project_stays_scoped(tmp_path: Path) -> None:
+    runner, (line,) = moved_in_projects(tmp_path, {"README.md": "y\n"})
+
+    assert ["tests"] not in runner.ran
+    assert "full suite" not in line
+
+
+def seeded_tests(
+    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str]
+) -> list[list[str]]:
+    return [["uv", "run", "pytest", "tests"]]
+
+
+class SeedProfile(Profile):
+    """The python-uv profile's own selection, over one pytest command."""
+
+    test_commands = seeded_tests
+
+
+class SeedingRunner(Runner):
+    """Writes the selection data a seeded run records, where the command says."""
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[0] == "env":
+            Path(command[1].split("=", 1)[1]).write_bytes(b"recorded")
+        return super().__call__(command, **kwargs)
+
+
+def test_a_full_run_records_the_data_a_later_moved_run_selects_by(tmp_path: Path) -> None:
+    runner = SeedingRunner()
+
+    passed, logged = run_moved(
+        tmp_path,
+        SeedProfile(),
+        runner,
+        own={"a.py": "a = 2\n"},
+        incoming={"b.py": "b = 2\n"},
+        after_full=True,
+        records_data=True,
+    )
+
+    assert passed
+    assert "--testmon" in runner.ran[-1] and "--testmon-noselect" not in runner.ran[-1]
+    (line,) = moved_base_lines(logged)
+    assert "full suite" not in line
+
+
+def test_with_checks_affected_off_no_data_is_kept_and_the_line_says_so(tmp_path: Path) -> None:
+    runner = SeedingRunner()
+
+    passed, logged = run_moved(
+        tmp_path,
+        SeedProfile(),
+        runner,
+        own={"a.py": "a = 2\n"},
+        incoming={"b.py": "b = 2\n"},
+        after_full=True,
+    )
+
+    assert passed
+    assert not any("--testmon" in word for command in runner.ran for word in command)
+    (line,) = moved_base_lines(logged)
+    assert line.startswith("moved base: ran the full suite (") and "checks.affected" in line

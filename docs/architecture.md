@@ -490,7 +490,19 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    differ between the old base and the new one) is also a file the unit changes, and
    full when one is, when the unit produced nothing of its own, when the move has no old
    base, or when `limits.restack_check` is `full`. It logs `moved base:` with which it
-   was and why; the run itself is still the whole suite. The merge handler's tier 1 after
+   was and why. A scoped move runs lint, then the tests the unit added or changed (the
+   profile's `repeat_command` over their identifiers), then the commands the profile's
+   `affected_test_commands` names for the unit's files together with the files the move
+   brought in, asked once with no failed identifiers; no full suite confirms it. The Python
+   profile selects only from the data a full run records, which it does only where
+   `checks.affected` is not `off`; elsewhere the move falls back to the full suite and the
+   line says `checks.affected` is off. The run logs `moved base: ran N[ of T] tests (own a, affected b)`, `T`
+   being the unit's last full run's count and left out when none is known; an empty
+   selection is a pass logged with zero tests. The full suite runs instead, logged as
+   `moved base: ran the full suite (<reason>)`, when the profile has no hook or answers
+   nothing for a project, when a selected command cannot start or loses its selection
+   tooling, when the unit's tests cannot be listed, or when a file that is not a document
+   was brought in outside the projects the unit changes. The merge handler's tier 1 after
    a release is told its old base and logs the same way. In a run, a conflict, or a
    tier 1 or tier 2 failure on the new base, pushes nothing and resumes the unit at its
    restack in the same run (a check's failure leaves its output as feedback). That restack is what

@@ -40,10 +40,12 @@
   new `limits.restack_check` (`affected`, the default, or `full`) selects between them. A
   scoped move runs lint, the tests the unit added or changed, and the tests the toolchain
   profile names for the unit's files together with the files the move brought in, and logs
-  `moved base: ran 14 of 5963 tests (own 6, affected 8)`. Where the profile cannot say, or a
-  selected command cannot run, the full suite runs and the line gives the reason. The Python
-  profile now answers nothing for a lock or configuration file, a conftest or a shared test
-  helper.
+  `moved base: ran 14 of 5963 tests (own 6, affected 8)`. Where the profile cannot say, a
+  selected command cannot run, or a file that is not a document was brought in outside the
+  unit's projects, the full suite runs and the line gives the reason. The Python profile
+  selects only from data a full run records, which needs `checks.affected` on (with it off,
+  every moved base runs the full suite and the line says so), and now answers nothing for a
+  lock or configuration file, a conftest or a shared test helper.
 
 - The conflict resolver's cost is now in the usage ledger under the node `restack`, one row
   per resolver call with the unit being moved and its change and repository, so what a

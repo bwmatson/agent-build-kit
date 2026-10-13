@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.restack import ConflictContext, Moved
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_tier1
 from tests.conftest import make_installation
-from tests.pipeline.test_moved_base_scope import moved
+from tests.moved_base_fakes import moved
 
 
 def workspace(tmp_path: Path, *, app_changelog: str | None) -> Installation:
