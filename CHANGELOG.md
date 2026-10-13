@@ -85,6 +85,10 @@
   configuration or an agent it cannot write to. `abk policy show` now also compares that
   agent's configuration with the recommendation, and `abk doctor`'s fix text names
   `abk policy apply` (or `abk policy patterns`) when the installation has no fix of its own.
+  `abk init`'s policy step offers the same policy as its fix for such an agent when no
+  `policy_fix` is set: it shows the file and the diff, asks, applies, checks again and says
+  what is now refused (under `--yes` only with `--run-policy-fix`); the toolset is left
+  alone, and an agent it cannot write to is offered `abk policy patterns`.
 
 - A requeued unit now builds on the base the store names, not one its thread remembers, so a
   failed unit whose predecessor has since merged is no longer failed again counting commits

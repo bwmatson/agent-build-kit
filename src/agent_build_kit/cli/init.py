@@ -68,8 +68,10 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
-from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_check
+from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_apply, policy_check
 from agent_build_kit.runtimes.base import Run, Which, validate_argv
+from agent_build_kit.runtimes.known_agents import agent_for_command
+from agent_build_kit.runtimes.policy_apply import ApplyRefused, Status
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -297,6 +299,13 @@ def _run_fix(
     result = (run_fix or subprocess.run)(argv, cwd=planning, check=False)
     if result.returncode:
         print(f"abk init: `{fix}` exited {result.returncode}", file=sys.stderr)
+    _report_again(runtime, planning, before, cache=cache, failed=bool(result.returncode))
+
+
+def _report_again(
+    runtime: AgentRuntime, planning: Path, before: PolicyReport, *, cache: Path, failed: bool
+) -> None:
+    """Check again after a fix and say, per class and spelling, what is refused now."""
     after = _policy(runtime, planning, cache=cache, fresh=True)
     if after is None:
         return
@@ -306,7 +315,7 @@ def _run_fix(
         return
     open_before = {(r.label, r.spelling) for r in policy_check.unrefused(before)}
     open_after = policy_check.unrefused(after)
-    if not result.returncode and open_before <= {(r.label, r.spelling) for r in open_after}:
+    if not failed and open_before <= {(r.label, r.spelling) for r in open_after}:
         commands = ", ".join(f"`{r.command}`" for r in open_after)
         print(f"the fix made no change; still not refused: {commands}")
     else:
@@ -323,6 +332,8 @@ def _unknown_agent_choice(planning: Path, name: str) -> bool:
         " and not what the agent never asks about\n"
         f"  2. supply a fix command (recorded as runtimes.{name}.policy_fix)\n"
         "  3. continue without checking (recorded as unchecked; `abk doctor` warns each run)\n"
+        "to place the kit's recommended patterns in the agent's own configuration yourself,\n"
+        "run `abk policy patterns` to print them\n"
         "choice [1-3]: "
     )
     while (reply := ask(menu).strip()) not in ("1", "2", "3"):
@@ -343,6 +354,64 @@ def _unknown_agent_choice(planning: Path, name: str) -> bool:
     elif reply == "1":
         print("relying on abk's own layer: it enforces what the agent asks about")
     return False
+
+
+def _apply_builtin(
+    planning: Path,
+    args: argparse.Namespace,
+    runtime: AgentRuntime,
+    entry: RuntimeConfig,
+    report: PolicyReport,
+    *,
+    cache: Path,
+) -> bool | None:
+    """Offer the kit's recommended policy as the fix, when the agent has an applier: None
+    when it has none, else whether the check passes after the step. Only the deny list is
+    applied; the toolset is a separate decision."""
+    agent = agent_for_command(entry.command or [])
+    descriptor = agent.apply if agent else None
+    if agent is None or descriptor is None:
+        return None
+    home = policy_apply.resolve_home(
+        descriptor, Installation(load_config(planning / CONFIG_FILENAME), planning).env_file
+    )
+    extra = entry.policy_extra or []
+    try:
+        shown = policy_apply.apply(descriptor, home, extra, dry_run=True)
+    except ApplyRefused as error:
+        print(f"  {error}")
+        return False
+    if shown.status == Status.ABSENT:
+        print(f"  {agent.name}'s configuration was not found: {shown.message}")
+        print("  run `abk policy patterns` and add the globs to its configuration yourself")
+        return False
+    if shown.status == Status.UNCHANGED:
+        print(f"  {shown.path}: {shown.message}; the agent's matcher, not the list, may be")
+        print("  what lets the rest through")
+        return False
+    print(f"the kit's recommended policy for {agent.name}, to {shown.path}:")
+    print(shown.diff, end="")
+    if args.yes:
+        if not args.run_policy_fix:
+            print("  fix: run `abk policy apply`, or give --run-policy-fix")
+            return False
+    elif not yes(ask("apply the kit's recommended policy? [y/N] ")):
+        print(f"not applied; still unenforced: {policy_check.describe(report)}")
+        return False
+    try:
+        done = policy_apply.apply(descriptor, home, extra)
+    except (ApplyRefused, OSError) as error:
+        print(f"abk init: {error}", file=sys.stderr)
+        return False
+    if done.backup:
+        print(f"backed up the original to {done.backup}")
+    print(f"added {len(done.added)} patterns to {done.path}")
+    _report_again(runtime, planning, report, cache=cache, failed=False)
+    print("the build-run toolset is unchanged; `abk policy apply --toolset` replaces it")
+    final = _policy(runtime, planning, cache=cache)
+    if final is not None and not final.ok:
+        print("the agent's own matcher, not the list, may be what lets a spelling through")
+    return final is not None and final.ok
 
 
 def _policy_step(
@@ -391,6 +460,10 @@ def _policy_step(
         return True
     print(f"runtime {name} does not refuse: {policy_check.describe(report)}")
     entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
+    if not entry.policy_fix and not declined:
+        built = _apply_builtin(planning, args, runtime, entry, report, cache=cache)
+        if built is not None:
+            return built
     if not entry.policy_fix:
         if args.yes or report.fix or declined:
             print(f"  fix: {policy_check.fix_for(name, entry, report)}")
