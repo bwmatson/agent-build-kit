@@ -88,6 +88,11 @@ def read_calls(path: Path) -> list[UsageCall]:
         text = path.read_text()
     except OSError:
         return []
+    return parse_calls(text)
+
+
+def parse_calls(text: str) -> list[UsageCall]:
+    """The calls in `text`, one JSON object per line, skipping any line that cannot be read."""
     calls = []
     for raw in text.splitlines():
         try:
@@ -250,6 +255,31 @@ def _retry_after(call: UsageCall) -> timedelta:
     return timedelta(seconds=_retry_after_header(call) or 0.0)
 
 
+def consecutive_readings(
+    calls: list[UsageCall],
+    window: Literal["session", "weekly"],
+    *,
+    min_gap: timedelta = timedelta(0),
+) -> list[tuple[datetime, int, datetime, int]]:
+    """Each good reading of `window` with the next one at least `min_gap` after it, as
+    (earlier time, earlier figure, later time, later figure), oldest first. A reading with no
+    such successor is left out, so two answers taken together are not a gap."""
+    readings = sorted(
+        (c.at, pct)
+        for c in calls
+        if c.outcome == "ok"
+        and (pct := c.session_pct if window == "session" else c.weekly_pct) is not None
+    )
+    found = []
+    for index, (before, low) in enumerate(readings):
+        for after, high in readings[index + 1 :]:
+            gap = after - before
+            if gap > timedelta(0) and gap >= min_gap:
+                found.append((before, low, after, high))
+                break
+    return found
+
+
 def most_added(
     calls: list[UsageCall],
     window: Literal["session", "weekly"],
@@ -260,24 +290,12 @@ def most_added(
     min_gap: timedelta = timedelta(0),
 ) -> float:
     """The most percentage points `window` could have gained in `minutes`: the fastest climb
-    between answered calls in the record, no slower than `floor`, plus `margin`. Each reading
-    is paired with the next one at least `min_gap` after it, so two answers taken together,
-    whose whole points differ by one, are not a fast climb. A fall is a window resetting,
-    not a climb."""
-    readings = sorted(
-        (c.at, pct)
-        for c in calls
-        if c.outcome == "ok"
-        and (pct := c.session_pct if window == "session" else c.weekly_pct) is not None
-    )
+    between answered calls in the record, no slower than `floor`, plus `margin`. Readings are
+    paired as `consecutive_readings` pairs them. A fall is a window resetting, not a climb."""
     fastest = floor
-    for index, (before, low) in enumerate(readings):
-        for after, high in readings[index + 1 :]:
-            gap = after - before
-            if gap > timedelta(0) and gap >= min_gap:
-                if high > low:
-                    fastest = max(fastest, (high - low) / (gap.total_seconds() / 60))
-                break
+    for before, low, after, high in consecutive_readings(calls, window, min_gap=min_gap):
+        if high > low:
+            fastest = max(fastest, (high - low) / ((after - before).total_seconds() / 60))
     return fastest * minutes + margin
 
 

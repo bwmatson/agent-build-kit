@@ -1,0 +1,75 @@
+"""Fabricated usage records for the allowance calibration: readings and the ledger beside them.
+
+A segment is two good readings of one window two hours apart with the units that spent
+between them; segments sit four hours apart, the next starting back at 10%, so a segment
+is one usable pair and the step between two segments is a fall, which is not."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from agent_build_kit.pipeline.usage_allowances import Calibrated
+from agent_build_kit.pipeline.usage_calls import CALLS_NAME, UsageCall
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, append_record
+
+START = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+GAP = timedelta(hours=2)
+STEP = timedelta(hours=4)
+MIN_GAP = timedelta(minutes=15)
+COMPUTED_AT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+
+
+def reading(window: str, at: datetime, pct: int | None, outcome: str = "ok") -> UsageCall:
+    return UsageCall(
+        at=at,
+        caller="guard",
+        outcome=outcome,
+        status=200 if outcome == "ok" else None,
+        session_pct=pct if window == "session" else None,
+        weekly_pct=pct if window == "weekly" else None,
+    )
+
+
+def spend(unit: str, at: datetime, node: str = "implement") -> UsageRecord:
+    return UsageRecord(at=at.isoformat(), unit=unit, node=node)
+
+
+def segments(
+    window: str, spent: list[tuple[int, int]], *, start: datetime = START, gap: timedelta = GAP
+) -> tuple[list[UsageCall], list[UsageRecord]]:
+    """A (points gained, units that spent) segment for each entry, oldest first."""
+    calls: list[UsageCall] = []
+    ledger: list[UsageRecord] = []
+    for index, (gain, units) in enumerate(spent):
+        first = start + index * STEP
+        calls += [reading(window, first, 10), reading(window, first + gap, 10 + gain)]
+        ledger += [spend(f"u{index}-{n}", first + gap / 2) for n in range(units)]
+    return calls, ledger
+
+
+def per_unit(
+    window: str, gains: Sequence[float], *, units: int = 2
+) -> tuple[list[UsageCall], list[UsageRecord]]:
+    """Segments whose gain per unit is each of `gains`, `units` spending in each."""
+    return segments(window, [(round(each * units), units) for each in gains])
+
+
+def keep(state_dir: Path, calls: list[UsageCall], ledger: list[UsageRecord]) -> None:
+    """The record and the ledger as files in the state directory."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / CALLS_NAME).write_text("".join(c.model_dump_json() + "\n" for c in calls))
+    for record in ledger:
+        append_record(state_dir / LEDGER_NAME, record)
+
+
+def calibrated(raw: float | None, pairs: int = 24, *, at: datetime = COMPUTED_AT) -> Calibrated:
+    """A kept calibration of one window: `raw` points a unit at the ninetieth, on `pairs`."""
+    return Calibrated(
+        quantile_pct_per_unit=raw,
+        quantile=0.9,
+        pairs_used=pairs,
+        pairs_available=pairs,
+        computed_at=at,
+    )

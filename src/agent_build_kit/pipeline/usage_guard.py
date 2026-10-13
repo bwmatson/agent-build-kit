@@ -72,6 +72,14 @@ from agent_build_kit.config import (
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
+from agent_build_kit.pipeline.usage_allowances import (
+    ALLOWANCES_NAME,
+    SESSION_WINDOW,
+    WEEKLY_WINDOW,
+    WINDOWS,
+    allowance_for,
+    read_allowances,
+)
 from agent_build_kit.pipeline.usage_calls import (
     CACHE,
     CALLS_NAME,
@@ -85,7 +93,7 @@ from agent_build_kit.pipeline.usage_calls import (
     read_calls,
     record_call,
 )
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger, spend_times
 from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -110,10 +118,8 @@ RETRY_DELAY_SECONDS = 0.5
 # meaningful fraction of it. Live readings are exempt: they were just taken.
 MAX_ANCHOR_AGE = timedelta(hours=1)
 
-# The two windows' lengths, which the endpoint doesn't report. A window's start
-# is its reset minus its length, and that is all the ramp needs.
-SESSION_WINDOW = timedelta(hours=5)
-WEEKLY_WINDOW = timedelta(days=7)
+# A window's start is its reset minus its length (`usage_allowances` holds the
+# lengths, which the endpoint doesn't report), and that is all the ramp needs.
 
 # The longest resume a pause may schedule. A weekly window can reset days out,
 # and `pause_until` never shortens an existing pause, so an honest "resume when
@@ -365,7 +371,7 @@ class Limits(Frozen):
 
     @classmethod
     def configured(cls) -> Limits:
-        claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
+        claude = claude_limits()
         return cls(session=_band(claude.session), weekly=_band(claude.weekly))
 
 
@@ -463,13 +469,13 @@ def refresh_login() -> None:
     claude_code.refresh_login()
 
 
-def _limits() -> ClaudeLimitsConfig:
+def claude_limits() -> ClaudeLimitsConfig:
     return active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
 
 
 def current_cache_interval(calls_file: Path) -> CacheInterval:
     """How long a good reading is kept now, from the record and the configured bounds."""
-    limits = _limits()
+    limits = claude_limits()
     return cache_interval(
         read_calls(calls_file),
         now=datetime.now(UTC),
@@ -565,7 +571,7 @@ def read_live_usage(
     cache_path = cache_path or _cache_file()
     calls_file = cache_path.parent / CALLS_NAME
     caller = caller or _caller.get()
-    limits = _limits()
+    limits = claude_limits()
     if ttl is None:
         ttl = current_cache_interval(calls_file).kept
     fallback_age = timedelta(minutes=limits.usage_fallback_minutes)
@@ -818,7 +824,7 @@ def _fresh_claude_block(held: UsageReading | None) -> UsageReading | None:
     """The block in Claude Code's own cache, when it is fresh enough to decide from: younger than
     `usage_claude_cache_minutes` (at most `MAX_ANCHOR_AGE`), no window reset, and fresher than the
     reading `held` whatever its age (a tie is the guard's). Off, it does not read the file."""
-    minutes = _limits().usage_claude_cache_minutes
+    minutes = claude_limits().usage_claude_cache_minutes
     if minutes <= 0:
         return None
     block = _unspent(read_cached_usage())
@@ -1003,7 +1009,7 @@ def may_start_unit(reading: UsageReading | None, *, trust_age: bool = False) -> 
 def _headroom_holds(held: UsageReading, calls_file: Path, now: datetime) -> bool:
     """Whether no window could have climbed to its threshold since the reading was taken."""
     limits = Limits.configured()
-    climb = _limits()
+    climb = claude_limits()
     calls = read_calls(calls_file)
     minutes = (now - held.observed_at).total_seconds() / 60
     return all(
@@ -1105,15 +1111,11 @@ def _estimates(
 ) -> list[WindowEstimate]:
     """The estimate of both windows from the reading kept, the ledger beside the cache file
     and the units admitted on an estimate since."""
-    limits = _limits()
+    limits = claude_limits()
     calls = read_calls(cache_path.parent / CALLS_NAME)
+    kept = read_allowances(cache_path.parent / ALLOWANCES_NAME)
     admitted = set(_admitted(cached))
-    spent: list[tuple[datetime, str]] = []
-    for record in read_ledger(cache_path.parent / LEDGER_NAME):
-        try:
-            spent.append((datetime.fromisoformat(record.at), record.unit))
-        except ValueError:
-            continue
+    spent = spend_times(read_ledger(cache_path.parent / LEDGER_NAME))
 
     def units_since(since: datetime) -> int:
         return len(admitted | {unit for at, unit in spent if at >= since})
@@ -1133,10 +1135,7 @@ def _estimates(
         now=now,
         limits=Limits.configured(),
         margin=limits.usage_headroom_margin_pct,
-        allowances={
-            "session": limits.session.usage_unit_allowance_pct,
-            "weekly": limits.weekly.usage_unit_allowance_pct,
-        },
+        allowances={window: allowance_for(window, kept.get(window), limits) for window in WINDOWS},
         units_since=units_since,
         climb=climb,
     )
@@ -1170,7 +1169,7 @@ def _decide_on_estimate(
     if not all(each.ample for each in estimates):
         return Decision(may_start=False, reason=text, resume_at=next_call)
     admitted = _admitted(cached)
-    cap = _limits().usage_estimate_max_starts
+    cap = claude_limits().usage_estimate_max_starts
     if (unit is None or unit not in admitted) and len(admitted) >= cap:
         return Decision(
             may_start=False,
@@ -1324,8 +1323,7 @@ def decide_start(
 
 
 def _stale_retry() -> timedelta:
-    claude = active().runtimes.get(CLAUDE_CODE, RuntimeConfig()).limits
-    return timedelta(minutes=claude.usage_stale_retry_minutes)
+    return timedelta(minutes=claude_limits().usage_stale_retry_minutes)
 
 
 def _threshold_note(window: Window, threshold: int, limits: Limits) -> str:

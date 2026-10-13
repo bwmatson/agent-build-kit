@@ -197,6 +197,12 @@ from agent_build_kit.pipeline.units import (
     waiting_on_me,
 )
 from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
+from agent_build_kit.pipeline.usage_allowances import (
+    ALLOWANCES_NAME,
+    allowances_line,
+    read_allowances,
+    refresh_allowances,
+)
 from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
     derive_rate,
@@ -210,6 +216,7 @@ from agent_build_kit.pipeline.usage_guard import (
     Limits,
     RateLimited,
     UsageReading,
+    claude_limits,
     current_cache_interval,
     current_usage,
     decide_start,
@@ -479,6 +486,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log("usage: unknown")
         if runtime.supports_usage_tracking and (estimate := held_estimate_line()):
             log(estimate)
+        if runtime.supports_usage_tracking:
+            log(allowances_line(read_allowances(inst.state_dir / ALLOWANCES_NAME), claude_limits()))
         calls = read_calls(inst.state_dir / CALLS_NAME)
         if calls:
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
@@ -904,6 +913,8 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     if args.dry_run:
         log("dry run — the environment is not synced and waiting units are not resumed")
     else:
+        # Once per tick, not on a dry run: every start decided on an estimate reads the result.
+        refresh_allowances(inst.state_dir, limits=claude_limits(), now=datetime.now(UTC))
         if not environment.ensure(inst, say=log):
             tick.outcome = "environment"
             return 1

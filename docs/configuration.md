@@ -109,15 +109,24 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                      # Unused when there is no ramp
         usage_resume_buffer_pct: 5   # room above current usage the threshold
                                      # must offer before a pause lifts
-        usage_unit_allowance_pct: 10  # points of this window one unit may spend,
+        usage_unit_allowance_pct: auto  # points of this window one unit may spend,
                                       # counted per unit when a start is allowed on
-                                      # an estimate (2 for the week by default)
-      weekly:                   # the same five settings, for the week
+                                      # an estimate. `auto` calibrates it from the recorded
+                                      # history (fallback 10 for the session, 2 for the week,
+                                      # ceiling twice that); a whole number is the fallback
+                                      # and the cap on the calibrated figure
+        usage_allowance_floor_pct: 1  # the least a calibrated allowance may be
+      weekly:                   # the same settings, for the week
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
         usage_resume_buffer_pct: 5
-        usage_unit_allowance_pct: 2   # points of this window one unit may spend (session: 10)
+        usage_unit_allowance_pct: auto  # as above
+        usage_allowance_floor_pct: 1
+      calibrate_usage_allowances: true  # false: every window uses its configured allowance
+      usage_allowance_quantile: 0.9     # the quantile of points gained per unit (above 0, at most 1)
+      usage_allowance_window: 30        # newest usable pairs of readings it is taken over
+      usage_allowance_min_pairs: 8      # fewer pairs than this and the configured allowance stands
       usage_stale_retry_minutes: 5  # how long a start is refused when the only
                                     # reading is too old to trust
       usage_cache_minutes: 15  # how long a good usage reading answers every reader (the shortest);

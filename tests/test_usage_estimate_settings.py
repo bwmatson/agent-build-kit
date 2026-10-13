@@ -11,8 +11,10 @@ def test_the_defaults_are_a_margin_of_five_a_cap_of_three_and_ten_and_two_points
 
     assert limits.usage_headroom_margin_pct == 5
     assert limits.usage_estimate_max_starts == 3
-    assert limits.session.usage_unit_allowance_pct == 10
-    assert limits.weekly.usage_unit_allowance_pct == 2
+    assert limits.session.usage_unit_allowance_pct == "auto"
+    assert limits.weekly.usage_unit_allowance_pct == "auto"
+    assert limits.configured_allowance("session") == 10
+    assert limits.configured_allowance("weekly") == 2
 
 
 @pytest.mark.parametrize("setting", ["usage_headroom_margin_pct", "usage_estimate_max_starts"])

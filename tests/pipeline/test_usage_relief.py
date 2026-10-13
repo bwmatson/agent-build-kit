@@ -402,6 +402,7 @@ def test_the_two_windows_have_the_same_settings_under_the_same_names() -> None:
         "usage_relief_fraction",
         "usage_resume_buffer_pct",
         "usage_unit_allowance_pct",
+        "usage_allowance_floor_pct",
     }
 
 

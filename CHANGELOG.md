@@ -17,6 +17,16 @@
   parent)` and the graph draws it blocked. Started units are untouched. `abk tags` and `abk
   check` warn about the task-group shapes that produce such a unit.
 
+- The usage allowance of each window, the points a unit is assumed to spend when a start is
+  allowed on an estimate, is now calibrated from the readings and ledger the installation has
+  recorded, instead of a flat 10 (session) and 2 (week). Each tick takes a high quantile of
+  points gained per unit over recent pairs of readings, never below a floor or above twice the
+  default, and only with enough pairs; `abk status` prints which allowances are in force and the
+  pairs behind them. `usage_unit_allowance_pct` now takes `auto` (the default) or a whole
+  number, which is the fallback and the cap; `calibrate_usage_allowances: false` restores the
+  fixed allowances. New settings: `usage_allowance_quantile`, `usage_allowance_window`,
+  `usage_allowance_min_pairs` and, per window, `usage_allowance_floor_pct`.
+
 - A failed unit that waits on another unit (a prerequisite not yet reviewed or merged, or a
   predecessor being reworked, failed or held) no longer holds a place under
   `limits.max_units_in_progress`, so units like it cannot fill the queue and keep the work they
