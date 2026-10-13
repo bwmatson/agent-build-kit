@@ -129,6 +129,7 @@ class UnitRun(Frozen):
     checks_ok: bool = False
     produced_nothing: bool = False
     moved: bool = False  # `verify_base` moved the branch onto a new base
+    moved_from: str = ""  # the base that move left, for tier 1 to scope its run by
     start: str = (
         ""  # the base's tip when `prepare` began, which a held unit checks the base against
     )

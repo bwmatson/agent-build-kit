@@ -301,6 +301,13 @@ class ClaudeLimitsConfig(Frozen):
         return {**data, "usage_claude_cache_minutes": data.get("usage_cache_minutes", default)}
 
 
+class RestackCheck(StrEnum):
+    """How much of tier 1 a clean move of a unit's branch onto a moved base runs."""
+
+    AFFECTED = "affected"
+    FULL = "full"
+
+
 class PolicyMarker(StrEnum):
     """What the person said about the runtime's policy check (`runtimes.<name>.policy`)."""
 
