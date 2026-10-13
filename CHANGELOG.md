@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A tier 1 run that fails more than five tests on its first pass and sees them all pass on both
+  serial reruns is now treated as a disturbed run, not that many flaky tests: tier 1 passes, the
+  tests and the first five names are logged, and no fix change is written and no unit made to
+  wait. One run once failed 97 such tests and wrote 97 fix changes (28 units, 388 `Needs:` lines
+  on one unit); at five or fewer the handling is unchanged. The limit is `MAX_FLAKES_PER_RUN` in
+  `pipeline/wiring.py` for now.
+
 - The poll now records when it last read a definite answer on whether a pull request
   merges, and since when it has conflicted. A conflict still standing after a unit's own
   push is offered to the pipeline on every poll, not only when it begins; nothing acts on
