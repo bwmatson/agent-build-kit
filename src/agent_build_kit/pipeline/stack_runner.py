@@ -685,6 +685,9 @@ class Restacked(Frozen):
     # Tests the unit's previous work added or changed, for the adapt step to
     # account for. Only filled in when there is a conflict.
     old_tests: tuple[str, ...] = ()
+    # Which of the restack's steps were tried before the port and what their checks said,
+    # for the port's prompt. Only filled in when there is a conflict.
+    tried: str = ""
 
 
 class PortedTest(Frozen):
