@@ -137,6 +137,10 @@ runtimes:                       # one entry per runtime that needs a fact abk
   #   policy_fix: [scripts/constrain.sh]  # what `abk init` offers to run when
   #                                       # the agent does not refuse what the
   #                                       # command policy forbids
+  #   policy_extra: ["git * push --mirror*"]  # this installation's own command globs,
+  #                                       # in the dialect `abk policy show` prints;
+  #                                       # added after the kit's by
+  #                                       # `abk policy patterns --extra`; none blank
   #   policy: unchecked                   # the only value: carried on without
   #                                       # confirming the agent refuses what
   #                                       # the command policy forbids

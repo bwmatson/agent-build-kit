@@ -617,6 +617,24 @@ Is this installation in a state the pipeline can run in? Each check prints
 `--show` (the default) prints the effective configuration as YAML with every
 default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 
+### `abk policy patterns [--format glob|json|yaml-list] [--class LABEL ...] [--extra]`
+
+Prints the kit's recommended command globs, for an agent whose configuration the kit cannot
+patch. It needs no installation, makes no model call and writes no file. `--format glob`
+(the default) prints one glob per line; `json` a JSON array; `yaml-list` a YAML sequence of
+double-quoted scalars, safe for the quotes, brackets, colons and `*` in the globs. Each loads
+back to the same list, in table order. `--class LABEL` limits the output to that class's globs
+and can be repeated; the labels are the ones `abk policy show` prints. `--extra` adds the
+selected runtime's `runtimes.<name>.policy_extra` after the kit's globs, none repeated, and
+needs an installation. Exit 0; 2 for an unknown class (the classes there are are named), or
+for `--extra` with no installation or one that does not load.
+
+### `abk policy show`
+
+Prints the recommendation per class with its globs, the classes it has no glob for and why,
+its known false positives and its glob dialect. It needs no installation, changes nothing and
+does not run the policy check, which costs agent calls; `abk doctor` runs it. Exit 0.
+
 ### `abk changelog check [PATH]`
 
 Checks a changelog's form: no conflict marker, a blank line between bullets, no bullet

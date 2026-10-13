@@ -10,7 +10,7 @@ own: the live policy check is the confirmation.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from fnmatch import fnmatchcase
 
 from agent_build_kit.model import Frozen
@@ -51,6 +51,8 @@ class ClassPolicy(Frozen):
     allowed_samples: tuple[str, ...]
     # Refused samples only a glob refuses: the command rules allow them.
     glob_only: tuple[str, ...] = ()
+    # The label of the class whose globs also refuse this one, for a class with none of its own.
+    covered_by: str | None = None
 
 
 class Uncovered(Frozen):
@@ -141,8 +143,8 @@ RECOMMENDED: tuple[ClassPolicy, ...] = (
     ),
     ClassPolicy(
         label=FORCE_PUSH,
-        # Covered by the push class's globs.
         globs=(),
+        covered_by=PUSH,
         refused_samples=_rows(FORCE_PUSH),
         allowed_samples=("git push --force-with-lease origin spec/main-menu/1",),
     ),
@@ -188,7 +190,10 @@ def matches(pattern: str, command: str) -> bool:
     return any(fnmatchcase(_squeeze(piece), glob) for piece in pieces)
 
 
-def patterns(extra: Iterable[str] = ()) -> list[str]:
-    """Every recommended glob in table order, then the caller's extras, none repeated."""
-    every = (g for policy in RECOMMENDED for g in policy.globs)
+def patterns(extra: Iterable[str] = (), classes: Collection[str] = ()) -> list[str]:
+    """The recommended globs of the named classes (all when none) in table order, then the
+    caller's extras, none repeated."""
+    every = (
+        g for policy in RECOMMENDED if not classes or policy.label in classes for g in policy.globs
+    )
     return list(dict.fromkeys([*every, *extra]))
