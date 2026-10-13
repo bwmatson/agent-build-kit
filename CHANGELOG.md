@@ -66,6 +66,11 @@
   notification and review stores and the like) now goes through one atomic write, so a crash
   or two writers at once never leave a half-written file or a stray temporary behind. A log
   trimmed to its size limit now has any byte that is not valid text replaced rather than kept.
+- `limits.tier2_schedule` (`daily`, `weekly` by default, `monthly` or `off`), overridable per
+  repo as `tests.tier2_schedule`, says how often a repo's whole tier 2 suite is due, read from
+  the dates in the names of its `scheduled-tier2-<repo>-<date>` changes. A function now writes
+  that change, with one tier 2 group and no model call, for a due repo with none open; nothing
+  calls it from a tick yet.
 
 - The tier 2 lock test and the killed-process resume test no longer sleep to order or wait
   for their actors: they wait on signals and on the shared wait helper, and both files

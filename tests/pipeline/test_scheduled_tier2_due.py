@@ -280,6 +280,7 @@ def test_the_date_is_read_from_the_name_and_nothing_is_stored(tmp_path: Path) ->
 
     assert {p.name for p in inst.state_dir.iterdir()} <= before | {"scheduled-tier2.lock"}
     # Archived on a later day than it was written: the date in the name is the one that counts.
+    (inst.changes_dir / "archive").mkdir()
     (inst.changes_dir / name).rename(inst.changes_dir / "archive" / f"2026-04-20-{name}")
     assert round_of(inst, store, today=TODAY + timedelta(days=6))[0] == []
     seventh = TODAY + timedelta(days=7)

@@ -335,7 +335,12 @@ class Tier2Schedule(StrEnum):
 def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
     """The schedule in effect for `repo`: its own `tests.tier2_schedule` when set, else the
     `limits` one."""
-    raise NotImplementedError
+    return repo.tests.tier2_schedule or limits.tier2_schedule
+
+
+def _unquoted_off(value: object) -> object:
+    # YAML 1.1 reads an unquoted `off` as the boolean False.
+    return "off" if value is False else value
 
 
 class PolicyMarker(StrEnum):
@@ -474,6 +479,10 @@ class LimitsConfig(Frozen):
     # How much of a repo's tier 2 marker a unit's tier 2 step runs: `own` the tests its branch
     # added or changed, `full` the whole marker. A repo's `tests.tier2_unit_scope` wins.
     tier2_unit_scope: Tier2UnitScope = Tier2UnitScope.OWN
+    # How often a repo's whole tier 2 suite is due to run on its own; a repo's
+    # `tests.tier2_schedule` wins.
+    tier2_schedule: Tier2Schedule = Tier2Schedule.WEEKLY
+    tier2_schedule_off = field_validator("tier2_schedule", mode="before")(_unquoted_off)
     # Longest a unit waits for the tier 2 lock before its tier 2 step fails as busy, in seconds.
     tier2_lock_wait_seconds: Annotated[int, Field(gt=0)] = 5400
     # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
@@ -574,6 +583,9 @@ class TestsConfig(Frozen):
     tier2_marker: str = "local_stack"
     # This repo's tier 2 scope; None follows `limits.tier2_unit_scope`.
     tier2_unit_scope: Tier2UnitScope | None = None
+    # This repo's schedule; None follows `limits.tier2_schedule`.
+    tier2_schedule: Tier2Schedule | None = None
+    tier2_schedule_off = field_validator("tier2_schedule", mode="before")(_unquoted_off)
     # The marker on tier-2 tests only the dev stack can run (left out of live checks).
     dev_stack_marker: str = "dev_stack"
     # Record and replay of the calls tier-2 tests make outside the stack; None: none.
