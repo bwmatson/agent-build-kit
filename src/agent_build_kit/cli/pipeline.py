@@ -2125,7 +2125,10 @@ def _schedule(
         # whichever is first, then refreshes and fills free slots. The pass
         # ends once none is in flight.
         # A restack in the lane is waited for as a build is, and ends a pass only when it has.
-        while building or lane.running or lane.waiting:
+        # Whether the lane had work when the round last looked: a restack that ends after the
+        # round left its unit out is followed by one more round, which starts the unit.
+        lane_busy = bool(lane.running or lane.waiting)
+        while building or lane_busy:
             # A lane with nothing to do has nothing to wake the pass for.
             lane_ends = lane.finished()
             waited_on: list[Future[Any]] = [*building]
@@ -2139,6 +2142,7 @@ def _schedule(
                 if not future.result():
                     failed = True
             lane.scan(store.all())
+            lane_busy = bool(lane.running or lane.waiting)
             # A build still in flight — or another tick — may already have
             # recorded the model's refusal; its report is not needed to stop
             # here. A usage pause is not one: the round asks the guard again.
