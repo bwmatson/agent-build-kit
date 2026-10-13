@@ -430,6 +430,16 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     return branch_name(candidates[-1])
 
 
+def open_parents(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
+    """The same-repo dependencies of `unit` that are in review, looked through satisfied ones."""
+    raise NotImplementedError
+
+
+def unrelated_open_parents(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
+    """The open parents of `unit` that no other open parent builds on, in plan order."""
+    raise NotImplementedError
+
+
 def depth_of(unit: Unit, graph: Sequence[Unit]) -> int:
     """Length of the longest chain of open ancestors, counting this unit.
 
