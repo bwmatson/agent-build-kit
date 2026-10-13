@@ -124,6 +124,11 @@ child, a review comment, a requeue: each is a `Command(resume=...)` on the
 unit's thread, which the graph routes like any other input. Nothing writes
 into a waiting unit's state from the side.
 
+The one thing that does run a thread outside a build slot is the restack lane: a unit told its
+base moved is `running` with its thread parked at `prepare`, and the lane drives the thread
+through `prepare` only, then leaves it positioned at the next node for a worker. A conflict the
+move cannot settle leaves the unit `planned` with `restack_conflict`, for its own run to port.
+
 ## Priority
 
 A unit carries a priority from 1 (most urgent) to 5, 3 unless a `Priority:` line

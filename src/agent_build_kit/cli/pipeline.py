@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from agent_build_kit import config, forges, profiles, runtimes, telemetry
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.transport import HostUnavailable
-from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
+from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.notify.build import build_notifier
@@ -114,12 +114,18 @@ from agent_build_kit.pipeline.pr_poller import (
 )
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.restack import (
+    ConflictSession,
     Moved,
     checked_out_at,
     push_with_lease,
     resolved_move,
 )
-from agent_build_kit.pipeline.restack_lane import RestackLane, owed_units
+from agent_build_kit.pipeline.restack_lane import (
+    RECORD_NAME,
+    RestackLane,
+    lane_record,
+    owed_units,
+)
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     remove_change_logs,
@@ -235,6 +241,7 @@ from agent_build_kit.pipeline.usage_guard import (
     may_start_unit,
     reading_as,
     refreshed_usage,
+    starting,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -252,6 +259,7 @@ from agent_build_kit.pipeline.wiring import (
     build_resume_at,
     build_runner,
     build_tier1,
+    build_usage_gate,
     follow_predecessors,
     moving_onto,
     own_work_starts_after,
@@ -278,7 +286,7 @@ from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
-from agent_build_kit.runtimes import NetworkUnavailable, ServiceUnavailable
+from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
 from agent_build_kit.serve.review import Review, ReviewStore
 
 if TYPE_CHECKING:
@@ -302,6 +310,7 @@ def store_for(inst: Installation) -> UnitStore:
                 inst.graph_page,
                 checks_of=recorded_checks(inst.state_dir),
                 paused=parked_units(inst, units),
+                restacking=restacking_bases(inst),
             )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -476,6 +485,38 @@ def _tier2_output(unit: StoredUnit) -> str:
     return found[-1] if found else ""
 
 
+def restacking_bases(inst: Installation) -> dict[str, str]:
+    """The base of each unit the restack lane of a live tick holds, running or waiting."""
+    return {entry["unit"]: entry["base"] for entry in lane_record(inst.state_dir)}
+
+
+def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+    """`restacks: N running, M waiting`, and each unit restacking onto its base. A unit owed a
+    restack that the lane does not hold yet waits too, and while a pause stands it says so."""
+    held = lane_record(inst.state_dir)
+    in_lane = {entry["unit"] for entry in held}
+    by_id = {unit.id: unit for unit in units}
+    owed = sorted(owed_units(inst, units) - in_lane)
+    running = [entry for entry in held if entry["status"] == "running"]
+    waiting = [entry for entry in held if entry["status"] != "running"]
+    if not (running or waiting or owed):
+        return []
+    lines = [f"restacks: {len(running)} running, {len(waiting) + len(owed)} waiting"]
+    for entry in [*running, *waiting]:
+        where = f" ({by_id[entry['unit']].repo})" if entry["unit"] in by_id else ""
+        lines.append(f"  {entry['unit']}{where} restacking onto {entry['base']}")
+    pause = is_paused(_paused_marker(inst))
+    for unit_id in owed:
+        unit = by_id[unit_id]
+        if pause is None:
+            lines.append(f"  {unit.id} ({unit.repo}) restacking onto {base_of(unit, units)}")
+            continue
+        until = max(pause.until, datetime.now(UTC)).astimezone()
+        kind = "usage pause" if pause.kind == "usage" else f"{pause.kind} pause"
+        lines.append(f"  restack waiting: {unit.id} — {kind} until {until:%H:%M}")
+    return lines
+
+
 def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     paused = is_paused(_paused_marker(inst))
@@ -559,6 +600,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     full = _queue_full_line(inst, units)
     if full:
         log(full)
+    for line in _restack_lines(inst, units):
+        log(line)
     for line in [
         *_blocked_lines(units),
         *_failed_waiting_lines(units),
@@ -680,6 +723,7 @@ def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
         inst.graph_page,
         checks_of=recorded_checks(inst.state_dir),
         paused=parked_units(inst, units),
+        restacking=restacking_bases(inst),
     )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
@@ -2104,6 +2148,8 @@ def _schedule(
             )
             telemetry.level("abk.slots.free", free)
             telemetry.level("abk.slots.idle_with_ready", min(free, len(queued)))
+            telemetry.level("abk.restacks.running", len(lane.running))
+            telemetry.level("abk.restacks.waiting", len(lane.waiting))
 
         def submit(units: list[Unit]) -> None:
             for unit in units:
@@ -3003,13 +3049,33 @@ class StackMoves(TypedDict):
     lane: RestackLane | None
 
 
-def build_turned_move(installation: Installation) -> Callable[..., Moved]:
+def gated_resolver(unit_id: str) -> ConflictSession:
+    """A conflict resolver that asks the usage guard before each call, as a unit's agent step
+    does, naming `unit_id` so an admission on an estimate is kept under it. A refusal is raised
+    as the model's own, which the move answers by aborting the rebase."""
+    may_start, resume_at = build_usage_gate()
+
+    class Gated(ConflictSession):
+        def __call__(self, prompt: str, *, cwd: Path, follow_up: str = "") -> None:
+            with starting(unit_id):
+                allowed, reason = may_start()
+            if not allowed:
+                raise AgentRateLimited(reason, resets_at=resume_at())
+            super().__call__(prompt, cwd=cwd, follow_up=follow_up)
+
+    return Gated()
+
+
+def build_turned_move(installation: Installation, *, gated: bool = False) -> Callable[..., Moved]:
     """The move of a branch onto a base, told which repo's settings apply and holding that
-    repo's turn only for the phases that write what its worktrees share."""
+    repo's turn only for the phases that write what its worktrees share. With `gated`, the
+    conflict resolver is asked of the usage guard first."""
     names = {path: repo for repo, path in installation.checkouts.items()}
 
     def move(path: Path, *args, **kwargs) -> Moved:
         name = names[path]
+        if gated and "resolve" not in kwargs:
+            kwargs["resolve"] = gated_resolver(kwargs["moving_unit"])
         return resolved_move(
             path,
             *args,
@@ -3024,8 +3090,8 @@ def build_turned_move(installation: Installation) -> Callable[..., Moved]:
 def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
     """The tick's lane: `limits.max_concurrent_restacks` workers apart from the build
     workers, moving a unit onto the base it has when its move starts."""
-    moves = build_stack_moves(store, inst)
-    move = build_turned_move(inst)
+    moves = build_stack_moves(store, inst, gated=True)
+    move = build_turned_move(inst, gated=True)
 
     def move_unit(owed: StoredUnit) -> None:
         unit = store.get(owed.id)
@@ -3043,6 +3109,18 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
                 branch=branch, old_base=old_base, new_base=new_base, child=unit, parent=parent
             )
             return
+        if has_thread(inst, unit.id):
+            # Parked at `prepare`: it makes the move, here, and a worker runs what follows.
+            ended = advance_thread_through_prepare(inst, unit, store=store)
+            if ended is not None:
+                if ended.conflict:
+                    store.set_state(
+                        unit.id,
+                        PLANNED,
+                        note=f"restack onto {new_base} left for its run: its port",
+                        cause=Cause.RESTACK_CONFLICT,
+                    )
+                return
         # A thread parked at `prepare`, until its run drives the thread through `prepare`: in a
         # worktree of its own it has the branch checked out, where the branch cannot be moved,
         # so the move is left for its run. Without one the branch is moved in a temporary
@@ -3095,12 +3173,19 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
         claim=moves["claim"],
         owed=lambda units: owed_units(inst, units),
         stamp=stamp,
+        paused=lambda: pause_in_force(inst.state_dir),
+        record=inst.state_dir / RECORD_NAME,
+        base=lambda owed: base_of(owed, store.all()),
         log=log,
     )
 
 
 def build_stack_moves(
-    store: UnitStore, installation: Installation, *, lane: RestackLane | None = None
+    store: UnitStore,
+    installation: Installation,
+    *,
+    lane: RestackLane | None = None,
+    gated: bool = False,
 ) -> StackMoves:
     """The one place the merge handler and the satisfied path get what they
     move a stack with, every write to a repo's `.git` in that repo's turn, so
@@ -3122,7 +3207,7 @@ def build_stack_moves(
 
         return in_turn
 
-    move = build_turned_move(installation)
+    move = build_turned_move(installation, gated=gated)
 
     def checkout(path: Path, branch: str, **kwargs):
         """A checkout of the branch at a given head, made and removed in the repo's turn."""
@@ -3304,6 +3389,7 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
             inst.graph_page,
             checks_of=recorded_checks(inst.state_dir),
             paused=parked_units(inst, units),
+            restacking=restacking_bases(inst),
         )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -3715,6 +3801,40 @@ async def _on_thread(
             locks=inst.state_dir / "locks",
             **common,
         )
+
+
+def advance_thread_through_prepare(
+    inst: Installation, unit: StoredUnit, *, store: UnitStore
+) -> UnitRun | None:
+    """Run the unit's thread through `prepare` and no further, the move onto its moved base
+    that `prepare` makes, leaving the thread for a build slot; the state it ends in. None when
+    the thread is not parked at `prepare`. The caller holds the unit's branch."""
+    # Late: the graph package imports the pipeline.
+    from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
+    from agent_build_kit.graph.unit import advance_through_prepare, thread_position
+
+    graph = store.all()
+    base = base_of(unit, graph)
+
+    def say(message: str) -> None:
+        log(f"{unit.id}: {message}")
+
+    async def advance() -> UnitRun | None:
+        async with open_checkpointer(unit_graphs_path(inst.state_dir)) as saver:
+            if (await thread_position(saver, unit.id)).next != (Node.PREPARE,):
+                return None
+            runner = build_runner(
+                unit,
+                store=store,
+                installation=inst,
+                record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+                log=say,
+            )
+            return await advance_through_prepare(
+                runner, unit, base=base, graph=graph, saver=saver, tracer=telemetry.tracer()
+            )
+
+    return asyncio.run(advance())
 
 
 class Resumed(Frozen):

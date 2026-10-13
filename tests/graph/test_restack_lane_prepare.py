@@ -9,7 +9,6 @@ out in the tree the runner gives `prepare`.
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.nodes import WAITS
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.restack import Moved
+from agent_build_kit.pipeline.restack_lane import RestackLane
 from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
@@ -36,7 +36,8 @@ class Scene:
 
     def __init__(self, graph: Setup, tmp_path: Path) -> None:
         self.graph = graph
-        self.calls: list[str] = []
+        self.calls: list[bool] = []
+        self.lane: RestackLane | None = None
         graph.tick()
         graph.store.upsert([stored_unit(OTHER, depends_on=(UNIT,))])
         graph.tick()
@@ -52,9 +53,13 @@ class Scene:
         graph.options["worktree"] = lambda unit, base: self.repo
         graph.options["restack_onto"] = self.restack(build_restack_onto(graph.store))
 
+    def in_the_lane(self) -> bool:
+        """Whether the lane holds the unit as running: the move is its, not a build worker's."""
+        return self.lane is not None and OTHER in self.lane.running
+
     def restack(self, moving: Any) -> Any:
         def restack(**kwargs: Any) -> Any:
-            self.calls.append(threading.current_thread().name)
+            self.calls.append(self.in_the_lane())
             return moving(**kwargs)
 
         return restack
@@ -67,6 +72,7 @@ class Scene:
 
     def lane_moves(self) -> None:
         with cli.build_restack_lane(self.graph.inst, self.graph.store) as lane:
+            self.lane = lane
             lane.scan(self.graph.store.all())
 
     def offered(self) -> list[str]:
@@ -89,7 +95,7 @@ def test_the_lane_resumes_the_thread_through_prepare_and_leaves_it_at_the_next_n
 
     scene.lane_moves()
 
-    assert scene.calls == ["restack"], "prepare's move ran in the lane, not in a build worker"
+    assert scene.calls == [True], "prepare's move ran in the lane, not in a build worker"
     assert git(scene.repo, "merge-base", "--is-ancestor", "main", BRANCH) == ""
     ahead = scene.graph.next(OTHER)
     assert ahead and Node.PREPARE not in ahead and not set(ahead) & WAITS
@@ -123,14 +129,14 @@ def test_a_resolved_move_writes_the_predecessor_note_and_leaves_the_head_unappro
     stored = scene.graph.store.get(OTHER)
     assert "a.txt" in stored.predecessor_note
     assert stored.approved != git(scene.repo, "rev-parse", BRANCH)
-    assert scene.calls == ["restack"]
+    assert scene.calls == [True]
 
 
 def test_a_conflict_the_first_two_steps_cannot_settle_leaves_the_unit_planned_for_its_run(
     scene: Scene,
 ) -> None:
     def conflicts(**kwargs: Any) -> Restacked:
-        scene.calls.append(threading.current_thread().name)
+        scene.calls.append(scene.in_the_lane())
         return Restacked(
             onto_unit="main", onto_intent="the trunk", old_base="a", old_head="b", conflict="a.txt"
         )
@@ -143,4 +149,4 @@ def test_a_conflict_the_first_two_steps_cannot_settle_leaves_the_unit_planned_fo
     stored = scene.graph.store.get(OTHER)
     assert (stored.state, stored.cause) == (PLANNED, Cause.RESTACK_CONFLICT)
     assert git(scene.repo, "rev-parse", BRANCH) == scene.head
-    assert scene.calls == ["restack"]
+    assert scene.calls == [True]

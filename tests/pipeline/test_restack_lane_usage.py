@@ -103,13 +103,14 @@ def test_the_guard_is_asked_once_for_each_call_of_the_resolver(
 def test_a_refused_read_with_room_on_the_estimate_runs_the_resolver_for_the_unit_moved(
     rig: Rig, host: Host, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    host.keep_reading(180 * MINUTE, payload(session=10.0, weekly=6.0))
+    host.keep_reading(89 * MINUTE, payload(session=55.0, weekly=55.0))
     refused(host, cooling=3 * MINUTE)
     decisions = asked_of_the_guard(monkeypatch)
 
     restack(rig)
 
     assert [decision.may_start for decision in decisions] == [True]
+    assert "estimated" in decisions[0].reason
     assert len(rig.requests) == 1
     assert admitted(host) == [rig.child.id], "the estimate's admission names the unit moved"
     assert moved_onto_main(rig, BRANCH)

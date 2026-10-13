@@ -241,7 +241,10 @@ ends. A rework, resume, restack, review round, push and a unit paused by a usage
 pass it. A blocked unit that had work gives its place to a ready, never-run prerequisite
 it waits on: before the classes below, one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age),
-within the limit and `max_concurrent_stacks`. Free slots then go to
+within the limit and `max_concurrent_stacks`. A restack takes none of these: the merge, release
+and depth handlers hand each moved child to the restack lane (`limits.max_concurrent_restacks`
+workers apart from the build workers) instead of restacking inline, and the lane asks the usage
+guard before its conflict resolver. Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then by
 effective age (the earliest planned position among the unit and every unit waiting on it, in
