@@ -44,7 +44,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
 from agent_build_kit.pipeline.gateway_usage import attribution
-from agent_build_kit.pipeline.metric_records import record_metric
+from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
@@ -799,12 +799,13 @@ class BuildPath:
         return session_cumulative(session_id)
 
     def record_check_failure(self, output: str, round: int) -> None:
-        """Keep a failed tier 1 run of this unit as a local metric record."""
+        """Count a failed tier 1 run of this unit, and keep it as a local metric record."""
         try:
             check = failed_check(output, self.unit.repo)
         except Exception:  # noqa: BLE001 — a record is never a run's to lose
             check = "unknown"
-        record_metric(
+        emit_metric(
+            "count",
             "abk.checks.failures",
             1,
             self.runner.log,
@@ -1262,11 +1263,6 @@ class BuildPath:
                 r.store.set_feedback(unit.id, "")
             return {"checks_ok": True, "head": head}
         self.say(output)
-        telemetry.count(
-            "abk.checks.failures",
-            check=lambda: failed_check(output, unit.repo),
-            round=state.fix_rounds + 1,
-        )
         self.record_check_failure(output, state.fix_rounds + 1)
         # Kept before anything can stop the run, so a retry addresses this output.
         r.store.set_feedback(
@@ -1652,9 +1648,6 @@ class BuildPath:
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
         if not ok:
             self.say(output)
-            telemetry.count(
-                "abk.checks.failures", check=lambda: failed_check(output, unit.repo), round=0
-            )
             self.record_check_failure(output, 0)
             r.store.set_feedback(
                 unit.id, f"{TIER1_FAILED}\n{output}".strip(), source=FeedbackSource.TIER1

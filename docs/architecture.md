@@ -1431,7 +1431,9 @@ usage reader skips every line that is not an agent call.
 #### Metric records
 
 The same file carries `kind: metric` lines, whether or not telemetry is on
-(`pipeline/metric_records.py`). Each is written beside the instrument it mirrors and carries the
+(`pipeline/metric_records.py`). Each is written by `emit_metric`, which makes the telemetry call
+and the record in one step (no other code calls `record_metric`; a test enforces it) and which the
+metrics page's catalogue reads like a direct telemetry call. A record carries the
 instrument's `metric` name, its `value` and its `attributes`, plus the `unit` and `change` it
 belongs to where there is one (an exported metric never carries them):
 

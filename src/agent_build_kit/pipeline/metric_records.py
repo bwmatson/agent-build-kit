@@ -15,6 +15,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from agent_build_kit import telemetry
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import read_lines, record_line
 
@@ -69,7 +70,8 @@ def emit_metric(
 ) -> None:
     """Send `value` to telemetry as the `instrument` (`count`, `duration`,
     `observe` or `level`) `name`, and append the same figure as a local record."""
-    raise NotImplementedError
+    getattr(telemetry, instrument)(name, value, **attributes)
+    record_metric(name, value, say, unit=unit, change=change, **attributes)
 
 
 def read_metrics(ledger: Path) -> list[MetricRecord]:

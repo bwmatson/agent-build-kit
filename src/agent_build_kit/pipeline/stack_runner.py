@@ -994,13 +994,17 @@ def _open_entries(
 
 def _unresolved(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[str]:
     """Ids of earlier required findings this verdict leaves open or unanswered."""
-    return [str(f["id"]) for f, _ in _open_entries(rounds, earlier)]
+    return _open_ids(_open_entries(rounds, earlier))
 
 
-def _render_open(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> str:
+def _open_ids(entries: list[tuple[dict, str]]) -> list[str]:
+    return [str(f["id"]) for f, _ in entries]
+
+
+def _render_open(entries: list[tuple[dict, str]]) -> str:
     """The earlier findings still open, each whole: the builder reads this text
     and never the stored rounds, so an id alone would give it nothing to act on."""
-    items = [_render_one(_recorded(f), status) for f, status in _open_entries(rounds, earlier)]
+    items = [_render_one(_recorded(f), status) for f, status in entries]
     return "Still open from earlier rounds:\n" + "\n".join(items) if items else ""
 
 
@@ -1432,8 +1436,9 @@ class UnitRunner(BaseModel):
             points = "\n".join(f"- {f.point}" for f in verdict.blocking)
             prose = f"{prose}\n\n{points}".strip() if prose else points
         earlier_rounds = tuple(rounds)
-        open_ids = _unresolved(earlier_rounds, verdict.earlier)
-        still_open = _render_open(earlier_rounds, verdict.earlier)
+        open_entries = _open_entries(earlier_rounds, verdict.earlier)
+        open_ids = _open_ids(open_entries)
+        still_open = _render_open(open_entries)
         shown, cut = cap_optional(verdict.findings)
         if cut:
             self.log(f"{cut} optional finding(s) left out, over the {MAX_OPTIONAL} shown")

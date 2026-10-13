@@ -30,7 +30,8 @@ from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, recor
 
 # What each telemetry function creates; `value` and `seconds` are its own parameters.
 TYPES = {"count": "counter", "duration": "histogram", "observe": "histogram", "level": "gauge"}
-NOT_ATTRIBUTES = {"value", "seconds"}
+HELPER = "emit_metric"  # pipeline.metric_records: telemetry and a local record in one call
+NOT_ATTRIBUTES = {"value", "seconds", "unit", "change"}
 WINDOW = timedelta(hours=24)
 STEP_SECONDS = 3600
 QUERY_TIMEOUT = 3.0
@@ -136,6 +137,31 @@ def _package_catalogue() -> tuple[Instrument, ...]:
     return tuple(_read_catalogue(Path(__file__).resolve().parent.parent))
 
 
+def _literal(node: ast.expr) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _instrument_call(node: ast.Call) -> tuple[str, str] | None:
+    """The kind and name an instrument call gives, or None for any other call: a direct
+    `telemetry.<kind>("abk...")`, or the helper's `emit_metric("<kind>", "abk...", ...)`."""
+    func = node.func
+    if (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "telemetry"
+        and func.attr in TYPES
+        and node.args
+    ):
+        kind, name = func.attr, _literal(node.args[0])
+    elif isinstance(func, ast.Name) and func.id == HELPER and len(node.args) >= 2:
+        kind, name = _literal(node.args[0]), _literal(node.args[1])
+    else:
+        return None
+    if kind in TYPES and name is not None and name.startswith("abk."):
+        return kind, name
+    return None
+
+
 def _read_catalogue(root: Path) -> list[Instrument]:
     found: dict[str, Instrument] = {}
     for path in sorted(root.rglob("*.py")):
@@ -144,26 +170,18 @@ def _read_catalogue(root: Path) -> list[Instrument]:
         except (OSError, SyntaxError, ValueError):
             continue
         for node, dicts in _calls_with_scope(tree):
-            if not (
-                isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "telemetry"
-                and node.func.attr in TYPES
-                and node.args
-                and isinstance(node.args[0], ast.Constant)
-                and isinstance(node.args[0].value, str)
-                and node.args[0].value.startswith("abk.")
-            ):
+            read = _instrument_call(node)
+            if read is None:
                 continue
-            name = node.args[0].value
+            kind, name = read
             known = found.get(name)
             attributes = list(known.attributes) if known else []
             attributes += [a for a in _attribute_names(node, dicts) if a not in attributes]
             found[name] = Instrument(
                 name=name,
-                type=TYPES[node.func.attr],
+                type=TYPES[kind],
                 attributes=tuple(attributes),
-                unit="s" if node.func.attr == "duration" else "",
+                unit="s" if kind == "duration" else "",
             )
     return sorted(found.values(), key=lambda i: i.name)
 

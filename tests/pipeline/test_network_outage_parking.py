@@ -151,14 +151,14 @@ def test_a_parked_unit_keeps_its_branch_thread_feedback_and_round_counts(
     if reached is not None:
         probe.answer = reached
     outcomes: list[str] = []
-    real_record = cli.record_metric
+    real_record = cli.emit_metric
 
-    def record(name: str, value: float, log: Any, **labels: Any) -> None:
+    def record(instrument: str, name: str, value: float, log: Any, **labels: Any) -> None:
         if name == "abk.unit.duration":
             outcomes.append(labels["outcome"])
-        real_record(name, value, log, **labels)
+        real_record(instrument, name, value, log, **labels)
 
-    monkeypatch.setattr(cli, "record_metric", record)
+    monkeypatch.setattr(cli, "emit_metric", record)
     store = fresh_store(tmp_path)
     recorder = Recorder(store)
     recorder.tier1_results = [

@@ -76,7 +76,7 @@ from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.metric_records import record_metric
+from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.pause import (
     PAUSE_MARKER,
     Pause,
@@ -888,8 +888,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
         raise
     finally:
         elapsed = time.monotonic() - started
-        telemetry.duration("abk.tick.duration", elapsed, outcome=tick.outcome)
-        record_metric("abk.tick.duration", elapsed, log, outcome=tick.outcome)
+        emit_metric("duration", "abk.tick.duration", elapsed, log, outcome=tick.outcome)
         if recording:
             _record_unit_states(inst)
         # Before returning: a tick is a short-lived process, and what it
@@ -1185,8 +1184,7 @@ def _may_build(
             log(pause_line(state, verb="paused" if paused else "pausing"))
             if not paused:
                 # A new pause; the rounds that find it still in force are not more of them.
-                telemetry.count("abk.usage.pauses", kind="usage")
-                record_metric("abk.usage.pauses", 1, log, kind="usage")
+                emit_metric("count", "abk.usage.pauses", 1, log, kind="usage")
             _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return "usage"
         reason = decision.reason
@@ -3389,9 +3387,14 @@ def build_unit(
             span.set_attribute("outcome", run.outcome)
             elapsed = time.monotonic() - started
             labels = {"repo": unit.repo, "tier": unit.tier, "outcome": str(run.outcome)}
-            telemetry.duration("abk.unit.duration", elapsed, **labels)
-            record_metric(
-                "abk.unit.duration", elapsed, log, unit=unit.id, change=unit.change, **labels
+            emit_metric(
+                "duration",
+                "abk.unit.duration",
+                elapsed,
+                log,
+                unit=unit.id,
+                change=unit.change,
+                **labels,
             )
 
 
@@ -3562,9 +3565,14 @@ def _build_unit(
                 marker=_paused_marker(inst),
                 kind="rate_limit",
             )
-            telemetry.count("abk.usage.pauses", kind="rate_limit")
-            record_metric(
-                "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="rate_limit"
+            emit_metric(
+                "count",
+                "abk.usage.pauses",
+                1,
+                say,
+                unit=unit.id,
+                change=unit.change,
+                kind="rate_limit",
             )
             end(f"rate limited — {pause_line(state, verb='pausing')}", UnitOutcome.RATE_LIMITED)
             return False
@@ -3600,9 +3608,8 @@ def _build_unit(
 
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
-            telemetry.count("abk.usage.pauses", kind="usage")
-            record_metric(
-                "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
+            emit_metric(
+                "count", "abk.usage.pauses", 1, say, unit=unit.id, change=unit.change, kind="usage"
             )
             _pause_for_usage(inst, outcome.pause or PauseInfo(reason=outcome.detail))
         return True

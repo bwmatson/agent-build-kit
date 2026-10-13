@@ -12,7 +12,9 @@ from typing import Any
 # unit appended for a histogram in seconds, and a type suffix on top.
 EXPOSITION_SUFFIXES = ("_bucket", "_sum", "_count", "_total", "_seconds")
 EMIT_CALL = re.compile(
-    r"telemetry\.(?:duration|observe|count|level)\(\s*[\"'](abk\.[a-z0-9_.]+)[\"']"
+    r"(?:telemetry\.(?:duration|observe|count|level)\(\s*"
+    r"|emit_metric\(\s*[\"'](?:duration|observe|count|level)[\"'],\s*)"
+    r"[\"'](abk\.[a-z0-9_.]+)[\"']"
 )
 QUERIED = re.compile(r"\babk_[a-z0-9_]+")
 

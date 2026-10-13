@@ -25,7 +25,9 @@ from tests.ledger_lines import agent_line, span_line, write_ledger
 from tests.serving import seed_pipeline
 
 EMIT_CALL = re.compile(
-    r"telemetry\.(?:duration|observe|count|level)\(\s*[\"'](abk\.[a-z0-9_.]+)[\"']"
+    r"(?:telemetry\.(?:duration|observe|count|level)\(\s*"
+    r"|emit_metric\(\s*[\"'](?:duration|observe|count|level)[\"'],\s*)"
+    r"[\"'](abk\.[a-z0-9_.]+)[\"']"
 )
 
 
