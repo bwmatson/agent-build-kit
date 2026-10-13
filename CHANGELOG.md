@@ -78,7 +78,13 @@
   was; the original is backed up once beside it, the write is atomic, and a file it cannot
   change that way, such as an inline or single-string list, is refused with the reason and left
   alone; the agent's recommended toolset is replaced only when asked); only the first known
-  agent has the recipe so far, and no command runs it yet.
+  agent has the recipe so far. `abk policy apply [--runtime NAME] [--agent NAME] [--dry-run]
+  [--yes] [--toolset]` runs it: it shows the diff, asks, writes, and names `abk doctor` as the
+  live check (which spends model tokens) without running it; it exits 0 when written or
+  nothing to change, 1 when declined, 2 on a usage problem, an absent or unreadable
+  configuration or an agent it cannot write to. `abk policy show` now also compares that
+  agent's configuration with the recommendation, and `abk doctor`'s fix text names
+  `abk policy apply` (or `abk policy patterns`) when the installation has no fix of its own.
 
 - A requeued unit now builds on the base the store names, not one its thread remembers, so a
   failed unit whose predecessor has since merged is no longer failed again counting commits

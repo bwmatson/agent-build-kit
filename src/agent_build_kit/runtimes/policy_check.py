@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
+from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RuntimeConfig
@@ -110,9 +111,19 @@ def classes_of(report: PolicyReport) -> set[str]:
 
 
 def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
-    """What to tell an operator to run about an unenforced class: the
-    installation's own `policy_fix`, else the runtime's advice, else the key
-    that would hold one."""
-    if entry.policy_fix:
-        return shlex.join(entry.policy_fix)
-    return report.fix or f"set `runtimes.{name}.policy_fix` in abk.yaml to what enforces them"
+    """What to tell an operator to run about an unenforced class: the installation's own
+    `policy_fix` first, else the runtime's advice, else the kit's own: `abk policy apply` for
+    an agent it can write to, else the patterns command and the key that would hold a fix."""
+    own = shlex.join(entry.policy_fix) if entry.policy_fix else ""
+    if not own and report.fix:
+        return report.fix
+    program = Path(entry.command[0]).name if entry.command else ""
+    agent = next((a for a in KNOWN_AGENTS if a.program == program), None)
+    if agent is not None and agent.apply is not None:
+        return f"{own} or run `abk policy apply`" if own else "run `abk policy apply`"
+    if own:
+        return own
+    return (
+        "run `abk policy patterns` and add them to the agent's configuration, or "
+        f"set `runtimes.{name}.policy_fix` in abk.yaml to what enforces them"
+    )

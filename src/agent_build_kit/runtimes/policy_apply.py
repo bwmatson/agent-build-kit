@@ -519,6 +519,30 @@ def apply(
     return result.model_copy(update={"backup": made})
 
 
+class Held(Frozen):
+    """What an agent's configuration holds of the policy: its deny list and its toolset."""
+
+    path: Path
+    deny: tuple[str, ...]
+    toolset: tuple[str, ...] | None
+
+
+def held(descriptor: ApplyPolicy, home: Path) -> Held | None:
+    """What `<home>/<file>` holds, or None when there is no such file; raises `ApplyRefused`
+    when it does not parse. Reads only."""
+    path = home / descriptor.file
+    if not path.is_file():
+        return None
+    root = _parse(path.read_bytes().decode(), descriptor, str(path))
+    deny = _value_at(root, descriptor.deny_path)
+    listed = _value_at(root, descriptor.toolset.path) if descriptor.toolset else None
+    return Held(
+        path=path,
+        deny=tuple(str(item) for item in deny) if isinstance(deny, list) else (),
+        toolset=tuple(str(item) for item in listed) if isinstance(listed, list) else None,
+    )
+
+
 def _replace(path: Path, text: str) -> None:
     """Write `text` over `path` through a temporary beside it, keeping the file's mode."""
     mode = path.stat().st_mode

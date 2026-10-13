@@ -282,9 +282,9 @@ def test_a_second_row_is_applied_through_the_same_command(
     scratch.holds(OWN)
     path, _ = installation(tmp_path, monkeypatch, command=list(NEUTRAL.variants[0].argv))
 
-    code, _ = run_apply(capsys, monkeypatch, path, scratch, "--yes")
+    code, terminal = run_apply(capsys, monkeypatch, path, scratch, "--yes")
 
-    assert code == 0
+    assert code == 0, terminal.err
     assert scratch.deny() == [*OWN, *patterns()]
 
 

@@ -5,9 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
-from agent_build_kit.config import ConfigError
+from agent_build_kit import config as config_module
+from agent_build_kit.config import ConfigError, RuntimeConfig
+from agent_build_kit.init.runtime_choice import yes
 from agent_build_kit.installation import Installation, load_installation
+from agent_build_kit.runtimes import policy_apply
+from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS, KnownAgent
+from agent_build_kit.runtimes.policy_apply import ApplyRefused, Status
 from agent_build_kit.runtimes.recommended_policy import (
     DIALECT,
     KNOWN_FALSE_POSITIVES,
@@ -53,6 +59,88 @@ def cmd_policy_patterns(args: argparse.Namespace, installation: Installation | N
     return 0
 
 
+PATTERNS_COMMAND = "abk policy patterns"
+
+
+class _Unresolved(Exception):
+    """The agent cannot be chosen; the message says why and what to do."""
+
+
+class _Nothing(Exception):
+    """The runtime starts no agent of the table whose configuration the kit would change."""
+
+
+def _agent_for(
+    args: argparse.Namespace, installation: Installation | None
+) -> tuple[KnownAgent, RuntimeConfig]:
+    """The known agent the selected runtime starts, or the one `--agent` names."""
+    entry = RuntimeConfig()
+    if installation is not None:
+        name = args.runtime or config_module.runtime_name(installation.config)
+        entry = installation.config.runtimes.get(name, RuntimeConfig())
+    elif not args.runtime and not args.agent:
+        raise _Unresolved("no installation to read the runtime from; give --runtime or --agent")
+    if args.agent:
+        named = next((a for a in KNOWN_AGENTS if a.name.lower() == args.agent.lower()), None)
+        if named is None:
+            known = ", ".join(agent.name for agent in KNOWN_AGENTS)
+            raise _Unresolved(f"unknown agent {args.agent!r}; the known agents are: {known}")
+        return named, entry
+    if not entry.command:
+        raise _Nothing("its enforcement is built in or it starts no known agent")
+    program = Path(entry.command[0]).name
+    found = next((a for a in KNOWN_AGENTS if a.program == program), None)
+    if found is None:
+        raise _Unresolved(
+            f"{entry.command[0]} is not a program of the known-agent table; name the agent "
+            "with --agent NAME"
+        )
+    return found, entry
+
+
+def _extra(installation: Installation | None) -> list[str]:
+    if installation is None:
+        return []
+    entry = installation.config.runtimes.get(config_module.runtime_name(installation.config))
+    return (entry.policy_extra if entry else None) or []
+
+
+def _show_configuration(agent: KnownAgent, installation: Installation | None) -> None:
+    print(f"\nAgent configuration ({agent.name}):")
+    descriptor = agent.apply
+    if descriptor is None:
+        print(
+            f"  the kit cannot read {agent.name}'s configuration; run `{PATTERNS_COMMAND}` "
+            "and add the globs to it yourself"
+        )
+        return
+    home = policy_apply.resolve_home(descriptor, installation.env_file if installation else None)
+    path = home / descriptor.file
+    try:
+        held = policy_apply.held(descriptor, home)
+    except ApplyRefused as error:
+        print(f"  {path} cannot be read: {error}")
+        return
+    if held is None:
+        print(f"  {path}: no configuration there; the agent is not installed or its home is")
+        print(f"  elsewhere (set {descriptor.home_env})")
+        return
+    print(f"  {path}")
+    wanted = patterns(_extra(installation))
+    missing = [glob for glob in wanted if glob not in held.deny]
+    print(f"  recommended patterns present: {len(wanted) - len(missing)} of {len(wanted)}")
+    for policy in RECOMMENDED:
+        lacking = [glob for glob in policy.globs if glob in missing]
+        if lacking:
+            print(f"  missing, {policy.label}: {len(lacking)}")
+    own = [entry for entry in held.deny if entry not in wanted]
+    print(f"  entries that are not the kit's: {len(own)}")
+    if descriptor.toolset:
+        print(f"  toolset recommended: {list(descriptor.toolset.names)}")
+        print(f"  toolset now: {list(held.toolset) if held.toolset is not None else 'none'}")
+        print("  `abk policy apply --toolset` replaces it; apply alone leaves it")
+
+
 def cmd_policy_show(args: argparse.Namespace, installation: Installation | None) -> int:
     for policy in RECOMMENDED:
         print(policy.label)
@@ -68,7 +156,95 @@ def cmd_policy_show(args: argparse.Namespace, installation: Installation | None)
         print(f"  {command}")
     print(f"\nDialect: {DIALECT}")
     print("\nThe policy check is not run here; `abk doctor` runs it.")
+    if installation is not None or args.runtime or args.agent:
+        try:
+            agent, _ = _agent_for(args, installation)
+        except _Nothing:
+            return 0
+        except _Unresolved as error:
+            print(f"abk: {error}", file=sys.stderr)
+            return 2
+        _show_configuration(agent, installation)
     return 0
+
+
+def _confirmed(question: str) -> bool:
+    try:
+        return yes(input(question))
+    except EOFError:
+        return False
+
+
+def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None) -> int:
+    if args.dry_run and args.yes:
+        print("abk: --dry-run writes nothing, so --yes has nothing to confirm", file=sys.stderr)
+        return 2
+    try:
+        agent, entry = _agent_for(args, installation)
+    except _Nothing as why:
+        print(f"nothing to apply: {why}")
+        return 0
+    except _Unresolved as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return 2
+    descriptor = agent.apply
+    if descriptor is None:
+        print(
+            f"abk: the kit cannot write {agent.name}'s configuration; run `{PATTERNS_COMMAND}` "
+            "and add the globs to it yourself",
+            file=sys.stderr,
+        )
+        return 2
+    home = policy_apply.resolve_home(descriptor, installation.env_file if installation else None)
+    extra = entry.policy_extra or []
+    try:
+        shown = policy_apply.apply(descriptor, home, extra, args.toolset, dry_run=True)
+        offered = (
+            policy_apply.apply(descriptor, home, extra, True, dry_run=True)
+            if descriptor.toolset and not args.toolset
+            else shown
+        )
+    except ApplyRefused as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return 2
+    if shown.status == Status.ABSENT:
+        print(f"abk: {shown.message}", file=sys.stderr)
+        return 2
+    if shown.status == Status.UNCHANGED:
+        print(f"{shown.path}: {shown.message}")
+    else:
+        print(shown.diff, end="")
+    if shown.toolset_change:
+        before, after = shown.toolset_change
+        print(f"toolset: from {list(before)} to {list(after)}")
+    elif not args.toolset and offered.toolset_change:
+        before, after = offered.toolset_change
+        print(
+            f"toolset: recommended {list(after)}, currently {list(before)}; left as it is "
+            "(`abk policy apply --toolset` replaces it)"
+        )
+    if shown.status == Status.UNCHANGED or args.dry_run:
+        return 0
+    if not (args.yes or _confirmed(f"apply to {shown.path}? [y/N] ")):
+        print("not applied; nothing was written")
+        return 1
+    done = policy_apply.apply(descriptor, home, extra, args.toolset)
+    if done.backup:
+        print(f"backed up the original to {done.backup}")
+    print(f"added {len(done.added)} patterns to {done.path}")
+    print(
+        "Whether the agent now refuses them is not checked here: `abk doctor` runs the live "
+        "check (or `abk init --policy-only`), which asks the agent to try each forbidden "
+        "command and spends model tokens."
+    )
+    return 0
+
+
+def _agent_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--runtime", help="the runtime to read, when the installation has none")
+    parser.add_argument(
+        "--agent", help="the known agent's name, when the runtime's command is a wrapper"
+    )
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -96,4 +272,15 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     patterns.set_defaults(func=cmd_policy_patterns, needs_installation="optional")
     show = commands.add_parser("show", help="the recommendation, its gaps and its dialect")
+    _agent_flags(show)
     show.set_defaults(func=cmd_policy_show, needs_installation="optional")
+    apply = commands.add_parser("apply", help="merge the recommendation into the agent's config")
+    _agent_flags(apply)
+    apply.add_argument("--dry-run", action="store_true", help="print the diff and write nothing")
+    apply.add_argument("--yes", action="store_true", help="apply without asking")
+    apply.add_argument(
+        "--toolset",
+        action="store_true",
+        help="also replace the agent's toolset with the recommended one (never done by default)",
+    )
+    apply.set_defaults(func=cmd_policy_apply, needs_installation="optional")
