@@ -26,6 +26,7 @@
   be listed, no base) the whole marker runs and the log says why. The new
   `limits.tier2_unit_scope` (`own`, the default, or `full`), overridable per repo as
   `tests.tier2_unit_scope`, restores the whole marker.
+
 - A unit whose base moved is now restacked in a lane of its own, at once, instead of
   waiting for a build slot or for the next tick. The restacks run beside the builds, in the
   order they were seen, at most `limits.max_concurrent_restacks` at a time (default 2), and
