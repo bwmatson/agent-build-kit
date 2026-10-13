@@ -612,7 +612,12 @@ this machine. `check_policy` establishes the fact.
   `unchecked`, without probing it, and goes on warning until that line is
   removed from `abk.yaml` after a pass.
 - **`abk doctor` fails rather than warns** when a class is unenforced, and
-  prints the `policy_fix` command. A probe costs one small agent call, so the
+  prints what to run, in order: the installation's `policy_fix`; else the
+  runtime's own advice; else, for an agent whose configuration the kit can
+  merge into, `abk policy apply`; else `abk policy patterns` (add the globs to
+  the agent's configuration) followed by the `policy_fix` key to set. The
+  installation's own fix stays first, with `abk policy apply` after it when the
+  agent has an applier. A probe costs one small agent call, so the
   result is cached in the state directory (`<state_dir>/policy-check.json`, per
   runtime) for 15 minutes, as the usage reading already is
   (`runtimes/policy_check.py`); `abk init` asks afresh after running the fix.
