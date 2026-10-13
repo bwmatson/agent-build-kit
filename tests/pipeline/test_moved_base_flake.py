@@ -228,8 +228,9 @@ def test_a_failure_that_repeats_holds_the_unit_where_a_scoped_flake_did_not(
     build(where, held, on_flake=told, **Moving(held, restacked(old_base=OLD_BASE)).overrides())
 
     assert told.flakes == []
-    assert "push" not in held.events
-    assert "test_y" in held.store.get("add-marker/1").feedback
+    after_move = held.events[held.events.index("moved") :]
+    assert after_move.index("claude:fix_checks") < after_move.index("push")
+    assert any("test_y" in prompt for prompt in held.prompts)
 
 
 def test_a_flake_of_a_full_run_still_parks_the_unit_beside_a_scoped_one_that_does_not(

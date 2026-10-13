@@ -83,8 +83,9 @@ def wait_on_fix(
     inst: Installation, flake: Flake, unit: StoredUnit, *, wait: bool = True
 ) -> str | None:
     """Make sure the one open change that fixes `flake.test` exists, under the state
-    directory's lock, and give each group of `unit` a `Needs:` line on it. Returns the
-    change's name, or None for a unit of that change itself, which waits on nothing."""
+    directory's lock, and with `wait` give each group of `unit` a `Needs:` line on it.
+    Returns the change's name, or None for a unit of that change itself, which waits on
+    nothing."""
     with file_lock(inst.state_dir / "flakes.lock"):
         name, earlier = open_fix_change(inst, flake.test, FLAKY_PREFIX)
         if name is None:
@@ -92,7 +93,8 @@ def wait_on_fix(
             _write_change(inst, name, flake, unit, earlier=earlier)
         if unit.change == name:
             return None
-        add_needs_to_unit(inst, unit, name, f"flaky test {flake.test}")
+        if wait:
+            add_needs_to_unit(inst, unit, name, f"flaky test {flake.test}")
         return name
 
 

@@ -180,7 +180,9 @@ labelled `needs`.
 A test that failed under load and passed twice alone is a flake, not a failure: the unit is
 parked the same way (`gated`, its note names the test) with a `Needs:` line on the one
 change the pipeline wrote to fix that test. `abk status` lists each flaky test as `flaky:`
-with its count and fix change; the unit resumes at tier 1 once that change merges.
+with its count and fix change; the unit resumes at tier 1 once that change merges. The one
+exception is the scoped run after a clean move of the base: a flake there is recorded and
+its fix change written, but the unit is not parked and gains no `Needs:` line.
 
 A test that fails tier 2 on the base as well is pre-existing: it is recorded in
 `preexisting-failures.jsonl` and gets one `fix-failing-<test>` change, written without a

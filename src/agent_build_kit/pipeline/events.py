@@ -1958,23 +1958,31 @@ def build_restack(
                     moved_from=old_base,
                 )
         except FlakeFound as found:
-            # Not this branch's fault: it waits, gated, for the test's fix, as a unit
-            # that met the flake building does, and is moved when it resumes.
-            fixes = [on_flake(child, flake) for flake in found.flakes] if on_flake else []
-            if not any(fixes):
-                raise RuntimeError(
-                    f"{branch} moved onto {new_base} but its checks fail — "
-                    f"left unpushed, with the reviewable head still on the remote:\n"
-                    f"{found.flakes[0].output}"
-                ) from found
-            store.set_state(
-                child.id,
-                PLANNED,
-                note=waiting_note([flake.test for flake in found.flakes]),
-                cause=Cause.GATED,
-            )
-            store.set_gated_requeue(child.id, RequeueReason.RESUME)
-            return RestackOutcome.PLANNED
+            if found.scoped:
+                # Not this branch's fault, and the suite runs in CI: recorded, and the
+                # branch goes on to its push without waiting for the fix.
+                if on_flake:
+                    for flake in found.flakes:
+                        on_flake(child, flake, wait=False)
+                passed, output = True, ""
+            else:
+                # Not this branch's fault: it waits, gated, for the test's fix, as a unit
+                # that met the flake building does, and is moved when it resumes.
+                fixes = [on_flake(child, flake) for flake in found.flakes] if on_flake else []
+                if not any(fixes):
+                    raise RuntimeError(
+                        f"{branch} moved onto {new_base} but its checks fail — "
+                        f"left unpushed, with the reviewable head still on the remote:\n"
+                        f"{found.flakes[0].output}"
+                    ) from found
+                store.set_state(
+                    child.id,
+                    PLANNED,
+                    note=waiting_note([flake.test for flake in found.flakes]),
+                    cause=Cause.GATED,
+                )
+                store.set_gated_requeue(child.id, RequeueReason.RESUME)
+                return RestackOutcome.PLANNED
         finally:
             spans.current_unit.reset(context)
         if not passed:

@@ -502,7 +502,12 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    `moved base: ran the full suite (<reason>)`, when the profile has no hook or answers
    nothing for a project, when a selected command cannot start or loses its selection
    tooling, when the unit's tests cannot be listed, or when a file that is not a document
-   was brought in outside the projects the unit changes. The merge handler's tier 1 after
+   was brought in outside the projects the unit changes. A failed test in the selected
+   run is run again alone and serially, as in a full run. One that passes alone is a flake
+   on the moved base: it is recorded and its one fix change written, but the unit gains no
+   `Needs:` line and goes on to its push. A test that fails again, or that the unit added or
+   changed, holds the unit as any tier 1 failure does. A full run keeps its flake rule, and
+   tier 2 is never repeated or isolated. The merge handler's tier 1 after
    a release is told its old base and logs the same way. In a run, a conflict, or a
    tier 1 or tier 2 failure on the new base, pushes nothing and resumes the unit at its
    restack in the same run (a check's failure leaves its output as feedback). That restack is what

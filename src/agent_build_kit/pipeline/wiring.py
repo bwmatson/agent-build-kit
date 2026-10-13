@@ -898,14 +898,14 @@ def build_tier1(
         """A scoped moved base: lint, the tests the unit added or changed, and the tests the
         profile names for the unit's files with the files the move brought in. None, with
         the reason logged, when the full suite has to stand in."""
-        plan, owned, reason = moved_plan(cwd, base, work, incoming)
+        plan, owned, own_ids, reason = moved_plan(cwd, base, work, incoming)
         if plan is None:
             _say(log, f"moved base: ran the full suite ({reason})")
             return None
         earlier = last_full.get(spans.current_unit.get()[0])
         figures: list[tuple[float, int]] = []
         why: list[str] = []
-        outcome = run_selection(plan, figures, why)
+        outcome = run_selection(plan, figures, why, own_ids)
         if outcome is None:
             _say(log, f"moved base: ran the full suite ({why[0]})")
             return None
@@ -929,27 +929,30 @@ def build_tier1(
     ) -> tuple[
         list[tuple[Path, ToolchainProfile, list[list[str]]]] | None,
         list[tuple[int, int]],
+        dict[Path, list[str]],
         str,
     ]:
         """(the plan, where in the test figures each project's own tests are as (start,
-        length), why not): the plan is None when the profile cannot select."""
+        length), the unit's own test ids by project, why not): the plan is None when the
+        profile cannot select."""
         try:
             touched = touched_tests(cwd, base)
         except (subprocess.CalledProcessError, OSError) as error:
-            return None, [], f"the unit's tests could not be listed ({error})"
+            return None, [], {}, f"the unit's tests could not be listed ({error})"
         if projects:
             held = {where for where, _, _ in work}
             for name in incoming:
                 owner = owning_project(projects, name)
                 if (owner is None or cwd / owner.path not in held) and not is_doc_path(name):
-                    return None, [], f"{name} was brought in outside the unit's projects"
+                    return None, [], {}, f"{name} was brought in outside the unit's projects"
         plan: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
         owned: list[tuple[int, int]] = []
+        own_ids: dict[Path, list[str]] = {}
         position = 0
         for where, toolchain, files in work:
             label = str(where.relative_to(cwd)) if where != cwd else "the repo"
             if not isinstance(toolchain, SelectsAffectedTests):
-                return None, [], f"the profile for {label} cannot select tests"
+                return None, [], {}, f"the profile for {label} cannot select tests"
             here = [
                 name[len(project.prefix) :]
                 for name in incoming
@@ -969,9 +972,11 @@ def build_tier1(
                 return (
                     None,
                     [],
+                    {},
                     f"the profile cannot say which tests {label} is affected in{hint}",
                 )
             ids = _ids_for(touched, cwd, where, toolchain)
+            own_ids[where] = ids
             own = []
             if ids and isinstance(toolchain, RepeatsTests):
                 for command in toolchain.test_commands(where, files, root_extras=root_extras or []):
@@ -981,7 +986,7 @@ def build_tier1(
             owned.append((position, len(own)))
             position += len(own) + len(selected)
             plan.append((where, toolchain, [toolchain.lint_command(base), *own, *selected]))
-        return plan, owned, ""
+        return plan, owned, own_ids, ""
 
     def record_selected(
         figures: list[tuple[float, int]], outcome: str, earlier: tuple[float, int] | None
@@ -1175,10 +1180,12 @@ def build_tier1(
         plan: list[tuple[Path, ToolchainProfile, list[list[str]]]],
         figures: list[tuple[float, int]],
         why: list[str] | None = None,
+        own: dict[Path, list[str]] | None = None,
     ) -> tuple[bool, str] | None:
         """(passed, what failed), or None when a command could not start, with the reason
         added to `why`. The time and test count of each selected test command are added to
-        `figures`."""
+        `figures`. A moved base's run gives `own`, the tests the unit added or changed in
+        each project: a failure there is isolated as a scoped run's."""
         for where, toolchain, commands in plan:
             for index, command in enumerate(commands):
                 started = spans.clock.monotonic()
@@ -1207,7 +1214,14 @@ def build_tier1(
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
-                    if index > 0 and isolate(command, result, where, toolchain, log=log):
+                    if index > 0 and isolate(
+                        command,
+                        result,
+                        where,
+                        toolchain,
+                        log=log,
+                        own=None if own is None else own.get(where, []),
+                    ):
                         continue
                     return False, _failure(command, result, where)
         return True, ""
@@ -1218,10 +1232,13 @@ def build_tier1(
         where: Path,
         toolchain: ToolchainProfile,
         log: Callable[[str], None] | None = None,
+        own: list[str] | None = None,
     ) -> bool:
         """Run the failed tests again, alone and serially, twice. Raises `FlakeFound` when
-        they pass both times; returns False when any fails again, or the profile cannot say
-        which tests failed, so the failure stands. Returns True when more than
+        they pass both times, marked scoped when `own` (the tests the unit added or changed,
+        given by a moved base's run) is given, unless one of them is the unit's own, which
+        is never excused: that is a failure. Returns False when any fails again, or the
+        profile cannot say which tests failed, so the failure stands. Returns True when more than
         `MAX_FLAKES_PER_RUN` tests failed and passed both reruns: a disturbed run, not that
         many flaky tests, so the failure is dropped and nothing is recorded for them."""
         rerun_command = getattr(toolchain, "serial_rerun_command", None)
@@ -1237,6 +1254,8 @@ def build_tier1(
             again = ran(rerun, where, toolchain)
             if not toolchain.tolerates_exit(rerun, again.returncode):
                 return False
+        if own is not None and any(test in own for test in tests):
+            return False
         if len(tests) > MAX_FLAKES_PER_RUN:
             _say(
                 log,
@@ -1256,7 +1275,8 @@ def build_tier1(
                     directory=str(where),
                 )
                 for test in tests
-            )
+            ),
+            scoped=own is not None,
         )
 
     def ran(
@@ -1299,7 +1319,7 @@ def build_on_flake(
 
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
-        fix = wait_on_fix(installation, met, store.get(unit.id))
+        fix = wait_on_fix(installation, met, store.get(unit.id), wait=wait)
         flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
         log(f"{unit.id}: flaky test {flake.test} — " + (f"waits for {fix}" if fix else "no wait"))
         return fix

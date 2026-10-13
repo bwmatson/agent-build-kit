@@ -1640,9 +1640,15 @@ class BuildPath:
                     **moved,
                 )
         except FlakeFound as found:
-            if (parked := self.wait_for_fix(found)) is not None:
+            if found.scoped:
+                # The move did not cause it: recorded, and the unit goes on without waiting.
+                for flake in found.flakes:
+                    r.on_flake(unit, flake, wait=False)
+                ok, output = True, ""
+            elif (parked := self.wait_for_fix(found)) is not None:
                 return parked
-            ok, output = False, found.flakes[0].output
+            else:
+                ok, output = False, found.flakes[0].output
         if not ok and (broken := self.environment_problem()) is not None:
             return self.blocked(broken)
         self.say(f"tier 1 {'passed' if ok else 'failed'}")
