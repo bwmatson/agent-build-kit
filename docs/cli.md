@@ -165,6 +165,30 @@ and 90th percentile of what a call added, the compactions and the end fill as `u
 the most; and the number of calls with no context figures, which stay out of the means. Rows
 written before context was recorded have none.
 
+### `abk usage replay [--since TIMESTAMP] [--session-allowance N] [--weekly-allowance N] [--margin N]`
+
+Re-runs the usage estimate over the recorded readings and the ledger. Read-only: no model
+call, no call to the usage endpoint, nothing written. For each window and each usable gap
+(the pairs calibration uses) it prints a row, `<window> at=<time> before=<n> after=<n>
+units=<n> allowance=<n> estimate=<n> diff=<n>` (`diff` is actual minus estimate), then per
+window the counts of underestimates (actual above the estimate), misses beyond the margin,
+false pauses (the estimate plus the margin is not under the threshold while the actual
+reading was) and false allows (the reverse), and the mean overshoot: estimate minus actual,
+averaged over the gaps where the estimate was above (`none` when no gap overshot), the cost of
+caution. A window with fewer usable gaps than `usage_allowance_min_pairs` says there is not
+enough to judge. The output ends with the `usage allowances:` line the settings give today.
+The estimate and the refusal rule are the guard's own.
+
+- The allowance of each gap is the one calibration would have given from the gaps before it
+  (the configured one while there were fewer than `usage_allowance_min_pairs`).
+  `--session-allowance` and `--weekly-allowance` fix one; `--margin` replaces
+  `usage_headroom_margin_pct`.
+- `--since` (an ISO time) keeps the gaps whose first reading is at or after it; a malformed
+  value is refused.
+- The threshold is the window's configured `usage_pause_pct`, and the output says so: the
+  record keeps no reset times, so a threshold moving towards a reset is not modelled.
+- With no usable gap it prints `no usable gap` and exits 0.
+
 ### `abk usage backfill-costs [--apply]`
 
 **Temporary: removed once every installation has run it.** Turns the usage ledger's rows

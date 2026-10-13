@@ -36,17 +36,25 @@ def spend(unit: str, at: datetime, node: str = "implement") -> UsageRecord:
     return UsageRecord(at=at.isoformat(), unit=unit, node=node)
 
 
+def gaps(
+    window: str, spent: list[tuple[int, int, int]], *, start: datetime = START, gap: timedelta = GAP
+) -> tuple[list[UsageCall], list[UsageRecord]]:
+    """A (figure before, figure after, units that spent) gap for each entry, oldest first,
+    laid out as `segments` lays out its own."""
+    calls: list[UsageCall] = []
+    ledger: list[UsageRecord] = []
+    for index, (before, after, units) in enumerate(spent):
+        first = start + index * STEP
+        calls += [reading(window, first, before), reading(window, first + gap, after)]
+        ledger += [spend(f"g{index}-{n}", first + gap / 2) for n in range(units)]
+    return calls, ledger
+
+
 def segments(
     window: str, spent: list[tuple[int, int]], *, start: datetime = START, gap: timedelta = GAP
 ) -> tuple[list[UsageCall], list[UsageRecord]]:
     """A (points gained, units that spent) segment for each entry, oldest first."""
-    calls: list[UsageCall] = []
-    ledger: list[UsageRecord] = []
-    for index, (gain, units) in enumerate(spent):
-        first = start + index * STEP
-        calls += [reading(window, first, 10), reading(window, first + gap, 10 + gain)]
-        ledger += [spend(f"u{index}-{n}", first + gap / 2) for n in range(units)]
-    return calls, ledger
+    return gaps(window, [(10, 10 + gain, units) for gain, units in spent], start=start, gap=gap)
 
 
 def per_unit(
