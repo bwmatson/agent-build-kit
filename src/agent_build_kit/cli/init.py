@@ -26,6 +26,7 @@ import yaml
 
 from agent_build_kit import config as config_module
 from agent_build_kit import openspec, runtimes, skills, timers
+from agent_build_kit.cli.policy_cmd import PATTERNS_COMMAND, preview, write_recommended
 from agent_build_kit.config import (
     CONFIG_FILENAME,
     ConfigError,
@@ -71,7 +72,7 @@ from agent_build_kit.notify.windows import INSTALL_COMMAND
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport, policy_apply, policy_check
 from agent_build_kit.runtimes.base import Run, Which, validate_argv
 from agent_build_kit.runtimes.known_agents import agent_for_command
-from agent_build_kit.runtimes.policy_apply import ApplyRefused, Status
+from agent_build_kit.runtimes.policy_apply import Status
 
 RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
 
@@ -363,6 +364,7 @@ def _apply_builtin(
     entry: RuntimeConfig,
     report: PolicyReport,
     *,
+    installation: Installation,
     cache: Path,
 ) -> bool | None:
     """Offer the kit's recommended policy as the fix, when the agent has an applier: None
@@ -372,18 +374,15 @@ def _apply_builtin(
     descriptor = agent.apply if agent else None
     if agent is None or descriptor is None:
         return None
-    home = policy_apply.resolve_home(
-        descriptor, Installation(load_config(planning / CONFIG_FILENAME), planning).env_file
-    )
+    home = policy_apply.resolve_home(descriptor, installation.env_file)
     extra = entry.policy_extra or []
-    try:
-        shown = policy_apply.apply(descriptor, home, extra, dry_run=True)
-    except ApplyRefused as error:
-        print(f"  {error}")
+    shown = preview(descriptor, home, extra, False)
+    if shown is None:
+        print(f"  run `{PATTERNS_COMMAND}` and add the globs to its configuration yourself")
         return False
     if shown.status == Status.ABSENT:
         print(f"  {agent.name}'s configuration was not found: {shown.message}")
-        print("  run `abk policy patterns` and add the globs to its configuration yourself")
+        print(f"  run `{PATTERNS_COMMAND}` and add the globs to its configuration yourself")
         return False
     if shown.status == Status.UNCHANGED:
         print(f"  {shown.path}: {shown.message}; the agent's matcher, not the list, may be")
@@ -398,14 +397,8 @@ def _apply_builtin(
     elif not yes(ask("apply the kit's recommended policy? [y/N] ")):
         print(f"not applied; still unenforced: {policy_check.describe(report)}")
         return False
-    try:
-        done = policy_apply.apply(descriptor, home, extra)
-    except (ApplyRefused, OSError) as error:
-        print(f"abk init: {error}", file=sys.stderr)
+    if write_recommended(descriptor, home, extra, False) is None:
         return False
-    if done.backup:
-        print(f"backed up the original to {done.backup}")
-    print(f"added {len(done.added)} patterns to {done.path}")
     _report_again(runtime, planning, report, cache=cache, failed=False)
     print("the build-run toolset is unchanged; `abk policy apply --toolset` replaces it")
     final = _policy(runtime, planning, cache=cache)
@@ -422,7 +415,8 @@ def _policy_step(
     unasked: `--yes` runs a configured fix only given `--run-policy-fix` or `--policy-fix`."""
     try:
         loaded = load_config(planning / CONFIG_FILENAME)
-        cache = policy_check.cache_path(Installation(loaded, planning))
+        installation = Installation(loaded, planning)
+        cache = policy_check.cache_path(installation)
     except ConfigError as error:
         print(f"abk init: runtime not checked: {error}", file=sys.stderr)
         return False
@@ -461,7 +455,9 @@ def _policy_step(
     print(f"runtime {name} does not refuse: {policy_check.describe(report)}")
     entry = config_module.runtime_entry(load_config(planning / CONFIG_FILENAME), name=name)
     if not entry.policy_fix and not declined:
-        built = _apply_builtin(planning, args, runtime, entry, report, cache=cache)
+        built = _apply_builtin(
+            planning, args, runtime, entry, report, installation=installation, cache=cache
+        )
         if built is not None:
             return built
     if not entry.policy_fix:

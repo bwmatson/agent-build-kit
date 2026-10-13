@@ -595,6 +595,14 @@ this machine. `check_policy` establishes the fact.
   missing. A runtime whose check prompts the agent says so by
   `policy_check_prompts_agent`; init asks before such a check spends tokens,
   and a refusal records `runtimes.<name>.policy: unchecked`.
+- **A machine with the kit and the agent and nothing else.** When the
+  installation sets no `policy_fix` and the selected agent has an applier,
+  init's policy step offers the kit's own recommended policy (`abk policy
+  apply`'s merge): it shows the configuration and the diff, asks, applies the
+  deny list, checks again and prints what is now refused. So
+  `abk init --policy-only` takes such a machine from a failing check to a
+  passing one without the agent's own repository. The toolset is left alone
+  (`abk policy apply --toolset`), and `--yes` needs `--run-policy-fix` for it.
 - **Applying a policy fix.** On an existing installation run
   `abk init --policy-only` (add `--policy-fix ARGV` to supply the fix, and
   `--yes --run-policy-fix` to run a configured one unattended). It prints the

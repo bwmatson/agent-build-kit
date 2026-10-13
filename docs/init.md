@@ -234,6 +234,18 @@ added as text. A section already present is never changed. The dry run over
 an existing file lists each part it would fill, with its YAML, instead of a
 whole file.
 
+## The policy step
+
+After `abk.yaml` is written, init checks that the selected runtime refuses the
+command classes abk forbids and, for a class it does not, offers a fix in this
+order: the installation's `runtimes.<name>.policy_fix`; else, for a known agent
+the kit can write to, the kit's recommended policy (the configuration path and
+the diff are shown, init asks, applies the deny list only and checks again);
+else the choices of the unknown-agent menu, which names `abk policy patterns`.
+`--yes` runs neither kind of fix unless `--run-policy-fix` is also given.
+`abk init --policy-only` runs just this step. The details are under `abk init`
+in [cli.md](cli.md).
+
 ## Idempotence and `--force`
 
 Running init again over the same planning repo is safe: the layout writes

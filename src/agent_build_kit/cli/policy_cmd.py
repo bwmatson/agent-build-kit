@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from agent_build_kit import config as config_module
 from agent_build_kit import runtimes
@@ -12,8 +13,8 @@ from agent_build_kit.config import ConfigError, RuntimeConfig
 from agent_build_kit.init.runtime_choice import yes
 from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.runtimes import known_agents, policy_apply
-from agent_build_kit.runtimes.known_agents import KnownAgent, agent_for_command
-from agent_build_kit.runtimes.policy_apply import ApplyRefused, Status
+from agent_build_kit.runtimes.known_agents import ApplyPolicy, KnownAgent, agent_for_command
+from agent_build_kit.runtimes.policy_apply import ApplyRefused, ApplyResult, Status
 from agent_build_kit.runtimes.recommended_policy import (
     DIALECT,
     KNOWN_FALSE_POSITIVES,
@@ -187,6 +188,34 @@ def cmd_policy_show(args: argparse.Namespace, installation: Installation | None)
     return 0
 
 
+def preview(
+    descriptor: ApplyPolicy, home: Path, extra: list[str], toolset: bool
+) -> ApplyResult | None:
+    """What applying the recommended policy would do, or None after printing why it cannot be
+    known: the configuration is refused or cannot be read."""
+    try:
+        return policy_apply.apply(descriptor, home, extra, toolset, dry_run=True)
+    except (ApplyRefused, OSError) as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return None
+
+
+def write_recommended(
+    descriptor: ApplyPolicy, home: Path, extra: list[str], toolset: bool
+) -> ApplyResult | None:
+    """Apply the recommended policy and say what was written, or None after printing why it
+    could not be."""
+    try:
+        done = policy_apply.apply(descriptor, home, extra, toolset)
+    except (ApplyRefused, OSError) as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return None
+    if done.backup:
+        print(f"backed up the original to {done.backup}")
+    print(f"added {len(done.added)} patterns to {done.path}")
+    return done
+
+
 def _confirmed(question: str) -> bool:
     try:
         return yes(input(question))
@@ -216,15 +245,13 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
         return 2
     home = policy_apply.resolve_home(descriptor, installation.env_file if installation else None)
     extra = entry.policy_extra or []
-    try:
-        shown = policy_apply.apply(descriptor, home, extra, args.toolset, dry_run=True)
-        offered = (
-            policy_apply.apply(descriptor, home, extra, True, dry_run=True)
-            if descriptor.toolset and not args.toolset
-            else shown
-        )
-    except ApplyRefused as error:
-        print(f"abk: {error}", file=sys.stderr)
+    shown = preview(descriptor, home, extra, args.toolset)
+    offered = (
+        preview(descriptor, home, extra, True)
+        if shown and descriptor.toolset and not args.toolset
+        else shown
+    )
+    if shown is None or offered is None:
         return 2
     if shown.status == Status.ABSENT:
         print(f"abk: {shown.message}", file=sys.stderr)
@@ -247,14 +274,8 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
     if not (args.yes or _confirmed(f"apply to {shown.path}? [y/N] ")):
         print("not applied; nothing was written")
         return 1
-    try:
-        done = policy_apply.apply(descriptor, home, extra, args.toolset)
-    except (ApplyRefused, OSError) as error:
-        print(f"abk: {error}", file=sys.stderr)
+    if write_recommended(descriptor, home, extra, args.toolset) is None:
         return 2
-    if done.backup:
-        print(f"backed up the original to {done.backup}")
-    print(f"added {len(done.added)} patterns to {done.path}")
     print(
         "Whether the agent now refuses them is not checked here: `abk doctor` runs the live "
         "check (or `abk init --policy-only`), which asks the agent to try each forbidden "
