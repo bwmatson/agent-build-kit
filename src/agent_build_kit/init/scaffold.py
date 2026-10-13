@@ -20,7 +20,7 @@ import hashlib
 import re
 import subprocess
 import textwrap
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -212,7 +212,7 @@ def dump_with_notes(config: WorkspaceConfig) -> str:
         found = _key_line(lines, "environment", start=start, stop=stop, top=name is None)
         if found is None:
             continue
-        indent = lines[found][: len(lines[found]) - len(lines[found].lstrip())]
+        indent = lines[found][: _indent_of(lines[found])]
         lines[found:found] = [f"{indent}# {line}\n" for line in note.splitlines()]
     return "".join(lines)
 
@@ -223,7 +223,7 @@ def _child_indent(lines: list[str], at: int, parent: int) -> str:
         body = line.strip()
         if not body or body.startswith("#"):
             continue
-        indent = len(line) - len(line.lstrip())
+        indent = _indent_of(line)
         return " " * indent if indent > parent else " " * (parent + 2)
     return " " * (parent + 2)
 
@@ -248,6 +248,95 @@ def _top_level_end(lines: list[str], start: int) -> int:
         if line.strip() and not line.startswith((" ", "#", "\t")):
             return index
     return len(lines)
+
+
+def _block_end(lines: list[str], at: int, inside: Callable[[str], bool]) -> int:
+    """The index after the block opened at `lines[at]`: its last line `inside` accepts,
+    not counting the blank and comment lines that trail it, which belong to what follows."""
+    end = at + 1
+    for index in range(at + 1, len(lines)):
+        body = lines[index].strip()
+        if not body or body.startswith("#"):
+            continue
+        if not inside(lines[index]):
+            break
+        end = index + 1
+    return end
+
+
+def _indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _key_at(lines: list[str], key: str, *, start: int, stop: int, indent: int) -> int | None:
+    """Like `_key_line`, but only a `key:` indented exactly `indent` (one nested deeper, or
+    inside a block scalar, is not the key)."""
+    at = _key_line(lines, key, start=start, stop=stop)
+    while at is not None and _indent_of(lines[at]) != indent:
+        at = _key_line(lines, key, start=at + 1, stop=stop)
+    return at
+
+
+def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
+    """Append `entry` to `repo`'s `projects:` list in the abk.yaml at `path`, creating the
+    list when the repo has none. Every other line stays as it is. A layout whose place
+    cannot be found as a block (a flow-style repo or `projects: []`), or a result that does
+    not parse to the file plus the entry, raises `ScaffoldError` and leaves the file alone."""
+    raw, lines = _read_lines(path)
+    repos = _key_line(lines, "repos", top=True)
+    entry_raw = (raw.get("repos") or {}).get(repo)
+    if repos is None or not isinstance(entry_raw, dict):
+        raise ScaffoldError(f"{path}: cannot find a block entry for repo {repo!r} under `repos:`")
+    repos_end = _top_level_end(lines, repos)
+    repo_indent = _child_indent(lines, repos, 0)
+    at = _key_at(lines, repo, start=repos + 1, stop=repos_end, indent=len(repo_indent))
+    if at is None:
+        raise ScaffoldError(f"{path}: cannot find a block entry for repo {repo!r} under `repos:`")
+    repo_end = _block_end(lines, at, lambda line: _indent_of(line) > len(repo_indent))
+    child = _child_indent(lines, at, len(repo_indent))
+    projects = _key_at(lines, "projects", start=at + 1, stop=repo_end, indent=len(child))
+    if projects is None and "projects" in entry_raw:
+        raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
+    if projects is None:
+        lines[repo_end:repo_end] = [
+            f"{child}projects:\n",
+            *_list_item(entry, child + "  "),
+        ]
+    else:
+        listed = _block_end(
+            lines,
+            projects,
+            lambda line: (
+                _indent_of(line) > len(child)
+                or (_indent_of(line) == len(child) and line.lstrip().startswith("-"))
+            ),
+        )
+        existing = next(
+            (line for line in lines[projects + 1 : listed] if line.lstrip().startswith("- ")),
+            None,
+        )
+        indent = " " * _indent_of(existing) if existing else child + "  "
+        lines[listed:listed] = _list_item(entry, indent)
+    updated = "".join(lines)
+
+    expected = {**raw, "repos": {**raw["repos"]}}
+    expected["repos"][repo] = {
+        **entry_raw,
+        "projects": [*(entry_raw.get("projects") or []), dict(entry)],
+    }
+    try:
+        loaded = yaml.safe_load(updated)
+    except yaml.YAMLError:
+        loaded = None
+    if loaded != expected:
+        raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
+    path.write_text(updated)
+
+
+def _list_item(entry: Mapping[str, str], indent: str) -> list[str]:
+    """One list item, dumped as block YAML and indented."""
+    text = yaml.safe_dump([dict(entry)], sort_keys=False, default_flow_style=False)
+    return [f"{indent}{line}\n" for line in text.splitlines()]
 
 
 def fill_missing_environment(
@@ -280,7 +369,7 @@ def fill_missing_environment(
         at = _key_line(lines, str(name), start=section + 1, stop=_top_level_end(lines, section))
         if at is None:
             continue
-        parent = len(lines[at]) - len(lines[at].lstrip())
+        parent = _indent_of(lines[at])
         indent = _child_indent(lines, at, parent)
         note = _note(drafted.repos[name].environment) if name in drafted.repos else ""
         lines[at + 1 : at + 1] = _block("environment", wanted, indent, note)

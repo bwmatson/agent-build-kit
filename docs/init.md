@@ -260,6 +260,13 @@ is compared. `abk init --update-rules` closes the gap without rewriting
 anything: it adds each newer version's paragraph to the end of the `context:`
 and restamps the file, leaving every other line as it was.
 
+## Adding a project later: `abk project init`
+
+`abk init` records the projects it finds. A project that does not exist yet is added
+with `abk project init <path> --profile <name> --repo <repo>` (see `docs/cli.md`), which
+writes the same `projects:` entry into `abk.yaml` without touching its comments, and
+with `--scaffold` the minimal manifest that detection recognises as that profile's.
+
 ## `install-skills` and the three skills
 
 `abk install-skills` copies `skills/*/SKILL.md` into `.claude/skills/` — of

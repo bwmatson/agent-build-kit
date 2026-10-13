@@ -32,6 +32,7 @@ from agent_build_kit.forges import github
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests.forges.github_server import FakeGitHub
@@ -91,10 +92,13 @@ def no_real_agent(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture(autouse=True)
-def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The adapter's default usage readers call the live endpoint with the
     machine's own token, and read the machine's own Claude Code cache. A test
-    that means to read usage injects `read_live=` and `read_cached=`."""
+    that means to read usage injects `read_live=` and `read_cached=`. The
+    guard's own default cache path points at a file that does not exist, so a
+    fresh block in the machine's `~/.claude.json` cannot change a decision; a
+    test that wants a cache file sets `DEFAULT_ANCHOR_PATH` itself."""
 
     def refuse(*args, **kwargs):
         raise AssertionError(
@@ -104,6 +108,7 @@ def no_real_usage_reading(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(claude_code, "read_live_usage", refuse)
     monkeypatch.setattr(claude_code, "read_cached_usage", refuse)
+    monkeypatch.setattr(usage_guard, "DEFAULT_ANCHOR_PATH", tmp_path / "no-claude.json")
 
 
 class _NoClaudePopen(subprocess.Popen):

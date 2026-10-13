@@ -10,6 +10,7 @@ environment, so the collision cannot happen.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import sys
@@ -190,6 +191,12 @@ class PythonUvProfile:
             _pyproject(repo).get("tool", {}).get("uv", {}).get("workspace", {}).get("members", [])
         )
         return [str(member) for member in members]
+
+    def scaffold_manifest(self, name: str) -> tuple[str, str]:
+        # A JSON string is a valid TOML basic string, and escapes quotes and backslashes.
+        return "pyproject.toml", (
+            f'[project]\nname = {json.dumps(name)}\nversion = "0.1.0"\nrequires-python = ">=3.12"\n'
+        )
 
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
         """The section for the checkout at `root`, or None without a manifest.

@@ -9,6 +9,7 @@ from pathlib import Path
 from agent_build_kit.config import EnvironmentConfig
 from agent_build_kit.profiles.base import (
     EnvironmentDrafting,
+    ProjectScaffold,
     PromptWords,
     ToolchainProfile,
     is_doc_path,
@@ -70,6 +71,15 @@ def detect_environment(
     return None
 
 
+def scaffold_manifest(profile: str, name: str) -> tuple[str, str] | None:
+    """The minimal manifest the named profile writes for a project called `name`, or None
+    when the profile has no scaffold."""
+    chosen = get(profile)
+    if not isinstance(chosen, ProjectScaffold):
+        return None
+    return chosen.scaffold_manifest(name)
+
+
 def _load_builtin() -> None:
     if _REGISTRY:
         return
@@ -81,6 +91,7 @@ def _load_builtin() -> None:
 
 __all__ = [
     "EnvironmentDrafting",
+    "ProjectScaffold",
     "PromptWords",
     "ToolchainProfile",
     "detect_environment",
@@ -88,5 +99,6 @@ __all__ = [
     "is_doc_path",
     "names",
     "register",
+    "scaffold_manifest",
     "registered",
 ]

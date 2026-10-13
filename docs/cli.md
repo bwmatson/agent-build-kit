@@ -659,6 +659,18 @@ Is this installation in a state the pipeline can run in? Each check prints
 `--show` (the default) prints the effective configuration as YAML with every
 default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 
+### `abk project init PATH --profile NAME --repo REPO [--scaffold]`
+
+Registers a project in `REPO`'s `projects:` list before its directory exists (it is
+pending until it does). `PATH` is relative to the repo root; an absolute path under the
+repo is stored relative, and one outside it (or with a `..` part) is refused. The entry is added to the file's own lines, so comments, key
+order and quoting stay as they were; a `projects:` written inline is refused rather than
+rewritten. It refuses a path the repo already registers, a profile that is not
+registered and a repo that is not in `repos:`, each leaving `abk.yaml` unchanged and
+exiting 1. `--scaffold` also writes the smallest manifest the profile's detection
+recognises under the new path (the profile supplies it) and leaves an existing manifest
+alone, saying so.
+
 ### `abk policy patterns [--format glob|json|yaml-list] [--class LABEL ...] [--extra]`
 
 Prints the kit's recommended command globs, for an agent whose configuration the kit cannot
