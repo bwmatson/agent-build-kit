@@ -126,3 +126,30 @@ def test_extra_with_an_installation_that_does_not_load_exits_two(
     assert code == 2
     assert out == ""
     assert "--extra" in err
+
+
+def test_a_class_with_no_globs_prints_an_empty_list_in_every_format(
+    capsys: pytest.CaptureFixture[str], outside_any_installation: Path
+) -> None:
+    covered = next(p for p in RECOMMENDED if p.covered_by)
+    assert covered.covered_by is not None
+
+    for fmt in ("glob", "json", "yaml-list"):
+        code, out, err = run(capsys, "--format", fmt, "--class", covered.label)
+
+        assert code == 0
+        assert covered.covered_by in err
+        if fmt == "glob":
+            assert out == ""
+        else:
+            assert (json.loads if fmt == "json" else yaml.safe_load)(out) == []
+
+
+def test_extra_that_does_not_load_shows_which_key_failed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = installation_with(tmp_path, [" "])
+
+    _, _, err = run(capsys, "--extra", config=config)
+
+    assert "policy_extra" in err

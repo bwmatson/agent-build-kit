@@ -6,7 +6,8 @@ import argparse
 import json
 import sys
 
-from agent_build_kit.installation import Installation
+from agent_build_kit.config import ConfigError
+from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.runtimes.recommended_policy import (
     DIALECT,
     KNOWN_FALSE_POSITIVES,
@@ -29,12 +30,11 @@ def cmd_policy_patterns(args: argparse.Namespace, installation: Installation | N
     extra: list[str] = []
     if args.extra:
         if installation is None:
-            print(
-                "abk: --extra needs an installation, and none was found or its abk.yaml did not "
-                "load; run `abk doctor`, or pass --config",
-                file=sys.stderr,
-            )
-            return 2
+            try:
+                installation = load_installation(args.config)
+            except ConfigError as error:
+                print(f"abk: --extra needs an installation: {error}", file=sys.stderr)
+                return 2
         entry = installation.config.runtimes.get(installation.config.runtime)
         extra = (entry.policy_extra if entry else None) or []
     for label in args.classes:
@@ -47,8 +47,8 @@ def cmd_policy_patterns(args: argparse.Namespace, installation: Installation | N
     if args.format == "json":
         print(json.dumps(globs))
     elif args.format == "yaml-list":
-        print("\n".join(f"- {json.dumps(g)}" for g in globs))
-    else:
+        print("\n".join(f"- {json.dumps(g)}" for g in globs) if globs else "[]")
+    elif globs:
         print("\n".join(globs))
     return 0
 
