@@ -50,6 +50,8 @@ export interface UsageRow {
 export interface UsageReport {
   group_by: string;
   rows: UsageRow[];
+  // The calls with no unit, one row per node, in the by-unit view.
+  overhead: UsageRow[];
   total: UsageRow;
 }
 

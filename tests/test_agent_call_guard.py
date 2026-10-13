@@ -142,21 +142,9 @@ def test_a_node_name_outside_the_overhead_nodes_fails(tmp_path: Path) -> None:
 
 # --- the real source tree ------------------------------------------------------------------
 
-# What group 2 of the change converts, each named by the file that holds the site.
-CONVERTED_BY_GROUP_2 = {
-    "pipeline/planner.py",
-    "tracks/runner.py",
-    "init/research.py",
-    "init/propose.py",
-    "runtimes/acp.py",
-    "runtimes/claude_code.py",
-    "serve/chat.py",
-}
 
-
-def test_the_allowlist_holds_the_sites_group_2_converts_and_nothing_else() -> None:
-    assert {path for path, _ in ALLOWLIST} == CONVERTED_BY_GROUP_2
-    assert all("group 2" in reason for reason in ALLOWLIST.values())
+def test_the_allowlist_is_empty() -> None:
+    assert ALLOWLIST == {}
 
 
 def test_every_agent_call_in_the_source_records_or_is_on_the_allowlist() -> None:

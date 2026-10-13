@@ -61,7 +61,8 @@ def test_under_claude_code_the_graph_call_sends_the_command_it_sent_before() -> 
 
     assert flags(fake.argv, build_prompt(CHANGES, IN_FLIGHT)) == {
         "-p": None,
-        "--output-format": "text",
+        "--output-format": "stream-json",
+        "--verbose": None,
         "--settings": json.dumps(
             {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
         ),

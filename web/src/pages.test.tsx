@@ -179,6 +179,15 @@ describe("the usage page", () => {
     expect(within(table).getByText("1.25", { exact: false })).toBeVisible();
   });
 
+  it("lists the calls made with no unit under pipeline overhead, one line per node", async () => {
+    open("/usage");
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("pipeline overhead")).toBeVisible();
+    expect(within(table).getByText("plan")).toBeVisible();
+    expect(within(table).getByText("track_health")).toBeVisible();
+  });
+
   it("asks the report for another grouping when one is chosen", async () => {
     const api = recordedApi();
     open("/usage");

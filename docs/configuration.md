@@ -314,7 +314,7 @@ tracks:                         # the scheduled tracks (docs/tracks.md); their
   prompts_dir: null             # a directory replacing the built-in prompts
                                 # (same file names); relative to the planning
                                 # root unless absolute
-  raw_output_dir: .last-runs    # each phase's raw `claude -p` JSON, relative
+  raw_output_dir: .last-runs    # each phase's raw `claude -p` events, relative
                                 # to the planning root
 
 repos:                          # ordered: deploy order is derived from

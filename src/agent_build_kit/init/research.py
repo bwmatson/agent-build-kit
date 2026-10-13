@@ -18,6 +18,8 @@ from datetime import date
 from pathlib import Path
 
 from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
+from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import AgentRuntime
 
@@ -124,12 +126,18 @@ def research(
 ) -> Path:
     """Write `output` (`docs/recommendations/<language>.md`) and return it."""
     day = today or date.today()
-    request = AgentRequest(
-        prompt=build_prompt(language, built_in=built_in, today=day),
-        allowed_tools=ALLOWED_TOOLS,
-        permission_mode="allowed_tools_only",
+    agent = runtime_for(run_claude, runtime)
+    request = recorded(
+        AgentRequest(
+            prompt=build_prompt(language, built_in=built_in, today=day),
+            allowed_tools=ALLOWED_TOOLS,
+            permission_mode="allowed_tools_only",
+        ),
+        agent,
+        node=OverheadNode.INIT_RESEARCH,
+        say=print,
     )
-    text = succeeded(runtime_for(run_claude, runtime).run(request))
+    text = succeeded(agent.run(request))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(render(language, text, today=day, seeded=built_in is not None))
     return output

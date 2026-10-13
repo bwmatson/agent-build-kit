@@ -226,9 +226,12 @@ def until(condition: Callable[[], object]) -> bool:
     return True
 
 
-def use_claude(monkeypatch: pytest.MonkeyPatch, stdout: str) -> FakeClaude:
-    """Have the `claude_code` runtime run `fake`, which answers every call with `stdout`."""
-    fake = FakeClaude(stdout=stdout)
+def use_claude(
+    monkeypatch: pytest.MonkeyPatch, stdout: str, fake: FakeClaude | None = None
+) -> FakeClaude:
+    """Have the `claude_code` runtime run `fake`, which answers every call with `stdout`; a
+    `fake` of the caller's own is run instead."""
+    fake = fake or FakeClaude(stdout=stdout)
     runtimes.names()
     monkeypatch.setitem(runtimes._REGISTRY, "claude_code", ClaudeCodeRuntime(execute=fake))
     return fake

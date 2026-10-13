@@ -140,6 +140,8 @@ class Report(Frozen):
     group_by: str
     rows: tuple[ReportRow, ...]
     total: ReportRow
+    # The calls with no unit, one row per node, which the by-unit view keeps out of `rows`.
+    overhead: tuple[ReportRow, ...] = ()
     sessions: tuple[SessionRow, ...] = ()
     legacy: Legacy = Legacy()
     unknown_calls: int = 0  # calls whose incremental cost could not be known
@@ -637,9 +639,17 @@ def _report_of(
         entries = [e for e in entries if e.at is not None and e.at >= floor]
 
     groups: dict[str, list[ReportRow]] = {}
+    overhead: dict[str, list[ReportRow]] = {}
     for entry in entries:
-        groups.setdefault(_group_key(entry, group_by), []).append(entry.row)
+        # An agent call with no unit is pipeline overhead: the by-unit view lists it by node.
+        if group_by == "unit" and not entry.unit and entry.call is not None:
+            overhead.setdefault(entry.node, []).append(entry.row)
+        else:
+            groups.setdefault(_group_key(entry, group_by), []).append(entry.row)
     rows = tuple(_finish(_combine(key, groups[key]), include_estimates) for key in sorted(groups))
+    overheads = tuple(
+        _finish(_combine(node, overhead[node]), include_estimates) for node in sorted(overhead)
+    )
     total = _finish(_combine("total", (e.row for e in entries)), include_estimates)
     calls = [e.call for e in entries if e.call is not None]
     # A session is judged on all its calls, so a date that cuts it does not flag it.
@@ -649,6 +659,7 @@ def _report_of(
         group_by=group_by,
         rows=rows,
         total=total,
+        overhead=overheads,
         sessions=_sessions(whole),
         legacy=_legacy(entries),
         unknown_calls=sum(
@@ -784,6 +795,8 @@ def _aligned(table: list[list[str]]) -> list[str]:
 def render_table(report: Report) -> str:
     table = [[report.group_by, *_HEADINGS], *(_cells(r) for r in (*report.rows, report.total))]
     lines = _aligned(table)
+    if report.overhead:
+        lines += ["", "pipeline overhead", *_aligned([_cells(r) for r in report.overhead])]
     if report.sessions:
         sessions = [["session", "increments", "cumulative", ""]] + [
             [

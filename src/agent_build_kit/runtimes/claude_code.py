@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from urllib.parse import urlparse
 from agent_build_kit import config
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.hooks.policy import hook_settings
+from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.claude_stream import (
     STREAM_FLAGS,
     ResultEvent,
@@ -37,6 +39,7 @@ from agent_build_kit.pipeline.usage_guard import (
     read_cached_usage,
     read_live_usage,
 )
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
@@ -168,12 +171,25 @@ def command() -> list[str]:
 def refresh_login(run: Callable[..., object] = subprocess.run) -> None:
     """Have Claude Code refresh its OAuth token, with the smallest call it
     takes — see `usage_guard.refresh_login` for why the usage read needs it."""
-    run(
-        [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"],
+    started = time.monotonic()
+    argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"]
+    done = run(
+        argv,
         capture_output=True,
         text=True,
         check=False,
         timeout=120,
+    )
+    # The output is discarded, so the row has no figures: a duration and the exit status.
+    call_recorder(OverheadNode.LOGIN_REFRESH, say=print)(
+        AgentResult(
+            ok=getattr(done, "returncode", 0) == 0,
+            text="",
+            duration_ms=round((time.monotonic() - started) * 1000),
+        ),
+        role="generic",
+        model="haiku",
+        runtime=NAME,
     )
 
 

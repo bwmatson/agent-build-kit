@@ -24,6 +24,8 @@ from agent_build_kit.config import active
 from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.scaffold import render_rules
+from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import validate_tasks
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -276,6 +278,7 @@ def propose(
         run_claude=run_claude,
         run_openspec=run_openspec,
         runtime=runtime,
+        repo=repo_name,
     )
 
 
@@ -289,6 +292,7 @@ def write_change(
     run_claude: RunClaude | None = None,
     run_openspec: openspec.Run | None = None,
     runtime: AgentRuntime | None = None,
+    repo: str = "",
 ) -> str:
     """Drive a model to write one change, validate it, repair once, or raise.
 
@@ -304,18 +308,22 @@ def write_change(
     agent = runtime_for(run_claude, runtime)
 
     def attempt(full_prompt: str) -> list[str]:
-        succeeded(
-            agent.run(
-                AgentRequest(
-                    prompt=full_prompt,
-                    cwd=planning,
-                    add_dirs=reads,
-                    allowed_tools=ALLOWED_TOOLS,
-                    permission_mode="edit",
-                    policy=_policy(),
-                )
-            )
+        request = recorded(
+            AgentRequest(
+                prompt=full_prompt,
+                cwd=planning,
+                add_dirs=reads,
+                allowed_tools=ALLOWED_TOOLS,
+                permission_mode="edit",
+                policy=_policy(),
+            ),
+            agent,
+            node=OverheadNode.INIT_PROPOSE,
+            change=change,
+            repo=repo,
+            say=print,
         )
+        succeeded(agent.run(request))
         return validation_errors(planning, change, repos=repos, run_openspec=run_openspec)
 
     errors = attempt(prompt)

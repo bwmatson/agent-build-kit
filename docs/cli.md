@@ -119,6 +119,10 @@ stay out of the totals unless `--include-estimates`; a figure never recorded pri
 `-`, never `0`. The source column says whether figures were `reported`, from the
 `gateway`, `estimated` or `none`, and flags a row whose gateway and agent-reported
 figures differ by more than 10%. `--json` prints the same rows, with the difference.
+Calls made with no unit (planning, track runs, init, the policy probe, the login refresh, and
+chat on a session attached to no unit) are listed by node under `pipeline overhead` in the
+by-unit view, and in the JSON as `overhead`. A chat turn on a unit's session is shown on its
+unit.
 Cost is the sum of each call's own spend. Under the table, each session shows the sum of its
 increments beside its final `cumulative` figure and is flagged when they differ; rows written
 before costs were recorded per call are counted and listed as `legacy` with their total on a
