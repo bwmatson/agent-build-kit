@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.units import (
     in_progress,
     open_parents,
     ready_units,
+    second_parent_wait,
     uncounted,
     unrelated_open_parents,
     waiting_on,
@@ -133,6 +134,20 @@ def test_the_unit_is_ready_once_one_sibling_has_merged_or_been_satisfied_and_lan
     assert waits(graph, "kid/1") == []
     assert "kid/1" in ready(graph)
     assert base(graph, "kid/1") == branch(graph, "p2/1")
+
+
+def test_a_closed_sibling_ends_the_second_parent_wait_but_still_holds_the_unit() -> None:
+    """A closed dependency holds its dependent as it did before this rule."""
+    graph = [
+        new("p1/1", state=CLOSED),
+        review("p2/1"),
+        new("kid/1", depends_on=("p1/1", "p2/1")),
+    ]
+
+    assert unrelated(graph, "kid/1") == ["p2/1"]
+    assert second_parent_wait(graph[2], graph) == ""
+    assert waits(graph, "kid/1") == ["p1/1"]
+    assert "kid/1" not in ready(graph)
 
 
 def test_a_sibling_sent_back_for_rework_is_waited_for_as_any_dependency_with_no_extra_entry() -> (
@@ -290,16 +305,26 @@ def test_a_started_unit_keeps_the_wait_the_base_and_the_count_it_had(started: di
     assert "kid/1" in ready(graph)
 
 
-def test_a_started_unit_keeps_the_base_it_has_today() -> None:
-    """The last open dependency in the order listed, as before the rule."""
-    graph = [
-        review("p1/1"),
-        review("p2/1"),
-        new("kid/1", depends_on=("p1/1", "p2/1"), branch="spec/kid/1"),
-    ]
+@pytest.mark.parametrize(
+    ("listed", "deeper", "expected"),
+    [
+        (("p1/1", "p2/1"), False, "p2/1"),
+        (("p2/1", "p1/1"), False, "p1/1"),
+        (("p1/1", "p2/1"), True, "p2/1"),
+    ],
+    ids=["plan order", "reversed", "a deeper sibling listed first"],
+)
+def test_a_started_unit_keeps_the_base_it_has_today(
+    listed: tuple[str, ...], deeper: bool, expected: str
+) -> None:
+    """The last open dependency in the order listed, as before the rule, whatever the depths."""
+    graph = [review("p1/1"), review("p2/1")]
+    if deeper:
+        graph = [review("root/1"), review("p1/1", depends_on=("root/1",)), review("p2/1")]
+    graph.append(new("kid/1", depends_on=listed, branch="spec/kid/1"))
 
-    assert unrelated(graph, "kid/1") == ["p1/1", "p2/1"]
-    assert base(graph, "kid/1") == branch(graph, "p2/1")
+    assert len(unrelated(graph, "kid/1")) == 2
+    assert base(graph, "kid/1") == branch(graph, expected)
 
 
 def test_a_second_parent_added_to_a_started_unit_changes_nothing_for_it() -> None:

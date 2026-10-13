@@ -27,7 +27,7 @@ from pathlib import Path
 
 from agent_build_kit.config import active
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.units import Priority
+from agent_build_kit.pipeline.units import Priority, reachable
 
 
 def known_repos() -> tuple[str, ...]:
@@ -579,17 +579,6 @@ def _group_parents(groups: list[TaskGroup]) -> dict[int, list[int]]:
     return parents
 
 
-def _reaches(parents: dict[int, list[int]], start: int) -> set[int]:
-    seen: set[int] = set()
-    pending = list(parents.get(start, []))
-    while pending:
-        number = pending.pop()
-        if number not in seen:
-            seen.add(number)
-            pending.extend(parents.get(number, []))
-    return seen
-
-
 def unrelated_parent_warnings(
     path: Path, changes_dir: Path, *, repos: tuple[str, ...]
 ) -> list[str]:
@@ -602,7 +591,7 @@ def unrelated_parent_warnings(
     warnings = []
     for group in groups:
         same = [n for n in parents[group.number] if by_number[n].repo == group.repo]
-        built_on = set().union(*(_reaches(parents, n) for n in same)) if same else set()
+        built_on = reachable((up for n in same for up in parents[n]), lambda n: parents.get(n, []))
         open_ones = [n for n in same if n not in built_on]
         independent_before = any(by_number[n].independent for n in open_ones)
         outside = [need for need in needs.get(group.number, []) if not names_own_change(need, path)]

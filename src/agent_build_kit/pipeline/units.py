@@ -16,7 +16,7 @@ cannot be named here. Given plain `Unit`s they would see no pull request and no 
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -405,11 +405,13 @@ def trunk_of(repo: str) -> str:
 def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     """The branch this unit builds on.
 
-    Its newest still-open dependency in the same repo (`_stack_base`: the one
-    the others are built on, else the deepest, a tie going to the later in plan
-    order), or the repo's default branch when they have all merged. Nothing starts from
-    the trunk by default: if the work it needs is in flight, stacking on it is what keeps
-    the two from duplicating or conflicting.
+    For a unit that has not started, its newest still-open dependency in the same
+    repo (`_stack_base`: the one the others are built on, else the deepest, a tie
+    going to the later in plan order). A unit that has started keeps the choice it
+    was started on, the last open same-repo dependency in the order listed, so a
+    sibling's depth changing never moves it. With none open, the repo's default
+    branch. Nothing starts from the trunk by default: if the work it needs is in flight,
+    stacking on it is what keeps the two from duplicating or conflicting.
 
     A same-repo dependency that is satisfied is transparent (see
     `through_satisfied`): it has no branch of its own, so its dependent stacks
@@ -420,6 +422,14 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
     edge is an ordering constraint instead, and `ready_units` makes the
     dependent wait for a merge.
     """
+    if _worked_on(unit):
+        index = _by_id(graph)
+        listed = [
+            index[dep]
+            for dep in through_satisfied(unit, graph)
+            if dep in index and index[dep].repo == unit.repo and index[dep].state == IN_REVIEW
+        ]
+        return branch_name(listed[-1]) if listed else trunk_of(unit.repo)
     base = _stack_base(unit, graph)
     return branch_name(base) if base is not None else trunk_of(unit.repo)
 
@@ -436,19 +446,26 @@ def open_parents(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     return [parent for parent in graph if parent.id in wanted]
 
 
-def _builds_on(unit: Unit, graph: Sequence[Unit]) -> set[str]:
-    """Every unit `unit` is built on, however far, through `through_satisfied`; a stored
-    cycle ends the walk through the `seen` set."""
-    index = _by_id(graph)
-    seen: set[str] = set()
-    pending = list(through_satisfied(unit, graph))
+def reachable[T](start: Iterable[T], successors: Callable[[T], Iterable[T]]) -> set[T]:
+    """Everything reached from `start` by following `successors`, however far; a `seen` set
+    ends the walk of a stored cycle."""
+    seen: set[T] = set()
+    pending = list(start)
     while pending:
-        dep = pending.pop()
-        if dep in seen or dep not in index:
-            continue
-        seen.add(dep)
-        pending.extend(through_satisfied(index[dep], graph))
+        node = pending.pop()
+        if node not in seen:
+            seen.add(node)
+            pending.extend(successors(node))
     return seen
+
+
+def _builds_on(unit: Unit, graph: Sequence[Unit]) -> set[str]:
+    """Every unit `unit` is built on, however far, through `through_satisfied`."""
+    index = _by_id(graph)
+    return reachable(
+        through_satisfied(unit, graph),
+        lambda dep: through_satisfied(index[dep], graph) if dep in index else (),
+    )
 
 
 def unrelated_open_parents(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:

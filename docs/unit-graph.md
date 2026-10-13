@@ -669,7 +669,8 @@ between; the unrelated open parents are those no other open parent builds on. A 
 a diamond or siblings have several. A unit cannot run on two branches, so a planned unit that
 has never started and has two or more of them is blocked: it builds on the one with the
 greatest stack depth (a tie goes to the later in plan order, and a chain's newest whatever order
-`depends_on` lists it in) and waits for the rest to merge, close or land. `abk status` says
+`depends_on` lists it in) and waits for the rest to merge or land (a closed parent still holds it, as any closed
+dependency does). `abk status` says
 `waiting for <parent> to merge (second open parent)` and the graph draws it blocked. A started
 unit keeps its branch and is never held by this rule. Cross-repo parents are not open parents
 and still wait for a merge. No branch is made by merging parents' branches.
