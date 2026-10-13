@@ -1307,6 +1307,8 @@ class UnitRunner(BaseModel):
     # failure and answers the change that fixes it (None for a unit of that change).
     # See `wiring.build_on_preexisting`.
     tier2_verdict: Callable[[], Tier2Verdict | None] = lambda: None
+    # Whether the last tier 2 run ran no test, the unit having added or changed none.
+    tier2_ran_no_tests: Callable[[], bool] = lambda: False
     on_preexisting: Callable[..., str | None] = lambda unit, verdict, failure, *, wait: None
     push: Callable[..., str]
     open_pr: Callable[..., int]

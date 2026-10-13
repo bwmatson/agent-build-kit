@@ -396,6 +396,11 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
+        # `--directory <d>` runs pytest from `d`: the ids of other directories are not its
+        # tests, and the rest are given as it sees them.
+        if "--directory" in command[:program]:
+            where = command[command.index("--directory") + 1].strip("/")
+            tests = [t.removeprefix(f"{where}/") for t in tests if t.startswith(f"{where}/")]
         options: list[str] = []
         paths: list[str] = []
         words = iter(command[program + 1 :])

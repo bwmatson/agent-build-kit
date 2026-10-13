@@ -113,11 +113,16 @@ class Tier2Result(Frozen):
     output_file: str = ""
     # Whether redaction failed on the output, so the file holds the notice in its place.
     output_withheld: bool = False
+    # Whether the run ran no test at all because the unit added or changed no tier 2 test.
+    ran_no_tests: bool = False
 
     @property
     def ok(self) -> bool:
         return self.failed == 0
 
+
+# What a result that ran no test says in place of its counts, and where a person reads it.
+NO_TEST_RAN = "no tier 2 test ran"
 
 # How often a waiter says it is still waiting.
 LOCK_LOG_INTERVAL_SECONDS = 300.0
@@ -339,6 +344,12 @@ def build_snapshot(result: Tier2Result) -> str:
         kept = f"- **Full output:** `{result.output_file}`{withheld}\n"
 
     slowest, table = _durations_listing(result.durations)
+    counts = (
+        f"{NO_TEST_RAN}: the unit added or changed none the marker selects"
+        if result.ran_no_tests
+        else f"{result.passed} passed, {result.failed} failed, "
+        f"{result.skipped} skipped in {result.duration_seconds}s"
+    )
 
     return f"""## Tier 2 results
 
@@ -347,8 +358,7 @@ on the developer host.
 
 - **Commit tested:** `{result.sha[:7]}`
 - **Command:** `{result.command}`
-- **Result:** {result.passed} passed, {result.failed} failed, \
-{result.skipped} skipped in {result.duration_seconds}s
+- **Result:** {counts}
 {failed}{kept}{slowest}- **Ran against:**
 {versions}
 {table}
@@ -371,13 +381,16 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
     moment a restack happens, and a status on the wrong commit is worse than
     none.
     """
+    description = (
+        NO_TEST_RAN
+        if result.ran_no_tests
+        else f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
+    )
     forge.post_status(
         repo,
         sha=result.sha,
         ok=result.ok,
         context=STATUS_CONTEXT,
-        description=(
-            f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
-        ),
+        description=description,
         head=head,
     )

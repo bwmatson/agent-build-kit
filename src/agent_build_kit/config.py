@@ -308,6 +308,19 @@ class RestackCheck(StrEnum):
     FULL = "full"
 
 
+class Tier2UnitScope(StrEnum):
+    """How much of a repo's tier 2 marker a unit's tier 2 step runs."""
+
+    OWN = "own"
+    FULL = "full"
+
+
+def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
+    """The scope in effect for `repo`: its own `tests.tier2_unit_scope` when set, else the
+    `limits` one."""
+    return repo.tests.tier2_unit_scope or limits.tier2_unit_scope
+
+
 class PolicyMarker(StrEnum):
     """What the person said about the runtime's policy check (`runtimes.<name>.policy`)."""
 
@@ -435,6 +448,9 @@ class LimitsConfig(Frozen):
     # failure the unit caused from one already there; 0 turns the run off. A switch, not a
     # count: one run answers the question.
     tier2_base_runs: Annotated[int, Field(ge=0, le=1)] = 1
+    # How much of a repo's tier 2 marker a unit's tier 2 step runs: `own` the tests its branch
+    # added or changed, `full` the whole marker. A repo's `tests.tier2_unit_scope` wins.
+    tier2_unit_scope: Tier2UnitScope = Tier2UnitScope.OWN
     # Longest a unit waits for the tier 2 lock before its tier 2 step fails as busy, in seconds.
     tier2_lock_wait_seconds: Annotated[int, Field(gt=0)] = 5400
     # How many of a tier 2 run's slowest test entries the posted result lists; 0 lists every one.
@@ -533,6 +549,8 @@ class TestsConfig(Frozen):
     root_extras: list[str] = []
     # The pytest marker on tests that need the real local stack (tier 2).
     tier2_marker: str = "local_stack"
+    # This repo's tier 2 scope; None follows `limits.tier2_unit_scope`.
+    tier2_unit_scope: Tier2UnitScope | None = None
     # The marker on tier-2 tests only the dev stack can run (left out of live checks).
     dev_stack_marker: str = "dev_stack"
     # Record and replay of the calls tier-2 tests make outside the stack; None: none.

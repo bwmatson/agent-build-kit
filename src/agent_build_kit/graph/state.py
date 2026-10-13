@@ -139,6 +139,7 @@ class UnitRun(Frozen):
     spent: bool = False  # the review rounds ran out with points outstanding
     adopted: bool = False  # the next review follows a chat's commit and is round zero
     snapshot: str = ""  # tier 2's results, for the pull request body
+    tier2_ran_none: bool = False  # tier 2 ran no test: the unit has none of its own
     restack: bool = False  # go back to `prepare`: the base moved before the push
     rebased: bool = False  # the run already went back once, so the next time it holds
     # Why the run holds, and the state the store is left in.

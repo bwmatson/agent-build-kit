@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from agent_build_kit.config import Tier2UnitScope
 from agent_build_kit.pipeline.tier2 import TestFailure, Tier2Result
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
@@ -125,6 +126,8 @@ class Runs:
 
 
 def session(tmp_path: Path, run: Runs, **kwargs) -> Tier2Session:
+    """A gate that runs the whole marker: the base run is what a full run reaches."""
+    kwargs.setdefault("scope", Tier2UnitScope.FULL)
     return Tier2Session(
         unit(tier="tier2"),
         lock=tmp_path / "t2.lock",

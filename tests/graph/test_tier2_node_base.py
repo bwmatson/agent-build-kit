@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit.config import Tier2UnitScope
 from agent_build_kit.pipeline.wiring import Tier2Session
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.factories import unit
@@ -26,6 +27,7 @@ def test_an_untouched_failing_test_is_rerun_on_the_base_the_node_runs_against(
         lock=tmp_path / "t2.lock",
         timeout=5,
         run=runs,
+        scope=Tier2UnitScope.FULL,
         sha=lambda cwd: "abc1234",
     )
     recorder = fresh(tmp_path, tier="tier2")

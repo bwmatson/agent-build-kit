@@ -80,7 +80,7 @@ from agent_build_kit.pipeline.stack_runner import (
     tests_needing_decision,
     with_response,
 )
-from agent_build_kit.pipeline.tier2 import Tier2Verdict
+from agent_build_kit.pipeline.tier2 import NO_TEST_RAN, Tier2Verdict
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
@@ -136,6 +136,7 @@ FRESH: Update = {
     "checks_ok": False,
     "produced_nothing": False,
     "snapshot": "",
+    "tier2_ran_none": False,
 }
 
 # Paths of uncommitted work named in a prompt or a hold; the rest are counted.
@@ -1679,9 +1680,10 @@ class BuildPath:
         base = state.base or self.base
         self.say("tier 2 again on the moved commit" if state.moved else "tier 2")
         ok, snapshot = r.run_tier2(cwd=self.tree(), base=base)
-        self.say(f"tier 2 {'passed' if ok else 'failed'}")
+        ran_none = ok and r.tier2_ran_no_tests()
+        self.say("tier 2 ran no test" if ran_none else f"tier 2 {'passed' if ok else 'failed'}")
         if ok:
-            return {"snapshot": snapshot}
+            return {"snapshot": snapshot, "tier2_ran_none": ran_none}
         for line in snapshot.splitlines():
             if "**Full output:**" in line:
                 self.say(line.strip("- ").replace("**", ""))
@@ -1916,7 +1918,9 @@ class BuildPath:
             r.record_given(unit.repo, pr, list(state.given_comments))
         if state.had_feedback:
             r.store.set_feedback(unit.id, "")
-        r.store.set_state(unit.id, IN_REVIEW, pr=pr)
+        r.store.set_state(
+            unit.id, IN_REVIEW, pr=pr, note=NO_TEST_RAN if state.tier2_ran_none else ""
+        )
         if r.store.get(unit.id).predecessor_note:
             r.store.set_predecessor_note(unit.id, "")
         # Done means through the loop, verified and pushed.

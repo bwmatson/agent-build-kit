@@ -14,6 +14,14 @@
   push is offered to the pipeline on every poll, not only when it begins; nothing acts on
   it yet.
 
+- A tier 2 unit now runs only the tier 2 tests its branch added or changed, instead of the
+  whole marker, and runs nothing, without taking the stack lock, when it has none; the log
+  and the posted status then say that no tier 2 test ran. Where the run cannot be narrowed
+  (a dev stack script, a toolchain that cannot select tests by identifier, tests that cannot
+  be listed, no base) the whole marker runs and the log says why. The new
+  `limits.tier2_unit_scope` (`own`, the default, or `full`), overridable per repo as
+  `tests.tier2_unit_scope`, restores the whole marker.
+
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
   file the move brought in is one the unit changes) or full (one is, the unit produced
