@@ -147,7 +147,7 @@ flowchart TD
     start((start)) --> prepare
     prepare -->|nothing of its own yet| tests
     prepare -->|resume at a step| resume{{resume point}}
-    prepare -->|restack conflicted| adapt
+    prepare -->|the restack's two steps failed| adapt
     prepare -->|feedback waiting| rework
     adapt --> checks & rework & verify_base
     resume --> implement & checks & verify_base
@@ -206,23 +206,24 @@ flowchart TD
 
 Amber nodes run an agent. Blue nodes are where the unit meets the code host,
 and the runner does that itself, in code, without an agent. Unshaded nodes are
-git, tests and bookkeeping. Two nodes are not shaded but can call an agent: the
-restack in `prepare` and `verify_base` hands a conflict it cannot settle to the
-conflict resolver, and nothing else in them does.
+git, tests and bookkeeping. One node is not shaded but can call an agent: the
+restack in `prepare` settles a conflict with the resolver's two steps (node
+`restack`, in the build session). `verify_base` makes no agent call: a conflict
+it finds goes back to `prepare`, which settles it in the same run.
 
 The edges are the transitions the routers in `graph/` choose; their docstrings
 are the reference for each condition. The nodes:
 
 | Node | Does | Wraps (from `wiring.build_runner`) |
 |---|---|---|
-| `prepare` | Worktree, fetch, move the branch onto its base; picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
+| `prepare` | Worktree, fetch, move the branch onto its base, settling a conflict with the restack's two resolver steps in the build session (hunks, then dependent files) and handing what they cannot settle to `adapt`; picks the next node from what is on the branch and in state | worktree setup, `restack_onto`, `branch_commits` |
 | `tests` | The tests-first commit | `run`, `commit` |
 | `implement` | The implementation commit; a step that adds nothing is judged as any other, not against the usage window | `run`, `commit`, `may_start` |
 | `checks` | Tier 1 on the branch **before a reviewer is asked**, on the committed tree. Passing records the commit, so `tier1` after approval is not repeated on it | `tier1`, `commit` |
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
-| `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
+| `adapt` | The last step of a conflict, after the restack's two resolver steps failed their checks: ports the old work onto the new base in the same session, told what was tried, and accounts for each test | the adapt agent, `check_test_decisions` |
 | `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `new_comments` | Before the push, for a rework of a unit with a pull request, reads the notes and conversation again; those not in `seen_comments` and not the pipeline's own go back to `rework` as feedback, restarting the round counters; `open_pr` records the ids given to the agent so the poller ignores them | `fetch_comments` |
@@ -571,9 +572,13 @@ chooses between the three ways a node can speak:
    session with the full prompt on the node's model, and a line in the run log
    saying why.
 
-`tests` always starts the build session; `implement`, `fix_checks`, `rework`
-(whether its feedback came from a review round, failing checks or a comment on
-the pull request) and `adapt` continue it, always on the model it recorded.
+`restack` (the resolver's calls in `prepare`) is a build-role node: with a
+recorded build session it continues it, and with none it starts it on the rework
+model, so a resumed unit's session may begin there. Otherwise `tests` starts the
+build session. `implement`, `fix_checks`, `rework` (whether its feedback came
+from a review round, failing checks or a comment on the pull request) and
+`adapt` continue it, always on the model it recorded; so does the next build
+node after `restack`.
 `review` never continues a build session or an earlier review round's session:
 its judgement does not share the author's context. The follow-up rounds of
 `adapt`, which put its test accounting back to the agent, continue the session

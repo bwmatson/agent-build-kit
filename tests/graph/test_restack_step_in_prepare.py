@@ -276,3 +276,41 @@ def test_the_resolution_calls_carry_the_resolvers_tools_and_the_next_build_node_
         assert request.permission_mode == "allowed_tools_only"
     assert fix.allowed_tools == BASE_TOOLS
     assert fix.permission_mode == "edit"
+
+
+# --- a settled conflict is not a port --------------------------------------------------------
+
+
+def test_a_conflict_the_first_step_settles_starts_no_port_and_asks_for_no_accounting(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+    resets: list[str] = []
+
+    build(
+        tmp_path,
+        recorder,
+        restack_onto=Settling(asks=1),
+        reset_to=lambda tree, onto, keep: resets.append(keep),
+        **agents(runtime),
+    )
+
+    assert resets == [], "the old work was not set aside"
+    assert not any("keep|adapt|retire" in request.prompt for request in runtime.built)
+
+
+def test_a_unit_left_for_the_next_run_by_the_handler_is_settled_with_the_whole_order(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.store.set_state(
+        unit().id, PLANNED, note="could not be merged", cause=Cause.RESTACK_CONFLICT
+    )
+    runtime = Sessions()
+
+    outcome = build(tmp_path, recorder, restack_onto=Settling(), **agents(runtime))
+
+    assert outcome.status == "open"
+    first = restack_calls(runtime)[0]
+    assert FIRST in first.prompt, "the order, from its first step"

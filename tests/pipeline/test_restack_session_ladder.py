@@ -176,9 +176,13 @@ def test_a_marker_left_after_the_second_call_ends_the_step_with_the_conflict(
     before = git(repo, "rev-parse", BRANCH)
     resolver = Steps(leaves_markers)
 
-    with pytest.raises(RestackConflict, match="left for a human"):
+    with pytest.raises(RestackConflict, match="left for a human") as caught:
         move(repo, resolver)
 
+    tried = caught.value.tried.splitlines()
+    assert len(tried) == 2, "each failed step, for the port that follows"
+    assert tried[0].startswith("step 1") and "conflict markers" in tried[0]
+    assert tried[1].startswith("step 2") and "conflict markers" in tried[1]
     assert len(resolver.calls) == 2
     assert "conflict markers" in resolver.calls[1].follow_up
     assert "left for a human" not in resolver.calls[1].follow_up, "it is asked to go on"

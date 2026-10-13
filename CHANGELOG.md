@@ -29,7 +29,9 @@
   failed check named in the second call. In a run the calls continue the unit's build session
   (or start it on the rework model) and each is a `restack` row in the usage ledger; files
   changed beyond the conflict are named to review. A rejected replayed resolution now fails
-  that check instead of aborting the move.
+  that check instead of aborting the move. A conflict those two steps cannot settle is
+  ported in the same session, told which steps were tried and what their checks said; the
+  test accounting applies to the port only.
 
 - A unit that has never started and has two or more open same-repo parents, neither built on
   the other, now waits for all but one of them instead of starting on one branch and missing the

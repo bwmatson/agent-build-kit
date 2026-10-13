@@ -322,8 +322,9 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    is checked out under the worktree root, created on its base — the newest
    `in_review` same-repo dependency's branch, else `origin/main`. A dirty
    worktree is refused, never cleaned. A resuming unit whose base moved is
-   restacked first; a conflict the resolver cannot settle goes to the
-   **adapt** step, which resets the branch, keeps the old work under a ref,
+   restacked first; a conflict the resolver's two steps (the conflicting hunks,
+   then the files that depend on them) cannot settle goes, in the same session
+   and told what was tried, to the **adapt** step, which resets the branch, keeps the old work under a ref,
    and has the rework model port it while deciding keep/adapt/retire for each
    test the old work had that the replay left uncertain — missing from the
    tree, or present but changed; a test the replay left alone counts as kept
@@ -429,7 +430,8 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    [init.md](init.md)), and `abk doctor` warns where the rule is missing.
    It runs only where the branch is judged on it alone or has changed since:
    for a unit that produced nothing, and on a branch moved cleanly onto a new
-   base, before the push. A move with conflicts goes through the adapt step,
+   base, before the push. A move with conflicts goes through the resolver's
+   steps and, if they fail, the adapt step,
    which accounts for its own tests, and back through the checks and a review. A unit that reaches here with no commits of its own — its groups
    were already implemented, by a predecessor that worked ahead — is judged on
    this check alone: tier 1 passing makes it `satisfied` rather than `failed`,
@@ -767,14 +769,21 @@ anything an operator resolves there with rerere on locally feeds the same
 cache the pipeline reads. `autoUpdate` stays off, so a replayed resolution
 lands in the file but the path stays unmerged and unstaged until something
 stages it deliberately. A conflict — replayed or not — is handed to a scoped
-Claude run that is told both sides' intent (both are planned units), which
-paths arrived with a replayed resolution, and may edit only the conflict.
-Leaving a replayed file unchanged accepts it, editing it replaces what's
-cached for the next replay, and planting a `<<<<<<<` in it rejects the
-replay — which aborts the move and forgets that cached entry so the next
-sibling sees the conflict fresh. The result is checked — no markers left, the
-moving unit's own tokens still present — or the rebase is aborted and left
-for a person. After a clean move
+Claude run that is told both sides' intent (both are planned units) and which
+paths arrived with a replayed resolution, and that works in an order: the
+conflicting hunks only, then — when a check fails — the unit's other files that
+depend on the conflict, then a port. The checks run between the calls (no
+markers left, the moving unit's own tokens still present, none of its own tests
+missing), and a failed check is named in the next call. Files edited beyond the
+conflict are accepted and named among those resolved. Leaving a replayed file
+unchanged accepts it, editing it replaces what's cached for the next replay, and
+planting a `<<<<<<<` in it rejects the replay: that forgets the cached entry so
+the next sibling sees the conflict fresh, and fails the step's check, so the
+second call follows instead of the move aborting. What two steps leave
+unsettled goes, in a run, to the `adapt` port in the same session, told which
+steps were tried and what their checks said; the stack-move handler leaves it
+`planned` with cause `restack_conflict` and the unit's next run starts the
+order from its first step. After a clean move
 whose diff (`git patch-id`) is unchanged and whose head review had approved,
 tier 1 runs again and the branch is pushed with a lease and a "Restacked"
 comment. Anything else — a resolved conflict, a changed diff, a head review

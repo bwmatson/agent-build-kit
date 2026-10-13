@@ -2427,7 +2427,8 @@ def build_restack_onto(
                 )
             )
         except RestackConflict as error:
-            # Not a failure: the adapt step ports the work by hand. It needs
+            # Not a failure: what the resolver's steps could not settle goes to the adapt
+            # step, which ports the work by hand. It needs
             # to know which tests the previous work had, to account for each.
             return Restacked(
                 onto_unit=onto_unit,
@@ -2436,6 +2437,7 @@ def build_restack_onto(
                 old_head=old_head,
                 conflict=str(error),
                 old_tests=tuple(defined_tests_in_range(tree, old_base, old_head)),
+                tried=error.tried,
             )
 
         # Applied cleanly with the unit's own diff byte-for-byte unchanged: the

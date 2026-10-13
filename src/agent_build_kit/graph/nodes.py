@@ -66,6 +66,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     TESTS_PROMPT,
     TIER1_FAILED,
+    TRIED_NOTE,
     WHOLE_ASK,
     Escalation,
     Restacked,
@@ -1000,6 +1001,7 @@ class BuildPath:
             f"adapt onto {restacked.onto_unit}, the restack could not be merged ({models().rework})"
         )
         keep = f"refs/spec-driven/pre-adapt/{unit.id}"
+        tried = TRIED_NOTE.format(tried=restacked.tried[:2000]) if restacked.tried else ""
         if r.head(tree) == state.head:
             r.reset_to(tree, ref, keep)
         # Otherwise a killed run already reset the branch: resetting again would
@@ -1012,6 +1014,7 @@ class BuildPath:
                 onto_unit=restacked.onto_unit,
                 onto_intent=restacked.onto_intent,
                 conflict=restacked.conflict[:2000],
+                tried=tried,
                 old_ref=keep,
                 old_base=restacked.old_base,
                 tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
@@ -1023,6 +1026,7 @@ class BuildPath:
                 onto_unit=restacked.onto_unit,
                 onto_intent=restacked.onto_intent,
                 conflict=restacked.conflict[:2000],
+                tried=tried,
                 old_ref=keep,
                 old_base=restacked.old_base,
                 tests="\n".join(f"- `{name}`" for name in restacked.old_tests),
