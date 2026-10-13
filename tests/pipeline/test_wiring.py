@@ -1577,17 +1577,19 @@ def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
     assert tmp_path / "poc" / "tools" in where
 
 
-def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Path) -> None:
+def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A toolchain declared and not built cannot judge its project, so its profile
     raises and `cli/pipeline.build_unit` turns that into a held unit — which is the
     honest answer, where passing it unchecked is not."""
 
-    class Unbuilt(PythonUvProfile):
-        name = "unbuilt"
+    def unbuilt(*args, **kwargs):
+        raise ProfileUnsupported("the unbuilt toolchain profile is not implemented")
 
-        def test_commands(self, repo, changed, *, root_extras):
-            raise ProfileUnsupported("the unbuilt toolchain profile is not implemented")
-
+    toolchain = PythonUvProfile()
+    monkeypatch.setattr(toolchain, "name", "unbuilt")
+    monkeypatch.setattr(toolchain, "test_commands", unbuilt)
     (tmp_path / "web").mkdir()
     run, _ = recorder()
     tier1 = build_tier1(
@@ -1596,7 +1598,7 @@ def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Pat
         projects=[ProjectConfig(path="web", languages=["typescript"], profile="unbuilt")],
     )
 
-    with profiles.registered(Unbuilt()), pytest.raises(NotImplementedError):
+    with profiles.registered(toolchain), pytest.raises(NotImplementedError):
         tier1(cwd=tmp_path, base="origin/dev")
 
 
