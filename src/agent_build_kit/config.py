@@ -428,6 +428,9 @@ class LimitsConfig(Frozen):
     # How many times the tests a unit added or changed are run again, under the same
     # load, after tier 1 passes; 0 turns the check off.
     tier1_repeat_runs: Annotated[int, Field(ge=0)] = 3
+    # What tier 1 runs after a clean move onto a moved base: `affected` scopes it by the
+    # files the move brought in, `full` runs the whole suite as before.
+    restack_check: RestackCheck = RestackCheck.AFFECTED
     # Whether the untouched tests that fail tier 2 are run once on the base, to tell a
     # failure the unit caused from one already there; 0 turns the run off. A switch, not a
     # count: one run answers the question.

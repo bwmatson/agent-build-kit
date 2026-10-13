@@ -483,7 +483,13 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    moved onto it with the restack a run starts with, but without the conflict
    resolver: a conflict is aborted and the branch left as it was. A clean move
    re-runs tier 1 (and tier 2, for a tier 2 unit) and carries the approval to
-   the moved commit; a conflict, or a tier 1 or tier 2 failure on the new base,
+   the moved commit. That tier 1 is told the base the move left (`moved_from`) and
+   classifies the move: it is scoped when no file the move brought in (the files that
+   differ between the old base and the new one) is also a file the unit changes, and
+   full when one is, when the unit produced nothing of its own, when the move has no old
+   base, or when `limits.restack_check` is `full`. It logs `moved base:` with which it
+   was and why; the run itself is still the whole suite, and the merge handler's tier 1
+   after a release is told its old base the same way; a conflict, or a tier 1 or tier 2 failure on the new base,
    pushes nothing and resumes the unit at its restack in the same run (a
    check's failure leaves its output as feedback). That restack is what
    resolves, under the usage gate, and review is told of it. It happens once:

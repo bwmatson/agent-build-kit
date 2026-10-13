@@ -325,7 +325,7 @@ def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried
     pushes: list[str] = []
 
     def tier1(**kwargs: Any):
-        return lambda *, cwd, base: (True, "")
+        return lambda *, cwd, base, moved_from=None: (True, "")
 
     def refused(repo: Path, branch: str, *, last_pushed: str | None) -> str:
         pushes.append(branch)

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A clean move of a unit's branch onto a moved base, before a push or when a merge releases
+  a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
+  file the move brought in is one the unit changes) or full (one is, the unit produced
+  nothing, or there is no old base) and logs a `moved base:` line saying which and why. The
+  new `limits.restack_check` (`affected`, the default, or `full`) selects between them; the
+  run itself is still the whole suite for now.
+
 - A restack no longer keeps the whole repository waiting while an agent resolves a conflict:
   the repository's turn is held only for the git commands that write shared state, so other
   units' worktree adds and pushes go on meanwhile. A unit's own restack in a run takes the turn

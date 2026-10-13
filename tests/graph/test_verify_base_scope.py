@@ -39,14 +39,12 @@ def test_a_resolved_move_goes_to_rebase_and_its_tier_1_is_not_a_moved_base_check
 ) -> None:
     recorder = fresh(tmp_path)
     moving = Moving(
-        recorder, RESOLVED.model_copy(update={"old_base": "stale"}), restacked(old_base=OLD_BASE)
+        recorder, restacked(old_base=OLD_BASE), RESOLVED.model_copy(update={"old_base": "stale"})
     )
 
     build(tmp_path, recorder, **moving.overrides())
 
-    assert "stale" not in recorder.tier1_moved_from
-    assert recorder.tier1_moved_from[-1] == OLD_BASE
-    assert recorder.events.count("review") == 2
+    assert recorder.tier1_moved_from == ["", OLD_BASE]
 
 
 def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_tier_1(
@@ -54,12 +52,11 @@ def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_tier_1
 ) -> None:
     recorder = fresh(tmp_path)
     conflict = restacked(old_base="stale", conflict="CONFLICT in a.py")
-    moving = Moving(recorder, conflict, restacked(old_base=OLD_BASE))
+    moving = Moving(recorder, restacked(old_base=OLD_BASE), conflict)
 
     build(tmp_path, recorder, **moving.overrides())
 
-    assert "stale" not in recorder.tier1_moved_from
-    assert recorder.tier1_moved_from[-1] == OLD_BASE
+    assert recorder.tier1_moved_from == ["", OLD_BASE]
 
 
 def test_a_tier_two_unit_still_runs_tier_2_after_its_scoped_tier_1(tmp_path: Path) -> None:
