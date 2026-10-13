@@ -17,9 +17,11 @@ from typing import Any
 
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.wiring import build_tier1
 from tests.conftest import make_installation
 from tests.moved_base_fakes import Profile, moved
+from tests.pipeline.test_tier1_affected_python import affected_lines
 
 LINE = "moved base:"
 OWN_TEST = "def test_six():\n    assert True\n"
@@ -115,12 +117,14 @@ def run_moved(
     projects: list[ProjectConfig] | None = None,
     after_full: bool = False,
     records_data: bool = False,
+    workspace: Installation | None = None,
 ) -> tuple[bool, list[str]]:
     """Tier 1 on a unit moved onto a base that gained `incoming`; with `after_full`, a full
     run on the same runner comes first, as the unit's earlier check. Returns the verdict and
     what was logged by the moved run. `records_data` is the repo's `checks.affected` mode
     `profile`, under which full runs keep the data a selection reads."""
-    make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
+    if workspace is None:
+        make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
     repo, old_base = moved(tmp_path, own=own, incoming=incoming, base=base)
     logged: list[str] = []
     repo_config = (
@@ -450,3 +454,24 @@ def test_with_checks_affected_off_no_data_is_kept_and_the_line_says_so(tmp_path:
     assert not any("--testmon" in word for command in runner.ran for word in command)
     (line,) = moved_base_lines(logged)
     assert line.startswith("moved base: ran the full suite (") and "checks.affected" in line
+
+
+def test_a_passing_scoped_move_writes_one_ledger_line_with_the_counts_the_log_gives(
+    tmp_path: Path,
+) -> None:
+    workspace = make_installation(tmp_path / "planning", limits={"tier1_repeat_runs": 1})
+
+    passed, logged = run_moved(
+        tmp_path,
+        Selecting([["affected"]]),
+        Runner(),
+        own={"a.py": "a = 2\n", "tests/test_own.py": OWN_TEST},
+        incoming={"b.py": "b = 2\n"},
+        after_full=True,
+        workspace=workspace,
+    )
+
+    assert passed
+    assert moved_base_lines(logged) == ["moved base: ran 14 of 5963 tests (own 6, affected 8)"]
+    (line,) = affected_lines(workspace)
+    assert (line["outcome"], line["selected"], line["total"]) == ("moved", 14, 5963)
