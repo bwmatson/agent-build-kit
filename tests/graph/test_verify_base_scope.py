@@ -7,17 +7,16 @@ log line is read from the real tier 1 runner over a real repository whose comman
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import RestackCheck
 from agent_build_kit.pipeline.wiring import build_tier1
-from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_fresh_base_builds import RESOLVED, Moving
 from tests.graph.test_remaining_paths import fresh
+from tests.moved_base_fakes import Profile, passing
 from tests.pipeline.test_moved_base_scope import moved
 
 OLD_BASE = "old-base-sha"
@@ -69,22 +68,6 @@ def test_a_tier_two_unit_still_runs_tier_2_after_its_scoped_tier_1(tmp_path: Pat
     assert recorder.tier1_moved_from[-1] == OLD_BASE
     after = recorder.events[recorder.events.index("moved") :]
     assert after.index("tier1") < after.index("tier2") < after.index("push")
-
-
-class Profile(PythonUvProfile):
-    """The python-uv profile running one lint command and one test command."""
-
-    def lint_command(self, base: str) -> list[str]:
-        return ["lint"]
-
-    def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
-    ) -> list[list[str]]:
-        return [["tests"]]
-
-
-def passing(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(command, 0, "5 passed\n", "")
 
 
 def lines_logged(
