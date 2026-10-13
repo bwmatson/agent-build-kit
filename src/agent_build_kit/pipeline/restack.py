@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 import subprocess
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 from agent_build_kit import runtimes
@@ -53,6 +54,10 @@ Runner = Callable[[list[str]], str]
 
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., None]
+
+# Makes the repository's turn: a context manager held around the git commands that
+# write state its worktrees share. The default holds nothing.
+Turn = Callable[[], AbstractContextManager[None]]
 
 CONFLICT_MARKERS = ("<<<<<<<", ">>>>>>>", "=======")
 
@@ -254,6 +259,7 @@ def move_branch_onto(
     resolve: Resolver | None = None,
     context: ConflictContext | None = None,
     must_keep: list[str] | None = None,
+    turn: Turn = nullcontext,
 ) -> Moved:
     """Replay `branch`'s own commits onto `new_base`.
 
@@ -535,6 +541,7 @@ def resolved_move(
     move: Callable[..., Moved] | None = None,
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
+    turn: Turn = nullcontext,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 

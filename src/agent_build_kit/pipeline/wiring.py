@@ -26,7 +26,7 @@ import shlex
 import subprocess
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -72,6 +72,7 @@ from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
     RestackConflict,
+    Turn,
     adopt_host_head,
     diff_id,
     move_branch_onto,
@@ -2281,7 +2282,11 @@ def _move_without_resolver(
 
 
 def build_restack_onto(
-    store: UnitStore, *, move: Callable[..., Moved] | None = None, repo: RepoConfig | None = None
+    store: UnitStore,
+    *,
+    move: Callable[..., Moved] | None = None,
+    repo: RepoConfig | None = None,
+    turn: Turn = nullcontext,
 ):
     """Move a resuming unit's branch onto its base, if the base has moved.
 
