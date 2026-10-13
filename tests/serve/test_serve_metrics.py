@@ -8,7 +8,6 @@ import re
 import socket
 import threading
 from collections.abc import Iterator
-from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -22,25 +21,8 @@ from agent_build_kit.serve.metrics import catalogue
 from agent_build_kit.serve.server import create_app
 from agent_build_kit.settings import reload
 from tests.ledger_lines import agent_line, span_line, write_ledger
+from tests.metric_names import emitted_names
 from tests.serving import seed_pipeline
-
-EMIT_CALL = re.compile(
-    r"(?:telemetry\.(?:duration|observe|count|level)\(\s*"
-    r"|emit_metric\(\s*[\"'](?:duration|observe|count|level)[\"'],\s*)"
-    r"[\"'](abk\.[a-z0-9_.]+)[\"']"
-)
-
-
-def emitted_names() -> set[str]:
-    names: set[str] = set()
-    stack = [resources.files("agent_build_kit")]
-    while stack:
-        for entry in stack.pop().iterdir():
-            if entry.is_dir():
-                stack.append(entry)
-            elif entry.name.endswith(".py"):
-                names.update(EMIT_CALL.findall(entry.read_text()))
-    return names
 
 
 class FakePrometheus:

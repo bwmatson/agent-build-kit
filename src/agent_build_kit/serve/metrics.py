@@ -31,7 +31,8 @@ from agent_build_kit.pipeline.usage_ledger import UsageRecord, read_lines, recor
 # What each telemetry function creates; `value` and `seconds` are its own parameters.
 TYPES = {"count": "counter", "duration": "histogram", "observe": "histogram", "level": "gauge"}
 HELPER = "emit_metric"  # pipeline.metric_records: telemetry and a local record in one call
-NOT_ATTRIBUTES = {"value", "seconds", "unit", "change"}
+HELPER_PARAMETERS = {"unit", "change"}  # the helper's own keywords, never attributes
+NOT_ATTRIBUTES = {"value", "seconds"}
 WINDOW = timedelta(hours=24)
 STEP_SECONDS = 3600
 QUERY_TIMEOUT = 3.0
@@ -102,16 +103,19 @@ def _dict_keys(scope: ast.AST) -> dict[str, list[str]]:
     return keys
 
 
-def _attribute_names(call: ast.Call, dicts: dict[str, list[str]]) -> list[str]:
-    """The attributes a telemetry call passes: its keywords, and the keys of a
-    `**name` that is a dict literal assigned in the same scope."""
+def _attribute_names(
+    call: ast.Call, dicts: dict[str, list[str]], own: frozenset[str] | set[str] = frozenset()
+) -> list[str]:
+    """The attributes a telemetry call passes: its keywords (less the `own` ones, which
+    belong to the function called), and the keys of a `**name` that is a dict literal
+    assigned in the same scope."""
     names: list[str] = []
     for keyword in call.keywords:
         if keyword.arg:
             names.append(keyword.arg)
         elif isinstance(keyword.value, ast.Name):
             names += dicts.get(keyword.value.id, [])
-    return [n for n in names if n not in NOT_ATTRIBUTES]
+    return [n for n in names if n not in NOT_ATTRIBUTES and n not in own]
 
 
 def _calls_with_scope(tree: ast.Module) -> list[tuple[ast.Call, dict[str, list[str]]]]:
@@ -176,7 +180,8 @@ def _read_catalogue(root: Path) -> list[Instrument]:
             kind, name = read
             known = found.get(name)
             attributes = list(known.attributes) if known else []
-            attributes += [a for a in _attribute_names(node, dicts) if a not in attributes]
+            own = HELPER_PARAMETERS if isinstance(node.func, ast.Name) else set()
+            attributes += [a for a in _attribute_names(node, dicts, own) if a not in attributes]
             found[name] = Instrument(
                 name=name,
                 type=TYPES[kind],

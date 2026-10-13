@@ -61,6 +61,20 @@ def test_a_helper_call_and_a_direct_call_to_one_name_merge_their_attributes(
     assert (listed.type, listed.attributes) == ("counter", ("kind", "reason"))
 
 
+def test_a_direct_call_keeps_unit_and_change_as_attributes_the_helper_does_not(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "site.py").write_text(
+        "def a(log):\n"
+        '    telemetry.count("abk.direct", 1, change="c", unit="u")\n'
+        '    emit_metric("count", "abk.helped", 1, log, change="c", unit="u", kind="k")\n'
+    )
+
+    listed = {i.name: i.attributes for i in catalogue(tmp_path)}
+
+    assert listed == {"abk.direct": ("change", "unit"), "abk.helped": ("kind",)}
+
+
 def test_a_helper_call_with_a_computed_name_is_not_an_instrument(tmp_path: Path) -> None:
     (tmp_path / "site.py").write_text(
         'def site(log, name):\n    emit_metric("count", name, 1, log, kind="usage")\n'

@@ -36,6 +36,12 @@ class Callers(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef  # type: ignore[assignment]
 
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        # Importing the local record at all, under whatever alias, is how a pair is made
+        # elsewhere; the helper lives beside it and needs no import.
+        if any(alias.name == LOCAL_RECORD for alias in node.names):
+            self.found.append((self.inside[-1] if self.inside else "<module>", node.lineno))
+
     def visit_Call(self, node: ast.Call) -> None:
         if called(node) == LOCAL_RECORD and (not self.inside or self.inside[-1] != HELPER):
             self.found.append((self.inside[-1] if self.inside else "<module>", node.lineno))
