@@ -3,6 +3,7 @@ the real branch locks, so a claim held by a run is the one the lane meets."""
 
 from __future__ import annotations
 
+import subprocess
 import threading
 from collections.abc import Callable, Collection
 from pathlib import Path
@@ -12,11 +13,17 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import usage_guard, wiring
 from agent_build_kit.pipeline.events import build_claim
 from agent_build_kit.pipeline.restack_lane import RestackLane
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.runtimes import AgentRequest, AgentResult
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, stored_unit
+from tests.restack_turn_fakes import BRANCH, Rig
+from tests.runtimes.stand_in import StandInRuntime
+from tests.usage_host import Host
 
 WAIT = 60
 
@@ -115,3 +122,57 @@ def repo_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int) 
 
 def moved(inst: Installation) -> None:
     git(inst.checkouts["app"], "branch", "-f", "spec/feature/3", "main")
+
+
+class Tracking(StandInRuntime):
+    """A runtime with a usage window, as Claude Code has, so the guard is the one asked; it
+    reports each call it finishes with the session it ran in, as the ledger's recorder is told."""
+
+    supports_usage_tracking = True
+    supports_session_resume = True
+
+    def run(self, request: AgentRequest) -> AgentResult:
+        result = super().run(request)
+        result = result.model_copy(update={"session_id": request.resume_session or "sess-1"})
+        if request.on_result:
+            request.on_result(result)
+        return result
+
+
+def tracked_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: Host) -> Rig:
+    """The conflicting repository of `Rig`, its child owed a restack onto `main`, over an agent
+    with a usage window and the usage endpoint's cache in the installation's state directory."""
+    rig = Rig(tmp_path, monkeypatch)
+    rig.runtime = Tracking
+    rig.prepared()  # the agent the lane's resolver reaches
+    host.keep_in(rig.installation.state_dir)
+    rig.store.set_state(rig.child.id, PLANNED, cause=Cause.BASE_CHANGED, branch=BRANCH)
+    return rig
+
+
+def asked_of_the_guard(monkeypatch: pytest.MonkeyPatch) -> list[usage_guard.Decision]:
+    """Every decision of the guard from now on, in the order it was asked, whichever module
+    the lane reaches `decide_start` through."""
+    real = usage_guard.decide_start
+    decisions: list[usage_guard.Decision] = []
+
+    def spy(**kwargs):
+        decisions.append(real(**kwargs))
+        return decisions[-1]
+
+    for module in (usage_guard, wiring, cli):
+        monkeypatch.setattr(module, "decide_start", spy)
+    return decisions
+
+
+def moved_onto_main(rig: Rig, branch: str) -> bool:
+    held = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "main", branch], cwd=rig.repo, check=False
+    )
+    return held.returncode == 0
+
+
+def restack(rig: Rig) -> None:
+    """Every unit owed a restack, moved by the lane `abk tick` builds."""
+    with cli.build_restack_lane(rig.installation, rig.store) as lane:
+        lane.scan(rig.store.all())
