@@ -93,17 +93,11 @@ The planner orders groups within a change on its own; across changes it only
 sees what is already in flight, so a dependency that must hold is written
 down and applied as code.
 
-```
-Needs: <other-change> group <n> merged — why
-```
-
-The `merged` qualifier makes the dependent wait for that group's pull request
-to merge, or for a satisfied dependency's work to land, even when both are in
-the same repo, and then start on the trunk instead of stacked on the
-dependency's branch. Use it when the dependency is still reshaping what this
-group builds on, so stacking would build against a moving target. It is
-refused on a group of the change's own (`abk tags` rejects it): groups within
-a change are already ordered.
+The dependent starts on the parent's branch once the parent's pull request is
+in review (a parent in another repo must merge first). The old `merged`
+qualifier after the group number is deprecated: `abk tags` and `abk check`
+warn about it and it changes nothing, so leave it out. A `Needs:` on a group
+of the change's own is an error: groups within a change are already ordered.
 
 A `Needs:` that makes a cycle across changes (counting the order of each change's
 consecutive groups) is an error: `abk tags` and `abk check` report it under each

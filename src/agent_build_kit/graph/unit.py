@@ -278,7 +278,7 @@ async def _stopped_by_error(path: BuildPath, unit: Unit) -> bool:
     stored = await asyncio.to_thread(path.runner.store.get, unit.id)
     if stored.state in (FAILED, HELD):
         return True
-    # Requeued while a merge gate was unmet: `planned`, its thread left where
+    # Requeued while a dependency it waits on was unmet: `planned`, its thread left where
     # the error stopped it, the requeue waiting to be delivered.
     return stored.cause is Cause.GATED and stored.gated_requeue is not None
 

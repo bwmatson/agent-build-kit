@@ -1136,7 +1136,7 @@ def test_a_needs_line_links_the_unit_to_the_other_change_s_unit(
 def test_a_merged_needs_line_is_recorded_as_a_plain_dependency(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The qualified dependency is in depends_on like any other and sets no gate."""
+    """The qualified dependency is in depends_on like any other, and marked `needs`."""
     change = tmp_path / "openspec" / "changes" / "feature"
     change.mkdir(parents=True)
     (change / "tasks.md").write_text(
@@ -1159,28 +1159,7 @@ def test_a_merged_needs_line_is_recorded_as_a_plain_dependency(
 
     unit = store.get("feature/5")
     assert unit.depends_on == ("sample-change/2", "other-change/1")
-    assert unit.merge_before == ()
-
-
-def test_a_stored_merge_gate_is_cleared_by_the_next_pass(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    change = tmp_path / "openspec" / "changes" / "feature"
-    change.mkdir(parents=True)
-    (change / "tasks.md").write_text(
-        "# Tasks\n\n## 5. [platform] [tier1] A\n\n"
-        "Needs: x group 1 merged — reshapes it\n\n- [ ] 5.1 Test: a\n"
-    )
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [stored("x/1", change="x", groups=(1,)), stored("feature/5", change="feature", groups=(5,))]
-    )
-    store.set_merge_before("feature/5", ("x/1",))
-
-    cli.link_needs(inst, store=store)
-
-    assert store.get("feature/5").merge_before == ()
-    assert store.get("feature/5").depends_on == ("x/1",)
+    assert unit.needs == ("sample-change/2", "other-change/1")
 
 
 def test_adding_a_needs_line_does_not_re_plan_the_change(tmp_path: Path) -> None:

@@ -2182,7 +2182,7 @@ def link_needs(
     graph = {u.id: list(u.depends_on) for u in units if u.state not in FINISHED}
     refused: list[CycleEdge] = []
     for unit in units:
-        if unit.id not in wanted and not unit.merge_before:
+        if unit.id not in wanted and not unit.needs:
             continue
         added: list[str] = []
         for target in dict.fromkeys(wanted.get(unit.id, [])):
@@ -2205,10 +2205,11 @@ def link_needs(
         if added:
             store.set_dependencies(unit.id, linked)
             log(f"{unit.id}: now depends on {', '.join(added)} (Needs: in tasks.md)")
-        # A `Needs:` line is a plain dependency: a gate an earlier version stored
-        # from the word `merged` is cleared.
-        if unit.merge_before:
-            store.set_merge_before(unit.id, ())
+        # Which dependencies a `Needs:` line asked for, for the graph alone; a removed
+        # line removes the mark.
+        needs = tuple(t for t in dict.fromkeys(wanted.get(unit.id, [])) if t in linked)
+        if needs != unit.needs:
+            store.set_needs(unit.id, needs)
     return refused
 
 
@@ -3721,14 +3722,10 @@ def _replan_differences(
             continue
         if unit.state == UNPLANNED and old.state != UNPLANNED:
             lines.append(f"{uid}: now unplanned, the plan no longer has it")
-        for label, was, now in (
-            ("depends on", old.depends_on, unit.depends_on),
-            ("waits for", old.merge_before, unit.merge_before),
-        ):
-            if removed := [x for x in was if x not in now]:
-                lines.append(f"{uid}: no longer {label} {', '.join(removed)}")
-            if added := [x for x in now if x not in was]:
-                lines.append(f"{uid}: now {label} {', '.join(added)}")
+        if removed := [x for x in old.depends_on if x not in unit.depends_on]:
+            lines.append(f"{uid}: no longer depends on {', '.join(removed)}")
+        if added := [x for x in unit.depends_on if x not in old.depends_on]:
+            lines.append(f"{uid}: now depends on {', '.join(added)}")
         if unit.estimated_lines != old.estimated_lines:
             lines.append(f"{uid}: estimate {old.estimated_lines} -> {unit.estimated_lines} lines")
         if unit.tier != old.tier:

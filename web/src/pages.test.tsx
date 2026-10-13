@@ -133,16 +133,14 @@ describe("a unit's page", () => {
     expect(entries[2]).toHaveTextContent("merged");
   });
 
-  it("lists branch, base, pull request, dependencies and merge gates with their states", async () => {
+  it("lists branch, base, pull request, and dependencies with their states", async () => {
     open("/units/feature/3");
 
     const main = screen.getByRole("main");
     expect(await within(main).findByText("main")).toBeVisible();
-    const gates = await within(main).findByRole("list", { name: /merge gates/i });
-    expect(within(gates).getByRole("link", { name: /feature\/2/ })).toBeVisible();
-    expect(gates).toHaveTextContent(/in_review|in review/);
-    const needs = within(main).getByRole("list", { name: /dependencies/i });
+    const needs = await within(main).findByRole("list", { name: /dependencies/i });
     expect(needs).toHaveTextContent("feature/2");
+    expect(needs).toHaveTextContent(/in_review|in review/);
 
     open("/units/feature/2");
     expect(await screen.findByText(/#?12\b/)).toBeVisible();

@@ -1,10 +1,9 @@
-"""A `Needs: ... merged` line added after a unit has started still gates it.
+"""A `Needs:` line on a parent in another repository added after a unit has started gates it.
 
-The gate is `merge_before` on the unit, recomputed from tasks.md every tick. A
-failed or held unit requeued before its prerequisite merges waits as `planned`
+A failed or held unit requeued before its prerequisite merges waits as `planned`
 with the cause `gated` and is resumed, in the mode it was requeued with, once
-the prerequisite lands. A running unit is told, not disturbed, and a merge gate
-never makes the dependency the unit's base.
+the prerequisite lands. A running unit is told, not disturbed, and a parent in
+another repository never becomes the unit's base.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ from tests.factories import stored_unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
-NEEDS = "Needs: dep group 1 merged — it reshapes the runtime\n"
+NEEDS = "Needs: dep group 1 — it reshapes the runtime\n"
 
 
 @pytest.fixture(autouse=True)
@@ -95,12 +94,12 @@ def write_needs(inst: Installation, change: str = "feature", group: int = 1) -> 
 
 
 def gated_failure(store: UnitStore, *, state=FAILED) -> None:
-    """`feature/1` stopped with a thread, then a merge gate on `dep/1` (still in
-    review) was written for it."""
+    """`feature/1` stopped with a thread, then a `Needs:` on `dep/1` (in another
+    repository, still in review) was written for it."""
     store.upsert(
         [
             stored("dep/1", repo="platform"),
-            stored("feature/1", depends_on=("dep/1",), merge_before=("dep/1",)),
+            stored("feature/1", depends_on=("dep/1",)),
         ]
     )
     store.set_state("dep/1", IN_REVIEW, pr=3)
@@ -299,7 +298,7 @@ def test_a_unit_sent_back_while_a_parent_in_another_repo_is_unmerged_waits_for_t
     store.upsert(
         [
             stored("dep/1", repo="platform"),
-            stored("feature/1", depends_on=("dep/1",), merge_before=("dep/1",)),
+            stored("feature/1", depends_on=("dep/1",)),
         ]
     )
     store.set_state("dep/1", IN_REVIEW, pr=3)

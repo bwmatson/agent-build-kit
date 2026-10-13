@@ -222,8 +222,8 @@ class StoredUnit(Unit):
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
     held_base: str = ""
-    # How a requeue that found its merge gate unmet is delivered once the gate
-    # clears (see `Cause.GATED`); None when no requeue is waiting.
+    # How a requeue that found a dependency it waits on unmet is delivered once
+    # it is met (see `Cause.GATED`); None when no requeue is waiting.
     gated_requeue: RequeueReason | None = None
     # The close of a satisfied unit's pull request, kept until it is done.
     close_pending: ClosePending | None = None
@@ -309,7 +309,7 @@ class StoredUnit(Unit):
         """
         if not isinstance(data, dict):
             return data
-        item = dict(data)
+        item = {k: v for k, v in data.items() if k not in REMOVED_FIELDS}
         unit_id = item.get("id", "?")
         for field in OLD_ENGINE_FIELDS:
             if field in item and item[field] == _WRITTEN_EMPTY.get(field):
@@ -338,6 +338,11 @@ class StoredUnit(Unit):
                 )
         return item
 
+
+# Fields an earlier release wrote that no longer exist, dropped whatever their value.
+# `merge_before` was the merge gate, removed when a `Needs` dependency began to start on
+# its parent's branch; the next write leaves the key out.
+REMOVED_FIELDS = ("merge_before",)
 
 # The in-run fields a unit carried before its progress moved into its thread. A store
 # that still holds one is refused: that work must be finished or requeued first.
@@ -785,8 +790,8 @@ class UnitStore:
     def set_gated_requeue(self, unit_id: str, requeue: RequeueReason | None) -> None:
         self._update(unit_id, gated_requeue=requeue)
 
-    def set_merge_before(self, unit_id: str, merge_before: Sequence[str]) -> None:
-        self._update(unit_id, merge_before=tuple(merge_before))
+    def set_needs(self, unit_id: str, needs: Sequence[str]) -> None:
+        self._update(unit_id, needs=tuple(needs))
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""

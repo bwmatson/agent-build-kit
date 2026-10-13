@@ -222,7 +222,7 @@ checkpoint database, and changes none of them. A unit is addressed as `change/N`
 | Path | Answers |
 |---|---|
 | `/api/pipeline` | every unit with its effective state, cause, holder and note |
-| `/api/units/<change>/<n>` | one unit: state, cause, note, history, base, branch, pull request, dependencies and merge gates with their states, the review round from its thread, and `actions`: each of requeue, hold, release and approve with `name`, `enabled` and the `reason` it is not |
+| `/api/units/<change>/<n>` | one unit: state, cause, note, history, base, branch, pull request, dependencies with their states, the review round from its thread, and `actions`: each of requeue, hold, release and approve with `name`, `enabled` and the `reason` it is not |
 | `POST /api/units/<change>/<n>/actions/<action>` | runs `requeue`, `hold`, `release` or `approve` (see below): 200 with a `message`, 409 with the refusal as `detail`, 404 for an unknown unit or action |
 | `/api/units/<change>/<n>/logs` | the unit's runs: name, step, start (UTC) and whether each is live |
 | `/api/units/<change>/<n>/logs/<name>?offset=<bytes>` | the run's lines after the offset with their clock in UTC, the offset to ask from next, `live`, and the `outcome` once it has ended; a run removed meanwhile answers empty with `missing` |
@@ -253,7 +253,7 @@ The pages:
   who holds it (`held by: ...`, from the unit's record, never read out of the note).
 - **A unit** (`/units/<change>/<n>`): the title, the state line, the unit's note and review
   round, its history as a timeline, and three tabs. *Status* lists the base, branch, pull
-  request, dependencies and merge gates (each gate links to its unit); *Logs* groups each
+  request and dependencies (each links to its unit); *Logs* groups each
   run's lines by the node that wrote them, shows a reply whole and follows a live run until
   its outcome line appears, asking again after a failed read; *Usage* is the usage report
   filtered to the unit, by node. Above the tabs, the unit's action buttons; a disabled one
@@ -383,11 +383,11 @@ A note with a plain requeue is refused (exit 1, nothing changed): a resume
 re-runs a step without reading it. Pull request comments are unchanged, and the
 note is not posted to the pull request.
 
-A unit with a `Needs: … merged` line whose dependency has not merged is not
-resumed: it goes to `planned` with the cause `gated`, keeping its thread, branch
-and saved failure, and the command names the group it waits for. `abk status`
-lists it as waiting. Once the dependency has merged, the next tick delivers the
-requeue in the mode it was given (default, `--rework` or `--restart`).
+A unit with a `Needs:` line whose dependency is not yet in review (or, in another
+repo, merged) is not resumed: it goes to `planned` with the cause `gated`, keeping
+its thread, branch and saved failure, and the command names the group it waits for.
+`abk status` lists it as waiting. Once the dependency is ready, the next tick
+delivers the requeue in the mode it was given (default, `--rework` or `--restart`).
 
 Any other state is refused: a running unit would be built twice, an in-review
 one has a pull request that would be orphaned, and a planned or merged one has
@@ -428,7 +428,7 @@ says how many model calls it will make.
   unit takes the new shape; an unstarted one the plan drops becomes `unplanned`.
   Dependencies are rebuilt from the plan, so a stale one is removed, and the `Needs:`
   lines are linked again on top.
-- **It prints what differs** from before: dependencies and merge gates added and
+- **It prints what differs** from before: dependencies added and
   removed, estimate and tier changes, units that became `unplanned`, joins dropped,
   and each started unit it left alone (`kept: feature/1, running`); nothing for a
   unit that did not change, or "nothing changed".

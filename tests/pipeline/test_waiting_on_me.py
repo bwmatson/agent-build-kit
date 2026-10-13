@@ -62,13 +62,6 @@ def test_a_dependent_through_another_repo_waits() -> None:
     assert ids(waiting_on_me(prerequisite, graph)) == {"b/1", "c/1"}
 
 
-def test_a_gated_dependent_waits() -> None:
-    prerequisite = unit("a/1")
-    graph = [prerequisite, unit("b/1", depends_on=("a/1",), merge_before=("a/1",))]
-
-    assert ids(waiting_on_me(prerequisite, graph)) == {"b/1"}
-
-
 def test_merged_closed_and_satisfied_dependents_do_not_wait() -> None:
     prerequisite = unit("a/1")
     graph = [

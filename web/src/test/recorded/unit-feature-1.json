@@ -31,7 +31,6 @@
   ],
   "base": "main",
   "depends_on": [],
-  "merge_gates": [],
   "review_round": null,
   "status": "merged"
 }

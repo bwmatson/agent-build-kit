@@ -117,8 +117,8 @@ class Unit(Frozen):
     repo: str
     tier: str
     depends_on: tuple[str, ...] = ()
-    # The subset of `depends_on` that must merge before this unit starts.
-    merge_before: tuple[str, ...] = ()
+    # The subset of `depends_on` a `Needs:` line asked for; only the graph reads it.
+    needs: tuple[str, ...] = ()
     estimated_lines: int = 0
     state: UnitState = PLANNED
     issue: int | None = None
@@ -289,10 +289,6 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
     alongside the same-repo ones they replace — every caller today filters
     the result by repo before using it, so this is harmless, but the result
     is not same-repo-only on its own.
-
-    A dependency in `merge_before` is left out, the unit's own and a satisfied
-    parent's: it is an ordering edge ("wait for the merge"), not a base, so no
-    caller that asks what the unit is built on may treat it as a candidate.
     """
     index = _by_id(graph)
 
@@ -305,20 +301,14 @@ def through_satisfied(unit: Unit, graph: Sequence[Unit]) -> tuple[str, ...]:
         seen = seen | {dep_id}
         out: list[str] = []
         for other in parent.depends_on:
-            if other in parent.merge_before:
-                continue
             if other in index and index[other].repo == parent.repo:
                 out.extend(expand(other, seen))
             else:
                 out.append(other)
         return tuple(out)
 
-    # A merge gate orders a unit after its dependency without stacking it on
-    # that dependency's branch, so it is no part of what the unit is built on.
     out: list[str] = []
     for dep in unit.depends_on:
-        if dep in unit.merge_before:
-            continue
         parent = index.get(dep)
         if parent is not None and parent.repo == unit.repo:
             out.extend(expand(dep, frozenset()))
@@ -427,8 +417,7 @@ def base_of(unit: Unit, graph: Sequence[Unit]) -> str:
 
     A cross-repo dependency is never a base — stacks can't span repos, so that
     edge is an ordering constraint instead, and `ready_units` makes the
-    dependent wait for a merge. A same-repo dependency in `merge_before` is the
-    same kind of edge and is left out too (`through_satisfied`).
+    dependent wait for a merge.
     """
     index = _by_id(graph)
     candidates = [
@@ -503,8 +492,7 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
     what `unit` waits on is what that dependency was built on. Its predecessor
     sent back for rework, or failed, holds `unit` too; in review or merged it
     does not. Cross-repo ones must have merged: the dependent can't stack on
-    them, so it waits rather than building against a moving target — as does
-    a same-repo one the unit lists in `merge_before` — except a
+    them, so it waits rather than building against a moving target — except a
     satisfied cross-repo dependency, which never merges itself; it is done
     once its own same-repo work has (`satisfied_landed`). The scheduler and
     the diagram both ask this, so the graph never shows a unit as startable
@@ -518,13 +506,6 @@ def waiting_on(unit: Unit, graph: Sequence[Unit]) -> list[Unit]:
             parent.state == SATISFIED and satisfied_landed(parent, graph)
         )
 
-    # A gated dependency is judged as itself, before any look-through: a
-    # satisfied one is not replaced by its predecessor, since what the unit
-    # wants is that dependency's work on the trunk.
-    for dep in unit.depends_on:
-        parent = index.get(dep)
-        if dep in unit.merge_before and parent is not None and not landed(parent):
-            waiting.append(parent)
     for dep in through_satisfied(unit, graph):
         parent = index.get(dep)
         if parent is None:
