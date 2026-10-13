@@ -662,7 +662,8 @@ default filled in; `--path` prints the `abk.yaml` in force. Exit 0.
 ### `abk project init PATH --profile NAME --repo REPO [--scaffold]`
 
 Registers a project in `REPO`'s `projects:` list before its directory exists (it is
-pending until it does). The entry is added to the file's own lines, so comments, key
+pending until it does). `PATH` is relative to the repo root; an absolute path under the
+repo is stored relative, and one outside it (or with a `..` part) is refused. The entry is added to the file's own lines, so comments, key
 order and quoting stay as they were; a `projects:` written inline is refused rather than
 rewritten. It refuses a path the repo already registers, a profile that is not
 registered and a repo that is not in `repos:`, each leaving `abk.yaml` unchanged and

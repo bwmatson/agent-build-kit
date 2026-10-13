@@ -66,3 +66,27 @@ def test_a_path_outside_the_repo_is_refused_and_nothing_is_written(
     assert code != 0
     assert config.read_text() == before
     assert not (tmp_path / "elsewhere").exists()
+
+
+def test_an_absolute_path_inside_the_repo_is_registered_relative(tmp_path: Path) -> None:
+    config = write_commented(tmp_path)
+
+    code = project_init(
+        config, str(tmp_path / "app" / "web"), "--profile", "node-npm", "--repo", "app"
+    )
+
+    assert code == 0
+    assert projects_of(config, "app")[-1] == {"path": "web", "profile": "node-npm"}
+
+
+def test_an_absolute_path_of_a_registered_project_is_a_duplicate(tmp_path: Path, capsys) -> None:
+    config = write_commented(tmp_path)
+    before = config.read_text()
+
+    code = project_init(
+        config, str(tmp_path / "app" / "svc-a"), "--profile", "python-uv", "--repo", "app"
+    )
+
+    assert code != 0
+    assert "svc-a" in capsys.readouterr().err
+    assert config.read_text() == before

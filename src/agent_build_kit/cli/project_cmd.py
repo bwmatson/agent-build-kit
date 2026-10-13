@@ -22,30 +22,37 @@ class ProjectInitError(Exception):
     pass
 
 
-def _normal(path: str) -> str:
-    """`path` as a repo-relative `/` path without a leading `./` or trailing `/`; `.` is the
-    repo root. An absolute path or one with a `..` part is refused: it names no directory of
-    the repo."""
+def _normal(path: str, root: Path) -> str:
+    """`path` relative to the repo at `root`, `/` separated, without a leading `./` or
+    trailing `/`; `.` is the repo root. An absolute path under `root` is made relative to
+    it. One outside `root`, or with a `..` part, names no directory of the repo and is
+    refused."""
     parts = PurePosixPath(path)
-    if parts.is_absolute() or ".." in parts.parts:
-        raise ProjectInitError(f"{path!r} is not a path inside the repo")
+    if parts.is_absolute():
+        try:
+            parts = PurePosixPath(Path(path).resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            raise ProjectInitError(f"{path!r} is not a path inside the repo ({root})") from None
+    if ".." in parts.parts:
+        raise ProjectInitError(f"{path!r} is not a path inside the repo ({root})")
     return parts.as_posix()
 
 
 def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
     repos = inst.config.repos
     try:
-        path = _normal(args.path)
         if args.repo not in repos:
             raise ProjectInitError(
                 f"no repo {args.repo!r} in abk.yaml (declared: {', '.join(repos)})"
             )
+        root = repos[args.repo].path
+        path = _normal(args.path, root)
         if args.profile not in profiles.names():
             raise ProjectInitError(
                 f"unknown profile {args.profile!r} (registered: {', '.join(profiles.names())})"
             )
         for existing in repos[args.repo].projects:
-            if _normal(existing.path) == path:
+            if _normal(existing.path, root) == path:
                 raise ProjectInitError(
                     f"{args.repo} already registers {existing.path!r} (profile {existing.profile})"
                 )
