@@ -777,15 +777,21 @@ and nothing guesses a path for it; only a row someone verified against the agent
 configuration gets one. `runtimes/policy_apply.py` is the engine and names no product.
 
 The merge adds the recommended patterns the list lacks, in table order after the operator's
-entries (exact string comparison), then the installation's extras once. It never removes,
-reorders or edits an entry and never touches another key; a missing section or list is
-created and a single string becomes the list's first item. The toolset is replaced only when
-asked, and shown from and to. Before the first write the original is copied to
-`<file>.abk-backup`, which is never overwritten; the write goes through a temporary file in
-the same directory with the file's mode, so a failure leaves the original. A file that does
-not parse, or a section or list of the wrong shape, is refused naming the file and key path
-with nothing written; an absent file is reported, naming the home variable, and never
-created. A second run changes nothing. Comments are kept by `ruamel.yaml`.
+entries (exact string comparison), then the installation's extras once. **It never re-dumps the
+file.** The parse (`ruamel.yaml`, read-only) only finds the list and computes what is missing;
+the missing `- <pattern>` lines are inserted into the original text after the list's last item,
+copying that item's indentation, dash offset and quote style (a pattern that is not plain-safe,
+or that the agent's reader would take for something else such as `off`, is quoted), so every
+other byte stays as it was, and the file's line endings are kept. A missing list or section is
+inserted as a small block of its own. The result is parsed again and written only when it equals
+the original plus the added patterns. It refuses, naming the file, the key and why, and writes
+nothing: a list written inline, a single string, `null`, an alias, a tagged or anchored value, a
+flow mapping, several documents, a top level that is not a mapping, a file that does not parse
+and a section or list of the wrong shape. The toolset is replaced only when asked, as text
+(only that list's lines change), and shown from and to. Before the first write the original is
+copied to `<file>.abk-backup`, which is never overwritten; the write goes through a temporary
+file in the same directory with the file's mode, so a failure leaves the original. An absent
+file is reported, naming the home variable, and never created. A second run changes nothing.
 
 To add an agent's applier, fill its row's `apply` after checking its file and key, and add a
 writer to `WRITERS` if its format has none (YAML only today); the structural test fails a row

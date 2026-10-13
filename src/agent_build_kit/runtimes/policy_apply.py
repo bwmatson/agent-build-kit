@@ -1,9 +1,11 @@
 """Merge the recommended policy into a known agent's configuration, over its descriptor.
 
-Add only: the operator's entries stay and come first, comments and every other key are kept,
-the original is copied once to `<file>.abk-backup`, and the write goes through a temporary
-file beside the target. The engine takes the resolved home as an argument; `resolve_home` is
-the one place a variable is looked at.
+Add only, and by text: the parse finds the list and computes what is missing, and the missing
+lines are inserted into the original text, so every other byte of the operator's file is as it
+was. The document is never dumped. The original is copied once to `<file>.abk-backup`, the write
+goes through a temporary file beside the target, and a file the engine cannot change by pure
+insertion is refused with the reason. The engine takes the resolved home as an argument;
+`resolve_home` is the one place a variable is looked at.
 """
 
 from __future__ import annotations
@@ -13,16 +15,15 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
-from io import StringIO
 from pathlib import Path
+from typing import Any, NamedTuple
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
-from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.known_agents import ApplyFormat, ApplyPolicy, YamlVersion
@@ -31,6 +32,7 @@ from agent_build_kit.settings import named_value
 
 BACKUP_SUFFIX = ".abk-backup"
 STR_TAG = "tag:yaml.org,2002:str"
+DEFAULT_STEP = 2
 
 
 class ApplyRefused(Exception):
@@ -62,91 +64,355 @@ class Merged(Frozen):
 
 
 # A writer reads a configuration's text, adds `wanted` to the list at the descriptor's deny path
-# and, when `toolset` is given, sets the list at its path; it raises `ApplyRefused` naming `label`.
+# and, when `toolset` is given, sets the list at its path, by inserting into the text; it raises
+# `ApplyRefused` naming `label`.
 Writer = Callable[[str, ApplyPolicy, list[str], tuple[str, ...] | None, str], Merged]
+
+# `key:` at the start of `text`, the key plain or quoted.
+_KEY = re.compile(
+    r"""(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s:#'"\[{&*!|>%@`-][^:#]*?)\s*:(?=\s|$)"""
+)
+_DASH_PREFIX = re.compile(r"\s*-\s+")
+_INDICATORS = "-?:,[]{}#&*!|>'\"%@`"
 
 
 def _dotted(path: tuple[str, ...]) -> str:
     return ".".join(path)
 
 
-def _indents(body: str) -> tuple[int, int]:
-    """How the file indents: its mapping step and how far a list's dash sits under its key,
-    so the writer reproduces them and an existing list is not re-indented."""
-    mapping, offset = 2, 2
-    lines = [
-        line for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#")
-    ]
-    for here, after in zip(lines, lines[1:], strict=False):
-        if not here.rstrip().endswith(":") and not re.search(r":\s+#", here):
-            continue
-        key = len(here) - len(here.lstrip())
-        nxt = len(after) - len(after.lstrip())
-        if after.lstrip().startswith("- "):
-            return mapping, nxt - key
-        if nxt > key and not here.lstrip().startswith("- "):
-            mapping = nxt - key
-    return mapping, offset
+# --- reading -----------------------------------------------------------------------------------
 
 
-def _yaml(body: str = "") -> YAML:
-    """The round-trip reader and writer. It reads under the 1.2 rules, where `off` and `yes` are
-    plain strings that keep their spelling; the descriptor's version only decides which new
-    strings are quoted (`_scalar`). Setting a version here would also write a directive."""
+def _loader(descriptor: ApplyPolicy) -> YAML:
     yaml = YAML(typ="rt")
-    yaml.preserve_quotes = True
-    yaml.width = 1_000_000
-    yaml.allow_unicode = True
-    yaml.default_flow_style = False
-    mapping, offset = _indents(body)
-    yaml.indent(mapping=mapping, sequence=offset + 2, offset=offset)
+    yaml.version = (1, 1) if descriptor.yaml_version == YamlVersion.V1_1 else (1, 2)
     return yaml
 
 
-def _scalar(descriptor: ApplyPolicy, value: str) -> str:
-    """`value` as a new scalar: double-quoted where the descriptor's resolver would read it as
-    something other than a string (`off` under 1.1), so the agent reads it back as written."""
-    resolver = YAML(typ="rt")
-    resolver.version = (1, 1) if descriptor.yaml_version == YamlVersion.V1_1 else (1, 2)
-    if resolver.resolver.resolve(ScalarNode, value, (True, False)) != STR_TAG:
-        return DoubleQuotedScalarString(value)
+def _parse(text: str, descriptor: ApplyPolicy, label: str, what: str = "") -> Any:
+    """The one document of `text` (None when it holds none); refused when it does not parse, holds
+    several documents, or is not a mapping at the top."""
+    try:
+        docs = list(_loader(descriptor).load_all(text))
+    except YAMLError as exc:
+        raise ApplyRefused(f"{label}{what} does not parse as YAML: {exc}") from exc
+    if len(docs) > 1:
+        raise ApplyRefused(
+            f"{label}{what} holds {len(docs)} YAML documents; the policy goes in one"
+        )
+    root = docs[0] if docs else None
+    if root is not None and not isinstance(root, CommentedMap):
+        raise ApplyRefused(f"{label}{what}: the top level is not a mapping")
+    if isinstance(root, CommentedMap) and root.fa.flow_style():
+        raise ApplyRefused(f"{label}{what}: the top level is a flow mapping, not a block one")
+    return root
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
     return value
 
 
-def _split_directive(text: str) -> tuple[str, str]:
-    """A leading `%` directive block through its `---` line, and the rest."""
-    if not text.startswith("%"):
-        return "", text
-    lines = text.splitlines(keepends=True)
-    for number, line in enumerate(lines):
-        if line.startswith("---"):
-            return "".join(lines[: number + 1]), "".join(lines[number + 1 :])
-    return "", text
-
-
-def _list_at(root: CommentedMap, path: tuple[str, ...], label: str) -> CommentedSeq:
-    """The list at `path`, creating missing sections and the list; a string is its first item."""
+def _value_at(root: Any, path: tuple[str, ...]) -> Any:
     node = root
-    for depth, key in enumerate(path[:-1], start=1):
-        if node.get(key) is None:
-            node[key] = CommentedMap()
+    for key in path:
+        if not isinstance(node, Mapping) or key not in node:
+            return None
         node = node[key]
-        if not isinstance(node, CommentedMap):
+    return node
+
+
+def _set_plain(tree: dict[str, Any], path: tuple[str, ...], value: list[Any]) -> None:
+    node = tree
+    for key in path[:-1]:
+        child = node.get(key)
+        if not isinstance(child, dict):
+            child = node[key] = {}
+        node = child
+    node[path[-1]] = value
+
+
+# --- text ----------------------------------------------------------------------------------------
+
+
+def _lines(text: str) -> list[str]:
+    """The lines of `text` with their endings, split at newlines only, so the join is the text."""
+    parts = text.split("\n")
+    lines = [part + "\n" for part in parts[:-1]]
+    if parts[-1]:
+        lines.append(parts[-1])
+    return lines
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _content(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("#")
+
+
+def _marker(line: str) -> bool:
+    return line.startswith(("---", "...")) and line[3:4] in ("", " ", "\t", "\r", "\n")
+
+
+def _end(lines: list[str], start: int, col: int, *, beside_dash: bool = False) -> int:
+    """The last content line of the node that starts on line `start` at column `col`: the last
+    non-blank, non-comment line before the first content line indented at or under `col` (a dash
+    at `col` still belongs to a mapping key's list when `beside_dash`), or a document marker, or
+    the end of the file. Comments and blank lines after it are not part of the node."""
+    last = start
+    for number in range(start + 1, len(lines)):
+        line = lines[number]
+        if not _content(line):
+            continue
+        if _marker(line):
+            break
+        if _indent(line) <= col and not (
+            beside_dash and _indent(line) == col and line.lstrip().startswith("- ")
+        ):
+            break
+        last = number
+    return last
+
+
+def _step(lines: list[str]) -> int:
+    """How far the file indents a nested block: the first key whose block is nested, else two."""
+    body = [line for line in lines if _content(line) and not _marker(line)]
+    for here, after in zip(body, body[1:], strict=False):
+        if _strip_comment(here).endswith(":") and _indent(after) > _indent(here):
+            return _indent(after) - _indent(here)
+    return DEFAULT_STEP
+
+
+def _strip_comment(line: str) -> str:
+    return re.sub(r"(^|\s)#.*$", "", line.rstrip("\r\n")).rstrip()
+
+
+def _after_key(line: str, col: int, label: str, where: str) -> tuple[str, int]:
+    """What follows `key:` on its line, without a trailing comment, and where that text starts."""
+    match = _KEY.match(line, col)
+    if match is None:
+        raise ApplyRefused(f"{label}: cannot read the line holding the key {where}")
+    start = match.end()
+    rest = _strip_comment(line[start:]).strip()
+    return rest, start + (len(line[start:]) - len(line[start:].lstrip()))
+
+
+def _why(rest: str, last: bool) -> str:
+    if rest.startswith("["):
+        return "written inline as a flow list"
+    if rest.startswith("{"):
+        return "written as a flow mapping"
+    if rest.startswith("*"):
+        return "an alias"
+    if rest.startswith("&"):
+        return "anchored"
+    if rest.startswith("!"):
+        return "tagged"
+    if rest in ("~", "null", "Null", "NULL"):
+        return "null"
+    return "a single value, not a list" if last else "a single value, not a mapping"
+
+
+def _reads_as_string(descriptor: ApplyPolicy, value: str) -> bool:
+    return _loader(descriptor).resolver.resolve(ScalarNode, value, (True, False)) == STR_TAG
+
+
+def _plain_safe(descriptor: ApplyPolicy, value: str) -> bool:
+    return not (
+        not value
+        or value != value.strip()
+        or value[0] in _INDICATORS
+        or ": " in value
+        or " #" in value
+        or value.endswith(":")
+        or "\n" in value
+        or "\t" in value
+    ) and _reads_as_string(descriptor, value)
+
+
+def _style_of(line: str, col: int) -> str:
+    return {"'": "single", '"': "double"}.get(line[col : col + 1], "plain")
+
+
+def _quote(descriptor: ApplyPolicy, style: str, value: str) -> str:
+    """`value` as a scalar in `style` where that is safe: a plain one the resolver would read as
+    something else, or that holds an indicator, is single-quoted."""
+    if style == "double":
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if style == "plain" and _plain_safe(descriptor, value):
+        return value
+    return "'" + value.replace("'", "''") + "'"
+
+
+# --- where the list is ---------------------------------------------------------------------------
+
+
+class _Spot(NamedTuple):
+    """Where the list at a key path is. `kind` is `block` (a block list; `seq` holds it),
+    `flow` (a one-line flow list, only when asked for), `empty` (its key, or a section above it,
+    holds nothing; `line` and `col` are that key's), or `missing` (`node` is the deepest mapping
+    that exists, `keys` what is absent below it)."""
+
+    kind: str
+    keys: tuple[str, ...] = ()
+    node: Any = None
+    seq: Any = None
+    line: int = 0
+    col: int = 0
+    start: int = 0
+
+
+def _where(
+    root: Any, path: tuple[str, ...], lines: list[str], label: str, *, flow: bool = False
+) -> _Spot:
+    if root is None:
+        return _Spot("missing", keys=path)
+    node = root
+    for depth, key in enumerate(path):
+        last = depth == len(path) - 1
+        named = _dotted(path[: depth + 1])
+        if key not in node:
+            return _Spot("missing", keys=path[depth:], node=node)
+        line, col = node.lc.key(key)
+        rest, start = _after_key(lines[line], col, label, named)
+        value = node[key]
+        if rest:
+            if last and flow and rest.startswith("[") and isinstance(value, CommentedSeq):
+                return _Spot("flow", seq=value, line=line, col=col, start=start)
             raise ApplyRefused(
-                f"{label}: {_dotted(path[:depth])} is not a mapping, "
-                f"so {_dotted(path)} cannot be set"
+                f"{label}: {named} is {_why(rest, last)}; write it as a block "
+                f"({key}: on its own line, then the entries) and run it again"
             )
-    last = path[-1]
-    value = node.get(last)
-    if value is None:
-        value = CommentedSeq()
-        node[last] = value
-    elif isinstance(value, str):
-        value = CommentedSeq([value])
-        node[last] = value
-    elif not isinstance(value, CommentedSeq):
-        raise ApplyRefused(f"{label}: {_dotted(path)} is not a list")
-    return value
+        if value is None:
+            return _Spot("empty", keys=path[depth + 1 :], line=line, col=col)
+        if last:
+            if isinstance(value, CommentedSeq):
+                return _Spot("block", seq=value, line=line, col=col)
+            raise ApplyRefused(f"{label}: {named} is not a list")
+        if not isinstance(value, CommentedMap):
+            raise ApplyRefused(
+                f"{label}: {named} is not a mapping, so {_dotted(path)} cannot be set"
+            )
+        node = value
+    raise AssertionError("an empty key path")
+
+
+# --- inserting -----------------------------------------------------------------------------------
+
+
+def _insert(lines: list[str], at: int, new: list[str], eol: str) -> None:
+    if at > 0 and not lines[at - 1].endswith("\n"):
+        lines[at - 1] += eol
+    lines[at:at] = [line + eol for line in new]
+
+
+def _block(indent: int, keys: tuple[str, ...], items: Iterable[str], step: int) -> list[str]:
+    out = [" " * (indent + number * step) + f"{key}:" for number, key in enumerate(keys)]
+    depth = indent + len(keys) * step
+    return out + [" " * depth + "- '" + item.replace("'", "''") + "'" for item in items]
+
+
+def _splice(
+    text: str,
+    descriptor: ApplyPolicy,
+    path: tuple[str, ...],
+    items: tuple[str, ...],
+    *,
+    replace: bool,
+    label: str,
+) -> str:
+    """`text` with `items` added to the list at `path` (or, with `replace`, made its items), by
+    inserting or replacing lines; every other line is untouched. Refuses what it cannot."""
+    root = _parse(text, descriptor, label)
+    lines = _lines(text)
+    spot = _where(root, path, lines, label, flow=replace)
+    if not items:
+        return text
+    eol = "\r\n" if "\r\n" in text else "\n"
+    step = _step(lines)
+    if spot.kind == "empty":
+        at = spot.line + 1
+        while (
+            at < len(lines) and lines[at].strip().startswith("#") and _indent(lines[at]) > spot.col
+        ):
+            at += 1
+        _insert(lines, at, _block(spot.col + step, spot.keys, items, step), eol)
+    elif spot.kind == "missing":
+        if spot.node is None:
+            at, indent = len(lines), 0
+        else:
+            first, last = next(iter(spot.node)), list(spot.node)[-1]
+            indent = spot.node.lc.key(first)[1]
+            top = spot.node is root
+            at = _end(lines, spot.node.lc.key(last)[0], -1 if top else indent, beside_dash=True) + 1
+        _insert(lines, at, _block(indent, spot.keys, items, step), eol)
+    elif spot.kind == "flow":
+        line = lines[spot.line]
+        closing = _flow_end(line, spot.start)
+        if closing is None:
+            raise ApplyRefused(f"{label}: {_dotted(path)} is a flow list over several lines")
+        shown = ", ".join(_quote(descriptor, "plain", item) for item in items)
+        lines[spot.line] = f"{line[: spot.start]}[{shown}]{line[closing + 1 :]}"
+    else:
+        _splice_block(lines, spot, descriptor, items, replace, eol, label)
+    return "".join(lines)
+
+
+def _splice_block(
+    lines: list[str],
+    spot: _Spot,
+    descriptor: ApplyPolicy,
+    items: tuple[str, ...],
+    replace: bool,
+    eol: str,
+    label: str,
+) -> None:
+    seq = spot.seq
+    pick = 0 if replace else len(seq) - 1
+    line, col = seq.lc.item(pick)
+    prefix = lines[line][:col]
+    if not _DASH_PREFIX.fullmatch(prefix):
+        raise ApplyRefused(f"{label}: cannot read the layout of the list's entries")
+    style = _style_of(lines[line], col)
+    last_line = seq.lc.item(len(seq) - 1)[0]
+    end = _end(lines, last_line, _indent(prefix))
+    new = [prefix + _quote(descriptor, style, item) for item in items]
+    if replace:
+        closed = lines[end].endswith("\n")
+        lines[line : end + 1] = [entry + eol for entry in new[:-1]] + [
+            new[-1] + (eol if closed else "")
+        ]
+    else:
+        _insert(lines, end + 1, new, eol)
+
+
+def _flow_end(line: str, start: int) -> int | None:
+    """The index of the `]` that closes the flow list opened at `start`, on this line."""
+    quote = ""
+    depth = 0
+    for index in range(start, len(line)):
+        char = line[index]
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+# --- the writer ----------------------------------------------------------------------------------
 
 
 def _merge_yaml(
@@ -156,33 +422,36 @@ def _merge_yaml(
     toolset: tuple[str, ...] | None,
     label: str,
 ) -> Merged:
-    directive, body = _split_directive(text)
-    yaml = _yaml(body)
-    try:
-        root = yaml.load(body)
-    except YAMLError as exc:
-        raise ApplyRefused(f"{label} does not parse as YAML: {exc}") from exc
-    if root is None:
-        root = CommentedMap()
-    if not isinstance(root, CommentedMap):
-        raise ApplyRefused(f"{label}: the top level is not a mapping")
-    deny = _list_at(root, descriptor.deny_path, label)
-    added = tuple(p for p in dict.fromkeys(wanted) if p not in deny)
-    if added:
-        deny.fa.set_block_style()
-        deny.extend(_scalar(descriptor, p) for p in added)
+    root = _parse(text, descriptor, label)
+    held = _value_at(root, descriptor.deny_path)
+    added = tuple(
+        p for p in dict.fromkeys(wanted) if p not in (held if isinstance(held, list) else ())
+    )
+    result = _splice(text, descriptor, descriptor.deny_path, added, replace=False, label=label)
     change = None
+    expected = _plain(root) if root is not None else {}
+    _set_plain(
+        expected, descriptor.deny_path, [*(_plain(held) if isinstance(held, list) else []), *added]
+    )
     if toolset is not None and descriptor.toolset is not None:
-        current = _list_at(root, descriptor.toolset.path, label)
-        before = tuple(str(item) for item in current)
+        current = _value_at(root, descriptor.toolset.path)
+        before = tuple(str(item) for item in current) if isinstance(current, list) else ()
         if before != toolset:
-            current[:] = [_scalar(descriptor, name) for name in toolset]
+            result = _splice(
+                result, descriptor, descriptor.toolset.path, toolset, replace=True, label=label
+            )
+            _set_plain(expected, descriptor.toolset.path, list(toolset))
             change = (before, toolset)
-    if not added and change is None:
+        else:
+            _set_plain(expected, descriptor.toolset.path, _plain(current))
+    if result == text:
         return Merged(text=text, added=(), toolset_change=None)
-    out = StringIO()
-    yaml.dump(root, out)
-    return Merged(text=directive + out.getvalue(), added=added, toolset_change=change)
+    if _plain(_parse(result, descriptor, label, " after the merge")) != expected:
+        raise ApplyRefused(
+            f"{label}: the merge did not produce the original plus the added entries "
+            "(a defect in the merge, not in your file); nothing was written"
+        )
+    return Merged(text=result, added=added, toolset_change=change)
 
 
 # A writer per format; the table's structural test fails a row naming one without.
@@ -215,7 +484,7 @@ def apply(
                 f"elsewhere (set {descriptor.home_env})"
             ),
         )
-    before = path.read_text()
+    before = path.read_bytes().decode()
     wanted_toolset = descriptor.toolset.names if toolset and descriptor.toolset else None
     merged = WRITERS[descriptor.format](
         before, descriptor, patterns(extra=extra), wanted_toolset, str(path)
@@ -255,8 +524,8 @@ def _replace(path: Path, text: str) -> None:
     mode = path.stat().st_mode
     fd, name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
     try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(text.encode())
         os.chmod(name, mode & 0o7777)
         os.replace(name, path)
     except BaseException:

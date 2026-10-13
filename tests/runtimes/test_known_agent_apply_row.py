@@ -63,12 +63,13 @@ def test_the_first_agents_round_trip_adds_the_patterns_and_keeps_off_quoted(
     home = tmp_path / "home"
     home.mkdir()
     config = home / descriptor.file
-    config.write_text('# mine\napprovals:\n  mode: "off"   # quoted\n  deny: []\nmodel: fast\n')
+    before = '# mine\napprovals:\n  mode: "off"   # quoted\n  deny:\nmodel: fast\n'
+    config.write_bytes(before.encode())
 
     result = apply(descriptor, home)
 
-    after = config.read_text()
+    after = config.read_bytes().decode()
     assert result.status == Status.WRITTEN
     assert yaml.safe_load(after)["approvals"]["deny"] == patterns()
-    assert 'mode: "off"   # quoted' in after
-    assert "# mine" in after
+    kept = iter(after.splitlines())
+    assert all(line in kept for line in before.splitlines())
