@@ -51,7 +51,9 @@ def rows(out: str, window: str) -> list[dict[str, str]]:
 
 def counts(out: str, window: str) -> dict[str, int]:
     (line,) = [line for line in out.splitlines() if line.startswith(f"{window}:")]
-    return {label: int(n) for label, n in re.findall(r"([a-z ]+?) (\d+)", line.split(":", 1)[1])}
+    return {
+        label.strip(): int(n) for label, n in re.findall(r"([a-z ]+?) (\d+)", line.split(":", 1)[1])
+    }
 
 
 def estimates(out: str, window: str) -> list[float]:

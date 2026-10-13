@@ -25,7 +25,10 @@
   pairs behind them. `usage_unit_allowance_pct` now takes `auto` (the default) or a whole
   number, which is the fallback and the cap; `calibrate_usage_allowances: false` restores the
   fixed allowances. New settings: `usage_allowance_quantile`, `usage_allowance_window`,
-  `usage_allowance_min_pairs` and, per window, `usage_allowance_floor_pct`.
+  `usage_allowance_min_pairs` and, per window, `usage_allowance_floor_pct`. `abk usage replay`
+  re-runs the estimate over the recorded readings and prints each gap's estimate against the
+  actual reading, with counts of underestimates, misses beyond the margin, false pauses and
+  false allows; it writes and asks nothing.
 
 - A failed unit that waits on another unit (a prerequisite not yet reviewed or merged, or a
   predecessor being reworked, failed or held) no longer holds a place under

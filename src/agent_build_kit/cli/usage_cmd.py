@@ -10,13 +10,27 @@ import argparse
 import json
 import os
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, CostBasis, ledger_lock, read_lines
+from agent_build_kit.pipeline.usage_allowances import (
+    WINDOWS,
+    allowance_for,
+    calibrate_pairs,
+    pairs,
+)
+from agent_build_kit.pipeline.usage_calls import CALLS_NAME, parse_calls
+from agent_build_kit.pipeline.usage_guard import claude_limits
+from agent_build_kit.pipeline.usage_ledger import (
+    LEDGER_NAME,
+    CostBasis,
+    ledger_lock,
+    read_ledger,
+    read_lines,
+)
 from agent_build_kit.pipeline.usage_report import roll_up_change
 
 HELP = "temporary: removed once every installation has run it"
@@ -264,8 +278,63 @@ def cmd_backfill_costs(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def _since(value: str) -> datetime:
+    try:
+        at = datetime.fromisoformat(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a time: {value!r}") from None
+    return at if at.tzinfo else at.replace(tzinfo=UTC)
+
+
 def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
-    raise NotImplementedError
+    """Re-run the estimate over each usable gap of the record; writes and asks nothing."""
+    limits = claude_limits()
+    try:
+        calls = parse_calls((inst.state_dir / CALLS_NAME).read_text())
+    except FileNotFoundError:
+        calls = []
+    ledger = read_ledger(inst.state_dir / LEDGER_NAME)
+    margin = limits.usage_headroom_margin_pct if args.margin is None else args.margin
+    min_gap = timedelta(minutes=limits.usage_cache_minutes)
+    now = datetime.now(UTC)
+    anywhere = False
+    for window in WINDOWS:
+        fixed = getattr(args, f"{window}_allowance")
+        threshold = getattr(limits, window).usage_pause_pct
+        usable = pairs(calls, ledger, window, min_gap=min_gap)
+        shown = False
+        under = missed = paused = allowed = 0
+        for index, pair in enumerate(usable):
+            if args.since is not None and pair.at < args.since:
+                continue
+            allowance = fixed
+            if allowance is None:
+                found = calibrate_pairs(usable[:index], limits=limits, now=now)
+                allowance = allowance_for(window, found, limits)
+            estimate = pair.before + allowance * pair.units
+            actual = pair.before + pair.gain
+            ample = estimate + margin < threshold
+            under += actual > estimate
+            missed += actual > estimate + margin
+            paused += not ample and actual < threshold
+            allowed += ample and actual >= threshold
+            shown = anywhere = True
+            print(
+                f"{window} at={pair.at.isoformat()} before={pair.before} after={actual} "
+                f"units={pair.units} estimate={estimate:g}"
+            )
+        if shown:
+            print(
+                f"{window}: underestimates {under}, misses beyond margin {missed}, "
+                f"false pauses {paused}, false allows {allowed}"
+            )
+        print(
+            f"{window} threshold: usage_pause_pct {threshold} (static: the record keeps no "
+            "reset times, so a threshold that moves towards a reset is not modelled)"
+        )
+    if not anywhere:
+        print("no usable gap")
+    return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -278,7 +347,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     backfill.set_defaults(func=cmd_backfill_costs)
 
     replay = commands.add_parser("replay", help="re-run the usage estimate over the history")
-    replay.add_argument("--since", default=None, help="only gaps whose first reading is this late")
+    replay.add_argument(
+        "--since", type=_since, default=None, help="only gaps whose first reading is this late"
+    )
     replay.add_argument("--session-allowance", type=int, default=None)
     replay.add_argument("--weekly-allowance", type=int, default=None)
     replay.add_argument("--margin", type=int, default=None)

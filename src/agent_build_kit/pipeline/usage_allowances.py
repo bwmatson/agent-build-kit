@@ -42,6 +42,7 @@ class UsagePair(Frozen):
     """Two good readings of a window and the units that spent between them."""
 
     at: datetime  # the earlier reading
+    before: int  # the figure at the earlier reading
     gain: int  # points gained between the readings
     units: int  # distinct units with an agent record in [earlier, later)
 
@@ -67,8 +68,27 @@ def pairs(
     for before, low, after, high in consecutive_readings(calls, window, min_gap=min_gap):
         units = len({unit for at, unit in spent if before <= at < after})
         if high >= low and after - before <= SPANS[window] and units:
-            made.append(UsagePair(at=before, gain=high - low, units=units))
+            made.append(UsagePair(at=before, before=low, gain=high - low, units=units))
     return made
+
+
+def calibrate_pairs(
+    usable: list[UsagePair], *, limits: ClaudeLimitsConfig, now: datetime
+) -> Calibrated:
+    """The calibration of one window from its usable pairs, oldest first."""
+    newest = usable[-limits.usage_allowance_window :]
+    figure = None
+    if len(usable) >= limits.usage_allowance_min_pairs:
+        samples = sorted(p.gain / p.units for p in newest)
+        rank = math.ceil(round(limits.usage_allowance_quantile * len(samples), 9))
+        figure = samples[max(rank, 1) - 1]
+    return Calibrated(
+        quantile_pct_per_unit=figure,
+        quantile=limits.usage_allowance_quantile,
+        pairs_used=len(newest) if figure is not None else 0,
+        pairs_available=len(usable),
+        computed_at=now,
+    )
 
 
 def calibrated_allowances(
@@ -85,19 +105,7 @@ def calibrated_allowances(
     found: dict[str, Calibrated] = {}
     for window in WINDOWS:
         usable = pairs(calls, ledger, window, min_gap=min_gap)
-        newest = usable[-limits.usage_allowance_window :]
-        figure = None
-        if len(usable) >= limits.usage_allowance_min_pairs:
-            samples = sorted(p.gain / p.units for p in newest)
-            rank = math.ceil(round(limits.usage_allowance_quantile * len(samples), 9))
-            figure = samples[max(rank, 1) - 1]
-        found[window] = Calibrated(
-            quantile_pct_per_unit=figure,
-            quantile=limits.usage_allowance_quantile,
-            pairs_used=len(newest) if figure is not None else 0,
-            pairs_available=len(usable),
-            computed_at=now,
-        )
+        found[window] = calibrate_pairs(usable, limits=limits, now=now)
     return found
 
 
