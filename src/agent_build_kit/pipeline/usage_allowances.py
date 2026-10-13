@@ -19,8 +19,13 @@ from pydantic import ValidationError
 
 from agent_build_kit.config import ClaudeLimitsConfig
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.usage_calls import CALLS_NAME, UsageCall, read_calls
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger
+from agent_build_kit.pipeline.usage_calls import (
+    CALLS_NAME,
+    UsageCall,
+    consecutive_readings,
+    read_calls,
+)
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_times
 
 ALLOWANCES_NAME = "usage-allowances.json"
 
@@ -52,29 +57,14 @@ def pairs(
     calls: list[UsageCall], ledger: list[UsageRecord], window: Window, *, min_gap: timedelta
 ) -> list[UsagePair]:
     """The usable pairs of `window`, oldest first. Each reading is paired with the next one at
-    least `min_gap` later, as `most_added` pairs them; a fall, a gap longer than the window's
+    least `min_gap` later, as `most_added` does; a fall, a gap longer than the window's
     span and a gap in which no unit spent make no pair."""
-    readings = sorted(
-        (c.at, pct)
-        for c in calls
-        if c.outcome == "ok"
-        and (pct := c.session_pct if window == "session" else c.weekly_pct) is not None
-    )
-    spent: list[tuple[datetime, str]] = []
-    for record in ledger:
-        try:
-            spent.append((datetime.fromisoformat(record.at), record.unit))
-        except ValueError:
-            continue
+    spent = spend_times(ledger)
     made = []
-    for index, (before, low) in enumerate(readings):
-        for after, high in readings[index + 1 :]:
-            gap = after - before
-            if gap > timedelta(0) and gap >= min_gap:
-                units = len({unit for at, unit in spent if before <= at < after})
-                if high >= low and gap <= SPANS[window] and units:
-                    made.append(UsagePair(at=before, gain=high - low, units=units))
-                break
+    for before, low, after, high in consecutive_readings(calls, window, min_gap=min_gap):
+        units = len({unit for at, unit in spent if before <= at < after})
+        if high >= low and after - before <= SPANS[window] and units:
+            made.append(UsagePair(at=before, gain=high - low, units=units))
     return made
 
 

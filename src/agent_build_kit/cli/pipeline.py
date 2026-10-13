@@ -216,6 +216,7 @@ from agent_build_kit.pipeline.usage_guard import (
     Limits,
     RateLimited,
     UsageReading,
+    claude_limits,
     current_cache_interval,
     current_usage,
     decide_start,
@@ -321,10 +322,6 @@ def store_for(inst: Installation) -> UnitStore:
         on_write=refresh_pages,
         on_state=follow,
     )
-
-
-def _claude_limits() -> config.ClaudeLimitsConfig:
-    return config.active().runtimes.get(config.CLAUDE_CODE, config.RuntimeConfig()).limits
 
 
 def _paused_marker(inst: Installation) -> Path:
@@ -490,9 +487,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if runtime.supports_usage_tracking and (estimate := held_estimate_line()):
             log(estimate)
         if runtime.supports_usage_tracking:
-            log(
-                allowances_line(read_allowances(inst.state_dir / ALLOWANCES_NAME), _claude_limits())
-            )
+            log(allowances_line(read_allowances(inst.state_dir / ALLOWANCES_NAME), claude_limits()))
         calls = read_calls(inst.state_dir / CALLS_NAME)
         if calls:
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
@@ -914,12 +909,12 @@ def _record_unit_states(inst: Installation) -> None:
 def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     """What a tick does once there is work: a round, then the builds."""
     store = store_for(inst)
-    # Once, here: every start this tick decides on an estimate reads the result kept.
-    refresh_allowances(inst.state_dir, limits=_claude_limits(), now=datetime.now(UTC))
 
     if args.dry_run:
         log("dry run — the environment is not synced and waiting units are not resumed")
     else:
+        # Once per tick, not on a dry run: every start decided on an estimate reads the result.
+        refresh_allowances(inst.state_dir, limits=claude_limits(), now=datetime.now(UTC))
         if not environment.ensure(inst, say=log):
             tick.outcome = "environment"
             return 1

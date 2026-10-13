@@ -12,6 +12,7 @@ import json
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -334,6 +335,17 @@ def read_lines(path: Path) -> list[str]:
 def read_ledger(path: Path) -> list[UsageRecord]:
     """The ledger's agent records; see `records_in`."""
     return records_in(read_lines(path))
+
+
+def spend_times(records: list[UsageRecord]) -> list[tuple[datetime, str]]:
+    """When each record was made and for which unit, skipping one whose time does not parse."""
+    spent = []
+    for record in records:
+        try:
+            spent.append((datetime.fromisoformat(record.at), record.unit))
+        except ValueError:
+            continue
+    return spent
 
 
 def records_in(lines: list[str]) -> list[UsageRecord]:
