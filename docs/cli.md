@@ -515,19 +515,32 @@ an installation rather than reading one. Step by step in [init.md](init.md).
   protocol runtime's) spends tokens, so it says so and asks first (`--yes`
   skips the question); declining records `policy: unchecked` on the entry,
   and `abk doctor` then warns on every run without sending a prompt. A class
-  not refused is printed by class and spelling. When `runtimes.<name>.policy_fix`
-  is set, the fix command and the unrefused classes are printed, init asks,
-  runs the command only on a yes with its output on your terminal (never
-  captured), checks again and prints each class and spelling as refused or not.
+  not refused is printed by class and spelling. The fix is, in order: the
+  installation's `runtimes.<name>.policy_fix`; else, for an agent the kit can
+  write to (a known agent whose row has an applier), the kit's recommended
+  policy; else the choices below. For a configured fix, the command and the
+  unrefused classes are printed, init asks, runs the command only on a yes with
+  its output on your terminal (never captured), checks again and prints each
+  class and spelling as refused or not. For the kit's recommended policy, init
+  shows the agent's configuration path and the diff (added lines only), asks
+  `apply the kit's recommended policy? [y/N]`, applies the deny list only
+  (backing the original up once, as `abk policy apply` does), checks again and
+  prints each class and spelling as refused or not; a spelling still not refused
+  is named, with the note that the agent's own matcher, not the list, may be
+  what lets it through. A no writes nothing and states what is still unenforced.
+  An agent whose configuration is absent is reported as `not found`, nothing is
+  offered and `abk policy patterns` is named. The build-run toolset is never
+  changed here; `abk policy apply --toolset` is named as a separate decision.
   A fix that exits non-zero is reported with its status and the check still
   runs again; one that exits 0 and changes nothing prints `the fix made no
   change; still not refused: <spellings>`; a pass is only reported when the
-  second check showed it. An agent with no fix offers three choices, none
-  guessed: rely on abk's own protocol layer (it sees what the agent asks
+  second check showed it. An agent with neither a fix nor an applier offers three
+  choices, none guessed (and the menu says `abk policy patterns` prints the
+  recommended patterns to place in its configuration yourself): rely on abk's own protocol layer (it sees what the agent asks
   about, not what it never asks about), supply a fix command (an existing
   executable, recorded as `policy_fix`), or continue without
-  (`policy: unchecked`). With `--yes` a configured fix is only printed, never
-  run, unless `--policy-fix` or `--run-policy-fix` is also given. The answer is
+  (`policy: unchecked`). With `--yes` a configured fix, or the kit's recommended policy, is only
+  named, never run, unless `--policy-fix` or `--run-policy-fix` is also given. The answer is
   reused for 15 minutes (`<state_dir>/policy-check.json`). When the runtime
   raises instead of answering, init prints the error, caches nothing and
   carries on; `abk doctor` asks again.
@@ -544,7 +557,8 @@ an installation rather than reading one. Step by step in [init.md](init.md).
 - `--policy-fix ARGV` supplies the fix, validated as an existing executable
   (exit 2 otherwise), recorded as `policy_fix` after a confirmation (`--yes`
   is the confirmation) and used in this run, with or without `--policy-only`.
-  `--run-policy-fix` lets `--yes` run a configured fix unasked: a fix rewrites
+  `--run-policy-fix` lets `--yes` run a configured fix, or apply the kit's
+  recommended policy, unasked: a fix rewrites
   the agent's own configuration, so `--yes` alone never runs one and, with a
   class not refused, names it and exits 1 under `--policy-only`.
 
