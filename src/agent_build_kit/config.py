@@ -289,6 +289,14 @@ class RuntimeConfig(Frozen):
     policy: PolicyMarker | None = None
     # The installation's own command globs, merged after the kit's recommended ones.
     policy_extra: list[str] | None = None
+
+    @field_validator("policy_extra")
+    @classmethod
+    def _extras_are_not_blank(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and any(not item.strip() for item in value):
+            raise ValueError("policy_extra: an item is blank")
+        return value
+
     models: RuntimeModelsConfig = RuntimeModelsConfig()
     # The context window, in tokens, of each model, for when the agent does not say
     # (read by the Claude Code runtime only).
