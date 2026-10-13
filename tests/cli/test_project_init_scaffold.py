@@ -52,3 +52,14 @@ def test_an_existing_manifest_is_left_alone_and_reported(tmp_path: Path, capsys)
     assert code == 0
     assert manifest.read_text() == original
     assert "left alone" in capsys.readouterr().out
+
+
+def test_a_directory_name_with_a_quote_still_gives_a_parsable_pyproject(tmp_path: Path) -> None:
+    config = write_commented(tmp_path)
+    name = 'we"ird\\name'
+
+    code = project_init(config, name, "--profile", "python-uv", "--repo", "app", "--scaffold")
+
+    assert code == 0
+    parsed = tomllib.loads((tmp_path / "app" / name / "pyproject.toml").read_text())
+    assert parsed["project"]["name"] == name

@@ -90,3 +90,26 @@ def test_an_absolute_path_of_a_registered_project_is_a_duplicate(tmp_path: Path,
     assert code != 0
     assert "svc-a" in capsys.readouterr().err
     assert config.read_text() == before
+
+
+def test_a_repo_path_with_a_tilde_is_the_checkout_for_scaffold_and_absolute_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, cwd = tmp_path / "home", tmp_path / "cwd"
+    cwd.mkdir()
+    (home / "app").mkdir(parents=True)
+    config = write_commented(tmp_path / "planning")
+    declared = str(Path("~") / "app")  # a repo declared relative to the home directory
+    config.write_text(config.read_text().replace(str(tmp_path / "planning" / "app"), declared))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(cwd)
+
+    scaffolded = project_init(config, "web", "--profile", "node-npm", "--repo", "app", "--scaffold")
+    absolute = project_init(
+        config, str(home / "app" / "web2"), "--profile", "node-npm", "--repo", "app"
+    )
+
+    assert scaffolded == 0 and absolute == 0
+    assert (home / "app" / "web" / "package.json").is_file()
+    assert list(cwd.iterdir()) == []
+    assert [p["path"] for p in projects_of(config, "app")][-2:] == ["web", "web2"]

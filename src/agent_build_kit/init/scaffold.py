@@ -212,7 +212,7 @@ def dump_with_notes(config: WorkspaceConfig) -> str:
         found = _key_line(lines, "environment", start=start, stop=stop, top=name is None)
         if found is None:
             continue
-        indent = lines[found][: len(lines[found]) - len(lines[found].lstrip())]
+        indent = lines[found][: _indent_of(lines[found])]
         lines[found:found] = [f"{indent}# {line}\n" for line in note.splitlines()]
     return "".join(lines)
 
@@ -223,7 +223,7 @@ def _child_indent(lines: list[str], at: int, parent: int) -> str:
         body = line.strip()
         if not body or body.startswith("#"):
             continue
-        indent = len(line) - len(line.lstrip())
+        indent = _indent_of(line)
         return " " * indent if indent > parent else " " * (parent + 2)
     return " " * (parent + 2)
 
@@ -369,7 +369,7 @@ def fill_missing_environment(
         at = _key_line(lines, str(name), start=section + 1, stop=_top_level_end(lines, section))
         if at is None:
             continue
-        parent = len(lines[at]) - len(lines[at].lstrip())
+        parent = _indent_of(lines[at])
         indent = _child_indent(lines, at, parent)
         note = _note(drafted.repos[name].environment) if name in drafted.repos else ""
         lines[at + 1 : at + 1] = _block("environment", wanted, indent, note)

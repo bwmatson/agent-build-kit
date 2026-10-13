@@ -45,7 +45,7 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
             raise ProjectInitError(
                 f"no repo {args.repo!r} in abk.yaml (declared: {', '.join(repos)})"
             )
-        root = repos[args.repo].path
+        root = inst.checkouts[args.repo]
         path = _normal(args.path, root)
         if args.profile not in profiles.names():
             raise ProjectInitError(
@@ -66,7 +66,7 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
         return 1
     print(f"registered {path} ({args.profile}) in {args.repo}")
     if args.scaffold:
-        directory = repos[args.repo].path / path
+        directory = root / path
         _scaffold(directory, args.profile, directory.resolve().name)
     return 0
 
