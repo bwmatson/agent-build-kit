@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from agent_build_kit.pipeline.usage_allowances import Calibrated
 from agent_build_kit.pipeline.usage_calls import CALLS_NAME, UsageCall
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, append_record
 
@@ -17,6 +18,7 @@ START = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
 GAP = timedelta(hours=2)
 STEP = timedelta(hours=4)
 MIN_GAP = timedelta(minutes=15)
+COMPUTED_AT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 
 
 def reading(window: str, at: datetime, pct: int | None, outcome: str = "ok") -> UsageCall:
@@ -60,3 +62,14 @@ def keep(state_dir: Path, calls: list[UsageCall], ledger: list[UsageRecord]) -> 
     (state_dir / CALLS_NAME).write_text("".join(c.model_dump_json() + "\n" for c in calls))
     for record in ledger:
         append_record(state_dir / LEDGER_NAME, record)
+
+
+def calibrated(raw: float | None, pairs: int = 24, *, at: datetime = COMPUTED_AT) -> Calibrated:
+    """A kept calibration of one window: `raw` points a unit at the ninetieth, on `pairs`."""
+    return Calibrated(
+        quantile_pct_per_unit=raw,
+        quantile=0.9,
+        pairs_used=pairs,
+        pairs_available=pairs,
+        computed_at=at,
+    )

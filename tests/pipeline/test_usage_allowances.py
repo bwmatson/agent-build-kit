@@ -17,6 +17,7 @@ from tests.usage_allowance_records import (
     GAP,
     MIN_GAP,
     START,
+    calibrated,
     per_unit,
     reading,
     segments,
@@ -33,16 +34,6 @@ def limits(**values: object) -> ClaudeLimitsConfig:
 
 def found(window: str, calls: list, ledger: list, **settings: object) -> Calibrated | None:
     return calibrated_allowances(calls, ledger, limits=limits(**settings), now=NOW).get(window)
-
-
-def kept(raw: float | None, *, pairs_used: int = 12) -> Calibrated:
-    return Calibrated(
-        quantile_pct_per_unit=raw,
-        quantile=0.9,
-        pairs_used=pairs_used,
-        pairs_available=pairs_used,
-        computed_at=NOW,
-    )
 
 
 # --- 1.1 pairs ---------------------------------------------------------------------------
@@ -167,13 +158,13 @@ def test_eight_pairs_apply() -> None:
 
 
 def test_the_floor_raises_a_zero_quantile_to_one() -> None:
-    assert allowance_for("weekly", kept(0), limits()) == 1
+    assert allowance_for("weekly", calibrated(0, 12), limits()) == 1
 
 
 def test_the_floor_is_the_one_set_for_the_window() -> None:
     configured = limits(weekly={"usage_allowance_floor_pct": 2})
 
-    assert allowance_for("weekly", kept(0), configured) == 2
+    assert allowance_for("weekly", calibrated(0, 12), configured) == 2
 
 
 def test_the_ceiling_is_twice_the_default_when_the_allowance_is_auto() -> None:
@@ -181,26 +172,26 @@ def test_the_ceiling_is_twice_the_default_when_the_allowance_is_auto() -> None:
         session={"usage_unit_allowance_pct": "auto"}, weekly={"usage_unit_allowance_pct": "auto"}
     )
 
-    assert allowance_for("session", kept(40), auto) == 20
-    assert allowance_for("weekly", kept(40), auto) == 4
+    assert allowance_for("session", calibrated(40, 12), auto) == 20
+    assert allowance_for("weekly", calibrated(40, 12), auto) == 4
 
 
 def test_an_explicit_allowance_is_the_cap_and_a_lower_figure_stands() -> None:
     capped = limits(weekly={"usage_unit_allowance_pct": 3})
 
-    assert allowance_for("weekly", kept(5), capped) == 3
-    assert allowance_for("weekly", kept(1), capped) == 1
+    assert allowance_for("weekly", calibrated(5, 12), capped) == 3
+    assert allowance_for("weekly", calibrated(1, 12), capped) == 1
 
 
 def test_a_figure_between_the_bounds_is_rounded_up_to_whole_points() -> None:
-    assert allowance_for("session", kept(8.2), limits()) == 9
+    assert allowance_for("session", calibrated(8.2, 12), limits()) == 9
 
 
 def test_calibration_off_uses_the_configured_allowance_of_every_window() -> None:
     off = limits(calibrate_usage_allowances=False, weekly={"usage_unit_allowance_pct": 3})
 
-    assert allowance_for("session", kept(15), off) == 10
-    assert allowance_for("weekly", kept(1), off) == 3
+    assert allowance_for("session", calibrated(15, 12), off) == 10
+    assert allowance_for("weekly", calibrated(1, 12), off) == 3
     assert calibrated_allowances(*per_unit("weekly", [1] * 9), limits=off, now=NOW) == {}
 
 

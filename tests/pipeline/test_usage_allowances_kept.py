@@ -12,27 +12,16 @@ import pytest
 from agent_build_kit.config import ClaudeLimitsConfig
 from agent_build_kit.pipeline.usage_allowances import (
     ALLOWANCES_NAME,
-    Calibrated,
     read_allowances,
     refresh_allowances,
     write_allowances,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
-from tests.usage_allowance_records import keep, per_unit
+from tests.usage_allowance_records import calibrated, keep, per_unit
 
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 LIMITS = ClaudeLimitsConfig()
 WINDOW_KEYS = {"quantile_pct_per_unit", "quantile", "pairs_used", "pairs_available", "computed_at"}
-
-
-def calibrated(raw: float | None, pairs: int) -> Calibrated:
-    return Calibrated(
-        quantile_pct_per_unit=raw,
-        quantile=0.9,
-        pairs_used=pairs,
-        pairs_available=pairs,
-        computed_at=NOW,
-    )
 
 
 def test_a_refresh_keeps_each_window_with_its_quantile_pairs_and_time(tmp_path: Path) -> None:

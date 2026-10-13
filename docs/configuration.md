@@ -116,7 +116,7 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                       # ceiling twice that); a whole number is the fallback
                                       # and the cap on the calibrated figure
         usage_allowance_floor_pct: 1  # the least a calibrated allowance may be
-      weekly:                   # the same five settings, for the week
+      weekly:                   # the same settings, for the week
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25

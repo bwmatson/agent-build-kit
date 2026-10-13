@@ -17,20 +17,10 @@ from agent_build_kit.pipeline.usage_allowances import (
 )
 from agent_build_kit.pipeline.usage_guard import decide_start
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, append_record
-from tests.usage_allowance_records import spend
+from tests.usage_allowance_records import calibrated, spend
 from tests.usage_host import Host, configure, payload, refused
 
 MINUTE = timedelta(minutes=1)
-
-
-def calibrated(raw: float) -> Calibrated:
-    return Calibrated(
-        quantile_pct_per_unit=raw,
-        quantile=0.9,
-        pairs_used=24,
-        pairs_available=24,
-        computed_at=datetime.now(UTC),
-    )
 
 
 def paused_on_a_reading(host: Host, *, units: int, **limits: object) -> None:

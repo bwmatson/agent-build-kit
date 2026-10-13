@@ -1,6 +1,6 @@
 """`abk status` prints which usage allowances are in force and the pairs behind them, no call."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -9,19 +9,8 @@ from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.usage_allowances import ALLOWANCES_NAME, Calibrated, write_allowances
 from tests.conftest import make_installation
+from tests.usage_allowance_records import calibrated
 from tests.usage_host import Host, payload, refused
-
-NOW = datetime.now(UTC)
-
-
-def calibrated(raw: float | None, pairs: int) -> Calibrated:
-    return Calibrated(
-        quantile_pct_per_unit=raw,
-        quantile=0.9,
-        pairs_used=pairs,
-        pairs_available=pairs,
-        computed_at=NOW,
-    )
 
 
 def status_lines(
@@ -93,3 +82,16 @@ def test_calibration_off_says_the_allowances_are_fixed(
     lines = status_lines(tmp_path, host, capsys, found, calibrate_usage_allowances=False)
 
     assert allowance_lines(lines) == ["usage allowances: fixed (calibration off)"]
+
+
+def test_a_figure_cut_to_the_ceiling_or_raised_to_the_floor_is_marked(
+    tmp_path: Path, host: Host, capsys: pytest.CaptureFixture[str]
+) -> None:
+    found = {"session": calibrated(40, 24), "weekly": calibrated(0, 24)}
+
+    lines = status_lines(tmp_path, host, capsys, found)
+
+    assert allowance_lines(lines) == [
+        "usage allowances: session 20/unit (24 pairs, capped), "
+        "weekly 1/unit (24 pairs, floor), calibrated"
+    ]

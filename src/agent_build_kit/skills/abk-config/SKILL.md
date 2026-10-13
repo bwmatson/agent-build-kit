@@ -73,7 +73,7 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                                        # calibrates it from history (fallback 10, ceiling 20);
                                        # a number is the fallback and the cap
         usage_allowance_floor_pct: 1   # least a calibrated allowance may be
-      weekly:                 # the 7-day window: the same five
+      weekly:                 # the 7-day window: the same settings
         usage_pause_pct: 70
         usage_pause_ceiling_pct:
         usage_relief_fraction: 0.25
