@@ -21,7 +21,6 @@ from __future__ import annotations
 import ast
 import logging
 import os
-import re
 import shlex
 import subprocess
 import time
@@ -65,6 +64,7 @@ from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, wai
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import moved_base_scope
+from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.pr_replies import (
     MARKER,
@@ -75,6 +75,7 @@ from agent_build_kit.pipeline.pr_replies import (
 from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
+    Resolver,
     RestackConflict,
     Turn,
     adopt_host_head,
@@ -141,7 +142,7 @@ from agent_build_kit.profiles.base import (
 )
 from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
-from agent_build_kit.runtimes.base import Role, SessionUnavailable
+from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
 
 logger = logging.getLogger(__name__)
@@ -308,6 +309,8 @@ def build_run(
         resume_runtime: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: AgentCallback | None = None,
+        tools: str = "",
+        permission_mode: PermissionMode = "edit",
     ) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
         if resume_session and not agent.supports_session_resume:
@@ -372,8 +375,9 @@ def build_run(
             # there under an invented unit id.
             add_dirs=(specs,),
             model=model,
-            allowed_tools=allowed_tools or BASE_TOOLS,
-            permission_mode="edit",
+            # A call may narrow what it is granted (the restack's resolution, in a paused rebase).
+            allowed_tools=tools or allowed_tools or BASE_TOOLS,
+            permission_mode=permission_mode,
             policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
             on_event=journal or log or print,
             on_transcript=transcript,
@@ -2373,13 +2377,20 @@ def build_restack_onto(
 
     `resolve=False` moves without the conflict resolver, for the check before a
     push: a conflict is aborted, the branch left at its head, and reported as
-    `Restacked.conflict`, so the unit is held and the resolution happens at the
-    start of its next run, under the usage gate and with review told of it.
+    `Restacked.conflict`, so the run goes back to its restack, where the resolution
+    happens under the usage gate and with review told of it. A `resolver` is what
+    the resolution asks instead of the one `resolved_move` makes.
     """
     resolving = move or partial(resolved_move, repo_config=repo)
 
     def restack_onto(
-        *, tree: Path, branch: str, base: str, unit: Unit, resolve: bool = True
+        *,
+        tree: Path,
+        branch: str,
+        base: str,
+        unit: Unit,
+        resolve: bool = True,
+        resolver: Resolver | None = None,
     ) -> Restacked | None:
         move = resolving if resolve else _move_without_resolver
         if _is_ancestor(tree, base):
@@ -2396,6 +2407,8 @@ def build_restack_onto(
         onto_intent = onto.title if onto else "the updated base"
         old_head = git(tree, "rev-parse", "HEAD").stdout.strip()
         approved = store.get(unit.id).approved
+        # The caller's own resolver: a call of the unit's session, where it has one.
+        asking: dict[str, Any] = {"resolve": resolver} if resolver and resolve else {}
         try:
             moved = retried_once(
                 lambda: move(
@@ -2410,6 +2423,7 @@ def build_restack_onto(
                     onto_unit=onto_unit,
                     onto_intent=onto_intent,
                     turn=turn,
+                    **asking,
                 )
             )
         except RestackConflict as error:
@@ -2458,66 +2472,6 @@ def predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
         if d in index and index[d].repo == unit.repo
     ]
     return parents[-1] if parents else None
-
-
-HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
-
-
-def _test_spans(source: str) -> list[tuple[str, int, int]]:
-    """Each `test_*` function's name and first and last line, decorators included."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return []
-    return [
-        (
-            node.name,
-            min([d.lineno for d in node.decorator_list] + [node.lineno]),
-            node.end_lineno or node.lineno,
-        )
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and node.name.startswith("test_")
-    ]
-
-
-def _lines_in(spans: list[tuple[str, int, int]], first: int, count: int) -> set[str]:
-    """Tests whose span holds any of `count` lines starting at `first`."""
-    return {name for name, lo, hi in spans if count and first <= hi and first + count - 1 >= lo}
-
-
-def defined_tests_in_range(tree: Path, old_base: str, old_head: str) -> list[str]:
-    """Which tests the commit range `old_base..old_head` defined, deleted or edited inside.
-
-    From which lines the range added or removed and which test each falls
-    within, not from the diff's text: a test that only sits in the diff's
-    context, beside an edit, is not the unit's.
-    """
-    names = git(
-        tree, "diff", "-z", "--name-only", "--no-renames", old_base, old_head, "--", "*.py",
-        check=False, errors="surrogateescape",
-    ).stdout  # fmt: skip
-    found: set[str] = set()
-    for path in (p for p in names.split("\0") if p):
-        diff = git(
-            tree, "diff", "-U0", "--no-renames", old_base, old_head, "--", path,
-            check=False, errors="replace",
-        ).stdout  # fmt: skip
-        old = git(tree, "show", f"{old_base}:{path}", check=False, errors="replace")
-        new = git(tree, "show", f"{old_head}:{path}", check=False, errors="replace")
-        old_spans = _test_spans(old.stdout) if old.returncode == 0 else []
-        new_spans = _test_spans(new.stdout) if new.returncode == 0 else []
-        for hunk in HUNK.finditer(diff):
-            old_at, old_n, new_at, new_n = hunk.groups()
-            found |= _lines_in(old_spans, int(old_at), int(old_n or 1))
-            found |= _lines_in(new_spans, int(new_at), int(new_n or 1))
-    return sorted(found)
-
-
-def tests_in(tree: Path) -> set[str]:
-    """Every test function in the worktree as it stands."""
-    out = git(tree, "grep", "-hoE", "def test_[A-Za-z0-9_]+", "--", "*.py", check=False).stdout
-    return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
 
 
 def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]]:

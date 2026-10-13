@@ -111,7 +111,7 @@ def test_a_good_resolution_completes_the_move_keeping_both_changes(conflicting: 
 def test_leftover_conflict_markers_are_refused(conflicting: Path) -> None:
     """The commonest bad resolution: staging the conflict itself."""
 
-    def lazy(prompt: str, *, cwd: Path) -> None:
+    def lazy(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
         pass  # leaves the <<<<<<< markers in place
 
     with pytest.raises(RestackConflict, match="conflict markers"):
@@ -129,7 +129,7 @@ def test_dropping_the_moving_units_own_change_is_refused(conflicting: Path) -> N
     """Taking the base's side wholesale makes the conflict disappear and the
     unit pointless. That is the easiest wrong answer, so it is checked."""
 
-    def takes_theirs(prompt: str, *, cwd: Path) -> None:
+    def takes_theirs(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
         (cwd / "markers.py").write_text('markers = ["integration"]\n')
 
     with pytest.raises(RestackConflict, match="dropped"):
@@ -145,7 +145,7 @@ def test_dropping_the_moving_units_own_change_is_refused(conflicting: Path) -> N
 
 
 def test_a_failed_resolution_leaves_no_rebase_in_progress(conflicting: Path) -> None:
-    def lazy(prompt: str, *, cwd: Path) -> None:
+    def lazy(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
         pass
 
     with pytest.raises(RestackConflict):
@@ -209,7 +209,7 @@ def test_the_guard_is_derived_when_the_caller_gives_none(conflicting: Path) -> N
     """The caller shouldn't have to know which string proves the unit's change
     survived — it is in the branch's own diff."""
 
-    def takes_theirs(prompt: str, *, cwd: Path) -> None:
+    def takes_theirs(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
         (cwd / "markers.py").write_text('markers = ["integration"]\n')
 
     with pytest.raises(RestackConflict, match="dropped"):

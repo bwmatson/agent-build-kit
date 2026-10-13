@@ -940,8 +940,8 @@ def test_a_parent_merging_while_its_child_builds_moves_the_child_before_its_pr(
             head=lambda tree: f"{unit.id}@{commits.get(unit.id, 0)}",
             upstream_incomplete=build_upstream_incomplete(store),
             base_moved=build_base_moved(store),
-            restack_onto=lambda *, tree, branch, base, unit, resolve=True: moved_onto.append(
-                (unit.id, base)
+            restack_onto=lambda *, tree, branch, base, unit, resolve=True, resolver=None: (
+                moved_onto.append((unit.id, base))
             ),
             run_tier1=lambda *, cwd, base, whole_repo=False: (True, ""),
             run_tier2=lambda *, cwd, base=None: (True, ""),

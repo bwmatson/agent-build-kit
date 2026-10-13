@@ -42,22 +42,24 @@ from agent_build_kit.pipeline.git_output import (
     replayed_files,
     untranslated_env,
 )
+from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import prepare_detached, worktree_path
-from agent_build_kit.runtimes import AgentRequest
+from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRuntime,
     NetworkUnavailable,
     ServiceUnavailable,
+    SessionUnavailable,
 )
 
 Runner = Callable[[list[str]], str]
 
 # Takes the prompt and the worktree, and edits the conflicted files in place.
-Resolver = Callable[..., None]
+Resolver = Callable[..., object]
 
 # Private: the conflict being resolved, which `claude_resolver` records its call under (the unit
 # being moved, its change and repo) without every resolver taking it as an argument. Set by
@@ -139,13 +141,32 @@ Conflicted files:
 {replayed}
 {diff}
 
-Edit the conflicted files so that both intents survive, and remove every
-conflict marker. Change **only the conflict**: a rebase is not the place for
-improvements, and anything beyond the conflict is unreviewed work smuggled
-into someone else's diff. If the two intents truly contradict each other,
-leave the markers in place — stopping is better than guessing.
+Work in this order, and go on to a step only when the one before cannot work:
+
+1. Change only the conflicting hunks, in only the files that conflict, so that
+   both intents survive, and remove every conflict marker. A rebase is not the
+   place for improvements: anything beyond the conflict is unreviewed work
+   smuggled into someone else's diff.
+2. If the pipeline then tells you one of its checks failed, you may also change
+   the unit's other files that depend on the conflict (callers of a renamed
+   function, a test that exercised a removed argument), and nothing else.
+3. If neither can work, or the two intents truly contradict each other, leave
+   the conflict markers in place — stopping is better than guessing. The
+   pipeline then keeps this unit's old work under a reference, resets the
+   branch onto the new base and asks you to port the work, in this same session.
 {changelog_rule}{changelog}
 """ + output_convention()
+
+# Said to the same session after a check failed; a new session is given the first prompt
+# followed by this, so it holds the order and the failure.
+CONTINUE_PROMPT = """\
+The pipeline's check of your resolution failed: {failure}
+
+Go on to step 2 of the order: you may now also change the unit's other files that
+depend on the conflict, and nothing else, and every conflict marker must go. If that
+cannot work either, leave the conflict markers in place and the pipeline will ask you
+to port the work.
+"""
 
 REPLAYED_NOTE = """
 These paths arrived with a resolution replayed from an earlier run of this
@@ -154,9 +175,9 @@ same conflict — filled in, but still unstaged for you to judge:
 Leave one unchanged to accept it — the pipeline stages it for you. Edit it to
 correct it, and your fix replaces what's cached for the next replay. If it is
 wrong and cannot be reconciled with what you are resolving, put a `<<<<<<<`
-line in the file instead: that is read as a rejection, aborts the move for a
-human, and clears this cached entry so the next sibling sees the conflict
-fresh rather than the same bad resolution.
+line in the file instead: that is read as a rejection, fails this check, and
+clears this cached entry so the next sibling sees the conflict fresh rather
+than the same bad resolution.
 """
 
 
@@ -327,6 +348,62 @@ def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
     return Moved(sha=head)
 
 
+class Conflict(Frozen):
+    """What the checks of a resolution look at, read once the rebase has stopped."""
+
+    files: tuple[str, ...]
+    replayed: tuple[str, ...]
+    replayed_content: dict[str, str]
+    must_keep: tuple[str, ...]
+    own_tests: tuple[str, ...]
+
+
+def _unit_tests_at_stop(repo: Path, old_base: str, fallback: str) -> tuple[str, ...]:
+    """The unit's own tests, among the commits the rebase has applied so far: those its
+    range defined or edited that still exist at the commit it stopped on. A later commit's
+    tests are not yet in the paused tree, so they are not asked of it."""
+    stop = git(repo, "rev-parse", "--verify", "-q", "REBASE_HEAD", check=False).stdout.strip()
+    stop = stop or fallback
+    held = tests_in(repo, stop)
+    return tuple(name for name in defined_tests_in_range(repo, old_base, stop) if name in held)
+
+
+def _extra_files(repo: Path, files: tuple[str, ...]) -> list[str]:
+    """The files beyond the conflict that the resolution changed, tracked or new."""
+    changed = git(repo, "diff", "--name-only", check=False).stdout.splitlines()
+    added = git(repo, "ls-files", "--others", "--exclude-standard", check=False).stdout.splitlines()
+    return sorted({name for name in [*changed, *added] if name and name not in files})
+
+
+def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[str, list[str]]:
+    """Why the resolution in the tree is not acceptable, and the conflicted files that still
+    carry a marker; ("", []) when it is. Reads only: nothing is written to the repository."""
+    marked = [
+        name
+        for name in conflict.files
+        if any(marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS)
+    ]
+    if marked:
+        return (
+            f"{', '.join(marked)} still has conflict markers after resolution",
+            marked,
+        )
+    for needle in conflict.must_keep:
+        if not any(needle in (repo / name).read_text(errors="replace") for name in conflict.files):
+            return (
+                f"the resolution dropped {needle!r}, which is {moving_unit}'s own "
+                "change — resolving a conflict by deleting one side empties the unit.",
+                [],
+            )
+    if missing := sorted(set(conflict.own_tests) - tests_in(repo)):
+        return (
+            f"the resolution lost {moving_unit}'s own test(s) {', '.join(missing)} — "
+            "a test the unit added or changed is no longer in the tree.",
+            [],
+        )
+    return "", []
+
+
 def move_branch_onto(
     repo: Path,
     branch: str,
@@ -346,10 +423,14 @@ def move_branch_onto(
     on top of the very base that now contains them.
 
     On a conflict: with no `resolve`, this aborts and raises, as before. With
-    one, the resolver is given both sides' intent and asked to keep both. Its
-    answer is then checked rather than trusted — markers gone, and the unit's
-    own change still present — because the easiest way to end a conflict is to
-    delete one side, and that would quietly empty the unit being moved.
+    one, the resolver is given both sides' intent and asked to keep both, in the
+    order `RESOLVE_PROMPT` states. Its answer is then checked rather than trusted —
+    markers gone, the unit's own change and its own tests still present — because the
+    easiest way to end a conflict is to delete one side, and that would quietly empty
+    the unit being moved. A failed check is named to the resolver in a second call
+    (`follow_up`, the continuation of the same session; the prompt, for one that is
+    new, repeats the order and the failure); a second failure ends the move with
+    `RestackConflict`.
 
     `must_keep` defaults to lines derived from the moving branch's own diff
     (`derive_must_keep`), so a caller doesn't have to hand-write the guard.
@@ -394,11 +475,18 @@ def move_branch_onto(
             )
 
         files = conflicted_files(repo)
-        if must_keep is None:
-            must_keep = derive_must_keep(repo, branch, old_base=old_base, files=files)
-
         replayed = _replayed_files(result.stdout + result.stderr, files)
-        replayed_content = {name: (repo / name).read_text(errors="replace") for name in replayed}
+        conflict = Conflict(
+            files=tuple(files),
+            replayed=tuple(replayed),
+            replayed_content={name: (repo / name).read_text(errors="replace") for name in replayed},
+            must_keep=tuple(
+                derive_must_keep(repo, branch, old_base=old_base, files=files)
+                if must_keep is None
+                else must_keep
+            ),
+            own_tests=_unit_tests_at_stop(repo, old_base, started),
+        )
         prompt = RESOLVE_PROMPT.format(
             moving_unit=context.moving_unit,
             moving_intent=context.moving_intent,
@@ -413,56 +501,53 @@ def move_branch_onto(
             changelog=changelog_note(repo, context.repo),
         )
 
-    try:
-        # One attempt only. An unattended run that loops on a failing resolver
-        # burns the usage window with nothing to show for it.
-        token = _CONFLICT.set(context)
+    asking: dict[str, str] = {}
+    for attempt in (1, 2):
         try:
-            resolve(prompt, cwd=repo)
-        finally:
-            _CONFLICT.reset(token)
-    except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
-        # Not a conflict nobody could resolve: the account is out of room, the
-        # network is down, or the run was killed. The branch goes back where it was, to be moved
-        # again once the tick can run.
-        with turn():
-            git(repo, "rebase", "--abort", check=False)
-        raise
-    except Exception as error:
-        with turn():
-            raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
+            # At most two calls. An unattended run that loops on a failing resolver
+            # burns the usage window with nothing to show for it.
+            token = _CONFLICT.set(context)
+            try:
+                resolve(prompt, cwd=repo, **asking)
+            finally:
+                _CONFLICT.reset(token)
+        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
+            # Not a conflict nobody could resolve: the account is out of room, the
+            # network is down, or the run was killed. The branch goes back where it was, to be
+            # moved again once the tick can run.
+            with turn():
+                git(repo, "rebase", "--abort", check=False)
+            raise
+        except Exception as error:
+            with turn():
+                raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
 
-    marked = [
-        name
-        for name in files
-        if any(marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS)
-    ]
-    if marked:
-        with turn():
-            for name in marked:
-                if name in replayed:
-                    # A rejected replay: forget the cached entry before the abort
-                    # below clears the rebase, so the next sibling to hit this
-                    # conflict is offered the conflict itself, not the entry that
-                    # was just judged wrong. Done for every marked file, not just
-                    # the first — otherwise a second rejected replay, or one
-                    # listed after a plain unresolved file, keeps its stale entry
-                    # and gets replayed straight to the next sibling.
-                    git(repo, "rerere", "forget", name, check=False)
-            raise _abort(
-                repo,
-                f"{', '.join(marked)} still has conflict markers after resolution — "
-                "left for a human, since staging a conflict is worse than not moving.",
-            )
-
-    for needle in must_keep:
-        if not any(needle in (repo / name).read_text(errors="replace") for name in files):
+        failure, marked = _failed_check(repo, conflict, moving_unit=context.moving_unit)
+        if marked:
+            with turn():
+                for name in marked:
+                    if name in conflict.replayed:
+                        # A rejected replay: forget the cached entry before anything else, so
+                        # the next sibling to hit this conflict is offered the conflict itself,
+                        # not the entry that was just judged wrong. Every marked file, not
+                        # just the first: a second rejected replay, or one listed after a
+                        # plain unresolved file, would keep its stale entry otherwise.
+                        git(repo, "rerere", "forget", name, check=False)
+        if not failure:
+            break
+        if attempt == 2:
             with turn():
                 raise _abort(
                     repo,
-                    f"the resolution dropped {needle!r}, which is {context.moving_unit}'s own "
-                    "change — resolving a conflict by deleting one side empties the unit.",
+                    f"{failure}"
+                    + (
+                        " — left for a human, since staging a conflict is worse than not moving."
+                        if marked
+                        else ""
+                    ),
                 )
+        asking = {"follow_up": CONTINUE_PROMPT.format(failure=failure)}
+        prompt = f"{prompt}\n\n{asking['follow_up']}"
 
     with turn():
         found = _branch_head(repo, branch)
@@ -473,8 +558,9 @@ def move_branch_onto(
             git(repo, "rebase", "--abort", check=False)
             raise BranchCheckedOut(branch, path=elsewhere)
 
-        for name in replayed:
-            if (repo / name).read_text(errors="replace") != replayed_content[name]:
+        resolved = (*conflict.files, *_extra_files(repo, conflict.files))
+        for name in conflict.replayed:
+            if (repo / name).read_text(errors="replace") != conflict.replayed_content[name]:
                 # Once rerere has auto-applied a cached resolution, it stops
                 # tracking that path for recording — `git add` and `--continue`
                 # alone would leave the stale entry in place. Forgetting it here
@@ -492,9 +578,9 @@ def move_branch_onto(
             )
         if detached:
             landed = _land_detached(repo, branch, started=started)
-            return Moved(sha=landed.sha, resolved=tuple(files))
+            return Moved(sha=landed.sha, resolved=resolved)
 
-        return Moved(sha=git(repo, "rev-parse", branch).stdout.strip(), resolved=tuple(files))
+        return Moved(sha=git(repo, "rev-parse", branch).stdout.strip(), resolved=resolved)
 
 
 def temporary_tree(repo: Path, branch: str, *, root: Path) -> Path:
@@ -725,7 +811,7 @@ def resolved_move(
     moving = dict(
         new_base=new_base,
         old_base=old_base,
-        resolve=resolve or claude_resolver,
+        resolve=resolve or ConflictSession(),
         context=ConflictContext(
             moving_unit=moving_unit,
             moving_intent=moving_intent,
@@ -822,38 +908,70 @@ def claude_resolver(
     prompt: str,
     *,
     cwd: Path,
+    follow_up: str = "",
+    resume_session: str = "",
     runtime: AgentRuntime | None = None,
     say: Callable[[str], None] = print,
-) -> None:
-    """Resolve the conflicted files in `cwd` with a scoped Claude run.
+) -> str:
+    """Resolve the conflicted files in `cwd` with a scoped Claude run; the id of the session
+    the call ran in, "" when the runtime names none.
 
     Deliberately narrow: no commit, no push, no test run. It edits the
     conflicted files and stops, and `move_branch_onto` then checks the result.
     The runner re-runs tier 1 and tier 2 afterwards, so this produces a
-    candidate rather than a verdict.
+    candidate rather than a verdict. With a `resume_session` the runtime can
+    continue, the call says its `follow_up` there; otherwise it runs the full
+    `prompt` in a new session.
     """
-    request = AgentRequest(
-        prompt=prompt,
-        cwd=cwd,
-        # It edits because its tool list says so, and is granted nothing more.
-        allowed_tools=RESOLVER_TOOLS,
-        permission_mode="allowed_tools_only",
-    )
     # Its own folder for long command output, gone when the run ends.
     agent = runtime or runtimes.active()
     moving = _CONFLICT.get()
-    request = recorded(
-        request,
-        agent,
-        node=OverheadNode.RESTACK,
-        unit=moving.moving_unit if moving else "",
-        change=moving.moving_change if moving else "",
-        repo=moving.moving_repo if moving else "",
-        say=say,
-    )
-    with run_folder(cwd) as out:
-        if out is not None:
-            request = request.model_copy(update={"env": {**request.env, "ABK_OUT": str(out)}})
-        result = agent.run(request)
+    resumed = bool(resume_session and follow_up and agent.supports_session_resume)
+
+    def ask(text: str, *, session: str) -> AgentResult:
+        request = AgentRequest(
+            prompt=text,
+            cwd=cwd,
+            # It edits because its tool list says so, and is granted nothing more.
+            allowed_tools=RESOLVER_TOOLS,
+            permission_mode="allowed_tools_only",
+            resume_session=session,
+        )
+        request = recorded(
+            request,
+            agent,
+            node=OverheadNode.RESTACK,
+            unit=moving.moving_unit if moving else "",
+            change=moving.moving_change if moving else "",
+            repo=moving.moving_repo if moving else "",
+            resumed=bool(session),
+            say=say,
+        )
+        with run_folder(cwd) as out:
+            if out is not None:
+                request = request.model_copy(update={"env": {**request.env, "ABK_OUT": str(out)}})
+            return agent.run(request)
+
+    try:
+        result = ask(follow_up, session=resume_session) if resumed else ask(prompt, session="")
+    except SessionUnavailable:
+        if not resumed:
+            raise
+        result = ask(prompt, session="")
     if not result.ok:
         raise RuntimeError(result.error)
+    return result.session_id or ""
+
+
+class ConflictSession:
+    """The resolver of one move: `claude_resolver`, continuing the session its first call
+    opened for the calls that follow."""
+
+    def __init__(self, *, runtime: AgentRuntime | None = None) -> None:
+        self.runtime = runtime
+        self.session = ""
+
+    def __call__(self, prompt: str, *, cwd: Path, follow_up: str = "") -> None:
+        self.session = claude_resolver(
+            prompt, cwd=cwd, follow_up=follow_up, resume_session=self.session, runtime=self.runtime
+        )

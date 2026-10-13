@@ -26,10 +26,10 @@ def test_a_branch_moved_twice_during_the_resolution_leaves_the_unit_planned(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
-    asked: list[bool] = []
+    asked: list[dict[str, Any]] = []
 
     def moved_again(**kw: Any) -> None:
-        asked.append(kw.get("resolve", True))
+        asked.append(kw)
         raise BranchMoved(BRANCH, expected=EXPECTED, found=FOUND)
 
     outcome = build(
@@ -46,4 +46,4 @@ def test_a_branch_moved_twice_during_the_resolution_leaves_the_unit_planned(
     assert BRANCH in stored.note
     assert EXPECTED[:12] in stored.note and FOUND[:12] in stored.note
     assert "push" not in recorder.events and "pr" not in recorder.events
-    assert asked == [True], "the once-per-run loop back to the restack was not taken"
+    assert len(asked) == 1, "the once-per-run loop back to the restack was not taken"

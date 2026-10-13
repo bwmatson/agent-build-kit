@@ -20,6 +20,7 @@ class Node(StrEnum):
     REVIEW = "review"
     REWORK = "rework"
     ADAPT = "adapt"
+    RESTACK = "restack"
     TIER1 = "tier1"
     TIER2 = "tier2"
     VERIFY_BASE = "verify_base"

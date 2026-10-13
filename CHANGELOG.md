@@ -23,7 +23,13 @@
   the same way. A branch that moved during the resolution is moved again once, then the unit
   is left planned with the heads named. A branch with no worktree is now moved in a temporary
   worktree, so the repository's own checkout is never switched; a branch checked out elsewhere
-  is left alone and the unit waits.
+  is left alone and the unit waits. A conflict is now settled in one agent session, smallest
+  change first: the conflicting hunks only, then, when a check fails (a marker left, one of the
+  unit's own tokens or tests gone), the unit's other files that depend on the conflict, the
+  failed check named in the second call. In a run the calls continue the unit's build session
+  (or start it on the rework model) and each is a `restack` row in the usage ledger; files
+  changed beyond the conflict are named to review. A rejected replayed resolution now fails
+  that check instead of aborting the move.
 
 - A unit that has never started and has two or more open same-repo parents, neither built on
   the other, now waits for all but one of them instead of starting on one branch and missing the
