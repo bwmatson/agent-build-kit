@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import main
+from agent_build_kit.runtimes import policy_apply
+from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
+from agent_build_kit.runtimes.policy_apply import ApplyRefused
 from agent_build_kit.runtimes.recommended_policy import patterns
 from tests.cli.policy_apply_fakes import (
     AGENT,
@@ -306,8 +310,6 @@ def test_agent_names_the_row_when_the_command_is_a_wrapper_the_table_does_not_re
 def test_an_unknown_agent_name_exits_two_naming_the_known_rows(
     home: Home, config: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
-
     before = home.config.read_text()
 
     code, terminal = run_apply(
@@ -320,6 +322,57 @@ def test_an_unknown_agent_name_exits_two_naming_the_known_rows(
     for agent in KNOWN_AGENTS:
         assert agent.name in shown
     assert home.config.read_text() == before
+
+
+def test_a_runtime_with_no_installation_to_read_it_from_exits_two_and_writes_nothing(
+    home: Home, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("ABK_CONFIG", raising=False)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    before = home.config.read_text()
+
+    code = main(["policy", "apply", "--runtime", "acp", "--yes"])
+
+    assert code == 2
+    assert "--agent" in capsys.readouterr().err
+    assert home.config.read_text() == before
+    assert home.files() == [home.config.name]
+
+
+def test_a_runtime_that_does_not_exist_exits_two_naming_the_runtimes_there_are(
+    home: Home, config: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = home.config.read_text()
+
+    code, terminal = run_apply(capsys, monkeypatch, config, home, "--runtime", "nosuch", "--yes")
+
+    assert code == 2
+    assert "nosuch" in terminal.err
+    assert "fake" in terminal.err
+    assert home.config.read_text() == before
+
+
+def test_a_write_the_engine_refuses_after_the_question_is_a_refusal_not_a_traceback(
+    home: Home, config: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    real = policy_apply.apply
+    calls: list[bool] = []
+
+    def refusing_write(*args: object, **kwargs: object) -> object:
+        if not kwargs.get("dry_run"):
+            calls.append(True)
+            raise ApplyRefused("the file changed while you were asked")
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(policy_apply, "apply", refusing_write)
+
+    code, terminal = run_apply(capsys, monkeypatch, config, home, answers=("y",))
+
+    assert code == 2
+    assert calls
+    assert "the file changed while you were asked" in terminal.err
 
 
 def test_the_installations_extras_are_applied_after_the_kits(

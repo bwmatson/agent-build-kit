@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit.runtimes.recommended_policy import RECOMMENDED, patterns
 from tests.cli.policy_apply_fakes import (
@@ -56,14 +57,19 @@ def test_the_missing_patterns_are_named_by_class_and_the_complete_classes_are_no
 
     assert code == 0
     assert missing.label in tail
+    named = tail[tail.index("missing") :]
+    for glob in missing.globs:
+        assert glob in named
     complete = [
-        policy.label
+        policy
         for policy in RECOMMENDED
         if policy.globs and all(glob in kept for glob in policy.globs)
     ]
     assert complete
-    for label in complete:
-        assert label not in tail
+    for policy in complete:
+        assert policy.label not in tail
+        for glob in set(policy.globs) - set(missing.globs):
+            assert glob not in named
     assert home.config.read_text() == before
     assert home.files() == [home.config.name]
     assert runtime.checked == []
@@ -147,3 +153,64 @@ def test_an_agent_with_no_applier_is_one_the_kit_cannot_read(
     for policy in RECOMMENDED:
         assert policy.label in terminal.out
     assert runtime.checked == []
+
+
+def test_runtime_selects_the_entry_whose_extras_are_compared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, _ = installation(tmp_path, monkeypatch, command=list(AGENT.variants[0].argv))
+    raw = yaml.safe_load(config.read_text())
+    extra = "git * push --mirror*"
+    raw["runtimes"]["other"] = {"command": list(AGENT.variants[0].argv), "policy_extra": [extra]}
+    config.write_text(yaml.safe_dump(raw))
+    home = Home(tmp_path, monkeypatch)
+    home.holds([*OWN, *patterns()], CURRENT_TOOLSET)
+
+    code, terminal = run_apply(
+        capsys, monkeypatch, config, home, "--runtime", "other", command="show"
+    )
+
+    assert code == 0
+    assert extra in terminal.out[terminal.out.index(str(home.config)) :]
+    default, plain = run_apply(capsys, monkeypatch, config, home, command="show")
+    assert default == 0
+    assert extra not in plain.out
+
+
+def test_a_deny_list_of_the_wrong_shape_is_unreadable_not_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, _ = installation(tmp_path, monkeypatch, command=list(AGENT.variants[0].argv))
+    home = Home(tmp_path, monkeypatch)
+    home.write("approvals:\n  deny: {mine: 1}\n")
+
+    code, _, tail = show(capsys, monkeypatch, config, home)
+
+    assert code == 0
+    assert "cannot be read" in tail
+    assert "present" not in tail
+
+
+def test_a_command_the_table_does_not_recognise_is_not_a_usage_problem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, _ = installation(tmp_path, monkeypatch, command=["./run-agent.sh"])
+
+    code, terminal = run_apply(capsys, monkeypatch, config, None, command="show")
+
+    assert code == 0
+    assert "--agent" in terminal.out
+    assert "abk policy patterns" in terminal.out
+
+
+def test_an_agent_name_that_names_no_row_is_a_usage_problem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, _ = installation(tmp_path, monkeypatch, command=["./run-agent.sh"])
+
+    code, terminal = run_apply(
+        capsys, monkeypatch, config, None, "--agent", "no such agent", command="show"
+    )
+
+    assert code == 2
+    assert "no such agent" in terminal.err

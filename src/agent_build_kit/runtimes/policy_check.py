@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.runtimes.base import AgentRuntime, PolicyReport, SpellingResult
-from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
+from agent_build_kit.runtimes.known_agents import agent_for_command
 
 if TYPE_CHECKING:
     from agent_build_kit.config import RuntimeConfig
@@ -117,8 +117,7 @@ def fix_for(name: str, entry: RuntimeConfig, report: PolicyReport) -> str:
     own = shlex.join(entry.policy_fix) if entry.policy_fix else ""
     if not own and report.fix:
         return report.fix
-    program = Path(entry.command[0]).name if entry.command else ""
-    agent = next((a for a in KNOWN_AGENTS if a.program == program), None)
+    agent = agent_for_command(entry.command or [])
     if agent is not None and agent.apply is not None:
         return f"{own} or run `abk policy apply`" if own else "run `abk policy apply`"
     if own:

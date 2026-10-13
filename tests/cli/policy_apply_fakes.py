@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
-from agent_build_kit.cli import main, policy_cmd
+from agent_build_kit.cli import main
 from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.known_agents import (
     KNOWN_AGENTS,
@@ -49,10 +49,6 @@ NEUTRAL = KnownAgent(
 
 CURRENT_TOOLSET = ["file", "web"]
 OWN = ["mine *", "theirs *", "ours *"]
-
-
-class RecordingRuntime(SelectableRuntime):
-    """A runtime that records every check asked of it; running one is an error already."""
 
 
 def nested(path: tuple[str, ...], value: Any) -> dict[str, Any]:
@@ -132,9 +128,9 @@ def installation(
     command: list[str] | None,
     extra: list[str] | None = None,
     policy_fix: list[str] | None = None,
-) -> tuple[Path, RecordingRuntime]:
+) -> tuple[Path, SelectableRuntime]:
     """An abk.yaml selecting a registered recording runtime whose entry holds `command`."""
-    runtime = select(monkeypatch, RecordingRuntime(RUNTIME))
+    runtime = select(monkeypatch, SelectableRuntime(RUNTIME))
     entry: dict[str, Any] = {}
     if command:
         entry["command"] = command
@@ -153,8 +149,6 @@ def with_neutral_row(monkeypatch: pytest.MonkeyPatch) -> None:
     """The known-agent table with `NEUTRAL` after the kit's rows, wherever it is read from."""
     table = (*KNOWN_AGENTS, NEUTRAL)
     monkeypatch.setattr(known_agents, "KNOWN_AGENTS", table)
-    # A command module that imported the name holds its own reference.
-    monkeypatch.setattr(policy_cmd, "KNOWN_AGENTS", table, raising=False)
 
 
 class Terminal:

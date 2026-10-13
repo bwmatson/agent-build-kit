@@ -464,6 +464,11 @@ def resolve_home(descriptor: ApplyPolicy, env_file: Path | None = None) -> Path:
     return Path(named) if named else Path.home() / descriptor.home_default
 
 
+def _read(path: Path) -> str | None:
+    """The text of the configuration at `path`, or None when there is no such file."""
+    return path.read_bytes().decode() if path.is_file() else None
+
+
 def apply(
     descriptor: ApplyPolicy,
     home: Path,
@@ -475,7 +480,8 @@ def apply(
     path = home / descriptor.file
     if toolset and descriptor.toolset is None:
         raise ApplyRefused(f"{descriptor.file}: this agent's row has no recommended toolset")
-    if not path.is_file():
+    before = _read(path)
+    if before is None:
         return ApplyResult(
             path=path,
             status=Status.ABSENT,
@@ -484,7 +490,6 @@ def apply(
                 f"elsewhere (set {descriptor.home_env})"
             ),
         )
-    before = path.read_bytes().decode()
     wanted_toolset = descriptor.toolset.names if toolset and descriptor.toolset else None
     merged = WRITERS[descriptor.format](
         before, descriptor, patterns(extra=extra), wanted_toolset, str(path)
@@ -529,12 +534,15 @@ class Held(Frozen):
 
 def held(descriptor: ApplyPolicy, home: Path) -> Held | None:
     """What `<home>/<file>` holds, or None when there is no such file; raises `ApplyRefused`
-    when it does not parse. Reads only."""
+    when it does not parse or holds the deny list as something else. Reads only."""
     path = home / descriptor.file
-    if not path.is_file():
+    text = _read(path)
+    if text is None:
         return None
-    root = _parse(path.read_bytes().decode(), descriptor, str(path))
+    root = _parse(text, descriptor, str(path))
     deny = _value_at(root, descriptor.deny_path)
+    if deny is not None and not isinstance(deny, list):
+        raise ApplyRefused(f"{path}: {_dotted(descriptor.deny_path)} is not a list")
     listed = _value_at(root, descriptor.toolset.path) if descriptor.toolset else None
     return Held(
         path=path,

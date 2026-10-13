@@ -96,7 +96,7 @@ runtimes:                     # only for a runtime needing a fact abk cannot
       usage_estimate_max_starts: 3  # units that may start on an estimate per reading (0: none)
   # <name>:
   #   command: [some-agent, acp]          # argv that starts its agent
-  #   policy_fix: [scripts/constrain.sh]  # offered by init, printed by doctor
+  #   policy_fix: [scripts/constrain.sh]  # offered by init, printed first by doctor
   #   policy_extra: ["git * push --mirror*"]  # own command globs (non-blank, the dialect `abk policy
   #                                       # show` prints), added after the kit's by `abk policy patterns --extra`
   #   policy: unchecked                   # the only value: carried on without checking; doctor
@@ -296,7 +296,7 @@ is 1 when anything failed.
 | node / openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run through `openspec.command`. |
 | runtime | The selected runtime is not implemented, or its agent command is not on PATH. |
 | runtime coverage (warn) | The runtime sees only some of the agent's tool calls (`agent_flagged` or `none`). |
-| runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is `runtimes.<name>.policy_fix`. `abk init` offers to run it, and `abk init --policy-only` runs just that step on an existing installation (`--policy-fix ARGV` records and uses a fix; with `--yes`, a configured fix runs only given `--policy-fix` or `--run-policy-fix`; exit 0 passes, 1 a class is still not refused, 2 a usage problem). An entry with `policy: unchecked` warns here instead and is not probed; `doctor` also lists other usable runtimes and warns for a selected entry that is documented only. The answer is reused for 15 minutes. It also fails when the check could not be run because the runtime raised (e.g. its usage window is spent); nothing is cached, so run doctor again once the runtime can answer. It warns, unchecked, when the agent command does not resolve; fix the `runtime` check first. |
+| runtime policy | The runtime does not refuse a command class abk forbids; each is named, and the fix printed is, in order, `runtimes.<name>.policy_fix`, the runtime's own advice, `abk policy apply` for an agent the kit can merge into, else `abk policy patterns` and the `policy_fix` key to set. `abk init` offers to run it, and `abk init --policy-only` runs just that step on an existing installation (`--policy-fix ARGV` records and uses a fix; with `--yes`, a configured fix runs only given `--policy-fix` or `--run-policy-fix`; exit 0 passes, 1 a class is still not refused, 2 a usage problem). An entry with `policy: unchecked` warns here instead and is not probed; `doctor` also lists other usable runtimes and warns for a selected entry that is documented only. The answer is reused for 15 minutes. It also fails when the check could not be run because the runtime raised (e.g. its usage window is spent); nothing is cached, so run doctor again once the runtime can answer. It warns, unchecked, when the agent command does not resolve; fix the `runtime` check first. |
 | telemetry (warn) | `ABK_OTEL_ENABLED` is set but there is no traces or metrics endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, or the per-signal `..._TRACES_ENDPOINT` / `..._METRICS_ENDPOINT`), or one does not answer. Only checked when enabled. |
 | ssh key | A `deploy.ssh_key` does not exist. |
 | verify env | A `verify.env` provider cannot resolve (names only are reported, never values). |

@@ -5,14 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from agent_build_kit import config as config_module
+from agent_build_kit import runtimes
 from agent_build_kit.config import ConfigError, RuntimeConfig
 from agent_build_kit.init.runtime_choice import yes
 from agent_build_kit.installation import Installation, load_installation
-from agent_build_kit.runtimes import policy_apply
-from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS, KnownAgent
+from agent_build_kit.runtimes import known_agents, policy_apply
+from agent_build_kit.runtimes.known_agents import KnownAgent, agent_for_command
 from agent_build_kit.runtimes.policy_apply import ApplyRefused, Status
 from agent_build_kit.runtimes.recommended_policy import (
     DIALECT,
@@ -66,6 +66,10 @@ class _Unresolved(Exception):
     """The agent cannot be chosen; the message says why and what to do."""
 
 
+class _Usage(_Unresolved):
+    """A name given on the command line that names nothing."""
+
+
 class _Nothing(Exception):
     """The runtime starts no agent of the table whose configuration the kit would change."""
 
@@ -73,23 +77,30 @@ class _Nothing(Exception):
 def _agent_for(
     args: argparse.Namespace, installation: Installation | None
 ) -> tuple[KnownAgent, RuntimeConfig]:
-    """The known agent the selected runtime starts, or the one `--agent` names."""
+    """The known agent the selected runtime starts, or the one `--agent` names, with the
+    runtime's entry."""
     entry = RuntimeConfig()
-    if installation is not None:
-        name = args.runtime or config_module.runtime_name(installation.config)
-        entry = installation.config.runtimes.get(name, RuntimeConfig())
-    elif not args.runtime and not args.agent:
-        raise _Unresolved("no installation to read the runtime from; give --runtime or --agent")
+    if installation is None:
+        if not args.agent:
+            raise _Unresolved(
+                "no installation to read the runtime's command from; give --agent NAME"
+            )
+    else:
+        configured = installation.config.runtimes
+        if args.runtime and args.runtime not in (*runtimes.names(), *configured):
+            known = ", ".join(sorted({*runtimes.names(), *configured}))
+            raise _Usage(f"unknown runtime {args.runtime!r}; the runtimes are: {known}")
+        entry = config_module.runtime_entry(installation.config, name=args.runtime)
     if args.agent:
-        named = next((a for a in KNOWN_AGENTS if a.name.lower() == args.agent.lower()), None)
+        table = known_agents.KNOWN_AGENTS
+        named = next((a for a in table if a.name.lower() == args.agent.lower()), None)
         if named is None:
-            known = ", ".join(agent.name for agent in KNOWN_AGENTS)
-            raise _Unresolved(f"unknown agent {args.agent!r}; the known agents are: {known}")
+            known = ", ".join(agent.name for agent in table)
+            raise _Usage(f"unknown agent {args.agent!r}; the known agents are: {known}")
         return named, entry
     if not entry.command:
         raise _Nothing("its enforcement is built in or it starts no known agent")
-    program = Path(entry.command[0]).name
-    found = next((a for a in KNOWN_AGENTS if a.program == program), None)
+    found = agent_for_command(entry.command)
     if found is None:
         raise _Unresolved(
             f"{entry.command[0]} is not a program of the known-agent table; name the agent "
@@ -98,14 +109,9 @@ def _agent_for(
     return found, entry
 
 
-def _extra(installation: Installation | None) -> list[str]:
-    if installation is None:
-        return []
-    entry = installation.config.runtimes.get(config_module.runtime_name(installation.config))
-    return (entry.policy_extra if entry else None) or []
-
-
-def _show_configuration(agent: KnownAgent, installation: Installation | None) -> None:
+def _show_configuration(
+    agent: KnownAgent, entry: RuntimeConfig, installation: Installation | None
+) -> None:
     print(f"\nAgent configuration ({agent.name}):")
     descriptor = agent.apply
     if descriptor is None:
@@ -126,13 +132,20 @@ def _show_configuration(agent: KnownAgent, installation: Installation | None) ->
         print(f"  elsewhere (set {descriptor.home_env})")
         return
     print(f"  {path}")
-    wanted = patterns(_extra(installation))
+    wanted = patterns(entry.policy_extra or [])
     missing = [glob for glob in wanted if glob not in held.deny]
     print(f"  recommended patterns present: {len(wanted) - len(missing)} of {len(wanted)}")
     for policy in RECOMMENDED:
         lacking = [glob for glob in policy.globs if glob in missing]
         if lacking:
-            print(f"  missing, {policy.label}: {len(lacking)}")
+            print(f"  missing, {policy.label}:")
+            for glob in lacking:
+                print(f"    {glob}")
+    extras = [glob for glob in entry.policy_extra or [] if glob in missing]
+    if extras:
+        print("  missing, the installation's policy_extra:")
+        for glob in extras:
+            print(f"    {glob}")
     own = [entry for entry in held.deny if entry not in wanted]
     print(f"  entries that are not the kit's: {len(own)}")
     if descriptor.toolset:
@@ -158,13 +171,19 @@ def cmd_policy_show(args: argparse.Namespace, installation: Installation | None)
     print("\nThe policy check is not run here; `abk doctor` runs it.")
     if installation is not None or args.runtime or args.agent:
         try:
-            agent, _ = _agent_for(args, installation)
+            agent, entry = _agent_for(args, installation)
         except _Nothing:
             return 0
-        except _Unresolved as error:
+        except _Usage as error:
             print(f"abk: {error}", file=sys.stderr)
             return 2
-        _show_configuration(agent, installation)
+        except _Unresolved as error:
+            print(
+                f"\nAgent configuration: not read: {error}; `{PATTERNS_COMMAND}` prints "
+                "the globs to add to it yourself"
+            )
+            return 0
+        _show_configuration(agent, entry, installation)
     return 0
 
 
@@ -228,7 +247,11 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
     if not (args.yes or _confirmed(f"apply to {shown.path}? [y/N] ")):
         print("not applied; nothing was written")
         return 1
-    done = policy_apply.apply(descriptor, home, extra, args.toolset)
+    try:
+        done = policy_apply.apply(descriptor, home, extra, args.toolset)
+    except (ApplyRefused, OSError) as error:
+        print(f"abk: {error}", file=sys.stderr)
+        return 2
     if done.backup:
         print(f"backed up the original to {done.backup}")
     print(f"added {len(done.added)} patterns to {done.path}")
@@ -241,7 +264,9 @@ def cmd_policy_apply(args: argparse.Namespace, installation: Installation | None
 
 
 def _agent_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--runtime", help="the runtime to read, when the installation has none")
+    parser.add_argument(
+        "--runtime", help="the runtime whose agent to read (default: the installation's)"
+    )
     parser.add_argument(
         "--agent", help="the known agent's name, when the runtime's command is a wrapper"
     )

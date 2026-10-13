@@ -657,7 +657,39 @@ for `--extra` with no installation or one that does not load.
 
 Prints the recommendation per class with its globs, the classes it has no glob for and why,
 its known false positives and its glob dialect. It needs no installation, changes nothing and
-does not run the policy check, which costs agent calls; `abk doctor` runs it. Exit 0.
+does not run the policy check, which costs agent calls; `abk doctor` runs it. With an
+installation (or `--runtime NAME` / `--agent NAME`) and an agent whose configuration the kit can
+read, it then compares that configuration with the recommendation: the missing globs by class
+(and the installation's `policy_extra` that are missing), a count of the entries that are not the
+kit's (never listed), and the toolset recommendation against its current value. An absent or
+unparseable configuration is said so, naming its path. An agent the kit cannot read, or whose
+command the table does not recognise, says so and points at `abk policy patterns` and `--agent`.
+Exit 0; 2 for an `--agent` or `--runtime` that names nothing.
+
+### `abk policy apply [--runtime NAME] [--agent NAME] [--dry-run] [--yes] [--toolset]`
+
+Merges the recommended globs (then the runtime's `policy_extra`) into a known agent's own
+configuration. It prints the diff, asks `apply to <path>? [y/N]`, then writes: the original is
+copied once to `<file>.abk-backup` (the path is printed), the write is atomic, and only lines
+are added, so the rest of the file stays byte for byte. It does not run the live check, which
+spends model tokens: it names `abk doctor` (or `abk init --policy-only`) as the command that does.
+
+The agent is the known agent the runtime's command starts; `--agent NAME` names the row when the
+command is a wrapper the table does not recognise, and `--runtime NAME` reads another runtime's
+entry than the installation's. Without an installation `--agent` is required. A runtime with no
+command (its enforcement is built in) has nothing to apply. `--dry-run` prints the diff and
+writes nothing; `--yes` takes the place of the answer; the two together are a usage problem.
+
+`--toolset` also replaces the agent's toolset list with the recommended one, shown as
+`from [...] to [...]`. It is a separate flag because it replaces rather than adds: a deny entry
+only makes the agent refuse something, while a toolset narrows what a build run may call at
+all, and a person with their own tools has to choose that. Without it the recommendation and the
+current value are stated and the list is left alone. The flag on a row with no toolset is a usage
+problem.
+
+Exit 0: written, nothing to change, or a dry run. 1: the person declined. 2: a usage problem, an
+absent or unparseable or wrong-shaped configuration (the file and key are named), an unknown
+`--agent` or `--runtime`, or an agent with no applier (the patterns command is printed).
 
 ### `abk changelog check [PATH]`
 

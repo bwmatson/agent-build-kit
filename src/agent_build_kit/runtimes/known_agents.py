@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+from collections.abc import Sequence
 from enum import StrEnum
+from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import DOCUMENTED_ONLY, Candidate, Run, Which
@@ -169,6 +171,15 @@ KNOWN_AGENTS: tuple[KnownAgent, ...] = (
         source="the adapter's package documentation",
     ),
 )
+
+
+def agent_for_command(command: Sequence[str]) -> KnownAgent | None:
+    """The known agent whose program a runtime's command starts; None for an empty command or
+    one the table does not recognise."""
+    if not command:
+        return None
+    program = Path(command[0]).name
+    return next((agent for agent in KNOWN_AGENTS if agent.program == program), None)
 
 
 def probe(which: Which, run: Run) -> list[Candidate]:
