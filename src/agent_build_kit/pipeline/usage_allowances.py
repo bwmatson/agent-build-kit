@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.usage_calls import (
     CALLS_NAME,
     UsageCall,
     consecutive_readings,
-    read_calls,
+    parse_calls,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, UsageRecord, read_ledger, spend_times
 
@@ -31,8 +31,11 @@ ALLOWANCES_NAME = "usage-allowances.json"
 
 Window = Literal["session", "weekly"]
 WINDOWS: tuple[Window, ...] = ("session", "weekly")
-# How long a window lasts: a longer gap may span a reset followed by a climb.
-SPANS: dict[Window, timedelta] = {"session": timedelta(hours=5), "weekly": timedelta(days=7)}
+# The two windows' lengths, which the endpoint doesn't report. A longer gap between readings
+# may span a reset followed by a climb.
+SESSION_WINDOW = timedelta(hours=5)
+WEEKLY_WINDOW = timedelta(days=7)
+SPANS: dict[Window, timedelta] = {"session": SESSION_WINDOW, "weekly": WEEKLY_WINDOW}
 
 
 class UsagePair(Frozen):
@@ -160,7 +163,10 @@ def refresh_allowances(state_dir: Path, *, limits: ClaudeLimitsConfig, now: date
     """Compute from the files in `state_dir` and keep the result, leaving it as it was when
     a file cannot be read or the result cannot be kept."""
     try:
-        calls = read_calls(state_dir / CALLS_NAME)
+        try:
+            calls = parse_calls((state_dir / CALLS_NAME).read_text())
+        except FileNotFoundError:
+            calls = []
         ledger = read_ledger(state_dir / LEDGER_NAME)
         write_allowances(
             state_dir / ALLOWANCES_NAME,

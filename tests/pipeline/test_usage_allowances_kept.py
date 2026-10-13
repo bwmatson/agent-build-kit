@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.usage_allowances import (
     refresh_allowances,
     write_allowances,
 )
+from agent_build_kit.pipeline.usage_calls import CALLS_NAME
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.usage_allowance_records import calibrated, keep, per_unit
 
@@ -74,6 +75,16 @@ def test_a_ledger_that_cannot_be_read_leaves_the_kept_result_as_it_was(tmp_path:
     path = tmp_path / ALLOWANCES_NAME
     write_allowances(path, {"weekly": calibrated(1, 24)})
     (tmp_path / LEDGER_NAME).mkdir()
+
+    refresh_allowances(tmp_path, limits=LIMITS, now=NOW)
+
+    assert read_allowances(path) == {"weekly": calibrated(1, 24)}
+
+
+def test_a_calls_file_that_cannot_be_read_leaves_the_kept_result_as_it_was(tmp_path: Path) -> None:
+    path = tmp_path / ALLOWANCES_NAME
+    write_allowances(path, {"weekly": calibrated(1, 24)})
+    (tmp_path / CALLS_NAME).mkdir()
 
     refresh_allowances(tmp_path, limits=LIMITS, now=NOW)
 

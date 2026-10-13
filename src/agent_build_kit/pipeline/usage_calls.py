@@ -88,6 +88,11 @@ def read_calls(path: Path) -> list[UsageCall]:
         text = path.read_text()
     except OSError:
         return []
+    return parse_calls(text)
+
+
+def parse_calls(text: str) -> list[UsageCall]:
+    """The calls in `text`, one JSON object per line, skipping any line that cannot be read."""
     calls = []
     for raw in text.splitlines():
         try:

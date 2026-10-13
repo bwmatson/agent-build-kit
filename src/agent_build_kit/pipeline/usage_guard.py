@@ -74,6 +74,8 @@ from agent_build_kit.pipeline.file_lock import file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_allowances import (
     ALLOWANCES_NAME,
+    SESSION_WINDOW,
+    WEEKLY_WINDOW,
     WINDOWS,
     allowance_for,
     read_allowances,
@@ -116,10 +118,8 @@ RETRY_DELAY_SECONDS = 0.5
 # meaningful fraction of it. Live readings are exempt: they were just taken.
 MAX_ANCHOR_AGE = timedelta(hours=1)
 
-# The two windows' lengths, which the endpoint doesn't report. A window's start
-# is its reset minus its length, and that is all the ramp needs.
-SESSION_WINDOW = timedelta(hours=5)
-WEEKLY_WINDOW = timedelta(days=7)
+# A window's start is its reset minus its length (`usage_allowances` holds the
+# lengths, which the endpoint doesn't report), and that is all the ramp needs.
 
 # The longest resume a pause may schedule. A weekly window can reset days out,
 # and `pause_until` never shortens an existing pause, so an honest "resume when
