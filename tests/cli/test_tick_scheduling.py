@@ -662,7 +662,7 @@ def test_a_dependency_merging_mid_pass_releases_its_dependent(
     builder.store.set_state("base/1", IN_REVIEW, pr=7)
     merged_meanwhile = threading.Event()
 
-    def poll(inst, *, store):
+    def poll(inst, *, store, **kwargs):
         if merged_meanwhile.is_set():
             store.set_state("base/1", MERGED, pr=7)
 
@@ -732,7 +732,7 @@ def test_a_repo_refused_mid_pass_is_not_built_and_the_pass_fails(
             return False
         return True
 
-    def poll(inst, *, store):
+    def poll(inst, *, store, **kwargs):
         if "app/1" in builder.finished:
             store.set_state("base/1", MERGED, pr=7)
 

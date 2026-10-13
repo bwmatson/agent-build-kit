@@ -32,7 +32,7 @@ from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from agent_build_kit import config, forges, profiles, runtimes, telemetry
 from agent_build_kit.forges import PullRequest
@@ -116,6 +116,7 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     resolved_move,
 )
+from agent_build_kit.pipeline.restack_lane import RestackLane, owed_units
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     remove_change_logs,
@@ -249,6 +250,8 @@ from agent_build_kit.pipeline.wiring import (
     build_runner,
     build_tier1,
     follow_predecessors,
+    own_work_starts_after,
+    predecessor,
 )
 from agent_build_kit.pipeline.work_graph import (
     Need,
@@ -263,6 +266,7 @@ from agent_build_kit.pipeline.work_graph import (
 )
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
+    branch_held,
     branch_lock,
     lock_holder_gone,
     worktree_path,
@@ -933,6 +937,19 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     only = frozenset(getattr(args, "only", None) or ())
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
+    # One lane for the tick, apart from the build workers: leaving the block waits for it.
+    with build_restack_lane(inst, store) as lane:
+        return _tick_with(args, inst, tick, store, lane, only)
+
+
+def _tick_with(
+    args: argparse.Namespace,
+    inst: Installation,
+    tick: _Tick,
+    store: UnitStore,
+    lane: RestackLane,
+    only: frozenset[str],
+) -> int:
     readmission = _Readmission()
     ready = run_round(
         inst,
@@ -942,6 +959,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         only=only,
         submit=True,
         refused_needs=readmission.refused,
+        lane=lane,
     )
     if not ready:
         held = is_paused(_paused_marker(inst))
@@ -965,7 +983,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
         tick.outcome = "refused"
         return 1
 
-    return _schedule(inst, ready, store=store, only=only, readmission=readmission)
+    return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
 
 
 def _preview_fixes(inst: Installation) -> None:
@@ -1236,6 +1254,7 @@ def run_round(
     readmit: _Readmission | None = None,
     quiet: bool = False,
     refused_needs: set[tuple[str, str]] | None = None,
+    lane: RestackLane | None = None,
 ) -> list[Unit]:
     """One round: everything a tick does before it starts builds, safe to repeat
     beside builds in flight. Returns the units to start when `submit`.
@@ -1285,7 +1304,7 @@ def run_round(
     # planning against the pre-poll graph builds against a stale picture.
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
-    _refresh(inst, store=store)
+    _refresh(inst, store=store, lane=lane)
     _step("finishing chat commits", deliver_committed, inst, store)
     _step("creating the thread store", _create_thread_store, inst)
     if admitted:
@@ -1384,19 +1403,23 @@ def run_round(
     # One this pass built that an event resumed is started again, within the
     # same budget as a readmission.
     free = max(0, inst.max_concurrent_stacks - len(in_flight | held))
+    # Owed a restack, or in the lane for one: a unit whose branch the lane holds is no longer
+    # owed by the branch lock's reading, and a worker started for it would find it claimed.
+    owed = owed_units(inst, units) | ({*lane.running, *lane.waiting} if lane else set())
     resumable = [
         unit
-        for unit in resumable_units(inst, units, only=only, spared=in_flight)
+        for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
         if readmit is None or unit.id not in started or readmit.may_resume(unit.id)
     ][:free]
     resumed = {unit.id for unit in resumable}
-    evaluated, view, _excluded = _evaluate_round(
+    evaluated, view, _excluded, for_the_lane = _evaluate_round(
         inst,
         units,
         started=set(started),
         building=in_flight | resumed,
         only=only,
         idle=idle - resumed,
+        owed=owed,
     )
     ready = [*resumable, *evaluated]
     if readmit:
@@ -1410,7 +1433,7 @@ def run_round(
             inst,
             units,
             view,
-            startable={unit.id for unit in evaluated},
+            startable={unit.id for unit in evaluated} | for_the_lane,
             skipped={
                 *_parked_starts(units, started),
                 *in_flight,
@@ -1582,6 +1605,7 @@ def resumable_units(
     *,
     only: frozenset[str],
     spared: Collection[str] = (),
+    owed: Collection[str] | None = None,
 ) -> list[Unit]:
     """The units whose thread a run left partway: killed in a node, or
     interrupted for the usage window, which the guard let this tick through.
@@ -1589,10 +1613,13 @@ def resumable_units(
     waiting for review or a person is not here, and holds none. `spared` names
     the units a run is in flight on. A unit whose lease is held waits for its release."""
     leases = Leases(lease_dir(inst.state_dir))
+    # A unit owed a restack is moved by the lane first; a worker would only wait for it.
+    owed = owed_units(inst, units) if owed is None else owed
     return [
         unit
         for unit in units
         if unit.state == RUNNING
+        and unit.id not in owed
         and (not only or unit.id in only)
         and unit.id not in spared
         and leases.holder(unit.id) is None
@@ -1613,7 +1640,7 @@ def _evaluate(
     idle: Collection[str] = (),
 ) -> list[Unit]:
     """What this pass may start now: `_evaluate_round` without the view it chose from."""
-    ready, _view, _excluded = _evaluate_round(
+    ready, _view, _excluded, _for_the_lane = _evaluate_round(
         inst,
         units,
         started=started,
@@ -1636,8 +1663,14 @@ def _evaluate_round(
     enforce_limit: bool = True,
     max_concurrent: int | None = None,
     idle: Collection[str] = (),
-) -> tuple[list[Unit], list[Unit], frozenset[str]]:
-    """What this pass may start now, the graph it chose from, and the units it left out.
+    owed: Collection[str] | None = None,
+) -> tuple[list[Unit], list[Unit], frozenset[str], frozenset[str]]:
+    """What this pass may start now, the graph it chose from, the units it left out, and
+    the planned units owed a restack, which wait for the lane's move and for nothing else.
+
+    A unit owed a restack is moved by the lane before a worker builds it, so it is never
+    in what may start. It is left in the graph as it is, so every count and every wait
+    reason is the one the existing rules give; it takes none of the build slots.
 
     The units left out are those already started this pass, outside `--only`,
     held by a lease, awaiting a requeue or in a backoff: they give no priority
@@ -1657,6 +1690,7 @@ def _evaluate_round(
     excluded: set[str] = set()
     now = spans.clock.now()
     leases = Leases(lease_dir(inst.state_dir))
+    owed = owed_units(inst, units) if owed is None else owed
     for unit in units:
         if unit.id in building:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -1676,14 +1710,24 @@ def _evaluate_round(
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)
         view.append(unit)
+    cap = max_concurrent or inst.max_concurrent_stacks
+    for_the_lane = {unit.id for unit in view if unit.state == PLANNED and unit.id in owed}
+    # Room for the owed units too, so one that is passed over does not take a slot from another.
     ready = ready_units(
         view,
-        max_concurrent=max_concurrent or inst.max_concurrent_stacks,
+        max_concurrent=cap + len(for_the_lane),
         depth_cap=inst.stack_depth_build_cap,
         max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
         excluded=excluded,
     )
-    return [unit for unit in ready if unit.id not in started], view, frozenset(excluded)
+    slots = max(0, cap - sum(1 for unit in view if unit.state == RUNNING))
+    startable = [unit for unit in ready if unit.id not in for_the_lane][:slots]
+    return (
+        [unit for unit in startable if unit.id not in started],
+        view,
+        frozenset(excluded),
+        frozenset(for_the_lane),
+    )
 
 
 def _queue_full_line(inst: Installation, units: list[StoredUnit]) -> str | None:
@@ -1778,7 +1822,7 @@ def _failed_waiting_lines(units: list[StoredUnit]) -> list[str]:
 def _ready_queue_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     """The ready queue in the order the scheduler starts it, with why each unit is where it is."""
     attached = {held.unit_id for held in Leases(lease_dir(inst.state_dir)).attachments()}
-    ready, view, excluded = _evaluate_round(
+    ready, view, excluded, _for_the_lane = _evaluate_round(
         inst,
         units,
         started=attached,
@@ -1817,7 +1861,7 @@ def _log_ready(
     """
     log(f"ready: {', '.join(unit.id for unit in ready)}")
     units = store.all()
-    queue, view, excluded = _evaluate_round(
+    queue, view, excluded, _for_the_lane = _evaluate_round(
         inst,
         units,
         started=set(),
@@ -1975,6 +2019,7 @@ def _schedule(
     store: UnitStore,
     only: frozenset[str],
     readmission: _Readmission,
+    lane: RestackLane,
 ) -> int:
     """Keep the build slots full until nothing more is ready.
 
@@ -2079,12 +2124,25 @@ def _schedule(
         # Each round waits for a build to finish or for REFRESH_SECONDS,
         # whichever is first, then refreshes and fills free slots. The pass
         # ends once none is in flight.
-        while building:
-            done, _ = wait(building, timeout=REFRESH_SECONDS, return_when=FIRST_COMPLETED)
+        # A restack in the lane is waited for as a build is, and ends a pass only when it has.
+        # Whether the lane had work when the round last looked, and still has: a restack that
+        # ends after a round left its unit out is followed by one more round, which starts it.
+        lane_busy = bool(lane.running or lane.waiting)
+        while building or lane_busy or lane.running or lane.waiting:
+            # A lane with nothing to do has nothing to wake the pass for.
+            lane_ends = lane.finished()
+            waited_on: list[Future[Any]] = [*building]
+            if not lane_ends.done():
+                waited_on.append(lane_ends)
+            done, _ = wait(waited_on, timeout=REFRESH_SECONDS, return_when=FIRST_COMPLETED)
             for future in done:
+                if future not in building:
+                    continue
                 building.pop(future)
                 if not future.result():
                     failed = True
+            lane.scan(store.all())
+            lane_busy = bool(lane.running or lane.waiting)
             # A build still in flight — or another tick — may already have
             # recorded the model's refusal; its report is not needed to stop
             # here. A usage pause is not one: the round asks the guard again.
@@ -2104,6 +2162,7 @@ def _schedule(
                 readmit=readmission,
                 quiet=True,
                 refused_needs=readmission.refused,
+                lane=lane,
             )
             units = store.all()
             note_queued(units, ready, in_flight)
@@ -2118,7 +2177,7 @@ def _schedule(
     return 1 if refused else 0
 
 
-def _refresh(inst: Installation, *, store: UnitStore) -> None:
+def _refresh(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
     """Fetch and poll, as the top of the tick does: a merge only a poll
     reveals may release a dependent, and review feedback should not wait for
     a pass that now lasts as long as its longest build.
@@ -2131,11 +2190,14 @@ def _refresh(inst: Installation, *, store: UnitStore) -> None:
     except Exception as error:  # noqa: BLE001
         log(f"fetch skipped — {type(error).__name__}: {error}")
     try:
-        poll_all(inst, store=store)
+        poll_all(inst, store=store, lane=lane)
     except Exception as error:  # noqa: BLE001
         # GitHub being unreachable is a reason to skip the update, not to stop
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
+    # What the poll found, and what it left owed, whether or not the host answered.
+    if lane is not None:
+        lane.scan(store.all())
 
 
 def park_dependents(inst: Installation, store: UnitStore) -> None:
@@ -2186,11 +2248,7 @@ def branch_is_held(inst: Installation, branch: str) -> bool:
     `branch_lock` already distinguishes a crashed holder from a live one by
     its pid; acquiring and releasing is the cheapest way to ask.
     """
-    try:
-        with branch_lock(branch, root=inst.state_dir / "locks"):
-            return False
-    except BranchBusy:
-        return True
+    return branch_held(branch, root=inst.state_dir / "locks")
 
 
 def thread_of(inst: Installation, unit_id: str) -> Position:
@@ -2941,9 +2999,110 @@ class StackMoves(TypedDict):
     retarget: Callable[[StoredUnit, str], None]
     rebase_cap: int | None
     resume: Callable[..., bool]
+    lane: RestackLane | None
 
 
-def build_stack_moves(store: UnitStore, installation: Installation) -> StackMoves:
+def build_turned_move(installation: Installation) -> Callable[..., Moved]:
+    """The move of a branch onto a base, told which repo's settings apply and holding that
+    repo's turn only for the phases that write what its worktrees share."""
+    names = {path: repo for repo, path in installation.checkouts.items()}
+
+    def move(path: Path, *args, **kwargs) -> Moved:
+        name = names[path]
+        return resolved_move(
+            path,
+            *args,
+            repo_config=installation.repo(name),
+            turn=partial(repo_turn, installation, name),
+            **kwargs,
+        )
+
+    return move
+
+
+def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
+    """The tick's lane: `limits.max_concurrent_restacks` workers apart from the build
+    workers, moving a unit onto the base it has when its move starts."""
+    moves = build_stack_moves(store, inst)
+    move = build_turned_move(inst)
+
+    def move_unit(owed: StoredUnit) -> None:
+        unit = store.get(owed.id)
+        graph = store.all()
+        repo = inst.checkouts[unit.repo]
+        branch = unit.branch or branch_name(unit)
+        new_base = base_of(unit, graph)
+        old_base = own_work_starts_after(
+            repo, local_ref(new_base, repo=unit.repo), unit, store, head=branch
+        )
+        # What it moves onto is the unit it is built on, or else the trunk it lands on.
+        parent = predecessor(unit, new_base, store) or unit.model_copy(
+            update={"id": new_base, "title": new_base}
+        )
+        if unit.state != RUNNING:
+            moves["restack"](
+                branch=branch, old_base=old_base, new_base=new_base, child=unit, parent=parent
+            )
+            return
+        # A thread parked at `prepare`, until its run drives the thread through `prepare`: in a
+        # worktree of its own it has the branch checked out, where the branch cannot be moved,
+        # so the move is left for its run. Without one the branch is moved in a temporary
+        # worktree, and a move that cannot be made is left for its run too.
+        if worktree_path(repo, branch, inst.worktree_root).exists():
+            store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"restack onto {new_base} left for its run, not a conflict: "
+                "its worktree has the branch checked out",
+                cause=Cause.RESTACK_CONFLICT,
+            )
+            return
+        try:
+            move(
+                repo,
+                branch,
+                new_base=local_ref(new_base, repo=unit.repo),
+                old_base=old_base,
+                moving_unit=unit.id,
+                moving_change=unit.change,
+                moving_repo=unit.repo,
+                moving_intent=unit.title,
+                onto_unit=parent.id,
+                onto_intent=parent.title,
+                temporary_root=inst.worktree_root,
+            )
+        except Exception as error:  # noqa: BLE001
+            store.set_state(
+                unit.id,
+                RUNNING,
+                note=f"restack onto {new_base} left for its run: {str(error)[:300]}",
+                cause=Cause.RESTACK_CONFLICT,
+            )
+
+    def stamp(owed: StoredUnit) -> tuple[str, str]:
+        """The heads a restack of the unit depends on: its branch and the base it moves onto."""
+        unit = store.get(owed.id)
+        repo = inst.checkouts[unit.repo]
+        base = local_ref(base_of(unit, store.all()), repo=unit.repo)
+        heads = [
+            git(repo, "rev-parse", "--verify", "--quiet", ref, check=False).stdout.strip()
+            for ref in (unit.branch or branch_name(unit), base)
+        ]
+        return heads[0], heads[1]
+
+    return RestackLane(
+        inst.max_concurrent_restacks,
+        move=move_unit,
+        claim=moves["claim"],
+        owed=lambda units: owed_units(inst, units),
+        stamp=stamp,
+        log=log,
+    )
+
+
+def build_stack_moves(
+    store: UnitStore, installation: Installation, *, lane: RestackLane | None = None
+) -> StackMoves:
     """The one place the merge handler and the satisfied path get what they
     move a stack with, every write to a repo's `.git` in that repo's turn, so
     the two cannot drift."""
@@ -2964,17 +3123,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
 
         return in_turn
 
-    def move(path: Path, *args, **kwargs) -> Moved:
-        """The move, told which repo's settings apply and holding that repo's turn
-        only for the phases that write what its worktrees share."""
-        name = names[path]
-        return resolved_move(
-            path,
-            *args,
-            repo_config=installation.repo(name),
-            turn=partial(repo_turn, installation, name),
-            **kwargs,
-        )
+    move = build_turned_move(installation)
 
     def checkout(path: Path, branch: str, **kwargs):
         """A checkout of the branch at a given head, made and removed in the repo's turn."""
@@ -3013,6 +3162,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
         "claim": build_claim(installation.state_dir / "locks"),
         "retarget": build_retarget(),
         "rebase_cap": installation.stack_depth_rebase_cap,
+        "lane": lane,
         "resume": lambda unit, kind, reason, feedback, from_person=False, rework=None: (
             resume_thread(
                 installation,
@@ -3030,13 +3180,17 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
 
 
 def _dispatch(
-    inst: Installation, store: UnitStore, say: Callable[[str], None] = log
+    inst: Installation,
+    store: UnitStore,
+    say: Callable[[str], None] = log,
+    *,
+    lane: RestackLane | None = None,
 ) -> Callable[..., bool]:
     """What each poller event is handed to, every write to a repo's `.git` in
     that repo's turn. Also how a merge the poll has not reported yet is recorded."""
     return build_dispatch(
         store,
-        **build_stack_moves(store, inst),
+        **build_stack_moves(store, inst, lane=lane),
         fetch_review=build_fetch_review(
             extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)
         ),
@@ -3080,7 +3234,7 @@ def _ui_review_of(
     return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
 
 
-def poll_all(inst: Installation, *, store: UnitStore) -> None:
+def poll_all(inst: Installation, *, store: UnitStore, lane: RestackLane | None = None) -> None:
     """Ask GitHub what changed in each repo, and act on it.
 
     One poller per repo, each with its own recorded state, so a failure in one
@@ -3102,7 +3256,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
     """
     checkouts = inst.checkouts
 
-    dispatch = _dispatch(inst, store)
+    dispatch = _dispatch(inst, store, lane=lane)
 
     labels = StateLabels(inst.forge_of, log=log)
     for repo in checkouts:
@@ -4267,7 +4421,7 @@ def wait_reasons(
 
     Decided from the facts `_evaluate_round` decides on, so what starts is unchanged:
     a unit it would start is `ready`, one it leaves out is told by what holds it."""
-    ready, view, _excluded = _evaluate_round(
+    ready, view, _excluded, for_the_lane = _evaluate_round(
         inst,
         units,
         started=started,
@@ -4279,7 +4433,7 @@ def wait_reasons(
         inst,
         units,
         view,
-        startable={unit.id for unit in ready},
+        startable={unit.id for unit in ready} | for_the_lane,
         skipped=_parked_starts(units, started) | building,
         only=only,
         usage_paused=usage_paused,

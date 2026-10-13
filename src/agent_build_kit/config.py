@@ -377,6 +377,9 @@ class LimitsConfig(Frozen):
     stack_depth_rebase_cap: int | None = None
     # How many units are implemented at once, across all repos.
     max_concurrent_stacks: int = 4
+    # How many restacks (moving a unit's branch onto a changed base) run at once, across
+    # all repos, in a lane apart from the build workers: a restack takes no build slot.
+    max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
     # Seconds after a push in which a pull request with no checks yet still reads
     # `checking`: CI may not have registered.
     checks_register_seconds: int = 120

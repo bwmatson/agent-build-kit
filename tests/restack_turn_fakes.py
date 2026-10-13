@@ -13,6 +13,7 @@ from __future__ import annotations
 import subprocess
 import threading
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -206,14 +207,20 @@ class Rig:
         self.runtime: Callable[..., StandInRuntime] = StandInRuntime
 
     def restack(self) -> None:
+        self.prepared()()
+
+    def prepared(self) -> Callable[[], None]:
+        """The restack as a piece of work to run later, over the handler wired as `abk` wires it."""
+
         def act(request: AgentRequest) -> None:
             self.requests.append(request)
             self.act(request)
 
         runtime = self.runtime(act=act)
         self.monkeypatch.setattr(runtimes, "active", lambda: runtime)
-        moves = cli.build_stack_moves(self.store, self.installation)
-        moves["restack"](
+        self.moves = cli.build_stack_moves(self.store, self.installation)
+        return partial(
+            self.moves["restack"],
             branch=self.branch,
             old_base=OLD_BASE,
             new_base="main",

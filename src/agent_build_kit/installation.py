@@ -140,6 +140,10 @@ class Installation:
         return self.config.limits.max_concurrent_stacks
 
     @property
+    def max_concurrent_restacks(self) -> int:
+        return self.config.limits.max_concurrent_restacks
+
+    @property
     def max_units_in_progress(self) -> int:
         return self.config.limits.max_units_in_progress
 
