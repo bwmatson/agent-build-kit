@@ -188,6 +188,9 @@ class Poller(BaseModel):
     # default removes nothing: the label then stays as seen, and is acted on
     # once until a person takes it off and adds it again.
     consume: Callable[[int, str], bool] = lambda number, name: False
+    # The unit a pull request of this repo belongs to, if any: its state and push
+    # time say whether a conflict read by a poll is fresh.
+    unit_of: Callable[[int], StoredUnit | None] = lambda number: None
     # Where a failed poll is reported. Silent by default so a caller that does
     # not care is unchanged; the pipeline passes its own log.
     log: Callable[[str], None] = lambda message: None
