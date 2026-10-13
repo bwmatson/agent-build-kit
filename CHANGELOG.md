@@ -9,6 +9,13 @@
   when the wait ends. The full-queue report says how many are not counted, the status says what
   each waits on, and the graph labels it `failed, waiting on <units>`.
 
+- The kit now carries a recommended command policy for build agents: deny globs for each
+  forbidden class (merging a pull request by the CLI, the raw API or GraphQL, amending a
+  commit, pushing or force pushing to the default branch), checked against the spellings the
+  policy check attempts. Its glob dialect is documented, and the classes it leaves uncovered
+  (skipping the commit gate, hard reset, discarding untracked work, force-deleting a branch,
+  a recursive delete, a bare force push) are listed with the reason.
+
 - A requeued unit now builds on the base the store names, not one its thread remembers, so a
   failed unit whose predecessor has since merged is no longer failed again counting commits
   against a deleted branch. A remembered base that no longer resolves is replaced by the

@@ -498,6 +498,56 @@ must be documented per runtime, never assumed equivalent.
 **`none`** — an agent with no interception point at all can only be as strict
 as its own configuration makes it. `abk doctor` says so plainly.
 
+## Recommended policy
+
+`runtimes/recommended_policy.py` holds the policy the kit recommends for a build
+agent as one table. Per forbidden class it records the command globs that refuse
+it, the samples the globs must refuse, the samples they must allow, and the
+refused samples only a glob refuses (the command rules allow them). The commands
+come from the spellings table (`pipeline/command_spellings`); only what a glob
+alone can show is written in the policy module. Tests hold the table to both.
+
+**Classes covered:** merging a pull request (the `gh pr merge` command, the raw
+API's `pulls/*/merge`, and GraphQL's `mergePullRequest`), amending a commit,
+and pushing to `main` or `master`. A force push to the default branch is covered
+by the push globs and has no globs of its own.
+
+**Dialect** (`DIALECT`): fnmatch globs: `*` matches any run of characters,
+spaces and slashes included, `?` one character, `[...]` a character class;
+case-insensitive; matched against the whole command and each segment of a
+compound command split at `&&`, `||`, `|`, `;` and a newline, with runs of
+whitespace collapsed; a pattern is anchored, so it must match the whole command
+or segment and a wrapper prefix is not matched.
+
+**An approximation.** `matches` is a reference matcher, not any agent's own. The
+live policy check (`check_policy`) is the confirmation that a given agent
+refuses what the globs say it should.
+
+**Spelling rows without a glob reader.** The globs do not read:
+
+- the wrapper and directory-change rows (`env X=1`, `command`, `sudo`,
+  `sudo -u root`, `cd . ;`): patterns are anchored, so a prefix is not matched,
+  and the agent folds a wrapper's name itself before matching. The judge alone
+  reads these rows. This is a deliberate gap.
+- the hard-reset and force-delete rows: those are uncovered classes (below).
+
+**Uncovered classes:** skipping the commit gate, a hard reset, discarding
+untracked work, force-deleting a branch, a recursive delete and a bare force
+push. Refusing them would also refuse them in interactive use, which is a
+choice for the person; the agent's own approval step may gate them, which varies
+per agent. Each is listed in `UNCOVERED` with that reason.
+
+**Known false positives and gaps.** A glob cannot tell a message from a command,
+so `git commit -m 'document the --amend flag'` and `git commit -m fix push to
+main` are refused though harmless (`KNOWN_FALSE_POSITIVES`). Some commands that
+do what a class forbids are not caught: an alias (`git -c alias.p=push p origin
+main`), a bare `git push` that relies on the configured upstream, and
+`git push --all origin` (`KNOWN_GAPS`).
+
+**The superset rule.** An installation's extra patterns follow the recommended
+list and never replace it (`patterns(extra)` returns the recommended globs in
+table order, then the extras, none repeated).
+
 ## Proving the constraint: `check_policy`
 
 A runtime whose agent runs its own tools is only as constrained as that

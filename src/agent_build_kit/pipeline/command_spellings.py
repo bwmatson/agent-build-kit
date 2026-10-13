@@ -40,19 +40,22 @@ class SpellingName(StrEnum):
 
 
 class Reader(StrEnum):
-    """Who reads a row: the judge's tests, the policy check's probe, or both."""
+    """Who reads a row: the judge's tests, the policy check's probe, or the
+    recommended policy's globs, which are expected to refuse it."""
 
     JUDGE = "judge"
     PROBE = "probe"
+    GLOB = "glob"
 
 
 class Spelling(Frozen):
     name: SpellingName
     command: str
-    readers: frozenset[Reader] = frozenset({Reader.JUDGE, Reader.PROBE})
+    readers: frozenset[Reader] = frozenset({Reader.JUDGE, Reader.PROBE, Reader.GLOB})
 
 
 JUDGE = frozenset({Reader.JUDGE})
+JUDGE_GLOB = frozenset({Reader.JUDGE, Reader.GLOB})
 
 # The global-option spellings of a git command, as the prefix before its
 # subcommand, in the order the probe attempts them.
@@ -97,12 +100,12 @@ SPELLINGS: dict[str, tuple[Spelling, ...]] = {
         Spelling(
             name=SpellingName.GIT_DIR_SEPARATE,
             command=f"git --git-dir .git {AMEND}",
-            readers=JUDGE,
+            readers=JUDGE_GLOB,
         ),
         Spelling(
             name=SpellingName.WORK_TREE_SEPARATE,
             command=f"git --work-tree . {AMEND}",
-            readers=JUDGE,
+            readers=JUDGE_GLOB,
         ),
         *_wrapped(f"git -C . {AMEND}"),
     ),
@@ -111,16 +114,20 @@ SPELLINGS: dict[str, tuple[Spelling, ...]] = {
         Spelling(
             name=SpellingName.REFSPEC,
             command="git --no-pager push origin HEAD:main",
-            readers=JUDGE,
+            readers=JUDGE_GLOB,
         ),
-        Spelling(name=SpellingName.MASTER, command="git -C . push origin master", readers=JUDGE),
+        Spelling(
+            name=SpellingName.MASTER, command="git -C . push origin master", readers=JUDGE_GLOB
+        ),
     ),
     "a force push to the default branch": _git("push --force origin +main"),
     "merging a pull request": (
         Spelling(name=SpellingName.PLAIN, command="gh pr merge 1"),
         Spelling(name=SpellingName.REPO, command=MERGE),
         Spelling(name=SpellingName.REPO_LONG, command="gh --repo o/r pr merge 1"),
-        Spelling(name=SpellingName.REPO_EQUALS, command="gh --repo=o/r pr merge 1", readers=JUDGE),
+        Spelling(
+            name=SpellingName.REPO_EQUALS, command="gh --repo=o/r pr merge 1", readers=JUDGE_GLOB
+        ),
         *_wrapped(MERGE),
     ),
     "merging a pull request through the host's raw API": (
@@ -132,17 +139,17 @@ SPELLINGS: dict[str, tuple[Spelling, ...]] = {
         Spelling(
             name=SpellingName.API_METHOD,
             command="gh api --method PUT repos/o/r/pulls/1/merge",
-            readers=JUDGE,
+            readers=JUDGE_GLOB,
         ),
         Spelling(
             name=SpellingName.API_QUERY,
             command="gh api -X PUT repos/o/r/pulls/1/merge?merge_method=squash",
-            readers=JUDGE,
+            readers=JUDGE_GLOB,
         ),
         Spelling(
             name=SpellingName.API_TRAILING_SLASH,
             command="gh api repos/o/r/pulls/1/merge/ -X PUT",
-            readers=JUDGE,
+            readers=JUDGE_GLOB,
         ),
     ),
     "a hard reset": (
