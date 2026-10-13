@@ -119,7 +119,18 @@ tier, `depends_on`, `estimated_lines`, `groups`. The change text it is sent mark
 heading of each group a started unit builds `(built by <unit id>)`, and the prompt says
 such groups are taken and never claimed; a plan that claims one is still refused. A
 refused plan keeps the unit ids returned and the reason in the plan record, which a bare
-`abk replan` shows.
+`abk replan` shows. Every failed attempt stores its `reason`: the first line of the error,
+at most 300 characters, redacted.
+
+A planner call that ends on an outage (a network or provider failure, classified as a
+unit's agent run is) is a wait, not an attempt: the record keeps its `attempts` and gains
+`waiting` (`network` or `service`), `waits`, `since` and `until` (1, 2, 5, 10 then 30
+minutes by consecutive waits). A wait is skipped, and not counted as work to plan, until
+`until` passes; a network wait is due at once on the tick whose control probe clears the
+`network` pause, which a network wait also writes and a tick under it plans nothing for.
+Waits by HTTP status are counted apart (`service_waits`) and capped by
+`limits.service_unavailable_attempts`; waits the probe found are not capped and not counted; an ordinary failure, a
+success, an edit of `tasks.md` and `abk replan --forget` end a wait.
 
 A model is used because the parts that matter are judgements — which groups
 touch the same files, what depends on what across changes, how many small

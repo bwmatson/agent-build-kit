@@ -15,6 +15,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.work_graph import specification_text
 from tests.conftest import make_installation
@@ -52,11 +53,29 @@ def answer(*units: dict, joins: list[dict] | None = None) -> str:
     return "Here is the plan.\n\n" + json.dumps({"units": list(units), "joins": joins or []})
 
 
+def record_plan(inst: Installation, change: str, **fields) -> None:
+    """Record `change` as planned at its current `tasks.md`, with `fields` changed."""
+    text = (inst.changes_dir / change / "tasks.md").read_text()
+    digest = hashlib.sha256(specification_text(text).encode()).hexdigest()
+    entry = {"hash": digest, "attempts": 0, "ok": True, **fields}
+    path = inst.state_dir / "planned.json"
+    records = json.loads(path.read_text()) if path.exists() else {}
+    path.write_text(json.dumps({**records, change: entry}))
+
+
 class Replan:
-    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **changes: str) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        limits: dict | None = None,
+        **changes: str,
+    ) -> None:
         self.inst = make_installation(
             tmp_path / "planning",
             planning={"state_dir": ".", "worktree_root": str(tmp_path / "trees")},
+            **({"limits": limits} if limits else {}),
         )
         (self.inst.root / "abk.yaml").write_text(dump(self.inst.config))
         monkeypatch.chdir(self.inst.root)
@@ -81,12 +100,7 @@ class Replan:
 
     def record(self, change: str, **fields) -> None:
         """Record `change` as planned at its current `tasks.md`, with `fields` changed."""
-        text = (self.inst.changes_dir / change / "tasks.md").read_text()
-        digest = hashlib.sha256(specification_text(text).encode()).hexdigest()
-        entry = {"hash": digest, "attempts": 0, "ok": True, **fields}
-        (self.inst.state_dir / "planned.json").write_text(
-            json.dumps({**self.records, change: entry})
-        )
+        record_plan(self.inst, change, **fields)
 
     def run(
         self, capsys: pytest.CaptureFixture[str], *argv: str, reply: str = ""
