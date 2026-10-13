@@ -636,10 +636,13 @@ the poller keeps the change to report again on a later poll — in practice the
 one after that build finishes. The handlers' own writes to a repo's `.git`
 (deleting a branch, removing a worktree, a restack's rebase and push) take the
 repo's turn (`runs/locks/repo-<repo>.lock`), as a build's worktree add and push
-do, since git's own locks there fail rather than wait. A restack's rebase runs
-in the repo's own checkout and holds the turn to the end, conflict resolver
-included, so a conflicted restack keeps that repo's builds waiting at worktree
-add or push until its resolver finishes. Its tier 1 run happens outside the turn.
+do, since git's own locks there fail rather than wait. A restack takes the turn per phase: for the rebase up to its stop, and again for
+its continuation or abort, the branch update and the rerere cache write; never
+while the conflict resolver edits files, so other units' worktree adds and pushes
+proceed meanwhile. A unit's own restack in a run follows the same rule. A branch
+that moved while the resolver worked is moved again once, then held. A branch with
+no worktree is moved in a temporary worktree on no branch, so the repo's own
+checkout is never switched. Its tier 1 run happens outside the turn.
 
 | Change seen | Event | Effect (`events.py`) |
 |---|---|---|

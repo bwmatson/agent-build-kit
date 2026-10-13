@@ -47,7 +47,7 @@ from agent_build_kit.pipeline.gateway_usage import Spend, attribution
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
-from agent_build_kit.pipeline.restack import HostMoved
+from agent_build_kit.pipeline.restack import BranchMoved, HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
@@ -979,6 +979,19 @@ class BuildPath:
                 restacked = r.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
             except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
                 raise
+            except BranchMoved as error:
+                # Another writer moved the branch twice while its conflict was resolved: left
+                # to a later tick, and not the once-per-run loop a moving base is given.
+                note = (
+                    f"restack onto {base} deferred: {error.branch} moved from "
+                    f"{error.expected[:12]} to {error.found[:12]} while its conflict was "
+                    "resolved, twice"
+                )
+                return {
+                    **FRESH,
+                    **remembered,
+                    **self.hold(PLANNED, note, note, cause=Cause.RESTACK_DEFERRED),
+                }
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
                 stored = r.store.get(unit.id)

@@ -26,7 +26,7 @@ import shlex
 import subprocess
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -72,12 +72,14 @@ from agent_build_kit.pipeline.restack import (
     HostMoved,
     Moved,
     RestackConflict,
+    Turn,
     adopt_host_head,
     diff_id,
     move_branch_onto,
     push_with_lease,
     remote_head,
     resolved_move,
+    retried_once,
 )
 from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
@@ -2274,14 +2276,24 @@ def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -
 
 
 def _move_without_resolver(
-    repo: Path, branch: str, *, new_base: str, old_base: str, **_intent: str
+    repo: Path,
+    branch: str,
+    *,
+    new_base: str,
+    old_base: str,
+    turn: Turn = nullcontext,
+    **_intent: str,
 ) -> Moved:
     """`move_branch_onto` with no resolver: a conflict is aborted and raised."""
-    return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base)
+    return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base, turn=turn)
 
 
 def build_restack_onto(
-    store: UnitStore, *, move: Callable[..., Moved] | None = None, repo: RepoConfig | None = None
+    store: UnitStore,
+    *,
+    move: Callable[..., Moved] | None = None,
+    repo: RepoConfig | None = None,
+    turn: Turn = nullcontext,
 ):
     """Move a resuming unit's branch onto its base, if the base has moved.
 
@@ -2321,15 +2333,18 @@ def build_restack_onto(
         old_head = git(tree, "rev-parse", "HEAD").stdout.strip()
         approved = store.get(unit.id).approved
         try:
-            moved = move(
-                tree,
-                branch,
-                new_base=base,
-                old_base=old_base,
-                moving_unit=unit.id,
-                moving_intent=unit.title,
-                onto_unit=onto_unit,
-                onto_intent=onto_intent,
+            moved = retried_once(
+                lambda: move(
+                    tree,
+                    branch,
+                    new_base=base,
+                    old_base=old_base,
+                    moving_unit=unit.id,
+                    moving_intent=unit.title,
+                    onto_unit=onto_unit,
+                    onto_intent=onto_intent,
+                    turn=turn,
+                )
             )
         except RestackConflict as error:
             # Not a failure: the adapt step ports the work by hand. It needs
@@ -2767,9 +2782,11 @@ def build_runner(
     )
     planning_repo = installation.root
     # Units build in parallel, and two in one repo share its `.git`. Adding a
-    # worktree and pushing both take git's own locks there, which fail rather
-    # than wait — so those two steps take turns per repo. Everything else
-    # happens inside the unit's own worktree and needs no turn-taking.
+    # worktree, pushing, and the restack's git phases (the rebase up to its stop;
+    # its continue or abort, the branch update and the rerere writes) all take
+    # git's own locks there, which fail rather than wait — so those steps take
+    # turns per repo. The resolver's edits do not: they, and everything else,
+    # happen inside the unit's own worktree and need no turn-taking.
     unit_repo_turn = partial(file_lock, root / "locks" / f"repo-{unit.repo}.lock")
 
     def repo_turn_of(name: str) -> AbstractContextManager[object]:
@@ -2841,7 +2858,7 @@ def build_runner(
         upstream_incomplete=build_upstream_incomplete(store),
         base_moved=build_base_moved(store),
         base_tip=tip,
-        restack_onto=build_restack_onto(store, repo=repo),
+        restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
         run_tier1=build_tier1(
             profile=profile,
             root_extras=repo.tests.root_extras,
