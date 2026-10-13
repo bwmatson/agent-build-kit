@@ -88,7 +88,7 @@ def test_a_port_whose_session_cannot_be_continued_starts_a_new_one_with_the_full
         branch_commits=lambda cwd, base: 2 + recorder.made,
         restack_onto=Failing(),
         reset_to=lambda tree, onto, keep: None,
-        tests_in=lambda tree: set(),
+        tests_in=lambda tree: {MISSING},  # carried over unchanged: nothing to account for
         tests_changed=lambda tree, ref: set(),
         **agents(runtime),
     )

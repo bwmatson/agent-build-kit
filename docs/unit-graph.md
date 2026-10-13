@@ -222,7 +222,7 @@ are the reference for each condition. The nodes:
 | `fix_checks` | Hands the failed checks' output to the builder, bounded by `limits.max_check_rounds`, then back to `checks`. Records no reply, as there is no reviewer to answer | `run`, `commit`, `may_start` |
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
-| `adapt` | Ports the old work onto a base it could not be rebased onto, and accounts for each test | the adapt agent, `check_test_decisions` |
+| `adapt` | The last step of a conflict, after the restack's two resolver steps failed their checks: ports the old work onto the new base in the same session, told what was tried, and accounts for each test | the adapt agent, `check_test_decisions` |
 | `tier1`, `tier2` | The test tiers. `tier1` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on tier 1 alone) and on a branch moved cleanly onto a new base, before the push. `tier2` follows approval for a tier 2 unit | `tier1`, `run_tier2` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `new_comments` | Before the push, for a rework of a unit with a pull request, reads the notes and conversation again; those not in `seen_comments` and not the pipeline's own go back to `rework` as feedback, restarting the round counters; `open_pr` records the ids given to the agent so the poller ignores them | `fetch_comments` |

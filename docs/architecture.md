@@ -322,8 +322,9 @@ sequence; `wiring.py` binds each step to git, gh and `claude`:
    is checked out under the worktree root, created on its base — the newest
    `in_review` same-repo dependency's branch, else `origin/main`. A dirty
    worktree is refused, never cleaned. A resuming unit whose base moved is
-   restacked first; a conflict the resolver cannot settle goes to the
-   **adapt** step, which resets the branch, keeps the old work under a ref,
+   restacked first; a conflict the resolver's two steps (the conflicting hunks,
+   then the files that depend on them) cannot settle goes, in the same session
+   and told what was tried, to the **adapt** step, which resets the branch, keeps the old work under a ref,
    and has the rework model port it while deciding keep/adapt/retire for each
    test the old work had that the replay left uncertain — missing from the
    tree, or present but changed; a test the replay left alone counts as kept

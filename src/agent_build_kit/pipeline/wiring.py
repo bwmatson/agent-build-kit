@@ -2436,6 +2436,7 @@ def build_restack_onto(
                 old_head=old_head,
                 conflict=str(error),
                 old_tests=tuple(defined_tests_in_range(tree, old_base, old_head)),
+                tried=error.tried,
             )
 
         # Applied cleanly with the unit's own diff byte-for-byte unchanged: the

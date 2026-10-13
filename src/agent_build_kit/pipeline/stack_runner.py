@@ -702,6 +702,9 @@ class PortedTest(Frozen):
         return "" if value is None else value
 
 
+# Said in the port's prompt when the steps before it failed their checks.
+TRIED_NOTE = "\nBefore this port, the narrower steps were tried and failed:\n\n{tried}\n"
+
 ADAPT_PROMPT = (
     """This unit — change {change_dir}, task group(s) {groups} — was built on an
 earlier version of `{onto_unit}` ({onto_intent}). That predecessor has changed
@@ -709,7 +712,7 @@ since, and replaying this unit's commits onto its new version conflicted beyond
 what could be merged mechanically:
 
 {conflict}
-
+{tried}
 So this branch has been reset to the new base, and the previous work kept at
 `{old_ref}`. Its own changes are `git diff {old_base} {old_ref}`; what it was
 built on is `{old_base}`.
@@ -848,7 +851,7 @@ predecessor has changed since, and replaying this unit's commits onto its new
 version conflicted beyond what could be merged mechanically:
 
 {conflict}
-
+{tried}
 So this branch has been reset to the new base, and your previous work kept at
 `{old_ref}`. Its own changes are `git diff {old_base} {old_ref}`.
 

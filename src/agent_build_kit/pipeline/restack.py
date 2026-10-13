@@ -94,7 +94,14 @@ def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
 
 class RestackConflict(RuntimeError):
     """The move could not be done mechanically: it conflicts with what it is
-    moving onto beyond what the resolver could safely reconcile."""
+    moving onto beyond what the resolver could safely reconcile.
+
+    `tried` says which resolver steps failed their checks and what the checks said, for
+    the port that follows."""
+
+    def __init__(self, message: str, *, tried: str = "") -> None:
+        super().__init__(message)
+        self.tried = tried
 
 
 class Moved(Frozen):
@@ -277,12 +284,12 @@ def _replayed_files(output: str, files: list[str]) -> list[str]:
     return [name for name in files if name in replayed]
 
 
-def _abort(repo: Path, message: str) -> RestackConflict:
+def _abort(repo: Path, message: str, tried: str = "") -> RestackConflict:
     # Leave nothing half-applied: a rebase in progress makes every later
     # command in this worktree fail in a confusing way. Called inside the
     # repository's turn.
     git(repo, "rebase", "--abort", check=False)
-    return RestackConflict(message)
+    return RestackConflict(message, tried=tried)
 
 
 class BranchMoved(RuntimeError):
@@ -502,6 +509,7 @@ def move_branch_onto(
         )
 
     asking: dict[str, str] = {}
+    failures: list[str] = []
     for attempt in (1, 2):
         try:
             # At most two calls. An unattended run that loops on a failing resolver
@@ -535,6 +543,7 @@ def move_branch_onto(
                         git(repo, "rerere", "forget", name, check=False)
         if not failure:
             break
+        failures.append(f"step {attempt} of the restack failed its check: {failure}")
         if attempt == 2:
             with turn():
                 raise _abort(
@@ -545,6 +554,7 @@ def move_branch_onto(
                         if marked
                         else ""
                     ),
+                    tried="\n".join(failures),
                 )
         asking = {"follow_up": CONTINUE_PROMPT.format(failure=failure)}
         prompt = f"{prompt}\n\n{asking['follow_up']}"

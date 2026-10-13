@@ -116,7 +116,7 @@ models:                       # bare aliases, not pinned ids; ABK_*_MODEL
   rework_review: fable        # a different model reviews a rework
 
 session_reuse:                # per agent role: continue the role's latest session
-  build: true                 # tests/implement/fix/rework/adapt share one session
+  build: true                 # tests/implement/fix/rework/restack/adapt share one session
   review: false               # always false: a review starts fresh; a role left out is off
 
 retention:
