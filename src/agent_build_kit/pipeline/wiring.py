@@ -1292,12 +1292,12 @@ def build_tier1(
 
 def build_on_flake(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
-) -> Callable[[Unit, Flake], str | None]:
+) -> Callable[..., str | None]:
     """Make the unit wait on the one change that fixes a flake it met, and record it.
     Returns that change, or None for a unit of the change itself, which has nothing to
     wait on."""
 
-    def on_flake(unit: Unit, flake: Flake) -> str | None:
+    def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
         fix = wait_on_fix(installation, met, store.get(unit.id))
         flake_record(installation).append(met.model_copy(update={"change": fix or ""}))

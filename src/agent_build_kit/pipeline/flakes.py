@@ -50,9 +50,10 @@ class FlakeFound(Exception):
     """Raised by tier 1 when every failed test passed both serial reruns: the unit is not
     failed for them, it waits for their fix."""
 
-    def __init__(self, flakes: tuple[Flake, ...]) -> None:
+    def __init__(self, flakes: tuple[Flake, ...], *, scoped: bool = False) -> None:
         super().__init__(", ".join(flake.test for flake in flakes))
         self.flakes = flakes
+        self.scoped = scoped
 
 
 FlakeCount = TestCount
@@ -78,7 +79,9 @@ def fix_change_name(test: str, prefix: str) -> str:
     return name
 
 
-def wait_on_fix(inst: Installation, flake: Flake, unit: StoredUnit) -> str | None:
+def wait_on_fix(
+    inst: Installation, flake: Flake, unit: StoredUnit, *, wait: bool = True
+) -> str | None:
     """Make sure the one open change that fixes `flake.test` exists, under the state
     directory's lock, and give each group of `unit` a `Needs:` line on it. Returns the
     change's name, or None for a unit of that change itself, which waits on nothing."""
