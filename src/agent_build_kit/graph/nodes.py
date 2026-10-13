@@ -132,6 +132,7 @@ Update = dict[str, Any]
 FRESH: Update = {
     "restack": False,
     "moved": False,
+    "moved_from": "",
     "conflict": None,
     "verdict": None,
     "fix_rounds": 0,
@@ -1660,8 +1661,13 @@ class BuildPath:
             if fault is not None:
                 ok, output = False, fault.output
             else:
+                # Only a clean move says what base it left, and so how its run is scoped.
+                moved = {"moved_from": state.moved_from} if state.moved else {}
                 ok, output = r.run_tier1(
-                    cwd=self.tree(), base=self.ref(state), whole_repo=state.produced_nothing
+                    cwd=self.tree(),
+                    base=self.ref(state),
+                    whole_repo=state.produced_nothing,
+                    **moved,
                 )
         except FlakeFound as found:
             if (parked := self.wait_for_fix(found)) is not None:
@@ -1829,7 +1835,11 @@ class BuildPath:
             if moved.conflict or moved.resolved:
                 return self.rebase(state, f"moving onto {base} needed resolution", base=base)
             self.say(f"moved onto {base} cleanly; tier 1 again")
-        return {"base": base, "moved": moved is not None}
+        return {
+            "base": base,
+            "moved": moved is not None,
+            "moved_from": moved.old_base if moved is not None else "",
+        }
 
     def push(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -2138,6 +2148,7 @@ class BuildPath:
             "checks_ok": False,
             "produced_nothing": False,
             "moved": False,
+            "moved_from": "",
             "head_approved": False,
             "pushed_head": False,
             "opened": False,

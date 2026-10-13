@@ -2976,7 +2976,7 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
             path, branch, turn=partial(repo_turn, installation, names[path]), **kwargs
         )
 
-    def tier1_of(*, cwd: Path, base: str) -> tuple[bool, str]:
+    def tier1_of(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
         """Tier 1 as the repo whose checkout, or worktree of it, `cwd` is builds it."""
         for name, path in checkouts.items():
             if cwd == path or cwd.parent == installation.worktree_root / path.name:
@@ -2986,7 +2986,8 @@ def build_stack_moves(store: UnitStore, installation: Installation) -> StackMove
                     root_extras=repo.tests.root_extras,
                     projects=repo.projects,
                     repo=repo,
-                )(cwd=cwd, base=base)
+                    log=log,
+                )(cwd=cwd, base=base, moved_from=moved_from)
         raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
 
     return {

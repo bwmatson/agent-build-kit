@@ -1610,7 +1610,11 @@ def build_restack(
                 else nullcontext(cwd)
             )
             with checks_in as checks_cwd:
-                passed, output = tier1(cwd=checks_cwd, base=local_ref(new_base, repo=child.repo))
+                passed, output = tier1(
+                    cwd=checks_cwd,
+                    base=local_ref(new_base, repo=child.repo),
+                    moved_from=old_base,
+                )
         except FlakeFound as found:
             # Not this branch's fault: it waits, gated, for the test's fix, as a unit
             # that met the flake building does, and is moved when it resumes.
@@ -1656,8 +1660,8 @@ def build_restack(
     return restack
 
 
-def _default_tier1(*, cwd: Path, base: str) -> tuple[bool, str]:
-    return build_tier1()(cwd=cwd, base=base)
+def _default_tier1(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
+    return build_tier1()(cwd=cwd, base=base, moved_from=moved_from)
 
 
 def _default_push(repo: Path, branch: str, *, last_pushed: str | None) -> str:

@@ -159,7 +159,7 @@ def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_
     pushed: list[str] = []
 
     def tier1(**kwargs: Any):
-        def run(*, cwd: Path, base: str) -> tuple[bool, str]:
+        def run(*, cwd: Path, base: str, moved_from: str | None = None) -> tuple[bool, str]:
             seen.append((cwd, sh(cwd, "rev-parse", "HEAD")))
             return True, ""
 

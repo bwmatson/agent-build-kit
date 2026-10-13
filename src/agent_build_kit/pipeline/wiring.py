@@ -64,6 +64,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, wait_on_fix
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.moved_base import moved_base_scope
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.pr_replies import (
     MARKER,
@@ -807,14 +808,24 @@ def build_tier1(
     last_full: dict[str, tuple[float, int]] = {}
 
     def tier1(
-        *, cwd: Path, base: str, whole_repo: bool = False, failed_output: str = ""
+        *,
+        cwd: Path,
+        base: str,
+        whole_repo: bool = False,
+        failed_output: str = "",
+        moved_from: str | None = None,
     ) -> tuple[bool, str]:
         """(passed, what failed) — the output is what makes a retry useful.
 
         `failed_output` is the output of the failed check a fix is answering; given,
-        and the repo's affected-tests mode on, the tests run are the selected ones."""
+        and the repo's affected-tests mode on, the tests run are the selected ones.
+        `moved_from` is the base a clean move left (empty when it had none; None when the run
+        follows no move), which says whether the run is scoped
+        by what the move can affect; the line it logs says which it was and why."""
         for project in pending_projects(cwd, projects):
             _say(log, describe(project))
+        if moved_from is not None:
+            _say_scope(cwd, base, moved_from)
         work = _work(cwd, base, whole_repo, projects, profile, changed)
         if projects and not work:
             _say(log, "every project is pending, nothing ran in a project")
@@ -850,6 +861,21 @@ def build_tier1(
                 "a disagreement",
             )
         return confirmed
+
+    def _say_scope(cwd: Path, base: str, moved_from: str) -> None:
+        scope = moved_base_scope(
+            cwd,
+            own=changed(cwd, base),
+            base=base,
+            moved_from=moved_from,
+            setting=active().limits.restack_check,
+        )
+        _say(
+            log,
+            "moved base: no file the unit changes was brought in (the full suite still runs)"
+            if scope.scoped
+            else f"moved base: ran the full suite ({scope.reason})",
+        )
 
     def record_selected(
         figures: list[tuple[float, int]], outcome: str, earlier: tuple[float, int] | None
