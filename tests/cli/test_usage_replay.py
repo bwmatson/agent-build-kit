@@ -51,9 +51,13 @@ def rows(out: str, window: str) -> list[dict[str, str]]:
 
 def counts(out: str, window: str) -> dict[str, int]:
     (line,) = [line for line in out.splitlines() if line.startswith(f"{window}:")]
-    return {
-        label.strip(): int(n) for label, n in re.findall(r"([a-z ]+?) (\d+)", line.split(":", 1)[1])
-    }
+    figures = line.split(":", 1)[1].split(", mean overshoot")[0]
+    return {label.strip(): int(n) for label, n in re.findall(r"([a-z ]+?) (\d+)", figures)}
+
+
+def overshoot(out: str, window: str) -> str:
+    (line,) = [line for line in out.splitlines() if line.startswith(f"{window}:")]
+    return line.rsplit("mean overshoot ", 1)[1]
 
 
 def estimates(out: str, window: str) -> list[float]:
@@ -230,3 +234,61 @@ def test_a_run_writes_nothing_and_asks_nobody_and_names_the_threshold_it_judges_
     assert {p: p.read_bytes() for p in inst.state_dir.rglob("*") if p.is_file()} == before
     assert host.asked == 0
     assert any("usage_pause_pct" in line and "65" in line for line in out.splitlines())
+
+
+def test_the_mean_overshoot_is_the_estimate_over_the_actual_averaged_where_it_was_over(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = installation(tmp_path)
+    spent = [(50, 52, 1), (50, 53, 1), (63, 64, 1), (64, 65, 1), (20, 24, 2)]
+    calls, ledger = gaps("weekly", spent)
+    keep(inst.state_dir, calls, ledger)
+
+    _, out, _ = replay(inst, capsys)
+
+    assert overshoot(out, "weekly") == "1.0"  # the two false pauses, each one point over
+
+
+def test_no_overshoot_is_none(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inst = installation(tmp_path)
+    calls, ledger = gaps("weekly", [(50, 53, 1)])
+    keep(inst.state_dir, calls, ledger)
+
+    _, out, _ = replay(inst, capsys)
+
+    assert overshoot(out, "weekly") == "none"
+
+
+def test_the_output_ends_with_the_allowances_line_and_says_when_there_is_too_little_to_judge(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = installation(tmp_path)
+    calls, ledger = gaps("weekly", [(50, 53, 1)] * 3)
+    keep(inst.state_dir, calls, ledger)
+
+    _, out, _ = replay(inst, capsys)
+
+    lines = out.splitlines()
+    assert lines[-1].startswith("usage allowances:")
+    assert any("weekly not enough to judge" in line and "3" in line for line in lines)
+
+
+def test_a_row_shows_the_allowance_it_used(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = installation(tmp_path)
+    calls, ledger = gaps("weekly", [(10, 11, 2)] * 12)
+    keep(inst.state_dir, calls, ledger)
+
+    _, out, _ = replay(inst, capsys)
+
+    assert [r["allowance"] for r in rows(out, "weekly")] == ["2"] * 8 + ["1"] * 4
+
+
+def test_a_negative_margin_is_refused_naming_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status, _, err = replay(installation(tmp_path), capsys, "--margin=-3")
+
+    assert status != 0
+    assert "-3" in err
