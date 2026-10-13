@@ -793,7 +793,13 @@ def test_an_event_handler_writes_to_a_repo_only_in_its_turn(
                 fcntl.flock(handle, fcntl.LOCK_UN)
                 held.append(False)
 
-    monkeypatch.setattr(cli, "resolved_move", records_the_turn)
+    def moves_with_a_turn(*args, turn, **kwargs) -> None:
+        """The move holds the turn only for its git phases, so it is handed the
+        turn to take, which is the repo's lock."""
+        with turn():
+            records_the_turn()
+
+    monkeypatch.setattr(cli, "resolved_move", moves_with_a_turn)
     monkeypatch.setattr(cli, "push_with_lease", records_the_turn)
     monkeypatch.setattr(cli, "build_delete_branch", lambda repos: records_the_turn)
     monkeypatch.setattr(cli, "build_remove_worktree", lambda repos, root: records_the_turn)

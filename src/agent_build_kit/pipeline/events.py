@@ -37,6 +37,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit import forges, profiles
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
@@ -47,6 +48,8 @@ from agent_build_kit.pipeline.flakes import FlakeFound, waiting_note
 from agent_build_kit.pipeline.pr_poller import FAILING_CHECKS_REASON  # noqa: F401 — re-exported
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.restack import (
+    BranchCheckedOut,
+    BranchMoved,
     Moved,
     RestackConflict,
     adopt_host_head,
@@ -54,6 +57,7 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     remote_head,
     resolved_move,
+    retried_once,
 )
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
 from agent_build_kit.pipeline.shell import git
@@ -1486,17 +1490,42 @@ def build_restack(
         # Both sides are planned work, so the resolver is told what each was
         # for rather than left to infer it from the diff — see `resolved_move`,
         # which a resuming unit's own restack shares.
+        # No worktree of its own: the branch is moved in a temporary one, so the
+        # repository's checkout is never switched.
+        where: dict[str, Any] = {} if worktree.exists() else {"temporary_root": root}
         try:
-            moved = move(
-                repo,
-                branch,
-                new_base=local_ref(new_base, repo=child.repo),
-                old_base=old_base,
-                moving_unit=child.id,
-                moving_intent=child.title,
-                onto_unit=parent.id,
-                onto_intent=parent.title,
+            moved = retried_once(
+                lambda: move(
+                    repo,
+                    branch,
+                    new_base=local_ref(new_base, repo=child.repo),
+                    old_base=old_base,
+                    moving_unit=child.id,
+                    moving_intent=child.title,
+                    onto_unit=parent.id,
+                    onto_intent=parent.title,
+                    **where,
+                )
             )
+        except BranchMoved as error:
+            store.set_state(
+                child.id,
+                PLANNED,
+                note=f"restack onto {new_base} deferred: {error.branch} moved from "
+                f"{error.expected[:12]} to {error.found[:12]} while its conflict was "
+                "resolved, twice; the runner retries it",
+                cause=Cause.RESTACK_DEFERRED,
+            )
+            return
+        except BranchCheckedOut as error:
+            store.set_state(
+                child.id,
+                PLANNED,
+                note=f"restack onto {new_base} deferred: {error.branch} is checked out in "
+                f"{error.path}; the runner retries it",
+                cause=Cause.RESTACK_DEFERRED,
+            )
+            return
         except RestackConflict as error:
             # Left unmoved for the runner, whose own restack meets the same
             # conflict and hands it to the adapt step — which ports the work and

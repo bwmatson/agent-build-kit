@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A restack no longer keeps the whole repository waiting while an agent resolves a conflict:
+  the repository's turn is held only for the git commands that write shared state, so other
+  units' worktree adds and pushes go on meanwhile. A unit's own restack in a run takes the turn
+  the same way. A branch that moved during the resolution is moved again once, then the unit
+  is left planned with the heads named. A branch with no worktree is now moved in a temporary
+  worktree, so the repository's own checkout is never switched; a branch checked out elsewhere
+  is left alone and the unit waits.
+
 - A unit that has never started and has two or more open same-repo parents, neither built on
   the other, now waits for all but one of them instead of starting on one branch and missing the
   other's work. It builds on the deepest parent (the newest of a chain, whatever order its

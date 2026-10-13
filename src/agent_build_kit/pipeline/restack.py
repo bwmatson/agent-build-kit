@@ -41,6 +41,7 @@ from agent_build_kit.pipeline.git_output import (
     untranslated_env,
 )
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
+from agent_build_kit.pipeline.workspaces import prepare_detached
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
@@ -245,9 +246,70 @@ def _replayed_files(output: str, files: list[str]) -> list[str]:
 
 def _abort(repo: Path, message: str) -> RestackConflict:
     # Leave nothing half-applied: a rebase in progress makes every later
-    # command in this worktree fail in a confusing way.
+    # command in this worktree fail in a confusing way. Called inside the
+    # repository's turn.
     git(repo, "rebase", "--abort", check=False)
     return RestackConflict(message)
+
+
+class BranchMoved(RuntimeError):
+    """The branch was moved by another writer while its conflict was resolved.
+
+    The rebase was aborted before anything was continued; `expected` is where the
+    branch was when the move started and `found` where it is now.
+    """
+
+    def __init__(self, branch: str, *, expected: str, found: str) -> None:
+        super().__init__(
+            f"{branch} moved from {expected[:12]} to {found[:12]} while its conflict was resolved"
+        )
+        self.branch = branch
+        self.expected = expected
+        self.found = found
+
+
+class BranchCheckedOut(RuntimeError):
+    """The branch is checked out in another worktree, so its reference is not moved
+    from under that checkout. `path` names the checkout."""
+
+    def __init__(self, branch: str, *, path: str) -> None:
+        super().__init__(f"{branch} is checked out in {path}, which a move would leave stale")
+        self.branch = branch
+        self.path = path
+
+
+def retried_once[T](attempt: Callable[[], T]) -> T:
+    """`attempt()`, made again from its first phase when the branch moved under it;
+    a second `BranchMoved` is the caller's to hold the unit for."""
+    try:
+        return attempt()
+    except BranchMoved:
+        return attempt()
+
+
+def _branch_head(repo: Path, branch: str) -> str:
+    return git(repo, "rev-parse", "--verify", f"refs/heads/{branch}").stdout.strip()
+
+
+def _checked_out_in(repo: Path, branch: str) -> str | None:
+    """The worktree that has `branch` checked out, if any."""
+    listing = git(repo, "worktree", "list", "--porcelain", check=False).stdout
+    for block in listing.split("\n\n"):
+        lines = block.splitlines()
+        if f"branch refs/heads/{branch}" in lines:
+            return next((line.removeprefix("worktree ") for line in lines), None)
+    return None
+
+
+def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
+    """Move `branch` to the detached head the rebase ended on, by compare-and-swap
+    against `started`. Inside the turn, with the rebase finished."""
+    elsewhere = _checked_out_in(repo, branch)
+    if elsewhere is not None:
+        raise BranchCheckedOut(branch, path=elsewhere)
+    head = git(repo, "rev-parse", "HEAD").stdout.strip()
+    git(repo, "update-ref", f"refs/heads/{branch}", head, started)
+    return Moved(sha=head)
 
 
 def move_branch_onto(
@@ -260,6 +322,7 @@ def move_branch_onto(
     context: ConflictContext | None = None,
     must_keep: list[str] | None = None,
     turn: Turn = nullcontext,
+    detached: bool = False,
 ) -> Moved:
     """Replay `branch`'s own commits onto `new_base`.
 
@@ -275,47 +338,59 @@ def move_branch_onto(
 
     `must_keep` defaults to lines derived from the moving branch's own diff
     (`derive_must_keep`), so a caller doesn't have to hand-write the guard.
+
+    The repository's `turn` is held for the rebase up to its stop, and again for
+    its continuation or abort, the rerere writes and the branch update — never
+    while the resolver works. A branch that moved meanwhile raises `BranchMoved`
+    with the rebase aborted. With `detached`, `repo` is a worktree on no branch:
+    the rebase runs on its detached head and the branch is moved at the end by
+    compare-and-swap, unless another worktree has it checked out
+    (`BranchCheckedOut`).
     """
-    result = git(
-        repo,
-        "rebase",
-        "--onto",
-        new_base,
-        old_base,
-        branch,
-        check=False,
-        env=untranslated_env(),
-    )
-    if result.returncode == 0:
-        return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
-
-    if resolve is None or context is None:
-        raise _abort(
+    with turn():
+        started = _branch_head(repo, branch)
+        result = git(
             repo,
-            f"moving {branch} from {old_base} onto {new_base} conflicts:\n"
-            f"{result.stdout}\n{result.stderr}\n"
-            "Left unmoved for a human to resolve.",
+            "rebase",
+            "--onto",
+            new_base,
+            old_base,
+            *([] if detached else [branch]),
+            check=False,
+            env=untranslated_env(),
         )
+        if result.returncode == 0:
+            if detached:
+                return _land_detached(repo, branch, started=started)
+            return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
 
-    files = conflicted_files(repo)
-    if must_keep is None:
-        must_keep = derive_must_keep(repo, branch, old_base=old_base, files=files)
+        if resolve is None or context is None:
+            raise _abort(
+                repo,
+                f"moving {branch} from {old_base} onto {new_base} conflicts:\n"
+                f"{result.stdout}\n{result.stderr}\n"
+                "Left unmoved for a human to resolve.",
+            )
 
-    replayed = _replayed_files(result.stdout + result.stderr, files)
-    replayed_content = {name: (repo / name).read_text(errors="replace") for name in replayed}
-    prompt = RESOLVE_PROMPT.format(
-        moving_unit=context.moving_unit,
-        moving_intent=context.moving_intent,
-        onto_unit=context.onto_unit,
-        onto_intent=context.onto_intent,
-        files="\n".join(f"- {name}" for name in files) or "- (none reported)",
-        replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in replayed))
-        if replayed
-        else "",
-        diff=git(repo, "diff", check=False).stdout[:8000],
-        changelog_rule=resolver_changelog_rule(repo, files, context.repo),
-        changelog=changelog_note(repo, context.repo),
-    )
+        files = conflicted_files(repo)
+        if must_keep is None:
+            must_keep = derive_must_keep(repo, branch, old_base=old_base, files=files)
+
+        replayed = _replayed_files(result.stdout + result.stderr, files)
+        replayed_content = {name: (repo / name).read_text(errors="replace") for name in replayed}
+        prompt = RESOLVE_PROMPT.format(
+            moving_unit=context.moving_unit,
+            moving_intent=context.moving_intent,
+            onto_unit=context.onto_unit,
+            onto_intent=context.onto_intent,
+            files="\n".join(f"- {name}" for name in files) or "- (none reported)",
+            replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in replayed))
+            if replayed
+            else "",
+            diff=git(repo, "diff", check=False).stdout[:8000],
+            changelog_rule=resolver_changelog_rule(repo, files, context.repo),
+            changelog=changelog_note(repo, context.repo),
+        )
 
     try:
         # One attempt only. An unattended run that loops on a failing resolver
@@ -325,10 +400,12 @@ def move_branch_onto(
         # Not a conflict nobody could resolve: the account is out of room, the
         # network is down, or the run was killed. The branch goes back where it was, to be moved
         # again once the tick can run.
-        git(repo, "rebase", "--abort", check=False)
+        with turn():
+            git(repo, "rebase", "--abort", check=False)
         raise
     except Exception as error:
-        raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
+        with turn():
+            raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
 
     marked = [
         name
@@ -336,48 +413,99 @@ def move_branch_onto(
         if any(marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS)
     ]
     if marked:
-        for name in marked:
-            if name in replayed:
-                # A rejected replay: forget the cached entry before the abort
-                # below clears the rebase, so the next sibling to hit this
-                # conflict is offered the conflict itself, not the entry that
-                # was just judged wrong. Done for every marked file, not just
-                # the first — otherwise a second rejected replay, or one
-                # listed after a plain unresolved file, keeps its stale entry
-                # and gets replayed straight to the next sibling.
-                git(repo, "rerere", "forget", name, check=False)
-        raise _abort(
-            repo,
-            f"{', '.join(marked)} still has conflict markers after resolution — "
-            "left for a human, since staging a conflict is worse than not moving.",
-        )
+        with turn():
+            for name in marked:
+                if name in replayed:
+                    # A rejected replay: forget the cached entry before the abort
+                    # below clears the rebase, so the next sibling to hit this
+                    # conflict is offered the conflict itself, not the entry that
+                    # was just judged wrong. Done for every marked file, not just
+                    # the first — otherwise a second rejected replay, or one
+                    # listed after a plain unresolved file, keeps its stale entry
+                    # and gets replayed straight to the next sibling.
+                    git(repo, "rerere", "forget", name, check=False)
+            raise _abort(
+                repo,
+                f"{', '.join(marked)} still has conflict markers after resolution — "
+                "left for a human, since staging a conflict is worse than not moving.",
+            )
 
     for needle in must_keep:
         if not any(needle in (repo / name).read_text(errors="replace") for name in files):
+            with turn():
+                raise _abort(
+                    repo,
+                    f"the resolution dropped {needle!r}, which is {context.moving_unit}'s own "
+                    "change — resolving a conflict by deleting one side empties the unit.",
+                )
+
+    with turn():
+        found = _branch_head(repo, branch)
+        if found != started:
+            git(repo, "rebase", "--abort", check=False)
+            raise BranchMoved(branch, expected=started, found=found)
+        if detached and (elsewhere := _checked_out_in(repo, branch)) is not None:
+            git(repo, "rebase", "--abort", check=False)
+            raise BranchCheckedOut(branch, path=elsewhere)
+
+        for name in replayed:
+            if (repo / name).read_text(errors="replace") != replayed_content[name]:
+                # Once rerere has auto-applied a cached resolution, it stops
+                # tracking that path for recording — `git add` and `--continue`
+                # alone would leave the stale entry in place. Forgetting it here
+                # is what makes an override replace what's cached instead of
+                # being silently discarded.
+                git(repo, "rerere", "forget", name, check=False)
+
+        git(repo, "add", "-A")
+        finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
+        if finished.returncode != 0:
             raise _abort(
                 repo,
-                f"the resolution dropped {needle!r}, which is {context.moving_unit}'s own "
-                "change — resolving a conflict by deleting one side empties the unit.",
+                f"the rebase did not complete after resolution:\n"
+                f"{finished.stdout}\n{finished.stderr}",
             )
+        if detached:
+            landed = _land_detached(repo, branch, started=started)
+            return Moved(sha=landed.sha, resolved=tuple(files))
 
-    for name in replayed:
-        if (repo / name).read_text(errors="replace") != replayed_content[name]:
-            # Once rerere has auto-applied a cached resolution, it stops
-            # tracking that path for recording — `git add` and `--continue`
-            # alone would leave the stale entry in place. Forgetting it here
-            # is what makes an override replace what's cached instead of
-            # being silently discarded.
-            git(repo, "rerere", "forget", name, check=False)
+        return Moved(sha=git(repo, "rev-parse", branch).stdout.strip(), resolved=tuple(files))
 
-    git(repo, "add", "-A")
-    finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
-    if finished.returncode != 0:
-        raise _abort(
-            repo,
-            f"the rebase did not complete after resolution:\n{finished.stdout}\n{finished.stderr}",
-        )
 
-    return Moved(sha=git(repo, "rev-parse", branch).stdout.strip(), resolved=tuple(files))
+def temporary_tree(repo: Path, branch: str, *, root: Path) -> Path:
+    """Where a branch with no worktree of its own is moved: not `worktree_path`, so
+    the test for a unit's own worktree never mistakes it for one."""
+    return root / repo.name / f"restack-{re.sub(r'[^A-Za-z0-9]', '_', branch)}"
+
+
+def move_in_temporary_worktree(
+    repo: Path,
+    branch: str,
+    *,
+    root: Path,
+    turn: Turn = nullcontext,
+    move: Callable[..., Moved] | None = None,
+    **kwargs,
+) -> Moved:
+    """Move `branch` in a temporary worktree on no branch, so the checkout of `repo`
+    is never switched and a branch checked out elsewhere does not make git refuse.
+
+    The tree is made at the branch's head, and removed, inside the turn; one left by
+    a restack that stopped is cleared there first.
+    """
+    path = temporary_tree(repo, branch, root=root)
+    with turn():
+        if path.exists():
+            git(path, "rebase", "--abort", check=False)
+            git(repo, "worktree", "remove", "--force", str(path), check=False)
+        git(repo, "worktree", "prune", check=False)
+        prepare_detached(repo, path.name, ref=_branch_head(repo, branch), root=root)
+    try:
+        return (move or move_branch_onto)(path, branch, turn=turn, detached=True, **kwargs)
+    finally:
+        with turn():
+            git(repo, "worktree", "remove", "--force", str(path), check=False)
+            git(repo, "worktree", "prune", check=False)
 
 
 # `git@host:owner/name.git`, or the ssh:// form of the same. Only these can be
@@ -542,6 +670,7 @@ def resolved_move(
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
     turn: Turn = nullcontext,
+    temporary_root: Path | None = None,
 ) -> Moved:
     """`move_branch_onto` with the resolver wired up and both sides' intent.
 
@@ -558,9 +687,7 @@ def resolved_move(
     it and must not push yet.
     """
     move = move or move_branch_onto
-    return move(
-        repo,
-        branch,
+    moving = dict(
         new_base=new_base,
         old_base=old_base,
         resolve=resolve or claude_resolver,
@@ -572,6 +699,12 @@ def resolved_move(
             repo=repo_config,
         ),
     )
+    if temporary_root is not None:
+        # No worktree of the unit's own: its branch is moved in a temporary one.
+        return move_in_temporary_worktree(
+            repo, branch, root=temporary_root, turn=turn, move=move, **moving
+        )
+    return move(repo, branch, turn=turn, **moving)
 
 
 def push_with_lease(repo: Path, branch: str, *, last_pushed: str | None) -> str:

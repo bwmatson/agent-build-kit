@@ -79,6 +79,7 @@ from agent_build_kit.pipeline.restack import (
     push_with_lease,
     remote_head,
     resolved_move,
+    retried_once,
 )
 from agent_build_kit.pipeline.run_log import append_tier2_output, tier2_output_dir
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
@@ -2275,10 +2276,16 @@ def own_work_starts_after(tree: Path, base: str, unit: Unit, store: UnitStore) -
 
 
 def _move_without_resolver(
-    repo: Path, branch: str, *, new_base: str, old_base: str, **_intent: str
+    repo: Path,
+    branch: str,
+    *,
+    new_base: str,
+    old_base: str,
+    turn: Turn = nullcontext,
+    **_intent: str,
 ) -> Moved:
     """`move_branch_onto` with no resolver: a conflict is aborted and raised."""
-    return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base)
+    return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base, turn=turn)
 
 
 def build_restack_onto(
@@ -2326,15 +2333,18 @@ def build_restack_onto(
         old_head = git(tree, "rev-parse", "HEAD").stdout.strip()
         approved = store.get(unit.id).approved
         try:
-            moved = move(
-                tree,
-                branch,
-                new_base=base,
-                old_base=old_base,
-                moving_unit=unit.id,
-                moving_intent=unit.title,
-                onto_unit=onto_unit,
-                onto_intent=onto_intent,
+            moved = retried_once(
+                lambda: move(
+                    tree,
+                    branch,
+                    new_base=base,
+                    old_base=old_base,
+                    moving_unit=unit.id,
+                    moving_intent=unit.title,
+                    onto_unit=onto_unit,
+                    onto_intent=onto_intent,
+                    turn=turn,
+                )
             )
         except RestackConflict as error:
             # Not a failure: the adapt step ports the work by hand. It needs
@@ -2846,7 +2856,7 @@ def build_runner(
         upstream_incomplete=build_upstream_incomplete(store),
         base_moved=build_base_moved(store),
         base_tip=tip,
-        restack_onto=build_restack_onto(store, repo=repo),
+        restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
         run_tier1=build_tier1(
             profile=profile,
             root_extras=repo.tests.root_extras,
