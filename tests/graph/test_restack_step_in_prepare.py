@@ -32,7 +32,6 @@ from tests.graph.test_session_continuation import (
     reuse,
 )
 from tests.graph_driver import fresh, position, tick
-from tests.runner_fakes import Killed
 
 FIRST = "ORDER: hunks first, then dependent files, then a port. Conflicted: a.py"
 SECOND = "ORDER: hunks first, then dependent files, then a port. FAILED: b.py lost make_thing"
@@ -88,11 +87,10 @@ def restack_calls(runtime: Sessions) -> list[AgentRequest]:
 def test_with_reuse_on_both_calls_continue_the_recorded_build_session(tmp_path: Path) -> None:
     distinct_models()
     recorder = fresh(tmp_path)
-    runtime = Sessions(die_on=6)  # the review that follows the settled move
+    runtime = Sessions()
     restack = Settling()
 
-    with pytest.raises(Killed):
-        tick(tmp_path, recorder, restack_onto=restack, **agents(runtime))
+    tick(tmp_path, recorder, restack_onto=restack, **agents(runtime))
 
     first, second = restack_calls(runtime)
     assert (first.resume_session, second.resume_session) == ("sess-1", "sess-1")

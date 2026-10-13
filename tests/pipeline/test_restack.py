@@ -518,7 +518,7 @@ def test_a_resolved_move_tells_the_resolver_both_intents(tmp_path: Path) -> None
         move=lambda repo, branch, **kw: seen.update(kw) or restack.Moved(sha="sha"),
     )
 
-    assert seen["resolve"] is restack.claude_resolver
+    assert isinstance(seen["resolve"], restack.ConflictSession)
     assert seen["context"].moving_intent == "relay the event"
     assert seen["context"].onto_intent == "publish the event"
     assert seen["new_base"] == "spec/c/1"

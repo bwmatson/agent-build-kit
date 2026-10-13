@@ -16,7 +16,6 @@ from typing import NamedTuple
 
 import pytest
 
-from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.restack import (
     ConflictContext,
     Moved,
@@ -240,18 +239,21 @@ def test_a_rejected_replay_fails_the_call_and_the_second_call_goes_on(
     def derives(cwd: Path) -> None:
         (cwd / "conflicted.py").write_text("value = 2  # sibling\n")
 
+    def corrects(cwd: Path) -> None:
+        (cwd / "conflicted.py").write_text("value = 3  # sibling-fixed\n")
+
     def rejects(cwd: Path) -> None:
         (cwd / "conflicted.py").write_text("<<<<<<< rejecting the replay\n")
 
     run("spec/c/2", Steps(derives))
-    second = Steps(rejects, derives)
+    second = Steps(rejects, corrects)
 
     moved = run("spec/c/3", second)
 
     assert moved.resolved == ("conflicted.py",)
     assert len(second.calls) == 2, "the rejection fails the call; it does not abort the move"
     assert second.calls[1].unmerged == ["conflicted.py"], "git staged nothing on its own"
-    assert git(trees["spec/c/3"], "show", "spec/c/3:conflicted.py") == "value = 2  # sibling"
+    assert git(trees["spec/c/3"], "show", "spec/c/3:conflicted.py") == "value = 3  # sibling-fixed"
     assert not rebase_in_progress(trees["spec/c/3"])
 
     arrived: list[str] = []
@@ -262,6 +264,7 @@ def test_a_rejected_replay_fails_the_call_and_the_second_call_goes_on(
 
     run("spec/c/4", Steps(reads_what_arrived))
 
-    assert any(mark in arrived[0] for mark in restack.CONFLICT_MARKERS), (
-        "the rejected entry was forgotten, so the next sibling sees the conflict itself"
+    assert arrived == ["value = 3  # sibling-fixed\n"], (
+        "the rejected entry was forgotten, and what the next sibling is offered is the "
+        "resolution that replaced it, not the one judged wrong"
     )

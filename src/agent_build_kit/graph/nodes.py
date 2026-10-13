@@ -164,6 +164,7 @@ SESSION_ROLES: dict[Node, SessionRole] = {
     Node.FIX_CHECKS: SessionRole.BUILD,
     Node.REWORK: SessionRole.BUILD,
     Node.ADAPT: SessionRole.BUILD,
+    Node.RESTACK: SessionRole.BUILD,
     Node.REVIEW: SessionRole.REVIEW,
 }
 # The nodes a thread waits in, for the forge or for a person.
@@ -385,6 +386,10 @@ class BuildPath:
 
     def _sessions_after(self, node: Node, state: UnitRun, update: Update) -> Update:
         """The role's session as the node leaves it, and the model the build began on."""
+        if node is Node.PREPARE and self._ended is not None:
+            # Its restack asked the agent: the session it left is the restack step's.
+            node = Node.RESTACK
+            update = {**update, "head": self.runner.head(self.tree())}
         if (role := SESSION_ROLES.get(node)) is None:
             return {}
         if self._ended is None:
@@ -899,7 +904,13 @@ class BuildPath:
             # branch would have the work judged against commits it does not have.
             r.fetch_quietly(unit)
             try:
-                restacked = r.restack_onto(tree=tree, branch=branch, base=ref, unit=unit)
+                restacked = r.restack_onto(
+                    tree=tree,
+                    branch=branch,
+                    base=ref,
+                    unit=unit,
+                    resolver=self.restack_resolver(state),
+                )
             except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
                 raise
             except BranchMoved as error:
@@ -1071,10 +1082,43 @@ class BuildPath:
         feedback = r.store.get(unit.id).feedback
         return {"conflict": None, **self.standing(r.branch_commits(tree, ref), feedback)}
 
+    def restack_resolver(self, state: UnitRun) -> Callable[..., None]:
+        """What the restack asks to resolve a conflict: each call a call of the unit's build
+        session on the rework model, recorded as the `restack` node. The first call continues
+        the build session when there is one and reuse is on, and a later call the session the
+        first ran in; `follow_up` is what a continuation says, the prompt what a new session is
+        given."""
+        held: AgentSession | None = None
+
+        def resolve(prompt: str, *, cwd: Path, follow_up: str = "") -> None:
+            nonlocal held
+            node, self._node = self._node, Node.RESTACK.value
+            try:
+                self.agent(
+                    self.runner.run,
+                    prompt,
+                    cwd=cwd,
+                    state=state,
+                    model=models().rework,
+                    follow_up=follow_up or prompt,
+                    session=held,
+                )
+            finally:
+                self._node = node
+            held = self.ported_session(self._ended, state, self.runner.head(cwd), node=Node.RESTACK)
+
+        return resolve
+
     def ported_session(
-        self, ended: tuple[str, str, str, float | None] | None, state: UnitRun, head: str
+        self,
+        ended: tuple[str, str, str, float | None] | None,
+        state: UnitRun,
+        head: str,
+        *,
+        node: Node = Node.ADAPT,
     ) -> AgentSession | None:
-        """The session the port ran in, as the adapt follow-up rounds continue it."""
+        """The session a port or a restack's resolution ran in, as the calls that follow it
+        continue it."""
         if ended is None:
             return None
         session_id, runtime, model, cumulative = ended
@@ -1082,8 +1126,8 @@ class BuildPath:
             session_id=session_id,
             runtime=runtime,
             model=model,
-            node=Node.ADAPT,
-            round=_round(Node.ADAPT, state),
+            node=node,
+            round=_round(node, state),
             head=head,
             cumulative_usd=cumulative,
         )
