@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+from enum import StrEnum
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import DOCUMENTED_ONLY, Candidate, Run, Which
@@ -29,6 +30,34 @@ class StartVariant(Frozen):
     marker: str = ""
 
 
+class ApplyFormat(StrEnum):
+    """The configuration formats an applier can write; each has a writer in `policy_apply`."""
+
+    YAML = "yaml"
+
+
+class Toolset(Frozen):
+    """A recommended toolset: the list at `path` the build run is meant to call, never merged."""
+
+    path: tuple[str, ...]
+    names: tuple[str, ...]
+
+
+class ApplyPolicy(Frozen):
+    """Where an agent keeps its list of refused commands, so the recommended policy can be
+    merged into it: `<home>/<file>`, the home being `$home_env` when set, else `home_default`
+    (a directory name under the person's home)."""
+
+    home_env: str
+    home_default: str
+    file: str
+    format: ApplyFormat
+    deny_path: tuple[str, ...]
+    yaml_version: str  # "1.2" or "1.1": how bare scalars such as `off` are read and quoted
+    toolset: Toolset | None = None
+    verified: str  # how it was checked, or that it was documented only
+
+
 class KnownAgent(Frozen):
     name: str
     program: str
@@ -39,6 +68,8 @@ class KnownAgent(Frozen):
     # Which forbidden-command spellings it refuses: said covered only where a live check
     # showed it, and UNVERIFIED until then.
     spellings: str = "UNVERIFIED: no live check has shown which spellings it refuses"
+    # Set only for an agent whose configuration file and key were verified.
+    apply: ApplyPolicy | None = None
 
 
 _DOCS = "the agent's own documentation"
