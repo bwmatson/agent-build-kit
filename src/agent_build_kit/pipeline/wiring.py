@@ -42,12 +42,14 @@ from agent_build_kit.config import (
     active,
     active_root,
     models,
+    owning_project,
     stack_versions_for,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
+from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
@@ -130,6 +132,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
+    ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
     SelectsAffectedTests,
@@ -162,8 +165,13 @@ def forge_read_tools(forge: Forge) -> str:
     return " ".join(f"Bash({' '.join(command)}*)" for command in forge.read_commands)
 
 
-def allowed_tools(profile: ToolchainProfile, forge: Forge) -> str:
-    return f"{BASE_TOOLS} {forge_read_tools(forge)} {profile.allowed_tools}".strip()
+def allowed_tools(
+    profile: ToolchainProfile, forge: Forge, projects: list[ProjectConfig] | None = None
+) -> str:
+    """The repo profile's tools and those of each project's profile, each listed once."""
+    toolchains = [profile, *(profiles.get(p.profile) for p in projects or [])]
+    tools = dict.fromkeys(t.allowed_tools for t in toolchains)
+    return f"{BASE_TOOLS} {forge_read_tools(forge)} {' '.join(tools)}".strip()
 
 
 def _specs_dir(planning_repo: Path | None) -> Path:
@@ -932,18 +940,32 @@ def build_tier1(
                     isolate(command, result, where, toolchain)
                     return False, _failure(command, result, where)
             ran_tests.append((where, toolchain, test_commands))
-        passed, output = root_checks(cwd)
+        passed, output = root_checks(cwd, ran_tests)
         if not passed or whole_repo:
             return passed, output
         return repeat(cwd, base, ran_tests)
 
-    def root_checks(cwd: Path) -> tuple[bool, str]:
-        """Once per checkout, in its root: these look at the repo, not at a project."""
-        extra = profile.extra_checks(repo) if repo is not None else []
-        for command in extra:
+    def root_checks(
+        cwd: Path, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]] | None = None
+    ) -> tuple[bool, str]:
+        """The checks that are not a lint or a test run. The repo profile's look at the
+        checkout as a whole and run once, in its root, whatever was touched; what is about
+        one project is checked in it, by the project's own profile."""
+        if repo is None:
+            return True, ""
+        for command in profile.extra_checks(repo):
             result = ran(command, cwd, profile)
             if not profile.tolerates_exit(command, result.returncode):
                 return False, _failure(command, result)
+        checked: set[tuple[Path, str]] = set()
+        for where, toolchain, _ in ran_tests or []:
+            if (where, toolchain.name) in checked or not isinstance(toolchain, ProjectChecks):
+                continue
+            checked.add((where, toolchain.name))
+            for command in toolchain.project_checks(repo):
+                result = ran(command, where, toolchain)
+                if not toolchain.tolerates_exit(command, result.returncode):
+                    return False, _failure(command, result, where)
         return True, ""
 
     def repeat(
@@ -998,7 +1020,7 @@ def build_tier1(
             # The identifiers are relative to the project whose command failed.
             failed_ids = (
                 _failed_ids(toolchain, failed_output)
-                if len(work) == 1 or _failed_in(where) in failed_output
+                if len(work) == 1 or failed_in(where) in failed_output
                 else []
             )
             if affected.mode == "command":
@@ -1221,11 +1243,6 @@ def expand_template(template: str, changed_files: list[str], failed_ids: list[st
     return [arg for word in shlex.split(template) for arg in words.get(word, [word])]
 
 
-def _failed_in(where: Path) -> str:
-    """The line of a failure that names the project directory its command ran in."""
-    return f"(in {where})"
-
-
 def _failure(
     command: list[str], result: subprocess.CompletedProcess, where: Path | None = None
 ) -> str:
@@ -1236,7 +1253,7 @@ def _failure(
     printed = printed[-4000:]
     header = f"$ {shlex.join(command)} (exit {result.returncode})"
     if where is not None:
-        header += f"\n{_failed_in(where)}"
+        header += f"\n{failed_in(where)}"
     return f"{header}\n{printed}".strip()
 
 
@@ -1266,17 +1283,11 @@ def _work(
     if whole_repo:
         return [(cwd / p.path, profiles.get(p.profile), []) for p in projects]
 
-    # Deepest first, so the web app claims its own files rather than the
-    # service it sits inside.
-    ordered = sorted(projects, key=lambda p: len(Path(p.path).parts), reverse=True)
     owned: dict[str, tuple[ProjectConfig, list[str]]] = {}
     for name in changed(cwd, base):
-        for project in ordered:
-            prefix = "" if project.path in (".", "") else f"{project.path}/"
-            if not prefix or name.startswith(prefix):
-                entry = owned.setdefault(project.path, (project, []))
-                entry[1].append(name[len(prefix) :])
-                break
+        project = owning_project(projects, name)
+        if project is not None:
+            owned.setdefault(project.path, (project, []))[1].append(name[len(project.prefix) :])
 
     work = [
         (cwd / project.path, profiles.get(project.profile), files)
@@ -1285,9 +1296,10 @@ def _work(
     # Never the repo root. A repo that declares its projects is saying its root
     # is not one of them, and a linter run there finds no config and fails
     # outright: a unit whose only mistake was updating docs that live above the
-    # project stopped on exactly that. A lint command takes a ref range, not a
-    # list of paths, so each project's own run already sees every file in the
-    # diff, outside files included — there is nothing for a root run to add.
+    # project stopped on exactly that. The python profile's lint takes a ref range,
+    # so each project's own run already sees every file in the diff, outside files
+    # included; a profile may scope its lint to its project instead. Either way a
+    # root run is no answer: it has no project config to run under.
     #
     # A diff that no project owns (nothing but a README, or nothing at all) must
     # still not pass with nothing run, so the declared toolchains run over it:
@@ -2830,7 +2842,7 @@ def build_runner(
             return push(branch, cwd=cwd)
 
     forge = forges.get(repo.forge)
-    tools = allowed_tools(profile, forge)
+    tools = allowed_tools(profile, forge, repo.projects)
     run = build_run(
         planning_repo=planning_repo,
         allowed_tools=tools,

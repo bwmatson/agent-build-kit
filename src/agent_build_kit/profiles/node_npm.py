@@ -12,12 +12,28 @@ paths, and `throw new Error("not implemented")` as the permitted stub body.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig, RepoConfig
 from agent_build_kit.pipeline.tier2 import TestFailure, TestTime
 from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import ProfileUnsupported, PromptWords
+
+_SOURCE = ("ts", "tsx", "js", "jsx", "mts")
+# The names of the source files that differ from the base ref `$1`, relative to the project.
+_DIFF = 'git diff --relative --diff-filter=d --name-only{z} "$1...HEAD" -- ' + " ".join(
+    f"'*.{ext}'" for ext in _SOURCE
+)
+_DIFF_LINT = (
+    # A base that does not resolve is a failure, not an empty diff.
+    'git rev-parse --verify --quiet "$1^{commit}" >/dev/null || '
+    '{ echo "lint: base $1 does not resolve" >&2; exit 2; }; '
+    f'[ "$({_DIFF.format(z="")} | wc -l)" -gt 0 ] || exit 0; '
+    f"{_DIFF.format(z=' -z')} | xargs -0 npx oxlint && "
+    f"{_DIFF.format(z=' -z')} | xargs -0 npx oxfmt --check"
+)
+_TYPE_CHECK = "tsc"
 
 
 class NodeNpmProfile:
@@ -39,10 +55,12 @@ class NodeNpmProfile:
         return []
 
     def lint_command(self, base: str) -> list[str]:
-        return self._todo("lint_command")
+        """Lint and check the format of the source files that differ from `base`, in the
+        project the command runs in (paths are relative to it); nothing when none do."""
+        return ["sh", "-c", _DIFF_LINT, "sh", base]
 
     def lint_command_all_files(self) -> list[str]:
-        return self._todo("lint_command_all_files")
+        return ["sh", "-c", "npx oxlint . && npx oxfmt --check ."]
 
     def test_commands(
         self, repo: Path, changed: list[str], *, root_extras: list[str]
@@ -56,10 +74,24 @@ class NodeNpmProfile:
         return returncode == 0
 
     def failure_kind(self, output: str) -> str:
-        return self._todo("failure_kind")
+        """`types` when the failed command, named in the `$` header, is the type checker;
+        the linter and the format check are `lint`."""
+        header = output.lstrip().split("\n", 1)[0]
+        if not header.startswith("$ "):
+            return "lint"
+        command, _, _ = header.removeprefix("$ ").rpartition(" (exit ")
+        try:
+            words = shlex.split(command or header.removeprefix("$ "))
+        except ValueError:
+            return "lint"
+        return "types" if _TYPE_CHECK in words else "lint"
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
         return []
+
+    def project_checks(self, repo: RepoConfig) -> list[list[str]]:
+        """The type check, over the whole project: `tsc` cannot be scoped to files."""
+        return [["npx", _TYPE_CHECK, "--noEmit"]]
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         return self._todo("tier2_commands")
