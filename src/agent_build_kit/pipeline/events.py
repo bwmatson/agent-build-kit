@@ -395,7 +395,12 @@ def release_children(
                     # away may be closed, and the thread only retargets when it runs.
                     retargeted(child, new_base)
                     if lane is not None:
-                        lane.hand_over(child)
+                        # Told, so as good as moved for the branch it leaves; but the lane
+                        # holds its claim, so the leaving unit's removal waits for it.
+                        with finishing:
+                            moved.add(child.id)
+                            handed_over.add(child.id)
+                        lane.hand_over(child, done=partial(finished, child.id))
                     continue
             if lane is not None and (rebase_cap is None or depth <= rebase_cap):
                 with finishing:
