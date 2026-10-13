@@ -1642,9 +1642,10 @@ class BuildPath:
         except FlakeFound as found:
             if found.scoped:
                 # The move did not cause it: recorded, and the unit goes on without waiting.
-                for flake in found.flakes:
-                    r.on_flake(unit, flake, wait=False)
-                ok, output = True, ""
+                fixes = [r.on_flake(unit, flake, wait=False) for flake in found.flakes]
+                # A unit of the flake's own fix change has no fix to lean on: the flake is
+                # a tier 1 failure its agent is told of.
+                ok, output = (True, "") if all(fixes) else (False, found.flakes[0].output)
             elif (parked := self.wait_for_fix(found)) is not None:
                 return parked
             else:

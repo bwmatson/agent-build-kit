@@ -19,13 +19,30 @@ from tests.pipeline.test_flake_fix_change import (
 )
 
 
-def on_flake_of(installation: Installation, *names: str):
-    """The recorder over one unit per name, each of a change of its own; returns it and the
-    units."""
+def on_flake_of(installation: Installation, *names: str, logged: list[str] | None = None):
+    """The recorder over one unit per name, each of a change of its own, logging to `logged`;
+    returns it and the units."""
     units = [change_with_unit(installation, name, f"{name}/1") for name in names]
     store = UnitStore(installation.root / "units.json")
     store.upsert(units)
-    return build_on_flake(store, installation, log=lambda message: None), units
+    sink = logged.append if logged is not None else (lambda message: None)
+    return build_on_flake(store, installation, log=sink), units
+
+
+def test_the_log_says_a_unit_that_does_not_wait_did_not_and_one_that_waits_did(
+    installation: Installation,
+) -> None:
+    code_repo(installation)
+    logged: list[str] = []
+    on_flake, (going, waiting) = on_flake_of(installation, "feature", "other", logged=logged)
+
+    fix = on_flake(going, flaked(unit=going.id), wait=False)
+    on_flake(waiting, flaked(unit=waiting.id), wait=True)
+
+    assert logged == [
+        f"feature/1: flaky test {TEST} — recorded as {fix}, no wait",
+        f"other/1: flaky test {TEST} — waits for {fix}",
+    ]
 
 
 def test_a_flake_that_does_not_wait_is_recorded_with_its_fix_change_and_no_needs_line(

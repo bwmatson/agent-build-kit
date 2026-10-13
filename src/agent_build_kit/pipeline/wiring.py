@@ -63,7 +63,13 @@ from agent_build_kit.pipeline.environment import (
     unstage_untracked_locks,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, wait_on_fix
+from agent_build_kit.pipeline.flakes import (
+    Flake,
+    FlakeFound,
+    OnFlake,
+    flake_record,
+    wait_on_fix,
+)
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import moved_base_scope
@@ -905,7 +911,8 @@ def build_tier1(
         earlier = last_full.get(spans.current_unit.get()[0])
         figures: list[tuple[float, int]] = []
         why: list[str] = []
-        outcome = run_selection(plan, figures, why, own_ids)
+        flaked: list[Flake] = []
+        outcome = run_selection(plan, figures, why, own_ids, flaked)
         if outcome is None:
             _say(log, f"moved base: ran the full suite ({why[0]})")
             return None
@@ -919,7 +926,11 @@ def build_tier1(
             log,
             f"moved base: ran {sum(counts)}{total} tests (own {own}, affected {sum(counts) - own})",
         )
-        return root_checks(cwd, [(where, toolchain, []) for where, toolchain, _ in plan])
+        checked = root_checks(cwd, [(where, toolchain, []) for where, toolchain, _ in plan])
+        if flaked and checked[0]:
+            # Everything else passed: the flakes are all that is left to say.
+            raise FlakeFound(tuple(flaked), scoped=True)
+        return checked
 
     def moved_plan(
         cwd: Path,
@@ -1181,11 +1192,13 @@ def build_tier1(
         figures: list[tuple[float, int]],
         why: list[str] | None = None,
         own: dict[Path, list[str]] | None = None,
+        flaked: list[Flake] | None = None,
     ) -> tuple[bool, str] | None:
         """(passed, what failed), or None when a command could not start, with the reason
         added to `why`. The time and test count of each selected test command are added to
         `figures`. A moved base's run gives `own`, the tests the unit added or changed in
-        each project: a failure there is isolated as a scoped run's."""
+        each project: a failure there is isolated as a scoped run's, and its flakes are
+        added to `flaked` while the rest of the plan still runs."""
         for where, toolchain, commands in plan:
             for index, command in enumerate(commands):
                 started = spans.clock.monotonic()
@@ -1214,14 +1227,20 @@ def build_tier1(
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
-                    if index > 0 and isolate(
-                        command,
-                        result,
-                        where,
-                        toolchain,
-                        log=log,
-                        own=None if own is None else own.get(where, []),
-                    ):
+                    try:
+                        if index > 0 and isolate(
+                            command,
+                            result,
+                            where,
+                            toolchain,
+                            log=log,
+                            own=None if own is None else own.get(where, []),
+                        ):
+                            continue
+                    except FlakeFound as found:
+                        if flaked is None:
+                            raise
+                        flaked.extend(found.flakes)
                         continue
                     return False, _failure(command, result, where)
         return True, ""
@@ -1312,16 +1331,20 @@ def build_tier1(
 
 def build_on_flake(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
-) -> Callable[..., str | None]:
-    """Make the unit wait on the one change that fixes a flake it met, and record it.
-    Returns that change, or None for a unit of the change itself, which has nothing to
-    wait on."""
+) -> OnFlake:
+    """Record a flake a unit met and make sure the one change that fixes it exists; with
+    `wait` (the default) the unit waits on that change, without it no `Needs:` line is
+    added. Returns that change, or None for a unit of the change itself, which has nothing
+    to wait on."""
 
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
         fix = wait_on_fix(installation, met, store.get(unit.id), wait=wait)
         flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
-        log(f"{unit.id}: flaky test {flake.test} — " + (f"waits for {fix}" if fix else "no wait"))
+        outcome = (
+            "no wait" if not fix else f"waits for {fix}" if wait else f"recorded as {fix}, no wait"
+        )
+        log(f"{unit.id}: flaky test {flake.test} — {outcome}")
         return fix
 
     return on_flake

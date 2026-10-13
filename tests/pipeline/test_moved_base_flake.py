@@ -18,10 +18,15 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record
+from agent_build_kit.pipeline.flakes import (
+    Flake,
+    FlakeFound,
+    flake_change_name,
+    flake_record,
+)
 from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, Unit
 from agent_build_kit.pipeline.wiring import build_on_flake, build_tier1
 from tests.conftest import make_installation
@@ -103,6 +108,67 @@ def test_a_scoped_test_that_passes_alone_raises_a_flake_marked_as_scoped(tmp_pat
     assert ["tests"] not in runner.ran, "the full suite did not stand in for the flake"
 
 
+class Breaking(Failing):
+    """Also fails every run of `program`, alone or not, with a failed-test line."""
+
+    def __init__(self, program: str, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.program = program
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[0] != self.program:
+            return super().__call__(command, **kwargs)
+        self.ran.append(command)
+        return subprocess.CompletedProcess(
+            command, 1, "FAILED tests/test_z.py::test_z - boom\n1 failed in 0.1s\n", ""
+        )
+
+
+class Checking(Selecting):
+    """A profile whose one repo-wide check is the command `extra`."""
+
+    def extra_checks(self, repo: Any) -> list[list[str]]:
+        return [["extra"]]
+
+
+def test_a_flake_in_one_command_does_not_stop_the_commands_after_it_and_a_failure_holds(
+    tmp_path: Path,
+) -> None:
+    runner = Breaking("affected2", ["affected"], OTHER, again=0)
+
+    passed, _ = run_moved(tmp_path, Selecting([["affected"], ["affected2"]]), runner, **FILES)
+
+    assert not passed, "the later command's failure holds the unit, no flake is raised"
+    assert ["affected2"] in runner.ran
+
+
+def test_a_flake_followed_by_a_failing_repo_check_holds_the_unit(tmp_path: Path) -> None:
+    runner = Breaking("extra", ["affected"], OTHER, again=0)
+
+    passed, _ = run_moved(tmp_path, Checking([["affected"]]), runner, records_data=True, **FILES)
+
+    assert not passed
+    assert ["extra"] in runner.ran
+
+
+def test_a_flake_followed_by_passing_commands_raises_it_after_every_later_command_ran(
+    tmp_path: Path,
+) -> None:
+    runner = Failing(["affected"], OTHER, again=0)
+
+    with pytest.raises(FlakeFound) as raised:
+        run_moved(
+            tmp_path,
+            Checking([["affected"], ["affected2"]]),
+            runner,
+            records_data=True,
+            **FILES,
+        )
+
+    assert raised.value.scoped
+    assert ["affected2"] in runner.ran and ["extra"] in runner.ran
+
+
 def test_a_test_that_fails_again_alone_holds_where_a_flake_did_not(tmp_path: Path) -> None:
     scoped_flake(room(tmp_path, "flake"))
     runner = Failing(["affected"], OTHER, again=1)
@@ -159,12 +225,27 @@ def test_a_full_run_under_the_full_setting_raises_its_flake_as_a_full_runs_flake
 class Told:
     """What the runner was told of each flake: the unit, the test and whether it waits."""
 
-    def __init__(self) -> None:
+    def __init__(self, fix: str | None = "fix-flaky-widget") -> None:
+        self.fix = fix
         self.flakes: list[tuple[str, str, bool]] = []
 
     def __call__(self, unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         self.flakes.append((unit.id, flake.test, wait))
-        return "fix-flaky-widget"
+        return self.fix
+
+
+class FailingTier2:
+    """Tier 2 as the recorder's, except that its second run, the one on the moved commit,
+    fails."""
+
+    def __init__(self, recorder: Any) -> None:
+        self.recorder = recorder
+        self.runs = 0
+
+    def __call__(self, **kwargs: Any) -> tuple[bool, str]:
+        self.runs += 1
+        ok, output = self.recorder.tier2(**kwargs)
+        return (False, "tier 2 failed: boom") if self.runs == 2 else (ok, output)
 
 
 class Raising:
@@ -185,20 +266,58 @@ class Raising:
 
 
 def moved_build(
-    tmp_path: Path, name: str, told: Told, *, scoped: bool, **options: Any
+    tmp_path: Path,
+    name: str,
+    told: Told,
+    *,
+    scoped: bool,
+    tier2: Any = None,
+    **options: Any,
 ) -> tuple[Any, RunOutcome]:
     """A unit built to its move in a folder `name`, its second tier 1 raising a flake that is
-    `scoped` or not; returns the recorder and the outcome."""
+    `scoped` or not, and its tier 2 `tier2` when given as a function of the recorder;
+    returns the recorder and the outcome."""
     where = room(tmp_path, name)
     recorder = fresh(where, **options)
     moving = Moving(recorder, restacked(old_base=OLD_BASE))
+    more = {} if tier2 is None else {"run_tier2": tier2(recorder)}
     return recorder, build(
         where,
         recorder,
         run_tier1=Raising(recorder, scoped=scoped),
         on_flake=told,
+        **more,
         **moving.overrides(),
     )
+
+
+def test_a_scoped_flake_met_by_a_unit_of_the_fix_change_is_a_failure_for_its_agent(
+    tmp_path: Path,
+) -> None:
+    told = Told(fix=None)
+
+    recorder, _ = moved_build(tmp_path, "flake", told, scoped=True)
+
+    assert told.flakes == [("add-marker/1", TEST, False)]
+    after = recorder.events[recorder.events.index("moved") :]
+    assert after.index("claude:fix_checks") < after.index("push")
+    assert any("assert 'a' == 'b'" in prompt for prompt in recorder.prompts)
+
+
+def test_a_tier_2_failure_after_a_scoped_flake_is_not_isolated_and_holds_the_unit(
+    tmp_path: Path,
+) -> None:
+    told = Told()
+
+    recorder, _ = moved_build(
+        tmp_path, "flake", told, scoped=True, tier="tier2", tier2=FailingTier2
+    )
+
+    after = recorder.events[recorder.events.index("moved") :]
+    failed = after.index("tier2")
+    assert after[failed + 1] != "tier2", "the failed tier 2 was not run again alone"
+    assert any(event.startswith("claude:") for event in after[failed : after.index("push")])
+    assert told.flakes == [("add-marker/1", TEST, False)], "told of tier 1's flake only"
 
 
 def test_a_scoped_flake_on_a_moved_base_is_recorded_and_the_unit_goes_on_to_its_push(
@@ -264,10 +383,12 @@ def test_a_tier_two_unit_runs_tier_2_after_a_scoped_flake_and_is_told_of_it_once
 # --- the merge handler --------------------------------------------------------------
 
 
-def restacking(installation: Installation, name: str, tier1: Any):
-    """The handler over unit `name`, with the real flake recorder; returns the store, the
-    pushes and the run."""
-    child = change_with_unit(installation, name, f"{name}/1").model_copy(
+def restacking(
+    installation: Installation, name: str, tier1: Any, *, child: StoredUnit | None = None
+):
+    """The handler over unit `name`, or `child` when given, with the real flake recorder;
+    returns the store, the pushes and the run."""
+    child = (child or change_with_unit(installation, name, f"{name}/1")).model_copy(
         update={"pr": 2, "branch": f"spec/{name}/1", "approved": "approved"}
     )
     store = UnitStore(installation.root / f"{name}.json")
@@ -351,3 +472,21 @@ def test_a_flake_of_a_full_run_still_parks_the_child_beside_a_scoped_one_that_do
     assert pushed == ["pushed"] and held == []
     assert waits_on(installation, "other") == [flake_record(installation).entries()[0].change]
     assert store.get("other/1").cause is Cause.GATED
+
+
+def test_a_scoped_flake_met_by_a_unit_of_the_fix_change_fails_the_handler_without_a_push(
+    installation: Installation,
+) -> None:
+    code_repo(installation)
+    fix = flake_change_name(TEST)
+    owner = change_with_unit(installation, "feature", "feature/1")
+    first = UnitStore(installation.root / "owner.json")
+    first.upsert([owner])
+    build_on_flake(first, installation, log=lambda message: None)(owner, FLAKE)
+    own = stored_unit(f"{fix}/1", change=fix, groups=(1,))
+    _, pushed, run = restacking(installation, fix, flaking(scoped=True), child=own)
+
+    with pytest.raises(RuntimeError, match="checks fail"):
+        run()
+
+    assert pushed == []

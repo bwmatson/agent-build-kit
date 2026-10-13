@@ -12,11 +12,13 @@ import hashlib
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
@@ -48,12 +50,22 @@ def waiting_note(tests: list[str]) -> str:
 
 class FlakeFound(Exception):
     """Raised by tier 1 when every failed test passed both serial reruns: the unit is not
-    failed for them, it waits for their fix."""
+    failed for them, it waits for their fix. `scoped` marks a flake met in a moved base's
+    scoped run, which is recorded without the unit waiting."""
 
     def __init__(self, flakes: tuple[Flake, ...], *, scoped: bool = False) -> None:
         super().__init__(", ".join(flake.test for flake in flakes))
         self.flakes = flakes
         self.scoped = scoped
+
+
+@runtime_checkable
+class OnFlake(Protocol):
+    """Told the unit and a flake it met: records it and makes sure the one change that fixes
+    it exists, and with `wait` has the unit wait on that change. Answers the change, or None
+    for a unit of the change itself, which has nothing to wait on."""
+
+    def __call__(self, unit: Unit, flake: Flake, *, wait: bool = True) -> str | None: ...
 
 
 FlakeCount = TestCount

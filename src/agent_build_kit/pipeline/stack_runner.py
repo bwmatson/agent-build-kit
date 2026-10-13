@@ -39,6 +39,7 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
@@ -1295,10 +1296,11 @@ class UnitRunner(BaseModel):
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
     run_tier1: Callable[..., tuple[bool, str]]
-    # Told the unit and each flake when tier 1 raises `FlakeFound`: records it and has the
-    # unit wait on its fix, and answers that change, or None when there is nothing for the
-    # unit to wait on (it builds the fix). See `wiring.build_on_flake`.
-    on_flake: Callable[..., str | None] = lambda unit, flake: None
+    # Told the unit and each flake when tier 1 raises `FlakeFound`: records it, and with
+    # `wait` has the unit wait on its fix (with it false the change is ensured and no
+    # `Needs:` line is added), and answers that change, or None when there is nothing for
+    # the unit to wait on (it builds the fix). See `wiring.build_on_flake`.
+    on_flake: OnFlake = lambda unit, flake, *, wait=True: None
     run_tier2: Callable[..., tuple[bool, str]]
     # What the last tier 2 run found of whose each failed test is (None when nothing was
     # classified), and what to do with each test that failed on the base too: told the
