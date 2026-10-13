@@ -324,17 +324,29 @@ def release_children(
             return False
         return True
 
-    def moved_off(child: StoredUnit, new_base: str) -> None:
-        """What the lane runs, under the child's claim: the restack itself."""
+    def moved_off(child_id: str) -> None:
+        """What the lane runs, under the child's claim: the restack itself, onto the base the
+        child has when it starts, off the branch that left."""
+        fresh = store.get(child_id)
+        new_base = base_of(fresh, store.all())
         restack(
-            branch=branch_name(child),
+            branch=branch_name(fresh),
             old_base=old_base,
             new_base=new_base,
-            child=child,
+            child=fresh,
             parent=leaving,
         )
-        moved.add(child.id)
-        log(f"{child.id}: restacked onto {new_base}")
+        log(f"{child_id}: restacked onto {new_base}")
+
+    def hand_over_child(child: StoredUnit, work: Callable[[], None] | None) -> None:
+        """Hand a child to the lane, and keep the branch it leaves until the lane has moved it."""
+        with finishing:
+            if child.id not in handed:
+                handed.append(child.id)
+            handed_over.add(child.id)
+        lane.hand_over(  # type: ignore[union-attr] — only called with a lane
+            child, work, done=partial(finished, child.id)
+        )
 
     def remove_leaving() -> None:
         if not (remove_worktree and delete_branch):
@@ -351,9 +363,11 @@ def release_children(
             log=log,
         )
 
-    def finished(child_id: str) -> None:
+    def finished(child_id: str, moved_ok: bool) -> None:
         """The lane is done with a child; with the last one, the branch it left goes."""
         with finishing:
+            if moved_ok:
+                moved.add(child_id)
             handed_over.discard(child_id)
             last = not handed_over and handing_done.is_set()
         if last:
@@ -399,18 +413,10 @@ def release_children(
                         # holds its claim, so the leaving unit's removal waits for it.
                         with finishing:
                             moved.add(child.id)
-                            handed_over.add(child.id)
-                        lane.hand_over(child, done=partial(finished, child.id))
+                        hand_over_child(child, None)
                     continue
             if lane is not None and (rebase_cap is None or depth <= rebase_cap):
-                with finishing:
-                    handed.append(child.id)
-                    handed_over.add(child.id)
-                lane.hand_over(
-                    child,
-                    partial(moved_off, child, new_base),
-                    done=partial(finished, child.id),
-                )
+                hand_over_child(child, partial(moved_off, child.id))
                 continue
             with claim(child):
                 if rebase_cap is not None and depth > rebase_cap:
@@ -453,6 +459,7 @@ def release_children(
             claim=claim,
             rebase_cap=rebase_cap,
             lane=lane,
+            hand=hand_over_child if lane is not None else None,
             log=log,
         )
         held_for_depth += [held for held in still_held if held not in held_for_depth]
@@ -646,6 +653,7 @@ def _reconsider_held(
     claim: Claim,
     rebase_cap: int,
     lane: RestackLane | None = None,
+    hand: Callable[[StoredUnit, Callable[[], None]], None] | None = None,
     log: Log,
 ) -> list[str]:
     """Restack what an earlier merge held for depth and this one brought within
@@ -678,6 +686,7 @@ def _reconsider_held(
             claim=claim,
             rebase_cap=rebase_cap,
             lane=lane,
+            hand=hand,
             log=log,
         ) and old_base == branch_name(merged):
             still_held.append(unit.id)
@@ -694,11 +703,15 @@ def reconsider_depth_hold(
     claim: Claim,
     rebase_cap: int,
     lane: RestackLane | None = None,
+    hand: Callable[[StoredUnit, Callable[[], None]], None] | None = None,
     log: Log,
 ) -> bool:
     """Restack a unit held for depth if its depth is now within the cap, from the
     branch it is still on, in the lane when there is one. True when it is still held,
-    on that branch."""
+    on that branch.
+
+    `hand` takes the move in place of the lane's own hand-over, for a caller that keeps
+    the branch the unit leaves until the lane has moved it."""
     depth = depth_of(unit, graph)
     new_base = base_of(unit, graph)
     parent = next((u for u in graph if branch_name(u) == old_base), None)
@@ -709,18 +722,22 @@ def reconsider_depth_hold(
             store.set_state(
                 unit.id, IN_REVIEW, note=f"depth {depth} is within the cap", cause=Cause.RELEASED
             )
-            move = partial(
-                restack,
-                branch=branch_name(unit),
-                old_base=old_base,
-                new_base=new_base,
-                child=unit,
-                parent=parent,
-            )
+
+            def move() -> None:
+                """The restack onto the base the unit has when it starts."""
+                fresh = store.get(unit.id)
+                restack(
+                    branch=branch_name(fresh),
+                    old_base=old_base,
+                    new_base=base_of(fresh, store.all()),
+                    child=fresh,
+                    parent=parent,
+                )
+
             if lane is None:
                 move()
         if lane is not None:
-            lane.hand_over(unit, move)
+            (hand or lane.hand_over)(unit, move)
     except BranchBusy:
         # The claim failed before anything was written: it is still held,
         # its record as it was, and the next merge tries again.
@@ -730,7 +747,7 @@ def reconsider_depth_hold(
         # child in the merge itself.
         log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
         return False
-    log(f"{unit.id}: restacked onto {new_base}")
+    log(f"{unit.id}: {'handed to the restack lane' if lane else 'restacked'} onto {new_base}")
     return False
 
 

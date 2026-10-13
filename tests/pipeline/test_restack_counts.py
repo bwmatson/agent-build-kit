@@ -3,6 +3,7 @@ of any unit; and a unit owed a restack is not started in a worker for it."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -17,17 +18,18 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     PLANNED,
     RUNNING,
+    UnitState,
     in_progress,
     ready_units,
 )
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.vocabulary import WaitReason
-from tests.conftest import make_installation, status_lines
-from tests.factories import git, init_repo, stored_unit
-from tests.restack_lane_fakes import WAIT, Restacks, caused, lane_over
+from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
+from tests.conftest import status_lines
+from tests.factories import new_unit, stored_unit
+from tests.restack_lane_fakes import WAIT, Restacks, caused, lane_over, moved, repo_behind
 
 OWED = "feature/3"
-NOT_WAITING_FOR_THE_LANE = {WaitReason.SLOT, WaitReason.QUEUE_FULL, WaitReason.BLOCKED}
 
 
 @pytest.fixture
@@ -118,45 +120,27 @@ def test_a_freshly_unblocked_unit_whose_base_moved_is_restacked_and_then_starts_
     assert ready(graph) == [OWED]
 
 
-def test_a_unit_queued_for_the_lane_is_not_blocked_and_is_given_no_slot_or_queue_full_reason(
-    tmp_path: Path, lane: RestackLane, moves: Restacks
-) -> None:
-    inst = make_installation(tmp_path, limits={"max_units_in_progress": 9})
-    graph = full_queue()
-    for unit in graph[:2]:
-        lane.hand_over(unit)
-    lane.hand_over(graph[2])
-
-    waits = cli.wait_reasons(inst, graph, started=set(), building=set(), only=frozenset())
-
-    assert OWED in lane.waiting
-    assert waits[OWED].reason not in NOT_WAITING_FOR_THE_LANE
-    assert not waits[OWED].waits_on
-
-
 # --- a unit owed a restack is not offered to a worker --------------------------------------
 
 
 @pytest.fixture
 def behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
-    """`spec/feature/3` was cut from `main` before `main` moved: it does not hold its base."""
-    inst = make_installation(
-        tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}
-    )
-    repo = init_repo(inst.checkouts["app"])
-    (repo / "a.txt").write_text("a\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "a")
-    git(repo, "branch", "spec/feature/3")
-    (repo / "b.txt").write_text("b\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "b")
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
-    return inst
+    return repo_behind(tmp_path, monkeypatch)
 
 
-def moved(inst: Installation) -> None:
-    git(inst.checkouts["app"], "branch", "-f", "spec/feature/3", "main")
+def isolate_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A round with nothing but its own decisions: no host, no planning, no usage limit."""
+    for name, step in {
+        "fetch_all": lambda inst: None,
+        "poll_all": lambda inst, **kwargs: None,
+        "plan_all": lambda inst, **kwargs: None,
+        "has_identity": lambda inst, repo: True,
+        "verify_ready": lambda inst, units, **kwargs: lambda change: True,
+        "archive_ready_changes": lambda *a, **k: [],
+        "current_usage": lambda: None,
+        "may_start_unit": lambda r: Decision(may_start=True, reason="plenty"),
+    }.items():
+        monkeypatch.setattr(cli, name, step)
 
 
 def parked(cause: Cause) -> StoredUnit:
@@ -187,17 +171,7 @@ def test_a_unit_recorded_as_a_restack_conflict_is_offered_to_resumable_units_at_
 def test_a_planned_unit_owed_a_restack_is_not_started_until_it_is_moved(
     behind: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    for name, step in {
-        "fetch_all": lambda inst: None,
-        "poll_all": lambda inst, **kwargs: None,
-        "plan_all": lambda inst, **kwargs: None,
-        "has_identity": lambda inst, repo: True,
-        "verify_ready": lambda inst, units, **kwargs: lambda change: True,
-        "archive_ready_changes": lambda *a, **k: [],
-        "current_usage": lambda: None,
-        "may_start_unit": lambda r: Decision(may_start=True, reason="plenty"),
-    }.items():
-        monkeypatch.setattr(cli, name, step)
+    isolate_round(monkeypatch)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit(OWED, change="feature")])
     store.set_state(OWED, PLANNED, branch="spec/feature/3", cause=Cause.BASE_CHANGED)
@@ -210,3 +184,45 @@ def test_a_planned_unit_owed_a_restack_is_not_started_until_it_is_moved(
 
     moved(behind)
     assert started() == [OWED]
+
+
+@pytest.mark.parametrize(
+    ("limits", "others"),
+    [
+        pytest.param({}, (), id="a free slot and room"),
+        pytest.param(
+            {"max_concurrent_stacks": 1}, (("feature/1", RUNNING),), id="no free build slot"
+        ),
+        pytest.param(
+            {"max_units_in_progress": 2},
+            (("feature/1", IN_REVIEW), ("feature/2", IN_REVIEW)),
+            id="at the limit on units in progress",
+        ),
+    ],
+)
+def test_a_unit_owed_a_restack_is_given_no_slot_or_queue_full_reason_by_either_reader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    limits: dict[str, int],
+    others: tuple[tuple[str, UnitState], ...],
+) -> None:
+    inst = repo_behind(tmp_path, monkeypatch, **limits)
+    isolate_round(monkeypatch)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit(OWED, change="feature"), *(new_unit(uid) for uid, _ in others)])
+    for uid, state in others:
+        store.set_state(uid, state, branch=f"spec/{uid}", pr=1)
+    store.set_state(OWED, PLANNED, branch="spec/feature/3", cause=Cause.BASE_CHANGED)
+    units = store.all()
+
+    asked = cli.wait_reasons(inst, units, started=set(), building=set(), only=frozenset())
+    cli.run_round(inst, store, building=(), only=frozenset(), submit=True)
+    logged = [
+        json.loads(line)
+        for line in (inst.state_dir / DECISIONS_NAME).read_text().splitlines()
+        if json.loads(line)["unit"] == OWED
+    ]
+
+    assert asked[OWED].reason is WaitReason.READY
+    assert logged
+    assert {entry["reason"] for entry in logged} == {WaitReason.READY}

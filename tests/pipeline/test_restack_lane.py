@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.events import build_claim
 from agent_build_kit.pipeline.restack_lane import RestackLane
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -149,3 +150,44 @@ def test_two_restacks_of_one_branch_never_overlap(lane: RestackLane, restacks: R
     lane.drain()
 
     assert restacks.most_at_once == 1
+
+
+def test_a_scan_does_not_hand_a_unit_over_again_while_its_last_attempt_left_it_as_it_was(
+    locks: Path, restacks: Restacks
+) -> None:
+    unit = stored_unit("feature/1", change="feature")
+    heads = ["branch@1, base@1"]
+    restacks.release_all()
+    lane = RestackLane(
+        2,
+        move=restacks,
+        claim=build_claim(locks),
+        owed=lambda graph: ["feature/1"],
+        stamp=lambda unit: heads[-1],
+    )
+    with lane:
+        lane.scan([unit])
+        lane.drain()
+        lane.scan([unit])
+        lane.drain()
+        assert restacks.started == ["feature/1"]
+
+        heads.append("branch@1, base@2")
+        lane.scan([unit])
+        lane.drain()
+
+    assert restacks.started == ["feature/1", "feature/1"]
+
+
+def test_a_lane_that_is_idle_gives_a_finished_future_that_is_already_done(
+    lane: RestackLane, restacks: Restacks
+) -> None:
+    assert lane.finished().done()
+
+    lane.hand_over(stored_unit("feature/1", change="feature"))
+    assert restacks.begun["feature/1"].wait(WAIT)
+    waiting_on = lane.finished()
+    assert not waiting_on.done()
+
+    restacks.release_all()
+    waiting_on.result(timeout=WAIT)

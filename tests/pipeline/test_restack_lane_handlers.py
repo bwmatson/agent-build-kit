@@ -16,8 +16,8 @@ import pytest
 
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.restack_lane import RestackLane
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit as unit
 from tests.restack_lane_fakes import WAIT, Restacks, lane_over
@@ -74,9 +74,11 @@ def lane(locks: Path, moves: Restacks) -> Iterator[RestackLane]:
         lane.drain()
 
 
-def merge(store: UnitStore, locks: Path, restack: Any, lane: RestackLane, **kwargs: Any) -> bool:
+def merge(
+    store: UnitStore, locks: Path, restack: Any, lane: RestackLane, *, pr: int = 1, **kwargs: Any
+) -> bool:
     return events.on_merged(
-        1,
+        pr,
         repo="app",
         store=store,
         restack=restack,
@@ -216,3 +218,87 @@ def test_a_restack_that_finds_a_rewritten_branch_still_moves_off_the_merged_base
     moved = {call["branch"]: call for call in restack.calls}
     assert moved["spec/c/2"]["old_base"] == "spec/c/1"
     assert moved["spec/c/2"]["new_base"] == "main"
+
+
+def test_a_second_event_for_a_queued_child_moves_it_onto_the_base_it_has_when_it_starts(
+    tmp_path: Path, locks: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            unit("c/0", change="c"),
+            unit("c/1", change="c", depends_on=("c/0",)),
+            unit("c/2", change="c", depends_on=("c/1",)),
+        ]
+    )
+    for number in (0, 1, 2):
+        store.set_state(f"c/{number}", IN_REVIEW, pr=number + 1, branch=f"spec/c/{number}")
+    blocker = Restacks()
+    calls: list[dict[str, Any]] = []
+
+    def restack(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    with lane_over(locks, blocker, cap=1) as lane:
+        lane.hand_over(unit("c/8", change="c"))
+        merge(store, locks, restack, lane, pr=2)  # c/1 merges: c/2 waits to move onto spec/c/0
+        assert lane.waiting == ["c/2"]
+        merge(store, locks, restack, lane, pr=1)  # c/0 merges before it starts
+        assert lane.waiting == ["c/2"]
+        blocker.release_all()
+        lane.drain()
+
+    assert [(call["old_base"], call["new_base"]) for call in calls] == [("spec/c/1", "main")]
+
+
+def test_a_depth_held_unit_handed_over_keeps_the_merged_branch_until_it_has_moved(
+    tmp_path: Path, locks: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            unit("c/1", change="c"),
+            unit("c/2", change="c", depends_on=("c/1",)),
+            unit("c/4", change="c", depends_on=("c/2",)),
+        ]
+    )
+    for number in (1, 2):
+        store.set_state(f"c/{number}", IN_REVIEW, pr=number, branch=f"spec/c/{number}")
+    # Held for depth on the branch of c/1, which is merging, and now within the cap.
+    store.set_state(
+        "c/4",
+        HELD,
+        pr=4,
+        branch="spec/c/4",
+        held_by=HeldBy.DEPTH,
+        held_base="spec/c/1",
+        cause=Cause.DEPTH,
+    )
+    blocker = Restacks()
+    deleted: list[tuple[str, str]] = []
+    present_at_move: list[bool] = []
+
+    def restack(**kwargs: Any) -> None:
+        present_at_move.append(not deleted)
+
+    with lane_over(locks, blocker, cap=1) as lane:
+        lane.hand_over(unit("c/8", change="c"))
+        merge(
+            store,
+            locks,
+            restack,
+            lane,
+            pr=1,
+            rebase_cap=3,
+            remove_worktree=lambda repo, branch: None,
+            delete_branch=lambda repo, branch: deleted.append((repo, branch)),
+        )
+        assert "c/4" in lane.waiting
+        assert deleted == []
+
+        blocker.release_all()
+        lane.drain()
+
+    assert present_at_move
+    assert all(present_at_move)
+    assert deleted == [("app", "spec/c/1")]

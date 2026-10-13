@@ -28,7 +28,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.conftest import make_installation
-from tests.factories import init_repo, new_unit
+from tests.factories import git, init_repo, new_unit
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -209,3 +209,34 @@ def test_a_build_that_stops_for_a_moved_base_is_followed_at_once_by_a_restack_of
     assert scene.tick() == 0
 
     assert scene.log[:3] == ["build first/1", "restack", "build first/1"]
+
+
+def test_a_restack_that_leaves_its_unit_owed_is_tried_once_and_the_tick_ends(
+    scene: Scene, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scene.hands_over = False
+    repo = init_repo(scene.inst.checkouts["app"])
+    (repo / "a.txt").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a")
+    git(repo, "branch", "spec/second/1")
+    (repo / "b.txt").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "b")
+    scene.store.set_state(
+        "second/1", IN_REVIEW, pr=9, branch="spec/second/1", cause=Cause.BASE_CHANGED
+    )
+    attempts: list[str] = []
+
+    def deferred(**kwargs: Any) -> None:
+        """A restack that cannot move the branch now: the unit is planned for a deferred restack."""
+        attempts.append(kwargs["child"].id)
+        scene.store.set_state(
+            kwargs["child"].id, PLANNED, cause=Cause.RESTACK_DEFERRED, branch="spec/second/1"
+        )
+
+    monkeypatch.setattr(cli, "build_restack", lambda **kwargs: deferred)
+
+    assert scene.tick() == 0
+
+    assert attempts == ["second/1"]

@@ -8,10 +8,15 @@ from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import build_claim
 from agent_build_kit.pipeline.restack_lane import RestackLane
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
-from tests.factories import stored_unit
+from tests.conftest import make_installation
+from tests.factories import git, init_repo, stored_unit
 
 WAIT = 60
 
@@ -84,3 +89,26 @@ def lane_over(
     owed: Callable[[list[StoredUnit]], Collection[str]] = lambda graph: (),
 ) -> RestackLane:
     return RestackLane(cap, move=move, claim=build_claim(locks), owed=owed)
+
+
+def repo_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int) -> Installation:
+    """`spec/feature/3` was cut from `main` before `main` moved: it does not hold its base."""
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits=limits,
+    )
+    repo = init_repo(inst.checkouts["app"])
+    (repo / "a.txt").write_text("a\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a")
+    git(repo, "branch", "spec/feature/3")
+    (repo / "b.txt").write_text("b\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "b")
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    return inst
+
+
+def moved(inst: Installation) -> None:
+    git(inst.checkouts["app"], "branch", "-f", "spec/feature/3", "main")

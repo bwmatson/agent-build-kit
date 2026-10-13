@@ -2484,7 +2484,7 @@ def own_work_starts_after(
                 continue
             fork = git(tree, "merge-base", ref, head, check=False).stdout.strip()
             # Later than what we have, and on this branch's own line.
-            if fork and (not start or _is_ancestor(tree, start, fork)):
+            if fork and (not start or is_ancestor(tree, start, fork)):
                 start = fork
                 break
     return start
@@ -2540,7 +2540,7 @@ def build_restack_onto(
         resolver: Resolver | None = None,
     ) -> Restacked | None:
         move = resolving if resolve else _move_without_resolver
-        if _is_ancestor(tree, base):
+        if is_ancestor(tree, base):
             return None
 
         old_base = own_work_starts_after(tree, base, unit, store)
@@ -2734,7 +2734,8 @@ def reset_to(tree: Path, onto: str, keep: str) -> None:
     git(tree, "reset", "--hard", "-q", onto)
 
 
-def _is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
+def is_ancestor(tree: Path, base: str, of: str = "HEAD") -> bool:
+    """Whether `of` holds `base`: the one read of 'this branch already has its base'."""
     return not git(tree, "merge-base", "--is-ancestor", base, of, check=False).returncode
 
 
@@ -2881,7 +2882,7 @@ def build_base_moved(store: UnitStore) -> Callable[..., tuple[Cause, str] | None
             return Cause.BASE_CHANGED, f"its base moved from {base} to {now} while it built"
         # Advanced is fine — a parent's rework adds on top, and the review or
         # the resume's restack takes it in. Rewritten is not.
-        if start and not _is_ancestor(tree, start, local_ref(base, repo=unit.repo)):
+        if start and not is_ancestor(tree, start, local_ref(base, repo=unit.repo)):
             return Cause.BASE_CHANGED, f"its base {base} was rewritten while it built"
         return None
 

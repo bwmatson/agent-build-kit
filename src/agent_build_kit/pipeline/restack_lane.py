@@ -30,11 +30,13 @@ from agent_build_kit.pipeline.units import (
     local_ref,
     waiting_on,
 )
+from agent_build_kit.pipeline.wiring import is_ancestor
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_held
 
 Move = Callable[[StoredUnit], None]
 Work = Callable[[], None]
 Owed = Callable[[list[StoredUnit]], Collection[str]]
+Stamp = Callable[[StoredUnit], object]
 
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
@@ -78,7 +80,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         ):
             return True  # No branch yet: there is nothing to move.
         base = local_ref(base_of(unit, units), repo=unit.repo)
-        return not git(repo, "merge-base", "--is-ancestor", base, branch, check=False).returncode
+        return is_ancestor(repo, base, branch)
 
     return {
         unit.id
@@ -94,7 +96,7 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
 
 
 class _Entry:
-    def __init__(self, unit: StoredUnit, work: Work, done: list[Callable[[], None]]) -> None:
+    def __init__(self, unit: StoredUnit, work: Work, done: list[Callable[[bool], None]]) -> None:
         self.unit, self.work, self.done = unit, work, done
 
 
@@ -108,9 +110,15 @@ class RestackLane:
         move: Move,
         claim: Claim,
         owed: Owed = lambda units: (),
+        stamp: Stamp | None = None,
         log: Callable[[str], None] = print,
     ) -> None:
+        """`stamp` reads what a restack of the unit depends on (its branch head and base).
+        A unit whose attempt left it as it was is not handed over again by `scan` until
+        the stamp changes: a deferred move is not retried on a loop of its own."""
         self._cap, self._move, self._claim, self._owed, self._log = cap, move, claim, owed, log
+        self._stamp = stamp
+        self._tried: dict[str, object] = {}
         self._changed = threading.Condition()
         self._queue: list[_Entry] = []
         self._running: dict[str, _Entry] = {}
@@ -118,12 +126,17 @@ class RestackLane:
         self._finished: Future[None] = Future()
 
     def hand_over(
-        self, unit: StoredUnit, work: Work | None = None, *, done: Callable[[], None] | None = None
+        self,
+        unit: StoredUnit,
+        work: Work | None = None,
+        *,
+        done: Callable[[bool], None] | None = None,
     ) -> None:
         """Queue `unit`'s restack once and start it before returning when a worker is free.
 
         `work` is what runs under the unit's branch claim (the lane's `move` of the unit
-        when none is given); `done` runs after it, or when the unit could not be claimed."""
+        when none is given); `done` runs after it with whether the work ran to the end, or
+        with False when the unit could not be claimed."""
         with self._changed:
             seen = [*self._queue, *self._running.values()]
             known = next((entry for entry in seen if entry.unit.id == unit.id), None)
@@ -140,8 +153,13 @@ class RestackLane:
         """Hand over every unit the lane's `owed` names that is not already queued."""
         owed = set(self._owed(units))
         for unit in units:
-            if unit.id in owed:
+            if unit.id in owed and not self._unchanged_since_tried(unit):
                 self.hand_over(unit)
+
+    def _unchanged_since_tried(self, unit: StoredUnit) -> bool:
+        with self._changed:
+            tried = self._tried.get(unit.id)
+        return self._stamp is not None and tried is not None and tried == self._stamp(unit)
 
     def drain(self) -> None:
         """Return once nothing is running or waiting."""
@@ -152,8 +170,13 @@ class RestackLane:
             thread.join()
 
     def finished(self) -> Future[Any]:
-        """A future that completes when the next restack ends, for a loop to wait on."""
+        """A future that completes when the next restack ends, for a loop to wait on; one
+        already complete when nothing is running or waiting."""
         with self._changed:
+            if not self._queue and not self._running:
+                idle: Future[Any] = Future()
+                idle.set_result(None)
+                return idle
             return self._finished
 
     @property
@@ -190,11 +213,28 @@ class RestackLane:
             self._threads.append(thread)
             thread.start()
 
+    def _note_attempt(self, unit: StoredUnit) -> None:
+        """Remember what the unit's restack met, so a scan leaves it until that changes."""
+        if self._stamp is None:
+            return
+        try:
+            stamp = self._stamp(unit)
+        except Exception as error:  # noqa: BLE001 — a stamp that cannot be read never stops a restack
+            self._log(f"{unit.id}: restack not noted — {type(error).__name__}: {error}")
+            return
+        with self._changed:
+            self._tried[unit.id] = stamp
+
     def _run(self, entry: _Entry) -> None:
         unit = entry.unit
+        ran = False
         try:
             with self._claim(unit):
-                entry.work()
+                try:
+                    entry.work()
+                    ran = True
+                finally:
+                    self._note_attempt(unit)
         except BranchBusy as error:
             self._log(f"{unit.id}: restack left for later, its branch is held ({error})")
         except Exception as error:  # noqa: BLE001 — one restack never ends the lane
@@ -202,7 +242,7 @@ class RestackLane:
         finally:
             for done in entry.done:
                 try:
-                    done()
+                    done(ran)
                 except Exception as error:  # noqa: BLE001
                     self._log(f"{unit.id}: after its restack — {type(error).__name__}: {error}")
             with self._changed:
