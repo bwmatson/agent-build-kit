@@ -10,15 +10,18 @@ does with a conflict.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from agent_build_kit.graph.state import Node, SessionRole
-from agent_build_kit.pipeline.stack_runner import Restacked
+from agent_build_kit.pipeline.restack import RESOLVER_TOOLS
+from agent_build_kit.pipeline.stack_runner import Restacked, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.wiring import BASE_TOOLS
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.runtimes.base import AgentRateLimited
 from tests.factories import unit
@@ -214,3 +217,62 @@ def test_a_usage_pause_defers_the_step_and_the_unit_is_not_failed(tmp_path: Path
     assert stored.state != "failed"
     assert "conflict" not in stored.feedback
     assert "push" not in recorder.events
+
+
+def test_a_clean_move_in_a_usage_pause_is_made_and_the_unit_waits_at_the_next_gate(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+    moves: list[dict[str, Any]] = []
+
+    def clean(**kw: Any) -> Restacked | None:
+        moves.append(kw)
+        return restacked()
+
+    outcome = tick(
+        tmp_path,
+        recorder,
+        branch_commits=lambda cwd, base: 2,
+        restack_onto=clean,
+        may_start=lambda: (False, "session usage at 88%"),
+        resume_at=lambda: datetime(2030, 1, 1, tzinfo=UTC),
+        **agents(runtime),
+    )
+
+    assert len(moves) == 1 and moves[0]["resolver"] is not None, "the move was made"
+    assert runtime.requests == [], "and asked no agent"
+    assert outcome.status == RunStatus.PAUSED, "the unit waits at the next agent node's gate"
+    stored = recorder.store.get(unit().id)
+    assert stored.state != "failed"
+    assert stored.cause != Cause.RESTACK_CONFLICT
+
+
+def test_the_resolution_calls_carry_the_resolvers_tools_and_the_next_build_node_the_builds(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    failing_checks(recorder)
+    runtime = Sessions()
+    answers = iter([Settling(asks=2)])
+
+    def once(**kw: Any) -> Restacked | None:
+        found = next(answers, None)
+        return found(**kw) if found is not None else None
+
+    build(
+        tmp_path,
+        recorder,
+        base="spec/c/2",
+        branch_commits=lambda cwd, base: 2 + recorder.made,
+        restack_onto=once,
+        **agents(runtime),
+    )
+
+    first, second, fix = runtime.built
+    for request in (first, second):
+        assert request.allowed_tools == RESOLVER_TOOLS
+        assert request.permission_mode == "allowed_tools_only"
+    assert fix.allowed_tools == BASE_TOOLS
+    assert fix.permission_mode == "edit"

@@ -176,10 +176,12 @@ def test_a_marker_left_after_the_second_call_ends_the_step_with_the_conflict(
     before = git(repo, "rev-parse", BRANCH)
     resolver = Steps(leaves_markers)
 
-    with pytest.raises(RestackConflict, match="conflict markers"):
+    with pytest.raises(RestackConflict, match="left for a human"):
         move(repo, resolver)
 
     assert len(resolver.calls) == 2
+    assert "conflict markers" in resolver.calls[1].follow_up
+    assert "left for a human" not in resolver.calls[1].follow_up, "it is asked to go on"
     assert not rebase_in_progress(repo)
     assert git(repo, "rev-parse", BRANCH) == before
     assert git(repo, "status", "--porcelain") == ""

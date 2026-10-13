@@ -142,7 +142,7 @@ from agent_build_kit.profiles.base import (
 )
 from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
-from agent_build_kit.runtimes.base import Role, SessionUnavailable
+from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
 from agent_build_kit.runtimes.claude_code import through
 
 logger = logging.getLogger(__name__)
@@ -309,6 +309,8 @@ def build_run(
         resume_runtime: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: AgentCallback | None = None,
+        tools: str = "",
+        permission_mode: PermissionMode = "edit",
     ) -> str:
         agent = runtime or (through(run) if run else runtimes.active())
         if resume_session and not agent.supports_session_resume:
@@ -373,8 +375,9 @@ def build_run(
             # there under an invented unit id.
             add_dirs=(specs,),
             model=model,
-            allowed_tools=allowed_tools or BASE_TOOLS,
-            permission_mode="edit",
+            # A call may narrow what it is granted (the restack's resolution, in a paused rebase).
+            allowed_tools=tools or allowed_tools or BASE_TOOLS,
+            permission_mode=permission_mode,
             policy=ToolPolicy(specs_dir=specs, branch_prefix=active().git.branch_prefix),
             on_event=journal or log or print,
             on_transcript=transcript,

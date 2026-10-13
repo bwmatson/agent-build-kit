@@ -63,6 +63,9 @@ def test_a_two_call_conflict_in_a_run_writes_two_rows_in_one_session(
     assert (first.unit, first.change, first.repo) == (unit().id, unit().change, unit().repo)
     assert (second.unit, second.change, second.repo) == (first.unit, first.change, first.repo)
     assert first.session_id == second.session_id == "sess-1"
+    # A call of the unit's build session in a run: its role and the unit's tier are filled.
+    assert (first.role, second.role) == ("implement", "implement")
+    assert (first.tier, second.tier) == (unit().tier, unit().tier)
 
 
 @pytest.fixture
@@ -93,3 +96,5 @@ def test_a_stack_moves_calls_are_recorded_as_restack_for_the_child(rig: Rig) -> 
         (rig.child.id, rig.child.change, rig.child.repo)
     }
     assert rows[0].session_id == rows[1].session_id, "the calls are one session"
+    # Made outside a run: the generic role and no tier, which is what a run's rows differ by.
+    assert {(r.role, r.tier) for r in rows} == {("generic", "")}

@@ -47,7 +47,7 @@ from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.metric_records import record_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
-from agent_build_kit.pipeline.restack import BranchMoved, HostMoved
+from agent_build_kit.pipeline.restack import RESOLVER_TOOLS, BranchMoved, HostMoved
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
@@ -1102,6 +1102,9 @@ class BuildPath:
                     model=models().rework,
                     follow_up=follow_up or prompt,
                     session=held,
+                    # Not the build's tools: no git, so the pipeline alone moves the rebase.
+                    tools=RESOLVER_TOOLS,
+                    permission_mode="allowed_tools_only",
                 )
             finally:
                 self._node = node

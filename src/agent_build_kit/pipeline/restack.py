@@ -385,8 +385,7 @@ def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[
     ]
     if marked:
         return (
-            f"{', '.join(marked)} still has conflict markers after resolution — "
-            "left for a human, since staging a conflict is worse than not moving.",
+            f"{', '.join(marked)} still has conflict markers after resolution",
             marked,
         )
     for needle in conflict.must_keep:
@@ -538,7 +537,15 @@ def move_branch_onto(
             break
         if attempt == 2:
             with turn():
-                raise _abort(repo, failure)
+                raise _abort(
+                    repo,
+                    f"{failure}"
+                    + (
+                        " — left for a human, since staging a conflict is worse than not moving."
+                        if marked
+                        else ""
+                    ),
+                )
         asking = {"follow_up": CONTINUE_PROMPT.format(failure=failure)}
         prompt = f"{prompt}\n\n{asking['follow_up']}"
 
@@ -948,6 +955,8 @@ def claude_resolver(
     try:
         result = ask(follow_up, session=resume_session) if resumed else ask(prompt, session="")
     except SessionUnavailable:
+        if not resumed:
+            raise
         result = ask(prompt, session="")
     if not result.ok:
         raise RuntimeError(result.error)
