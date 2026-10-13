@@ -56,6 +56,22 @@ def test_a_request_built_through_the_helper_or_setting_on_result_passes(tmp_path
     assert check_sources(root, allowlist=NONE) == []
 
 
+def test_only_the_request_handed_to_the_helper_by_name_is_recorded(tmp_path: Path) -> None:
+    two = (
+        "from agent_build_kit.pipeline.call_record import recorded\n" + HEAD + "def ask(runtime):\n"
+        "    first = AgentRequest(prompt='x')\n"
+        "    second = AgentRequest(prompt='y')\n"
+        "    runtime.run(recorded(first, runtime, node='plan', say=print))\n"
+        "    return runtime.run(second)\n"
+    )
+    root = tree(tmp_path, {"pipeline/ask.py": two})
+
+    problems = check_sources(root, allowlist=NONE)
+
+    assert len(problems) == 1
+    assert "pipeline/ask.py:7" in problems[0]
+
+
 def test_an_allowlisted_site_passes(tmp_path: Path) -> None:
     root = tree(tmp_path, {"pipeline/ask.py": UNRECORDED})
 

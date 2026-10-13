@@ -14,9 +14,15 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.call_record import call_recorder, recorded
 from agent_build_kit.pipeline.gateway_usage import Spend
-from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, forget_told
+from agent_build_kit.pipeline.usage_ledger import (
+    LEDGER_NAME,
+    UsageRecord,
+    forget_told,
+    record_call,
+)
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.usage import Usage
+from tests.redaction_fakes import NAME, SECRET, known
 from tests.runtimes.stand_in import StandInRuntime
 
 UNIT = "add-marker/1"
@@ -230,6 +236,29 @@ def test_the_row_keeps_its_unit_and_node_as_written_through_the_ledgers_writer(
     (row,) = rows(workspace)
     assert (row["unit"], row["node"]) == (UNIT, "restack")
     assert row["outcome"] == "failed"
+
+
+def test_a_secret_in_a_new_nodes_outcome_is_withheld_and_its_unit_and_node_are_kept(
+    workspace: Installation,
+) -> None:
+    forget_told()
+
+    with known():
+        record_call(
+            UsageRecord(
+                at="2026-01-01T10:00:00+00:00",
+                unit=UNIT,
+                node="restack",
+                outcome=f"died: {SECRET}",
+            ),
+            print,
+        )
+
+    written = (workspace.state_dir / LEDGER_NAME).read_text()
+    assert SECRET not in written
+    (row,) = rows(workspace)
+    assert (row["unit"], row["node"]) == (UNIT, "restack")
+    assert row["outcome"] == f"died: [redacted:{NAME}]"
 
 
 # --- a request that records ----------------------------------------------------------------

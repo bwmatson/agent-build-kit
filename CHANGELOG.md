@@ -11,9 +11,11 @@
 
 - The conflict resolver's cost is now in the usage ledger under the node `restack`, one row
   per resolver call with the unit being moved and its change and repository, so what a
-  conflict costs shows in the report. The ledger's reader keeps each such row as its own call, and a row with no unit never counts
-  as a unit in the usage estimate or its calibration. A guard test now fails on any agent call
-  that records nothing.
+  conflict costs shows in the report. The ledger's reader keeps each such row as its own
+  call, and a row with no unit never counts as a unit in the usage estimate or its
+  calibration. A guard test now fails on a new agent call
+  that records nothing; the planner, track runs, init, the policy probe, the login refresh and
+  chat are still to be recorded.
 
 - A restack no longer keeps the whole repository waiting while an agent resolves a conflict:
   the repository's turn is held only for the git commands that write shared state, so other

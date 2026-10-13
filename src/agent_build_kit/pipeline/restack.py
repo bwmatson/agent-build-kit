@@ -59,9 +59,11 @@ Runner = Callable[[list[str]], str]
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., None]
 
-# The conflict being resolved, which a resolver records its call under (the unit being moved,
-# its change and repo) without every resolver taking it as an argument.
-CONFLICT: ContextVar[ConflictContext | None] = ContextVar("conflict", default=None)
+# Private: the conflict being resolved, which `claude_resolver` records its call under (the unit
+# being moved, its change and repo) without every resolver taking it as an argument. Set by
+# `move_branch_onto` around `resolve(...)` on its own thread, so a resolver called anywhere else
+# records a blank unit.
+_CONFLICT: ContextVar[ConflictContext | None] = ContextVar("conflict", default=None)
 
 # Makes the repository's turn: a context manager held around the git commands that
 # write state its worktrees share. The default holds nothing.
@@ -414,11 +416,11 @@ def move_branch_onto(
     try:
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
-        token = CONFLICT.set(context)
+        token = _CONFLICT.set(context)
         try:
             resolve(prompt, cwd=repo)
         finally:
-            CONFLICT.reset(token)
+            _CONFLICT.reset(token)
     except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
         # Not a conflict nobody could resolve: the account is out of room, the
         # network is down, or the run was killed. The branch goes back where it was, to be moved
@@ -839,7 +841,7 @@ def claude_resolver(
     )
     # Its own folder for long command output, gone when the run ends.
     agent = runtime or runtimes.active()
-    moving = CONFLICT.get()
+    moving = _CONFLICT.get()
     request = recorded(
         request,
         agent,

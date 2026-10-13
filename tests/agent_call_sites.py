@@ -56,14 +56,29 @@ def _name(node: ast.expr) -> str:
     return ""
 
 
-def _calls(scope: ast.AST) -> Iterator[ast.Call]:
-    """The calls in `scope`, not those of a function defined inside it."""
+def _nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """The nodes in `scope`, not those of a function defined inside it."""
     for child in ast.iter_child_nodes(scope):
         if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        if isinstance(child, ast.Call):
-            yield child
-        yield from _calls(child)
+        yield child
+        yield from _nodes(child)
+
+
+def _calls(scope: ast.AST) -> Iterator[ast.Call]:
+    return (node for node in _nodes(scope) if isinstance(node, ast.Call))
+
+
+def _bound_requests(scope: ast.AST) -> dict[int, str]:
+    """The name each `x = AgentRequest(...)` binds, by the construction's id."""
+    return {
+        id(node.value): node.targets[0].id
+        for node in _nodes(scope)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and _name(node.value.func) == "AgentRequest"
+        and isinstance(node.targets[0], ast.Name)
+    }
 
 
 def _functions(tree: ast.Module) -> Iterator[tuple[str, ast.AST]]:
@@ -99,13 +114,16 @@ def _scan_function(scope: ast.AST) -> tuple[list[int], list[tuple[int, str]]]:
     calls = list(_calls(scope))
     helpers = [c for c in calls if _name(c.func) == "recorded" and c.args]
     helped = {id(call.args[0]) for call in helpers}
-    # A request built first and handed to `recorded` by name is recorded as well.
-    named = any(isinstance(call.args[0], ast.Name) for call in helpers)
+    # A request built first and handed to `recorded` by its name is recorded as well.
+    named = {call.args[0].id for call in helpers if isinstance(call.args[0], ast.Name)}
+    bound = _bound_requests(scope)
     requests = [c for c in calls if _name(c.func) == "AgentRequest"]
     bare = [
         c.lineno
         for c in requests
-        if not named and id(c) not in helped and not any(k.arg == "on_result" for k in c.keywords)
+        if bound.get(id(c)) not in named
+        and id(c) not in helped
+        and not any(k.arg == "on_result" for k in c.keywords)
     ]
     recording = any(_name(c.func) in RECORDERS for c in calls) or any(
         k.arg == "on_result" for c in requests for k in c.keywords
