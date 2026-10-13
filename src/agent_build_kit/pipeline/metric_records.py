@@ -12,12 +12,15 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
 from agent_build_kit import telemetry
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.usage_ledger import read_lines, record_line
+
+InstrumentKind = Literal["count", "duration", "observe", "level"]
 
 
 class MetricRecord(Frozen):
@@ -58,7 +61,7 @@ def record_metric(
 
 
 def emit_metric(
-    instrument: str,
+    instrument: InstrumentKind,
     name: str,
     value: float,
     say: Callable[[str], None],

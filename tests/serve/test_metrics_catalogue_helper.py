@@ -69,3 +69,25 @@ def test_a_helper_call_with_a_computed_name_is_not_an_instrument(tmp_path: Path)
     )
 
     assert [i.name for i in catalogue(tmp_path)] == ["abk.real"]
+
+
+# What the package's own call sites make of each instrument, read from the real source.
+PACKAGE = [
+    Instrument(name="abk.tick.duration", type="histogram", attributes=("outcome",), unit="s"),
+    Instrument(name="abk.usage.pauses", type="counter", attributes=("kind",)),
+    Instrument(
+        name="abk.unit.duration",
+        type="histogram",
+        attributes=("repo", "tier", "outcome"),
+        unit="s",
+    ),
+    Instrument(name="abk.review.rounds", type="histogram", attributes=("repo", "outcome")),
+    Instrument(name="abk.checks.failures", type="counter", attributes=("check", "round")),
+]
+
+
+@pytest.mark.parametrize("expected", PACKAGE, ids=lambda i: i.name)
+def test_the_package_catalogue_lists_each_moved_instrument_as_it_was(expected: Instrument) -> None:
+    listed = {i.name: i for i in catalogue()}
+
+    assert listed[expected.name] == expected

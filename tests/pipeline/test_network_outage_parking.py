@@ -20,6 +20,7 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.graph.unit import Position, thread_position
 from agent_build_kit.pipeline import network_probe
+from agent_build_kit.pipeline.metric_records import InstrumentKind
 from agent_build_kit.pipeline.network_probe import Reachability
 from agent_build_kit.pipeline.unit_store import FeedbackSource, UnitStore
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED, in_progress
@@ -153,7 +154,9 @@ def test_a_parked_unit_keeps_its_branch_thread_feedback_and_round_counts(
     outcomes: list[str] = []
     real_record = cli.emit_metric
 
-    def record(instrument: str, name: str, value: float, log: Any, **labels: Any) -> None:
+    def record(
+        instrument: InstrumentKind, name: str, value: float, log: Any, **labels: Any
+    ) -> None:
         if name == "abk.unit.duration":
             outcomes.append(labels["outcome"])
         real_record(instrument, name, value, log, **labels)

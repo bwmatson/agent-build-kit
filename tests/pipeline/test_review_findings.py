@@ -443,11 +443,22 @@ def test_a_note_never_leaves_out_an_unresolved_finding() -> None:
     assert "left out" not in note
 
 
-def test_an_open_answer_to_a_finding_recorded_fixed_is_not_an_approval() -> None:
-    entries = ({"findings": _stored_round(status="fixed")["findings"]},)
-    answers = stack_runner._parse_answers([{"id": "1.1", "status": "open"}])
+def _weighed_against(tmp_path: Path, stored: dict, answer: dict):
+    """An approving verdict that answers `answer` for a stored round holding one finding."""
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    runner = make_runner(store, Recorder(), tmp_path)
+    reply = _reply(approved=True, earlier=[answer])
+    return runner.weigh_review(unit(), reply, judged="sha-2", rounds=({"findings": [stored]},))
 
-    assert stack_runner._unresolved(entries, answers) == ["1.1"]
+
+def test_an_open_answer_to_a_finding_recorded_fixed_is_not_an_approval(tmp_path: Path) -> None:
+    stored = _stored_round(status="fixed")["findings"][0]
+
+    weighed = _weighed_against(tmp_path, stored, {"id": "1.1", "status": "open"})
+
+    assert weighed.approved is False
+    assert "[1.1]" in weighed.why
 
 
 @pytest.mark.parametrize(
@@ -465,12 +476,13 @@ def test_a_plausibly_shaped_answer_is_read(raw: dict) -> None:
     assert [(a.id, a.status) for a in answers] == [("1.1", "declined")]
 
 
-def test_an_unknown_status_counts_as_open() -> None:
-    answers = stack_runner._parse_answers([{"id": "1.1", "status": "maybe"}])
+def test_an_unknown_status_counts_as_open(tmp_path: Path) -> None:
+    stored = _stored_round()["findings"][0]
 
-    assert stack_runner._unresolved(({"findings": _stored_round()["findings"]},), answers) == [
-        "1.1"
-    ]
+    weighed = _weighed_against(tmp_path, stored, {"id": "1.1", "status": "maybe"})
+
+    assert weighed.approved is False
+    assert "[1.1]" in weighed.why
 
 
 @pytest.mark.parametrize("item", ["not a dict", {"summary": "no file"}])

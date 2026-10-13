@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.metric_records import InstrumentKind
 from agent_build_kit.pipeline.network_probe import Reachability
 from agent_build_kit.pipeline.unit_store import FeedbackSource, UnitStore
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED
@@ -81,7 +82,9 @@ def test_the_status_that_parks_the_unit_is_not_counted_as_a_failed_run(
     outcomes: list[str] = []
     real_record = cli.emit_metric
 
-    def record(instrument: str, name: str, value: float, log: Any, **labels: Any) -> None:
+    def record(
+        instrument: InstrumentKind, name: str, value: float, log: Any, **labels: Any
+    ) -> None:
         if name == "abk.unit.duration":
             outcomes.append(labels["outcome"])
         real_record(instrument, name, value, log, **labels)

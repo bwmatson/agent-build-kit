@@ -17,7 +17,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph import unit as unit_graph
-from agent_build_kit.pipeline.metric_records import emit_metric
+from agent_build_kit.pipeline.metric_records import InstrumentKind, emit_metric
 from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
 from tests.cli.test_tick_telemetry import (  # noqa: F401 — fixtures
     FAILING,
@@ -43,7 +43,7 @@ def emitted(monkeypatch: pytest.MonkeyPatch) -> list[Emitted]:
     calls: list[Emitted] = []
 
     def spy(
-        instrument: str,
+        instrument: InstrumentKind,
         name: str,
         value: float,
         say: Callable[[str], None],

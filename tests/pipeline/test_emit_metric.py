@@ -10,7 +10,12 @@ import pytest
 
 from agent_build_kit import config, telemetry
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.metric_records import MetricRecord, emit_metric, read_metrics
+from agent_build_kit.pipeline.metric_records import (
+    InstrumentKind,
+    MetricRecord,
+    emit_metric,
+    read_metrics,
+)
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 
 Sent = list[tuple[str, str, float, dict[str, Any]]]
@@ -66,7 +71,7 @@ SITES = [
 @pytest.mark.parametrize(("instrument", "name", "value", "attributes", "unit", "change"), SITES)
 def test_telemetry_and_the_local_record_get_the_same_name_value_and_attributes(
     sent: Sent,
-    instrument: str,
+    instrument: InstrumentKind,
     name: str,
     value: float,
     attributes: dict[str, Any],

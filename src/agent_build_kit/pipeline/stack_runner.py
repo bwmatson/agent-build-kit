@@ -992,11 +992,6 @@ def _open_entries(
     ]
 
 
-def _unresolved(rounds: Sequence[dict], earlier: Sequence[EarlierAnswer] | None) -> list[str]:
-    """Ids of earlier required findings this verdict leaves open or unanswered."""
-    return _open_ids(_open_entries(rounds, earlier))
-
-
 def _open_ids(entries: list[tuple[dict, str]]) -> list[str]:
     return [str(f["id"]) for f, _ in entries]
 
