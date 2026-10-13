@@ -528,7 +528,11 @@ def move_branch_onto(
             raise
         except Exception as error:
             with turn():
-                raise _abort(repo, f"the conflict resolver failed on {branch}: {error}") from error
+                raise _abort(
+                    repo,
+                    f"the conflict resolver failed on {branch}: {error}",
+                    tried="\n".join(failures),
+                ) from error
 
         failure, marked = _failed_check(repo, conflict, moving_unit=context.moving_unit)
         if marked:
@@ -585,6 +589,7 @@ def move_branch_onto(
                 repo,
                 f"the rebase did not complete after resolution:\n"
                 f"{finished.stdout}\n{finished.stderr}",
+                tried="\n".join(failures),
             )
         if detached:
             landed = _land_detached(repo, branch, started=started)

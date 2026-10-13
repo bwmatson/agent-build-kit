@@ -101,7 +101,7 @@ one unless a test injects another:
 |---|---|
 | build, review, rework-review | `pipeline/wiring.py` `build_run` (`build_run_review` wraps it); `runtime=` injects. `build_run` takes the model per call, and the graph nodes pick it: the implement model for `tests`, `implement` and `fix_checks` (the model the build session began on), the rework model for `rework`, `restack` and `adapt`; a node that continues a session runs on the model that session recorded |
 | the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects |
-| conflict resolution | `pipeline/restack.py` `claude_resolver`; `runtime=` injects, and a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
+| conflict resolution | in a run, `prepare`'s restack resolves through `build_run` as node `restack`, in the build session, on the rework model (or the model the session recorded); the stack-move handler uses `pipeline/restack.py` `claude_resolver` (`runtime=` injects), whose second call continues the first call's session; a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
 | the scheduled tracks | `tracks/runner.py` `phase_request`, run by `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |
 | research | `init/research.py` `research` |
 | a proposal | `init/propose.py` `propose` |

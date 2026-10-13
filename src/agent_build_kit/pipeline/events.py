@@ -1530,14 +1530,14 @@ def build_restack(
             )
             return
         except RestackConflict as error:
-            # Left unmoved for the runner, whose own restack meets the same
-            # conflict and hands it to the adapt step — which ports the work and
-            # accounts for each of the unit's tests.
+            # Left unmoved for the runner, whose own restack meets the same conflict and
+            # settles it in the unit's build session: the order from its first step, and a
+            # port only if the narrower steps fail.
             store.set_state(
                 child.id,
                 PLANNED,
-                note=f"restack onto {new_base} could not be merged; the adapt step ports it: "
-                f"{str(error)[:300]}",
+                note=f"restack onto {new_base} could not be merged; the unit's next run "
+                f"resolves it in its build session: {str(error)[:300]}",
                 cause=Cause.RESTACK_CONFLICT,
             )
             return

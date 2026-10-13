@@ -98,3 +98,30 @@ def test_a_port_whose_session_cannot_be_continued_starts_a_new_one_with_the_full
     assert CHANGE_PATH in port.prompt, "ADAPT_PROMPT in full"
     assert TRIED in port.prompt, "a new session has not seen the steps, so it is told"
     assert outcome.status != "failed", "not an error"
+
+
+def test_a_port_whose_recorded_head_is_unreachable_starts_a_new_session_with_the_full_prompt(
+    tmp_path: Path,
+) -> None:
+    distinct_models()
+    recorder = fresh(tmp_path)
+    runtime = Sessions()
+
+    outcome = build(
+        tmp_path,
+        recorder,
+        base="spec/c/2",
+        branch_commits=lambda cwd, base: 2 + recorder.made,
+        restack_onto=Failing(),
+        reset_to=lambda tree, onto, keep: None,
+        tests_in=lambda tree: {MISSING},
+        tests_changed=lambda tree, ref: set(),
+        head_reachable=lambda cwd, head: False,
+        **agents(runtime),
+    )
+
+    port = [r for r in runtime.built if OLD_REF in r.prompt][-1]
+    assert port.resume_session == ""
+    assert CHANGE_PATH in port.prompt
+    assert TRIED in port.prompt
+    assert outcome.status != "failed"
