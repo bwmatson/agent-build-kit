@@ -48,6 +48,11 @@ def assert_not_behind(folder: str, recorded: dict[str, int], installed: int, rer
     )
 
 
+def assert_vitest_recordings_current(installed: int) -> None:
+    """Fail naming vitest and both majors when a recording under `vitest/` is behind `installed`."""
+    raise NotImplementedError
+
+
 def test_the_pytest_recordings_are_not_a_major_version_behind() -> None:
     recorded = recorded_majors("pytest", PYTEST_HEADER, ".xml")
 

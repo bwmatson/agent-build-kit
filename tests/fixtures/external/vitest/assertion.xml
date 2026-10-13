@@ -1,0 +1,25 @@
+<!-- tool: vitest 3.2.4
+     command: vitest run --reporter=junit --passWithNoTests -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="3" failures="1" errors="0" time="0.01">
+    <testsuite name="src/a.test.ts" timestamp="2025-01-01T00:00:00.000Z" hostname="host" tests="3" failures="1" errors="0" skipped="1" time="0.01">
+        <testcase classname="src/a.test.ts" name="adds" time="0.01">
+            <failure message="expected 1 to be 2 // Object.is equality" type="AssertionError">
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/a.test.ts:3:25
+            </failure>
+        </testcase>
+        <testcase classname="src/a.test.ts" name="later" time="0">
+            <skipped/>
+        </testcase>
+        <testcase classname="src/a.test.ts" name="holds" time="0">
+        </testcase>
+    </testsuite>
+</testsuites>
