@@ -62,6 +62,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, wait_on_fix
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
+from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.pr_replies import (
     MARKER,
     build_post_replies,
@@ -804,7 +805,20 @@ def build_tier1(
 
         `failed_output` is the output of the failed check a fix is answering; given,
         and the repo's affected-tests mode on, the tests run are the selected ones."""
+        for project in pending_projects(cwd, projects):
+            _say(log, describe(project))
         work = _work(cwd, base, whole_repo, projects, profile, changed)
+        if projects and not work:
+            _say(log, "every project is pending, nothing ran in a project")
+            if whole_repo:
+                # No diff to be judged by: a unit that produced nothing for the declared
+                # projects to check is not satisfied by their absence.
+                names = ", ".join(p.path for p in pending_projects(cwd, projects))
+                return False, (
+                    f"every declared project is pending ({names}) and the unit produced "
+                    "nothing for them to judge"
+                )
+            return root_checks(cwd)
         plan = None
         if affected is not None and not whole_repo and failed_output.strip():
             plan = selection(base, work, failed_output)
@@ -880,7 +894,6 @@ def build_tier1(
         lint: bool,
         figures: list[tuple[float, int]],
     ) -> tuple[bool, str]:
-        extra = profile.extra_checks(repo) if repo is not None else []
         ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
         for where, toolchain, files in work:
             if whole_repo:
@@ -919,14 +932,19 @@ def build_tier1(
                     isolate(command, result, where, toolchain)
                     return False, _failure(command, result, where)
             ran_tests.append((where, toolchain, test_commands))
-        # Once per checkout, in its root: these look at the repo, not at a project.
+        passed, output = root_checks(cwd)
+        if not passed or whole_repo:
+            return passed, output
+        return repeat(cwd, base, ran_tests)
+
+    def root_checks(cwd: Path) -> tuple[bool, str]:
+        """Once per checkout, in its root: these look at the repo, not at a project."""
+        extra = profile.extra_checks(repo) if repo is not None else []
         for command in extra:
             result = ran(command, cwd, profile)
             if not profile.tolerates_exit(command, result.returncode):
                 return False, _failure(command, result)
-        if whole_repo:
-            return True, ""
-        return repeat(cwd, base, ran_tests)
+        return True, ""
 
     def repeat(
         cwd: Path, base: str, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]]
@@ -1235,10 +1253,16 @@ def _work(
     One entry per project the unit touched, its files relative to that project
     - a profile's test commands name paths from the directory they run in.
     A repo with no projects declared is one entry at its root, which is what
-    every installation written before projects existed still gets.
+    every installation written before projects existed still gets. A project whose
+    directory is absent from `cwd` is pending and has no entry; where every declared
+    project is pending there is nothing to run.
     """
     if not projects:
         return [(cwd, profile, [] if whole_repo else changed(cwd, base))]
+    absent = {p.path for p in pending_projects(cwd, projects)}
+    projects = [p for p in projects if p.path not in absent]
+    if not projects:
+        return []
     if whole_repo:
         return [(cwd / p.path, profiles.get(p.profile), []) for p in projects]
 
@@ -1947,6 +1971,8 @@ class Tier2Session:
         # The same entries tier 1 resolves, over the whole repo: tier 2 has no
         # changed files to narrow to, and a project's `testpaths` decide what
         # pytest collects only when it runs from that project's directory.
+        for project in pending_projects(cwd, self._projects):
+            self._log(describe(project))
         entries = [
             (where, toolchain, toolchain.tier2_commands(where, marker=self._marker))
             for where, toolchain, _ in _work(

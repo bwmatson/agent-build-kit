@@ -29,7 +29,8 @@ RESUME = ResumeEvent(
 def managed(tmp_path: Path) -> FakeEnvironment:
     """The planning repository the runner is given, with the fake environment active."""
     env = FakeEnvironment(tmp_path / "control")
-    make_installation(tmp_path / "meta", environment=env.config())
+    meta = make_installation(tmp_path / "meta", environment=env.config())
+    (meta.root / "manifest.toml").write_text("name = 1\n")  # an input that exists
     return env
 
 

@@ -64,6 +64,7 @@ from agent_build_kit.notify.windows import (
 )
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.environment import matched_inputs
+from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
@@ -139,6 +140,16 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
         scope = "repo-local" if identity("email", local=True) else "this machine's global"
         checks.append(_ok(f"repo {name}", f"{path}, commits as {email} ({scope})"))
     return checks
+
+
+def _pending_projects(inst: Installation) -> list[Check]:
+    """Projects registered but not built yet: information, never a problem."""
+    return [
+        _info(f"project {name}/{project.path}", describe(project))
+        for name, repo in inst.repos.items()
+        if repo.path.expanduser().is_dir()  # a missing repo is already a failure
+        for project in pending_projects(repo.path.expanduser(), repo.projects)
+    ]
 
 
 def _cassettes(inst: Installation) -> list[Check]:
@@ -1105,6 +1116,7 @@ def run_doctor(
     inst.activate()
 
     checks += _repos(inst, run)
+    checks += _pending_projects(inst)
     checks += _changelogs(inst)
     checks += _cassettes(inst)
     checks += _forge_access(inst, run, transport=transport)

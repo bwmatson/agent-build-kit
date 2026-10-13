@@ -1538,6 +1538,7 @@ def test_a_nested_project_s_checks_run_inside_it(tmp_path: Path) -> None:
     """The failure this fixes: `uv run pre-commit` at the repo root, where the
     repo declares no Python project, cannot find pre-commit at all — so a unit
     dies on tooling rather than on its own work."""
+    (tmp_path / "pipelines" / "poc").mkdir(parents=True)
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1555,6 +1556,7 @@ def test_a_nested_project_s_checks_run_inside_it(tmp_path: Path) -> None:
 def test_each_project_is_checked_where_it_lives(tmp_path: Path) -> None:
     """A service with a second project beneath it: one diff can touch both, and
     each is checked in its own directory."""
+    (tmp_path / "poc" / "tools").mkdir(parents=True)
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1576,6 +1578,7 @@ def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Pat
     """`node-npm` is declared and not implemented. Tier 1 cannot judge such a
     project, so the profile raises and `cli/pipeline.build_unit` turns that into a
     held unit — which is the honest answer, where passing it unchecked is not."""
+    (tmp_path / "web").mkdir()
     run, _ = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1589,6 +1592,7 @@ def test_a_project_whose_toolchain_is_unimplemented_holds_the_unit(tmp_path: Pat
 
 def test_a_file_belongs_to_the_deepest_project_that_holds_it(tmp_path: Path) -> None:
     """`poc/web/src/b.ts` is inside `poc` too; the web app is what owns it."""
+    (tmp_path / "poc" / "web").mkdir(parents=True)
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1623,6 +1627,7 @@ def test_a_file_outside_every_project_never_gets_a_run_at_the_repo_root(tmp_path
     A lint command takes a ref range, not a list of paths, so the project's own
     run already sees every file in the diff, docs included. There is nothing for
     a root run to add."""
+    (tmp_path / "poc").mkdir()
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1642,6 +1647,7 @@ def test_a_diff_of_nothing_but_outside_files_still_runs_the_declared_toolchain(
     """A unit that only touched a README must not pass with nothing having run.
     The declared project's lint runs over the diff, which is where that README's
     hooks (whitespace, line endings, whatever the config says) actually live."""
+    (tmp_path / "poc").mkdir()
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1657,6 +1663,7 @@ def test_a_diff_of_nothing_but_outside_files_still_runs_the_declared_toolchain(
 
 
 def test_an_empty_diff_in_a_repo_with_projects_runs_them_not_the_root(tmp_path: Path) -> None:
+    (tmp_path / "poc").mkdir()
     run, calls = recorder()
     tier1 = build_tier1(
         run=run,
@@ -1670,6 +1677,8 @@ def test_an_empty_diff_in_a_repo_with_projects_runs_them_not_the_root(tmp_path: 
 
 
 def test_a_failing_project_stops_the_unit(tmp_path: Path) -> None:
+    (tmp_path / "poc" / "tools").mkdir(parents=True)
+
     def run(command, cwd, **kwargs):
         code = 1 if "tools" in str(cwd) else 0
         return subprocess.CompletedProcess(command, code, "", "a real failure")
