@@ -308,6 +308,19 @@ class RestackCheck(StrEnum):
     FULL = "full"
 
 
+class Tier2UnitScope(StrEnum):
+    """How much of a repo's tier 2 marker a unit's tier 2 step runs."""
+
+    OWN = "own"
+    FULL = "full"
+
+
+def tier2_unit_scope(repo: RepoConfig, limits: LimitsConfig) -> Tier2UnitScope:
+    """The scope in effect for `repo`: its own `tests.tier2_unit_scope` when set, else the
+    `limits` one."""
+    raise NotImplementedError
+
+
 class PolicyMarker(StrEnum):
     """What the person said about the runtime's policy check (`runtimes.<name>.policy`)."""
 

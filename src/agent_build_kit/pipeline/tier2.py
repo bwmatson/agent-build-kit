@@ -113,6 +113,8 @@ class Tier2Result(Frozen):
     output_file: str = ""
     # Whether redaction failed on the output, so the file holds the notice in its place.
     output_withheld: bool = False
+    # Whether the run ran no test at all because the unit added or changed no tier 2 test.
+    ran_no_tests: bool = False
 
     @property
     def ok(self) -> bool:

@@ -38,6 +38,7 @@ from agent_build_kit.config import (
     TEMPLATE_PLACEHOLDERS,
     ProjectConfig,
     RepoConfig,
+    Tier2UnitScope,
     active,
     active_root,
     models,
@@ -46,6 +47,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
@@ -1888,6 +1890,29 @@ def build_usage_gate(
     return may_start, resume_at
 
 
+class Tier2Scope(Frozen):
+    """What a tier 2 run executes: `own` with the ids of the tests the unit added or changed
+    (relative to the checkout; none means nothing to run and `reason` says so), or `full`
+    with `reason` saying why the whole marker runs."""
+
+    mode: Tier2UnitScope
+    ids: list[str] = []
+    reason: str = ""
+
+
+def tier2_scope(
+    cwd: Path,
+    base: str | None,
+    *,
+    setting: Tier2UnitScope,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig],
+    dev_stack: str | None,
+) -> Tier2Scope:
+    """The one decision of how much of tier 2 a unit runs, taken before the stack lock."""
+    raise NotImplementedError
+
+
 class Tier2Session:
     """One unit's tier 2 run, and the status that follows it.
 
@@ -1910,6 +1935,7 @@ class Tier2Session:
         under: Callable[[], Path] | None = None,
         profile: ToolchainProfile | None = None,
         marker: str = "local_stack",
+        scope: Tier2UnitScope = Tier2UnitScope.OWN,
         dev_stack: str | None = "scripts/dev-stack.sh",
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
@@ -1930,6 +1956,7 @@ class Tier2Session:
         self._under = under
         self._profile = profile or profiles.get("python-uv")
         self._marker = marker
+        self._scope = scope
         # The repo's dev stack script, with `up`, `test` and `down`: tier 2
         # runs the unit's branch on it rather than on the live stack, which
         # runs the default branch. None means the repo has no dev stack.
