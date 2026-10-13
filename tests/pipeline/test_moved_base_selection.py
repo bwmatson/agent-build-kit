@@ -87,6 +87,12 @@ class Selecting(Profile):
         return chosen or self.selected
 
 
+def real_test_commands(
+    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str]
+) -> list[list[str]]:
+    return [[sys.executable, "-c", "pass"]]
+
+
 class WithoutTheHook:
     """A profile that has no `affected_test_commands`, whatever else it does."""
 
@@ -201,10 +207,8 @@ def test_a_semantic_conflict_with_no_textual_overlap_fails_the_selected_run(
         def lint_command(self, base: str) -> list[str]:
             return [sys.executable, "-c", "pass"]
 
-        def test_commands(
-            self, repo: Path, changed: list[str], *, root_extras: list[str]
-        ) -> list[list[str]]:
-            return [[sys.executable, "-c", "pass"]]
+        # Bound by assignment: a function named `test_*` in this file is read as a test.
+        test_commands = real_test_commands
 
         def affected_test_commands(
             self,
