@@ -95,7 +95,10 @@ def repo_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **limits: int) 
     """`spec/feature/3` was cut from `main` before `main` moved: it does not hold its base."""
     inst = make_installation(
         tmp_path,
-        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        planning={
+            "state_dir": ".",
+            "worktree_root": str(tmp_path.with_name(tmp_path.name + "-trees")),
+        },
         limits=limits,
     )
     repo = init_repo(inst.checkouts["app"])

@@ -2125,10 +2125,10 @@ def _schedule(
         # whichever is first, then refreshes and fills free slots. The pass
         # ends once none is in flight.
         # A restack in the lane is waited for as a build is, and ends a pass only when it has.
-        # Whether the lane had work when the round last looked: a restack that ends after the
-        # round left its unit out is followed by one more round, which starts the unit.
+        # Whether the lane had work when the round last looked, and still has: a restack that
+        # ends after a round left its unit out is followed by one more round, which starts it.
         lane_busy = bool(lane.running or lane.waiting)
-        while building or lane_busy:
+        while building or lane_busy or lane.running or lane.waiting:
             # A lane with nothing to do has nothing to wake the pass for.
             lane_ends = lane.finished()
             waited_on: list[Future[Any]] = [*building]
@@ -3052,7 +3052,8 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
             store.set_state(
                 unit.id,
                 RUNNING,
-                note=f"restack onto {new_base} left for its run: its worktree has the branch",
+                note=f"restack onto {new_base} left for its run, not a conflict: "
+                "its worktree has the branch checked out",
                 cause=Cause.RESTACK_CONFLICT,
             )
             return

@@ -54,7 +54,10 @@ class Scene:
         self.monkeypatch = monkeypatch
         self.inst: Installation = make_installation(
             tmp_path,
-            planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+            planning={
+                "state_dir": ".",
+                "worktree_root": str(tmp_path.with_name(tmp_path.name + "-trees")),
+            },
             limits={"max_concurrent_stacks": 2, "max_units_in_progress": 50},
         )
         self.store = UnitStore(tmp_path / "units.json")
