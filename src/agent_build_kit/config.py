@@ -287,6 +287,8 @@ class RuntimeConfig(Frozen):
     # `unchecked`: the person carried on without confirming the agent refuses what abk
     # forbids. Unset for every runtime whose check was run or is yet to be.
     policy: PolicyMarker | None = None
+    # The installation's own command globs, merged after the kit's recommended ones.
+    policy_extra: list[str] | None = None
     models: RuntimeModelsConfig = RuntimeModelsConfig()
     # The context window, in tokens, of each model, for when the agent does not say
     # (read by the Claude Code runtime only).
