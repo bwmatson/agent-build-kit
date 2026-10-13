@@ -191,6 +191,11 @@ class PythonUvProfile:
         )
         return [str(member) for member in members]
 
+    def scaffold_manifest(self, name: str) -> tuple[str, str]:
+        return "pyproject.toml", (
+            f'[project]\nname = "{name}"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n'
+        )
+
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
         """The section for the checkout at `root`, or None without a manifest.
         `framework` says the pipeline itself runs from this environment, so its

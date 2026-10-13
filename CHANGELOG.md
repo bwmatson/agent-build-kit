@@ -13,6 +13,10 @@
   merges, and since when it has conflicted. A conflict still standing after a unit's own
   push is offered to the pipeline on every poll, not only when it begins; nothing acts on
   it yet.
+- `abk project init PATH --profile NAME --repo REPO` registers a project in a repo's
+  `abk.yaml` before it exists, keeping the file's comments and key order, and refuses a
+  duplicate path, an unknown profile or an undeclared repo. `--scaffold` also writes the
+  smallest manifest the profile recognises, and never overwrites one.
 
 - A tier 2 unit now runs only the tier 2 tests its branch added or changed, instead of the
   whole marker, and runs nothing, without taking the stack lock, when it has none; the log

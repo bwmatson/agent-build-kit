@@ -12,6 +12,7 @@ paths, and `throw new Error("not implemented")` as the permitted stub body.
 
 from __future__ import annotations
 
+import json
 import shlex
 from pathlib import Path
 
@@ -53,6 +54,9 @@ class NodeNpmProfile:
 
     def created_files(self, repo: Path) -> list[str]:
         return []
+
+    def scaffold_manifest(self, name: str) -> tuple[str, str]:
+        return "package.json", json.dumps({"name": name, "version": "0.1.0"}, indent=2) + "\n"
 
     def lint_command(self, base: str) -> list[str]:
         """Lint and check the format of the source files that differ from `base`, in the

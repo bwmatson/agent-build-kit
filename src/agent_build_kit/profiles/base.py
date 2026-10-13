@@ -41,6 +41,17 @@ class EnvironmentDrafting(Protocol):
 
 
 @runtime_checkable
+class ProjectScaffold(Protocol):
+    """The optional hook a profile adds to write the smallest manifest its own detection
+    recognises, for `abk project init --scaffold`. A profile without it cannot scaffold."""
+
+    def scaffold_manifest(self, name: str) -> tuple[str, str]:
+        """The manifest's file name (relative to the project directory) and its text, for a
+        project called `name`."""
+        ...
+
+
+@runtime_checkable
 class ProjectChecks(Protocol):
     """The optional hook a profile adds for tier 1 commands about one project, such as a
     type check, which cannot be scoped to files. A profile without it counts as returning
