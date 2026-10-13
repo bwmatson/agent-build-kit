@@ -4,13 +4,14 @@ The stack move is `build_restack`'s, over a fake git, tier 1 and host, so its ou
 merge handler's own.
 """
 
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.pipeline.restack import Moved, RestackConflict
-from agent_build_kit.pipeline.unit_store import Cause, ReworkKind
+from agent_build_kit.pipeline.unit_store import Cause, ReworkKind, StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, local_ref
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from tests.conflict_event_fakes import UNIT, ConflictRig, real_restack
@@ -29,7 +30,8 @@ def test_the_first_attempt_of_a_trunk_based_unit_is_the_stack_move(
     assert call["new_base"] == "main"
     assert call["old_base"] == "fork1", "the fork point, not the trunk's new tip"
     assert call["old_base"] != local_ref("main", repo="app")
-    assert call["parent"] is call["child"]
+    assert call["parent"].id == "main", "the resolver is told it moves onto the trunk"
+    assert call["parent"].id != call["child"].id
     assert rig.stored().state == IN_REVIEW
 
 
@@ -231,3 +233,50 @@ def test_the_move_tells_tier_1_and_the_comment_which_base_it_left(
     assert moved_from == ["fork1"]
     (body,) = comments
     assert "fork1" in body
+
+
+class FakeLane:
+    """A restack lane that only records what it is handed, to run when the test says."""
+
+    def __init__(self) -> None:
+        self.handed: list[tuple[StoredUnit, Callable[[], None]]] = []
+
+    def hand_over(
+        self, unit: StoredUnit, work: Callable[[], None] | None = None, **kwargs: object
+    ) -> None:
+        assert work is not None
+        self.handed.append((unit, work))
+
+
+@pytest.mark.parametrize("conflicts", [False, True])
+def test_with_a_lane_the_conflict_move_is_handed_over_and_ends_as_it_does_inline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicts: bool
+) -> None:
+    def move(*args: object, **kwargs: object) -> Moved:
+        if conflicts:
+            raise RestackConflict("a.py")
+        return Moved(sha="n")
+
+    inline = ConflictRig(tmp_path / "inline", monkeypatch)
+    inline.restack = real_restack(inline, tmp_path / "inline", move=move, pushed=[])
+    inline.conflict()
+
+    lane = FakeLane()
+    rig = ConflictRig(tmp_path / "lane", monkeypatch)
+    rig.lane = lane
+    pushed: list[str] = []
+    rig.restack = real_restack(rig, tmp_path / "lane", move=move, pushed=pushed)
+    rig.conflict()
+
+    assert pushed == [], "nothing moves in the poll"
+    assert rig.stored().conflict_attempts == 0
+    ((unit, work),) = lane.handed
+    assert unit.id == UNIT
+    work()
+    stored, expected = rig.stored(), inline.stored()
+    assert (stored.state, stored.cause, stored.conflict_attempts) == (
+        expected.state,
+        expected.cause,
+        expected.conflict_attempts,
+    )
+    assert stored.conflict_attempts == 1

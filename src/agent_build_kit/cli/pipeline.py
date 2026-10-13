@@ -253,8 +253,8 @@ from agent_build_kit.pipeline.wiring import (
     build_runner,
     build_tier1,
     follow_predecessors,
+    moving_onto,
     own_work_starts_after,
-    predecessor,
 )
 from agent_build_kit.pipeline.work_graph import (
     Need,
@@ -3039,9 +3039,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
             repo, local_ref(new_base, repo=unit.repo), unit, store, head=branch
         )
         # What it moves onto is the unit it is built on, or else the trunk it lands on.
-        parent = predecessor(unit, new_base, store) or unit.model_copy(
-            update={"id": new_base, "title": new_base}
-        )
+        parent = moving_onto(unit, new_base, store)
         if unit.state != RUNNING:
             moves["restack"](
                 branch=branch, old_base=old_base, new_base=new_base, child=unit, parent=parent
@@ -3195,7 +3193,7 @@ def _dispatch(
         store,
         **build_stack_moves(store, inst, lane=lane),
         base_tip=build_base_tip(store, inst.checkouts),
-        fork_point=build_fork_point(inst.checkouts),
+        fork_point=build_fork_point(store, inst.checkouts),
         paused=lambda: pause_in_force(inst.state_dir),
         fetch_review=build_fetch_review(
             extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)

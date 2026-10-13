@@ -2623,6 +2623,12 @@ def predecessor(unit: Unit, base: str, store: UnitStore) -> StoredUnit | None:
     return parents[-1] if parents else None
 
 
+def moving_onto(unit: StoredUnit, base: str, store: UnitStore) -> StoredUnit:
+    """What a unit's move onto `base` is told it moves onto: the unit it is built on, or else
+    a stand-in named for the base, so the resolver never hears of a unit moving onto itself."""
+    return predecessor(unit, base, store) or unit.model_copy(update={"id": base, "title": base})
+
+
 def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]]:
     """Each `test_*` function's own source text, by name, decorators included.
 

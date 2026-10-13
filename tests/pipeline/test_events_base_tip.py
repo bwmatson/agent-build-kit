@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.events import build_base_tip, build_fork_point
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
+from agent_build_kit.pipeline.units import IN_REVIEW, UnitState, branch_name
 from tests.factories import git, init_repo, new_unit
 
 PARENT = new_unit("parent/1", repo="app")
@@ -84,7 +84,30 @@ def test_the_fork_point_is_the_commit_the_branch_sits_on_not_the_trunks_new_tip(
     commit(repo, "trunk-moved.txt")
     git(repo, "push", "-q", "origin", "main")
 
-    fork = build_fork_point({"app": repo})(store.get(TRUNK_BASED.id))
+    fork = build_fork_point(store, {"app": repo})(store.get(TRUNK_BASED.id))
 
     assert fork == forked_from
     assert fork != git(repo, "rev-parse", "origin/main")
+
+
+def test_the_fork_point_of_a_unit_whose_parent_was_squash_merged_is_where_it_left_the_parent(
+    tmp_path: Path,
+) -> None:
+    repo = repository(tmp_path)
+    store = store_of(tmp_path)
+    git(repo, "checkout", "-q", branch_name(PARENT))
+    left = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", branch_name(CHILD))
+    commit(repo, "child.txt")
+    git(repo, "checkout", "-q", branch_name(PARENT))
+    commit(repo, "later.txt")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--squash", branch_name(PARENT))
+    git(repo, "commit", "-q", "-m", "parent (squashed)")
+    git(repo, "push", "-q", "origin", "main")
+    store.set_state(PARENT.id, UnitState.MERGED, branch=branch_name(PARENT))
+
+    fork = build_fork_point(store, {"app": repo})(store.get(CHILD.id))
+
+    assert fork == left
+    assert fork != git(repo, "merge-base", "origin/main", branch_name(CHILD))

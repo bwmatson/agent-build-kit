@@ -51,6 +51,7 @@ class ConflictRig:
         self.restack: events.Restack = self.record_restack
         self.claim: Callable[..., Any] | None = None
         self.resume: Callable[..., bool] | None = None
+        self.lane: Any = None
         self.logged: list[str] = []
         parent = stored_unit(PARENT, change="parent")
         unit = stored_unit(UNIT, depends_on=(PARENT,) if stacked else ())
@@ -96,6 +97,8 @@ class ConflictRig:
             options["claim"] = self.claim
         if self.resume is not None:
             options["resume"] = self.resume
+        if self.lane is not None:
+            options["lane"] = self.lane
         return events.build_dispatch(
             self.store,
             restack=self.restack,

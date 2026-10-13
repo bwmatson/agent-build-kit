@@ -94,7 +94,7 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
-from agent_build_kit.pipeline.wiring import build_tier1
+from agent_build_kit.pipeline.wiring import build_tier1, moving_onto, own_work_starts_after
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock, worktree_path
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
 from agent_build_kit.runtimes.base import (
@@ -1334,6 +1334,7 @@ def on_conflict(
     paused: Callable[[], bool] = lambda: False,
     claim: Claim = _unclaimed,
     resume: Resume = _no_thread,
+    lane: RestackLane | None = None,
     log: Log = print,
 ) -> bool:
     """A conflict that stands after a unit's own push: make the next attempt, if there is one.
@@ -1344,8 +1345,9 @@ def on_conflict(
     first attempt of a unit built on the trunk is the stack move; any other, and any the stack
     move cannot settle, is the conflict rework. Under a usage pause (`paused()`) the move is
     made with a resolver that refuses before any agent run, so a clean move still goes through
-    and one that needs the resolver waits, in review, uncounted. False when the unit's branch is
-    busy, so the poller offers the event again.
+    and one that needs the resolver waits, in review, uncounted. With a `lane` the move is handed
+    to it and runs there, under the lane's claim of the branch, not in the poll. False when the
+    unit's branch is busy, so the poller offers the event again.
     """
     from agent_build_kit.config import active
 
@@ -1388,6 +1390,41 @@ def on_conflict(
         )
         counted()
 
+    trunk = trunk_of(unit.repo)
+
+    def move(current: StoredUnit) -> None:
+        """The stack move and what it came to, under the unit's branch claim."""
+        try:
+            # The commit the branch sits on, so the move replays what is the unit's and
+            # tier 1 and the comment can say what the move brought in.
+            outcome = restack(
+                branch=branch_name(current),
+                old_base=fork_point(current),
+                new_base=trunk,
+                child=current,
+                # Onto the trunk it lands on, not onto itself: the resolver is told both sides.
+                parent=moving_onto(current, trunk, store),
+                reason=CONFLICT_MOVE_REASON,
+                **({"resolve": _paused_resolver} if paused() else {}),
+            )
+        except BranchBusy:
+            raise
+        except Exception as error:  # noqa: BLE001
+            # The move failed (its checks, a flake, git): that is the attempt, so the same
+            # head at the same tip is not moved again every poll.
+            log(f"conflict #{pr}: {unit.id} move failed — {type(error).__name__}: {error}")
+            counted()
+            return
+        if outcome == RestackOutcome.CONFLICT:
+            reworked(store.get(unit.id))
+        elif outcome == RestackOutcome.DEFERRED:
+            # The move could not run now (a usage pause, a busy checkout): not an attempt,
+            # and still in review for the next poll to offer it again.
+            store.set_state(unit.id, IN_REVIEW, note="conflict move deferred: could not run now")
+            log(f"conflict #{pr}: {unit.id} left for a later poll — the move could not run now")
+        else:
+            counted()
+
     try:
         if resume(unit, "rework", CONFLICT_REASON, feedback, rework=ReworkKind.CONFLICT):
             log(f"conflict #{pr}: {unit.id} resumed — {CONFLICT_REASON}")
@@ -1397,43 +1434,28 @@ def on_conflict(
             current = store.get(unit.id)
             if current.state != IN_REVIEW or current.pushed != unit.pushed:
                 return True
-            trunk = trunk_of(unit.repo)
             if done > 0 or base_of(current, store.all()) != trunk:
                 reworked(current)
                 return True
-            try:
-                # The commit the branch sits on, so the move replays what is the unit's and
-                # tier 1 and the comment can say what the move brought in.
-                outcome = restack(
-                    branch=branch_name(current),
-                    old_base=fork_point(current),
-                    new_base=trunk,
-                    child=current,
-                    parent=current,
-                    reason=CONFLICT_MOVE_REASON,
-                    **({"resolve": _paused_resolver} if paused() else {}),
-                )
-            except BranchBusy:
-                raise
-            except Exception as error:  # noqa: BLE001
-                # The move failed (its checks, a flake, git): that is the attempt, so the same
-                # head at the same tip is not moved again every poll.
-                log(f"conflict #{pr}: {unit.id} move failed — {type(error).__name__}: {error}")
-                counted()
+            if lane is None:
+                move(current)
                 return True
-            if outcome == RestackOutcome.CONFLICT:
-                reworked(store.get(unit.id))
-            elif outcome == RestackOutcome.DEFERRED:
-                # The move could not run now (a usage pause, a busy checkout): not an attempt,
-                # and still in review for the next poll to offer it again.
-                store.set_state(
-                    unit.id, IN_REVIEW, note="conflict move deferred: could not run now"
-                )
-                log(f"conflict #{pr}: {unit.id} left for a later poll — the move could not run now")
-            else:
-                counted()
     except BranchBusy as error:
         return _deferred(f"conflict #{pr}", unit, error, log)
+    # Outside the unit's claim: the lane takes the branch claim itself, and the move, which may
+    # run the resolver, runs there and not in the poll.
+
+    def work() -> None:
+        current = store.get(unit.id)
+        if current.state != IN_REVIEW or current.pushed != unit.pushed:
+            return
+        try:
+            move(current)
+        except BranchBusy as error:
+            _deferred(f"conflict #{pr}", unit, error, log)
+
+    lane.hand_over(unit, work)
+    log(f"conflict #{pr}: {unit.id} handed to the restack lane")
     return True
 
 
@@ -1464,13 +1486,15 @@ def build_base_tip(store: UnitStore, checkouts: dict[str, Path]) -> Callable[[St
     return base_tip
 
 
-def build_fork_point(checkouts: dict[str, Path]) -> Callable[[StoredUnit], str]:
-    """The commit a unit's branch sits on within its trunk: where it forked from the trunk's
-    remote ref, the base a stack move replays from."""
+def build_fork_point(store: UnitStore, checkouts: dict[str, Path]) -> Callable[[StoredUnit], str]:
+    """The commit a unit's own work begins after, which a stack move replays from: where its
+    branch forked from the trunk's remote ref, or later for a parent that was squash-merged."""
 
     def fork_point(unit: StoredUnit) -> str:
         trunk = local_ref(trunk_of(unit.repo), repo=unit.repo)
-        return git(checkouts[unit.repo], "merge-base", trunk, branch_name(unit)).stdout.strip()
+        return own_work_starts_after(
+            checkouts[unit.repo], trunk, unit, store, head=branch_name(unit)
+        )
 
     return fork_point
 
@@ -1898,15 +1922,14 @@ def build_restack(
             if moved.resolved:
                 files = ", ".join(moved.resolved)
                 why = f"resolving {files} changed its diff"
-                if parent.id != child.id:
-                    store.set_predecessor_note(
-                        child.id,
-                        PREDECESSOR_NOTE.format(
-                            onto_unit=parent.id,
-                            how=f"moving onto it needed conflict resolution in {files}",
-                            decisions="",
-                        ),
-                    )
+                store.set_predecessor_note(
+                    child.id,
+                    PREDECESSOR_NOTE.format(
+                        onto_unit=parent.id,
+                        how=f"moving onto it needed conflict resolution in {files}",
+                        decisions="",
+                    ),
+                )
             elif was_approved:
                 why = "the restack changed its diff"
             else:
@@ -2204,6 +2227,7 @@ def build_dispatch(
                 paused=paused,
                 claim=claim,
                 resume=resume,
+                lane=lane,
                 log=log,
             )
         log(f"unhandled poller event {event!r} for #{number} in {repo}")
