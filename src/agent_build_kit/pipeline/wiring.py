@@ -862,12 +862,12 @@ def build_tier1(
             moved_from=moved_from,
             setting=active().limits.restack_check,
         )
-        if log is not None:
-            log(
-                "moved base: no file the unit changes was brought in (the full suite still runs)"
-                if scope.scoped
-                else f"moved base: ran the full suite ({scope.reason})"
-            )
+        _say(
+            log,
+            "moved base: no file the unit changes was brought in (the full suite still runs)"
+            if scope.scoped
+            else f"moved base: ran the full suite ({scope.reason})",
+        )
 
     def record_selected(
         figures: list[tuple[float, int]], outcome: str, earlier: tuple[float, int] | None

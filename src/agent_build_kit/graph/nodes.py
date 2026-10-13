@@ -132,6 +132,7 @@ Update = dict[str, Any]
 FRESH: Update = {
     "restack": False,
     "moved": False,
+    "moved_from": "",
     "conflict": None,
     "verdict": None,
     "fix_rounds": 0,
@@ -2147,6 +2148,7 @@ class BuildPath:
             "checks_ok": False,
             "produced_nothing": False,
             "moved": False,
+            "moved_from": "",
             "head_approved": False,
             "pushed_head": False,
             "opened": False,
