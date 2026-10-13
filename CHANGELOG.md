@@ -39,6 +39,7 @@
   nothing, or there is no old base) and logs a `moved base:` line saying which and why. The
   new `limits.restack_check` (`affected`, the default, or `full`) selects between them; the
   run itself is still the whole suite for now.
+
 - A metric that is also kept as a local record is now sent and recorded by one function, so the
   two can no longer drift apart, and a tier 1 failure is classified once, so the exported check
   and the recorded one always agree (a failed classification reads "unknown" in both). The
