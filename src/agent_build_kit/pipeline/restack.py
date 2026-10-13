@@ -59,9 +59,9 @@ Runner = Callable[[list[str]], str]
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., None]
 
-# The unit being moved while its conflict is resolved, which a resolver records its call under
-# without every resolver taking it as an argument.
-MOVING_UNIT: ContextVar[str] = ContextVar("moving_unit", default="")
+# The conflict being resolved, which a resolver records its call under (the unit being moved,
+# its change and repo) without every resolver taking it as an argument.
+CONFLICT: ContextVar[ConflictContext | None] = ContextVar("conflict", default=None)
 
 # Makes the repository's turn: a context manager held around the git commands that
 # write state its worktrees share. The default holds nothing.
@@ -118,6 +118,9 @@ class ConflictContext(Frozen):
     moving_intent: str
     onto_unit: str
     onto_intent: str
+    # What the moving unit's resolver call is recorded under; blank when the caller has none.
+    moving_change: str = ""
+    moving_repo: str = ""
     # The repo being moved, for its changelog setting; None reads as the defaults.
     repo: RepoConfig | None = None
 
@@ -411,11 +414,11 @@ def move_branch_onto(
     try:
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
-        token = MOVING_UNIT.set(context.moving_unit)
+        token = CONFLICT.set(context)
         try:
             resolve(prompt, cwd=repo)
         finally:
-            MOVING_UNIT.reset(token)
+            CONFLICT.reset(token)
     except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
         # Not a conflict nobody could resolve: the account is out of room, the
         # network is down, or the run was killed. The branch goes back where it was, to be moved
@@ -694,6 +697,8 @@ def resolved_move(
     moving_intent: str,
     onto_unit: str,
     onto_intent: str,
+    moving_change: str = "",
+    moving_repo: str = "",
     move: Callable[..., Moved] | None = None,
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
@@ -724,6 +729,8 @@ def resolved_move(
             moving_intent=moving_intent,
             onto_unit=onto_unit,
             onto_intent=onto_intent,
+            moving_change=moving_change,
+            moving_repo=moving_repo,
             repo=repo_config,
         ),
     )
@@ -809,7 +816,13 @@ def blast_radius_note(*, branch: str, old_base: str, new_base: str, reason: str)
 RESOLVER_TOOLS = "Read Edit Write Grep Glob"
 
 
-def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = None) -> None:
+def claude_resolver(
+    prompt: str,
+    *,
+    cwd: Path,
+    runtime: AgentRuntime | None = None,
+    say: Callable[[str], None] = print,
+) -> None:
     """Resolve the conflicted files in `cwd` with a scoped Claude run.
 
     Deliberately narrow: no commit, no push, no test run. It edits the
@@ -826,7 +839,16 @@ def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = No
     )
     # Its own folder for long command output, gone when the run ends.
     agent = runtime or runtimes.active()
-    request = recorded(request, agent, node=OverheadNode.RESTACK, unit=MOVING_UNIT.get(), say=print)
+    moving = CONFLICT.get()
+    request = recorded(
+        request,
+        agent,
+        node=OverheadNode.RESTACK,
+        unit=moving.moving_unit if moving else "",
+        change=moving.moving_change if moving else "",
+        repo=moving.moving_repo if moving else "",
+        say=say,
+    )
     with run_folder(cwd) as out:
         if out is not None:
             request = request.model_copy(update={"env": {**request.env, "ABK_OUT": str(out)}})

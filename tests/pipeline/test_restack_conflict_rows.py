@@ -81,6 +81,8 @@ def move(repo: Path, runtime) -> restack.Moved:
         new_base="main",
         old_base="spec/c/1",
         moving_unit=UNIT,
+        moving_change="add-marker",
+        moving_repo="app",
         moving_intent="Register the local_stack marker in app",
         onto_unit="add-integration/1",
         onto_intent="Register the integration marker in app",
@@ -101,6 +103,7 @@ def test_a_conflicting_restack_writes_one_restack_row_naming_the_unit_being_move
 
     (row,) = rows(workspace)
     assert (row["node"], row["unit"], row["role"]) == ("restack", UNIT, "generic")
+    assert (row["change"], row["repo"]) == ("add-marker", "app")
     assert row["runtime"] == "spending"
     assert row["input_tokens"] == 1200
     assert row["output_tokens"] == 300

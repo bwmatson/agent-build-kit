@@ -17,7 +17,6 @@ from agent_build_kit.pipeline.gateway_usage import Spend
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, forget_told
 from agent_build_kit.runtimes import AgentRequest, AgentResult
 from agent_build_kit.usage import Usage
-from tests.redaction_fakes import SECRET, known
 from tests.runtimes.stand_in import StandInRuntime
 
 UNIT = "add-marker/1"
@@ -214,21 +213,20 @@ def test_a_session_cost_that_fell_starts_a_new_baseline_and_says_so(
 # --- the row goes through the ledger's writer ----------------------------------------------
 
 
-def test_the_row_keeps_its_unit_and_node_as_written_and_withholds_a_secret(
+def test_the_row_keeps_its_unit_and_node_as_written_through_the_ledgers_writer(
     workspace: Installation,
 ) -> None:
+    """The helper puts no free text on a row (`outcome` is `ok` or `failed`, every other text
+    field identifies), so there is nothing for the writer to withhold."""
     record = call_recorder("restack", unit=UNIT, change="add-marker", say=print)
 
-    with known():
-        record(
-            AgentResult(ok=False, text="", error=f"died holding {SECRET}"),
-            role="generic",
-            model=None,
-            runtime="claude_code",
-        )
+    record(
+        AgentResult(ok=False, text="", error="died"),
+        role="generic",
+        model=None,
+        runtime="claude_code",
+    )
 
-    written = (workspace.state_dir / LEDGER_NAME).read_text()
-    assert SECRET not in written
     (row,) = rows(workspace)
     assert (row["unit"], row["node"]) == (UNIT, "restack")
     assert row["outcome"] == "failed"

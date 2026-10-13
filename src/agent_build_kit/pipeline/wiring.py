@@ -2404,6 +2404,8 @@ def build_restack_onto(
                     new_base=base,
                     old_base=old_base,
                     moving_unit=unit.id,
+                    moving_change=unit.change,
+                    moving_repo=unit.repo,
                     moving_intent=unit.title,
                     onto_unit=onto_unit,
                     onto_intent=onto_intent,
