@@ -290,7 +290,13 @@ class Poller(BaseModel):
             elif fresh and before.get("mergeable") is False:
                 # A conflict that stands is a state: the transition was reported
                 # when it began, and the handler decides whether it is news.
-                self.dispatch("conflict", int(number), pull=pull)
+                self.dispatch(
+                    "conflict",
+                    int(number),
+                    pull=pull,
+                    since=datetime.fromisoformat(current["conflict_since"]),
+                    read_at=datetime.fromisoformat(current["mergeable_at"]),
+                )
 
         PrState.save(self.state_path, updated)
 

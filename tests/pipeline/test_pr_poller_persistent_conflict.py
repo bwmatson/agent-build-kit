@@ -107,3 +107,34 @@ def test_an_event_that_is_not_taken_is_offered_again_next_poll(rig: PollerRig) -
     rig.poll(False)
 
     assert rig.names() == ["conflict", "conflict"]
+
+
+def test_the_conflict_event_carries_when_the_run_began_and_when_it_was_read(
+    rig: PollerRig,
+) -> None:
+    rig.poll(False)
+    began = rig.clock.now()
+    rig.push()
+
+    rig.poll(False)
+
+    ((name, kwargs),) = rig.events
+    assert name == "conflict"
+    assert kwargs["since"] == began
+    assert kwargs["read_at"] == rig.clock.now()
+    assert kwargs["since"].tzinfo is not None
+    assert kwargs["read_at"].tzinfo is not None
+
+
+def test_an_event_offered_again_after_an_undetermined_poll_keeps_the_last_definite_read_time(
+    rig: PollerRig,
+) -> None:
+    rig.poll(False)
+    rig.push()
+    rig.poll(False)
+    read = rig.clock.now()
+
+    rig.poll(None)
+
+    assert [event for event, _ in rig.events] == ["conflict", "conflict"]
+    assert rig.events[1][1]["read_at"] == read

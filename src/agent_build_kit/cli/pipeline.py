@@ -60,11 +60,14 @@ from agent_build_kit.pipeline.cycles import (
 )
 from agent_build_kit.pipeline.drafts import StateDrafts
 from agent_build_kit.pipeline.events import (
+    Restack,
+    build_base_tip,
     build_claim,
     build_delete_branch,
     build_dispatch,
     build_fetch_check_logs,
     build_fetch_review,
+    build_fork_point,
     build_remove_worktree,
     build_rerun_checks,
     build_restack,
@@ -250,8 +253,8 @@ from agent_build_kit.pipeline.wiring import (
     build_runner,
     build_tier1,
     follow_predecessors,
+    moving_onto,
     own_work_starts_after,
-    predecessor,
 )
 from agent_build_kit.pipeline.work_graph import (
     Need,
@@ -2990,7 +2993,7 @@ class StackMoves(TypedDict):
     satisfied, by the names `build_dispatch` and `release_children`
     both take."""
 
-    restack: Callable[..., None]
+    restack: Restack
     remove_worktree: Callable[..., None]
     delete_branch: Callable[..., None]
     claim: Callable[[StoredUnit], AbstractContextManager[object]]
@@ -3034,9 +3037,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLane:
             repo, local_ref(new_base, repo=unit.repo), unit, store, head=branch
         )
         # What it moves onto is the unit it is built on, or else the trunk it lands on.
-        parent = predecessor(unit, new_base, store) or unit.model_copy(
-            update={"id": new_base, "title": new_base}
-        )
+        parent = moving_onto(unit, new_base, store)
         if unit.state != RUNNING:
             moves["restack"](
                 branch=branch, old_base=old_base, new_base=new_base, child=unit, parent=parent
@@ -3189,6 +3190,9 @@ def _dispatch(
     return build_dispatch(
         store,
         **build_stack_moves(store, inst, lane=lane),
+        base_tip=build_base_tip(store, inst.checkouts),
+        fork_point=build_fork_point(store, inst.checkouts),
+        paused=lambda: pause_in_force(inst.state_dir),
         fetch_review=build_fetch_review(
             extra_notes=ui_notes_of(inst, store), patch_of=unit_patch_of(inst, store)
         ),

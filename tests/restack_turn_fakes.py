@@ -219,7 +219,7 @@ class Rig:
         runtime = self.runtime(act=act)
         self.monkeypatch.setattr(runtimes, "active", lambda: runtime)
         self.moves = cli.build_stack_moves(self.store, self.installation)
-        return partial(
+        move = partial(
             self.moves["restack"],
             branch=self.branch,
             old_base=OLD_BASE,
@@ -227,6 +227,11 @@ class Rig:
             child=self.child,
             parent=self.parent,
         )
+
+        def work() -> None:
+            move()
+
+        return work
 
     def use_clean_approved_branch(self) -> str:
         """Moves `spec/c/3` instead: it applies cleanly onto `main`, and its head is approved."""

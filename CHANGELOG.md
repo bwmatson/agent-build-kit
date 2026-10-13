@@ -9,11 +9,6 @@
   on one unit); at five or fewer the handling is unchanged. The limit is `MAX_FLAKES_PER_RUN` in
   `pipeline/wiring.py` for now.
 
-- The poll now records when it last read a definite answer on whether a pull request
-  merges, and since when it has conflicted. A conflict still standing after a unit's own
-  push is offered to the pipeline on every poll, not only when it begins; nothing acts on
-  it yet.
-
 - `abk project init PATH --profile NAME --repo REPO` registers a project in a repo's
   `abk.yaml` before it exists, keeping the file's comments and key order, and refuses a
   duplicate path, an unknown profile or an undeclared repo. `--scaffold` also writes the
@@ -32,6 +27,15 @@
   order they were seen, at most `limits.max_concurrent_restacks` at a time (default 2), and
   take no build slot and no place under the limit on units in progress. A tick waits for
   the lane as it waits for builds, and a unit owed a restack is not started in a worker for it.
+
+- The poll now records when it last read a definite answer on whether a pull request
+  merges, and since when it has conflicted. A pull request that stays conflicting after a
+  unit's own push is offered to the pipeline on every poll, not only when it begins, and is
+  moved again: the first attempt of a unit built on the trunk replays its branch from the
+  commit it sits on onto the trunk's tip, any other attempt (or one the replay cannot settle)
+  is the conflict rework, and no pushed head at one base tip is attempted twice. The move runs
+  in the restack lane, not in the poll. A new tip of
+  the unit's own base, the trunk or its parent's branch, starts the count again.
 
 - A clean move of a unit's branch onto a moved base, before a push or when a merge releases
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
