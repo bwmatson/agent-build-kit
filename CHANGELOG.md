@@ -43,6 +43,12 @@
   An `environment` whose inputs are all missing is likewise pending, running no `sync` or
   `check` until an input appears.
 
+- Tier 1 now judges each project by its own toolchain: a project's own checks, such as the
+  type check, run in its directory, a failure is classified by that project's profile, and a
+  build run may use the tools of every project's profile. Checks about the whole checkout,
+  such as the changelog, still run once at its root. The node-npm profile lints and checks the
+  format of the changed files and type-checks the project as its own check.
+
 - The kit now carries a recommended command policy for build agents: deny globs for each
   forbidden class (merging a pull request by the CLI, the raw API or GraphQL, amending a
   commit, pushing or force pushing to the default branch), checked against the spellings the

@@ -41,6 +41,18 @@ class EnvironmentDrafting(Protocol):
 
 
 @runtime_checkable
+class ProjectChecks(Protocol):
+    """The optional hook a profile adds for tier 1 commands about one project, such as a
+    type check, which cannot be scoped to files. A profile without it counts as returning
+    an empty list."""
+
+    def project_checks(self, repo: RepoConfig) -> list[list[str]]:
+        """Run in the directory of each project the unit touched that uses this profile,
+        whatever the repo's own profile; in the checkout root for a repo with no projects."""
+        ...
+
+
+@runtime_checkable
 class CreatedFiles(Protocol):
     """The optional hook a profile adds to name the files its own commands create or
     rewrite in a worktree, such as a lock file the repository does not commit. A profile
@@ -83,7 +95,9 @@ class ToolchainProfile(Protocol):
         ...
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
-        """Further tier 1 commands for this repo beyond lint and tests."""
+        """Further tier 1 commands about the checkout as a whole (a changelog), beyond lint
+        and tests. Tier 1 runs the repo profile's once, in the checkout root. What is about
+        one project is `ProjectChecks`."""
         ...
 
     def tier2_commands(self, repo: Path, *, marker: str) -> list[list[str]]: ...

@@ -619,6 +619,19 @@ class ProjectConfig(Frozen):
     languages: list[str] = []
     profile: str = "python-uv"
 
+    @property
+    def prefix(self) -> str:
+        """What a path under this project starts with; empty for the root project."""
+        return "" if self.path in (".", "") else f"{self.path}/"
+
+
+def owning_project(projects: list[ProjectConfig], path: str) -> ProjectConfig | None:
+    """The project a path relative to the checkout belongs to: the deepest one that holds
+    it, so the web app claims its own files rather than the service it sits inside. A
+    root project holds everything."""
+    ordered = sorted(projects, key=lambda p: len(Path(p.path).parts), reverse=True)
+    return next((p for p in ordered if path.startswith(p.prefix)), None)
+
 
 class AzureDevOpsConfig(Frozen):
     """Where a repo lives on Azure DevOps, decoded.

@@ -28,6 +28,9 @@ implemented.
 | `no_tests_collected_exit` | tier 2, verify | the runner's exit status when nothing was selected — a pass, not a failure |
 | `lint_command(base)` | tier 1 | lint scoped to the diff since `base` |
 | `lint_command_all_files()` | tier 1 | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |
+| `extra_checks(repo)` | tier 1 | commands about the checkout as a whole (the python profile's changelog check). Tier 1 runs the repo profile's once, in the checkout root, whatever the unit touched |
+| `project_checks(repo)` | tier 1 | optional: commands about one project (the node profile's type check, which cannot be scoped to files). Tier 1 runs them in the directory of each project the unit touched, under that project's own profile, and in the checkout root for a repo with no projects; a profile without the method counts as returning `[]`. Declared as `profiles.base.ProjectChecks` |
+| `failure_kind(output)` | tier 1 failures, telemetry | `lint`, `types` or `test`, read from the failed command's `$` header. The profile of the project the failed command ran in reads it (tier 1 writes the directory under the header, `check_failures.failed_in`); the repo's profile reads a failure that names no project directory |
 | `test_commands(repo, changed, root_extras)` | tier 1 | the test runs a set of changed paths calls for |
 | `test_commands_all(repo, root_extras)` | tier 1 | every test run the repo has, regardless of a diff — used only for a unit with no commits of its own |
 | `affected_test_commands(repo, changed_files, failed_ids, *, seed, root_extras)` | tier 1, fix rounds | optional: the commands that run the tests the change affects, `[]` for none, or `None` when the profile cannot say — which a profile without the method does too. `failed_ids` come from the profile's `failed_tests`; `seed` is a path it may keep selection data in (a file under the project's git-excluded `.abk/` folder); `root_extras` are the repo's `tests.root_extras`, as for `test_commands`. Only a fix round's check uses it, and the full suite always confirms (see `checks.affected` in `configuration.md`) |
@@ -109,10 +112,18 @@ And what it knows:
 
 Declared so that `abk init` detects JavaScript/TypeScript repos and writes
 their specs — research and proposal are language-agnostic — and so the
-planner can place units in them. It is **not implemented**: every command
-method raises `NotImplementedError`, and `abk tick` catches that when it
+planner can place units in them. Lint and the type check are implemented; the
+test commands are not yet: they raise, and `abk tick` catches that when it
 tries to build a unit in such a repo, logs it, and puts the unit in `held`
 (nothing a retry changes; a person builds it by hand or changes the plan).
+
+Implemented: `lint_command(base)` lints (`npx oxlint`) and format-checks
+(`npx oxfmt --check`) the `ts`, `tsx`, `js`, `jsx` and `mts` files that differ from
+`base`, relative to the project, and fails when `base` does not resolve;
+`lint_command_all_files()` does both over the whole project. `project_checks` is
+`npx tsc --noEmit`, the type check as its own check, run over the whole project in
+its directory. `failure_kind` reads the failed command in the `$` header: the type
+checker is `types`, the linter and format check are `lint`.
 
 What exists: `detect_markers` (`package-lock.json`, `package.json`),
 `allowed_tools` (`Bash(npm *) Bash(npx *)`), the prompt words ("linting and
@@ -127,9 +138,8 @@ npm, `pnpm-lock.yaml` pnpm, `yarn.lock` yarn), else npm. `sync` is the plain ins
 depth-0 listing, the manifest and lock files are inputs, a `workspaces` field adds
 `<workspace>/package.json` patterns, and `node_modules` is an artifact.
 
-What it would need, method by method: `npm test --workspace <member>` with a
-summary parser for the chosen runner; `npx oxlint` and `npx tsc --noEmit` as
-the lint and clean commands; `members`/`member_of`/`dependents` from
+What it would still need, method by method: the test commands with a summary
+parser for the chosen runner; `clean_command`; `members`/`member_of`/`dependents` from
 `package.json` workspaces; a red-output interpreter for the runner; and a
 stub checker for the `throw` body.
 

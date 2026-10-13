@@ -99,4 +99,4 @@ def test_every_node_span_records_an_outcome_from_the_enum(
 
 def test_a_profile_the_framework_does_not_implement_raises_it() -> None:
     with pytest.raises(base.ProfileUnsupported):
-        node_npm.NodeNpmProfile().lint_command("main")
+        node_npm.NodeNpmProfile().clean_command()
