@@ -8,9 +8,10 @@
   nothing, or there is no old base) and logs a `moved base:` line saying which and why. The
   new `limits.restack_check` (`affected`, the default, or `full`) selects between them; the
   run itself is still the whole suite for now.
+
 - The conflict resolver's cost is now in the usage ledger under the node `restack`, one row
-  per resolver call with the unit being moved and its change and repository, so what a conflict costs shows in the report.
-  The ledger's reader keeps each such row as its own call, and a row with no unit never counts
+  per resolver call with the unit being moved and its change and repository, so what a
+  conflict costs shows in the report. The ledger's reader keeps each such row as its own call, and a row with no unit never counts
   as a unit in the usage estimate or its calibration. A guard test now fails on any agent call
   that records nothing.
 
