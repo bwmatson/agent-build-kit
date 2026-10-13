@@ -50,6 +50,10 @@ IDENTIFYING_FIELDS = frozenset(
     }
 )
 
+# The unit graph's nodes that make agent calls. A row of any other node is a call of its own:
+# no kill re-runs it, so the reader never replaces or merges it with another.
+UNIT_CALL_NODES = frozenset(["tests", "implement", "review", "rework", "fix_checks", "adapt"])
+
 # What has been reported this process, so that many units failing the same way
 # say it once; guarded because units run on threads.
 _told: set[str] = set()
@@ -338,9 +342,12 @@ def read_ledger(path: Path) -> list[UsageRecord]:
 
 
 def spend_times(records: list[UsageRecord]) -> list[tuple[datetime, str]]:
-    """When each record was made and for which unit, skipping one whose time does not parse."""
+    """When each record was made and for which unit, skipping one whose time does not parse
+    and one with no unit, which is spend and not a unit."""
     spent = []
     for record in records:
+        if not record.unit:
+            continue
         try:
             spent.append((datetime.fromisoformat(record.at), record.unit))
         except ValueError:
@@ -365,7 +372,8 @@ def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
     usage limit and resumed reports both). A record that is not resumed is a
     re-run of the same call and replaces what came before it. Calls with no
     session id cannot be told apart from a re-run, so each stays a record of
-    its own. A line that is not
+    its own, and so does every call of a node outside the unit graph's (a restack, a plan, a
+    chat turn), whatever its session. A line that is not
     a record (half written) is skipped."""
     calls: dict[tuple[str, str, int, str], list[UsageRecord]] = {}
     for line in lines:
@@ -376,7 +384,7 @@ def grouped_records(lines: list[str]) -> list[list[UsageRecord]]:
             record = UsageRecord.model_validate(raw)
         except (ValueError, AttributeError, ValidationError):
             continue
-        unnamed = "" if record.session_id else record.at
+        unnamed = "" if record.session_id and record.node in UNIT_CALL_NODES else record.at
         key = (record.unit, record.node, record.round, unnamed)
         if record.resumed and key in calls:
             calls[key].append(record)

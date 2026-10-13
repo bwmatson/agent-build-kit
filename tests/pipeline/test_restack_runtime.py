@@ -90,7 +90,9 @@ def test_under_claude_code_the_resolver_sends_the_command_it_sent_before(tmp_pat
     assert flags(fake.argv, "Resolve the conflicts.") == {
         "-p": None,
         "--allowedTools": RESOLVER_TOOLS,
-        "--output-format": "text",
+        # Streamed, as every recorded call is: the cost it reports is in the stream.
+        "--output-format": "stream-json",
+        "--verbose": None,
         "--settings": json.dumps(
             {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
         ),

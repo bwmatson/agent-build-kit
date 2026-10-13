@@ -28,12 +28,14 @@ import re
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextvars import ContextVar
 from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.changelog_convention import changelog_note, resolver_changelog_rule
 from agent_build_kit.pipeline.git_output import (
     git_push_outcome,
@@ -41,6 +43,7 @@ from agent_build_kit.pipeline.git_output import (
     untranslated_env,
 )
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import prepare_detached, worktree_path
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import (
@@ -55,6 +58,12 @@ Runner = Callable[[list[str]], str]
 
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., None]
+
+# Private: the conflict being resolved, which `claude_resolver` records its call under (the unit
+# being moved, its change and repo) without every resolver taking it as an argument. Set by
+# `move_branch_onto` around `resolve(...)` on its own thread, so a resolver called anywhere else
+# records a blank unit.
+_CONFLICT: ContextVar[ConflictContext | None] = ContextVar("conflict", default=None)
 
 # Makes the repository's turn: a context manager held around the git commands that
 # write state its worktrees share. The default holds nothing.
@@ -111,6 +120,9 @@ class ConflictContext(Frozen):
     moving_intent: str
     onto_unit: str
     onto_intent: str
+    # What the moving unit's resolver call is recorded under; blank when the caller has none.
+    moving_change: str = ""
+    moving_repo: str = ""
     # The repo being moved, for its changelog setting; None reads as the defaults.
     repo: RepoConfig | None = None
 
@@ -404,7 +416,11 @@ def move_branch_onto(
     try:
         # One attempt only. An unattended run that loops on a failing resolver
         # burns the usage window with nothing to show for it.
-        resolve(prompt, cwd=repo)
+        token = _CONFLICT.set(context)
+        try:
+            resolve(prompt, cwd=repo)
+        finally:
+            _CONFLICT.reset(token)
     except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
         # Not a conflict nobody could resolve: the account is out of room, the
         # network is down, or the run was killed. The branch goes back where it was, to be moved
@@ -683,6 +699,8 @@ def resolved_move(
     moving_intent: str,
     onto_unit: str,
     onto_intent: str,
+    moving_change: str = "",
+    moving_repo: str = "",
     move: Callable[..., Moved] | None = None,
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
@@ -713,6 +731,8 @@ def resolved_move(
             moving_intent=moving_intent,
             onto_unit=onto_unit,
             onto_intent=onto_intent,
+            moving_change=moving_change,
+            moving_repo=moving_repo,
             repo=repo_config,
         ),
     )
@@ -798,7 +818,13 @@ def blast_radius_note(*, branch: str, old_base: str, new_base: str, reason: str)
 RESOLVER_TOOLS = "Read Edit Write Grep Glob"
 
 
-def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = None) -> None:
+def claude_resolver(
+    prompt: str,
+    *,
+    cwd: Path,
+    runtime: AgentRuntime | None = None,
+    say: Callable[[str], None] = print,
+) -> None:
     """Resolve the conflicted files in `cwd` with a scoped Claude run.
 
     Deliberately narrow: no commit, no push, no test run. It edits the
@@ -814,9 +840,20 @@ def claude_resolver(prompt: str, *, cwd: Path, runtime: AgentRuntime | None = No
         permission_mode="allowed_tools_only",
     )
     # Its own folder for long command output, gone when the run ends.
+    agent = runtime or runtimes.active()
+    moving = _CONFLICT.get()
+    request = recorded(
+        request,
+        agent,
+        node=OverheadNode.RESTACK,
+        unit=moving.moving_unit if moving else "",
+        change=moving.moving_change if moving else "",
+        repo=moving.moving_repo if moving else "",
+        say=say,
+    )
     with run_folder(cwd) as out:
         if out is not None:
             request = request.model_copy(update={"env": {**request.env, "ABK_OUT": str(out)}})
-        result = (runtime or runtimes.active()).run(request)
+        result = agent.run(request)
     if not result.ok:
         raise RuntimeError(result.error)

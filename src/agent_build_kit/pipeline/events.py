@@ -1502,6 +1502,8 @@ def build_restack(
                     new_base=local_ref(new_base, repo=child.repo),
                     old_base=old_base,
                     moving_unit=child.id,
+                    moving_change=child.change,
+                    moving_repo=child.repo,
                     moving_intent=child.title,
                     onto_unit=parent.id,
                     onto_intent=parent.title,

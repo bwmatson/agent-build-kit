@@ -48,6 +48,23 @@ class WaitReason(StrEnum):
     READY = "ready"
 
 
+class OverheadNode(StrEnum):
+    """The ledger nodes of agent calls made outside a unit's graph."""
+
+    RESTACK = "restack"
+    PLAN = "plan"
+    TRACK_HEALTH = "track_health"
+    TRACK_IMPROVE = "track_improve"
+    TRACK_RECOMMEND = "track_recommend"
+    TRACK_PROPOSE = "track_propose"
+    INIT_RESEARCH = "init_research"
+    INIT_PROPOSE = "init_propose"
+    POLICY_PROBE = "policy_probe"
+    LOGIN_REFRESH = "login_refresh"
+    CHAT = "chat"
+    CHAT_COMMIT = "chat_commit"
+
+
 class StateStyle(Frozen):
     """How one state reads: its name, and the three colours the graph paints it
     with. `extra` is any further mermaid style, such as a dashed outline."""
