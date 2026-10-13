@@ -12,6 +12,7 @@ from agent_build_kit.runtimes.recommended_policy import (
     KNOWN_FALSE_POSITIVES,
     RECOMMENDED,
     UNCOVERED,
+    patterns,
 )
 
 
@@ -25,12 +26,24 @@ def cmd_policy_patterns(args: argparse.Namespace, installation: Installation | N
             file=sys.stderr,
         )
         return 2
-    chosen = [p for p in RECOMMENDED if not args.classes or p.label in args.classes]
-    globs: list[str] = list(dict.fromkeys(g for policy in chosen for g in policy.globs))
-    if args.extra and installation is not None:
+    extra: list[str] = []
+    if args.extra:
+        if installation is None:
+            print(
+                "abk: --extra needs an installation, and none was found or its abk.yaml did not "
+                "load; run `abk doctor`, or pass --config",
+                file=sys.stderr,
+            )
+            return 2
         entry = installation.config.runtimes.get(installation.config.runtime)
         extra = (entry.policy_extra if entry else None) or []
-        globs = list(dict.fromkeys([*globs, *extra]))
+    for label in args.classes:
+        if known[label].covered_by:
+            print(
+                f"abk: {label!r} has no globs of its own; {known[label].covered_by!r} covers it",
+                file=sys.stderr,
+            )
+    globs = patterns(extra, args.classes)
     if args.format == "json":
         print(json.dumps(globs))
     elif args.format == "yaml-list":
@@ -45,8 +58,8 @@ def cmd_policy_show(args: argparse.Namespace, installation: Installation | None)
         print(policy.label)
         for glob in policy.globs:
             print(f"  {glob}")
-        if not policy.globs:
-            print("  (covered by the globs of the push class)")
+        if policy.covered_by:
+            print(f"  (covered by the globs of: {policy.covered_by})")
     print("\nNot covered:")
     for uncovered in UNCOVERED:
         print(f"  {uncovered.label}: {uncovered.reason}")
@@ -62,9 +75,25 @@ def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("policy", help="the recommended policy for a build agent")
     commands = parser.add_subparsers(dest="policy_command", required=True)
     patterns = commands.add_parser("patterns", help="print the recommended command globs")
-    patterns.add_argument("--format", choices=("glob", "json", "yaml-list"), default="glob")
-    patterns.add_argument("--class", dest="classes", action="append", default=[])
-    patterns.add_argument("--extra", action="store_true")
+    patterns.add_argument(
+        "--format",
+        choices=("glob", "json", "yaml-list"),
+        default="glob",
+        help="one glob per line, a JSON array, or a YAML sequence (default: glob)",
+    )
+    patterns.add_argument(
+        "--class",
+        dest="classes",
+        action="append",
+        default=[],
+        metavar="LABEL",
+        help="only this class's globs; repeatable; the labels are those `abk policy show` prints",
+    )
+    patterns.add_argument(
+        "--extra",
+        action="store_true",
+        help="add the selected runtime's `runtimes.<runtime>.policy_extra` (needs an installation)",
+    )
     patterns.set_defaults(func=cmd_policy_patterns, needs_installation="optional")
     show = commands.add_parser("show", help="the recommendation, its gaps and its dialect")
     show.set_defaults(func=cmd_policy_show, needs_installation="optional")

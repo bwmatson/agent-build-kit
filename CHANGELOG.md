@@ -23,8 +23,9 @@
   (skipping the commit gate, hard reset, discarding untracked work, force-deleting a branch,
   a recursive delete, a bare force push) are listed with the reason. `abk policy patterns`
   prints the globs (one per line, as JSON or as a YAML list, for all classes or those named,
-  with `--extra` adding `runtimes.<name>.policy_extra`) with no installation needed, and
-  `abk policy show` prints the recommendation, its gaps, false positives and dialect.
+  with `--extra` adding `runtimes.<name>.policy_extra`, which needs an installation; nothing
+  else does), and `abk policy show` prints the recommendation, its gaps, false positives and
+  dialect.
 
 - A requeued unit now builds on the base the store names, not one its thread remembers, so a
   failed unit whose predecessor has since merged is no longer failed again counting commits

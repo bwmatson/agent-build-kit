@@ -104,3 +104,25 @@ def test_without_asking_the_kits_list_is_printed_alone(
 
     assert code == 0
     assert out.splitlines() == patterns()
+
+
+def test_extra_without_an_installation_exits_two_and_prints_no_globs(
+    capsys: pytest.CaptureFixture[str], outside_any_installation: Path
+) -> None:
+    code, out, err = run(capsys, "--extra")
+
+    assert code == 2
+    assert out == ""
+    assert "--extra" in err
+
+
+def test_extra_with_an_installation_that_does_not_load_exits_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = installation_with(tmp_path, ["git * push --mirror*", " "])
+
+    code, out, err = run(capsys, "--extra", config=config)
+
+    assert code == 2
+    assert out == ""
+    assert "--extra" in err
