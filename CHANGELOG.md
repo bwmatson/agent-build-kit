@@ -37,8 +37,13 @@
   a dependent, now tells tier 1 which base it left. Tier 1 classifies the move as scoped (no
   file the move brought in is one the unit changes) or full (one is, the unit produced
   nothing, or there is no old base) and logs a `moved base:` line saying which and why. The
-  new `limits.restack_check` (`affected`, the default, or `full`) selects between them; the
-  run itself is still the whole suite for now.
+  new `limits.restack_check` (`affected`, the default, or `full`) selects between them. A
+  scoped move runs lint, the tests the unit added or changed, and the tests the toolchain
+  profile names for the unit's files together with the files the move brought in, and logs
+  `moved base: ran 14 of 5963 tests (own 6, affected 8)`. Where the profile cannot say, or a
+  selected command cannot run, the full suite runs and the line gives the reason. The Python
+  profile now answers nothing for a lock or configuration file, a conftest or a shared test
+  helper.
 
 - The conflict resolver's cost is now in the usage ledger under the node `restack`, one row
   per resolver call with the unit being moved and its change and repository, so what a

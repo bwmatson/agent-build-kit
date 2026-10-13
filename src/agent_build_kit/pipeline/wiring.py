@@ -837,8 +837,15 @@ def build_tier1(
         by what the move can affect; the line it logs says which it was and why."""
         for project in pending_projects(cwd, projects):
             _say(log, describe(project))
+        scope = None
         if moved_from is not None:
-            _say_scope(cwd, base, moved_from)
+            scope = moved_base_scope(
+                cwd,
+                own=changed(cwd, base),
+                base=base,
+                moved_from=moved_from,
+                setting=active().limits.restack_check,
+            )
         work = _work(cwd, base, whole_repo, projects, profile, changed)
         if projects and not work:
             _say(log, "every project is pending, nothing ran in a project")
@@ -851,6 +858,12 @@ def build_tier1(
                     "nothing for them to judge"
                 )
             return root_checks(cwd)
+        if scope is not None and scope.scoped and not whole_repo:
+            moved = moved_run(cwd, base, work, scope.incoming)
+            if moved is not None:
+                return moved
+        elif scope is not None:
+            _say(log, f"moved base: ran the full suite ({scope.reason})")
         plan = None
         if affected is not None and not whole_repo and failed_output.strip():
             plan = selection(base, work, failed_output)
@@ -875,20 +888,90 @@ def build_tier1(
             )
         return confirmed
 
-    def _say_scope(cwd: Path, base: str, moved_from: str) -> None:
-        scope = moved_base_scope(
-            cwd,
-            own=changed(cwd, base),
-            base=base,
-            moved_from=moved_from,
-            setting=active().limits.restack_check,
-        )
+    def moved_run(
+        cwd: Path,
+        base: str,
+        work: list[tuple[Path, ToolchainProfile, list[str]]],
+        incoming: list[str],
+    ) -> tuple[bool, str] | None:
+        """A scoped moved base: lint, the tests the unit added or changed, and the tests the
+        profile names for the unit's files with the files the move brought in. None, with
+        the reason logged, when the full suite has to stand in."""
+        plan, owned, reason = moved_plan(cwd, base, work, incoming)
+        if plan is None:
+            _say(log, f"moved base: ran the full suite ({reason})")
+            return None
+        earlier = last_full.get(spans.current_unit.get()[0])
+        figures: list[tuple[float, int]] = []
+        why: list[str] = []
+        outcome = run_selection(plan, figures, why)
+        if outcome is None:
+            _say(log, f"moved base: ran the full suite ({why[0]})")
+            return None
+        if not outcome[0]:
+            return outcome
+        counts = [count for _, count in figures]
+        own = sum(sum(counts[start : start + length]) for start, length in owned)
+        total = f" of {earlier[1]}" if earlier else ""
         _say(
             log,
-            "moved base: no file the unit changes was brought in (the full suite still runs)"
-            if scope.scoped
-            else f"moved base: ran the full suite ({scope.reason})",
+            f"moved base: ran {sum(counts)}{total} tests (own {own}, affected {sum(counts) - own})",
         )
+        return root_checks(cwd, [(where, toolchain, []) for where, toolchain, _ in plan])
+
+    def moved_plan(
+        cwd: Path,
+        base: str,
+        work: list[tuple[Path, ToolchainProfile, list[str]]],
+        incoming: list[str],
+    ) -> tuple[
+        list[tuple[Path, ToolchainProfile, list[list[str]]]] | None,
+        list[tuple[int, int]],
+        str,
+    ]:
+        """(the plan, where in the test figures each project's own tests are as (start,
+        length), why not): the plan is None when the profile cannot select."""
+        try:
+            touched = touched_tests(cwd, base)
+        except (subprocess.CalledProcessError, OSError) as error:
+            return None, [], f"the unit's tests could not be listed ({error})"
+        plan: list[tuple[Path, ToolchainProfile, list[list[str]]]] = []
+        owned: list[tuple[int, int]] = []
+        position = 0
+        for where, toolchain, files in work:
+            label = str(where.relative_to(cwd)) if where != cwd else "the repo"
+            if not isinstance(toolchain, SelectsAffectedTests):
+                return None, [], f"the profile for {label} cannot select tests"
+            here = [
+                name[len(project.prefix) :]
+                for name in incoming
+                if (project := _owner(projects, where, cwd, name)) is not None
+            ]
+            selected = toolchain.affected_test_commands(
+                where,
+                [*files, *here],
+                [],
+                seed=selection_seed(where),
+                root_extras=root_extras or [],
+            )
+            if selected is None:
+                return None, [], f"the profile cannot say which tests {label} is affected in"
+            ids = [
+                f"{relative}::{name}"
+                for path, name in touched
+                if toolchain.is_test_path(path)
+                and (relative := _under(cwd / path, where)) is not None
+            ]
+            own = []
+            if ids and isinstance(toolchain, RepeatsTests):
+                for command in toolchain.test_commands(where, files, root_extras=root_extras or []):
+                    again = toolchain.repeat_command(command, ids)
+                    if again is not None:
+                        own.append(again)
+            owned.append((position, len(own)))
+            position += len(own) + len(selected)
+            plan.append((where, toolchain, [toolchain.lint_command(base), *own, *selected]))
+        return plan, owned, ""
 
     def record_selected(
         figures: list[tuple[float, int]], outcome: str, earlier: tuple[float, int] | None
@@ -1081,9 +1164,11 @@ def build_tier1(
     def run_selection(
         plan: list[tuple[Path, ToolchainProfile, list[list[str]]]],
         figures: list[tuple[float, int]],
+        why: list[str] | None = None,
     ) -> tuple[bool, str] | None:
-        """(passed, what failed), or None when a command could not start. The time and
-        test count of each selected test command are added to `figures`."""
+        """(passed, what failed), or None when a command could not start, with the reason
+        added to `why`. The time and test count of each selected test command are added to
+        `figures`."""
         for where, toolchain, commands in plan:
             for index, command in enumerate(commands):
                 started = spans.clock.monotonic()
@@ -1095,6 +1180,8 @@ def build_tier1(
                         f"affected tests: {_program(command)} could not run ({error}), "
                         "running the full suite",
                     )
+                    if why is not None:
+                        why.append(f"{_program(command)} could not run ({error})")
                     return None
                 if index > 0 and _tooling_lost(toolchain, command, result):
                     _say(
@@ -1102,6 +1189,8 @@ def build_tier1(
                         f"affected tests: {_program(command)} could not use the selection "
                         "tooling, running the full suite",
                     )
+                    if why is not None:
+                        why.append(f"{_program(command)} could not use the selection tooling")
                     return None
                 if index > 0:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
@@ -1257,6 +1346,17 @@ def _under(path: Path, where: Path) -> str | None:
 def _say(log: Callable[[str], None] | None, message: str) -> None:
     if log is not None:
         log(f"  tier 1: {message}")
+
+
+def _owner(
+    projects: list[ProjectConfig] | None, where: Path, cwd: Path, name: str
+) -> ProjectConfig | None:
+    """The project at `where` when it holds the file `name`, from the checkout's root; a
+    repo with no projects is one at its root, whose project has no prefix."""
+    if not projects:
+        return ProjectConfig(path=".")
+    project = owning_project(projects, name)
+    return project if project is not None and cwd / project.path == where else None
 
 
 def _program(command: list[str]) -> str:
