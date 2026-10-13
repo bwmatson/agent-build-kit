@@ -3116,6 +3116,7 @@ def poll_all(inst: Installation, *, store: UnitStore) -> None:
                 lambda forge=forge, repo_id=repo_id: forge.list_prs(repo_id),
                 review_of=lambda pull, repo=repo: _ui_review_of(inst, store, repo, pull),
             ),
+            unit_of=lambda number, repo=repo: unit_of(store, repo, number),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
             human_activity=lambda number, repo=repo: _note_human_activity(store, repo, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),

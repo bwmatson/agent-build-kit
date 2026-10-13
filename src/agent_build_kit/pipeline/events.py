@@ -1846,6 +1846,10 @@ def build_dispatch(
                 rerun=lambda pull: rerun_checks(repo, pull),
                 log=log,
             )
+        if event == "conflict":
+            # A conflict that stands after the unit's push. Nothing takes it yet,
+            # so it is not taken and the next poll offers it again.
+            return False
         log(f"unhandled poller event {event!r} for #{number} in {repo}")
         return True
 
