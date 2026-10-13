@@ -21,7 +21,7 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import shell, workspaces
+from agent_build_kit.pipeline import restack, shell, workspaces
 from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import AgentRequest
@@ -202,13 +202,15 @@ class Rig:
         self.act: Callable[[AgentRequest], None] = lambda request: keeps_both(
             request.cwd or self.repo
         )
+        # The agent's runtime, made over `act`: a test that needs more of a runtime gives its own.
+        self.runtime: Callable[..., StandInRuntime] = StandInRuntime
 
     def restack(self) -> None:
         def act(request: AgentRequest) -> None:
             self.requests.append(request)
             self.act(request)
 
-        runtime = StandInRuntime(act=act)
+        runtime = self.runtime(act=act)
         self.monkeypatch.setattr(runtimes, "active", lambda: runtime)
         moves = cli.build_stack_moves(self.store, self.installation)
         moves["restack"](
@@ -230,4 +232,4 @@ class Rig:
         return head
 
     def temporary_tree(self) -> Path:
-        return self.installation.worktree_root / "app" / f"restack-{self.branch.replace('/', '_')}"
+        return restack.temporary_tree(self.repo, self.branch, root=self.installation.worktree_root)
