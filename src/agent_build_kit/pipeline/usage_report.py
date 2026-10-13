@@ -140,6 +140,8 @@ class Report(Frozen):
     group_by: str
     rows: tuple[ReportRow, ...]
     total: ReportRow
+    # The calls with no unit, one row per node, which the by-unit view keeps out of `rows`.
+    overhead: tuple[ReportRow, ...] = ()
     sessions: tuple[SessionRow, ...] = ()
     legacy: Legacy = Legacy()
     unknown_calls: int = 0  # calls whose incremental cost could not be known
