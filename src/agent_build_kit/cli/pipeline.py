@@ -131,7 +131,12 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitOutcome,
     UnitRunner,
 )
-from agent_build_kit.pipeline.tier2 import LOCK_WAIT_SETTING, lock_status_line, stack_lock
+from agent_build_kit.pipeline.tier2 import (
+    LOCK_WAIT_SETTING,
+    NO_TEST_RAN,
+    lock_status_line,
+    stack_lock,
+)
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     ui_notes_of,
@@ -656,7 +661,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 if effective_state(unit, units, checks_of=checks_of) == "checking"
                 else "awaiting review"
             )
-            log(f"  {waiting}: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}")
+            ran_none = f" — {NO_TEST_RAN}" if unit.note == NO_TEST_RAN else ""
+            log(f"  {waiting}: {unit.id} ({unit.repo}) #{unit.pr or '?'}{mark}{ran_none}")
     return 0
 
 

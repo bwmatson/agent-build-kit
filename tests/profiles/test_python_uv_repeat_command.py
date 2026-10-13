@@ -86,3 +86,18 @@ def test_a_command_given_no_path_keeps_every_id() -> None:
     ids = ["a/test_x.py::test_y", "b/test_x.py::test_z"]
 
     assert PythonUvProfile().repeat_command(command, ids) == [*command, *ids]
+
+
+def test_a_command_run_from_a_directory_keeps_the_ids_under_it_relative_to_it() -> None:
+    command = ["uv", "run", "--directory", "svc-a", "--package", "svc-a", "--isolated"]
+    command += ["pytest", "-m", "local_stack", "-q"]
+    ids = ["svc-a/tests/live/test_x.py::t", "svc-b/tests/live/test_y.py::u"]
+
+    assert PythonUvProfile().repeat_command(command, ids) == [*command, "tests/live/test_x.py::t"]
+
+
+def test_a_command_run_from_a_directory_selects_nothing_for_ids_outside_it() -> None:
+    command = ["uv", "run", "--directory", "svc-a", "--package", "svc-a", "--isolated"]
+    command += ["pytest", "-m", "local_stack", "-q"]
+
+    assert PythonUvProfile().repeat_command(command, ["svc-b/tests/live/test_y.py::u"]) is None

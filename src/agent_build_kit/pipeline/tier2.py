@@ -121,6 +121,9 @@ class Tier2Result(Frozen):
         return self.failed == 0
 
 
+# What a result that ran no test says in place of its counts, and where a person reads it.
+NO_TEST_RAN = "no tier 2 test ran"
+
 # How often a waiter says it is still waiting.
 LOCK_LOG_INTERVAL_SECONDS = 300.0
 
@@ -342,7 +345,7 @@ def build_snapshot(result: Tier2Result) -> str:
 
     slowest, table = _durations_listing(result.durations)
     counts = (
-        "no tier 2 test ran: the unit added or changed none the marker selects"
+        f"{NO_TEST_RAN}: the unit added or changed none the marker selects"
         if result.ran_no_tests
         else f"{result.passed} passed, {result.failed} failed, "
         f"{result.skipped} skipped in {result.duration_seconds}s"
@@ -379,7 +382,7 @@ def post_status(forge: Forge, repo: RepoId, result: Tier2Result, head: str = "")
     none.
     """
     description = (
-        "no tier 2 test ran"
+        NO_TEST_RAN
         if result.ran_no_tests
         else f"{result.passed} passed, {result.failed} failed in {result.duration_seconds:.0f}s"
     )

@@ -3,14 +3,20 @@ lock, says so, and goes on as a unit whose tier 2 passed (spec: tier2-scope)."""
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
+import pytest
+
+from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.pipeline.tier2 import STATUS_CONTEXT, post_status, stack_lock
+from agent_build_kit.profiles.python_uv import PythonUvProfile
+from tests.conftest import make_installation
 from tests.factories import unit
 from tests.forges.stand_in import StandInForge
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import fresh
-from tests.tier2_scope_fakes import OLD, Ran, branch, session
+from tests.tier2_scope_fakes import NEW, OLD, Ran, branch, session
 
 SKIPPED = "tier 2 skipped: no tier 2 test added or changed"
 
@@ -107,3 +113,60 @@ def test_the_unit_goes_on_as_one_whose_tier_2_passed(tmp_path: Path) -> None:
     assert outcome.status == "open"
     assert "push" in recorder.events
     assert recorder.store.get(unit().id).state == "in_review"
+
+
+class TakesNoId(PythonUvProfile):
+    """A profile none of whose commands takes any identifier."""
+
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+        return None
+
+
+def test_a_changed_test_no_command_takes_runs_nothing_waits_for_no_lock_and_says_so(
+    tmp_path: Path,
+) -> None:
+    repo, base = branch(tmp_path, {"tests/live/test_new.py": NEW}, base_files={"tests/t.py": OLD})
+    ran = Ran()
+    log: list[str] = []
+    gate = session(tmp_path, ran, log=log, timeout=0.1, profile=TakesNoId())
+
+    with stack_lock(gate.lock, timeout=1, holder="another/1"):
+        ok, _ = gate.run(cwd=repo, base=base)
+
+    assert ok
+    assert ran.calls == []
+    assert SKIPPED in log
+    assert gate.result is not None
+    assert gate.result.ran_no_tests
+
+
+def test_the_node_says_no_test_ran_and_abk_status_does_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, base = changes_no_test(tmp_path)
+    gate = session(tmp_path, Ran())
+    recorder = fresh(tmp_path, tier="tier2")
+
+    build(
+        tmp_path,
+        recorder,
+        base=base,
+        worktree=lambda *args, **kwargs: repo,
+        run_tier2=gate.run,
+        tier2_ran_no_tests=lambda: bool(gate.result and gate.result.ran_no_tests),
+    )
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    assert pipeline_cli.cmd_status(argparse.Namespace(), inst) == 0
+
+    shown = capsys.readouterr().out
+    said = " | ".join(recorder.logged)
+    assert "tier 2 ran no test" in said
+    assert "tier 2 passed" not in said
+    [line] = [
+        line for line in shown.splitlines() if "  awaiting review:" in line or "  checking:" in line
+    ]
+    assert "no tier 2 test ran" in line
+    assert "passed" not in line

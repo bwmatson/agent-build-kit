@@ -10,7 +10,8 @@ import pytest
 
 from agent_build_kit.config import ProjectConfig, Tier2UnitScope
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.pipeline.wiring import Tier2Scope, tier2_scope
+from agent_build_kit.pipeline.tier2 import stack_lock
+from agent_build_kit.pipeline.wiring import Tier2Run, Tier2Scope, tier2_scope
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.tier2_scope_fakes import (
     CHANGED,
@@ -111,7 +112,15 @@ def test_a_project_with_none_of_the_ids_runs_nothing(tmp_path: Path) -> None:
 def decide(
     repo: Path, base: str | None, setting: Tier2UnitScope = Tier2UnitScope.OWN
 ) -> Tier2Scope:
-    return tier2_scope(repo, base, setting=setting, profile=PROFILE, projects=[], dev_stack=None)
+    return tier2_scope(
+        repo,
+        base,
+        setting=setting,
+        profile=PROFILE,
+        projects=[],
+        marker="local_stack",
+        dev_stack=None,
+    )
 
 
 def test_the_scope_function_names_own_with_the_identifiers(tmp_path: Path) -> None:
@@ -142,13 +151,18 @@ def test_a_unit_that_changes_no_test_is_own_with_nothing_to_run(tmp_path: Path) 
     assert "no tier 2 test added or changed" in scope.reason
 
 
-def test_the_step_and_a_second_caller_get_the_one_answer_and_it_is_asked_before_the_lock(
+def test_the_step_asks_the_scope_function_before_the_lock_and_obeys_its_answer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo, base = adds_one_and_changes_one(tmp_path)
     asked: list[tuple[Path, str | None]] = []
     lock_held_when_asked: list[bool] = []
-    answer = Tier2Scope(mode=Tier2UnitScope.OWN, ids=["tests/live/test_fake.py::test_fake"])
+    chosen = "tests/live/test_fake.py::test_fake"
+    answer = Tier2Scope(
+        mode=Tier2UnitScope.OWN,
+        ids=[chosen],
+        runs=[Tier2Run(where=repo, commands=[[*WHOLE, chosen]])],
+    )
     ran = Ran()
     gate = session(tmp_path, ran)
 
@@ -160,15 +174,11 @@ def test_the_step_and_a_second_caller_get_the_one_answer_and_it_is_asked_before_
     monkeypatch.setattr(wiring, "tier2_scope", decided)
 
     gate.run(cwd=repo, base=base)
-    second = wiring.tier2_scope(
-        repo, base, setting=Tier2UnitScope.OWN, profile=PROFILE, projects=[], dev_stack=None
-    )
 
-    assert second is answer
-    assert asked == [(repo, base), (repo, base)]
-    assert lock_held_when_asked == [False, False]
-    # The step obeyed what it was told: only the identifier the function named ran.
-    assert ran.commands[0][len(WHOLE) :] == ["tests/live/test_fake.py::test_fake"]
+    assert asked == [(repo, base)]
+    assert lock_held_when_asked == [False]
+    # The step ran what it was told, and narrowed nothing itself.
+    assert ran.commands == [[*WHOLE, chosen]]
 
 
 def test_a_second_caller_gets_the_same_answer_as_the_step(tmp_path: Path) -> None:
@@ -178,3 +188,45 @@ def test_a_second_caller_gets_the_same_answer_as_the_step(tmp_path: Path) -> Non
     session(tmp_path, ran).run(cwd=repo, base=base)
 
     assert sorted(ran.commands[0][len(WHOLE) :]) == sorted(decide(repo, base).ids)
+
+
+# --- a workspace repo: each member's command runs from the member's directory -----------
+
+
+def members(tmp_path: Path, changed: dict[str, str]) -> tuple[Path, str]:
+    base_files = {"pyproject.toml": '[tool.uv.workspace]\nmembers = ["svc-a", "svc-b"]\n'}
+    for member in ("svc-a", "svc-b"):
+        base_files[f"{member}/pyproject.toml"] = f'[project]\nname = "{member}"\n'
+        base_files[f"{member}/tests/live/test_old.py"] = OLD
+    return branch(tmp_path, changed, base_files=base_files)
+
+
+def test_a_changed_live_test_of_one_member_runs_only_that_members_command_with_relative_ids(
+    tmp_path: Path,
+) -> None:
+    repo, base = members(tmp_path, {"svc-a/tests/live/test_new.py": NEW})
+    ran = Ran()
+
+    ok, _ = session(tmp_path, ran).run(cwd=repo, base=base)
+
+    assert ok
+    [command] = ran.commands
+    assert command[command.index("--directory") + 1] == "svc-a"
+    assert command[-1] == "tests/live/test_new.py::test_new"
+    assert "local_stack" in command
+
+
+def test_a_changed_test_outside_every_member_runs_nothing_and_skips_the_lock(
+    tmp_path: Path,
+) -> None:
+    repo, base = members(tmp_path, {"tests/live/test_root.py": NEW})
+    ran = Ran()
+    log: list[str] = []
+    gate = session(tmp_path, ran, log=log, timeout=0.1)
+
+    with stack_lock(gate.lock, timeout=1, holder="another/1"):
+        ok, _ = gate.run(cwd=repo, base=base)
+
+    assert ok
+    assert ran.calls == []
+    assert "tier 2 skipped: no tier 2 test added or changed" in log
