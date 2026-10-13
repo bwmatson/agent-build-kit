@@ -339,7 +339,7 @@ def tier2_schedule(repo: RepoConfig, limits: LimitsConfig) -> Tier2Schedule:
 
 
 def _unquoted_off(value: object) -> object:
-    # YAML 1.1 reads an unquoted `off` as the boolean False.
+    # YAML 1.1 reads an unquoted `off`, the documented default, as the boolean False.
     return "off" if value is False else value
 
 
@@ -604,11 +604,7 @@ class AffectedConfig(Frozen):
     # each replaced by separate quoted arguments.
     command: str | None = None
 
-    @field_validator("mode", mode="before")
-    @classmethod
-    def _unquoted_off(cls, value: object) -> object:
-        # YAML 1.1 reads an unquoted `off`, the documented default, as the boolean False.
-        return "off" if value is False else value
+    mode_off = field_validator("mode", mode="before")(_unquoted_off)
 
     @model_validator(mode="after")
     def _command_mode_needs_its_template(self) -> AffectedConfig:

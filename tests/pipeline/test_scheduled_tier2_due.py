@@ -17,7 +17,6 @@ from tests.tier2_schedule_fakes import (
     TODAY,
     ago,
     archived,
-    name_of,
     open_change,
     planning,
     scheduled_changes,
@@ -88,7 +87,7 @@ def test_a_repo_is_due_a_period_after_its_latest_change_whether_archived_or_open
         written, _ = round_of(inst, store)
 
         # An open change is never joined by a second, so only the archived one can be due.
-        expected = [name_of("app", TODAY)] if due and kind is archived else []
+        expected = [scheduled_name("app", TODAY)] if due and kind is archived else []
         assert written == expected
         assert scheduled_changes(inst) == sorted(before + expected)
 
@@ -98,7 +97,7 @@ def test_weekly_is_the_default_without_any_setting(tmp_path: Path) -> None:
     store = store_of(inst, "app")
     archived(inst, "app", ago(8))
 
-    assert round_of(inst, store)[0] == [name_of("app", TODAY)]
+    assert round_of(inst, store)[0] == [scheduled_name("app", TODAY)]
 
 
 def test_the_latest_of_several_changes_decides(tmp_path: Path) -> None:
@@ -118,7 +117,7 @@ def test_a_repo_with_no_earlier_change_is_due_at_once(tmp_path: Path) -> None:
 
     written, said = round_of(inst, store)
 
-    assert written == [name_of("app", TODAY)]
+    assert written == [scheduled_name("app", TODAY)]
     assert scheduled_changes(inst) == written
     assert f"wrote: {written[0]}" in said
 
@@ -129,8 +128,8 @@ def test_a_repo_with_no_tier_2_unit_gets_none(tmp_path: Path) -> None:
 
     written, _ = round_of(inst, store)
 
-    assert written == [name_of("app", TODAY)]
-    assert scheduled_changes(inst) == [name_of("app", TODAY)]
+    assert written == [scheduled_name("app", TODAY)]
+    assert scheduled_changes(inst) == [scheduled_name("app", TODAY)]
 
 
 def test_an_empty_store_has_no_repo_to_schedule(tmp_path: Path) -> None:
@@ -150,7 +149,7 @@ def test_a_repo_whose_name_begins_another_is_not_confused_with_it(tmp_path: Path
 
     # app-web's recent change does not keep app from being due, and app's does not make it
     # due or open for app-web, whose own one is still open.
-    assert written == [name_of("app", TODAY)]
+    assert written == [scheduled_name("app", TODAY)]
 
 
 def test_the_shorter_name_does_not_stand_for_the_longer_repo(tmp_path: Path) -> None:
@@ -162,7 +161,7 @@ def test_the_shorter_name_does_not_stand_for_the_longer_repo(tmp_path: Path) -> 
 
     written, _ = round_of(inst, store)
 
-    assert written == [name_of("app-web", TODAY)]
+    assert written == [scheduled_name("app-web", TODAY)]
 
 
 def test_two_repos_with_different_schedules_each_follow_their_own(tmp_path: Path) -> None:
@@ -173,13 +172,13 @@ def test_two_repos_with_different_schedules_each_follow_their_own(tmp_path: Path
 
     written, _ = round_of(inst, store)
 
-    assert written == [name_of("platform", TODAY)]
+    assert written == [scheduled_name("platform", TODAY)]
     tomorrow = TODAY + timedelta(days=1)
-    (inst.changes_dir / name_of("platform", TODAY)).rename(
-        inst.changes_dir / "archive" / f"{TODAY}-{name_of('platform', TODAY)}"
+    (inst.changes_dir / scheduled_name("platform", TODAY)).rename(
+        inst.changes_dir / "archive" / f"{TODAY}-{scheduled_name('platform', TODAY)}"
     )
     assert round_of(inst, store, today=TODAY)[0] == [], "daily: not due the day it was written"
-    assert round_of(inst, store, today=tomorrow)[0] == [name_of("platform", tomorrow)]
+    assert round_of(inst, store, today=tomorrow)[0] == [scheduled_name("platform", tomorrow)]
 
 
 def test_the_repos_value_wins_over_limits_in_both_directions(tmp_path: Path) -> None:
@@ -188,7 +187,7 @@ def test_the_repos_value_wins_over_limits_in_both_directions(tmp_path: Path) -> 
     archived(inst, "app", ago(8))
     archived(inst, "platform", ago(1))
 
-    assert round_of(inst, store)[0] == [name_of("platform", TODAY)]
+    assert round_of(inst, store)[0] == [scheduled_name("platform", TODAY)]
 
 
 @pytest.mark.parametrize("where", ["limits", "repo"])
@@ -252,7 +251,7 @@ def test_another_repos_open_change_does_not_keep_this_repo_from_being_written(
     store = store_of(inst, "app", "platform")
     open_change(inst, "platform", ago(60))
 
-    assert round_of(inst, store)[0] == [name_of("app", TODAY)]
+    assert round_of(inst, store)[0] == [scheduled_name("app", TODAY)]
 
 
 def test_five_missed_weeks_write_one_change_and_a_second_round_writes_none(
@@ -265,7 +264,7 @@ def test_five_missed_weeks_write_one_change_and_a_second_round_writes_none(
     first, _ = round_of(inst, store)
     second, said = round_of(inst, store)
 
-    assert first == [name_of("app", TODAY)]
+    assert first == [scheduled_name("app", TODAY)]
     assert second == []
     assert scheduled_changes(inst) == first
     assert said == [f"exists: {first[0]}"]
@@ -284,7 +283,7 @@ def test_the_date_is_read_from_the_name_and_nothing_is_stored(tmp_path: Path) ->
     (inst.changes_dir / name).rename(inst.changes_dir / "archive" / f"2026-04-20-{name}")
     assert round_of(inst, store, today=TODAY + timedelta(days=6))[0] == []
     seventh = TODAY + timedelta(days=7)
-    assert round_of(inst, store, today=seventh)[0] == [name_of("app", seventh)]
+    assert round_of(inst, store, today=seventh)[0] == [scheduled_name("app", seventh)]
 
 
 def test_two_writers_at_once_write_one_change_and_the_second_says_it_exists(
@@ -305,7 +304,7 @@ def test_two_writers_at_once_write_one_change_and_the_second_says_it_exists(
     for writer in writers:
         writer.join(timeout=30)
 
-    name = name_of("app", TODAY)
+    name = scheduled_name("app", TODAY)
     assert scheduled_changes(inst) == [name]
     [(none, existing), (one, wrote)] = sorted(results, key=lambda result: len(result[0]))
     assert none == [] and existing == [f"exists: {name}"]

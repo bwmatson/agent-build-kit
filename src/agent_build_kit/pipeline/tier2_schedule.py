@@ -88,6 +88,8 @@ def _children(folder: Path) -> Iterable[Path]:
 def _write_change(inst: Installation, repo: str, name: str, today: date) -> None:
     root = inst.changes_dir / name
     root.mkdir(parents=True)
+    # No spec: OpenSpec's strict validation wants a delta unless the change says it has none.
+    (root / ".openspec.yaml").write_text("schema: spec-driven\nskip_specs: true\n")
     (root / "proposal.md").write_text(
         "## Why\n\n"
         f"The whole tier 2 suite of `{repo}` is due to run on its default branch "

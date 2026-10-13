@@ -11,22 +11,29 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tier2_schedule import write_due
+from agent_build_kit.pipeline.tier2_schedule import scheduled_name, write_due
 from agent_build_kit.pipeline.work_graph import validate_tasks
-from tests.tier2_schedule_fakes import TODAY, name_of, planning, store_of
+from tests.tier2_schedule_fakes import TODAY, planning, store_of
 
 
 def written_change(tmp_path: Path, repo: str = "app") -> tuple[Installation, Path]:
     inst = planning(tmp_path, {repo: None})
     [name] = write_due(inst, store_of(inst, repo), today=TODAY, say=lambda line: None)
-    assert name == name_of(repo, TODAY)
+    assert name == scheduled_name(repo, TODAY)
     return inst, inst.changes_dir / name
 
 
 def test_the_change_has_a_proposal_a_design_and_tasks_and_no_spec(tmp_path: Path) -> None:
     _, change = written_change(tmp_path)
 
-    assert sorted(p.name for p in change.iterdir()) == ["design.md", "proposal.md", "tasks.md"]
+    assert sorted(p.name for p in change.iterdir()) == [
+        ".openspec.yaml",
+        "design.md",
+        "proposal.md",
+        "tasks.md",
+    ]
+    assert (change / ".openspec.yaml").read_text() == "schema: spec-driven\nskip_specs: true\n"
+    assert not (change / "specs").exists()
     proposal = (change / "proposal.md").read_text()
     for heading in ("## Why", "## What Changes", "## Impact"):
         assert heading in proposal
@@ -70,9 +77,9 @@ def test_the_group_names_the_repo_it_is_written_for(tmp_path: Path) -> None:
 
     names = write_due(inst, store, today=TODAY, say=lambda line: None)
 
-    assert sorted(names) == [name_of("app", TODAY), name_of("platform", TODAY)]
+    assert sorted(names) == [scheduled_name("app", TODAY), scheduled_name("platform", TODAY)]
     for repo in ("app", "platform"):
-        tasks = inst.changes_dir / name_of(repo, TODAY) / "tasks.md"
+        tasks = inst.changes_dir / scheduled_name(repo, TODAY) / "tasks.md"
         groups, _ = validate_tasks(tasks, repos=tuple(inst.repos))
         assert [g.repo for g in groups] == [repo]
 
@@ -89,7 +96,9 @@ def test_writing_it_calls_no_model_and_no_git(
     monkeypatch.setattr(subprocess, "run", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
 
-    assert write_due(inst, store, today=TODAY, say=lambda line: None) == [name_of("app", TODAY)]
+    assert write_due(inst, store, today=TODAY, say=lambda line: None) == [
+        scheduled_name("app", TODAY)
+    ]
 
 
 def test_the_change_passes_abk_tags(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.tier2_schedule import PREFIX, scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from tests.conftest import make_installation
@@ -52,20 +53,15 @@ def store_of(inst: Installation, *tier2_repos: str, **others: str) -> UnitStore:
     return store
 
 
-def name_of(repo: str, day: date) -> str:
-    return f"scheduled-tier2-{repo}-{day.isoformat()}"
-
-
-def archived(inst: Installation, repo: str, written: date, *, on: date | None = None) -> str:
-    """An archived scheduled change written on `written`, archived `on` (default: the same
-    day); returns its name."""
-    name = name_of(repo, written)
-    (inst.changes_dir / "archive" / f"{(on or written).isoformat()}-{name}").mkdir(parents=True)
+def archived(inst: Installation, repo: str, written: date) -> str:
+    """A scheduled change written on `written` and archived the same day; returns its name."""
+    name = scheduled_name(repo, written)
+    (inst.changes_dir / "archive" / f"{written.isoformat()}-{name}").mkdir(parents=True)
     return name
 
 
 def open_change(inst: Installation, repo: str, written: date) -> str:
-    name = name_of(repo, written)
+    name = scheduled_name(repo, written)
     (inst.changes_dir / name).mkdir(parents=True)
     return name
 
@@ -74,6 +70,4 @@ def scheduled_changes(inst: Installation) -> list[str]:
     """The open scheduled changes, by name."""
     if not inst.changes_dir.is_dir():
         return []
-    return sorted(
-        p.name for p in inst.changes_dir.iterdir() if p.name.startswith("scheduled-tier2-")
-    )
+    return sorted(p.name for p in inst.changes_dir.iterdir() if p.name.startswith(f"{PREFIX}-"))
